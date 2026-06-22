@@ -90,7 +90,7 @@ void main() {
     expect(find.text('All bills'), findsNothing);
     expect(find.text('Recurring forecast'), findsNothing);
     expect(find.text('Corner Market'), findsOneWidget);
-    expect(find.text('USD 24.50'), findsOneWidget);
+    expectMoneyText('24.50', 'USD');
     expect(find.textContaining('Latest: Corner Market'), findsOneWidget);
     expect(find.text('Open groups'), findsOneWidget);
     expect(
@@ -621,8 +621,8 @@ void main() {
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text("You're owed"), findsOneWidget);
     expect(find.text('No balances yet'), findsNothing);
-    expect(find.text('USD 10.00'), findsOneWidget);
-    expect(find.text('USD 18.00'), findsOneWidget);
+    expectMoneyText('10.00', 'USD');
+    expectMoneyText('18.00', 'USD');
     expect(find.text('Corner Market'), findsOneWidget);
     expect(find.text('Rent'), findsOneWidget);
     expect(find.text('Personal bills'), findsNothing);
@@ -942,7 +942,7 @@ void main() {
     );
     expect(find.text('You owe'), findsOneWidget);
     expect(find.text("You're owed"), findsOneWidget);
-    expect(find.text('USD 0.00'), findsNWidgets(2));
+    expectMoneyText('0.00', 'USD', findsNWidgets(2));
     expect(find.text('No upcoming due bills'), findsOneWidget);
     expect(
       find.text('Create a bill to start tracking upcoming payments'),
@@ -1776,6 +1776,18 @@ void expectSelectedBottomNav(
     find.byType(SettleoraBottomNav),
   );
   expect(nav.selected, selected);
+}
+
+void expectMoneyText(String amount, String currencyCode, [Matcher? matcher]) {
+  expect(
+    find.byWidgetPredicate(
+      (widget) =>
+          widget is MoneyText &&
+          widget.amount == amount &&
+          widget.currencyCode == currencyCode,
+    ),
+    matcher ?? findsOneWidget,
+  );
 }
 
 Future<void> pumpShell(

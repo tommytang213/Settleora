@@ -1485,17 +1485,19 @@ class _DashboardSummaryCards extends StatelessWidget {
       fallbackCurrency: defaultCurrency,
     );
     final cards = [
-      SummaryCard(
+      _DashboardMoneySummaryCard(
         icon: Icons.north_east_outlined,
         title: 'You owe',
-        value: youOwe.value,
+        amount: youOwe.amount,
+        currencyCode: youOwe.currencyCode,
         caption: youOwe.caption,
         variant: SettleoraSurfaceVariant.danger,
       ),
-      SummaryCard(
+      _DashboardMoneySummaryCard(
         icon: Icons.south_west_outlined,
         title: "You're owed",
-        value: youAreOwed.value,
+        amount: youAreOwed.amount,
+        currencyCode: youAreOwed.currencyCode,
         caption: youAreOwed.caption,
         variant: SettleoraSurfaceVariant.success,
       ),
@@ -1524,7 +1526,8 @@ class _DashboardSummaryCards extends StatelessWidget {
 
 class _BalanceMetric {
   const _BalanceMetric({
-    required this.value,
+    required this.amount,
+    required this.currencyCode,
     required this.caption,
     required this.hasBalance,
   });
@@ -1536,7 +1539,8 @@ class _BalanceMetric {
     final currency = fallbackCurrency ?? 'HKD';
     if (balances.isEmpty) {
       return _BalanceMetric(
-        value: '$currency 0.00',
+        amount: '0.00',
+        currencyCode: currency,
         caption: 'No settlement balances yet',
         hasBalance: false,
       );
@@ -1548,15 +1552,103 @@ class _BalanceMetric {
         .toSet()
         .length;
     return _BalanceMetric(
-      value: _money(first.remainingUnclaimedAmount, first.currency),
+      amount: first.remainingUnclaimedAmount,
+      currencyCode: first.currency,
       caption: 'Across $peopleCount people',
       hasBalance: true,
     );
   }
 
-  final String value;
+  final String amount;
+  final String currencyCode;
   final String caption;
   final bool hasBalance;
+}
+
+class _DashboardMoneySummaryCard extends StatelessWidget {
+  const _DashboardMoneySummaryCard({
+    required this.title,
+    required this.amount,
+    required this.currencyCode,
+    required this.caption,
+    required this.icon,
+    required this.variant,
+  });
+
+  final String title;
+  final String amount;
+  final String currencyCode;
+  final String caption;
+  final IconData icon;
+  final SettleoraSurfaceVariant variant;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = context.settleoraColors;
+    final (background, foreground) = switch (variant) {
+      SettleoraSurfaceVariant.success => (
+        colors.successSoft,
+        colors.onSuccessSoft,
+      ),
+      SettleoraSurfaceVariant.warning => (
+        colors.warningSoft,
+        colors.onWarningSoft,
+      ),
+      SettleoraSurfaceVariant.danger => (
+        colors.dangerSoft,
+        colors.onDangerSoft,
+      ),
+      SettleoraSurfaceVariant.info => (colors.infoSoft, colors.onInfoSoft),
+      SettleoraSurfaceVariant.neutral => (colors.surface, colors.text),
+    };
+
+    return AppCard(
+      color: background,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: foreground),
+              const SizedBox(width: SettleoraSpacing.xs),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: SettleoraSpacing.xs),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: MoneyText(
+              amount: amount,
+              currencyCode: currencyCode,
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: foreground,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: SettleoraSpacing.xxs),
+          Text(
+            caption,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: foreground),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _DashboardHeroTitle extends StatelessWidget {
@@ -2207,7 +2299,8 @@ class _DashboardOverviewContent extends StatelessWidget {
             _DashboardBillRow(
               icon: Icons.receipt_long_outlined,
               title: bill.displayName,
-              amount: _money(bill.totalAmount, bill.totalCurrency),
+              amount: bill.totalAmount,
+              currencyCode: bill.totalCurrency,
               metadata: '${bill.itemCount} item${_plural(bill.itemCount)}',
               timing: 'Bill date ${bill.billDate}',
               onTap: onOpenBills,
@@ -2216,10 +2309,8 @@ class _DashboardOverviewContent extends StatelessWidget {
             _DashboardBillRow(
               icon: Icons.event_repeat_outlined,
               title: occurrence.merchantName ?? 'Recurring bill',
-              amount: _money(
-                occurrence.forecastAmount,
-                occurrence.forecastCurrency,
-              ),
+              amount: occurrence.forecastAmount,
+              currencyCode: occurrence.forecastCurrency,
               metadata: occurrence.isGroupScoped
                   ? 'Group recurring'
                   : 'Personal recurring',
@@ -2628,6 +2719,7 @@ class _DashboardBillRow extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.amount,
+    required this.currencyCode,
     required this.metadata,
     required this.timing,
     required this.onTap,
@@ -2636,6 +2728,7 @@ class _DashboardBillRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String amount;
+  final String currencyCode;
   final String metadata;
   final String timing;
   final VoidCallback onTap;
@@ -2665,7 +2758,11 @@ class _DashboardBillRow extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(amount, style: Theme.of(context).textTheme.labelLarge),
+            MoneyText(
+              amount: amount,
+              currencyCode: currencyCode,
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
             const Icon(Icons.chevron_right, size: 18),
           ],
         ),
@@ -2789,8 +2886,6 @@ bool _amountStringLooksNonZero(String value) {
   final normalized = value.trim().replaceAll('-', '').replaceAll('.', '');
   return normalized.runes.any((codeUnit) => codeUnit >= 49 && codeUnit <= 57);
 }
-
-String _money(String amount, String currency) => '$currency $amount';
 
 class SettleoraSessionListScreen extends StatefulWidget {
   const SettleoraSessionListScreen({
