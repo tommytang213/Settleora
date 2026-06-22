@@ -6462,6 +6462,7 @@ void main() {
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsOneWidget);
     expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
+    expect(_moneyText('10.80', 'USD'), findsOneWidget);
 
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
@@ -6470,6 +6471,7 @@ void main() {
     expect(find.text('Create bill'), findsNothing);
     expect(find.byKey(const Key('group-bill-list-create')), findsNothing);
     expect(find.byKey(const Key('bottom-nav-groups')), findsNothing);
+    expect(_moneyText('10.80', 'USD'), findsWidgets);
   });
 
   testWidgets('group bill create exits without prompt when unchanged', (
@@ -8206,7 +8208,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Accepted share'), findsOneWidget);
-    expect(find.text('10.80 USD'), findsWidgets);
+    expect(_moneyText('10.80', 'USD'), findsWidgets);
     expect(
       find.text(
         'Acknowledgement is complete. Settlement remains a separate action.',
@@ -8429,6 +8431,8 @@ void main() {
     expect(find.text('Items'), findsWidgets);
     expect(find.text('Milk'), findsOneWidget);
     expect(find.text('Participants'), findsOneWidget);
+    expect(_moneyText('10.80', 'USD'), findsWidgets);
+    expect(_moneyText('10.00', 'USD'), findsOneWidget);
     expect(find.byKey(const Key('bill-detail-propose-change')), findsNothing);
   });
 
@@ -8601,6 +8605,7 @@ void main() {
     expect(find.text('Participants'), findsWidgets);
     expect(find.text('Payers'), findsWidgets);
     expect(find.text('Service Charge'), findsOneWidget);
+    expect(_moneyText('1.20', 'USD'), findsOneWidget);
   });
 
   testWidgets('bill detail distinguishes filtered empty from true empty', (
@@ -11333,6 +11338,15 @@ void _expectOutlinedButtonEnabled(
 void _expectIconButtonEnabled(WidgetTester tester, Key key, Matcher matcher) {
   final button = tester.widget<IconButton>(find.byKey(key));
   expect(button.onPressed != null, matcher);
+}
+
+Finder _moneyText(String amount, String currencyCode) {
+  return find.byWidgetPredicate(
+    (widget) =>
+        widget is MoneyText &&
+        widget.amount == amount &&
+        widget.currencyCode == currencyCode,
+  );
 }
 
 Future<void> _fillMinimalCreateForm(WidgetTester tester) async {
