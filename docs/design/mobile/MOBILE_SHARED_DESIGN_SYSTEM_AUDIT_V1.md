@@ -138,6 +138,15 @@ V1-aligned updates made in this branch:
   in-bill editor follow-up without changing OCR acceptance, bill split, money,
   rounding, persistence, sync, OpenAPI, generated clients, or API/domain
   authority.
+- Saved OCR read-only receipt totals, edit-mode review-only totals, draft
+  apply-preview header and summary rows, and saved/apply-preview line money
+  parts now use shared `MoneyText` while preserving existing amount strings,
+  currency strings, missing-currency fallbacks, saved-review request
+  construction, apply-preview behavior, and provisional OCR authority
+  boundaries. This records the 2026-06-22 20:44 HKT saved OCR read-only money
+  readout follow-up without parsing, rounding, recalculating, aggregating,
+  changing bill calculation, OCR acceptance, sync acceptance, persistence,
+  OpenAPI, generated clients, or API/domain authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -163,22 +172,14 @@ Remaining eligible raw money/date candidates:
   through `_money(...)` / `'$currency 0.00'` and render them with plain `Text`.
   These are display-only amount-plus-currency readouts and should move to
   amount/currency data plus `MoneyText` in a small Home dashboard slice.
-- Saved OCR review readouts,
-  `apps/mobile/lib/bills/bill_list_screen.dart`: apply preview header totals,
-  line sums, saved review totals, saved line unit/total labels, and some bill
-  detail rows still format money through `_savedReceiptOcrMoney(...)` or
-  `_money(...)` into `_KeyValueText`, chips, or concatenated `Text`. Standalone
-  readouts are eligible for `MoneyText` or a local key-value wrapper that
-  delegates to `MoneyText`; combined semantics/search strings can remain
-  strings.
 - Group/personal bill detail readouts,
   `apps/mobile/lib/bills/bill_list_screen.dart`: several non-editor amount
   readouts still use `_money(...)`, including read-only group bill list
   subtitles, pending revision chip labels, current-user share panel text, payer
-  summaries, item rows, participant share rows, payer rows, adjustment rows, and
-  acknowledgement copy. Standalone UI readouts should move toward `MoneyText`;
-  hidden/searchable-field collections and sentence copy can remain string-based
-  unless a later UI slice gives them a structured readout.
+  summaries, non-saved-OCR item rows, participant share rows, payer rows,
+  adjustment rows, and acknowledgement copy. Standalone UI readouts should move
+  toward `MoneyText`; hidden/searchable-field collections and sentence copy can
+  remain string-based unless a later UI slice gives them a structured readout.
 - Settlements,
   `apps/mobile/lib/settlements/settlement_list_screen.dart`: balance amounts,
   request tile/header totals, review-summary chips, request line values,
@@ -233,8 +234,8 @@ Recommended next task queue:
 2. Home dashboard money readouts: carry amount/currency separately through
    `_BalanceMetric` / `_DashboardBillRow` and render with `MoneyText`; keep the
    loaded-summary-only dashboard behavior unchanged.
-3. Bill detail/read-only money readouts: migrate standalone bill list/detail,
-   share panel, payer, participant, adjustment, and saved OCR readouts to
+3. Bill detail/read-only money readouts: migrate standalone non-saved-OCR bill
+   list/detail, share panel, payer, participant, and adjustment readouts to
    `MoneyText` where they are not sentence/search/semantics strings.
 4. Future bill due-date/readout slice: replace the future bill due-date
    `TextFormField` with `DateField` and migrate future bill amount readouts to

@@ -13679,7 +13679,11 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                 const Text('No receipt totals were saved.')
               else
                 for (final row in _savedReceiptOcrHeaderRows(review))
-                  _KeyValueText(label: row.$1, value: row.$2),
+                  _KeyValueMoneyText(
+                    label: row.label,
+                    amount: row.amount,
+                    currency: row.currency,
+                  ),
             ],
           ),
         ),
@@ -13948,7 +13952,8 @@ class _SavedReceiptOcrApplyPreviewDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final headerRows = _savedReceiptOcrPreviewHeaderRows(preview);
+    final headerTextRows = _savedReceiptOcrPreviewHeaderTextRows(preview);
+    final headerMoneyRows = _savedReceiptOcrPreviewHeaderMoneyRows(preview);
     final sortedLines = [...preview.proposedLines]
       ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
 
@@ -13975,11 +13980,18 @@ class _SavedReceiptOcrApplyPreviewDetails extends StatelessWidget {
         const SizedBox(height: 8),
         Text('Header summary', style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 4),
-        if (headerRows.isEmpty)
+        if (headerTextRows.isEmpty && headerMoneyRows.isEmpty)
           const Text('No receipt total summary returned.')
-        else
-          for (final row in headerRows)
+        else ...[
+          for (final row in headerTextRows)
             _KeyValueText(label: row.$1, value: row.$2),
+          for (final row in headerMoneyRows)
+            _KeyValueMoneyText(
+              label: row.label,
+              amount: row.amount,
+              currency: row.currency,
+            ),
+        ],
         const SizedBox(height: 8),
         Text('Line summary', style: Theme.of(context).textTheme.labelLarge),
         const SizedBox(height: 4),
@@ -13996,20 +14008,16 @@ class _SavedReceiptOcrApplyPreviewDetails extends StatelessWidget {
           value: preview.summary.linesMissingProposedTotalCount.toString(),
         ),
         if (_hasNonEmptyCandidate(preview.summary.proposedLineTotalSumAmount))
-          _KeyValueText(
+          _KeyValueMoneyText(
             label: 'Line sum',
-            value: _savedReceiptOcrMoney(
-              preview.summary.proposedLineTotalSumAmount,
-              preview.proposedCurrency,
-            ),
+            amount: preview.summary.proposedLineTotalSumAmount!,
+            currency: preview.proposedCurrency,
           ),
         if (_hasNonEmptyCandidate(preview.summary.expectedHeaderTotalAmount))
-          _KeyValueText(
+          _KeyValueMoneyText(
             label: 'Header total',
-            value: _savedReceiptOcrMoney(
-              preview.summary.expectedHeaderTotalAmount,
-              preview.proposedCurrency,
-            ),
+            amount: preview.summary.expectedHeaderTotalAmount!,
+            currency: preview.proposedCurrency,
           ),
         if (sortedLines.isNotEmpty) ...[
           const SizedBox(height: 8),
@@ -14039,11 +14047,8 @@ class _SavedReceiptOcrPreviewLineTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final parts = <String>[
-      if (_hasNonEmptyCandidate(line.quantity)) 'Qty ${line.quantity}',
-      if (_hasNonEmptyCandidate(line.proposedLineTotalAmount))
-        'Proposed ${_savedReceiptOcrMoney(line.proposedLineTotalAmount, currency)}',
-    ];
+    final quantity = line.quantity?.trim();
+    final proposedLineTotalAmount = line.proposedLineTotalAmount?.trim();
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -14055,12 +14060,28 @@ class _SavedReceiptOcrPreviewLineTile extends StatelessWidget {
                 ? line.text
                 : 'Unnamed receipt line',
           ),
-          if (parts.isNotEmpty)
-            Text(
-              parts.join(' - '),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: context.settleoraColors.textMuted,
-              ),
+          if ((quantity != null && quantity.isNotEmpty) ||
+              (proposedLineTotalAmount != null &&
+                  proposedLineTotalAmount.isNotEmpty))
+            Wrap(
+              spacing: 10,
+              runSpacing: 2,
+              children: [
+                if (quantity != null && quantity.isNotEmpty)
+                  Text(
+                    'Qty $quantity',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: context.settleoraColors.textMuted,
+                    ),
+                  ),
+                if (proposedLineTotalAmount != null &&
+                    proposedLineTotalAmount.isNotEmpty)
+                  _SavedReceiptOcrMoneyPart(
+                    label: 'Proposed',
+                    amount: proposedLineTotalAmount,
+                    currency: currency,
+                  ),
+              ],
             ),
         ],
       ),
@@ -14173,7 +14194,11 @@ class _SavedReceiptOcrReviewEditContent extends StatelessWidget {
                 const Text('No receipt totals were saved.')
               else
                 for (final row in _savedReceiptOcrHeaderRows(review))
-                  _KeyValueText(label: row.$1, value: row.$2),
+                  _KeyValueMoneyText(
+                    label: row.label,
+                    amount: row.amount,
+                    currency: row.currency,
+                  ),
               const SizedBox(height: 8),
               Text(
                 'Receipt totals and charge summary stay review-only here.',
@@ -14225,13 +14250,9 @@ class _SavedReceiptOcrLineTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final parts = <String>[
-      if (_hasNonEmptyCandidate(line.quantity)) 'Qty ${line.quantity}',
-      if (_hasNonEmptyCandidate(line.unitPriceAmount))
-        'Unit ${_savedReceiptOcrMoney(line.unitPriceAmount, currency)}',
-      if (_hasNonEmptyCandidate(line.lineTotalAmount))
-        'Total ${_savedReceiptOcrMoney(line.lineTotalAmount, currency)}',
-    ];
+    final quantity = line.quantity?.trim();
+    final unitPriceAmount = line.unitPriceAmount?.trim();
+    final lineTotalAmount = line.lineTotalAmount?.trim();
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -14244,13 +14265,34 @@ class _SavedReceiptOcrLineTile extends StatelessWidget {
                 : 'Unnamed receipt line',
             style: Theme.of(context).textTheme.bodyLarge,
           ),
-          if (parts.isNotEmpty) ...[
+          if ((quantity != null && quantity.isNotEmpty) ||
+              (unitPriceAmount != null && unitPriceAmount.isNotEmpty) ||
+              (lineTotalAmount != null && lineTotalAmount.isNotEmpty)) ...[
             const SizedBox(height: 2),
-            Text(
-              parts.join(' - '),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: context.settleoraColors.textMuted,
-              ),
+            Wrap(
+              spacing: 10,
+              runSpacing: 2,
+              children: [
+                if (quantity != null && quantity.isNotEmpty)
+                  Text(
+                    'Qty $quantity',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: context.settleoraColors.textMuted,
+                    ),
+                  ),
+                if (unitPriceAmount != null && unitPriceAmount.isNotEmpty)
+                  _SavedReceiptOcrMoneyPart(
+                    label: 'Unit',
+                    amount: unitPriceAmount,
+                    currency: currency,
+                  ),
+                if (lineTotalAmount != null && lineTotalAmount.isNotEmpty)
+                  _SavedReceiptOcrMoneyPart(
+                    label: 'Total',
+                    amount: lineTotalAmount,
+                    currency: currency,
+                  ),
+              ],
             ),
           ],
         ],
@@ -16493,6 +16535,89 @@ class _KeyValueText extends StatelessWidget {
   }
 }
 
+class _KeyValueMoneyText extends StatelessWidget {
+  const _KeyValueMoneyText({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String amount;
+  final String? currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedAmount = amount.trim();
+    final normalizedCurrency = currency?.trim();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: normalizedCurrency == null || normalizedCurrency.isEmpty
+                ? Text(normalizedAmount, textAlign: TextAlign.end)
+                : MoneyText(
+                    amount: normalizedAmount,
+                    currencyCode: normalizedCurrency,
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavedReceiptOcrMoneyPart extends StatelessWidget {
+  const _SavedReceiptOcrMoneyPart({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String amount;
+  final String? currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedAmount = amount.trim();
+    final normalizedCurrency = currency?.trim();
+    final style = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: context.settleoraColors.textMuted);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('$label ', style: style),
+        if (normalizedCurrency == null || normalizedCurrency.isEmpty)
+          Text(normalizedAmount, style: style)
+        else
+          MoneyText(
+            amount: normalizedAmount,
+            currencyCode: normalizedCurrency,
+            style: style,
+          ),
+      ],
+    );
+  }
+}
+
 class _SoftChip extends StatelessWidget {
   const _SoftChip({required this.label, required this.icon});
 
@@ -16569,23 +16694,36 @@ bool _hasNonEmptyCandidate(String? value) {
   return value != null && value.trim().isNotEmpty;
 }
 
-List<(String, String)> _savedReceiptOcrHeaderRows(
+class _SavedReceiptOcrMoneyRow {
+  const _SavedReceiptOcrMoneyRow({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String amount;
+  final String? currency;
+}
+
+List<_SavedReceiptOcrMoneyRow> _savedReceiptOcrHeaderRows(
   ReceiptOcrReviewDetail review,
 ) {
   final currency = review.currency;
   return [
-    ('Subtotal', _savedReceiptOcrMoney(review.subtotalAmount, currency)),
-    ('Tax', _savedReceiptOcrMoney(review.taxAmount, currency)),
-    (
+    _savedReceiptOcrMoneyRow('Subtotal', review.subtotalAmount, currency),
+    _savedReceiptOcrMoneyRow('Tax', review.taxAmount, currency),
+    _savedReceiptOcrMoneyRow(
       'Service charge',
-      _savedReceiptOcrMoney(review.serviceChargeAmount, currency),
+      review.serviceChargeAmount,
+      currency,
     ),
-    ('Discount', _savedReceiptOcrMoney(review.discountAmount, currency)),
-    ('Grand total', _savedReceiptOcrMoney(review.grandTotalAmount, currency)),
-  ].where((row) => row.$2.isNotEmpty).toList(growable: false);
+    _savedReceiptOcrMoneyRow('Discount', review.discountAmount, currency),
+    _savedReceiptOcrMoneyRow('Grand total', review.grandTotalAmount, currency),
+  ].nonNulls.toList(growable: false);
 }
 
-List<(String, String)> _savedReceiptOcrPreviewHeaderRows(
+List<(String, String)> _savedReceiptOcrPreviewHeaderTextRows(
   ReceiptOcrReviewApplyPreview preview,
 ) {
   final currency = preview.proposedCurrency;
@@ -16595,24 +16733,53 @@ List<(String, String)> _savedReceiptOcrPreviewHeaderRows(
     if (preview.proposedReceiptIssuedAtUtc != null)
       ('Receipt date', _formatBillDate(preview.proposedReceiptIssuedAtUtc!)),
     if (_hasNonEmptyCandidate(currency)) ('Currency', currency!.trim()),
-    (
+  ];
+}
+
+List<_SavedReceiptOcrMoneyRow> _savedReceiptOcrPreviewHeaderMoneyRows(
+  ReceiptOcrReviewApplyPreview preview,
+) {
+  final currency = preview.proposedCurrency;
+  return [
+    _savedReceiptOcrMoneyRow(
       'Subtotal',
-      _savedReceiptOcrMoney(preview.proposedSubtotalAmount, currency),
+      preview.proposedSubtotalAmount,
+      currency,
     ),
-    ('Tax', _savedReceiptOcrMoney(preview.proposedTaxAmount, currency)),
-    (
+    _savedReceiptOcrMoneyRow('Tax', preview.proposedTaxAmount, currency),
+    _savedReceiptOcrMoneyRow(
       'Service charge',
-      _savedReceiptOcrMoney(preview.proposedServiceChargeAmount, currency),
+      preview.proposedServiceChargeAmount,
+      currency,
     ),
-    (
+    _savedReceiptOcrMoneyRow(
       'Discount',
-      _savedReceiptOcrMoney(preview.proposedDiscountAmount, currency),
+      preview.proposedDiscountAmount,
+      currency,
     ),
-    (
+    _savedReceiptOcrMoneyRow(
       'Grand total',
-      _savedReceiptOcrMoney(preview.proposedGrandTotalAmount, currency),
+      preview.proposedGrandTotalAmount,
+      currency,
     ),
-  ].where((row) => row.$2.isNotEmpty).toList(growable: false);
+  ].nonNulls.toList(growable: false);
+}
+
+_SavedReceiptOcrMoneyRow? _savedReceiptOcrMoneyRow(
+  String label,
+  String? amount,
+  String? currency,
+) {
+  final normalizedAmount = amount?.trim();
+  if (normalizedAmount == null || normalizedAmount.isEmpty) {
+    return null;
+  }
+
+  return _SavedReceiptOcrMoneyRow(
+    label: label,
+    amount: normalizedAmount,
+    currency: currency,
+  );
 }
 
 ReceiptOcrPreview _receiptOcrPreviewFromSavedReview(
@@ -16671,20 +16838,6 @@ ReceiptOcrReviewSaveRequest _receiptOcrReviewSaveRequestFromSavedEdit(
           ),
     ],
   );
-}
-
-String _savedReceiptOcrMoney(String? amount, String? currency) {
-  final normalizedAmount = amount?.trim();
-  if (normalizedAmount == null || normalizedAmount.isEmpty) {
-    return '';
-  }
-
-  final normalizedCurrency = currency?.trim();
-  if (normalizedCurrency == null || normalizedCurrency.isEmpty) {
-    return normalizedAmount;
-  }
-
-  return '$normalizedAmount $normalizedCurrency';
 }
 
 String _receiptOcrReviewStatusLabel(ReceiptOcrReviewStatus status) {
