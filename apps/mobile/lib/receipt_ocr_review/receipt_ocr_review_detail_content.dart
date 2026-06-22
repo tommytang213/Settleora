@@ -351,13 +351,18 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               label: 'Merchant suggestion',
               enabled: !isBusy,
             ),
-            _EditTextField(
-              key: const Key('receipt-review-edit-date'),
-              controller: _receiptDateController,
-              label: 'Receipt date',
-              enabled: !isBusy,
-              keyboardType: TextInputType.datetime,
-              validator: _dateValidator,
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: DateField(
+                key: const Key('receipt-review-edit-date'),
+                controller: _receiptDateController,
+                label: 'Receipt date',
+                enabled: !isBusy,
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2100),
+                helperText: 'Choose the receipt date suggestion.',
+                validator: _dateValidator,
+              ),
             ),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -383,60 +388,55 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 10),
-            _EditTextField(
-              key: const Key('receipt-review-edit-subtotal'),
-              controller: _subtotalController,
-              label: 'Subtotal',
+            _ReceiptOcrMoneyInput(
+              amountKey: const Key('receipt-review-edit-subtotal'),
+              amountController: _subtotalController,
+              currencyController: _currencyController,
+              amountLabel: 'Subtotal',
               semanticLabel: 'Subtotal amount suggestion',
               enabled: !isBusy,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: _moneyValidator,
+              amountValidator: _moneyValidator,
+              onCurrencyChanged: () => setState(() {}),
             ),
-            _EditTextField(
-              key: const Key('receipt-review-edit-tax'),
-              controller: _taxController,
-              label: 'Tax',
+            _ReceiptOcrMoneyInput(
+              amountKey: const Key('receipt-review-edit-tax'),
+              amountController: _taxController,
+              currencyController: _currencyController,
+              amountLabel: 'Tax',
               semanticLabel: 'Tax amount suggestion',
               enabled: !isBusy,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: _moneyValidator,
+              amountValidator: _moneyValidator,
+              onCurrencyChanged: () => setState(() {}),
             ),
-            _EditTextField(
-              key: const Key('receipt-review-edit-service-charge'),
-              controller: _serviceChargeController,
-              label: 'Service charge',
+            _ReceiptOcrMoneyInput(
+              amountKey: const Key('receipt-review-edit-service-charge'),
+              amountController: _serviceChargeController,
+              currencyController: _currencyController,
+              amountLabel: 'Service charge',
               semanticLabel: 'Service charge amount suggestion',
               enabled: !isBusy,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: _moneyValidator,
+              amountValidator: _moneyValidator,
+              onCurrencyChanged: () => setState(() {}),
             ),
-            _EditTextField(
-              key: const Key('receipt-review-edit-discount'),
-              controller: _discountController,
-              label: 'Discount',
+            _ReceiptOcrMoneyInput(
+              amountKey: const Key('receipt-review-edit-discount'),
+              amountController: _discountController,
+              currencyController: _currencyController,
+              amountLabel: 'Discount',
               semanticLabel: 'Discount amount suggestion',
               enabled: !isBusy,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: _moneyValidator,
+              amountValidator: _moneyValidator,
+              onCurrencyChanged: () => setState(() {}),
             ),
-            _EditTextField(
-              key: const Key('receipt-review-edit-grand-total'),
-              controller: _grandTotalController,
-              label: 'Grand total',
+            _ReceiptOcrMoneyInput(
+              amountKey: const Key('receipt-review-edit-grand-total'),
+              amountController: _grandTotalController,
+              currencyController: _currencyController,
+              amountLabel: 'Grand total',
               semanticLabel: 'Grand total amount suggestion',
               enabled: !isBusy,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              validator: _moneyValidator,
+              amountValidator: _moneyValidator,
+              onCurrencyChanged: () => setState(() {}),
             ),
             const SizedBox(height: 12),
             Row(
@@ -638,6 +638,55 @@ class _LineEditCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReceiptOcrMoneyInput extends StatelessWidget {
+  const _ReceiptOcrMoneyInput({
+    required this.amountKey,
+    required this.amountController,
+    required this.currencyController,
+    required this.amountLabel,
+    required this.semanticLabel,
+    required this.enabled,
+    required this.onCurrencyChanged,
+    required this.amountValidator,
+  });
+
+  final Key amountKey;
+  final TextEditingController amountController;
+  final TextEditingController currencyController;
+  final String amountLabel;
+  final String semanticLabel;
+  final bool enabled;
+  final VoidCallback onCurrencyChanged;
+  final FormFieldValidator<String> amountValidator;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Semantics(
+        label: enabled
+            ? semanticLabel
+            : _busyActionSemanticLabel(semanticLabel),
+        enabled: enabled,
+        child: MoneyInput(
+          amountKey: amountKey,
+          amountController: amountController,
+          currencyValue: currencyController.text,
+          amountLabel: amountLabel,
+          currencyLabel: 'Receipt currency',
+          enabled: enabled,
+          helperText: 'Review the amount before applying receipt suggestions.',
+          amountValidator: amountValidator,
+          onCurrencyChanged: (currency) {
+            currencyController.text = currency ?? '';
+            onCurrencyChanged();
+          },
         ),
       ),
     );
@@ -860,9 +909,10 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           for (final row in rows)
-            _KeyValueText(
+            _KeyValueMoneyText(
               label: row.$1,
-              value: _money(row.$2, review.currency),
+              amount: row.$2,
+              currency: review.currency,
             ),
         ],
       ),
@@ -1340,19 +1390,15 @@ class _PreviewSummary extends StatelessWidget {
               value:
                   '${preview.summary.linesWithProposedTotalCount} of ${preview.summary.lineCount}',
             ),
-            _KeyValueText(
+            _KeyValueMoneyText(
               label: 'Line total sum',
-              value: _money(
-                preview.summary.proposedLineTotalSumAmount,
-                preview.proposedCurrency,
-              ),
+              amount: preview.summary.proposedLineTotalSumAmount,
+              currency: preview.proposedCurrency,
             ),
-            _KeyValueText(
+            _KeyValueMoneyText(
               label: 'Header total',
-              value: _money(
-                preview.proposedGrandTotalAmount,
-                preview.proposedCurrency,
-              ),
+              amount: preview.proposedGrandTotalAmount,
+              currency: preview.proposedCurrency,
             ),
             if (blockedReasons.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -1405,12 +1451,60 @@ class _ApplyResult extends StatelessWidget {
               label: 'Applied items',
               value: result.appliedItemCount.toString(),
             ),
-            _KeyValueText(
+            _KeyValueMoneyText(
               label: 'Grand total',
-              value: _money(result.grandTotalAmount, result.currency),
+              amount: result.grandTotalAmount,
+              currency: result.currency,
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _KeyValueMoneyText extends StatelessWidget {
+  const _KeyValueMoneyText({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String? amount;
+  final String? currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedAmount = amount?.trim();
+    if (normalizedAmount == null || normalizedAmount.isEmpty) {
+      return _KeyValueText(label: label, value: 'Not provided');
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: MoneyText(
+              amount: normalizedAmount,
+              currencyCode: currency ?? '',
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.end,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1447,18 +1541,6 @@ class _IssueWrap extends StatelessWidget {
       ],
     );
   }
-}
-
-String _money(String? amount, String? currency) {
-  if (amount == null) {
-    return 'Not provided';
-  }
-
-  if (currency == null) {
-    return amount;
-  }
-
-  return '$amount $currency';
 }
 
 String _formatDate(DateTime value) {
