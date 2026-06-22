@@ -1119,19 +1119,19 @@ class _SummaryPanel extends StatelessWidget {
               spacing: 8,
               runSpacing: 6,
               children: [
-                _CountChip(
+                SettleoraCountChip(
                   label: 'Unread',
-                  value: summary.unreadCount,
+                  count: summary.unreadCount,
                   icon: Icons.mark_email_unread_outlined,
                 ),
-                _CountChip(
+                SettleoraCountChip(
                   label: 'Attention',
-                  value: summary.attentionCount,
+                  count: summary.attentionCount,
                   icon: Icons.priority_high_outlined,
                 ),
-                _CountChip(
+                SettleoraCountChip(
                   label: 'Urgent',
-                  value: summary.urgentCount,
+                  count: summary.urgentCount,
                   icon: Icons.notification_important_outlined,
                 ),
               ],
@@ -1489,31 +1489,31 @@ class _NotificationTile extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: settleoraNotificationStatusLabel(
                       notification.status,
                     ),
                     icon: Icons.mark_email_read_outlined,
                   ),
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: settleoraNotificationPriorityLabel(
                       notification.priority,
                     ),
                     icon: Icons.flag_outlined,
                   ),
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: settleoraNotificationSubjectTypeLabel(
                       notification.subjectType,
                     ),
                     icon: Icons.link_outlined,
                   ),
                   if (!isArchived && _canOpenFromTile)
-                    const _SoftChip(
+                    const SettleoraStatusChip(
                       label: 'Openable',
                       icon: Icons.open_in_new_outlined,
                     )
                   else if (hasOpenTarget)
-                    const _SoftChip(
+                    const SettleoraStatusChip(
                       label: 'Not safely openable',
                       icon: Icons.block_outlined,
                     ),
@@ -2252,44 +2252,6 @@ class _EmptyNotifications extends StatelessWidget {
       message: message,
       compact: true,
       compactPadding: const EdgeInsets.symmetric(vertical: 24),
-    );
-  }
-}
-
-class _CountChip extends StatelessWidget {
-  const _CountChip({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final int value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      avatar: Icon(icon, size: 16),
-      label: Text('$label: $value'),
-    );
-  }
-}
-
-class _SoftChip extends StatelessWidget {
-  const _SoftChip({required this.label, required this.icon});
-
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: Icon(icon, size: 16),
-      label: Text(label),
     );
   }
 }

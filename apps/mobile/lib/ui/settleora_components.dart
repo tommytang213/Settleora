@@ -136,6 +136,93 @@ class StatusChip extends StatelessWidget {
   }
 }
 
+class SettleoraStatusChip extends StatelessWidget {
+  const SettleoraStatusChip({
+    super.key,
+    required this.label,
+    this.icon,
+    this.backgroundColor,
+  });
+
+  final String label;
+  final IconData? icon;
+  final Color? backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      backgroundColor:
+          backgroundColor ??
+          Theme.of(context).colorScheme.surfaceContainerHighest,
+      avatar: icon == null ? null : Icon(icon, size: 16),
+      label: Text(label),
+    );
+  }
+}
+
+class SettleoraCountChip extends StatelessWidget {
+  const SettleoraCountChip({
+    super.key,
+    required this.label,
+    required this.count,
+    this.icon,
+  });
+
+  final String label;
+  final int count;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      avatar: icon == null ? null : Icon(icon, size: 16),
+      label: Text('$label: $count'),
+    );
+  }
+}
+
+class SettleoraReadinessChip extends StatelessWidget {
+  const SettleoraReadinessChip({super.key, required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text(label),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+}
+
+class SettleoraAssignedMemberChip extends StatelessWidget {
+  const SettleoraAssignedMemberChip({
+    super.key,
+    required this.label,
+    required this.avatarLabel,
+  });
+
+  final String label;
+  final String avatarLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      avatar: CircleAvatar(
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
+        child: Text(avatarLabel),
+      ),
+      label: Text(label, overflow: TextOverflow.ellipsis),
+    );
+  }
+}
+
 class AppCard extends StatelessWidget {
   const AppCard({super.key, required this.child, this.padding, this.color});
 

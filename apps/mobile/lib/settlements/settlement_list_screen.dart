@@ -286,18 +286,18 @@ class _SettlementLandingSummary extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _SoftChip(
+                SettleoraStatusChip(
                   label:
                       '$openBalanceCount open balance${_plural(openBalanceCount)}',
                   icon: Icons.account_balance_wallet_outlined,
                 ),
-                _SoftChip(
+                SettleoraStatusChip(
                   label: needsActionCount == 1
                       ? '1 needing action'
                       : '$needsActionCount needing action',
                   icon: Icons.rule_outlined,
                 ),
-                _SoftChip(
+                SettleoraStatusChip(
                   label:
                       '$openRequestCount open request${_plural(openRequestCount)}',
                   icon: Icons.request_quote_outlined,
@@ -1153,19 +1153,19 @@ class _BalanceTile extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: '${balance.requestCount} requests',
                     icon: Icons.receipt_long_outlined,
                   ),
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: '${balance.lineCount} lines',
                     icon: Icons.format_list_bulleted,
                   ),
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: '${balance.pendingPaymentCount} pending payments',
                     icon: Icons.pending_actions_outlined,
                   ),
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label:
                         '${balance.confirmedPaymentCount} confirmed payments',
                     icon: Icons.verified_outlined,
@@ -1279,11 +1279,11 @@ class _RequestTile extends StatelessWidget {
             spacing: 8,
             runSpacing: 6,
             children: [
-              _SoftChip(
+              SettleoraStatusChip(
                 label: settleoraSettlementRequestStatusLabel(request.status),
                 icon: Icons.assignment_outlined,
               ),
-              _SoftChip(
+              SettleoraStatusChip(
                 label: '${request.lines.length} lines',
                 icon: Icons.format_list_bulleted,
               ),
@@ -2469,7 +2469,7 @@ class _GuidancePanel extends StatelessWidget {
                 runSpacing: 6,
                 children: [
                   for (final chip in chips)
-                    _SoftChip(label: chip, icon: Icons.info_outline),
+                    SettleoraStatusChip(label: chip, icon: Icons.info_outline),
                   ...chipWidgets,
                 ],
               ),
@@ -2535,23 +2535,6 @@ class _AmountStatusText extends StatelessWidget {
         const SizedBox(width: 4),
         Text(status, style: Theme.of(context).textTheme.bodyMedium),
       ],
-    );
-  }
-}
-
-class _SoftChip extends StatelessWidget {
-  const _SoftChip({required this.label, required this.icon});
-
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: Icon(icon, size: 16),
-      label: Text(label),
     );
   }
 }

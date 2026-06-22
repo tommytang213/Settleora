@@ -2919,20 +2919,20 @@ class _TemplateTile extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: settleoraRecurringBillTemplateStatusLabel(
                       template.status,
                     ),
                     icon: Icons.assignment_outlined,
                   ),
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: settleoraRecurringBillScheduleLabel(
                       template.schedule,
                     ),
                     icon: Icons.schedule_outlined,
                   ),
                   if (template.isGroupScoped)
-                    const _SoftChip(
+                    const SettleoraStatusChip(
                       label: 'Group',
                       icon: Icons.groups_outlined,
                     ),
@@ -3008,21 +3008,24 @@ class _ForecastTile extends StatelessWidget {
               spacing: 8,
               runSpacing: 6,
               children: [
-                _SoftChip(
+                SettleoraStatusChip(
                   label: settleoraRecurringBillOccurrenceStatusLabel(
                     occurrence.status,
                   ),
                   icon: Icons.assignment_outlined,
                 ),
                 if (occurrence.dueDate != null)
-                  _SoftChip(
+                  SettleoraStatusChip(
                     label: 'Due ${occurrence.dueDate}',
                     icon: Icons.event_available_outlined,
                   ),
                 if (occurrence.isGroupScoped)
-                  const _SoftChip(label: 'Group', icon: Icons.groups_outlined),
+                  const SettleoraStatusChip(
+                    label: 'Group',
+                    icon: Icons.groups_outlined,
+                  ),
                 if (occurrence.generatedBillId != null)
-                  const _SoftChip(
+                  const SettleoraStatusChip(
                     label: 'Draft context',
                     icon: Icons.receipt_long_outlined,
                   ),
@@ -3681,23 +3684,6 @@ class _LifecycleButton extends StatelessWidget {
             )
           : Icon(icon),
       label: Text(inFlight ? '$label...' : label),
-    );
-  }
-}
-
-class _SoftChip extends StatelessWidget {
-  const _SoftChip({required this.label, required this.icon});
-
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: Icon(icon, size: 16),
-      label: Text(label),
     );
   }
 }

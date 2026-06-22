@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
@@ -71,6 +72,7 @@ void main() {
                   ],
                 ),
                 const Wrap(
+                  key: Key('shared-static-chip-wrap'),
                   children: [
                     StatusChip(
                       label: 'Paid',
@@ -89,6 +91,20 @@ void main() {
                       variant: StatusChipVariant.info,
                     ),
                     StatusChip(label: 'Draft'),
+                    SettleoraStatusChip(
+                      label: 'Server ready',
+                      icon: Icons.cloud_done_outlined,
+                    ),
+                    SettleoraCountChip(
+                      label: 'Unread',
+                      count: 3,
+                      icon: Icons.mark_email_unread_outlined,
+                    ),
+                    SettleoraReadinessChip(label: 'Checklist ready'),
+                    SettleoraAssignedMemberChip(
+                      label: 'Morgan',
+                      avatarLabel: 'M',
+                    ),
                   ],
                 ),
                 const AppCard(child: Text('Card content')),
@@ -223,6 +239,33 @@ void main() {
     expect(find.text('Blocked'), findsOneWidget);
     expect(find.text('Synced'), findsOneWidget);
     expect(find.text('Draft'), findsOneWidget);
+    expect(find.text('Server ready'), findsOneWidget);
+    expect(find.text('Unread: 3'), findsOneWidget);
+    expect(find.text('Checklist ready'), findsOneWidget);
+    expect(find.text('Morgan'), findsOneWidget);
+    expect(find.text('M'), findsOneWidget);
+    final staticChipWrap = find.byKey(const Key('shared-static-chip-wrap'));
+    expect(
+      find.descendant(of: staticChipWrap, matching: find.byType(FilterChip)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: staticChipWrap, matching: find.byType(ChoiceChip)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: staticChipWrap, matching: find.byType(ActionChip)),
+      findsNothing,
+    );
+    final semanticsHandle = tester.ensureSemantics();
+    expect(
+      tester
+          .getSemantics(find.text('Checklist ready'))
+          .getSemanticsData()
+          .hasAction(SemanticsAction.tap),
+      isFalse,
+    );
+    semanticsHandle.dispose();
     expect(find.text('Card content'), findsOneWidget);
     expect(find.text('Summary card'), findsOneWidget);
     expect(find.text('HKD 128.00'), findsOneWidget);
