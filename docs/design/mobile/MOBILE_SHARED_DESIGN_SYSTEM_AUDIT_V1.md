@@ -199,6 +199,24 @@ V1-aligned updates made in this branch:
   notification behavior, saved OCR request construction, money/date parsing,
   rounding, aggregation, settlement authority, persistence, OpenAPI, generated
   clients, or backend/API authority.
+- Groups and notifications now compose the shared section, state/loading, and
+  read-only key-value primitives where the local helpers were mechanically
+  equivalent. Group list/detail loading, empty/filter states, add-member/member
+  sections, and group detail role/status/updated rows now use shared
+  primitives. Notification list loading, failure/empty states, and notification
+  detail sheet rows now use shared primitives while preserving notification
+  read/unread/archive/bulk-selection behavior and detail-sheet copy/alignment.
+  `SettleoraStatePanel` gained a narrow compact-padding option, and
+  `SettleoraKeyValueRow`/text/money wrappers gained narrow label/value
+  style/alignment/padding options to preserve existing layouts without creating
+  a new composite component. Manual finance was inspected but intentionally
+  left unchanged because its summary rows, failure card, and account/income
+  sections are not exact matches for the current shared primitives. This
+  records the 2026-06-23 00:55 HKT groups/notifications shared primitive
+  consolidation without changing behavior, authz, repository contracts,
+  persistence, routing, notification read/archive/bulk-selection actions,
+  manual finance archive/income/account/summary-window behavior, OpenAPI,
+  generated clients, schema, money authority, or backend/API authority.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
@@ -256,14 +274,21 @@ Inspected but no action needed for this money/date migration queue:
 Recommended next task queue:
 
 1. No remaining money/date migration or saved OCR apply-preview screenshot
-   cutoff follow-up is tracked in this audit as of the 2026-06-22 23:55 HKT
-   shared component consolidation update.
-2. Consider a later shared chip/status bundle for `_SoftChip`, `_StatusChip`,
+   cutoff follow-up is tracked in this audit as of the 2026-06-23 00:55 HKT
+   groups/notifications shared primitive consolidation update.
+2. Chip/status/filter/readiness variants remain intentionally deferred to a
+   later dedicated bundle because behavior and copy differ by feature.
+3. Feature-specific inline failure/guidance panels remain intentionally
+   deferred unless a later task identifies exact shared primitive equivalence.
+4. Manual finance account/income cards and summary estimate rows remain
+   intentionally deferred until a shared primitive can preserve their current
+   flexible label layout, actions, warnings, and card structure exactly.
+5. Consider a later shared chip/status bundle for `_SoftChip`, `_StatusChip`,
    `_CountChip`, `_ReviewChecklistChip`, `_AssignedMemberChip`, `_ChannelChip`,
    and feature-local status/readiness chips. These need behavior-by-behavior
    review because some chips are filters, some are static readouts, and some
    carry domain-specific icons or counts.
-3. Consider a later shared inline failure/guidance panel bundle for groups,
+6. Consider a later shared inline failure/guidance panel bundle for groups,
    notifications, recurring future-bill failures, settlement guidance, and
    manual finance failure cards. These were deferred here because their
    actions, sign-in behavior, status chips, and domain copy are not all

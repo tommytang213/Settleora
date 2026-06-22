@@ -356,6 +356,9 @@ class SettleoraStatePanel extends StatelessWidget {
     this.action,
     this.compact = false,
     this.compactAlignment = Alignment.center,
+    this.compactPadding = const EdgeInsets.symmetric(
+      vertical: SettleoraSpacing.sm,
+    ),
   });
 
   final IconData icon;
@@ -364,6 +367,7 @@ class SettleoraStatePanel extends StatelessWidget {
   final Widget? action;
   final bool compact;
   final AlignmentGeometry compactAlignment;
+  final EdgeInsetsGeometry compactPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -390,10 +394,7 @@ class SettleoraStatePanel extends StatelessWidget {
     if (compact) {
       return Align(
         alignment: compactAlignment,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: SettleoraSpacing.sm),
-          child: content,
-        ),
+        child: Padding(padding: compactPadding, child: content),
       );
     }
 
@@ -471,6 +472,8 @@ class SettleoraKeyValueRow extends StatelessWidget {
     this.labelWidth = 112,
     this.spacing = 10,
     this.padding = const EdgeInsets.symmetric(vertical: 3),
+    this.labelStyle,
+    this.valueAlignment = Alignment.centerRight,
   });
 
   final String label;
@@ -478,6 +481,8 @@ class SettleoraKeyValueRow extends StatelessWidget {
   final double labelWidth;
   final double spacing;
   final EdgeInsetsGeometry padding;
+  final TextStyle? labelStyle;
+  final AlignmentGeometry valueAlignment;
 
   @override
   Widget build(BuildContext context) {
@@ -492,14 +497,16 @@ class SettleoraKeyValueRow extends StatelessWidget {
             width: labelWidth,
             child: Text(
               label,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: colors.textSubtle),
+              style:
+                  labelStyle ??
+                  Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: colors.textSubtle),
             ),
           ),
           SizedBox(width: spacing),
           Expanded(
-            child: Align(alignment: Alignment.centerRight, child: value),
+            child: Align(alignment: valueAlignment, child: value),
           ),
         ],
       ),
@@ -513,18 +520,32 @@ class SettleoraKeyValueText extends StatelessWidget {
     required this.label,
     required this.value,
     this.labelWidth = 112,
+    this.spacing = 10,
+    this.padding = const EdgeInsets.symmetric(vertical: 3),
+    this.labelStyle,
+    this.valueAlignment = Alignment.centerRight,
+    this.valueTextAlign = TextAlign.end,
   });
 
   final String label;
   final String value;
   final double labelWidth;
+  final double spacing;
+  final EdgeInsetsGeometry padding;
+  final TextStyle? labelStyle;
+  final AlignmentGeometry valueAlignment;
+  final TextAlign valueTextAlign;
 
   @override
   Widget build(BuildContext context) {
     return SettleoraKeyValueRow(
       label: label,
       labelWidth: labelWidth,
-      value: Text(value, textAlign: TextAlign.end),
+      spacing: spacing,
+      padding: padding,
+      labelStyle: labelStyle,
+      valueAlignment: valueAlignment,
+      value: Text(value, textAlign: valueTextAlign),
     );
   }
 }
@@ -536,18 +557,30 @@ class SettleoraKeyValueMoneyText extends StatelessWidget {
     required this.amount,
     required this.currencyCode,
     this.labelWidth = 112,
+    this.spacing = 10,
+    this.padding = const EdgeInsets.symmetric(vertical: 3),
+    this.labelStyle,
+    this.valueAlignment = Alignment.centerRight,
   });
 
   final String label;
   final String amount;
   final String currencyCode;
   final double labelWidth;
+  final double spacing;
+  final EdgeInsetsGeometry padding;
+  final TextStyle? labelStyle;
+  final AlignmentGeometry valueAlignment;
 
   @override
   Widget build(BuildContext context) {
     return SettleoraKeyValueRow(
       label: label,
       labelWidth: labelWidth,
+      spacing: spacing,
+      padding: padding,
+      labelStyle: labelStyle,
+      valueAlignment: valueAlignment,
       value: MoneyText(
         amount: amount,
         currencyCode: currencyCode,

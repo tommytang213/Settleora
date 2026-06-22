@@ -305,7 +305,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel(label: 'Loading groups');
+              return const SettleoraLoadingPanel(label: 'Loading groups');
             }
 
             final failure = _failure;
@@ -324,7 +324,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                   ],
                   if (_groups.isEmpty) ...[
                     const SizedBox(height: 56),
-                    _StatePanel(
+                    SettleoraStatePanel(
                       icon: Icons.groups_outlined,
                       title: 'No groups',
                       message: widget.openGroupBillCreateOnPick
@@ -352,7 +352,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                     ),
                     const SizedBox(height: 14),
                     if (filteredGroups.isEmpty)
-                      const _StatePanel(
+                      const SettleoraStatePanel(
                         icon: Icons.filter_alt_off_outlined,
                         title: 'No matching groups',
                         message:
@@ -822,7 +822,7 @@ class _SettleoraGroupDetailScreenState
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel(label: 'Loading group');
+              return const SettleoraLoadingPanel(label: 'Loading group');
             }
 
             final failure = _loadFailure;
@@ -857,8 +857,9 @@ class _SettleoraGroupDetailScreenState
                     onOpenGroupBills: () => _openGroupBills(group),
                   ),
                   const SizedBox(height: 22),
-                  _Section(
+                  SettleoraSection(
                     title: 'Add Member',
+                    spacing: 10,
                     children: [
                       TextField(
                         key: const Key('group-member-profile-id'),
@@ -919,11 +920,12 @@ class _SettleoraGroupDetailScreenState
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _Section(
+                  SettleoraSection(
                     title: 'Members',
+                    spacing: 10,
                     children: [
                       if (_members.isEmpty)
-                        const _StatePanel(
+                        const SettleoraStatePanel(
                           icon: Icons.people_outline,
                           title: 'No members',
                           message: 'No active members are visible.',
@@ -944,7 +946,7 @@ class _SettleoraGroupDetailScreenState
                         ),
                         const SizedBox(height: 14),
                         if (filteredMembers.isEmpty)
-                          const _StatePanel(
+                          const SettleoraStatePanel(
                             icon: Icons.person_search_outlined,
                             title: 'No matching members',
                             message:
@@ -1331,15 +1333,15 @@ class _GroupDetailHeader extends StatelessWidget {
       children: [
         Text(group.displayName, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 10),
-        _KeyValueText(
+        SettleoraKeyValueText(
           label: 'Role',
           value: settleoraGroupRoleLabel(group.currentUserRole),
         ),
-        _KeyValueText(
+        SettleoraKeyValueText(
           label: 'Status',
           value: settleoraGroupMembershipStatusLabel(group.currentUserStatus),
         ),
-        _KeyValueText(
+        SettleoraKeyValueText(
           label: 'Updated',
           value: _formatTimestamp(group.updatedAtUtc),
         ),
@@ -1420,7 +1422,7 @@ class _FailurePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: _failureIcon(failure.kind),
       title: failure.title,
       message: failure.message,
@@ -1457,127 +1459,6 @@ class _InlineFailure extends StatelessWidget {
             Expanded(child: Text(failure.message)),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _StatePanel extends StatelessWidget {
-  const _StatePanel({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.action,
-    this.compact = false,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final Widget? action;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: compact ? 28 : 42,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        SizedBox(height: compact ? 8 : 14),
-        Text(
-          title,
-          style: compact
-              ? Theme.of(context).textTheme.titleMedium
-              : Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 6),
-        Text(message, textAlign: TextAlign.center),
-        if (action != null) ...[const SizedBox(height: 14), action!],
-      ],
-    );
-
-    if (compact) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: content,
-      );
-    }
-
-    return Center(
-      child: Padding(padding: const EdgeInsets.all(24), child: content),
-    );
-  }
-}
-
-class _LoadingPanel extends StatelessWidget {
-  const _LoadingPanel({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 14),
-          Text(label),
-        ],
-      ),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
-
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 10),
-        ...children,
-      ],
-    );
-  }
-}
-
-class _KeyValueText extends StatelessWidget {
-  const _KeyValueText({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 112,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(value, textAlign: TextAlign.end)),
-        ],
       ),
     );
   }
