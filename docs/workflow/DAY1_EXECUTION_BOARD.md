@@ -184,6 +184,17 @@ Manual gates are required before implementation or merge when work touches:
 
 Manual-gated issues should carry `manual-gate` plus the specific risk label, for example `risk:money`, `risk:storage-authz`, `risk:auth-security`, `risk:migration`, or `risk:openapi`.
 
+### Mobile Release Gate
+
+Codemagic, TestFlight, App Store, Play Store, production, and public mobile
+release actions are manual-only. The release evidence and sign-off checklist is
+defined in [Codemagic/TestFlight setup](CODEMAGIC_TESTFLIGHT_SETUP.md) for
+#383 under parent epic #380. Codex may prepare docs, PRs, and validation
+reports, but must not submit to TestFlight, App Store, or Play Store; change
+signing secrets; expose production/public infrastructure; trigger
+production/mobile-store releases; or bypass manual gates without a future
+explicit human approval task.
+
 ### OpenAPI / Generated-Client Gate
 
 Issues that touch OpenAPI contracts, generated client output, or client
