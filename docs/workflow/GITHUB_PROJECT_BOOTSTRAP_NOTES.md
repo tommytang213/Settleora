@@ -5,6 +5,8 @@
 - `docs/workflow/DAY1_EXECUTION_BOARD.md` defines the board workflow, statuses, fields, labels, views, gates, Codex queue, and bundle planning.
 - `tools/github/day1-board-seed.json` is the seed source of truth for labels, project metadata, epics, and initial feature/task issues.
 - `tools/github/bootstrap-day1-board.sh` applies the seed idempotently through `gh`.
+- `tools/github/sync-day1-board-fields.py` populates supported Project field values for existing seeded items and writes marker-bounded hierarchy sections to existing seeded issue bodies.
+- `docs/planning/DAY1_EXECUTION_COVERAGE_MATRIX.md` maps source-traceable Day 1 requirements to existing issues and missing issue candidates for review before backlog expansion.
 - `tools/github/README.md` documents local usage and safety behavior.
 
 ## Project Target
@@ -19,6 +21,16 @@ The bootstrap script first validates the seed JSON, then creates or reuses label
 
 When Project access is available, the script creates or reuses the target Project, creates or reuses the supported Project fields, updates the default `Status` field options to the Day 1 status list when needed, and adds seeded issue URLs to the Project if missing. GitHub Project view creation is not automated because the current `gh project` commands and GitHub GraphQL mutation schema do not expose a safe idempotent ProjectV2 view create/update operation.
 
+After bootstrap, run:
+
+```bash
+python3 tools/github/sync-day1-board-fields.py
+```
+
+This sync command sets supported field values from `tools/github/day1-board-seed.json` and issue labels. It deliberately does not invent priority, progress, bundle, or man-day estimates when the seed has no reliable values. The current `gh issue edit` command does not expose a safe sub-issue flag, so the command uses an idempotent Markdown hierarchy fallback in existing issue bodies until a supported sub-issue API path is verified.
+
+The current 64 seeded issues are only an initial execution-board skeleton. They must not be treated as proof that Day 1 is fully planned or complete; use the coverage matrix before generating missing issues.
+
 ## Idempotency Rules
 
 The script is designed for safe re-runs:
@@ -32,6 +44,7 @@ The script is designed for safe re-runs:
 - Seeded issues are added to the Project by URL when missing.
 - Project mutation is conservative and stops when permissions are missing.
 - Project views remain a manual configuration step until GitHub exposes a supported idempotent API.
+- Field/hierarchy sync rewrites only marker-bounded hierarchy sections and supported Project fields for existing seeded items.
 
 ## Existing Issue Reuse
 
