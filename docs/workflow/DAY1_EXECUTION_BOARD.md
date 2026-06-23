@@ -8,6 +8,9 @@ The board tracks epics, features, tasks, bugs, hardening, design, and documentat
 
 The current 64 seeded issues are an initial execution-board skeleton, not complete Day 1 backlog coverage. Review [Day 1 execution coverage matrix](../planning/DAY1_EXECUTION_COVERAGE_MATRIX.md) and [Day 1 decision register](../planning/DAY1_DECISION_REGISTER.md) before creating any expanded missing-issue backlog.
 
+For weekly PWT baseline, burndown, blocker-load, and GitHub Project Insights
+tracking, use [Day 1 PWT burndown tracking](DAY1_PWT_BURNDOWN_TRACKING.md).
+
 ## Statuses
 
 Recommended project statuses:
