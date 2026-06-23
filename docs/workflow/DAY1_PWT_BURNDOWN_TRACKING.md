@@ -19,6 +19,14 @@ movement over time.
 | Term | Definition |
 |---|---|
 | `Man-days Remaining` | Current remaining estimate on a Project item. It is not original size and should change only when scope, estimate, or completion state genuinely changes. |
+| `Initial MD` / `Baseline MD` | Original task or child-item estimate captured before work starts. It feeds expected-vs-actual reporting and must not be overwritten when remaining work changes. |
+| `Planned Start` | Planning date when the task is expected to begin. It is a target for PWT tracking, not a promise. |
+| `Target Finish` | Planning target date derived from estimate, risk, dependency state, and PWT cadence. It must not hide blockers or fake readiness. |
+| `Actual Done Date` | Date the task/report/PR reached the agreed done state. |
+| `Target PWT Week` / `Iteration` | Week or iteration bucket used to compare expected progress with actual completion. |
+| `Blocking Gate` | Current pre-work or pre-merge blocker, such as product decision, technical design, Figma/reference, architecture review, security, money, storage/privacy, API/OpenAPI, sync, migration, deployment, or manual approval. |
+| `Gate Owner` | Owner of the blocking gate. Tommy owns product/trust/scope/UX approvals and explicit disagreements; Assistant/Codex owns technical design, slicing, validation planning, and implementation breakdown. |
+| `Forecast Status` / `Ahead/Behind` | Outcome classification from the task report: `Ahead`, `On track`, `Behind`, or `Not applicable`. |
 | Full-board total | Sum of `Man-days Remaining` for all open Day 1 issue items that carry an estimate, excluding blank parent/split tracking items so work is not double counted. |
 | Target-subset total | Sum of `Man-days Remaining` for a named subset, such as one technical gate packet, one area, one bundle, or one status filter. It must never be presented as the full-board total. |
 | Baseline MD | The tracked remaining MD value chosen as the starting point for a burndown series. The baseline must record date, query/filter, and exclusions. |
@@ -28,6 +36,42 @@ movement over time.
 | Net remaining MD | Current remaining MD after completion, additions, removals/deferments, and estimate changes. |
 | Velocity | Rolling average completed MD per week. Use completed MD, not net burn, when scope is changing. |
 | Projected finish | Forecast date based on current remaining MD divided by rolling velocity. It is invalid when velocity is zero or estimates are incomplete. |
+| Scope change | Added MD minus removed/deferred MD for the tracked set. |
+| Ahead/behind variance | Task/report `Ahead/Behind` plus weekly cumulative variance between planned MD/target dates and actual done dates/remaining MD deltas. |
+
+## Planning Metadata Inputs
+
+Every future Codex task should include the `Planning metadata` block from
+[Codex task guide](CODEX_TASK_GUIDE.md), and every report should include the
+`Planning outcome` block. PWT tracking uses those task/report fields as the
+source for forecast charts.
+
+Task metadata contributes:
+
+- `Initial MD estimate` -> `Initial MD` / `Baseline MD`.
+- `Estimate confidence` -> `Estimate Confidence`.
+- `Planned start` -> `Planned Start`.
+- `Target finish` -> `Target Finish`.
+- `Target PWT week / iteration` -> `Target PWT Week` / `Iteration`.
+- `Blocking gate before task` and `Blocking gate expected after task` ->
+  `Blocking Gate`.
+- `Gate owner` -> `Gate Owner`.
+- `Expected Project status after completion` -> expected status movement.
+- `Expected burndown impact` -> expected remaining-MD movement.
+
+Report outcomes contribute:
+
+- `Actual elapsed` and `Actual Done Date` evidence for actual progress.
+- `Estimate change` and `Remaining MD delta` for scope and remaining-MD
+  movement.
+- `Target finish met` and `Ahead/behind` for forecast status.
+- `Project fields that should be updated` as recommendations unless the task
+  explicitly allows Project mutation.
+- `New blockers` and `Next target date recommendation` for the next PWT plan.
+
+Do not mutate GitHub Project fields during a read-only snapshot or docs task.
+A separate GitHub Project field-sync task may create/populate the recommended
+fields after Tommy approves that mutation.
 
 ## Current Baseline
 
@@ -101,6 +145,15 @@ estimates before they are used in a PWT velocity forecast.
   gaps are filled.
 - Parent epics and split-parent planning issues intentionally stay blank when
   child issues carry the estimate. Do not estimate both parent and children.
+- `Initial MD` / `Baseline MD` and `Man-days Remaining` serve different
+  purposes. Preserve the initial estimate for expected-vs-actual reporting and
+  update remaining MD only when the current remaining work changes.
+- `Target Finish` is a planning target, not a delivery promise. Missed targets,
+  failed validation, expanded scope, and unresolved blockers must be reported
+  as behind or blocked rather than hidden by date edits.
+- For docs/report-only tasks and PR/merge-gate tasks, carry small estimates so
+  planning capacity is visible. Gate overhead is usually `S = 1 MD` unless CI
+  or manual risk makes `M = 2 MD` more honest.
 - Statuses are blocker-heavy: no item has estimated MD in `Ready for Codex`,
   `Codex Running`, `Report Uploaded`, `PR Ready`, `CI / Merge Gate`, or `Merged`.
 - The current baseline is a planning baseline, not proof of progress,
@@ -138,12 +191,19 @@ historical rows are not lost.
 | Removed/Deferred Scope MD | MD explicitly removed or deferred with issue references. |
 | Completed MD | Formula-derived completed MD. |
 | Net Burn MD | Previous remaining minus current remaining. |
+| Scope Change MD | Added scope MD minus removed/deferred scope MD. |
 | Rolling Velocity MD/Week | Rolling average completed MD per week. |
 | Projected Remaining Weeks | Current remaining divided by rolling velocity. |
 | Projected Finish Date | Snapshot date plus projected remaining weeks. |
+| Planned MD Due This Week | Sum of initial/baseline MD whose target finish falls in the snapshot week. |
+| Actual MD Done This Week | Sum of completed remaining-MD deltas or done item MD for the snapshot week, adjusted for scope changes. |
+| Cumulative Planned MD | Planned MD through this snapshot week. |
+| Cumulative Actual MD | Actual completed MD through this snapshot week. |
+| Ahead/Behind Variance | Cumulative actual MD minus cumulative planned MD, plus qualitative blocked/failed-validation notes. |
 | Ready for Codex Count | Count and issue numbers. |
 | Figma Queue Count / MD | Count and MD for Figma/reference-required items. |
 | Manual Gate Count / MD | Count and MD for manual-gated items. |
+| Blocking Gate Breakdown | Count/MD by product decision, technical design, Figma/reference, architecture review, security, money, storage/privacy, API/OpenAPI, sync, migration, deployment, manual approval, and other blockers. |
 | Estimate Gaps | Blank non-parent estimate count and issue numbers. |
 | Notes | Decisions, caveats, and follow-up actions. |
 
@@ -170,20 +230,36 @@ projected finish date =
 
 scope creep =
   added scope MD - removed/deferred scope MD
+
+forecast status =
+  task/report ahead-behind plus weekly cumulative variance and blocker state
 ```
 
 Use completed MD for velocity because it adjusts for scope movement. Use net
 burn only to show how the visible remaining total changed.
 
+Burndown charts sum `Man-days Remaining` weekly. Expected-vs-actual charts
+compare planned target finish/planned MD to actual done date/remaining-MD
+delta. Forecast charts divide current remaining MD by rolling weekly completed
+MD. Scope-change charts use added MD minus removed/deferred MD. Ahead/behind
+charts combine task/report `Ahead/behind` with cumulative variance, validation
+outcomes, and remaining blocker state.
+
 ## Recommended Project Fields
 
-- `Man-days Remaining`
 - `Status`
 - `Area`
-- `Iteration` or `Week`
-- `Target Date`
+- `Initial MD` or `Baseline MD`
+- `Man-days Remaining`
+- `Estimate Confidence`
+- `Planned Start`
+- `Target Finish`
 - `Actual Done Date`
-- `Baseline MD` or equivalent
+- `Target PWT Week` / `Iteration`
+- `Blocking Gate`
+- `Gate Owner`
+- `Forecast Status` or `Ahead/Behind`
+- `Iteration` or `Week`
 - Optional: `Snapshot Week`
 - Optional: `Scope Change Type`
 - Optional: `PWT Notes`
@@ -207,9 +283,21 @@ execution state.
 
 - Chart type: line chart.
 - X-axis: `Snapshot Week`.
-- Series 1: planned/expected remaining MD.
-- Series 2: projected remaining MD based on rolling velocity.
+- Series 1: planned/expected remaining MD from `Initial MD` / `Baseline MD`,
+  `Target Finish`, and `Target PWT Week` / `Iteration`.
+- Series 2: actual remaining MD from weekly `Man-days Remaining` snapshots and
+  report `Remaining MD delta`.
+- Series 3, optional: projected remaining MD based on rolling velocity.
 - Keep projection notes with the rolling velocity window used.
+
+### Forecast Finish
+
+- Chart type: line chart or table.
+- Inputs: current `Man-days Remaining`, rolling completed MD/week, estimate
+  gaps, and active blocker count/MD.
+- Output: projected finish date.
+- Mark forecast invalid when velocity is zero, estimates are incomplete, or
+  manual gates dominate the remaining critical path.
 
 ### MD By Area
 
@@ -221,9 +309,13 @@ execution state.
 ### Blocker Load
 
 - Chart type: stacked bar.
-- Group by `Status`.
-- Include `Needs Decision`, `Needs Figma / Reference`, and `Blocked`.
+- Group by `Status` and `Blocking Gate`.
+- Include `Needs Product Decision`, `Needs Technical Design`,
+  `Needs Figma / Reference`, `Needs Architecture Review`, `Blocked`, and any
+  legacy `Needs Decision` items until the live Project taxonomy is migrated.
 - Add saved filters for `Manual Gate = Yes` and high-risk labels.
+- Review `Gate Owner` so Tommy is not treated as the owner of missing technical
+  design, schema/API slicing, validation planning, or implementation breakdown.
 
 ### Figma Queue
 
@@ -239,6 +331,15 @@ execution state.
   `CI / Merge Gate`, `Merged`.
 - Track count and MD. A healthy flow should not have unestimated ready items.
 
+### Ahead / Behind
+
+- Chart type: table or stacked bar.
+- Group by `Forecast Status` or `Ahead/Behind`.
+- Include task/report notes for missed target finish, failed validation, added
+  scope, unresolved blockers, or early completion.
+- Add a weekly cumulative variance line: cumulative actual completed MD minus
+  cumulative planned MD.
+
 ### Scope Change Snapshot
 
 - Chart type: table or stacked bar from weekly snapshots.
@@ -253,12 +354,16 @@ execution state.
    `Area`, and where appropriate `Man-days Remaining`.
 3. Leave parent epics and split-parent planning issues blank when child issues
    carry estimates.
-4. Add or maintain `Iteration`/`Week`, `Target Date`, `Actual Done Date`, and
-   optional snapshot fields if using Project-native charts.
-5. Create the Insights charts above with filters saved by name.
-6. Create a separate weekly snapshot table if Project Insights cannot preserve
+4. Add or maintain `Initial MD` / `Baseline MD`, `Estimate Confidence`,
+   `Planned Start`, `Target Finish`, `Actual Done Date`, `Target PWT Week` /
+   `Iteration`, `Blocking Gate`, `Gate Owner`, and `Forecast Status` /
+   `Ahead/Behind` if using Project-native charts.
+5. Keep `Target Finish` honest: adjust it only with an explanation, and do not
+   move blocked work forward to hide missed targets.
+6. Create the Insights charts above with filters saved by name.
+7. Create a separate weekly snapshot table if Project Insights cannot preserve
    historical aggregate rows.
-7. During PWT, record the snapshot before moving or re-estimating items so
+8. During PWT, record the snapshot before moving or re-estimating items so
    scope changes are explainable.
 
 ## Codex Weekly Snapshot Task Template

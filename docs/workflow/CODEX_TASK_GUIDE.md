@@ -19,6 +19,82 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 - Do not use `git add .`; stage explicit paths only.
 - Do not amend commits unless explicitly requested.
 
+## Standard Task Planning Metadata
+
+Every future Codex task file must include this block before implementation
+instructions:
+
+```markdown
+## Planning metadata
+
+- Work type:
+- Area:
+- Related issue(s):
+- Initial MD estimate:
+- Estimate basis:
+- Estimate confidence: Low / Medium / High
+- Planned start:
+- Target finish:
+- Target PWT week / iteration:
+- Expected Project status after completion:
+- Expected burndown impact:
+- Blocking gate before task:
+- Blocking gate expected after task:
+- Gate owner:
+- Figma/reference required: Yes / No
+- Manual approval required before merge: Yes / No
+```
+
+Fill the fields as follows:
+
+- `Work type`, `Area`, and `Related issue(s)` should match the Day 1 board
+  fields and labels where a Project item exists.
+- `Initial MD estimate` uses the coarse Day 1 man-day scale: `S = 1 MD`,
+  `M = 2 MD`, `L = 5 MD`. `XL` or split-parent work stays blank until split
+  into child tasks. Do not count a split parent and its children together.
+- Use `TBD` only when an estimate cannot be made safely, and state why in
+  `Estimate basis`.
+- Docs-only, audit-only, report-only, and workflow-only tasks still carry a
+  small MD estimate.
+- PR/merge-gate tasks estimate the gate overhead separately. Use `S = 1 MD`
+  unless CI, manual review, stale-branch, or merge-risk overhead makes `M`
+  more honest.
+- `Estimate basis` should name the relevant source docs, changed surface,
+  validation class, known blockers, and whether the estimate is a child task or
+  parent/split placeholder.
+- `Planned start`, `Target finish`, and `Target PWT week / iteration` are
+  planning targets for PWT tracking, not delivery promises.
+- For implementation bundles, derive `Target finish` from estimate, domain
+  risk, dependency state, validation class, manual gates, and the current PWT
+  cadence.
+- `Expected burndown impact` should say whether the task is expected to burn
+  MD, create/split estimates, change remaining MD, or produce no burn because
+  it is a read-only audit.
+- `Blocking gate before task` and `Blocking gate expected after task` must
+  distinguish product requirement/detail needed from Tommy, technical design
+  needed from Assistant/Codex, design/Figma reference needed, architecture,
+  security, money, storage, API/OpenAPI, sync, migration, deployment, manual
+  approval, and actual implementation readiness.
+- `Gate owner` must not default to Tommy for missing technical detail. Tommy
+  owns product behavior, trust/privacy expectations, Day 1 scope tradeoffs,
+  UX taste/approval, and explicit disagreements. Assistant/Codex owns technical
+  design recommendations, architecture packets, API/schema slicing,
+  security/money/storage/sync implementation planning, validation design, and
+  task breakdown. Figma/reference ownership depends on the visual artifact
+  review loop.
+- `Figma/reference required` is `Yes` for UI-sensitive work without an
+  approved screen, screenshot, design reference, or UX direction.
+- `Manual approval required before merge` is `Yes` for manual-gated domains
+  listed in this guide or in the task prompt.
+- Do not use target dates to hide blockers, fake progress, or move work to
+  `Ready for Codex` before gates are clear.
+
+Implementation readiness means the task has enough product requirements,
+technical design, architecture gates, Figma/reference gates, validation scope,
+and merge rules to start one focused branch. A task should block on Tommy only
+when a product, trust/privacy, Day 1 scope, UX approval, or explicit
+disagreement decision is required.
+
 ## Architecture Guardrails
 
 - The API owns core business database writes.
@@ -90,6 +166,52 @@ Settleora is currently in development stage with no production deployment. Futur
 Dev-stage auto-merge never means direct push to `main`, force push, skipped validation, skipped GitHub CI, merge of a dirty/stale/unstable/changed-head PR, or auto-merge of production, security, destructive, or otherwise manual-gated work.
 
 Manual gates remain required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
+
+## Standard Report Planning Outcome
+
+Every Codex report must include this block:
+
+```markdown
+## Planning outcome
+
+- Initial MD estimate:
+- Actual elapsed:
+- Estimate change:
+- Remaining MD delta:
+- Target finish met: Yes / No / Not applicable
+- Ahead/behind:
+- Project fields that should be updated:
+- New blockers:
+- Next target date recommendation:
+```
+
+Interpret the fields as follows:
+
+- `Initial MD estimate` repeats the task-file estimate so PWT snapshots can
+  compare baseline and outcome.
+- `Actual elapsed` records real elapsed time where known, or the task clock
+  window when exact labor time is unavailable.
+- `Estimate change` records whether the baseline was confirmed, increased,
+  decreased, split, or changed to/from `TBD`.
+- `Remaining MD delta` records the recommended change to `Man-days Remaining`
+  after the task. Use `0` for read-only audits or planning tasks that do not
+  burn an estimated implementation item.
+- `Target finish met` is `Not applicable` for read-only audits where no planned
+  burn or completion target was expected.
+- `Ahead/behind` values:
+  - `Ahead`: done earlier than target or burned more MD than planned without
+    adding scope.
+  - `On track`: target met or variance is within the agreed tolerance.
+  - `Behind`: target missed, validation failed, scope expanded, or blockers
+    remain.
+  - `Not applicable`: read-only audit where no planned burn was expected.
+- `Project fields that should be updated` is a recommendation only unless the
+  task explicitly allows GitHub Project mutation.
+- `New blockers` must separate product decisions, technical design,
+  Figma/reference, architecture/security/money/storage/API/sync gates, and
+  actual implementation readiness.
+- `Next target date recommendation` should be honest about blockers and should
+  not create a false target when the next step is a decision or gate.
 
 ## Final Report Format
 

@@ -18,8 +18,10 @@ Recommended project statuses:
 | Status | Meaning |
 |---|---|
 | `Inbox` | Captured but not triaged. |
-| `Needs Decision` | Requires product, architecture, or scope decision before implementation. |
+| `Needs Product Decision` | Requires Tommy to decide product behavior, trust/privacy expectations, Day 1 scope tradeoff, UX taste/approval, or an explicit disagreement before implementation. |
+| `Needs Technical Design` | Requires Assistant/Codex to produce technical design, architecture packet, API/schema slicing, validation plan, task breakdown, or implementation plan before coding. |
 | `Needs Figma / Reference` | UI-sensitive work needs Figma, screenshot, design reference, or UX direction first. |
+| `Needs Architecture Review` | Requires architecture, security, money, storage/privacy, API/OpenAPI, sync, migration, deployment, or other manual-gated review before implementation or merge. |
 | `Ready for Codex` | Scoped, labeled, and ready for one focused Codex task. |
 | `Codex Running` | A Codex branch/task is actively in progress. |
 | `Report Uploaded` | Codex report exists and the task is ready for human review or PR preparation. |
@@ -28,6 +30,16 @@ Recommended project statuses:
 | `Merged` | Work landed through an approved PR path. |
 | `Deferred Day 2/3` | Useful work intentionally deferred outside Day 1. |
 | `Blocked` | Work cannot proceed without a dependency, decision, permission, or manual gate. |
+
+If changing the live GitHub Project status options is risky, keep the current
+options temporarily and use `Blocking Gate`, `Gate Owner`, and labels to carry
+the cleaner taxonomy. A separate Project mutation task must apply any status
+option changes.
+
+`Needs Decision` must not become a catch-all. Use or map it only when the
+decision type is separately visible. Product requirement/detail gaps, technical
+design gaps, Figma/reference needs, architecture/security/money/storage/API/sync
+gates, and implementation readiness are different states with different owners.
 
 ## Project Fields
 
@@ -42,12 +54,65 @@ Recommended project fields:
 | `Priority` | Single select | `P0`, `P1`, `P2`, `P3`. |
 | `Risk` | Single select | `low`, `medium`, `high`, `manual-gate`. |
 | `Size` | Single select | `XS`, `S`, `M`, `L`, `XL`. |
+| `Initial MD` or `Baseline MD` | Number | Original task or child-item estimate for expected-vs-actual tracking. Use blank for split parents until child issues carry estimates. |
 | `Man-days Remaining` | Number | Current remaining estimate, not original estimate. |
+| `Estimate Confidence` | Single select | `Low`, `Medium`, `High`; mirrors task planning metadata. |
+| `Planned Start` | Date | Planning start date used for PWT target tracking. |
+| `Target Finish` | Date | Planning target, not a promise. Do not use it to hide blockers. |
+| `Actual Done Date` | Date | Date the item reached done/merged state, or report-complete date for docs/report-only items. |
+| `Target PWT Week` / `Iteration` | Iteration or text | Weekly PWT target bucket for expected-vs-actual charts. |
+| `Blocking Gate` | Single select or text | Product decision, technical design, Figma/reference, architecture review, security, money, storage/privacy, API/OpenAPI, sync, migration, deployment, manual approval, or none. |
+| `Gate Owner` | Single select | Tommy, Assistant/Codex, Figma/design loop, reviewer, CI/merge gate, external dependency, or none. |
+| `Forecast Status` or `Ahead/Behind` | Single select | `Ahead`, `On track`, `Behind`, `Not applicable`; comes from task reports. |
 | `Progress %` | Number | Human-maintained progress indicator. |
 | `Bundle ID` | Text | Groups 2-4 safe related sub-slices into one PR when appropriate. |
 | `Validation Class` | Single select | `docs-only`, `mobile-ui`, `api`, `openapi-client`, `storage`, `money`, `migration`, `deploy`, `full`. |
 | `Figma Required` | Single select or checkbox | Use for UI-sensitive work that needs visual reference first. |
 | `Manual Gate` | Single select or checkbox | Required for sensitive runtime, schema, release, or exposure work. |
+
+The fields above are recommendations for graphable planning. This document does
+not mutate the live GitHub Project. A separate GitHub Project field-sync task
+may add or populate fields if Tommy approves that mutation.
+
+Estimate rules:
+
+- `Initial MD` uses the coarse task scale from the Codex task guide:
+  `S = 1`, `M = 2`, `L = 5`.
+- `XL` and split parents stay blank or are split before estimation.
+- `Man-days Remaining` changes only when work is completed, scope changes,
+  estimates are corrected, or a parent is split into child estimates.
+- Do not double count parent and child estimates.
+- Docs-only, report-only, PR/merge-gate, and audit tasks still carry small
+  estimates when they consume planned capacity.
+
+## Gate Ownership
+
+Tommy owns product behavior, functional requirements, trust/privacy
+expectations, Day 1 scope tradeoffs, UX taste/approval, and explicit
+disagreements.
+
+Assistant/Codex owns technical design recommendations, architecture packets,
+API/schema slicing, security/money/storage/sync implementation planning,
+validation design, and task breakdown. No task should block on Tommy merely
+because technical implementation details are missing.
+
+Figma/reference ownership depends on the visual artifact review loop. If the
+visual direction is missing, use `Needs Figma / Reference`; if the visual
+direction exists but technical slicing is missing, use `Needs Technical Design`.
+
+Architecture/security/money/storage/API/sync gates must be explicit in
+`Blocking Gate` and should use `Needs Architecture Review` or `Blocked` until
+the gate is cleared. Only move work to `Ready for Codex` when product
+requirements, technical design, visual references, manual gates, validation
+scope, and implementation boundaries are clear enough for one focused branch.
+
+## Task And Report Planning Fields
+
+Future task prompts should carry the `Planning metadata` block defined in
+[Codex task guide](CODEX_TASK_GUIDE.md). Future reports should carry the
+`Planning outcome` block. The board fields above are the Project-facing version
+of those blocks and are intended to feed PWT burndown, expected-vs-actual,
+forecast, scope-change, and ahead/behind charts.
 
 ## Labels
 
@@ -98,10 +163,11 @@ Recommended board views:
 | `Day 1 Board` | Day 1 items grouped by `Status`. |
 | `Roadmap / Area` | Epics grouped by `Day Scope` or `Area` and ordered by priority. |
 | `Codex Queue` | `Ready for Codex`, `Codex Running`, and `Report Uploaded` items. |
-| `Blockers` | `Blocked`, `Needs Decision`, and manual-gate items. |
+| `Blockers` | `Blocked`, `Needs Product Decision`, `Needs Technical Design`, `Needs Architecture Review`, and manual-gate items. |
 | `Needs Figma` | Mobile/web/admin UI items where `Figma Required` is true or `figma:required` is present. |
 | `Risk View` | Items with `risk:*`, `manual-gate`, migration, storage/authz, auth/security, money, OpenAPI, deploy, or store-release risk. |
 | `Deferred Day 2/3` | Items with `Day Scope` outside Day 1 or status `Deferred Day 2/3`. |
+| `PWT Forecast` | Day 1 items grouped by `Target PWT Week` / `Iteration`, with `Initial MD`, `Man-days Remaining`, `Target Finish`, `Actual Done Date`, and `Forecast Status`. |
 
 ## Manual Gates
 
@@ -122,14 +188,18 @@ Manual-gated issues should carry `manual-gate` plus the specific risk label, for
 
 1. Triage an issue into the correct Day scope, area, type, risk, size, validation class, and status.
 2. Confirm required reading and architecture guardrails in the issue body.
-3. For PRD V5 versus MVP Day 1 conflicts, use the decision register and row-by-row matrix notes rather than silently promoting every broader PRD V5 item or narrowing every broader PRD V5 line.
-4. Move only safe, scoped items to `Ready for Codex`.
-5. Start one task branch per focused Codex task, based on current `origin/main` unless the task says otherwise.
-6. Keep product/runtime changes out of planning-only tasks.
-7. Run the validation requested by the issue and task prompt.
-8. Upload the Codex report and move the item to `Report Uploaded`.
-9. Open a PR only after the report is complete and scope guard is clean.
-10. Use normal GitHub PR merge gates. Do not push directly to `main`.
+3. Add the required planning metadata: initial MD estimate, estimate basis,
+   confidence, planned start, target finish, target PWT week/iteration,
+   expected status, expected burndown impact, blocking gates, gate owner,
+   Figma/reference need, and manual approval need.
+4. For PRD V5 versus MVP Day 1 conflicts, use the decision register and row-by-row matrix notes rather than silently promoting every broader PRD V5 item or narrowing every broader PRD V5 line.
+5. Move only safe, scoped items to `Ready for Codex`.
+6. Start one task branch per focused Codex task, based on current `origin/main` unless the task says otherwise.
+7. Keep product/runtime changes out of planning-only tasks.
+8. Run the validation requested by the issue and task prompt.
+9. Upload the Codex report with the planning outcome block and move the item to `Report Uploaded`.
+10. Open a PR only after the report is complete and scope guard is clean.
+11. Use normal GitHub PR merge gates. Do not push directly to `main`.
 
 ## Bundle Planning
 
