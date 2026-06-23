@@ -33,11 +33,12 @@
     ],
     "views": [
       "Day 1 Board",
-      "Roadmap",
+      "Roadmap / Area",
       "Codex Queue",
       "Blockers",
-      "UI/Figma",
-      "Risk View"
+      "Needs Figma",
+      "Risk View",
+      "Deferred Day 2/3"
     ]
   },
   "labels": [

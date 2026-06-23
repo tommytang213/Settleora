@@ -74,6 +74,7 @@ python3 -m json.tool "$SEED" >/dev/null
 
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
+ISSUE_URLS_FILE="$TMPDIR/seed-issue-urls.txt"
 
 PROJECT_TITLE="$(SEED="$SEED" python3 - <<'PY'
 import json, os
@@ -350,6 +351,7 @@ PY
     echo "ISSUE reused: #$number $title"
     add_missing_issue_labels "$number" "$current_labels" "$labels_csv"
     echo "ISSUE url: $url"
+    printf '%s\n' "$url" >>"$ISSUE_URLS_FILE"
     continue
   fi
 
@@ -361,6 +363,7 @@ PY
   create_output="$(gh issue create --repo "$REPO" --title "$title" --body-file "$body_file" --label "$labels_csv")"
   echo "ISSUE created: $title"
   echo "ISSUE url: $create_output"
+  printf '%s\n' "$create_output" >>"$ISSUE_URLS_FILE"
 done <"$ISSUES_JSONL"
 
 echo "== Project =="
@@ -381,16 +384,215 @@ for project in data.get("projects", []):
         break
 PY
 )"
+  project_json=""
   if [[ -n "$project_match" ]]; then
     echo "PROJECT reused: $project_match"
+    project_json="$project_match"
   elif [[ "$DRY_RUN" -eq 1 ]]; then
     echo "PROJECT would create: $PROJECT_TITLE"
   elif gh project create --owner "$OWNER" --title "$PROJECT_TITLE" --format json >"$TMPDIR/project-created.json" 2>"$TMPDIR/project-create-error.txt"; then
-    echo "PROJECT created: $(cat "$TMPDIR/project-created.json")"
+    project_json="$(cat "$TMPDIR/project-created.json")"
+    echo "PROJECT created: $project_json"
   else
     echo "PROJECT create blocked: gh project create --owner $OWNER --title \"$PROJECT_TITLE\" --format json"
     cat "$TMPDIR/project-create-error.txt"
   fi
 
-  echo "PROJECT field/view setup note: gh project field/view editing is not fully automated by this bootstrap. Configure fields and views from docs/workflow/DAY1_EXECUTION_BOARD.md if the CLI does not expose safe idempotent view mutation."
+  if [[ -n "$project_json" ]]; then
+    project_number="$(PROJECT_JSON="$project_json" python3 - <<'PY'
+import json, os
+print(json.loads(os.environ["PROJECT_JSON"])["number"])
+PY
+)"
+    refresh_project_fields() {
+      gh project field-list "$project_number" --owner "$OWNER" --format json --limit 100 >"$TMPDIR/project-fields.json"
+    }
+
+    field_match() {
+      local field_name="$1"
+      FIELD_NAME="$field_name" python3 - "$TMPDIR/project-fields.json" <<'PY'
+import json, os, sys
+name = os.environ["FIELD_NAME"]
+with open(sys.argv[1], encoding="utf-8") as f:
+    data = json.load(f)
+for field in data.get("fields", []):
+    if field.get("name") == name:
+        print(json.dumps(field))
+        break
+PY
+    }
+
+    field_option_names() {
+      FIELD_JSON="$1" python3 - <<'PY'
+import json, os
+field = json.loads(os.environ["FIELD_JSON"])
+print(",".join(option.get("name", "") for option in field.get("options", [])))
+PY
+    }
+
+    write_single_select_options_json() {
+      local options_csv="$1"
+      local output_path="$2"
+      OPTIONS_CSV="$options_csv" python3 - "$output_path" <<'PY'
+import json, os, sys
+palette = ["GRAY", "BLUE", "GREEN", "YELLOW", "ORANGE", "RED", "PINK", "PURPLE"]
+options = []
+for index, name in enumerate([value for value in os.environ["OPTIONS_CSV"].split(",") if value]):
+    options.append({
+        "name": name,
+        "color": palette[index % len(palette)],
+        "description": ""
+    })
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(options, f)
+PY
+    }
+
+    update_single_select_options() {
+      local field_id="$1"
+      local options_csv="$2"
+      local options_file="$TMPDIR/single-select-options.json"
+      local graphql_file="$TMPDIR/update-field-options.json"
+
+      write_single_select_options_json "$options_csv" "$options_file"
+      FIELD_ID="$field_id" OPTIONS_FILE="$options_file" GRAPHQL_FILE="$graphql_file" python3 - <<'PY'
+import json, os
+with open(os.environ["OPTIONS_FILE"], encoding="utf-8") as f:
+    options = json.load(f)
+payload = {
+    "query": """
+mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]) {
+  updateProjectV2Field(input: {fieldId: $fieldId, singleSelectOptions: $options}) {
+    projectV2Field {
+      ... on ProjectV2SingleSelectField {
+        id
+        name
+        options {
+          name
+        }
+      }
+    }
+  }
+}
+""",
+    "variables": {
+        "fieldId": os.environ["FIELD_ID"],
+        "options": options,
+    },
+}
+with open(os.environ["GRAPHQL_FILE"], "w", encoding="utf-8") as f:
+    json.dump(payload, f)
+PY
+      gh api graphql --input "$graphql_file" >/dev/null
+    }
+
+    create_or_reuse_project_field() {
+      local name="$1"
+      local data_type="$2"
+      local options_csv="${3:-}"
+      local field_json
+
+      field_json="$(field_match "$name")"
+      if [[ -n "$field_json" ]]; then
+        if [[ "$data_type" == "SINGLE_SELECT" && -n "$options_csv" ]]; then
+          current_options="$(field_option_names "$field_json")"
+          if [[ "$current_options" == "$options_csv" ]]; then
+            echo "PROJECT FIELD reused: $name"
+            return
+          fi
+
+          field_id="$(FIELD_JSON="$field_json" python3 - <<'PY'
+import json, os
+print(json.loads(os.environ["FIELD_JSON"])["id"])
+PY
+)"
+          if [[ "$DRY_RUN" -eq 1 ]]; then
+            echo "PROJECT FIELD would update options: $name [$options_csv]"
+            return
+          fi
+
+          update_single_select_options "$field_id" "$options_csv"
+          refresh_project_fields
+          echo "PROJECT FIELD updated options: $name"
+          return
+        fi
+
+        echo "PROJECT FIELD reused: $name"
+        return
+      fi
+
+      if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "PROJECT FIELD would create: $name ($data_type)"
+        return
+      fi
+
+      if [[ "$data_type" == "SINGLE_SELECT" ]]; then
+        gh project field-create "$project_number" --owner "$OWNER" --name "$name" --data-type "$data_type" --single-select-options "$options_csv" --format json >/dev/null
+      else
+        gh project field-create "$project_number" --owner "$OWNER" --name "$name" --data-type "$data_type" --format json >/dev/null
+      fi
+      refresh_project_fields
+      echo "PROJECT FIELD created: $name"
+    }
+
+    echo "== Project fields =="
+    refresh_project_fields
+    create_or_reuse_project_field "Work Type" "SINGLE_SELECT" "epic,feature,task,bug,hardening,design,docs"
+    create_or_reuse_project_field "Area" "SINGLE_SELECT" "auth,bills,ocr,settlement,sync,storage,mobile-ui,web-user,web-admin,infra,qa"
+    create_or_reuse_project_field "Day Scope" "SINGLE_SELECT" "Day 1,Day 2,Day 3"
+    create_or_reuse_project_field "Status" "SINGLE_SELECT" "Inbox,Needs Decision,Needs Figma / Reference,Ready for Codex,Codex Running,Report Uploaded,PR Ready,CI / Merge Gate,Merged,Deferred Day 2/3,Blocked"
+    create_or_reuse_project_field "Priority" "SINGLE_SELECT" "P0,P1,P2,P3"
+    create_or_reuse_project_field "Risk" "SINGLE_SELECT" "low,medium,high,manual-gate"
+    create_or_reuse_project_field "Size" "SINGLE_SELECT" "XS,S,M,L,XL"
+    create_or_reuse_project_field "Man-days Remaining" "NUMBER"
+    create_or_reuse_project_field "Progress %" "NUMBER"
+    create_or_reuse_project_field "Bundle ID" "TEXT"
+    create_or_reuse_project_field "Validation Class" "SINGLE_SELECT" "docs-only,mobile-ui,api,openapi-client,storage,money,migration,deploy,full"
+    create_or_reuse_project_field "Figma Required" "SINGLE_SELECT" "No,Yes"
+    create_or_reuse_project_field "Manual Gate" "SINGLE_SELECT" "No,Yes"
+
+    echo "== Project items =="
+    gh project item-list "$project_number" --owner "$OWNER" --format json --limit 1000 >"$TMPDIR/project-items.json"
+    python3 - "$TMPDIR/project-items.json" "$ISSUE_URLS_FILE" >"$TMPDIR/missing-project-item-urls.txt" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    items = json.load(f).get("items", [])
+existing = set()
+for item in items:
+    for key in ("content", "item"):
+        value = item.get(key)
+        if isinstance(value, dict) and value.get("url"):
+            existing.add(value["url"])
+    if item.get("url"):
+        existing.add(item["url"])
+with open(sys.argv[2], encoding="utf-8") as f:
+    wanted = [line.strip() for line in f if line.strip()]
+for url in wanted:
+    if url not in existing:
+        print(url)
+PY
+    missing_item_count="$(wc -l <"$TMPDIR/missing-project-item-urls.txt" | tr -d ' ')"
+    existing_item_count="$(python3 - "$ISSUE_URLS_FILE" "$TMPDIR/missing-project-item-urls.txt" <<'PY'
+import sys
+wanted = {line.strip() for line in open(sys.argv[1], encoding="utf-8") if line.strip()}
+missing = {line.strip() for line in open(sys.argv[2], encoding="utf-8") if line.strip()}
+print(len(wanted - missing))
+PY
+)"
+    echo "PROJECT ITEMS already present: $existing_item_count"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      echo "PROJECT ITEMS would add: $missing_item_count"
+    else
+      while IFS= read -r issue_url; do
+        [[ -z "$issue_url" ]] && continue
+        gh project item-add "$project_number" --owner "$OWNER" --url "$issue_url" --format json >/dev/null
+        echo "PROJECT ITEM added: $issue_url"
+      done <"$TMPDIR/missing-project-item-urls.txt"
+      echo "PROJECT ITEMS added: $missing_item_count"
+    fi
+
+    echo "== Project views =="
+    echo "PROJECT VIEWS unsupported: gh project has no view-create command and the current GitHub GraphQL mutation schema exposes no ProjectV2 view create/update mutation."
+    echo "PROJECT VIEW manual targets: Day 1 Board; Roadmap / Area; Codex Queue; Blockers; Needs Figma; Risk View; Deferred Day 2/3."
+  fi
 fi
