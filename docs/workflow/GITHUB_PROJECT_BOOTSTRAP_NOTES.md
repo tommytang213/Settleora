@@ -17,6 +17,8 @@ Project title: Settleora Day 1 Execution Board
 
 The bootstrap script first validates the seed JSON, then creates or reuses labels and issues. GitHub Project creation/configuration is attempted only when `gh project` can access Projects for the owner. If the authenticated token lacks `read:project` or `project` scope, the script reports the blocker and continues with label/issue bootstrap unless `--skip-project` is supplied.
 
+When Project access is available, the script creates or reuses the target Project, creates or reuses the supported Project fields, updates the default `Status` field options to the Day 1 status list when needed, and adds seeded issue URLs to the Project if missing. GitHub Project view creation is not automated because the current `gh project` commands and GitHub GraphQL mutation schema do not expose a safe idempotent ProjectV2 view create/update operation.
+
 ## Idempotency Rules
 
 The script is designed for safe re-runs:
@@ -26,7 +28,10 @@ The script is designed for safe re-runs:
 - Existing issues are not closed, deleted, retitled, or body-rewritten.
 - Missing expected labels are added to reused issues.
 - Existing labels are not deleted.
+- Project fields are created or reused by exact name.
+- Seeded issues are added to the Project by URL when missing.
 - Project mutation is conservative and stops when permissions are missing.
+- Project views remain a manual configuration step until GitHub exposes a supported idempotent API.
 
 ## Existing Issue Reuse
 
@@ -57,6 +62,7 @@ Do not paste tokens into the repo or task prompt. Do not commit local GitHub aut
 
 - It does not implement product code.
 - It does not change OpenAPI, generated clients, schema, migrations, runtime auth, storage bytes, money logic, CI, Docker, deployment, or mobile/web/admin UI.
+- It does not create or update Project views through an unsupported API path.
 - It does not mark Day 1 acceptance as passed.
 - It does not auto-merge to `main`.
 - It does not delete branches, labels, issues, project fields, or views.

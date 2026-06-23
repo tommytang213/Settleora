@@ -91,11 +91,12 @@ Recommended board views:
 | View | Filter/grouping intent |
 |---|---|
 | `Day 1 Board` | Day 1 items grouped by `Status`. |
-| `Roadmap` | Epics grouped by `Day Scope` and ordered by priority. |
+| `Roadmap / Area` | Epics grouped by `Day Scope` or `Area` and ordered by priority. |
 | `Codex Queue` | `Ready for Codex`, `Codex Running`, and `Report Uploaded` items. |
 | `Blockers` | `Blocked`, `Needs Decision`, and manual-gate items. |
-| `UI/Figma` | Mobile/web/admin UI items where `Figma Required` is true or `figma:required` is present. |
+| `Needs Figma` | Mobile/web/admin UI items where `Figma Required` is true or `figma:required` is present. |
 | `Risk View` | Items with `risk:*`, `manual-gate`, migration, storage/authz, auth/security, money, OpenAPI, deploy, or store-release risk. |
+| `Deferred Day 2/3` | Items with `Day Scope` outside Day 1 or status `Deferred Day 2/3`. |
 
 ## Manual Gates
 
@@ -149,4 +150,5 @@ The bootstrap seed uses stable issue titles and labels. Re-running the bootstrap
 - Add only missing expected labels to reused issues.
 - Avoid closing, deleting, or rewriting unrelated issues.
 - Avoid deleting labels.
-- Avoid changing project fields or views unless the script created them and can safely identify them.
+- Reuse Project fields and items by title/URL where possible.
+- Avoid changing project views unless GitHub exposes a safe idempotent create/update API for views.
