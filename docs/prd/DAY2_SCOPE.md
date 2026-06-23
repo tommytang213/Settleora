@@ -2,7 +2,11 @@
 
 ## Purpose
 
-Day 2 adds high-value product capabilities after the Day 1 MVP is usable. These features improve multi-currency support, group workflows, settlement quality, reconciliation, statement checking, payment handoff, payment-provider integration, and user adoption.
+Day 2 adds high-value product capabilities after the Day 1 MVP is usable. These features improve multi-currency support, group workflows, settlement quality, reconciliation, statement checking, payment-request handoff, and user adoption. Payment provider integration remains Day 3/future unless separately approved.
+
+Tommy's Day 1 decisions mean Day 2 is not the first existence of passkeys/MFA, friends/direct sharing, push/email notification channels, or Basic/Guided/Advanced/Help-me-decide experience mode baseline. Day 2 may still add deeper policy, provider, preference, role, guest/member, and UX polish around those areas.
+
+Payment provider integration such as PayPal, FPS/HKQR generation, provider payment attempts, provider webhooks, and provider-generated payment instructions is Day 3/future unless separately approved. AI insights are future/Day 3+ and are not approved as a Day 1 or Day 2 blocker.
 
 Day 2 features should still be production-shaped. They should be implemented through focused branches with explicit validation.
 
@@ -46,6 +50,8 @@ Default common currency universe should start with USD, EUR, JPY, GBP, CNY, AUD,
 ### 2. Guest / accountless group members
 
 Support group members who do not have accounts yet.
+
+Day 1 still includes minimal temporary participants for practical receipt capture and approved friend/direct sharing for registered users. Day 2 guest/accountless group members expand that baseline into fuller guest/member behavior.
 
 Capabilities:
 
@@ -152,6 +158,8 @@ Capabilities:
 - Role-based group management.
 - API-enforced authorization.
 
+Day 1 may include friend/direct sharing and basic group roles. Day 2 can expand group roles, guest/member behavior, and invitation/link workflows without treating direct sharing as future-only.
+
 ### 9. Group invite links
 
 Support invite links.
@@ -168,6 +176,8 @@ Capabilities:
 ### 10. Settlement reminders
 
 Smarter reminders beyond Day 1 notification basics.
+
+Push and email notification channel baselines are Day 1 after Tommy's decision. Day 2 reminder work should add smarter timing, snooze, nudge, group-level controls, and preference polish rather than first push/email existence.
 
 Capabilities:
 
@@ -291,7 +301,9 @@ Trip/event behavior should start with group expense contexts before full nested 
 
 ### 19. Experience modes and advanced feature toggles
 
-Add user-facing experience presets while preserving one backend authority model.
+Expand user-facing experience presets and advanced feature toggles while preserving one backend authority model.
+
+Basic/Guided/Advanced/Help-me-decide mode baseline is Day 1 after Tommy's decision. Day 2 can add polish, additional advanced toggles, richer policy defaults, and dashboard customization beyond the Day 1 baseline.
 
 Recommended presets:
 
@@ -316,17 +328,17 @@ Capabilities:
 - Locale-aware formatting.
 - Translated notifications/errors where applicable.
 
-### 20. Dark mode / theme settings
+### 20. Theme settings
 
-Add theme preferences:
+Add theme preferences. Scope this as themes, not only dark mode; Day 2 may include multiple built-in themes if design and implementation are approved.
 
 - System default.
 - Light.
 - Dark.
 
-### 21. Notification preferences
+### 21. Notification preference polish
 
-Add user/group notification controls:
+Day 1 includes baseline admin policy, user preferences, quiet hours, digest/immediate options, per-event category preferences, and group mute. Day 2 can add deeper reminder and preference polish:
 
 - Mute group.
 - Per-event toggles.
@@ -389,9 +401,9 @@ Avoid in Day 2:
 - Silent mutation of expense records.
 - Full universal PDF parser.
 
-### 25. Payment instruction and provider integration
+### 25. Future Day 3+ payment instruction and provider integration
 
-Add payment-provider-aware settlement support after the Day 1 manual settlement flow exists.
+Payment-provider-aware settlement support is Day 3/future after the Day 1 manual settlement flow and Day 2 reconciliation foundations exist. This section records direction only; it is not a Day 2 implementation commitment.
 
 Capabilities:
 
@@ -467,9 +479,11 @@ Non-goals for initial payment integration:
 ## Day 2 non-goals
 
 - AI reporting.
+- AI insights, categorization, summaries, Q&A, anomaly explanation, or provider settings as Day 1/Day 2 blockers.
 - Bank account API sync.
 - Investment tracking.
 - Crypto trading rates.
 - Automatic financial record mutation from imported statements or provider events.
 - Cross-group debt simplification.
 - Direct bank/e-wallet payment initiation without explicit provider support and security review.
+- Payment provider integration such as PayPal/FPS QR generation, provider payment attempts, provider webhooks, or provider-generated payment instructions.

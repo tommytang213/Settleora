@@ -8,7 +8,7 @@ Settleora must protect sensitive user data without turning the first release int
 
 - Standard Secure Mode for most users.
 - Recoverable Private Vault for selected sensitive data.
-- A future-compatible path to Strict Private Vault.
+- A future/Day 3+ compatible path to Strict Private Vault.
 
 This document does not authorize implementation by itself. It defines architecture, data boundaries, recovery behavior, non-goals, and future implementation candidates.
 
@@ -47,7 +47,7 @@ require_recoverable_private_vault_for_sensitive_data
 allow_strict_private_vault_future
 ```
 
-Day 1 should allow users to choose between `standard_secure` and `recoverable_private_vault` when the deployment policy allows recoverable vault use. `strict_private_vault` remains future-compatible only unless a later implementation task explicitly approves it.
+Day 1 should allow users to choose between `standard_secure` and `recoverable_private_vault` when the deployment policy allows recoverable vault use. `strict_private_vault` remains Day 3/future-compatible only unless a later implementation task explicitly approves it.
 
 Day 1 must not require users to manually copy encryption keys between devices. Device onboarding should use trusted-device approval, recovery flow, or server-assisted rewrap depending on privacy mode.
 
@@ -57,7 +57,7 @@ Day 1 must not require users to manually copy encryption keys between devices. D
 |---|---:|---:|---:|---|
 | `standard_secure` | Yes | Yes | No | Most users |
 | `recoverable_private_vault` | Yes | Yes | Partial, not strict | Users who want stronger privacy without unrecoverable data loss |
-| `strict_private_vault` | Future | No unless recovery key/trusted device exists | Stronger | Advanced users who accept key-loss risk |
+| `strict_private_vault` | Day 3/future | No unless recovery key/trusted device exists | Stronger | Advanced users who accept key-loss risk |
 
 ### Standard Secure Mode
 
@@ -86,7 +86,7 @@ Characteristics:
 
 ### Strict Private Vault Future Mode
 
-Strict Private Vault is future-only. It is included so Day 1 architecture, data classification, envelope storage, audit categories, and backup warnings do not block a later strict mode, but it is not Day 1 runtime scope.
+Strict Private Vault is Day 3/future-only. It is included so Day 1 architecture, data classification, envelope storage, audit categories, and backup warnings do not block a later strict mode, but it is not Day 1 runtime scope.
 
 Characteristics:
 
@@ -134,6 +134,9 @@ Sensitive data should be admin-redacted and eligible for Recoverable Private Vau
 - private notes
 - full OCR raw text if stored
 - supporting attachments
+- other non-shared sensitive personal or financial data
+
+Data related to money or personal information that is not shared should generally be eligible for vault protection.
 
 ### Highly Sensitive Data
 
@@ -179,6 +182,7 @@ receipt original images
 receipt thumbnails where practical
 private notes
 full OCR raw text if stored
+other non-shared sensitive personal or financial data
 ```
 
 Day 1 Recoverable Private Vault should not protect core financial truth:
@@ -192,9 +196,12 @@ settlement states
 group membership
 audit metadata
 sync state
+core accounting records
 ```
 
 The API/domain layer remains authoritative for money, settlement, status transitions, authorization, audit, policy, and server-mode validation.
+
+Shared sensitive files and fields may be vault-protected only where the design preserves authorized access for the intended participants and does not move financial authority to clients.
 
 ## Key Model
 
