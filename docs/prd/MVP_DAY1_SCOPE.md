@@ -19,14 +19,22 @@ Day 1 can use simple/guided UI defaults where they reduce clutter, but experienc
 - User registration and login.
 - Local account foundation.
 - OIDC/Keycloak-compatible foundation where applicable.
-- Production-shaped passkey support.
-- Production-shaped MFA support.
+- First-owner bootstrap.
+- Admin-created users.
+- Invitation flow.
+- Public self-registration toggle, off by default.
+- Production-shaped passkey/WebAuthn support.
+- TOTP authenticator-app MFA.
+- Recovery codes.
+- Admin/security policy controls for MFA/passkey availability and enforcement.
 - Secure sessions and revocation-ready session model.
 - Device/session visibility.
 - Role and permission checks enforced by the API.
 - Security-impactful events captured through audit boundaries.
 
-Passkeys and MFA are Day 1 runtime scope, not only future foundation. Implementation must remain auth/security manual-gated and must use explicit schema, API/OpenAPI, generated-client, recovery, audit, and UI issue breakdowns before runtime work starts.
+Passkeys and MFA are Day 1 runtime scope, not only future foundation. Day 1 does not include SMS MFA. Implementation must remain auth/security manual-gated and must use explicit schema, API/OpenAPI, generated-client, recovery, audit, and UI issue breakdowns before runtime work starts. MFA is optional for normal users unless admin policy requires it; owners/admins should be required or strongly guided by default through admin/security policy. Raw MFA secrets, passkey private material, recovery codes, reusable challenge material, provider tokens, session tokens, and reset tokens must not appear in logs, API responses, generated clients, or audit metadata.
+
+Public self-registration must be easy for non-technical self-hosted admins to enable intentionally from admin/settings with clear warnings and audit, but invite/admin-created flows remain the safe defaults. Local accounts are available where policy allows. OIDC/Keycloak-compatible account flows remain configurable and must not store raw provider tokens in ordinary auth/profile tables.
 
 ### User profile and payment details
 
@@ -94,6 +102,9 @@ Payment method on a bill is optional. It is a hint for statement reconciliation,
 - Add and manage group members.
 - Approved friend request lifecycle.
 - Direct sharing that requires an approved friend relationship.
+- Configurable user discovery policy with exact-match discovery as the safe default.
+- No global browse-all-users directory by default.
+- Configurable friend-request approval, direct sharing permission, block/unfriend behavior, and payment-detail exposure rules.
 - Group member roles sufficient for Day 1.
 - Member access controlled by API authorization.
 - Group bills and balances.
@@ -101,7 +112,7 @@ Payment method on a bill is optional. It is a hint for statement reconciliation,
 - Minimal temporary/guest-like participants can be included in Day 1 bills where policy allows, without governance voting or account-level permissions until linked to a real account.
 - Users must not see expenses unrelated to them unless group policy and authorization permit it.
 
-Group-first sharing remains supported, but it is not the only Day 1 sharing model. Friends/direct sharing must be API-authorized, must avoid a global user directory by default, and must not make payment details globally visible.
+Group-first sharing remains supported, but it is not the only Day 1 sharing model. Friends/direct sharing must be API-authorized, must avoid a global user directory by default, and must not make payment details globally visible. Direct bill sharing is allowed only between approved friends or through approved group/shared context. Unfriend stops future sharing but preserves historical financial and audit records. Block stops friend requests, messages/comments where applicable, and future direct sharing. Payment details remain settlement/payment-context scoped by default; friend status alone does not expose payment details or QR files. Temporary participants can later link/claim to real accounts while preserving historical participation.
 
 ### Splitting
 
@@ -206,7 +217,7 @@ Day 1 should support lightweight trust workflows:
 
 ### Notifications
 
-Day 1 includes in-app notifications, mobile push notifications, and email notifications. In-app notifications remain the baseline channel. Push and email require explicit provider/device-token architecture, channel preference enforcement, and clear unsupported or unconfigured states when a deployment has not configured delivery.
+Day 1 includes in-app notifications, email notifications via SMTP configuration, mobile push notification provider abstraction, device token registration and revocation/lifecycle handling, admin-level notification channel policy and provider configuration, user-level notification preferences layered under admin policy, quiet hours, digest/immediate options, per-event category preferences, and group mute. In-app notifications remain the baseline channel. Push and email require explicit provider/device-token architecture, channel preference enforcement, and clear unsupported or unconfigured states when a deployment has not configured delivery.
 
 Required events:
 
@@ -224,7 +235,7 @@ Required events:
 - Important security/session event.
 - OCR completed/failed if server OCR is used.
 
-Channel preferences are Day 1 where required to avoid sending unwanted notifications. Notification content must remain privacy-safe, and security-relevant notification behavior should be auditable where appropriate.
+Notification preference resolution follows this rule: admin/system policy is the hard cap; user preference can narrow or select allowed channels but cannot enable a disabled channel; group mute/preferences can further reduce group-related notifications where policy allows. Security-critical events may bypass ordinary mute/digest rules only where security policy explicitly says so and audit/docs explain it. Notification content must remain privacy-safe, and security-relevant notification behavior should be auditable where appropriate.
 
 ### Recurring bills and forecasting basics
 
@@ -254,17 +265,37 @@ Day 1 includes:
 - Local backup/restore.
 - Group dashboard basics.
 
+### Web and admin surfaces
+
+Day 1 requires feature-complete user web and admin web surfaces for Day 1 capabilities, not merely operational placeholders.
+
+User web should cover Day 1 dashboard, bills, groups, friends/direct sharing, settlements, reports/search/export/import where platform-appropriate, profile/payment details, notifications, account/security settings, and sync/status surfaces where applicable.
+
+Admin web should cover Day 1 user/invite/registration policy, auth/security/MFA/passkey policy, notification provider policy, storage/upload/privacy-vault policy, audit viewing, health/logs/maintenance, backup/restore policy, and deployment-safe settings.
+
+Mobile remains the primary native camera/receipt capture experience, but web must still support platform-appropriate receipt/file upload and Day 1 workflows. UI-sensitive web/admin work still requires Figma/reference before implementation.
+
 ### Experience modes
 
-Day 1 includes a Basic/Advanced or Simple/Advanced experience mode baseline. A Guided or Recommended mode can be included where existing UX direction supports it.
+Day 1 first launch should present four options:
+
+```text
+basic
+advanced
+guided
+help_me_decide
+```
+
+Recommended user-facing labels are `Basic`, `Guided`, `Advanced`, and `Help me decide`. Keep enum/internal names stable and boring if implementation docs mention them.
 
 Experience mode requirements:
 
+- `help_me_decide` asks a short set of onboarding questions and recommends/enables the appropriate UI mode and feature visibility options.
 - Users can change the mode later.
 - Where feasible, users can enable one or two advanced feature areas without accepting every advanced feature.
-- Experience mode controls UI visibility and workflow depth only.
-- Required review states, conflicts, security warnings, and money-impacting approvals still surface in Basic/Simple mode.
-- Experience mode must not change backend authority, money calculations, authorization, storage access, audit, settlement state, sync truth, or API/domain ownership.
+- Experience modes affect UI/UX visibility, workflow depth, labels, guidance, and default screen complexity only.
+- Required review states, conflicts, approvals, errors, and security/privacy warnings still surface in Basic mode.
+- Experience modes must not change backend authority, functions, financial truth, money calculations, authorization, storage access, audit, settlement state, sync behavior, status transition rules, or API/domain ownership.
 
 Full dashboard builders, drag-drop widget customization, and complex per-user product builders remain later work unless separately approved.
 
@@ -280,20 +311,24 @@ Full dashboard builders, drag-drop widget customization, and complex per-user pr
 - Receipt, statement, payment proof, and QR files are sensitive application data.
 - Day 1 supports two user-selectable privacy modes where deployment/admin policy allows them: `standard_secure` and `recoverable_private_vault`.
 - Standard Secure Mode is the Day 1 default privacy mode.
-- Recoverable Private Vault is the Day 1 user-selectable direction for selected sensitive data such as payment details, private notes, receipt images, OCR raw text where stored, and settlement proof files.
+- Recoverable Private Vault is the Day 1 user-selectable direction for selected sensitive data such as payment details, QR/payment images, receipt images, OCR raw text where stored, settlement proof files, private notes, and other non-shared sensitive personal or financial data.
+- Data related to money or personal information that is not shared should generally be eligible for vault protection.
 - Users can choose or change privacy mode only within deployment/admin policy, including policies that disable vault features, allow Standard only, allow Recoverable Private Vault, or require Recoverable Private Vault for sensitive data.
-- Strict Private Vault is a future-compatible architecture path, not a Day 1 implementation unless explicitly requested later.
+- Strict Private Vault is a future-compatible Day 3/future architecture path, not a Day 1 implementation unless explicitly requested later.
 - Users should have a future migration path from Recoverable Private Vault to Strict Private Vault, including key rotation or re-wrapping, removal or disablement of recovery envelopes, audit events, clear warnings about recovery-key loss, and older backup retention caveats.
 - Core financial truth remains API/domain-authoritative: money, currency, split shares, settlement states, authorization, audit, sync state, and shared accounting truth must not move into client authority because of vault protection.
+- Shared sensitive files/fields may be vault-protected only where the design preserves authorized access for intended participants and does not move financial authority to clients.
 - Privacy vault architecture details are defined in [../architecture/PRIVACY_VAULT_ARCHITECTURE.md](../architecture/PRIVACY_VAULT_ARCHITECTURE.md).
 
 ### Sync and offline
 
 - Local-only profiles are locally authoritative.
 - Server-mode profiles are server-authoritative.
+- Local mode security is user-configurable and should support app PIN where feasible, biometric unlock where platform supports it, encrypted local storage where feasible, encrypted local backup/export where feasible, clear no-friends/groups/server-collaboration warning, and the ability to change local security settings later.
 - Offline changes queue locally.
 - Day 1 does not implement Settleora Cloud, but it must avoid making explicit export, import, backup, restore, or migration paths impossible later.
 - Local-only data and server/cloud data must not silently merge; any move between authority boundaries requires explicit user-approved migration or import/export.
+- Local mode security settings must not silently convert local-only data into server-mode account data.
 - Future Settleora Cloud compatibility does not reduce the Day 1 local-only or self-hosted scope.
 - Sync states include:
 
