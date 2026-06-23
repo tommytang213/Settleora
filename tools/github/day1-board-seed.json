@@ -1,0 +1,296 @@
+{
+  "project": {
+    "owner": "tommytang213",
+    "repository": "tommytang213/Settleora",
+    "title": "Settleora Day 1 Execution Board",
+    "statuses": [
+      "Inbox",
+      "Needs Decision",
+      "Needs Figma / Reference",
+      "Ready for Codex",
+      "Codex Running",
+      "Report Uploaded",
+      "PR Ready",
+      "CI / Merge Gate",
+      "Merged",
+      "Deferred Day 2/3",
+      "Blocked"
+    ],
+    "fields": [
+      "Work Type",
+      "Area",
+      "Day Scope",
+      "Status",
+      "Priority",
+      "Risk",
+      "Size",
+      "Man-days Remaining",
+      "Progress %",
+      "Bundle ID",
+      "Validation Class",
+      "Figma Required",
+      "Manual Gate"
+    ],
+    "views": [
+      "Day 1 Board",
+      "Roadmap",
+      "Codex Queue",
+      "Blockers",
+      "UI/Figma",
+      "Risk View"
+    ]
+  },
+  "labels": [
+    { "name": "area:auth", "color": "5319e7", "description": "Auth, identity, session, role, and security work" },
+    { "name": "area:bills", "color": "1d76db", "description": "Bills, expenses, splits, recurring bills, reports, import/export" },
+    { "name": "area:ocr", "color": "0e8a16", "description": "Receipt capture, OCR, review, and apply workflow" },
+    { "name": "area:settlement", "color": "fbca04", "description": "Settlement requests, payments, proof, balances, residuals" },
+    { "name": "area:sync", "color": "006b75", "description": "Offline queue, sync, conflict, local/server mode" },
+    { "name": "area:storage", "color": "0052cc", "description": "Storage abstraction, file metadata, file privacy, upload policy" },
+    { "name": "area:mobile-ui", "color": "c2e0c6", "description": "Flutter mobile UX and design system" },
+    { "name": "area:web-user", "color": "bfdadc", "description": "User web app" },
+    { "name": "area:web-admin", "color": "d4c5f9", "description": "Admin web app" },
+    { "name": "area:infra", "color": "b60205", "description": "CI, deployment, Docker, release, infrastructure" },
+    { "name": "area:qa", "color": "d93f0b", "description": "QA, E2E, regression, acceptance evidence" },
+    { "name": "type:epic", "color": "3f51b5", "description": "Top-level epic" },
+    { "name": "type:feature", "color": "a2eeef", "description": "Feature slice" },
+    { "name": "type:task", "color": "cfd3d7", "description": "Implementation or planning task" },
+    { "name": "type:bug", "color": "d73a4a", "description": "Bug fix" },
+    { "name": "type:hardening", "color": "f9d0c4", "description": "Hardening, safety, or polish work" },
+    { "name": "type:docs", "color": "0075ca", "description": "Documentation work" },
+    { "name": "type:design", "color": "bfe5bf", "description": "Design, UX, or Figma/reference work" },
+    { "name": "risk:money", "color": "b60205", "description": "Money, split, rounding, settlement, or payment authority risk" },
+    { "name": "risk:auth-security", "color": "b60205", "description": "Auth, session, security, or account policy risk" },
+    { "name": "risk:storage-authz", "color": "b60205", "description": "Storage privacy, file access, or file authorization risk" },
+    { "name": "risk:openapi", "color": "d93f0b", "description": "OpenAPI or generated-client impact" },
+    { "name": "risk:migration", "color": "d93f0b", "description": "Database migration or schema impact" },
+    { "name": "scope:day1", "color": "0e8a16", "description": "Day 1 MVP scope" },
+    { "name": "scope:day2", "color": "fbca04", "description": "Day 2 scope" },
+    { "name": "scope:day3", "color": "5319e7", "description": "Day 3 scope" },
+    { "name": "codex:ready", "color": "0e8a16", "description": "Ready for a scoped Codex task" },
+    { "name": "codex:running", "color": "1d76db", "description": "Codex task currently running" },
+    { "name": "codex:report-uploaded", "color": "bfd4f2", "description": "Codex report uploaded for review" },
+    { "name": "figma:required", "color": "d4c5f9", "description": "Needs Figma, screenshot, or design reference before UI implementation" },
+    { "name": "manual-gate", "color": "b60205", "description": "Requires human/manual gate before implementation or merge" }
+  ],
+  "epics": [
+    {
+      "key": "E1",
+      "title": "E1 Auth/session/runtime security",
+      "area": "auth",
+      "labels": ["area:auth", "type:epic", "scope:day1", "risk:auth-security", "manual-gate"],
+      "validationClass": "api",
+      "manualGates": ["Auth/session/security runtime and policy changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/architecture/AUTH_IDENTITY_FOUNDATION.md", "docs/architecture/AUTH_RUNTIME_CURRENT_USER_DESIGN.md", "docs/architecture/AUTH_REFRESH_TOKEN_ROTATION_POLICY.md", "docs/architecture/AUTH_SIGN_IN_ABUSE_POLICY.md"],
+      "breakdown": ["General registration or invite policy decision", "Password reset/change and session visibility hardening", "Admin account/session management boundaries", "Auth audit review and failure-event coverage"],
+      "issues": [
+        { "title": "Define Day 1 invite and registration policy gate", "type": "task", "labels": ["area:auth", "type:task", "scope:day1", "risk:auth-security", "manual-gate"], "size": "M", "validationClass": "docs-only", "bodySummary": "Decide whether Day 1 uses invite-only, admin-created users, public self-registration, or a staged policy path before any runtime registration work." },
+        { "title": "Harden current-account session visibility and revocation UX/API checklist", "type": "hardening", "labels": ["area:auth", "type:hardening", "scope:day1", "risk:auth-security", "manual-gate"], "size": "M", "validationClass": "api", "bodySummary": "Track remaining session visibility, revocation, audit, and validation expectations without changing runtime behavior in the bootstrap task." },
+        { "title": "Plan Day 1 password reset and credential-change workflow", "type": "feature", "labels": ["area:auth", "type:feature", "scope:day1", "risk:auth-security", "manual-gate"], "size": "L", "validationClass": "api", "bodySummary": "Define reset/change UX, abuse controls, audit events, and credential workflow boundaries before implementation." }
+      ]
+    },
+    {
+      "key": "E2",
+      "title": "E2 Storage/file privacy",
+      "area": "storage",
+      "labels": ["area:storage", "type:epic", "scope:day1", "risk:storage-authz", "manual-gate"],
+      "validationClass": "storage",
+      "manualGates": ["Storage/file privacy, file authz, retention, or byte handling changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/architecture/STORAGE_FILE_METADATA_ARCHITECTURE.md", "docs/architecture/STORAGE_FILE_POLICY_ARCHITECTURE.md", "docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md"],
+      "breakdown": ["Purpose-specific upload policy", "Receipt/proof/QR authorization", "File lifecycle audit", "Privacy mode file rules"],
+      "issues": [
+        { "title": "Implement Day 1 purpose-specific upload policy enforcement", "type": "feature", "labels": ["area:storage", "type:feature", "scope:day1", "risk:storage-authz", "manual-gate"], "size": "L", "validationClass": "storage", "bodySummary": "Enforce purpose-specific file type, size, count, normalization, and retention policy in API-controlled upload paths." },
+        { "title": "Audit file content endpoints for stable IDs and no storage internals", "type": "hardening", "labels": ["area:storage", "type:hardening", "scope:day1", "risk:storage-authz", "manual-gate"], "size": "M", "validationClass": "api", "bodySummary": "Verify receipt, supporting attachment, QR, and settlement proof responses never expose filesystem paths, object keys, buckets, or provider internals." },
+        { "title": "Define privacy-mode file handling acceptance checklist", "type": "docs", "labels": ["area:storage", "type:docs", "scope:day1", "risk:storage-authz"], "size": "S", "validationClass": "docs-only", "bodySummary": "Create checklist for Standard Secure and Recoverable Private Vault file behavior before runtime implementation." }
+      ]
+    },
+    {
+      "key": "E3",
+      "title": "E3 Bills/expenses core",
+      "area": "bills",
+      "labels": ["area:bills", "type:epic", "scope:day1", "risk:money", "manual-gate"],
+      "validationClass": "money",
+      "manualGates": ["Bill, split, participant, revision, and money-impacting changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/prd/MVP_DAY1_SCOPE.md", "docs/architecture/EXPENSE_BILL_SPLIT_SETTLEMENT_ARCHITECTURE.md", "docs/architecture/DAY1_RECEIPT_BILL_EDGE_CASE_ARCHITECTURE.md", "docs/architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md"],
+      "breakdown": ["Create/edit/archive/restore", "Multi-payer and participant correction", "Item-level split and tax edge cases", "Revision review UX and API coverage"],
+      "issues": [
+        { "title": "Implement Day 1 bill edit/archive/restore lifecycle", "type": "feature", "labels": ["area:bills", "type:feature", "scope:day1", "risk:money", "risk:openapi", "manual-gate"], "size": "L", "validationClass": "openapi-client", "bodySummary": "Complete bill edit/archive/restore lifecycle while preserving API/domain authority, audit, and generated-client rules." },
+        { "title": "Implement multi-payer bill creation and payer confirmation flow", "type": "feature", "labels": ["area:bills", "type:feature", "scope:day1", "risk:money", "risk:openapi", "manual-gate"], "size": "L", "validationClass": "money", "bodySummary": "Support multiple payers and payer confirmation when another user records payer/payment facts." },
+        { "title": "Add temporary participant architecture and implementation plan", "type": "task", "labels": ["area:bills", "type:task", "scope:day1", "risk:auth-security", "risk:money", "manual-gate"], "size": "M", "validationClass": "docs-only", "bodySummary": "Plan minimal temporary participant support without account permissions or silent authorization bypass." },
+        { "title": "Implement bill revision review detail preservation roadmap", "type": "docs", "labels": ["area:bills", "type:docs", "scope:day1", "risk:money"], "size": "S", "validationClass": "docs-only", "bodySummary": "Track remaining item, split, adjustment, attachment, note, and metadata highlighting gaps for bill revision review." }
+      ]
+    },
+    {
+      "key": "E4",
+      "title": "E4 Money/split/rounding engine",
+      "area": "bills",
+      "labels": ["area:bills", "type:epic", "scope:day1", "risk:money", "manual-gate"],
+      "validationClass": "money",
+      "manualGates": ["Money, split, rounding, allocation, and settlement authority changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/architecture/MONEY_ROUNDING_ARCHITECTURE.md", "docs/architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md", "docs/architecture/CURRENCY_EXCHANGE_ARCHITECTURE.md"],
+      "breakdown": ["Quantity-level claims", "Tax/service/discount/refund classification", "Manual FX snapshots", "Rounding residual coverage"],
+      "issues": [
+        { "title": "Implement quantity-level item claiming and unresolved claim states", "type": "feature", "labels": ["area:bills", "type:feature", "scope:day1", "risk:money", "risk:openapi", "manual-gate"], "size": "XL", "validationClass": "money", "bodySummary": "Support item quantity claims, open/self-claim states, owner review, and deterministic participant shares." },
+        { "title": "Implement mixed tax-rate and fee allocation validation coverage", "type": "hardening", "labels": ["area:bills", "type:hardening", "scope:day1", "risk:money", "manual-gate"], "size": "L", "validationClass": "money", "bodySummary": "Add validation for mixed 8/10 percent tax, included/excluded tax, fees, discounts, coupons, tender/change exclusion, returns, refunds, and rounding residuals." },
+        { "title": "Implement manual FX snapshot support for Day 1 travel bills", "type": "feature", "labels": ["area:bills", "type:feature", "scope:day1", "risk:money", "risk:openapi", "manual-gate"], "size": "L", "validationClass": "money", "bodySummary": "Allow manual exchange-rate snapshots as bill financial truth without provider-rate recalculation." }
+      ]
+    },
+    {
+      "key": "E5",
+      "title": "E5 Settlement workflow",
+      "area": "settlement",
+      "labels": ["area:settlement", "type:epic", "scope:day1", "risk:money", "manual-gate"],
+      "validationClass": "money",
+      "manualGates": ["Settlement, payment, proof, residual, and balance authority changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/architecture/SETTLEMENT_RUNTIME_ARCHITECTURE.md", "docs/architecture/SETTLEMENT_BASKET_RESIDUAL_ARCHITECTURE.md", "docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md"],
+      "breakdown": ["Baskets and selected lines", "Partial payments and residuals", "Proof attachments", "Dispute/cancel/reopen policy"],
+      "issues": [
+        { "title": "Complete settlement basket line selection and filter UX/API plan", "type": "feature", "labels": ["area:settlement", "type:feature", "scope:day1", "risk:money", "risk:openapi", "manual-gate"], "size": "L", "validationClass": "money", "bodySummary": "Track select-all-visible eligible settlement lines, exact total display, and basket creation authority." },
+        { "title": "Harden settlement residual review and correction workflow", "type": "hardening", "labels": ["area:settlement", "type:hardening", "scope:day1", "risk:money", "manual-gate"], "size": "M", "validationClass": "money", "bodySummary": "Ensure underpayment/overpayment residuals remain explicit, reviewable, auditable, and do not create broad credit ledgers silently." },
+        { "title": "Add settlement proof mobile review and attachment polish", "type": "feature", "labels": ["area:settlement", "area:mobile-ui", "type:feature", "scope:day1", "risk:storage-authz", "risk:money", "figma:required", "manual-gate"], "size": "M", "validationClass": "mobile-ui", "bodySummary": "Improve proof attachment review UX while preserving storage authorization and settlement state authority." }
+      ]
+    },
+    {
+      "key": "E6",
+      "title": "E6 OCR receipt workflow",
+      "area": "ocr",
+      "labels": ["area:ocr", "type:epic", "scope:day1", "risk:storage-authz", "manual-gate"],
+      "validationClass": "storage",
+      "manualGates": ["OCR apply, receipt file handling, storage, and bill mutation paths require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/architecture/OCR_ARCHITECTURE.md", "docs/architecture/RECEIPT_OCR_REVIEW_APPLY_POLICY.md", "docs/architecture/RECEIPT_OCR_REVIEW_UX_FLOW.md", "docs/architecture/MOBILE_OCR_IMPLEMENTATION_DECISION.md"],
+      "breakdown": ["Capture/import normalization", "On-device OCR", "Review correction", "Draft apply and future shared-bill apply"],
+      "issues": [
+        { "title": "Implement mobile receipt capture/import normalization before OCR", "type": "feature", "labels": ["area:ocr", "area:mobile-ui", "area:storage", "type:feature", "scope:day1", "risk:storage-authz", "figma:required", "manual-gate"], "size": "L", "validationClass": "mobile-ui", "bodySummary": "Normalize receipt images before OCR/upload/storage and prevent bypass by camera, picker, file import, share sheet, or offline queue paths." },
+        { "title": "Implement on-device OCR extraction foundation", "type": "feature", "labels": ["area:ocr", "type:feature", "scope:day1", "risk:storage-authz", "manual-gate"], "size": "XL", "validationClass": "mobile-ui", "bodySummary": "Add required Day 1 on-device OCR capability while keeping server OCR complementary and OCR data provisional." },
+        { "title": "wrong line item detail is retrieved from ocr", "type": "bug", "labels": ["area:ocr", "type:bug", "scope:day1", "codex:ready"], "size": "M", "validationClass": "mobile-ui", "bodySummary": "Reuse existing OCR line-item correctness bug for Day 1 OCR review tracking." },
+        { "title": "Plan non-draft shared-bill OCR apply policy", "type": "task", "labels": ["area:ocr", "area:bills", "type:task", "scope:day1", "risk:money", "risk:storage-authz", "manual-gate"], "size": "M", "validationClass": "docs-only", "bodySummary": "Define the policy gate for applying OCR corrections to non-draft shared bills without silent settlement or revision effects." }
+      ]
+    },
+    {
+      "key": "E7",
+      "title": "E7 Sync/offline/local mode",
+      "area": "sync",
+      "labels": ["area:sync", "type:epic", "scope:day1", "manual-gate"],
+      "validationClass": "api",
+      "manualGates": ["Broad offline cache/sync acceptance and conflict authority changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/architecture/USER_EXPERIENCE_MODES_ARCHITECTURE.md", "docs/architecture/AUTH_IDENTITY_FOUNDATION.md"],
+      "breakdown": ["Local-only profile boundaries", "Server-mode offline queue", "Conflict states", "Sync failure notifications"],
+      "issues": [
+        { "title": "Define full offline cache hydration and conflict acceptance plan", "type": "task", "labels": ["area:sync", "type:task", "scope:day1", "manual-gate"], "size": "L", "validationClass": "docs-only", "bodySummary": "Plan queued/synced/conflict/failed states and API acceptance rules before broad sync runtime work." },
+        { "title": "Implement mobile sync conflict and failure notification surface", "type": "feature", "labels": ["area:sync", "area:mobile-ui", "type:feature", "scope:day1", "figma:required"], "size": "M", "validationClass": "mobile-ui", "bodySummary": "Show sync conflicts/failures in a product-facing way without letting UI cache decide authorization." },
+        { "title": "Audit local-only versus server-mode authority boundaries", "type": "hardening", "labels": ["area:sync", "area:auth", "type:hardening", "scope:day1", "risk:auth-security"], "size": "M", "validationClass": "docs-only", "bodySummary": "Verify local-only data authority, server-mode API authority, and migration/linking assumptions remain explicit." }
+      ]
+    },
+    {
+      "key": "E8",
+      "title": "E8 Recurring/forecasting",
+      "area": "bills",
+      "labels": ["area:bills", "type:epic", "scope:day1", "risk:money", "manual-gate"],
+      "validationClass": "money",
+      "manualGates": ["Recurring bill generation and forecast-to-financial-truth changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/prd/MVP_DAY1_SCOPE.md", "docs/features/recurring-bills/TECHNICAL_SPEC.md"],
+      "breakdown": ["Template lifecycle", "Forecast versus confirmed bills", "Due-soon visibility", "Autopay policy defaults"],
+      "issues": [
+        { "title": "Track seasonal and flexible-date recurring bill forecasting", "type": "feature", "labels": ["area:bills", "type:feature", "scope:day2"], "size": "M", "validationClass": "docs-only", "reuseIssue": 291, "bodySummary": "Reuse existing issue for Day 2 seasonal/flexible recurring forecasting." },
+        { "title": "Add autopay policy defaults and per-recurring-bill paid-state overrides", "type": "feature", "labels": ["area:bills", "type:feature", "scope:day2", "risk:money"], "size": "M", "validationClass": "docs-only", "reuseIssue": 294, "bodySummary": "Reuse existing issue for Day 2 autopay policy defaults and paid-state override planning." },
+        { "title": "Complete Day 1 recurring template creation and editing UX", "type": "feature", "labels": ["area:bills", "area:mobile-ui", "type:feature", "scope:day1", "risk:money", "figma:required", "manual-gate"], "size": "L", "validationClass": "mobile-ui", "bodySummary": "Add mobile recurring template create/edit lifecycle while preserving explicit draft generation and confirmation." },
+        { "title": "Implement recurring due-soon in-app notification path", "type": "feature", "labels": ["area:bills", "type:feature", "scope:day1"], "size": "M", "validationClass": "api", "bodySummary": "Add due-soon visibility and in-app notification path for recurring templates without push/email scope." }
+      ]
+    },
+    {
+      "key": "E9",
+      "title": "E9 Notifications",
+      "area": "bills",
+      "labels": ["area:bills", "type:epic", "scope:day1"],
+      "validationClass": "api",
+      "manualGates": ["Security/session notification changes may require auth-security gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/prd/MVP_DAY1_SCOPE.md"],
+      "breakdown": ["Bill events", "Settlement events", "OCR events", "Sync/security events", "Preferences"],
+      "issues": [
+        { "title": "Complete Day 1 in-app notification event coverage", "type": "feature", "labels": ["area:bills", "area:settlement", "area:ocr", "area:sync", "type:feature", "scope:day1"], "size": "L", "validationClass": "api", "bodySummary": "Cover Day 1 bill, settlement, OCR, sync, recurring, and important security/session in-app events." },
+        { "title": "Implement persisted notification preferences", "type": "feature", "labels": ["area:bills", "type:feature", "scope:day1", "risk:openapi", "manual-gate"], "size": "M", "validationClass": "openapi-client", "bodySummary": "Move beyond mobile-local notification filtering to persisted server preferences where Day 1 requires it." },
+        { "title": "Implement notification deep links for Day 1 flows", "type": "feature", "labels": ["area:mobile-ui", "type:feature", "scope:day1", "figma:required"], "size": "M", "validationClass": "mobile-ui", "bodySummary": "Route notification taps to relevant bills, settlements, OCR reviews, sync conflicts, and recurring items." }
+      ]
+    },
+    {
+      "key": "E10",
+      "title": "E10 Mobile UI/design system",
+      "area": "mobile-ui",
+      "labels": ["area:mobile-ui", "type:epic", "scope:day1", "figma:required"],
+      "validationClass": "mobile-ui",
+      "manualGates": ["UI-sensitive implementation needs Figma/reference first where applicable."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/design/mobile/README.md", "docs/architecture/VISUAL_THEME_COLOR_SETTINGS_ARCHITECTURE.md"],
+      "breakdown": ["Design-system consistency", "Date/money/currency fields", "Copy audit", "Information architecture", "Reports readability"],
+      "issues": [
+        { "title": "Remove developer-style visual preference readout from mobile Profile screen", "type": "bug", "labels": ["area:mobile-ui", "type:bug", "scope:day1", "codex:ready"], "size": "S", "validationClass": "mobile-ui", "reuseIssue": 297, "bodySummary": "Reuse existing focused mobile Profile visual preference readout issue." },
+        { "title": "Audit mobile screens for developer-facing placeholder/readout copy", "type": "hardening", "labels": ["area:mobile-ui", "type:hardening", "scope:day1", "codex:ready"], "size": "M", "validationClass": "mobile-ui", "reuseIssue": 298, "bodySummary": "Reuse existing mobile dev-copy audit issue." },
+        { "title": "Standardize mobile date fields with a reusable date picker component", "type": "feature", "labels": ["area:mobile-ui", "type:feature", "scope:day1", "codex:ready"], "size": "M", "validationClass": "mobile-ui", "reuseIssue": 300, "bodySummary": "Reuse existing mobile date picker standardization issue." },
+        { "title": "Audit and standardize mobile reusable components and design-system consistency", "type": "hardening", "labels": ["area:mobile-ui", "type:hardening", "scope:day1", "figma:required"], "size": "L", "validationClass": "mobile-ui", "reuseIssue": 301, "bodySummary": "Reuse existing mobile design-system consistency issue." },
+        { "title": "Make dashboard metrics actionable and clarify Accounts & Income placement", "type": "feature", "labels": ["area:mobile-ui", "type:feature", "scope:day1", "figma:required"], "size": "M", "validationClass": "mobile-ui", "bodySummary": "Reuse or create mobile dashboard/account information architecture issue." },
+        { "title": "Improve mobile information architecture, settings placement, feature discoverability, and customizable navigation", "type": "design", "labels": ["area:mobile-ui", "type:design", "scope:day1", "figma:required"], "size": "L", "validationClass": "mobile-ui", "bodySummary": "Reuse or create mobile IA/design direction issue for Settings, Profile, navigation, and feature discovery." },
+        { "title": "Improve report readability with summary-first and statement-style detail views", "type": "feature", "labels": ["area:mobile-ui", "area:bills", "type:feature", "scope:day1", "figma:required"], "size": "M", "validationClass": "mobile-ui", "bodySummary": "Reuse or create monthly report readability and statement-style detail issue." }
+      ]
+    },
+    {
+      "key": "E11",
+      "title": "E11 User web",
+      "area": "web-user",
+      "labels": ["area:web-user", "type:epic", "scope:day1", "figma:required"],
+      "validationClass": "mobile-ui",
+      "manualGates": ["Public exposure, auth, storage, money, or OpenAPI changes require their specific manual gates."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "apps/web-user/README.md", "docs/prd/MVP_DAY1_SCOPE.md"],
+      "breakdown": ["Responsive design language", "Dashboard/list/detail", "Bills/settlements/reports", "Import/export"],
+      "issues": [
+        { "title": "Define modern responsive web UI design language for user and admin apps", "type": "design", "labels": ["area:web-user", "area:web-admin", "type:design", "scope:day1", "figma:required"], "size": "M", "validationClass": "docs-only", "reuseIssue": 302, "bodySummary": "Reuse existing web/admin design language issue." },
+        { "title": "Plan Day 1 user web dashboard, bills, settlements, and reports surface", "type": "task", "labels": ["area:web-user", "type:task", "scope:day1", "figma:required"], "size": "M", "validationClass": "docs-only", "bodySummary": "Define the first user web surfaces and route priorities before implementation." },
+        { "title": "Implement user web authenticated app shell foundation", "type": "feature", "labels": ["area:web-user", "type:feature", "scope:day1", "risk:auth-security", "risk:openapi", "manual-gate", "figma:required"], "size": "L", "validationClass": "openapi-client", "bodySummary": "Create a responsive authenticated user web shell without weakening API authorization or session rules." }
+      ]
+    },
+    {
+      "key": "E12",
+      "title": "E12 Admin web",
+      "area": "web-admin",
+      "labels": ["area:web-admin", "type:epic", "scope:day1", "risk:auth-security", "manual-gate", "figma:required"],
+      "validationClass": "openapi-client",
+      "manualGates": ["Admin exposure, auth/security, audit, deployment, and public access changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "apps/web-admin/README.md", "docs/architecture/CI_CD_AND_PUBLISHING_REQUIREMENTS.md"],
+      "breakdown": ["Protected admin shell", "User management", "Audit viewer", "Storage/upload policy"],
+      "issues": [
+        { "title": "Plan protected Day 1 admin web scope and exposure guardrails", "type": "task", "labels": ["area:web-admin", "type:task", "scope:day1", "risk:auth-security", "manual-gate", "figma:required"], "size": "M", "validationClass": "docs-only", "bodySummary": "Define admin web Day 1 routes, LAN/VPN/Cloudflare Access assumptions, and non-public exposure guardrails." },
+        { "title": "Implement admin web authenticated shell and local-user management foundation", "type": "feature", "labels": ["area:web-admin", "type:feature", "scope:day1", "risk:auth-security", "risk:openapi", "manual-gate", "figma:required"], "size": "L", "validationClass": "openapi-client", "bodySummary": "Build admin shell and user management foundation with API/domain authorization and audit boundaries." },
+        { "title": "Plan admin audit and storage policy UI", "type": "task", "labels": ["area:web-admin", "area:storage", "type:task", "scope:day1", "risk:auth-security", "risk:storage-authz", "manual-gate", "figma:required"], "size": "M", "validationClass": "docs-only", "bodySummary": "Plan audit viewer and storage/upload policy UI without exposing secrets, storage internals, or unsupported admin actions." }
+      ]
+    },
+    {
+      "key": "E13",
+      "title": "E13 Deploy/release/CI",
+      "area": "infra",
+      "labels": ["area:infra", "type:epic", "scope:day1", "manual-gate"],
+      "validationClass": "deploy",
+      "manualGates": ["CI, deployment, Docker, production deploy, public exposure, and store release changes require manual gate."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/architecture/CI_CD_AND_PUBLISHING_REQUIREMENTS.md", "docs/architecture/BRANCHING_AND_RELEASE_STRATEGY.md", "docs/deployment/TRUENAS_LAN_DOCKER_TESTING.md", "docs/workflow/CODEMAGIC_TESTFLIGHT_SETUP.md"],
+      "breakdown": ["TrueNAS LAN package", "CI gates", "Codemagic/TestFlight", "Release evidence"],
+      "issues": [
+        { "title": "Harden TrueNAS LAN Docker validation and release checklist", "type": "hardening", "labels": ["area:infra", "type:hardening", "scope:day1", "manual-gate"], "size": "M", "validationClass": "deploy", "bodySummary": "Prepare deploy validation and checklist without silently changing deployment behavior." },
+        { "title": "Define Day 1 PR merge-gate and CI evidence requirements", "type": "docs", "labels": ["area:infra", "area:qa", "type:docs", "scope:day1", "manual-gate"], "size": "S", "validationClass": "docs-only", "bodySummary": "Document required local validation, GitHub CI, report fields, and manual gate evidence for Day 1 PRs." },
+        { "title": "Prepare Codemagic/TestFlight manual release gate checklist", "type": "docs", "labels": ["area:infra", "area:mobile-ui", "type:docs", "scope:day1", "manual-gate"], "size": "S", "validationClass": "docs-only", "bodySummary": "Prepare mobile store/TestFlight checklist while preserving manual-only release gate." }
+      ]
+    },
+    {
+      "key": "E14",
+      "title": "E14 QA/E2E/regression",
+      "area": "qa",
+      "labels": ["area:qa", "type:epic", "scope:day1"],
+      "validationClass": "full",
+      "manualGates": ["Manual UI retest, manual code review, and Day 1 acceptance remain human gates."],
+      "requiredReading": ["PROGRAM_ARCHITECTURE.md", "docs/workflow/CODEX_TASK_GUIDE.md", "docs/workflow/CODEX_VALIDATION_REPORT_BUDGET.md", "docs/acceptance/day1/README.md"],
+      "breakdown": ["Acceptance evidence map", "Regression suites", "Manual UI retest", "Manual code review"],
+      "issues": [
+        { "title": "Build Day 1 E2E regression matrix", "type": "task", "labels": ["area:qa", "type:task", "scope:day1"], "size": "M", "validationClass": "docs-only", "bodySummary": "Map core Day 1 flows to automated and manual validation coverage." },
+        { "title": "Prepare manual Day 1 UI retest checklist", "type": "docs", "labels": ["area:qa", "area:mobile-ui", "type:docs", "scope:day1", "figma:required", "manual-gate"], "size": "M", "validationClass": "docs-only", "bodySummary": "Create the future human UI retest checklist without marking manual testing passed." },
+        { "title": "Prepare manual Day 1 code review checklist", "type": "docs", "labels": ["area:qa", "type:docs", "scope:day1", "manual-gate"], "size": "M", "validationClass": "docs-only", "bodySummary": "Create the future human code review checklist without marking review passed." },
+        { "title": "Track Day 1 acceptance evidence and hard-gated gaps", "type": "hardening", "labels": ["area:qa", "type:hardening", "scope:day1"], "size": "M", "validationClass": "docs-only", "bodySummary": "Keep acceptance evidence, deferred manual review, hard-gated runtime gaps, and Day 2/3 exclusions explicit." }
+      ]
+    }
+  ]
+}
