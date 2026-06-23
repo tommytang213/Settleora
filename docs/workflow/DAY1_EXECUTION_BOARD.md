@@ -6,6 +6,8 @@ The `Settleora Day 1 Execution Board` is the GitHub-native execution board for D
 
 The board tracks epics, features, tasks, bugs, hardening, design, and documentation. It separates Day 1 execution from Day 2 and Day 3 planning, keeps a clear Codex-ready queue, and makes high-risk work visible before any PR starts.
 
+The current 64 seeded issues are an initial execution-board skeleton, not complete Day 1 backlog coverage. Review [Day 1 execution coverage matrix](../planning/DAY1_EXECUTION_COVERAGE_MATRIX.md) before creating any expanded missing-issue backlog.
+
 ## Statuses
 
 Recommended project statuses:
@@ -152,3 +154,5 @@ The bootstrap seed uses stable issue titles and labels. Re-running the bootstrap
 - Avoid deleting labels.
 - Reuse Project fields and items by title/URL where possible.
 - Avoid changing project views unless GitHub exposes a safe idempotent create/update API for views.
+
+Field and hierarchy synchronization is handled separately by `python3 tools/github/sync-day1-board-fields.py`. It updates supported Project fields for existing seeded items from seed metadata and labels, skips estimation fields when no reliable value exists, and writes marker-bounded Markdown parent/child sections to issue bodies when GitHub sub-issue commands are unavailable.
