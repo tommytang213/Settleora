@@ -6,7 +6,7 @@ The `Settleora Day 1 Execution Board` is the GitHub-native execution board for D
 
 The board tracks epics, features, tasks, bugs, hardening, design, and documentation. It separates Day 1 execution from Day 2 and Day 3 planning, keeps a clear Codex-ready queue, and makes high-risk work visible before any PR starts.
 
-The current 64 seeded issues are an initial execution-board skeleton, not complete Day 1 backlog coverage. Review [Day 1 execution coverage matrix](../planning/DAY1_EXECUTION_COVERAGE_MATRIX.md) before creating any expanded missing-issue backlog.
+The current 64 seeded issues are an initial execution-board skeleton, not complete Day 1 backlog coverage. Review [Day 1 execution coverage matrix](../planning/DAY1_EXECUTION_COVERAGE_MATRIX.md) and [Day 1 decision register](../planning/DAY1_DECISION_REGISTER.md) before creating any expanded missing-issue backlog.
 
 ## Statuses
 
@@ -119,13 +119,14 @@ Manual-gated issues should carry `manual-gate` plus the specific risk label, for
 
 1. Triage an issue into the correct Day scope, area, type, risk, size, validation class, and status.
 2. Confirm required reading and architecture guardrails in the issue body.
-3. Move only safe, scoped items to `Ready for Codex`.
-4. Start one task branch per focused Codex task, based on current `origin/main` unless the task says otherwise.
-5. Keep product/runtime changes out of planning-only tasks.
-6. Run the validation requested by the issue and task prompt.
-7. Upload the Codex report and move the item to `Report Uploaded`.
-8. Open a PR only after the report is complete and scope guard is clean.
-9. Use normal GitHub PR merge gates. Do not push directly to `main`.
+3. For PRD V5 versus MVP Day 1 conflicts, use the decision register and row-by-row matrix notes rather than silently promoting every broader PRD V5 item or narrowing every broader PRD V5 line.
+4. Move only safe, scoped items to `Ready for Codex`.
+5. Start one task branch per focused Codex task, based on current `origin/main` unless the task says otherwise.
+6. Keep product/runtime changes out of planning-only tasks.
+7. Run the validation requested by the issue and task prompt.
+8. Upload the Codex report and move the item to `Report Uploaded`.
+9. Open a PR only after the report is complete and scope guard is clean.
+10. Use normal GitHub PR merge gates. Do not push directly to `main`.
 
 ## Bundle Planning
 

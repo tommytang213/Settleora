@@ -19,10 +19,14 @@ Day 1 can use simple/guided UI defaults where they reduce clutter, but experienc
 - User registration and login.
 - Local account foundation.
 - OIDC/Keycloak-compatible foundation where applicable.
+- Production-shaped passkey support.
+- Production-shaped MFA support.
 - Secure sessions and revocation-ready session model.
 - Device/session visibility.
 - Role and permission checks enforced by the API.
 - Security-impactful events captured through audit boundaries.
+
+Passkeys and MFA are Day 1 runtime scope, not only future foundation. Implementation must remain auth/security manual-gated and must use explicit schema, API/OpenAPI, generated-client, recovery, audit, and UI issue breakdowns before runtime work starts.
 
 ### User profile and payment details
 
@@ -88,12 +92,16 @@ Payment method on a bill is optional. It is a hint for statement reconciliation,
 
 - Create groups.
 - Add and manage group members.
+- Approved friend request lifecycle.
+- Direct sharing that requires an approved friend relationship.
 - Group member roles sufficient for Day 1.
 - Member access controlled by API authorization.
 - Group bills and balances.
 - Group dashboard basics.
 - Minimal temporary/guest-like participants can be included in Day 1 bills where policy allows, without governance voting or account-level permissions until linked to a real account.
 - Users must not see expenses unrelated to them unless group policy and authorization permit it.
+
+Group-first sharing remains supported, but it is not the only Day 1 sharing model. Friends/direct sharing must be API-authorized, must avoid a global user directory by default, and must not make payment details globally visible.
 
 ### Splitting
 
@@ -198,7 +206,7 @@ Day 1 should support lightweight trust workflows:
 
 ### Notifications
 
-Day 1 should include basic in-app notifications.
+Day 1 includes in-app notifications, mobile push notifications, and email notifications. In-app notifications remain the baseline channel. Push and email require explicit provider/device-token architecture, channel preference enforcement, and clear unsupported or unconfigured states when a deployment has not configured delivery.
 
 Required events:
 
@@ -216,7 +224,7 @@ Required events:
 - Important security/session event.
 - OCR completed/failed if server OCR is used.
 
-Email/push can be Day 2 or later. In-app notification is the Day 1 baseline.
+Channel preferences are Day 1 where required to avoid sending unwanted notifications. Notification content must remain privacy-safe, and security-relevant notification behavior should be auditable where appropriate.
 
 ### Recurring bills and forecasting basics
 
@@ -245,6 +253,20 @@ Day 1 includes:
 - CSV import.
 - Local backup/restore.
 - Group dashboard basics.
+
+### Experience modes
+
+Day 1 includes a Basic/Advanced or Simple/Advanced experience mode baseline. A Guided or Recommended mode can be included where existing UX direction supports it.
+
+Experience mode requirements:
+
+- Users can change the mode later.
+- Where feasible, users can enable one or two advanced feature areas without accepting every advanced feature.
+- Experience mode controls UI visibility and workflow depth only.
+- Required review states, conflicts, security warnings, and money-impacting approvals still surface in Basic/Simple mode.
+- Experience mode must not change backend authority, money calculations, authorization, storage access, audit, settlement state, sync truth, or API/domain ownership.
+
+Full dashboard builders, drag-drop widget customization, and complex per-user product builders remain later work unless separately approved.
 
 ### Storage and privacy
 

@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Day 2 adds high-value product capabilities after the Day 1 MVP is usable. These features improve multi-currency support, group workflows, settlement quality, reconciliation, statement checking, payment handoff, payment-provider integration, and user adoption.
+Day 2 adds high-value product capabilities after the Day 1 MVP is usable. These features improve multi-currency support, group workflows, settlement quality, reconciliation, statement checking, payment handoff, provider integration polish, and user adoption.
+
+Tommy's Day 1 decisions mean Day 2 is not the first existence of passkeys/MFA, friends/direct sharing, push/email notification channels, or Basic/Advanced experience mode baseline. Day 2 may still add deeper policy, provider, preference, role, guest/member, and UX polish around those areas.
 
 Day 2 features should still be production-shaped. They should be implemented through focused branches with explicit validation.
 
@@ -46,6 +48,8 @@ Default common currency universe should start with USD, EUR, JPY, GBP, CNY, AUD,
 ### 2. Guest / accountless group members
 
 Support group members who do not have accounts yet.
+
+Day 1 still includes minimal temporary participants for practical receipt capture and approved friend/direct sharing for registered users. Day 2 guest/accountless group members expand that baseline into fuller guest/member behavior.
 
 Capabilities:
 
@@ -152,6 +156,8 @@ Capabilities:
 - Role-based group management.
 - API-enforced authorization.
 
+Day 1 may include friend/direct sharing and basic group roles. Day 2 can expand group roles, guest/member behavior, and invitation/link workflows without treating direct sharing as future-only.
+
 ### 9. Group invite links
 
 Support invite links.
@@ -168,6 +174,8 @@ Capabilities:
 ### 10. Settlement reminders
 
 Smarter reminders beyond Day 1 notification basics.
+
+Push and email notification channel baselines are Day 1 after Tommy's decision. Day 2 reminder work should add smarter timing, snooze, nudge, group-level controls, and preference polish rather than first push/email existence.
 
 Capabilities:
 
@@ -291,7 +299,9 @@ Trip/event behavior should start with group expense contexts before full nested 
 
 ### 19. Experience modes and advanced feature toggles
 
-Add user-facing experience presets while preserving one backend authority model.
+Expand user-facing experience presets and advanced feature toggles while preserving one backend authority model.
+
+Basic/Advanced or Simple/Advanced mode baseline is Day 1 after Tommy's decision. Day 2 can add polish, additional advanced toggles, richer policy defaults, and dashboard customization beyond the Day 1 baseline.
 
 Recommended presets:
 

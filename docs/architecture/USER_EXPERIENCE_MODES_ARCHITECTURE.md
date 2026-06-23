@@ -4,11 +4,11 @@
 
 Settleora needs approachable default flows without weakening the backend rules that protect financial history, authorization, privacy, and audit. Experience modes control what the user sees and how much workflow detail is shown; they do not create separate financial truth.
 
-This document records future architecture direction. It does not mean the current API, OpenAPI contract, generated clients, schema, or runtime already implement these preferences.
+The Basic/Advanced or Simple/Advanced baseline is now Day 1 planning scope. This document does not mean the current API, OpenAPI contract, generated clients, schema, or runtime already implement these preferences; implementation still requires separate scoped issues and any applicable manual gates.
 
 ## Experience Presets
 
-Settleora should support these user-facing experience presets:
+Settleora should support at least a Day 1 Basic/Advanced or Simple/Advanced baseline. The architecture supports these user-facing experience presets:
 
 ```text
 simple
@@ -17,6 +17,8 @@ advanced
 ```
 
 `recommended` can be used as a product label for `guided` if product copy later prefers that term.
+
+Day 1 may use `simple` and `advanced` only, or include `guided`/`recommended` where existing design references support it. The Day 1 baseline should not become a large customization system.
 
 Preset intent:
 
@@ -44,6 +46,8 @@ sync_status_details
 import_export_advanced
 dashboard_customization
 ```
+
+For Day 1, keep per-feature opt-ins narrow and pragmatic. Where feasible, let a user in Basic/Simple mode enable one or two advanced feature areas without accepting every advanced feature. Full dashboard customization, drag-drop widget builders, and complex per-user product builders are later work unless separately approved.
 
 Rules:
 
@@ -86,9 +90,9 @@ FX is the clearest example of per-feature depth:
 
 FX financial truth remains defined by bill-level FX snapshots in [Currency Exchange Architecture](CURRENCY_EXCHANGE_ARCHITECTURE.md), not by which controls were visible when the bill was created.
 
-## Future Contract, Schema, And API Implications
+## Contract, Schema, And API Implications
 
-Later implementation tasks will likely need additive design for:
+Implementation tasks will likely need additive design for:
 
 - user experience preset preference;
 - per-feature preference toggles;
@@ -96,4 +100,4 @@ Later implementation tasks will likely need additive design for:
 - group policy defaults and required-detail settings;
 - API responses that include server-resolved visibility/workflow hints for clients.
 
-These are future implications only. This architecture document does not change the current contract.
+These are planning implications only. This architecture document does not change the current contract, schema, generated clients, or runtime by itself.
