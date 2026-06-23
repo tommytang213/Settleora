@@ -206,6 +206,7 @@ class ReceiptOcrParser {
       if (description.length < 2 ||
           lineTotal == null ||
           lineTotal.startsWith('-') ||
+          _isLikelyNonItemDescription(description) ||
           !_hasTraceableItemAmountToken(line, match.group(3)!)) {
         continue;
       }
@@ -263,7 +264,9 @@ class ReceiptOcrParser {
       final letterCount = RegExp(
         r'[A-Za-z\u3040-\u30ff\u3400-\u9fff]',
       ).allMatches(cleaned).length;
-      if (cleaned.length >= 3 && letterCount >= 2) {
+      if (cleaned.length >= 3 &&
+          letterCount >= 2 &&
+          !_isLikelyNonItemDescription(cleaned)) {
         count += 1;
       }
     }
@@ -407,6 +410,29 @@ bool _isReceiptMetadataLine(String line) {
   ];
 
   return metadataPatterns.any((pattern) => pattern.hasMatch(normalized));
+}
+
+bool _isLikelyNonItemDescription(String description) {
+  final normalized = description.toLowerCase().trim();
+  if (normalized.isEmpty || _isReceiptMetadataLine(description)) {
+    return true;
+  }
+
+  final metadataOnlyPatterns = [
+    RegExp(r'\b(address|location|merchant|customer\s*copy)\b'),
+    RegExp(r'\b(?:g|lg|ug|b)?/?f\b|\b(ground|basement|lower|upper)\s+floor\b'),
+    RegExp(
+      r'\b(?:mall|plaza|arcade|centre|center|tower|building|bldg|hotel|terminal|station)\b$',
+    ),
+    RegExp(
+      r'\b(?:mall|plaza|arcade|centre|center|tower|building|bldg)\s+(?:hong\s+kong|hk|kowloon|central|causeway\s+bay|tsim\s+sha\s+tsui)\b',
+    ),
+    RegExp(
+      r'^(?:hong\s+kong|hk|kowloon|central|causeway\s+bay|tsim\s+sha\s+tsui)\b',
+    ),
+  ];
+
+  return metadataOnlyPatterns.any((pattern) => pattern.hasMatch(normalized));
 }
 
 bool _isDateOrTimeOnlyLine(String normalized) {

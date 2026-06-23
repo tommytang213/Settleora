@@ -191,6 +191,39 @@ Thank you
     expect(preview.items.map((item) => item.lineTotal), isNot(contains('3')));
   });
 
+  test('parser rejects mall address and unit digits as line items', () {
+    const parser = ReceiptOcrParser();
+
+    final preview = parser.parse('''
+Harbour Kitchen
+IFC Mall 100
+Shop 3
+3/F Central Tower
+Tel 2345 6789
+Opening Hours 11:00-22:00
+Order #3
+Wonton Noodle 68.00
+Milk Tea 18.00
+Total HKD 86.00
+Thank you
+''');
+
+    expect(preview.merchant, 'Harbour Kitchen');
+    expect(preview.currency, 'HKD');
+    expect(preview.total, '86.00');
+    expect(preview.items.map((item) => item.description), [
+      'Wonton Noodle',
+      'Milk Tea',
+    ]);
+    expect(preview.items.map((item) => item.lineTotal), ['68.00', '18.00']);
+    expect(
+      preview.items.map((item) => item.description).join(' '),
+      isNot(contains('IFC Mall')),
+    );
+    expect(preview.items.map((item) => item.lineTotal), isNot(contains('3')));
+    expect(preview.items.map((item) => item.lineTotal), isNot(contains('100')));
+  });
+
   test('parser does not promote contact and counter numbers as amounts', () {
     const parser = ReceiptOcrParser();
 
