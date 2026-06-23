@@ -314,32 +314,18 @@ void main() {
     expect(find.text('Ready'), findsWidgets);
     expect(find.text('Visual preferences'), findsOneWidget);
     expect(
-      find.textContaining(
-        'Custom appearance settings are not available in the mobile app yet.',
-      ),
+      find.text('The app currently uses the default Settleora theme.'),
       findsOneWidget,
     );
-    expect(find.text('Appearance mode'), findsOneWidget);
+    expect(find.text('Appearance'), findsOneWidget);
+    expect(find.text('Appearance settings are coming later.'), findsOneWidget);
     expect(
-      find.textContaining('currently follows the built-in mobile appearance'),
-      findsOneWidget,
+      find.textContaining('Custom appearance settings are not available'),
+      findsNothing,
     );
-    expect(find.text('Accent and palettes'), findsOneWidget);
-    expect(find.textContaining('cannot be customized yet'), findsOneWidget);
-    expect(find.text('Subject colors'), findsOneWidget);
-    expect(
-      find.textContaining('use the built-in Settleora style'),
-      findsOneWidget,
-    );
-    expect(find.text('Personalization'), findsOneWidget);
-    expect(find.textContaining('not configurable yet'), findsOneWidget);
-    expect(find.text('Authority'), findsOneWidget);
-    expect(
-      find.textContaining(
-        'will never change access, money, settlement, privacy, or security rules',
-      ),
-      findsOneWidget,
-    );
+    expect(find.textContaining('cannot be customized yet'), findsNothing);
+    expect(find.textContaining('not configurable yet'), findsNothing);
+    expect(find.textContaining('will never change access'), findsNothing);
     final visualReadout = find.byKey(
       const Key('component-visual-preference-readout'),
     );
@@ -550,6 +536,33 @@ void main() {
 
     expect(dateController.text, '2026-06-15');
     expect(find.text('Jun 15, 2026'), findsOneWidget);
+    dateController.dispose();
+  });
+
+  testWidgets('date field can clear optional ISO values', (tester) async {
+    final dateController = TextEditingController(text: '2026-06-10');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: DateField(
+            key: const Key('shared-clearable-date-field'),
+            controller: dateController,
+            label: 'End date',
+            allowClear: true,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Jun 10, 2026'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Clear End date'));
+    await tester.pumpAndSettle();
+
+    expect(dateController.text, isEmpty);
+    expect(find.text('Jun 10, 2026'), findsNothing);
     dateController.dispose();
   });
 

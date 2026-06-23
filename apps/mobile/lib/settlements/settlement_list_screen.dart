@@ -2337,14 +2337,13 @@ class _MarkPaymentPaidDialogState extends State<_MarkPaymentPaidDialog> {
               currencyLabel: 'Currency',
             ),
             const SizedBox(height: 10),
-            TextField(
+            DateField(
               key: const Key('settlement-mark-paid-date'),
               controller: _paymentDateController,
-              decoration: const InputDecoration(
-                labelText: 'Payment date',
-                helperText: 'Use yyyy-mm-dd.',
-              ),
-              keyboardType: TextInputType.datetime,
+              label: 'Payment date',
+              helperText: 'Choose the date you sent the payment.',
+              firstDate: DateTime(2000),
+              lastDate: DateTime(2100),
             ),
             if (_errorText != null) ...[
               const SizedBox(height: 10),

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/auth_session_repository.dart';
-import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
 import 'profile_repository.dart';
 
@@ -546,10 +545,6 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         ],
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 20),
-                  const VisualPreferenceUnsupportedReadout(
-                    key: Key('profile-visual-preference-readout'),
                   ),
                 ],
               ),

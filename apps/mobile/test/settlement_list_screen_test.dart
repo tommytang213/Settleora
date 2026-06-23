@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/settlements/settlement_list_screen.dart';
 import 'package:mobile/settlements/settlement_repository.dart';
 import 'package:mobile/ui/settleora_components.dart';
+import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   testWidgets('settlement list opens detail and confirms residuals', (
@@ -478,10 +479,12 @@ void main() {
     );
     expect(find.textContaining(_settlementId), findsNothing);
 
-    await tester.enterText(
+    final dateField = tester.widget<DateField>(
       find.byKey(const Key('settlement-mark-paid-date')),
-      '2026-05-18',
     );
+    dateField.controller.text = '2026-05-18';
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byKey(const Key('settlement-mark-paid-submit')));
     await tester.pumpAndSettle();
 

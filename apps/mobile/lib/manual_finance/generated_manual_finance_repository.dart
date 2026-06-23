@@ -683,7 +683,7 @@ String _requiredIsoDate(String value) {
   if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(trimmed)) {
     throw const SettleoraManualFinanceFailure(
       kind: SettleoraManualFinanceFailureKind.validation,
-      message: 'Use dates in yyyy-MM-dd format.',
+      message: 'Choose valid dates.',
     );
   }
 

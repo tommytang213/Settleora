@@ -2918,6 +2918,7 @@ class _ReceiptOcrEditableReviewFormState
           controller: _dateController,
           label: 'Receipt date suggestion',
           enabled: widget.enabled,
+          allowClear: true,
           helperText: 'Choose the receipt date suggestion.',
           firstDate: DateTime(2000),
           lastDate: DateTime(2100),
@@ -3471,15 +3472,15 @@ String _receiptArtifactCurrentBuildLabel(ReceiptIntakeSafetyReview review) {
   final normalized = artifact?.normalizedJpegProduced ?? false;
   final thumbnail = artifact?.thumbnailJpegProduced ?? false;
   if (normalized && thumbnail) {
-    return 'Current build: normalized JPEG bytes and thumbnail bytes were prepared in memory; server storage enforcement remains future work.';
+    return 'Receipt image and preview are ready. Storage checks run when you save.';
   }
   if (normalized) {
-    return 'Current build: normalized JPEG bytes were prepared in memory; thumbnail bytes were not produced.';
+    return 'Receipt image is ready. Preview was not created for this file.';
   }
   if (thumbnail) {
-    return 'Current build: thumbnail bytes were prepared in memory; normalized JPEG bytes were not produced.';
+    return 'Receipt preview is ready. Full image preparation did not complete.';
   }
-  return 'Current build: no normalized or thumbnail bytes were produced for this receipt input.';
+  return 'Receipt image preparation did not complete for this file.';
 }
 
 String _receiptArtifactCacheLabel(ReceiptIntakeSafetyReview review) {

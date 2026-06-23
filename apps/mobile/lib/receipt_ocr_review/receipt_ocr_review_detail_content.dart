@@ -358,6 +358,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                 controller: _receiptDateController,
                 label: 'Receipt date',
                 enabled: !isBusy,
+                allowClear: true,
                 firstDate: DateTime(2000),
                 lastDate: DateTime(2100),
                 helperText: 'Choose the receipt date suggestion.',
@@ -1577,7 +1578,7 @@ String? _dateValidator(String? value) {
     return null;
   }
 
-  return _parseDate(trimmed) == null ? 'Use YYYY-MM-DD' : null;
+  return _parseDate(trimmed) == null ? 'Choose a valid date.' : null;
 }
 
 String? _lineMoneyValidator(String? value) {

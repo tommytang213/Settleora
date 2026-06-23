@@ -435,6 +435,7 @@ class DateField extends StatefulWidget {
     this.lastDate,
     this.initialDate,
     this.helperText,
+    this.allowClear = false,
     this.validator,
     this.onChanged,
   });
@@ -447,6 +448,7 @@ class DateField extends StatefulWidget {
   final DateTime? lastDate;
   final DateTime? initialDate;
   final String? helperText;
+  final bool allowClear;
   final FormFieldValidator<String>? validator;
   final ValueChanged<String>? onChanged;
 
@@ -456,6 +458,7 @@ class DateField extends StatefulWidget {
 
 class _DateFieldState extends State<DateField> {
   late final TextEditingController _displayController;
+  bool _hasValue = false;
 
   @override
   void initState() {
@@ -506,6 +509,12 @@ class _DateFieldState extends State<DateField> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 )
+              : widget.allowClear && _hasValue
+              ? IconButton(
+                  tooltip: 'Clear ${widget.label}',
+                  onPressed: widget.enabled ? _clearDate : null,
+                  icon: const Icon(Icons.clear),
+                )
               : const Icon(Icons.calendar_today_outlined),
         ),
         validator: (_) => widget.validator?.call(widget.controller.text),
@@ -538,6 +547,11 @@ class _DateFieldState extends State<DateField> {
     widget.onChanged?.call(isoDate);
   }
 
+  void _clearDate() {
+    widget.controller.clear();
+    widget.onChanged?.call('');
+  }
+
   void _syncDisplayText() {
     final parsed = _parseIsoDate(widget.controller.text);
     final nextText = parsed == null
@@ -545,6 +559,16 @@ class _DateFieldState extends State<DateField> {
         : _formatProductDate(parsed);
     if (_displayController.text != nextText) {
       _displayController.text = nextText;
+    }
+    final nextHasValue = widget.controller.text.trim().isNotEmpty;
+    if (_hasValue != nextHasValue) {
+      if (mounted) {
+        setState(() {
+          _hasValue = nextHasValue;
+        });
+      } else {
+        _hasValue = nextHasValue;
+      }
     }
   }
 }

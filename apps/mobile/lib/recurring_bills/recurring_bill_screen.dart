@@ -1319,25 +1319,6 @@ class _SettleoraRecurringBillTemplateFormScreenState
     }
   }
 
-  Future<void> _pickDate(TextEditingController controller) async {
-    final currentValue = _parseIsoDate(controller.text.trim());
-    final now = DateTime.now();
-    final initialDate = currentValue ?? DateTime(now.year, now.month, now.day);
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (selected == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      controller.text = _formatIsoDate(selected);
-    });
-  }
-
   SettleoraRecurringBillScheduleDraft _scheduleDraft() {
     final interval = int.parse(_intervalController.text.trim());
     final dueOffset = int.tryParse(_dueOffsetController.text.trim());
@@ -1498,42 +1479,26 @@ class _SettleoraRecurringBillTemplateFormScreenState
                       validator: _intervalValidator,
                     ),
                     const SizedBox(height: 12),
-                    TextFormField(
+                    DateField(
                       key: const Key('recurring-bill-form-start-date'),
                       controller: _startDateController,
-                      decoration: InputDecoration(
-                        labelText: 'Start date (YYYY-MM-DD)',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          key: const Key(
-                            'recurring-bill-form-start-date-picker',
-                          ),
-                          tooltip: 'Pick start date',
-                          onPressed: _isSaving
-                              ? null
-                              : () => _pickDate(_startDateController),
-                          icon: const Icon(Icons.calendar_month_outlined),
-                        ),
-                      ),
+                      label: 'Start date',
+                      enabled: !_isSaving,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
                       validator: (value) =>
                           _isoDateValidator(value, required: true),
                     ),
                     const SizedBox(height: 12),
-                    TextFormField(
+                    DateField(
                       key: const Key('recurring-bill-form-end-date'),
                       controller: _endDateController,
-                      decoration: InputDecoration(
-                        labelText: 'End date (optional)',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          key: const Key('recurring-bill-form-end-date-picker'),
-                          tooltip: 'Pick end date',
-                          onPressed: _isSaving
-                              ? null
-                              : () => _pickDate(_endDateController),
-                          icon: const Icon(Icons.event_available_outlined),
-                        ),
-                      ),
+                      label: 'End date',
+                      helperText: 'Optional. Choose when this schedule ends.',
+                      enabled: !_isSaving,
+                      allowClear: true,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
                       validator: (value) =>
                           _isoDateValidator(value, required: false),
                     ),
@@ -2509,7 +2474,7 @@ class _SettleoraFutureBillFormScreenState
                 DateField(
                   key: const Key('future-bill-form-due-date'),
                   controller: _dueDateController,
-                  label: 'Due date (YYYY-MM-DD)',
+                  label: 'Due date',
                   enabled: !_isSaving,
                   firstDate: DateTime(
                     DateTime.now().year,
@@ -3715,25 +3680,6 @@ String _operationKey(SettleoraRecurringBillForecastOccurrence occurrence) {
   return '${occurrence.templateId}|${occurrence.occurrenceDate}';
 }
 
-DateTime? _parseIsoDate(String value) {
-  if (_isoDateValidator(value, required: false) != null || value.isEmpty) {
-    return null;
-  }
-  final parts = value.split('-');
-  return DateTime(
-    int.parse(parts[0]),
-    int.parse(parts[1]),
-    int.parse(parts[2]),
-  );
-}
-
-String _formatIsoDate(DateTime value) {
-  final year = value.year.toString().padLeft(4, '0');
-  final month = value.month.toString().padLeft(2, '0');
-  final day = value.day.toString().padLeft(2, '0');
-  return '$year-$month-$day';
-}
-
 String? _requiredTextValidator(String? value, String field, int maxLength) {
   final trimmed = value?.trim() ?? '';
   if (trimmed.isEmpty) {
@@ -3803,13 +3749,13 @@ String? _isoDateValidator(String? value, {required bool required}) {
       parts[0].length != 4 ||
       parts[1].length != 2 ||
       parts[2].length != 2) {
-    return 'Use YYYY-MM-DD.';
+    return 'Choose a valid date.';
   }
   final year = int.tryParse(parts[0]);
   final month = int.tryParse(parts[1]);
   final day = int.tryParse(parts[2]);
   if (year == null || month == null || day == null) {
-    return 'Use YYYY-MM-DD.';
+    return 'Choose a valid date.';
   }
   final parsed = DateTime.utc(year, month, day);
   if (parsed.year != year || parsed.month != month || parsed.day != day) {
