@@ -82,6 +82,92 @@ Do not configure `beta_groups: Internal Testers`. App Store Connect internal tes
 
 No public App Store release is configured. No external tester automation is configured. No `submit_to_app_store`, external beta groups, certificates, provisioning profiles, `.p8` files, passwords, or signing material are committed.
 
+## Manual Release Gate Checklist
+
+This checklist covers issue #383 under parent epic #380. It is a Day 1 mobile
+release gate for Codemagic, TestFlight, App Store, and Play Store evidence. It
+does not authorize Codex or any automated workflow to submit, promote, or
+release a mobile build.
+
+Codemagic, TestFlight, App Store, Play Store, production, and public release
+actions are manual-only. A maintainer or explicitly assigned release reviewer
+must approve each gate before the action happens.
+
+Required pre-release evidence before any TestFlight upload or mobile store
+submission:
+
+- Clean release branch or tagged commit, reviewed through the normal PR path.
+- Exact commit SHA, branch name, version/build number, and release notes draft.
+- Local validation results required for the changed scope, including
+  `npm run validate:docs` for docs changes and mobile validation when mobile
+  code, signing, build, or release behavior changes.
+- GitHub CI/check results for the exact release commit where CI is available.
+- Codemagic workflow name, run URL, started-by identity, commit SHA, Flutter
+  version, Xcode version, and build log summary when a cloud run is triggered.
+- Evidence that no secrets, certificates, profiles, API keys, `.p8` files,
+  keystores, passwords, or signing material were committed.
+- Evidence that no production/public infrastructure exposure, deployment,
+  signing, store listing, tester, or release-promotion change is bundled
+  silently with unrelated work.
+
+Manual approval points:
+
+- iOS signing, certificate, profile, bundle ID, App Store Connect integration,
+  or Apple Developer Portal changes.
+- Android signing, keystore, Play Console integration, package name, or release
+  track changes.
+- Triggering `Mobile iOS internal TestFlight` or any future upload-capable
+  Codemagic workflow.
+- TestFlight tester availability, internal tester setup, external beta review,
+  or beta group assignment.
+- App Store release submission, phased release, manual release, metadata
+  submission, or public listing change.
+- Play Store internal/closed/open testing upload, production submission,
+  staged rollout, release notes, or public listing change.
+- Production/public release promotion for any mobile, server, web, admin,
+  Docker, or TrueNAS-facing artifact.
+
+Evidence to collect after a maintainer-approved TestFlight or store action:
+
+- Codemagic build URL and exported artifact/build identifier.
+- Codemagic validation step result summary, including Flutter dependency,
+  analyze, and test outcomes.
+- Signing/profile selection evidence from Codemagic or the relevant store
+  console, with secrets redacted.
+- App Store Connect or Play Console processing status.
+- TestFlight install notes for the device model, OS version, app version, build
+  number, login/server-mode path tested, and smoke-test result.
+- Screenshots or reviewer notes for any store-console release state, with
+  account IDs, emails, tokens, and other sensitive data redacted.
+- Day 1 acceptance evidence link or report entry recording the manual release
+  decision and remaining blockers.
+
+Codex may:
+
+- Prepare documentation, checklists, issue bodies, and reviewable PRs.
+- Report local validation and repository evidence.
+- Summarize maintainer-provided Codemagic, TestFlight, App Store, or Play Store
+  evidence.
+- Leave release-gate comments or reports that explicitly preserve manual
+  approval.
+
+Codex must not, without a future explicit human approval task:
+
+- Submit or promote any build to TestFlight, App Store, or Play Store.
+- Change signing secrets, signing files, Codemagic integrations, Apple/Google
+  account settings, tester groups, store listings, or release tracks.
+- Trigger production/mobile-store releases or production/public promotion.
+- Expose production/public infrastructure.
+- Bypass manual gates, mark external release evidence as verified without
+  maintainer-provided proof, or treat a successful upload as Day 1 acceptance.
+
+Keep Day 1, Day 2, and Day 3 scope separate. Day 1 may use manual internal
+TestFlight evidence for acceptance review when a maintainer chooses to run it.
+Broader release automation, external beta distribution, public App Store or
+Play Store launch automation, payment-provider integration, and production
+public exposure remain separate future gated work unless a later issue
+explicitly approves them.
+
 ## Finding Uploaded Builds
 
 Uploaded builds appear in App Store Connect, not in Apple Developer certificate/member pages. After Codemagic reports a successful upload, wait for Apple processing, then check:
