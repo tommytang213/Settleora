@@ -552,7 +552,7 @@ Thank you
       );
       expect(
         pngReview.displayLines,
-        contains('Current build: byte normalization is not performed here.'),
+        contains('Image prep: receipt image was kept as provided.'),
       );
     },
   );

@@ -97,7 +97,9 @@ void main() {
     expect(find.text('New Group'), findsOneWidget);
     expect(find.text('Scan Receipt'), findsOneWidget);
     expect(
-      find.textContaining('Full group workspace dashboards and saved layouts'),
+      find.textContaining(
+        'Group dashboards and saved layouts are coming later',
+      ),
       findsOneWidget,
     );
     await tester.scrollUntilVisible(

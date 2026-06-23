@@ -1045,7 +1045,7 @@ class _GroupWorkspaceReadinessCard extends StatelessWidget {
             Text('Group workspace readiness', style: textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
-              'This group detail plus group bills is the current mobile group workspace. A full multi-section group dashboard with balances, pending actions, reports, recurring, notifications, receipt review, settlements, and settings is not implemented yet.',
+              'This group detail plus group bills is the current mobile group workspace. Group summaries, balances, reports, and settings are coming later.',
               style: TextStyle(color: muted),
             ),
             const SizedBox(height: 8),

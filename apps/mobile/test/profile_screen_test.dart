@@ -120,65 +120,14 @@ void main() {
     expect(find.textContaining('image/png'), findsOneWidget);
     expect(find.textContaining('2.0 KB'), findsOneWidget);
     expect(find.textContaining('updated'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('profile-visual-preference-readout')),
-      320,
-      scrollable: find.byType(Scrollable).first,
-    );
     expect(
       find.byKey(const Key('profile-visual-preference-readout')),
-      findsOneWidget,
-    );
-    expect(find.text('Visual preferences'), findsOneWidget);
-    expect(
-      find.textContaining(
-        'Custom appearance settings are not available in the mobile app yet.',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining('currently follows the built-in mobile appearance'),
-      findsOneWidget,
-    );
-    expect(
-      find.textContaining(
-        'Appearance choices will never change access, money, settlement, privacy, or security rules',
-      ),
-      findsOneWidget,
-    );
-    final visualReadout = find.byKey(
-      const Key('profile-visual-preference-readout'),
-    );
-    expect(
-      find.descendant(of: visualReadout, matching: find.byType(FilledButton)),
       findsNothing,
     );
     expect(
-      find.descendant(of: visualReadout, matching: find.byType(OutlinedButton)),
+      find.textContaining('Custom appearance settings are not available'),
       findsNothing,
     );
-    expect(
-      find.descendant(of: visualReadout, matching: find.byType(TextButton)),
-      findsNothing,
-    );
-    for (final label in const [
-      'Save',
-      'Apply',
-      'Sync',
-      'Publish',
-      'Share',
-      'Admin default',
-      'Import',
-      'Export',
-      'Migrate',
-      'Restore',
-      'Create custom palette',
-    ]) {
-      expect(
-        find.descendant(of: visualReadout, matching: find.text(label)),
-        findsNothing,
-      );
-    }
     expect(visibleText(tester), isNot(contains(_profileId)));
     expect(visibleText(tester), isNot(contains(_paymentProfileId)));
     expect(visibleText(tester), isNot(contains(_qrFileId)));

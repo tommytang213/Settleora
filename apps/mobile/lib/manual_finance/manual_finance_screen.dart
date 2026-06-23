@@ -1165,6 +1165,7 @@ class _ManualIncomeSheetState extends State<_ManualIncomeSheet> {
               controller: _endDateController,
               label: 'End date',
               enabled: !_isSaving,
+              allowClear: true,
               helperText:
                   'Optional. Choose a date when this income should stop.',
             ),

@@ -229,12 +229,14 @@ void main() {
       find.byKey(const Key('server-shell-visual-preference-readout')),
       findsOneWidget,
     );
-    expect(find.text('Authority'), findsOneWidget);
     expect(
-      find.textContaining(
-        'Appearance choices will never change access, money, settlement, privacy, or security rules.',
-      ),
+      find.text('The app currently uses the default Settleora theme.'),
       findsOneWidget,
+    );
+    expect(find.text('Appearance settings are coming later.'), findsOneWidget);
+    expect(
+      find.textContaining('Appearance choices will never change'),
+      findsNothing,
     );
     expect(find.text('CSV export'), findsOneWidget);
     expect(find.text('CSV import'), findsOneWidget);

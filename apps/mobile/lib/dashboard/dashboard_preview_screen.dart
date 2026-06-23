@@ -706,7 +706,7 @@ class _WelcomeCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Create a group or scan a receipt to start route-based review. Full group workspace dashboards and saved layouts are future work.',
+            'Create a group or scan a receipt to start route-based review. Group dashboards and saved layouts are coming later.',
             style: TextStyle(color: colors.onPrimary.withValues(alpha: 0.82)),
           ),
         ],

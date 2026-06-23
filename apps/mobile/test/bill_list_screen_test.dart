@@ -261,7 +261,7 @@ void main() {
     );
     expect(
       find.text(
-        'Current build: normalized JPEG bytes and thumbnail bytes were prepared in memory; server storage enforcement remains future work.',
+        'Receipt image and preview are ready. Storage checks run when you save.',
       ),
       findsOneWidget,
     );

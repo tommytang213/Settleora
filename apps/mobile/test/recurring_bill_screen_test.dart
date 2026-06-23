@@ -1144,13 +1144,10 @@ void main() {
         findsOneWidget,
       );
       expect(
-        tester
-            .widget<IconButton>(
-              find.byKey(const Key('recurring-bill-form-start-date-picker')),
-            )
-            .onPressed,
-        isNotNull,
+        find.byKey(const Key('recurring-bill-form-start-date')),
+        findsOneWidget,
       );
+      expect(find.text('Start date'), findsOneWidget);
 
       await tester.ensureVisible(
         find.byKey(
@@ -1191,8 +1188,9 @@ void main() {
           skipOffstage: false,
         ),
       );
-      await tester.enterText(
-        find.byKey(const Key('recurring-bill-form-start-date')),
+      await _setDateField(
+        tester,
+        const Key('recurring-bill-form-start-date'),
         '2026-07-01',
       );
       await tester.ensureVisible(
@@ -1256,8 +1254,9 @@ void main() {
         skipOffstage: false,
       ),
     );
-    await tester.enterText(
-      find.byKey(const Key('recurring-bill-form-start-date')),
+    await _setDateField(
+      tester,
+      const Key('recurring-bill-form-start-date'),
       '2026-07-01',
     );
     await tester.ensureVisible(
@@ -1311,8 +1310,9 @@ void main() {
         skipOffstage: false,
       ),
     );
-    await tester.enterText(
-      find.byKey(const Key('recurring-bill-form-start-date')),
+    await _setDateField(
+      tester,
+      const Key('recurring-bill-form-start-date'),
       '2026-07-01',
     );
     await tester.ensureVisible(
@@ -1372,8 +1372,9 @@ void main() {
         skipOffstage: false,
       ),
     );
-    await tester.enterText(
-      find.byKey(const Key('recurring-bill-form-start-date')),
+    await _setDateField(
+      tester,
+      const Key('recurring-bill-form-start-date'),
       '2026-07-01',
     );
     await tester.ensureVisible(
@@ -1483,8 +1484,9 @@ void main() {
         skipOffstage: false,
       ),
     );
-    await tester.enterText(
-      find.byKey(const Key('recurring-bill-form-start-date')),
+    await _setDateField(
+      tester,
+      const Key('recurring-bill-form-start-date'),
       '2026-05-08',
     );
     await tester.ensureVisible(

@@ -83,11 +83,11 @@ class ReceiptImageNormalizationPolicyReview {
           ? 'Thumbnail: thumbnail derivative expected by policy.'
           : 'Thumbnail: no thumbnail derivative expected by policy.',
       byteNormalizationPerformed
-          ? 'Current build: normalized receipt bytes were prepared.'
-          : 'Current build: byte normalization is not performed here.',
+          ? 'Image prep: receipt image is ready.'
+          : 'Image prep: receipt image was kept as provided.',
       thumbnailGenerated
-          ? 'Current build: thumbnail bytes were prepared.'
-          : 'Current build: thumbnail generation is not performed here.',
+          ? 'Preview: receipt preview is ready.'
+          : 'Preview: receipt preview is not available for this file.',
       ...messages,
     ];
   }

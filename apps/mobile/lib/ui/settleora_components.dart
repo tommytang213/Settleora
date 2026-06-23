@@ -814,6 +814,8 @@ class VisualPreferenceUnsupportedReadout extends StatelessWidget {
     final colors = context.settleoraColors;
     final textTheme = Theme.of(context).textTheme;
 
+    // Appearance preferences are display-only and must never affect access,
+    // money, settlement, privacy, security, audit, storage, or sync authority.
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -830,7 +832,7 @@ class VisualPreferenceUnsupportedReadout extends StatelessWidget {
                     Text('Visual preferences', style: textTheme.titleSmall),
                     const SizedBox(height: SettleoraSpacing.xxs),
                     Text(
-                      'Custom appearance settings are not available in the mobile app yet.',
+                      'The app currently uses the default Settleora theme.',
                       style: TextStyle(color: colors.textMuted),
                     ),
                   ],
@@ -840,27 +842,8 @@ class VisualPreferenceUnsupportedReadout extends StatelessWidget {
           ),
           const SizedBox(height: SettleoraSpacing.sm),
           const _VisualPreferenceLine(
-            label: 'Appearance mode',
-            value: 'The app currently follows the built-in mobile appearance.',
-          ),
-          const _VisualPreferenceLine(
-            label: 'Accent and palettes',
-            value: 'Accent color and palette choices cannot be customized yet.',
-          ),
-          const _VisualPreferenceLine(
-            label: 'Subject colors',
-            value:
-                'Category, tag, group, dashboard, chart, and status colors use the built-in Settleora style.',
-          ),
-          const _VisualPreferenceLine(
-            label: 'Personalization',
-            value:
-                'Dashboard layout and color personalization are not configurable yet.',
-          ),
-          const _VisualPreferenceLine(
-            label: 'Authority',
-            value:
-                'Appearance choices will never change access, money, settlement, privacy, or security rules.',
+            label: 'Appearance',
+            value: 'Appearance settings are coming later.',
           ),
         ],
       ),
