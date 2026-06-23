@@ -12,6 +12,7 @@ This folder records approved mobile UI/UX design reference material for future S
 - [Mobile Notifications reference V1](MOBILE_NOTIFICATIONS_REFERENCE_V1.md)
 - [Mobile implementation guardrails V1](MOBILE_IMPLEMENTATION_GUARDRAILS_V1.md)
 - [Mobile shared design system audit V1](MOBILE_SHARED_DESIGN_SYSTEM_AUDIT_V1.md)
+- [Mobile Day 1 reference coverage audit](MOBILE_DAY1_REFERENCE_COVERAGE_AUDIT.md)
 - [Mobile design reference assets](assets/README.md)
 
 Screenshot assets for each approved slice live under `docs/design/mobile/assets/<slice>-v1/`, such as `mobile-shell-v1/`, `bills-ocr-v1/`, `groups-v1/`, `settle-v1/`, `more-settings-v1/`, and `notifications-v1/`, when those assets have been manually exported and approved.
