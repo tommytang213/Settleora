@@ -184,6 +184,41 @@ Manual gates are required before implementation or merge when work touches:
 
 Manual-gated issues should carry `manual-gate` plus the specific risk label, for example `risk:money`, `risk:storage-authz`, `risk:auth-security`, `risk:migration`, or `risk:openapi`.
 
+### OpenAPI / Generated-Client Gate
+
+Issues that touch OpenAPI contracts, generated client output, or client
+generation tooling must carry `risk:openapi`, `manual-gate`, and validation
+class `openapi-client` unless they are documentation-only control tasks. Their
+issue bodies must explicitly state:
+
+- OpenAPI is the source of truth.
+- Generated clients must not be hand-edited.
+- Contract changes are reviewed before generated clients are refreshed.
+- Generated-client diffs come from the repo generation command, not manual
+  edits.
+- API/domain authority remains authoritative for authorization, money, storage
+  access, status transitions, sync acceptance, and audit.
+- Generated client availability does not imply permission.
+- Actual contract/generated-client changes require a manual gate and explicit
+  generation plus validation commands.
+
+Use this checklist on future OpenAPI/generated-client issues:
+
+```markdown
+### OpenAPI / Generated-Client Checklist
+
+- [ ] OpenAPI source-of-truth rule is acknowledged.
+- [ ] Contract change scope is listed, or this is confirmed docs-only.
+- [ ] Generated web/Dart client impact is listed.
+- [ ] Contract review/manual-gate status is listed.
+- [ ] Generation command is listed when clients change.
+- [ ] Validation commands are listed.
+- [ ] No generated-client files will be hand-edited.
+- [ ] Client availability is not treated as authorization.
+- [ ] API/domain remains authoritative for authorization, money, storage access,
+      status transitions, sync acceptance, and audit.
+```
+
 ## Codex Workflow
 
 1. Triage an issue into the correct Day scope, area, type, risk, size, validation class, and status.

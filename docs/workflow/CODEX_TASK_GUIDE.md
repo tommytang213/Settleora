@@ -101,6 +101,8 @@ disagreement decision is required.
 - Workers must not directly mutate core business tables.
 - OpenAPI is the source of truth.
 - Generated clients are not hand-edited.
+- Generated-client diffs must come from the repo generation command, not
+  manual edits.
 - File bytes go through the storage abstraction.
 - File metadata belongs in PostgreSQL.
 - Do not expose direct filesystem paths or storage provider internals.
@@ -109,6 +111,36 @@ disagreement decision is required.
 - Rounding policy is centralized.
 - On-device OCR is required.
 - The server OCR worker is complementary infrastructure.
+
+## OpenAPI And Generated-Client Change Control
+
+Any issue, branch, or PR that touches `packages/contracts/openapi/`,
+`packages/client-web/src/generated/`, `packages/client-dart/lib/generated/`, or
+client-generation tooling must state these controls in its issue body or task
+prompt before implementation starts:
+
+- OpenAPI is the source of truth for generated web and Dart/mobile clients.
+- Generated clients must not be hand-edited.
+- Contract changes must be reviewed before generated clients are refreshed.
+- Generated-client diffs must come from the repo generation command, currently
+  `npm run generate:clients`, followed by the required client validation.
+- API/domain authority remains authoritative for authorization, money, storage
+  access, status transitions, sync acceptance, and audit.
+- Generated client availability does not imply permission; API authorization
+  and domain policy still decide whether a caller may use an operation.
+- Any actual OpenAPI contract change, generated-client refresh, generation
+  tooling change, or API behavior change that requires client regeneration
+  requires a manual gate and explicit validation.
+
+Future OpenAPI/generated-client issue bodies must include a checklist covering:
+
+- Whether the OpenAPI contract changes.
+- Whether generated web and Dart clients are expected to change.
+- The contract review owner or manual-gate status.
+- The exact generation and validation commands to run.
+- Confirmation that no generated-client files are manually edited.
+- Confirmation that no authorization, money, storage access, status transition,
+  sync acceptance, or audit authority moves from API/domain code into clients.
 
 ## Validation Rules
 
