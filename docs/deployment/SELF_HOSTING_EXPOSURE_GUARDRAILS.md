@@ -217,6 +217,7 @@ Stop and escalate before proceeding if:
 ## Related Deployment Docs
 
 - [TrueNAS LAN Docker testing](TRUENAS_LAN_DOCKER_TESTING.md)
+- [Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md)
 - [TrueNAS catalog app readiness](TRUENAS_CATALOG_APP_READINESS.md)
 - [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md)
 - [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md)
