@@ -95,6 +95,30 @@ and merge rules to start one focused branch. A task should block on Tommy only
 when a product, trust/privacy, Day 1 scope, UX approval, or explicit
 disagreement decision is required.
 
+## Project Board Field Completeness
+
+When Codex creates or materially updates GitHub Project v2 items, the board
+metadata must be complete enough for planning charts and close decisions:
+
+- New non-parent items must not leave `Initial MD`, `Man-days Remaining`, or
+  `Progress %` blank. Do not fake estimates; if the estimate is genuinely
+  unknown, use a conservative placeholder and mark it for manual review in the
+  report.
+- New non-parent items must also populate available planning fields: `Status`,
+  `Work Type`, `Area`, `Day Scope`, `Priority`, `Risk`, `Size`,
+  `Validation Class`, `Figma Required`, `Manual Gate`, `Blocking Gate`,
+  `Gate Owner`, and `Bundle ID`.
+- Docs, control, design, and evidence tasks must use metadata compatible with
+  that work, such as docs/design work type and docs-only validation, instead of
+  implementation-looking values.
+- Parent trackers must either use a clear parent-tracker convention that avoids
+  double-counting child MD or explicitly report why MD fields were left blank.
+  Prefer not to invent parent effort when child issues carry the estimate.
+- Task prompts that create issues must include an estimate table and close rule.
+- Merge-gate tasks must verify the close rule before closing an issue.
+- Reports must include Project field readback for every issue created or
+  updated.
+
 ## Architecture Guardrails
 
 - The API owns core business database writes.
