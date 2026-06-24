@@ -20,6 +20,9 @@ info:
     read endpoints, settlement-scoped counterparty payment QR content reads,
     settlement payment claim endpoints, receiver settlement payment confirmation endpoints,
     settlement dispute endpoints, settlement cancellation endpoints, settlement payment proof attach/list/content/remove endpoints,
+    canonical auth MFA/passkey transport contracts for passkey WebAuthn ceremonies,
+    TOTP enrollment, MFA challenges, recovery-code lifecycle, factor metadata,
+    credential metadata, and current-account policy readouts,
     recurring bill template and forecast/draft-generation endpoints,
     guarded current-user in-app notification inbox endpoints,
     personal and group bill attachment attach/list/content/remove endpoints, and settlement balance projection read endpoints,
@@ -27,7 +30,8 @@ info:
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
     general public registration, invitations, auth middleware, session management beyond
     current-session sign-out, current-account sign-out-all/list/revocation, and
-    public refresh, broader user management, role assignment, group invitations,
+    public refresh, MFA/passkey runtime handler behavior or server enforcement,
+    broader user management, role assignment, group invitations,
     guest members, sync,
     OCR upload, UI behavior, or database behavior.
 servers:
@@ -537,6 +541,1001 @@ paths:
                 $ref: "#/components/schemas/CurrentUserResponse"
         "401":
           description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/passkeys/enrollment/options:
+    post:
+      summary: Begin passkey enrollment
+      description: Starts a current-account passkey enrollment ceremony and returns bounded WebAuthn public-key creation options. The API owns policy, freshness, challenge persistence, account binding, origin/RP validation, credential writes, and audit.
+      operationId: createPasskeyEnrollmentOptions
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyEnrollmentOptionsRequest"
+      responses:
+        "200":
+          description: Enrollment challenge options for the current account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyEnrollmentOptionsResponse"
+        "400":
+          description: Invalid request shape.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Passkey enrollment is denied by policy or session freshness.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Enrollment is unavailable, already in progress, or would violate required-factor policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/passkeys/enrollment/complete:
+    post:
+      summary: Complete passkey enrollment
+      description: Completes passkey enrollment by validating the authenticator response server-side before creating or enabling a credential. The request never authorizes account ownership, policy state, or audit metadata.
+      operationId: completePasskeyEnrollment
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyEnrollmentCompleteRequest"
+      responses:
+        "200":
+          description: Passkey credential was enrolled and safe metadata is returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyCredentialResponse"
+        "400":
+          description: Invalid request shape or authenticator response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Enrollment is denied by policy, account state, or session freshness.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Challenge is expired, consumed, mismatched, replayed, or credential already exists.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/passkeys:
+    get:
+      summary: List passkeys
+      description: Lists current-account passkey display metadata only. The response excludes credential IDs usable with WebAuthn, public keys, attestation payloads, challenge material, sessions, tokens, audit internals, and unrelated account data.
+      operationId: listPasskeyCredentials
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe passkey credential metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyCredentialListResponse"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/passkeys/{passkeyCredentialId}:
+    patch:
+      summary: Update passkey metadata
+      description: Updates bounded current-account passkey display metadata only. The API derives ownership and policy server-side and never lets labels change credential material or authorization.
+      operationId: updatePasskeyCredential
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: passkeyCredentialId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyCredentialUpdateRequest"
+      responses:
+        "200":
+          description: Updated passkey metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyCredentialResponse"
+        "400":
+          description: Invalid metadata request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Operation denied by ownership, policy, or session freshness.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Passkey credential was not found for the current account.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      summary: Revoke passkey
+      description: Revokes a current-account passkey credential without returning credential material. Required-factor, recovery, ownership, session freshness, and audit policy remain server-authoritative.
+      operationId: revokePasskeyCredential
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: passkeyCredentialId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Passkey credential was revoked. No response body is returned.
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Operation denied by ownership, policy, session freshness, or anti-lockout requirements.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Passkey credential was not found for the current account.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revocation would violate required-factor or recovery policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/passkeys/sign-in/options:
+    post:
+      summary: Begin passkey sign-in
+      description: Starts a passkey authentication ceremony for sign-in. The response is anti-enumeration aware and returns only bounded WebAuthn request options and opaque challenge identifiers.
+      operationId: createPasskeySignInOptions
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeySignInOptionsRequest"
+      responses:
+        "200":
+          description: Passkey assertion challenge options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeySignInOptionsResponse"
+        "400":
+          description: Invalid request shape.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Passkey sign-in is denied by policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many passkey sign-in attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/passkeys/sign-in/complete:
+    post:
+      summary: Complete passkey sign-in
+      description: Completes passkey sign-in by validating assertion, challenge, account binding, credential status, origin/RP ID, replay metadata, and policy before returning any session result.
+      operationId: completePasskeySignIn
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeySignInCompleteRequest"
+      responses:
+        "200":
+          description: Passkey sign-in succeeded or returned the next server-authoritative auth step.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeySignInCompleteResponse"
+        "400":
+          description: Invalid request shape or authenticator response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Sign-in denied by policy, account state, or challenge state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Challenge is expired, consumed, mismatched, blocked, or replayed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many passkey sign-in attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/step-up/passkeys/options:
+    post:
+      summary: Begin passkey step-up
+      description: Starts a passkey step-up ceremony for an authenticated session and operation category. The API decides whether the challenge can satisfy freshness requirements.
+      operationId: createPasskeyStepUpOptions
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyStepUpOptionsRequest"
+      responses:
+        "200":
+          description: Passkey step-up challenge options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyStepUpOptionsResponse"
+        "400":
+          description: Invalid request shape.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Step-up is denied by policy or session state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/step-up/passkeys/complete:
+    post:
+      summary: Complete passkey step-up
+      description: Completes an authenticated passkey step-up challenge and returns only server-authoritative freshness metadata when successful.
+      operationId: completePasskeyStepUp
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyStepUpCompleteRequest"
+      responses:
+        "200":
+          description: Step-up challenge was satisfied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyStepUpCompleteResponse"
+        "400":
+          description: Invalid request shape or authenticator response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Step-up is denied by policy, account state, or session state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Challenge is expired, consumed, mismatched, blocked, or replayed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/totp/enrollment:
+    post:
+      summary: Begin TOTP enrollment
+      description: Starts a current-account TOTP enrollment and returns display-time setup material only once for the pending enrollment. The API owns secret generation/storage boundaries, policy, freshness, rate limiting, and audit.
+      operationId: startTotpEnrollment
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TotpEnrollmentStartRequest"
+      responses:
+        "200":
+          description: Pending TOTP enrollment setup material.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpEnrollmentStartResponse"
+        "400":
+          description: Invalid request shape.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: TOTP enrollment is denied by policy or session freshness.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Enrollment is unavailable, already in progress, or would violate policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/totp/enrollment/{totpEnrollmentId}/verify:
+    post:
+      summary: Verify TOTP enrollment
+      description: Verifies a submitted TOTP code for a pending current-account enrollment and activates the factor only after server-side verification.
+      operationId: verifyTotpEnrollment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: totpEnrollmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TotpEnrollmentVerifyRequest"
+      responses:
+        "200":
+          description: TOTP factor was enrolled and safe metadata is returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TotpEnrollmentResponse"
+        "400":
+          description: Invalid request shape or verification code.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Enrollment verification is denied by policy, account state, or session state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Enrollment is expired, cancelled, blocked, superseded, consumed, or mismatched.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/totp/enrollment/{totpEnrollmentId}:
+    delete:
+      summary: Cancel TOTP enrollment
+      description: Cancels a pending current-account TOTP enrollment and returns no secret material.
+      operationId: cancelTotpEnrollment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: totpEnrollmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Pending enrollment was cancelled. No response body is returned.
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Cancellation denied by ownership, policy, or session state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Pending enrollment was not found for the current account.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/mfa/factors:
+    get:
+      summary: List MFA factors
+      description: Lists current-account MFA factor display metadata only. The response excludes TOTP secrets, provisioning URIs, QR payloads, recovery codes, challenge material, stored verifiers, audit internals, and unrelated account data.
+      operationId: listMfaFactors
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe MFA factor metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaFactorListResponse"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/mfa/factors/{mfaFactorId}:
+    patch:
+      summary: Update MFA factor metadata
+      description: Updates bounded current-account MFA factor display metadata only. The API derives ownership and policy server-side and never lets labels change factor secrets, status, or authorization.
+      operationId: updateMfaFactor
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: mfaFactorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaFactorUpdateRequest"
+      responses:
+        "200":
+          description: Updated MFA factor metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaFactorResponse"
+        "400":
+          description: Invalid metadata request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Operation denied by ownership, policy, or session freshness.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: MFA factor was not found for the current account.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      summary: Revoke MFA factor
+      description: Revokes a current-account MFA factor without returning factor secret material. Required-factor, recovery, ownership, session freshness, and audit policy remain server-authoritative.
+      operationId: revokeMfaFactor
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: mfaFactorId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: MFA factor was revoked. No response body is returned.
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Operation denied by ownership, policy, session freshness, or anti-lockout requirements.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: MFA factor was not found for the current account.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revocation would violate required-factor or recovery policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/mfa/challenges:
+    post:
+      summary: Create MFA challenge
+      description: Creates or continues an MFA challenge for a pending sign-in flow or authenticated step-up flow. The API decides allowed factor choices and binds the challenge to account/session state server-side.
+      operationId: createMfaChallenge
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaChallengeCreateRequest"
+      responses:
+        "200":
+          description: MFA challenge metadata and safe factor choices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaChallengeResponse"
+        "400":
+          description: Invalid request shape.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: MFA challenge is denied by policy or auth flow state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many MFA challenge attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/mfa/challenges/{mfaChallengeId}/totp/verify:
+    post:
+      summary: Verify TOTP challenge
+      description: Verifies one submitted TOTP code for a bound MFA challenge and marks only server-side challenge/session/auth-flow state as satisfied on success.
+      operationId: verifyMfaTotpChallenge
+      security: []
+      parameters:
+        - name: mfaChallengeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaTotpVerifyRequest"
+      responses:
+        "200":
+          description: MFA challenge verification result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaChallengeVerifyResponse"
+        "400":
+          description: Invalid request shape or verification code.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Verification denied by policy, account state, session state, or challenge state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Challenge is expired, consumed, mismatched, blocked, or replayed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many verification attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/mfa/challenges/{mfaChallengeId}/recovery-code/verify:
+    post:
+      summary: Verify recovery code challenge
+      description: Verifies and consumes exactly one recovery code for a bound MFA challenge. The API never returns raw or stored recovery-code verifier material.
+      operationId: verifyMfaRecoveryCodeChallenge
+      security: []
+      parameters:
+        - name: mfaChallengeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaRecoveryCodeVerifyRequest"
+      responses:
+        "200":
+          description: MFA challenge verification result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaChallengeVerifyResponse"
+        "400":
+          description: Invalid request shape or recovery code.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Verification denied by policy, account state, session state, recovery state, or challenge state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Challenge or recovery-code batch is expired, consumed, depleted, mismatched, blocked, or replayed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many verification attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/recovery-codes:
+    post:
+      summary: Generate recovery codes
+      description: Generates or regenerates current-account recovery codes, revoking or replacing prior unused codes according to policy. Raw codes are returned only in this immediate response and are never returned by metadata reads.
+      operationId: generateRecoveryCodeBatch
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryCodeBatchGenerateRequest"
+      responses:
+        "200":
+          description: Recovery-code batch metadata plus display-once raw recovery codes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryCodeBatchGenerateResponse"
+        "400":
+          description: Invalid request shape.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Recovery-code generation is denied by policy or session freshness.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Generation would violate recovery, factor, or anti-lockout policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: Read recovery-code metadata
+      description: Returns current-account recovery-code batch metadata only. Raw recovery codes, hashes, salts, verifiers, code prefixes, submitted values, and challenge material are never returned.
+      operationId: getRecoveryCodeBatches
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe recovery-code batch metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryCodeBatchListResponse"
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/recovery-codes/{recoveryCodeBatchId}:
+    delete:
+      summary: Revoke recovery-code batch
+      description: Revokes one current-account recovery-code batch without returning raw or stored code material.
+      operationId: revokeRecoveryCodeBatch
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: recoveryCodeBatchId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Recovery-code batch was revoked. No response body is returned.
+        "401":
+          description: Authentication is required.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Operation denied by ownership, policy, session freshness, or anti-lockout requirements.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Recovery-code batch was not found for the current account.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Revocation would violate recovery or required-factor policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/mfa/policy:
+    get:
+      summary: Read current MFA policy
+      description: Returns client-visible MFA/passkey availability and compliance readouts for the current account. Server policy enforcement remains authoritative and clients must not treat this readout as authorization.
+      operationId: getCurrentMfaPolicy
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Client-visible current-account MFA/passkey policy readout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMfaPolicyReadoutResponse"
+        "401":
+          description: Authentication is required.
           content:
             application/problem+json:
               schema:
@@ -8156,6 +9155,1011 @@ components:
         expiresAtUtc:
           type: string
           format: date-time
+    PasskeyEnrollmentOptionsRequest:
+      type: object
+      description: Current-account passkey enrollment begin request. Account, session, policy, origin/RP, challenge, and audit context are derived server-side.
+      additionalProperties: false
+      properties:
+        displayLabel:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Optional user-visible label for the pending credential after server-side trimming.
+        attestationPreference:
+          oneOf:
+            - type: string
+              enum:
+                - none
+                - indirect
+                - direct
+                - enterprise
+            - type: "null"
+          description: Optional client preference. The API still applies server attestation policy.
+    PasskeyEnrollmentOptionsResponse:
+      type: object
+      description: Bounded passkey enrollment ceremony response. Public-key creation options contain only protocol data required by WebAuthn clients and must be treated as short-lived challenge material.
+      required:
+        - passkeyChallengeId
+        - publicKeyCredentialCreationOptions
+        - expiresAtUtc
+        - policy
+      properties:
+        passkeyChallengeId:
+          type: string
+          format: uuid
+          description: Opaque server-side challenge identifier, not a reusable challenge secret.
+        publicKeyCredentialCreationOptions:
+          type: object
+          maxProperties: 32
+          description: Bounded WebAuthn PublicKeyCredentialCreationOptions JSON owned and validated by the API/WebAuthn library.
+        expiresAtUtc:
+          type: string
+          format: date-time
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    PasskeyEnrollmentCompleteRequest:
+      type: object
+      description: Passkey enrollment completion request. The authenticator response is validated server-side against the stored challenge, current account, origin/RP policy, uniqueness, and replay constraints.
+      additionalProperties: false
+      required:
+        - passkeyChallengeId
+        - credential
+      properties:
+        passkeyChallengeId:
+          type: string
+          format: uuid
+        credential:
+          type: object
+          maxProperties: 32
+          description: Bounded WebAuthn attestation response JSON from the platform authenticator. It must not include passkey private material.
+        displayLabel:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: Optional final display label after server-side trimming.
+    PasskeyCredentialListResponse:
+      type: object
+      description: Safe passkey credential list for the current account.
+      required:
+        - passkeys
+        - policy
+      properties:
+        passkeys:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/PasskeyCredentialSummary"
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    PasskeyCredentialResponse:
+      type: object
+      description: Safe passkey credential response.
+      required:
+        - passkey
+        - policy
+      properties:
+        passkey:
+          $ref: "#/components/schemas/PasskeyCredentialSummary"
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    PasskeyCredentialSummary:
+      type: object
+      description: User-visible passkey metadata. It excludes raw WebAuthn credential IDs, public keys, attestation objects, private material, challenge material, audit metadata, and session tokens.
+      required:
+        - id
+        - displayLabel
+        - status
+        - backupEligible
+        - backupState
+        - transportHints
+        - attestationPolicyResult
+        - createdAtUtc
+        - enrolledAtUtc
+        - lastUsedAtUtc
+        - updatedAtUtc
+        - disabledAtUtc
+        - revokedAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable server-side passkey credential ID for management operations.
+        displayLabel:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/AuthPasskeyCredentialStatus"
+        backupEligible:
+          type: boolean
+        backupState:
+          type: boolean
+        transportHints:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            maxLength: 32
+          description: Safe authenticator transport categories where retained.
+        attestationPolicyResult:
+          oneOf:
+            - type: string
+              maxLength: 64
+            - type: "null"
+          description: Bounded attestation policy result category, not an attestation payload.
+        createdAtUtc:
+          type: string
+          format: date-time
+        enrolledAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        lastUsedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        updatedAtUtc:
+          type: string
+          format: date-time
+        disabledAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        revokedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+    PasskeyCredentialUpdateRequest:
+      type: object
+      description: Bounded passkey display metadata update. This cannot change credential material, status, ownership, policy, audit truth, or authorization.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayLabel:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: User-visible label after server-side trimming. Explicit null clears the label where policy allows.
+    PasskeySignInOptionsRequest:
+      type: object
+      description: Passkey sign-in begin request. The API applies anti-enumeration, policy, and rate-limit rules before returning options.
+      additionalProperties: false
+      properties:
+        identifierHint:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 320
+            - type: "null"
+          description: Optional account hint for account-scoped ceremonies. Discoverable-credential policy remains server-authoritative.
+        userVerification:
+          oneOf:
+            - type: string
+              enum:
+                - required
+                - preferred
+                - discouraged
+            - type: "null"
+          description: Optional client preference. The API still applies server user-verification policy.
+    PasskeySignInOptionsResponse:
+      type: object
+      description: Bounded passkey sign-in ceremony response.
+      required:
+        - passkeyChallengeId
+        - publicKeyCredentialRequestOptions
+        - expiresAtUtc
+      properties:
+        passkeyChallengeId:
+          type: string
+          format: uuid
+          description: Opaque server-side challenge identifier, not a reusable challenge secret.
+        publicKeyCredentialRequestOptions:
+          type: object
+          maxProperties: 32
+          description: Bounded WebAuthn PublicKeyCredentialRequestOptions JSON owned and validated by the API/WebAuthn library.
+        expiresAtUtc:
+          type: string
+          format: date-time
+    PasskeySignInCompleteRequest:
+      type: object
+      description: Passkey sign-in completion request. The assertion is validated server-side against challenge, credential status, account binding, RP/origin, replay metadata, and policy.
+      additionalProperties: false
+      required:
+        - passkeyChallengeId
+        - credential
+      properties:
+        passkeyChallengeId:
+          type: string
+          format: uuid
+        credential:
+          type: object
+          maxProperties: 32
+          description: Bounded WebAuthn assertion response JSON from the platform authenticator.
+        deviceLabel:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Optional display label for any server-created session if future runtime issues one.
+    PasskeySignInCompleteResponse:
+      type: object
+      description: Server-authoritative passkey sign-in result. It intentionally excludes raw access-session, refresh, bearer, or challenge tokens.
+      required:
+        - status
+        - currentUser
+        - mfaChallenge
+      properties:
+        status:
+          type: string
+          enum:
+            - signed_in
+            - mfa_required
+            - denied
+          description: High-level server result category. Clients must not infer authorization for later operations from this value alone.
+        currentUser:
+          oneOf:
+            - $ref: "#/components/schemas/CurrentUserResponse"
+            - type: "null"
+          description: Present only when the server has established an authenticated session summary without exposing raw token material.
+        mfaChallenge:
+          oneOf:
+            - $ref: "#/components/schemas/MfaChallengeResponse"
+            - type: "null"
+          description: Present when an additional MFA challenge must be completed by server policy.
+    PasskeyStepUpOptionsRequest:
+      type: object
+      description: Authenticated passkey step-up begin request. The API decides whether the operation category requires or can be satisfied by passkey freshness.
+      additionalProperties: false
+      required:
+        - operationCategory
+      properties:
+        operationCategory:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Safe operation category such as security_settings or admin_policy_change.
+    PasskeyStepUpOptionsResponse:
+      type: object
+      description: Bounded passkey step-up ceremony response.
+      required:
+        - passkeyChallengeId
+        - operationCategory
+        - publicKeyCredentialRequestOptions
+        - expiresAtUtc
+        - policy
+      properties:
+        passkeyChallengeId:
+          type: string
+          format: uuid
+        operationCategory:
+          type: string
+          maxLength: 120
+        publicKeyCredentialRequestOptions:
+          type: object
+          maxProperties: 32
+          description: Bounded WebAuthn PublicKeyCredentialRequestOptions JSON owned and validated by the API/WebAuthn library.
+        expiresAtUtc:
+          type: string
+          format: date-time
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    PasskeyStepUpCompleteRequest:
+      type: object
+      description: Authenticated passkey step-up completion request. The API validates challenge/session/account binding and records only server-side freshness state.
+      additionalProperties: false
+      required:
+        - passkeyChallengeId
+        - credential
+      properties:
+        passkeyChallengeId:
+          type: string
+          format: uuid
+        credential:
+          type: object
+          maxProperties: 32
+          description: Bounded WebAuthn assertion response JSON from the platform authenticator.
+    PasskeyStepUpCompleteResponse:
+      type: object
+      description: Server-authoritative step-up freshness result for the current session.
+      required:
+        - status
+        - operationCategory
+        - satisfiedAtUtc
+        - freshUntilUtc
+        - policyVersion
+      properties:
+        status:
+          type: string
+          enum:
+            - satisfied
+        operationCategory:
+          type: string
+          maxLength: 120
+        satisfiedAtUtc:
+          type: string
+          format: date-time
+        freshUntilUtc:
+          type: string
+          format: date-time
+        policyVersion:
+          oneOf:
+            - type: string
+              maxLength: 32
+            - type: "null"
+    TotpEnrollmentStartRequest:
+      type: object
+      description: Current-account TOTP enrollment begin request. Account, session, policy, secret generation, challenge, and audit context are derived server-side.
+      additionalProperties: false
+      properties:
+        displayLabel:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Optional user-visible label for the pending TOTP factor after server-side trimming.
+    TotpEnrollmentStartResponse:
+      type: object
+      description: Pending TOTP enrollment response with display-time setup material. Provisioning data must not be logged, synced, or re-displayed after setup.
+      required:
+        - totpEnrollmentId
+        - setup
+        - factor
+        - expiresAtUtc
+        - policy
+      properties:
+        totpEnrollmentId:
+          type: string
+          format: uuid
+        setup:
+          $ref: "#/components/schemas/TotpEnrollmentSetup"
+        factor:
+          $ref: "#/components/schemas/MfaFactorSummary"
+        expiresAtUtc:
+          type: string
+          format: date-time
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    TotpEnrollmentSetup:
+      type: object
+      description: One-time TOTP setup display material. The API may return an otpauth URI or QR payload only in the enrollment-start response.
+      required:
+        - issuer
+        - accountLabel
+        - algorithm
+        - digits
+        - periodSeconds
+        - provisioningUri
+        - manualEntryKey
+      properties:
+        issuer:
+          type: string
+          minLength: 1
+          maxLength: 120
+        accountLabel:
+          type: string
+          minLength: 1
+          maxLength: 320
+        algorithm:
+          type: string
+          enum:
+            - sha1
+            - sha256
+            - sha512
+        digits:
+          type: integer
+          enum:
+            - 6
+            - 8
+        periodSeconds:
+          type: integer
+          minimum: 15
+          maximum: 120
+        provisioningUri:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 2048
+              example: "otpauth://example-redacted"
+            - type: "null"
+          description: Display-time sensitive otpauth URI, redacted in examples.
+        manualEntryKey:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 256
+              example: TOTP-SECRET-REDACTED
+            - type: "null"
+          description: Display-time sensitive manual entry key, redacted in examples.
+    TotpEnrollmentVerifyRequest:
+      type: object
+      description: Pending TOTP enrollment verification request. The submitted code is verified server-side and must never be logged or stored by clients.
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 16
+          pattern: "^[0-9 ]+$"
+          description: Submitted one-time TOTP code. Spaces may be accepted and normalized server-side.
+    TotpEnrollmentResponse:
+      type: object
+      description: Safe TOTP enrollment verification response.
+      required:
+        - factor
+        - policy
+      properties:
+        factor:
+          $ref: "#/components/schemas/MfaFactorSummary"
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    MfaFactorListResponse:
+      type: object
+      description: Safe current-account MFA factor list.
+      required:
+        - factors
+        - policy
+      properties:
+        factors:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/MfaFactorSummary"
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    MfaFactorResponse:
+      type: object
+      description: Safe MFA factor response.
+      required:
+        - factor
+        - policy
+      properties:
+        factor:
+          $ref: "#/components/schemas/MfaFactorSummary"
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    MfaFactorSummary:
+      type: object
+      description: User-visible MFA factor metadata. It excludes TOTP secrets, provisioning URIs, QR payloads, recovery codes, stored verifiers, challenge material, audit metadata, and session tokens.
+      required:
+        - id
+        - factorType
+        - status
+        - displayLabel
+        - createdAtUtc
+        - verifiedAtUtc
+        - lastUsedAtUtc
+        - updatedAtUtc
+        - disabledAtUtc
+        - revokedAtUtc
+        - expiresAtUtc
+        - policyVersion
+        - totp
+      properties:
+        id:
+          type: string
+          format: uuid
+        factorType:
+          $ref: "#/components/schemas/AuthMfaFactorType"
+        status:
+          $ref: "#/components/schemas/AuthMfaFactorStatus"
+        displayLabel:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        createdAtUtc:
+          type: string
+          format: date-time
+        verifiedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        lastUsedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        updatedAtUtc:
+          type: string
+          format: date-time
+        disabledAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        revokedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        expiresAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        policyVersion:
+          oneOf:
+            - type: string
+              maxLength: 32
+            - type: "null"
+        totp:
+          oneOf:
+            - $ref: "#/components/schemas/TotpFactorMetadata"
+            - type: "null"
+    TotpFactorMetadata:
+      type: object
+      description: Safe TOTP factor configuration metadata. It excludes shared secrets, secret references, encrypted payloads, provisioning URIs, and QR payloads.
+      required:
+        - issuer
+        - accountLabel
+        - algorithm
+        - digits
+        - periodSeconds
+      properties:
+        issuer:
+          type: string
+          maxLength: 120
+        accountLabel:
+          type: string
+          maxLength: 320
+        algorithm:
+          type: string
+          enum:
+            - sha1
+            - sha256
+            - sha512
+        digits:
+          type: integer
+          enum:
+            - 6
+            - 8
+        periodSeconds:
+          type: integer
+          minimum: 15
+          maximum: 120
+    MfaFactorUpdateRequest:
+      type: object
+      description: Bounded MFA factor display metadata update. This cannot change factor secrets, status, ownership, policy, audit truth, or authorization.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayLabel:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: User-visible label after server-side trimming. Explicit null clears the label where policy allows.
+    MfaChallengeCreateRequest:
+      type: object
+      description: MFA challenge create request for a pending sign-in flow or authenticated step-up flow. Clients may request a challenge, but the API decides requiredness and allowed factors.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        purpose:
+          $ref: "#/components/schemas/AuthChallengePurpose"
+        preferredFactorType:
+          oneOf:
+            - $ref: "#/components/schemas/AuthChallengeFactorType"
+            - type: "null"
+        pendingAuthFlowId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Opaque pending auth-flow identifier where a prior primary authentication step created one.
+        operationCategory:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: Safe operation category for step-up challenges.
+    MfaChallengeResponse:
+      type: object
+      description: Safe MFA challenge metadata and allowed factor choices.
+      required:
+        - mfaChallengeId
+        - purpose
+        - status
+        - allowedFactorTypes
+        - factorChoices
+        - expiresAtUtc
+        - remainingAttempts
+        - operationCategory
+        - policy
+      properties:
+        mfaChallengeId:
+          type: string
+          format: uuid
+        purpose:
+          $ref: "#/components/schemas/AuthChallengePurpose"
+        status:
+          $ref: "#/components/schemas/AuthChallengeStatus"
+        allowedFactorTypes:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/AuthChallengeFactorType"
+        factorChoices:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/MfaChallengeFactorChoice"
+        expiresAtUtc:
+          type: string
+          format: date-time
+        remainingAttempts:
+          oneOf:
+            - type: integer
+              minimum: 0
+              maximum: 20
+            - type: "null"
+        operationCategory:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    MfaChallengeFactorChoice:
+      type: object
+      description: Safe display choice for a factor that may satisfy an MFA challenge.
+      required:
+        - factorType
+        - mfaFactorId
+        - displayLabel
+        - maskedDisplay
+      properties:
+        factorType:
+          $ref: "#/components/schemas/AuthChallengeFactorType"
+        mfaFactorId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Present only when safe and applicable for an account-bound factor.
+        displayLabel:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        maskedDisplay:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Safe masked user-facing hint that does not reveal secrets or full identifiers.
+    MfaTotpVerifyRequest:
+      type: object
+      description: TOTP MFA challenge verification request. The submitted code is verified server-side and must never be logged or stored by clients.
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 16
+          pattern: "^[0-9 ]+$"
+    MfaRecoveryCodeVerifyRequest:
+      type: object
+      description: Recovery-code MFA challenge verification request. The submitted code is consumed server-side on success and must never be logged or stored by clients.
+      additionalProperties: false
+      required:
+        - recoveryCode
+      properties:
+        recoveryCode:
+          type: string
+          minLength: 1
+          maxLength: 128
+          example: RECOVERY-CODE-REDACTED
+    MfaChallengeVerifyResponse:
+      type: object
+      description: Server-authoritative MFA verification result. It excludes raw access-session, refresh, bearer, recovery-code, TOTP, or challenge tokens.
+      required:
+        - status
+        - mfaChallengeId
+        - verifiedAtUtc
+        - freshUntilUtc
+        - currentUser
+        - recoveryCodeBatch
+      properties:
+        status:
+          type: string
+          enum:
+            - verified
+        mfaChallengeId:
+          type: string
+          format: uuid
+        verifiedAtUtc:
+          type: string
+          format: date-time
+        freshUntilUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        currentUser:
+          oneOf:
+            - $ref: "#/components/schemas/CurrentUserResponse"
+            - type: "null"
+          description: Present only when the server has established an authenticated session summary without exposing raw token material.
+        recoveryCodeBatch:
+          oneOf:
+            - $ref: "#/components/schemas/RecoveryCodeBatchSummary"
+            - type: "null"
+          description: Updated safe recovery-code metadata after recovery-code use where policy allows.
+    RecoveryCodeBatchGenerateRequest:
+      type: object
+      description: Recovery-code generation or regeneration request. The API derives account, policy, randomness, verifier storage, and audit context server-side.
+      additionalProperties: false
+      properties:
+        reasonCategory:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Optional safe reason category for audit and user security history.
+        replaceExisting:
+          type: boolean
+          description: When true, requests replacement of prior unused codes according to server policy.
+    RecoveryCodeBatchGenerateResponse:
+      type: object
+      description: Recovery-code generation response. Raw codes are display-once and are never returned by metadata reads.
+      required:
+        - batch
+        - recoveryCodes
+        - displayOnce
+        - policy
+      properties:
+        batch:
+          $ref: "#/components/schemas/RecoveryCodeBatchSummary"
+        recoveryCodes:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            example: RECOVERY-CODE-REDACTED
+          description: Raw recovery codes returned exactly once in this response.
+        displayOnce:
+          type: boolean
+          enum:
+            - true
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    RecoveryCodeBatchListResponse:
+      type: object
+      description: Safe current-account recovery-code batch metadata list.
+      required:
+        - batches
+        - policy
+      properties:
+        batches:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/RecoveryCodeBatchSummary"
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    RecoveryCodeBatchResponse:
+      type: object
+      description: Safe recovery-code batch metadata response.
+      required:
+        - batch
+        - policy
+      properties:
+        batch:
+          $ref: "#/components/schemas/RecoveryCodeBatchSummary"
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    RecoveryCodeBatchSummary:
+      type: object
+      description: Safe recovery-code batch metadata. It excludes raw codes, hashes, salts, verifiers, code prefixes, submitted values, and challenge material.
+      required:
+        - id
+        - status
+        - totalGenerated
+        - remainingUnused
+        - usedCount
+        - displayedOnce
+        - generatedAtUtc
+        - lastUsedAtUtc
+        - replacedAtUtc
+        - revokedAtUtc
+        - expiresAtUtc
+        - policyVersion
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AuthRecoveryCodeBatchStatus"
+        totalGenerated:
+          type: integer
+          minimum: 0
+          maximum: 100
+        remainingUnused:
+          type: integer
+          minimum: 0
+          maximum: 100
+        usedCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        displayedOnce:
+          type: boolean
+        generatedAtUtc:
+          type: string
+          format: date-time
+        lastUsedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        replacedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        revokedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        expiresAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        policyVersion:
+          oneOf:
+            - type: string
+              maxLength: 32
+            - type: "null"
+    AuthMfaPolicyReadoutResponse:
+      type: object
+      description: Client-visible current-account MFA/passkey policy readout. Server-side enforcement remains authoritative.
+      required:
+        - policy
+      properties:
+        policy:
+          $ref: "#/components/schemas/AuthMfaPolicyReadout"
+    AuthMfaPolicyReadout:
+      type: object
+      description: Safe MFA/passkey policy and readiness readout for display. Clients must not treat it as authorization or enforcement truth.
+      required:
+        - policyVersion
+        - passkeySupportMode
+        - totpSupportMode
+        - recoveryCodeSupportMode
+        - enforcementMode
+        - accountCompliance
+        - requiresEnrollment
+        - requiresFreshStepUp
+        - recoveryCodesLow
+        - serverAuthoritative
+      properties:
+        policyVersion:
+          oneOf:
+            - type: string
+              maxLength: 32
+            - type: "null"
+        passkeySupportMode:
+          $ref: "#/components/schemas/AuthMfaSupportMode"
+        totpSupportMode:
+          $ref: "#/components/schemas/AuthMfaSupportMode"
+        recoveryCodeSupportMode:
+          $ref: "#/components/schemas/AuthMfaSupportMode"
+        enforcementMode:
+          $ref: "#/components/schemas/AuthMfaEnforcementMode"
+        accountCompliance:
+          type: string
+          enum:
+            - compliant
+            - pending_enrollment
+            - non_compliant
+            - unknown
+        requiresEnrollment:
+          type: boolean
+        requiresFreshStepUp:
+          type: boolean
+        recoveryCodesLow:
+          type: boolean
+        serverAuthoritative:
+          type: boolean
+          enum:
+            - true
+    AuthPasskeyCredentialStatus:
+      type: string
+      description: Passkey credential lifecycle status.
+      enum:
+        - pending
+        - enrolled
+        - disabled
+        - revoked
+    AuthMfaFactorType:
+      type: string
+      description: MFA factor type values currently exposed to clients.
+      enum:
+        - totp
+    AuthMfaFactorStatus:
+      type: string
+      description: MFA factor lifecycle status.
+      enum:
+        - pending
+        - enrolled
+        - disabled
+        - revoked
+        - expired
+    AuthChallengePurpose:
+      type: string
+      description: Auth challenge purpose values.
+      enum:
+        - passkey_enrollment
+        - passkey_sign_in
+        - passkey_step_up
+        - totp_enrollment
+        - sign_in
+        - step_up
+        - recovery
+    AuthChallengeFactorType:
+      type: string
+      description: Factor category that may satisfy an auth challenge.
+      enum:
+        - passkey
+        - totp
+        - recovery_code
+        - mfa
+    AuthChallengeStatus:
+      type: string
+      description: Auth challenge lifecycle status.
+      enum:
+        - pending
+        - consumed
+        - verified
+        - expired
+        - failed
+        - blocked
+        - cancelled
+        - replay_detected
+    AuthRecoveryCodeBatchStatus:
+      type: string
+      description: Recovery-code batch lifecycle status.
+      enum:
+        - active
+        - replaced
+        - revoked
+        - expired
+    AuthMfaSupportMode:
+      type: string
+      description: Client-visible factor support mode.
+      enum:
+        - disabled
+        - optional
+        - required_for_admins
+        - required_for_all_users
+        - policy_pending_enrollment
+    AuthMfaEnforcementMode:
+      type: string
+      description: Client-visible MFA/passkey enforcement mode.
+      enum:
+        - optional
+        - blocking_warning
+        - required
     InAppNotificationListResponse:
       type: object
       description: Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.

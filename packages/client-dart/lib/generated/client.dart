@@ -128,6 +128,185 @@ class SettleoraApiClient {
     return CurrentUserResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<MfaChallengeResponse> createMfaChallenge(MfaChallengeCreateRequest body, {Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/mfa/challenges",
+      body: body.toJson(),
+      headers: headers,
+    );
+    return MfaChallengeResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<MfaChallengeVerifyResponse> verifyMfaRecoveryCodeChallenge(String mfaChallengeId, MfaRecoveryCodeVerifyRequest body, {Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/auth/mfa/challenges/${Uri.encodeComponent(mfaChallengeId.toString())}/recovery-code/verify',
+      body: body.toJson(),
+      headers: headers,
+    );
+    return MfaChallengeVerifyResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<MfaChallengeVerifyResponse> verifyMfaTotpChallenge(String mfaChallengeId, MfaTotpVerifyRequest body, {Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/auth/mfa/challenges/${Uri.encodeComponent(mfaChallengeId.toString())}/totp/verify',
+      body: body.toJson(),
+      headers: headers,
+    );
+    return MfaChallengeVerifyResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<MfaFactorListResponse> listMfaFactors({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/auth/mfa/factors",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return MfaFactorListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<MfaFactorResponse> updateMfaFactor(String mfaFactorId, MfaFactorUpdateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/auth/mfa/factors/${Uri.encodeComponent(mfaFactorId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return MfaFactorResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> revokeMfaFactor(String mfaFactorId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/auth/mfa/factors/${Uri.encodeComponent(mfaFactorId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<AuthMfaPolicyReadoutResponse> getCurrentMfaPolicy({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/auth/mfa/policy",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AuthMfaPolicyReadoutResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<PasskeyCredentialListResponse> listPasskeyCredentials({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/auth/passkeys",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return PasskeyCredentialListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<PasskeyCredentialResponse> completePasskeyEnrollment(PasskeyEnrollmentCompleteRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/passkeys/enrollment/complete",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return PasskeyCredentialResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<PasskeyEnrollmentOptionsResponse> createPasskeyEnrollmentOptions(PasskeyEnrollmentOptionsRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/passkeys/enrollment/options",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return PasskeyEnrollmentOptionsResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<PasskeySignInCompleteResponse> completePasskeySignIn(PasskeySignInCompleteRequest body, {Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/passkeys/sign-in/complete",
+      body: body.toJson(),
+      headers: headers,
+    );
+    return PasskeySignInCompleteResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<PasskeySignInOptionsResponse> createPasskeySignInOptions(PasskeySignInOptionsRequest body, {Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/passkeys/sign-in/options",
+      body: body.toJson(),
+      headers: headers,
+    );
+    return PasskeySignInOptionsResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<PasskeyCredentialResponse> updatePasskeyCredential(String passkeyCredentialId, PasskeyCredentialUpdateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      '/api/v1/auth/passkeys/${Uri.encodeComponent(passkeyCredentialId.toString())}',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return PasskeyCredentialResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> revokePasskeyCredential(String passkeyCredentialId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/auth/passkeys/${Uri.encodeComponent(passkeyCredentialId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<RecoveryCodeBatchListResponse> getRecoveryCodeBatches({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/auth/recovery-codes",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecoveryCodeBatchListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<RecoveryCodeBatchGenerateResponse> generateRecoveryCodeBatch(RecoveryCodeBatchGenerateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/recovery-codes",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return RecoveryCodeBatchGenerateResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> revokeRecoveryCodeBatch(String recoveryCodeBatchId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/auth/recovery-codes/${Uri.encodeComponent(recoveryCodeBatchId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<RefreshSessionResponse> refreshSession(RefreshSessionRequest body, {Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",
@@ -187,6 +366,60 @@ class SettleoraApiClient {
       accessToken: accessToken,
       headers: headers,
     );
+  }
+
+  Future<PasskeyStepUpCompleteResponse> completePasskeyStepUp(PasskeyStepUpCompleteRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/step-up/passkeys/complete",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return PasskeyStepUpCompleteResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<PasskeyStepUpOptionsResponse> createPasskeyStepUpOptions(PasskeyStepUpOptionsRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/step-up/passkeys/options",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return PasskeyStepUpOptionsResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<TotpEnrollmentStartResponse> startTotpEnrollment(TotpEnrollmentStartRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/totp/enrollment",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return TotpEnrollmentStartResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> cancelTotpEnrollment(String totpEnrollmentId, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      '/api/v1/auth/totp/enrollment/${Uri.encodeComponent(totpEnrollmentId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<TotpEnrollmentResponse> verifyTotpEnrollment(String totpEnrollmentId, TotpEnrollmentVerifyRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/auth/totp/enrollment/${Uri.encodeComponent(totpEnrollmentId.toString())}/verify',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return TotpEnrollmentResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<PersonalBillListResponse> listPersonalBills({String? fromDate, String? toDate, ExpenseBillStatus? status, ExpenseBillReconciliationStatus? reconciliationStatus, CurrencyCode? currency, String? merchant, String? search, ExpenseBillArchiveState? archiveState, int? limit, required String accessToken, Map<String, String>? headers}) async {
