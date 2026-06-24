@@ -152,6 +152,535 @@ export interface CurrentUserSession {
 }
 
 /**
+ * Current-account passkey enrollment begin request. Account, session, policy, origin/RP, challenge, and audit context are derived server-side.
+ */
+export interface PasskeyEnrollmentOptionsRequest {
+  /**
+   * Optional user-visible label for the pending credential after server-side trimming.
+   */
+  displayLabel?: string;
+  /**
+   * Optional client preference. The API still applies server attestation policy.
+   */
+  attestationPreference?: "none" | "indirect" | "direct" | "enterprise" | null;
+}
+
+/**
+ * Bounded passkey enrollment ceremony response. Public-key creation options contain only protocol data required by WebAuthn clients and must be treated as short-lived challenge material.
+ */
+export interface PasskeyEnrollmentOptionsResponse {
+  /**
+   * Opaque server-side challenge identifier, not a reusable challenge secret.
+   */
+  passkeyChallengeId: string;
+  /**
+   * Bounded WebAuthn PublicKeyCredentialCreationOptions JSON owned and validated by the API/WebAuthn library.
+   */
+  publicKeyCredentialCreationOptions: Record<string, unknown>;
+  expiresAtUtc: string;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Passkey enrollment completion request. The authenticator response is validated server-side against the stored challenge, current account, origin/RP policy, uniqueness, and replay constraints.
+ */
+export interface PasskeyEnrollmentCompleteRequest {
+  passkeyChallengeId: string;
+  /**
+   * Bounded WebAuthn attestation response JSON from the platform authenticator. It must not include passkey private material.
+   */
+  credential: Record<string, unknown>;
+  /**
+   * Optional final display label after server-side trimming.
+   */
+  displayLabel?: string | null;
+}
+
+/**
+ * Safe passkey credential list for the current account.
+ */
+export interface PasskeyCredentialListResponse {
+  passkeys: PasskeyCredentialSummary[];
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Safe passkey credential response.
+ */
+export interface PasskeyCredentialResponse {
+  passkey: PasskeyCredentialSummary;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * User-visible passkey metadata. It excludes raw WebAuthn credential IDs, public keys, attestation objects, private material, challenge material, audit metadata, and session tokens.
+ */
+export interface PasskeyCredentialSummary {
+  /**
+   * Stable server-side passkey credential ID for management operations.
+   */
+  id: string;
+  displayLabel: string | null;
+  status: AuthPasskeyCredentialStatus;
+  backupEligible: boolean;
+  backupState: boolean;
+  /**
+   * Safe authenticator transport categories where retained.
+   */
+  transportHints: string[];
+  /**
+   * Bounded attestation policy result category, not an attestation payload.
+   */
+  attestationPolicyResult: string | null;
+  createdAtUtc: string;
+  enrolledAtUtc: string | null;
+  lastUsedAtUtc: string | null;
+  updatedAtUtc: string;
+  disabledAtUtc: string | null;
+  revokedAtUtc: string | null;
+}
+
+/**
+ * Bounded passkey display metadata update. This cannot change credential material, status, ownership, policy, audit truth, or authorization.
+ */
+export interface PasskeyCredentialUpdateRequest {
+  /**
+   * User-visible label after server-side trimming. Explicit null clears the label where policy allows.
+   */
+  displayLabel?: string | null;
+}
+
+/**
+ * Passkey sign-in begin request. The API applies anti-enumeration, policy, and rate-limit rules before returning options.
+ */
+export interface PasskeySignInOptionsRequest {
+  /**
+   * Optional account hint for account-scoped ceremonies. Discoverable-credential policy remains server-authoritative.
+   */
+  identifierHint?: string | null;
+  /**
+   * Optional client preference. The API still applies server user-verification policy.
+   */
+  userVerification?: "required" | "preferred" | "discouraged" | null;
+}
+
+/**
+ * Bounded passkey sign-in ceremony response.
+ */
+export interface PasskeySignInOptionsResponse {
+  /**
+   * Opaque server-side challenge identifier, not a reusable challenge secret.
+   */
+  passkeyChallengeId: string;
+  /**
+   * Bounded WebAuthn PublicKeyCredentialRequestOptions JSON owned and validated by the API/WebAuthn library.
+   */
+  publicKeyCredentialRequestOptions: Record<string, unknown>;
+  expiresAtUtc: string;
+}
+
+/**
+ * Passkey sign-in completion request. The assertion is validated server-side against challenge, credential status, account binding, RP/origin, replay metadata, and policy.
+ */
+export interface PasskeySignInCompleteRequest {
+  passkeyChallengeId: string;
+  /**
+   * Bounded WebAuthn assertion response JSON from the platform authenticator.
+   */
+  credential: Record<string, unknown>;
+  /**
+   * Optional display label for any server-created session if future runtime issues one.
+   */
+  deviceLabel?: string | null;
+}
+
+/**
+ * Server-authoritative passkey sign-in result. It intentionally excludes raw access-session, refresh, bearer, or challenge tokens.
+ */
+export interface PasskeySignInCompleteResponse {
+  /**
+   * High-level server result category. Clients must not infer authorization for later operations from this value alone.
+   */
+  status: "signed_in" | "mfa_required" | "denied";
+  /**
+   * Present only when the server has established an authenticated session summary without exposing raw token material.
+   */
+  currentUser: CurrentUserResponse | null;
+  /**
+   * Present when an additional MFA challenge must be completed by server policy.
+   */
+  mfaChallenge: MfaChallengeResponse | null;
+}
+
+/**
+ * Authenticated passkey step-up begin request. The API decides whether the operation category requires or can be satisfied by passkey freshness.
+ */
+export interface PasskeyStepUpOptionsRequest {
+  /**
+   * Safe operation category such as security_settings or admin_policy_change.
+   */
+  operationCategory: string;
+}
+
+/**
+ * Bounded passkey step-up ceremony response.
+ */
+export interface PasskeyStepUpOptionsResponse {
+  passkeyChallengeId: string;
+  operationCategory: string;
+  /**
+   * Bounded WebAuthn PublicKeyCredentialRequestOptions JSON owned and validated by the API/WebAuthn library.
+   */
+  publicKeyCredentialRequestOptions: Record<string, unknown>;
+  expiresAtUtc: string;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Authenticated passkey step-up completion request. The API validates challenge/session/account binding and records only server-side freshness state.
+ */
+export interface PasskeyStepUpCompleteRequest {
+  passkeyChallengeId: string;
+  /**
+   * Bounded WebAuthn assertion response JSON from the platform authenticator.
+   */
+  credential: Record<string, unknown>;
+}
+
+/**
+ * Server-authoritative step-up freshness result for the current session.
+ */
+export interface PasskeyStepUpCompleteResponse {
+  status: "satisfied";
+  operationCategory: string;
+  satisfiedAtUtc: string;
+  freshUntilUtc: string;
+  policyVersion: string | null;
+}
+
+/**
+ * Current-account TOTP enrollment begin request. Account, session, policy, secret generation, challenge, and audit context are derived server-side.
+ */
+export interface TotpEnrollmentStartRequest {
+  /**
+   * Optional user-visible label for the pending TOTP factor after server-side trimming.
+   */
+  displayLabel?: string;
+}
+
+/**
+ * Pending TOTP enrollment response with display-time setup material. Provisioning data must not be logged, synced, or re-displayed after setup.
+ */
+export interface TotpEnrollmentStartResponse {
+  totpEnrollmentId: string;
+  setup: TotpEnrollmentSetup;
+  factor: MfaFactorSummary;
+  expiresAtUtc: string;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * One-time TOTP setup display material. The API may return an otpauth URI or QR payload only in the enrollment-start response.
+ */
+export interface TotpEnrollmentSetup {
+  issuer: string;
+  accountLabel: string;
+  algorithm: "sha1" | "sha256" | "sha512";
+  digits: 6 | 8;
+  periodSeconds: number;
+  /**
+   * Display-time sensitive otpauth URI, redacted in examples.
+   */
+  provisioningUri: string | null;
+  /**
+   * Display-time sensitive manual entry key, redacted in examples.
+   */
+  manualEntryKey: string | null;
+}
+
+/**
+ * Pending TOTP enrollment verification request. The submitted code is verified server-side and must never be logged or stored by clients.
+ */
+export interface TotpEnrollmentVerifyRequest {
+  /**
+   * Submitted one-time TOTP code. Spaces may be accepted and normalized server-side.
+   */
+  code: string;
+}
+
+/**
+ * Safe TOTP enrollment verification response.
+ */
+export interface TotpEnrollmentResponse {
+  factor: MfaFactorSummary;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Safe current-account MFA factor list.
+ */
+export interface MfaFactorListResponse {
+  factors: MfaFactorSummary[];
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Safe MFA factor response.
+ */
+export interface MfaFactorResponse {
+  factor: MfaFactorSummary;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * User-visible MFA factor metadata. It excludes TOTP secrets, provisioning URIs, QR payloads, recovery codes, stored verifiers, challenge material, audit metadata, and session tokens.
+ */
+export interface MfaFactorSummary {
+  id: string;
+  factorType: AuthMfaFactorType;
+  status: AuthMfaFactorStatus;
+  displayLabel: string | null;
+  createdAtUtc: string;
+  verifiedAtUtc: string | null;
+  lastUsedAtUtc: string | null;
+  updatedAtUtc: string;
+  disabledAtUtc: string | null;
+  revokedAtUtc: string | null;
+  expiresAtUtc: string | null;
+  policyVersion: string | null;
+  totp: TotpFactorMetadata | null;
+}
+
+/**
+ * Safe TOTP factor configuration metadata. It excludes shared secrets, secret references, encrypted payloads, provisioning URIs, and QR payloads.
+ */
+export interface TotpFactorMetadata {
+  issuer: string;
+  accountLabel: string;
+  algorithm: "sha1" | "sha256" | "sha512";
+  digits: 6 | 8;
+  periodSeconds: number;
+}
+
+/**
+ * Bounded MFA factor display metadata update. This cannot change factor secrets, status, ownership, policy, audit truth, or authorization.
+ */
+export interface MfaFactorUpdateRequest {
+  /**
+   * User-visible label after server-side trimming. Explicit null clears the label where policy allows.
+   */
+  displayLabel?: string | null;
+}
+
+/**
+ * MFA challenge create request for a pending sign-in flow or authenticated step-up flow. Clients may request a challenge, but the API decides requiredness and allowed factors.
+ */
+export interface MfaChallengeCreateRequest {
+  purpose?: AuthChallengePurpose;
+  preferredFactorType?: AuthChallengeFactorType | null;
+  /**
+   * Opaque pending auth-flow identifier where a prior primary authentication step created one.
+   */
+  pendingAuthFlowId?: string | null;
+  /**
+   * Safe operation category for step-up challenges.
+   */
+  operationCategory?: string | null;
+}
+
+/**
+ * Safe MFA challenge metadata and allowed factor choices.
+ */
+export interface MfaChallengeResponse {
+  mfaChallengeId: string;
+  purpose: AuthChallengePurpose;
+  status: AuthChallengeStatus;
+  allowedFactorTypes: AuthChallengeFactorType[];
+  factorChoices: MfaChallengeFactorChoice[];
+  expiresAtUtc: string;
+  remainingAttempts: number | null;
+  operationCategory: string | null;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Safe display choice for a factor that may satisfy an MFA challenge.
+ */
+export interface MfaChallengeFactorChoice {
+  factorType: AuthChallengeFactorType;
+  /**
+   * Present only when safe and applicable for an account-bound factor.
+   */
+  mfaFactorId: string | null;
+  displayLabel: string | null;
+  /**
+   * Safe masked user-facing hint that does not reveal secrets or full identifiers.
+   */
+  maskedDisplay: string | null;
+}
+
+/**
+ * TOTP MFA challenge verification request. The submitted code is verified server-side and must never be logged or stored by clients.
+ */
+export interface MfaTotpVerifyRequest {
+  code: string;
+}
+
+/**
+ * Recovery-code MFA challenge verification request. The submitted code is consumed server-side on success and must never be logged or stored by clients.
+ */
+export interface MfaRecoveryCodeVerifyRequest {
+  recoveryCode: string;
+}
+
+/**
+ * Server-authoritative MFA verification result. It excludes raw access-session, refresh, bearer, recovery-code, TOTP, or challenge tokens.
+ */
+export interface MfaChallengeVerifyResponse {
+  status: "verified";
+  mfaChallengeId: string;
+  verifiedAtUtc: string;
+  freshUntilUtc: string | null;
+  /**
+   * Present only when the server has established an authenticated session summary without exposing raw token material.
+   */
+  currentUser: CurrentUserResponse | null;
+  /**
+   * Updated safe recovery-code metadata after recovery-code use where policy allows.
+   */
+  recoveryCodeBatch: RecoveryCodeBatchSummary | null;
+}
+
+/**
+ * Recovery-code generation or regeneration request. The API derives account, policy, randomness, verifier storage, and audit context server-side.
+ */
+export interface RecoveryCodeBatchGenerateRequest {
+  /**
+   * Optional safe reason category for audit and user security history.
+   */
+  reasonCategory?: string;
+  /**
+   * When true, requests replacement of prior unused codes according to server policy.
+   */
+  replaceExisting?: boolean;
+}
+
+/**
+ * Recovery-code generation response. Raw codes are display-once and are never returned by metadata reads.
+ */
+export interface RecoveryCodeBatchGenerateResponse {
+  batch: RecoveryCodeBatchSummary;
+  /**
+   * Raw recovery codes returned exactly once in this response.
+   */
+  recoveryCodes: string[];
+  displayOnce: true;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Safe current-account recovery-code batch metadata list.
+ */
+export interface RecoveryCodeBatchListResponse {
+  batches: RecoveryCodeBatchSummary[];
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Safe recovery-code batch metadata response.
+ */
+export interface RecoveryCodeBatchResponse {
+  batch: RecoveryCodeBatchSummary;
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Safe recovery-code batch metadata. It excludes raw codes, hashes, salts, verifiers, code prefixes, submitted values, and challenge material.
+ */
+export interface RecoveryCodeBatchSummary {
+  id: string;
+  status: AuthRecoveryCodeBatchStatus;
+  totalGenerated: number;
+  remainingUnused: number;
+  usedCount: number;
+  displayedOnce: boolean;
+  generatedAtUtc: string;
+  lastUsedAtUtc: string | null;
+  replacedAtUtc: string | null;
+  revokedAtUtc: string | null;
+  expiresAtUtc: string | null;
+  policyVersion: string | null;
+}
+
+/**
+ * Client-visible current-account MFA/passkey policy readout. Server-side enforcement remains authoritative.
+ */
+export interface AuthMfaPolicyReadoutResponse {
+  policy: AuthMfaPolicyReadout;
+}
+
+/**
+ * Safe MFA/passkey policy and readiness readout for display. Clients must not treat it as authorization or enforcement truth.
+ */
+export interface AuthMfaPolicyReadout {
+  policyVersion: string | null;
+  passkeySupportMode: AuthMfaSupportMode;
+  totpSupportMode: AuthMfaSupportMode;
+  recoveryCodeSupportMode: AuthMfaSupportMode;
+  enforcementMode: AuthMfaEnforcementMode;
+  accountCompliance: "compliant" | "pending_enrollment" | "non_compliant" | "unknown";
+  requiresEnrollment: boolean;
+  requiresFreshStepUp: boolean;
+  recoveryCodesLow: boolean;
+  serverAuthoritative: true;
+}
+
+/**
+ * Passkey credential lifecycle status.
+ */
+export type AuthPasskeyCredentialStatus = "pending" | "enrolled" | "disabled" | "revoked";
+
+/**
+ * MFA factor type values currently exposed to clients.
+ */
+export type AuthMfaFactorType = "totp";
+
+/**
+ * MFA factor lifecycle status.
+ */
+export type AuthMfaFactorStatus = "pending" | "enrolled" | "disabled" | "revoked" | "expired";
+
+/**
+ * Auth challenge purpose values.
+ */
+export type AuthChallengePurpose = "passkey_enrollment" | "passkey_sign_in" | "passkey_step_up" | "totp_enrollment" | "sign_in" | "step_up" | "recovery";
+
+/**
+ * Factor category that may satisfy an auth challenge.
+ */
+export type AuthChallengeFactorType = "passkey" | "totp" | "recovery_code" | "mfa";
+
+/**
+ * Auth challenge lifecycle status.
+ */
+export type AuthChallengeStatus = "pending" | "consumed" | "verified" | "expired" | "failed" | "blocked" | "cancelled" | "replay_detected";
+
+/**
+ * Recovery-code batch lifecycle status.
+ */
+export type AuthRecoveryCodeBatchStatus = "active" | "replaced" | "revoked" | "expired";
+
+/**
+ * Client-visible factor support mode.
+ */
+export type AuthMfaSupportMode = "disabled" | "optional" | "required_for_admins" | "required_for_all_users" | "policy_pending_enrollment";
+
+/**
+ * Client-visible MFA/passkey enforcement mode.
+ */
+export type AuthMfaEnforcementMode = "optional" | "blocking_warning" | "required";
+
+/**
  * Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.
  */
 export interface InAppNotificationListResponse {

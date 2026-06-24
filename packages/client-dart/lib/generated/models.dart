@@ -389,6 +389,1518 @@ class CurrentUserSession {
   }
 }
 
+/// Current-account passkey enrollment begin request. Account, session, policy, origin/RP, challenge, and audit context are derived server-side.
+class PasskeyEnrollmentOptionsRequest {
+  static const Object _unsetAttestationPreference = Object();
+
+  PasskeyEnrollmentOptionsRequest({
+    this.displayLabel,
+    Object? attestationPreference = _unsetAttestationPreference,
+  })
+      : attestationPreference = identical(attestationPreference, _unsetAttestationPreference) ? null : attestationPreference as String?,
+        _hasAttestationPreference = !identical(attestationPreference, _unsetAttestationPreference);
+
+  /// Optional user-visible label for the pending credential after server-side trimming.
+  final String? displayLabel;
+  /// Optional client preference. The API still applies server attestation policy.
+  final String? attestationPreference;
+  final bool _hasAttestationPreference;
+
+  factory PasskeyEnrollmentOptionsRequest.fromJson(JsonObject json) {
+    return PasskeyEnrollmentOptionsRequest(
+      displayLabel: json["displayLabel"] == null ? null : json["displayLabel"] as String,
+      attestationPreference: json.containsKey("attestationPreference")
+          ? json["attestationPreference"] == null ? null : json["attestationPreference"] as String
+          : _unsetAttestationPreference,
+    );
+  }
+
+  JsonObject toJson() {
+    final displayLabelJsonValue = displayLabel;
+    final attestationPreferenceJsonValue = attestationPreference;
+
+    return {
+      if (displayLabelJsonValue != null) "displayLabel": displayLabelJsonValue,
+      if (_hasAttestationPreference) "attestationPreference": attestationPreferenceJsonValue,
+    };
+  }
+}
+
+/// Bounded passkey enrollment ceremony response. Public-key creation options contain only protocol data required by WebAuthn clients and must be treated as short-lived challenge material.
+class PasskeyEnrollmentOptionsResponse {
+  const PasskeyEnrollmentOptionsResponse({
+    required this.passkeyChallengeId,
+    required this.publicKeyCredentialCreationOptions,
+    required this.expiresAtUtc,
+    required this.policy,
+  });
+
+  /// Opaque server-side challenge identifier, not a reusable challenge secret.
+  final String passkeyChallengeId;
+  /// Bounded WebAuthn PublicKeyCredentialCreationOptions JSON owned and validated by the API/WebAuthn library.
+  final JsonObject publicKeyCredentialCreationOptions;
+  final DateTime expiresAtUtc;
+  final AuthMfaPolicyReadout policy;
+
+  factory PasskeyEnrollmentOptionsResponse.fromJson(JsonObject json) {
+    return PasskeyEnrollmentOptionsResponse(
+      passkeyChallengeId: json["passkeyChallengeId"] as String,
+      publicKeyCredentialCreationOptions: JsonObject.from(json["publicKeyCredentialCreationOptions"] as Map),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "passkeyChallengeId": passkeyChallengeId,
+      "publicKeyCredentialCreationOptions": publicKeyCredentialCreationOptions,
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Passkey enrollment completion request. The authenticator response is validated server-side against the stored challenge, current account, origin/RP policy, uniqueness, and replay constraints.
+class PasskeyEnrollmentCompleteRequest {
+  static const Object _unsetDisplayLabel = Object();
+
+  PasskeyEnrollmentCompleteRequest({
+    required this.passkeyChallengeId,
+    required this.credential,
+    Object? displayLabel = _unsetDisplayLabel,
+  })
+      : displayLabel = identical(displayLabel, _unsetDisplayLabel) ? null : displayLabel as String?,
+        _hasDisplayLabel = !identical(displayLabel, _unsetDisplayLabel);
+
+  final String passkeyChallengeId;
+  /// Bounded WebAuthn attestation response JSON from the platform authenticator. It must not include passkey private material.
+  final JsonObject credential;
+  /// Optional final display label after server-side trimming.
+  final String? displayLabel;
+  final bool _hasDisplayLabel;
+
+  factory PasskeyEnrollmentCompleteRequest.fromJson(JsonObject json) {
+    return PasskeyEnrollmentCompleteRequest(
+      passkeyChallengeId: json["passkeyChallengeId"] as String,
+      credential: JsonObject.from(json["credential"] as Map),
+      displayLabel: json.containsKey("displayLabel")
+          ? json["displayLabel"] == null ? null : json["displayLabel"] as String
+          : _unsetDisplayLabel,
+    );
+  }
+
+  JsonObject toJson() {
+    final displayLabelJsonValue = displayLabel;
+
+    return {
+      "passkeyChallengeId": passkeyChallengeId,
+      "credential": credential,
+      if (_hasDisplayLabel) "displayLabel": displayLabelJsonValue,
+    };
+  }
+}
+
+/// Safe passkey credential list for the current account.
+class PasskeyCredentialListResponse {
+  const PasskeyCredentialListResponse({
+    required this.passkeys,
+    required this.policy,
+  });
+
+  final List<PasskeyCredentialSummary> passkeys;
+  final AuthMfaPolicyReadout policy;
+
+  factory PasskeyCredentialListResponse.fromJson(JsonObject json) {
+    return PasskeyCredentialListResponse(
+      passkeys: (json["passkeys"] as List<dynamic>).map((item) => PasskeyCredentialSummary.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "passkeys": passkeys.map((item) => item.toJson()).toList(growable: false),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Safe passkey credential response.
+class PasskeyCredentialResponse {
+  const PasskeyCredentialResponse({
+    required this.passkey,
+    required this.policy,
+  });
+
+  final PasskeyCredentialSummary passkey;
+  final AuthMfaPolicyReadout policy;
+
+  factory PasskeyCredentialResponse.fromJson(JsonObject json) {
+    return PasskeyCredentialResponse(
+      passkey: PasskeyCredentialSummary.fromJson(JsonObject.from(json["passkey"] as Map)),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "passkey": passkey.toJson(),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// User-visible passkey metadata. It excludes raw WebAuthn credential IDs, public keys, attestation objects, private material, challenge material, audit metadata, and session tokens.
+class PasskeyCredentialSummary {
+  const PasskeyCredentialSummary({
+    required this.id,
+    required this.displayLabel,
+    required this.status,
+    required this.backupEligible,
+    required this.backupState,
+    required this.transportHints,
+    required this.attestationPolicyResult,
+    required this.createdAtUtc,
+    required this.enrolledAtUtc,
+    required this.lastUsedAtUtc,
+    required this.updatedAtUtc,
+    required this.disabledAtUtc,
+    required this.revokedAtUtc,
+  });
+
+  /// Stable server-side passkey credential ID for management operations.
+  final String id;
+  final String? displayLabel;
+  final AuthPasskeyCredentialStatus status;
+  final bool backupEligible;
+  final bool backupState;
+  /// Safe authenticator transport categories where retained.
+  final List<String> transportHints;
+  /// Bounded attestation policy result category, not an attestation payload.
+  final String? attestationPolicyResult;
+  final DateTime createdAtUtc;
+  final DateTime? enrolledAtUtc;
+  final DateTime? lastUsedAtUtc;
+  final DateTime updatedAtUtc;
+  final DateTime? disabledAtUtc;
+  final DateTime? revokedAtUtc;
+
+  factory PasskeyCredentialSummary.fromJson(JsonObject json) {
+    return PasskeyCredentialSummary(
+      id: json["id"] as String,
+      displayLabel: json["displayLabel"] == null ? null : json["displayLabel"] as String,
+      status: json["status"] as String,
+      backupEligible: json["backupEligible"] as bool,
+      backupState: json["backupState"] as bool,
+      transportHints: (json["transportHints"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      attestationPolicyResult: json["attestationPolicyResult"] == null ? null : json["attestationPolicyResult"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      enrolledAtUtc: json["enrolledAtUtc"] == null ? null : DateTime.parse(json["enrolledAtUtc"] as String),
+      lastUsedAtUtc: json["lastUsedAtUtc"] == null ? null : DateTime.parse(json["lastUsedAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      disabledAtUtc: json["disabledAtUtc"] == null ? null : DateTime.parse(json["disabledAtUtc"] as String),
+      revokedAtUtc: json["revokedAtUtc"] == null ? null : DateTime.parse(json["revokedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final displayLabelJsonValue = displayLabel;
+    final attestationPolicyResultJsonValue = attestationPolicyResult;
+    final enrolledAtUtcJsonValue = enrolledAtUtc;
+    final lastUsedAtUtcJsonValue = lastUsedAtUtc;
+    final disabledAtUtcJsonValue = disabledAtUtc;
+    final revokedAtUtcJsonValue = revokedAtUtc;
+
+    return {
+      "id": id,
+      "displayLabel": displayLabelJsonValue,
+      "status": status,
+      "backupEligible": backupEligible,
+      "backupState": backupState,
+      "transportHints": transportHints,
+      "attestationPolicyResult": attestationPolicyResultJsonValue,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "enrolledAtUtc": enrolledAtUtcJsonValue == null ? null : enrolledAtUtcJsonValue.toUtc().toIso8601String(),
+      "lastUsedAtUtc": lastUsedAtUtcJsonValue == null ? null : lastUsedAtUtcJsonValue.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "disabledAtUtc": disabledAtUtcJsonValue == null ? null : disabledAtUtcJsonValue.toUtc().toIso8601String(),
+      "revokedAtUtc": revokedAtUtcJsonValue == null ? null : revokedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Bounded passkey display metadata update. This cannot change credential material, status, ownership, policy, audit truth, or authorization.
+class PasskeyCredentialUpdateRequest {
+  static const Object _unsetDisplayLabel = Object();
+
+  PasskeyCredentialUpdateRequest({
+    Object? displayLabel = _unsetDisplayLabel,
+  })
+      : displayLabel = identical(displayLabel, _unsetDisplayLabel) ? null : displayLabel as String?,
+        _hasDisplayLabel = !identical(displayLabel, _unsetDisplayLabel);
+
+  /// User-visible label after server-side trimming. Explicit null clears the label where policy allows.
+  final String? displayLabel;
+  final bool _hasDisplayLabel;
+
+  factory PasskeyCredentialUpdateRequest.fromJson(JsonObject json) {
+    return PasskeyCredentialUpdateRequest(
+      displayLabel: json.containsKey("displayLabel")
+          ? json["displayLabel"] == null ? null : json["displayLabel"] as String
+          : _unsetDisplayLabel,
+    );
+  }
+
+  JsonObject toJson() {
+    final displayLabelJsonValue = displayLabel;
+
+    return {
+      if (_hasDisplayLabel) "displayLabel": displayLabelJsonValue,
+    };
+  }
+}
+
+/// Passkey sign-in begin request. The API applies anti-enumeration, policy, and rate-limit rules before returning options.
+class PasskeySignInOptionsRequest {
+  static const Object _unsetIdentifierHint = Object();
+  static const Object _unsetUserVerification = Object();
+
+  PasskeySignInOptionsRequest({
+    Object? identifierHint = _unsetIdentifierHint,
+    Object? userVerification = _unsetUserVerification,
+  })
+      : identifierHint = identical(identifierHint, _unsetIdentifierHint) ? null : identifierHint as String?,
+        _hasIdentifierHint = !identical(identifierHint, _unsetIdentifierHint),
+        userVerification = identical(userVerification, _unsetUserVerification) ? null : userVerification as String?,
+        _hasUserVerification = !identical(userVerification, _unsetUserVerification);
+
+  /// Optional account hint for account-scoped ceremonies. Discoverable-credential policy remains server-authoritative.
+  final String? identifierHint;
+  final bool _hasIdentifierHint;
+  /// Optional client preference. The API still applies server user-verification policy.
+  final String? userVerification;
+  final bool _hasUserVerification;
+
+  factory PasskeySignInOptionsRequest.fromJson(JsonObject json) {
+    return PasskeySignInOptionsRequest(
+      identifierHint: json.containsKey("identifierHint")
+          ? json["identifierHint"] == null ? null : json["identifierHint"] as String
+          : _unsetIdentifierHint,
+      userVerification: json.containsKey("userVerification")
+          ? json["userVerification"] == null ? null : json["userVerification"] as String
+          : _unsetUserVerification,
+    );
+  }
+
+  JsonObject toJson() {
+    final identifierHintJsonValue = identifierHint;
+    final userVerificationJsonValue = userVerification;
+
+    return {
+      if (_hasIdentifierHint) "identifierHint": identifierHintJsonValue,
+      if (_hasUserVerification) "userVerification": userVerificationJsonValue,
+    };
+  }
+}
+
+/// Bounded passkey sign-in ceremony response.
+class PasskeySignInOptionsResponse {
+  const PasskeySignInOptionsResponse({
+    required this.passkeyChallengeId,
+    required this.publicKeyCredentialRequestOptions,
+    required this.expiresAtUtc,
+  });
+
+  /// Opaque server-side challenge identifier, not a reusable challenge secret.
+  final String passkeyChallengeId;
+  /// Bounded WebAuthn PublicKeyCredentialRequestOptions JSON owned and validated by the API/WebAuthn library.
+  final JsonObject publicKeyCredentialRequestOptions;
+  final DateTime expiresAtUtc;
+
+  factory PasskeySignInOptionsResponse.fromJson(JsonObject json) {
+    return PasskeySignInOptionsResponse(
+      passkeyChallengeId: json["passkeyChallengeId"] as String,
+      publicKeyCredentialRequestOptions: JsonObject.from(json["publicKeyCredentialRequestOptions"] as Map),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "passkeyChallengeId": passkeyChallengeId,
+      "publicKeyCredentialRequestOptions": publicKeyCredentialRequestOptions,
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Passkey sign-in completion request. The assertion is validated server-side against challenge, credential status, account binding, RP/origin, replay metadata, and policy.
+class PasskeySignInCompleteRequest {
+  static const Object _unsetDeviceLabel = Object();
+
+  PasskeySignInCompleteRequest({
+    required this.passkeyChallengeId,
+    required this.credential,
+    Object? deviceLabel = _unsetDeviceLabel,
+  })
+      : deviceLabel = identical(deviceLabel, _unsetDeviceLabel) ? null : deviceLabel as String?,
+        _hasDeviceLabel = !identical(deviceLabel, _unsetDeviceLabel);
+
+  final String passkeyChallengeId;
+  /// Bounded WebAuthn assertion response JSON from the platform authenticator.
+  final JsonObject credential;
+  /// Optional display label for any server-created session if future runtime issues one.
+  final String? deviceLabel;
+  final bool _hasDeviceLabel;
+
+  factory PasskeySignInCompleteRequest.fromJson(JsonObject json) {
+    return PasskeySignInCompleteRequest(
+      passkeyChallengeId: json["passkeyChallengeId"] as String,
+      credential: JsonObject.from(json["credential"] as Map),
+      deviceLabel: json.containsKey("deviceLabel")
+          ? json["deviceLabel"] == null ? null : json["deviceLabel"] as String
+          : _unsetDeviceLabel,
+    );
+  }
+
+  JsonObject toJson() {
+    final deviceLabelJsonValue = deviceLabel;
+
+    return {
+      "passkeyChallengeId": passkeyChallengeId,
+      "credential": credential,
+      if (_hasDeviceLabel) "deviceLabel": deviceLabelJsonValue,
+    };
+  }
+}
+
+/// Server-authoritative passkey sign-in result. It intentionally excludes raw access-session, refresh, bearer, or challenge tokens.
+class PasskeySignInCompleteResponse {
+  const PasskeySignInCompleteResponse({
+    required this.status,
+    required this.currentUser,
+    required this.mfaChallenge,
+  });
+
+  /// High-level server result category. Clients must not infer authorization for later operations from this value alone.
+  final String status;
+  /// Present only when the server has established an authenticated session summary without exposing raw token material.
+  final CurrentUserResponse? currentUser;
+  /// Present when an additional MFA challenge must be completed by server policy.
+  final MfaChallengeResponse? mfaChallenge;
+
+  factory PasskeySignInCompleteResponse.fromJson(JsonObject json) {
+    return PasskeySignInCompleteResponse(
+      status: json["status"] as String,
+      currentUser: json["currentUser"] == null ? null : CurrentUserResponse.fromJson(JsonObject.from(json["currentUser"] as Map)),
+      mfaChallenge: json["mfaChallenge"] == null ? null : MfaChallengeResponse.fromJson(JsonObject.from(json["mfaChallenge"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final currentUserJsonValue = currentUser;
+    final mfaChallengeJsonValue = mfaChallenge;
+
+    return {
+      "status": status,
+      "currentUser": currentUserJsonValue == null ? null : currentUserJsonValue.toJson(),
+      "mfaChallenge": mfaChallengeJsonValue == null ? null : mfaChallengeJsonValue.toJson(),
+    };
+  }
+}
+
+/// Authenticated passkey step-up begin request. The API decides whether the operation category requires or can be satisfied by passkey freshness.
+class PasskeyStepUpOptionsRequest {
+  const PasskeyStepUpOptionsRequest({
+    required this.operationCategory,
+  });
+
+  /// Safe operation category such as security_settings or admin_policy_change.
+  final String operationCategory;
+
+  factory PasskeyStepUpOptionsRequest.fromJson(JsonObject json) {
+    return PasskeyStepUpOptionsRequest(
+      operationCategory: json["operationCategory"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "operationCategory": operationCategory,
+    };
+  }
+}
+
+/// Bounded passkey step-up ceremony response.
+class PasskeyStepUpOptionsResponse {
+  const PasskeyStepUpOptionsResponse({
+    required this.passkeyChallengeId,
+    required this.operationCategory,
+    required this.publicKeyCredentialRequestOptions,
+    required this.expiresAtUtc,
+    required this.policy,
+  });
+
+  final String passkeyChallengeId;
+  final String operationCategory;
+  /// Bounded WebAuthn PublicKeyCredentialRequestOptions JSON owned and validated by the API/WebAuthn library.
+  final JsonObject publicKeyCredentialRequestOptions;
+  final DateTime expiresAtUtc;
+  final AuthMfaPolicyReadout policy;
+
+  factory PasskeyStepUpOptionsResponse.fromJson(JsonObject json) {
+    return PasskeyStepUpOptionsResponse(
+      passkeyChallengeId: json["passkeyChallengeId"] as String,
+      operationCategory: json["operationCategory"] as String,
+      publicKeyCredentialRequestOptions: JsonObject.from(json["publicKeyCredentialRequestOptions"] as Map),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "passkeyChallengeId": passkeyChallengeId,
+      "operationCategory": operationCategory,
+      "publicKeyCredentialRequestOptions": publicKeyCredentialRequestOptions,
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Authenticated passkey step-up completion request. The API validates challenge/session/account binding and records only server-side freshness state.
+class PasskeyStepUpCompleteRequest {
+  const PasskeyStepUpCompleteRequest({
+    required this.passkeyChallengeId,
+    required this.credential,
+  });
+
+  final String passkeyChallengeId;
+  /// Bounded WebAuthn assertion response JSON from the platform authenticator.
+  final JsonObject credential;
+
+  factory PasskeyStepUpCompleteRequest.fromJson(JsonObject json) {
+    return PasskeyStepUpCompleteRequest(
+      passkeyChallengeId: json["passkeyChallengeId"] as String,
+      credential: JsonObject.from(json["credential"] as Map),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "passkeyChallengeId": passkeyChallengeId,
+      "credential": credential,
+    };
+  }
+}
+
+/// Server-authoritative step-up freshness result for the current session.
+class PasskeyStepUpCompleteResponse {
+  const PasskeyStepUpCompleteResponse({
+    required this.status,
+    required this.operationCategory,
+    required this.satisfiedAtUtc,
+    required this.freshUntilUtc,
+    required this.policyVersion,
+  });
+
+  final String status;
+  final String operationCategory;
+  final DateTime satisfiedAtUtc;
+  final DateTime freshUntilUtc;
+  final String? policyVersion;
+
+  factory PasskeyStepUpCompleteResponse.fromJson(JsonObject json) {
+    return PasskeyStepUpCompleteResponse(
+      status: json["status"] as String,
+      operationCategory: json["operationCategory"] as String,
+      satisfiedAtUtc: DateTime.parse(json["satisfiedAtUtc"] as String),
+      freshUntilUtc: DateTime.parse(json["freshUntilUtc"] as String),
+      policyVersion: json["policyVersion"] == null ? null : json["policyVersion"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final policyVersionJsonValue = policyVersion;
+
+    return {
+      "status": status,
+      "operationCategory": operationCategory,
+      "satisfiedAtUtc": satisfiedAtUtc.toUtc().toIso8601String(),
+      "freshUntilUtc": freshUntilUtc.toUtc().toIso8601String(),
+      "policyVersion": policyVersionJsonValue,
+    };
+  }
+}
+
+/// Current-account TOTP enrollment begin request. Account, session, policy, secret generation, challenge, and audit context are derived server-side.
+class TotpEnrollmentStartRequest {
+  const TotpEnrollmentStartRequest({
+    this.displayLabel,
+  });
+
+  /// Optional user-visible label for the pending TOTP factor after server-side trimming.
+  final String? displayLabel;
+
+  factory TotpEnrollmentStartRequest.fromJson(JsonObject json) {
+    return TotpEnrollmentStartRequest(
+      displayLabel: json["displayLabel"] == null ? null : json["displayLabel"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final displayLabelJsonValue = displayLabel;
+
+    return {
+      if (displayLabelJsonValue != null) "displayLabel": displayLabelJsonValue,
+    };
+  }
+}
+
+/// Pending TOTP enrollment response with display-time setup material. Provisioning data must not be logged, synced, or re-displayed after setup.
+class TotpEnrollmentStartResponse {
+  const TotpEnrollmentStartResponse({
+    required this.totpEnrollmentId,
+    required this.setup,
+    required this.factor,
+    required this.expiresAtUtc,
+    required this.policy,
+  });
+
+  final String totpEnrollmentId;
+  final TotpEnrollmentSetup setup;
+  final MfaFactorSummary factor;
+  final DateTime expiresAtUtc;
+  final AuthMfaPolicyReadout policy;
+
+  factory TotpEnrollmentStartResponse.fromJson(JsonObject json) {
+    return TotpEnrollmentStartResponse(
+      totpEnrollmentId: json["totpEnrollmentId"] as String,
+      setup: TotpEnrollmentSetup.fromJson(JsonObject.from(json["setup"] as Map)),
+      factor: MfaFactorSummary.fromJson(JsonObject.from(json["factor"] as Map)),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "totpEnrollmentId": totpEnrollmentId,
+      "setup": setup.toJson(),
+      "factor": factor.toJson(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// One-time TOTP setup display material. The API may return an otpauth URI or QR payload only in the enrollment-start response.
+class TotpEnrollmentSetup {
+  const TotpEnrollmentSetup({
+    required this.issuer,
+    required this.accountLabel,
+    required this.algorithm,
+    required this.digits,
+    required this.periodSeconds,
+    required this.provisioningUri,
+    required this.manualEntryKey,
+  });
+
+  final String issuer;
+  final String accountLabel;
+  final String algorithm;
+  final int digits;
+  final int periodSeconds;
+  /// Display-time sensitive otpauth URI, redacted in examples.
+  final String? provisioningUri;
+  /// Display-time sensitive manual entry key, redacted in examples.
+  final String? manualEntryKey;
+
+  factory TotpEnrollmentSetup.fromJson(JsonObject json) {
+    return TotpEnrollmentSetup(
+      issuer: json["issuer"] as String,
+      accountLabel: json["accountLabel"] as String,
+      algorithm: json["algorithm"] as String,
+      digits: (json["digits"] as num).toInt(),
+      periodSeconds: (json["periodSeconds"] as num).toInt(),
+      provisioningUri: json["provisioningUri"] == null ? null : json["provisioningUri"] as String,
+      manualEntryKey: json["manualEntryKey"] == null ? null : json["manualEntryKey"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final provisioningUriJsonValue = provisioningUri;
+    final manualEntryKeyJsonValue = manualEntryKey;
+
+    return {
+      "issuer": issuer,
+      "accountLabel": accountLabel,
+      "algorithm": algorithm,
+      "digits": digits,
+      "periodSeconds": periodSeconds,
+      "provisioningUri": provisioningUriJsonValue,
+      "manualEntryKey": manualEntryKeyJsonValue,
+    };
+  }
+}
+
+/// Pending TOTP enrollment verification request. The submitted code is verified server-side and must never be logged or stored by clients.
+class TotpEnrollmentVerifyRequest {
+  const TotpEnrollmentVerifyRequest({
+    required this.code,
+  });
+
+  /// Submitted one-time TOTP code. Spaces may be accepted and normalized server-side.
+  final String code;
+
+  factory TotpEnrollmentVerifyRequest.fromJson(JsonObject json) {
+    return TotpEnrollmentVerifyRequest(
+      code: json["code"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "code": code,
+    };
+  }
+}
+
+/// Safe TOTP enrollment verification response.
+class TotpEnrollmentResponse {
+  const TotpEnrollmentResponse({
+    required this.factor,
+    required this.policy,
+  });
+
+  final MfaFactorSummary factor;
+  final AuthMfaPolicyReadout policy;
+
+  factory TotpEnrollmentResponse.fromJson(JsonObject json) {
+    return TotpEnrollmentResponse(
+      factor: MfaFactorSummary.fromJson(JsonObject.from(json["factor"] as Map)),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "factor": factor.toJson(),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Safe current-account MFA factor list.
+class MfaFactorListResponse {
+  const MfaFactorListResponse({
+    required this.factors,
+    required this.policy,
+  });
+
+  final List<MfaFactorSummary> factors;
+  final AuthMfaPolicyReadout policy;
+
+  factory MfaFactorListResponse.fromJson(JsonObject json) {
+    return MfaFactorListResponse(
+      factors: (json["factors"] as List<dynamic>).map((item) => MfaFactorSummary.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "factors": factors.map((item) => item.toJson()).toList(growable: false),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Safe MFA factor response.
+class MfaFactorResponse {
+  const MfaFactorResponse({
+    required this.factor,
+    required this.policy,
+  });
+
+  final MfaFactorSummary factor;
+  final AuthMfaPolicyReadout policy;
+
+  factory MfaFactorResponse.fromJson(JsonObject json) {
+    return MfaFactorResponse(
+      factor: MfaFactorSummary.fromJson(JsonObject.from(json["factor"] as Map)),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "factor": factor.toJson(),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// User-visible MFA factor metadata. It excludes TOTP secrets, provisioning URIs, QR payloads, recovery codes, stored verifiers, challenge material, audit metadata, and session tokens.
+class MfaFactorSummary {
+  const MfaFactorSummary({
+    required this.id,
+    required this.factorType,
+    required this.status,
+    required this.displayLabel,
+    required this.createdAtUtc,
+    required this.verifiedAtUtc,
+    required this.lastUsedAtUtc,
+    required this.updatedAtUtc,
+    required this.disabledAtUtc,
+    required this.revokedAtUtc,
+    required this.expiresAtUtc,
+    required this.policyVersion,
+    required this.totp,
+  });
+
+  final String id;
+  final AuthMfaFactorType factorType;
+  final AuthMfaFactorStatus status;
+  final String? displayLabel;
+  final DateTime createdAtUtc;
+  final DateTime? verifiedAtUtc;
+  final DateTime? lastUsedAtUtc;
+  final DateTime updatedAtUtc;
+  final DateTime? disabledAtUtc;
+  final DateTime? revokedAtUtc;
+  final DateTime? expiresAtUtc;
+  final String? policyVersion;
+  final TotpFactorMetadata? totp;
+
+  factory MfaFactorSummary.fromJson(JsonObject json) {
+    return MfaFactorSummary(
+      id: json["id"] as String,
+      factorType: json["factorType"] as String,
+      status: json["status"] as String,
+      displayLabel: json["displayLabel"] == null ? null : json["displayLabel"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      verifiedAtUtc: json["verifiedAtUtc"] == null ? null : DateTime.parse(json["verifiedAtUtc"] as String),
+      lastUsedAtUtc: json["lastUsedAtUtc"] == null ? null : DateTime.parse(json["lastUsedAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      disabledAtUtc: json["disabledAtUtc"] == null ? null : DateTime.parse(json["disabledAtUtc"] as String),
+      revokedAtUtc: json["revokedAtUtc"] == null ? null : DateTime.parse(json["revokedAtUtc"] as String),
+      expiresAtUtc: json["expiresAtUtc"] == null ? null : DateTime.parse(json["expiresAtUtc"] as String),
+      policyVersion: json["policyVersion"] == null ? null : json["policyVersion"] as String,
+      totp: json["totp"] == null ? null : TotpFactorMetadata.fromJson(JsonObject.from(json["totp"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final displayLabelJsonValue = displayLabel;
+    final verifiedAtUtcJsonValue = verifiedAtUtc;
+    final lastUsedAtUtcJsonValue = lastUsedAtUtc;
+    final disabledAtUtcJsonValue = disabledAtUtc;
+    final revokedAtUtcJsonValue = revokedAtUtc;
+    final expiresAtUtcJsonValue = expiresAtUtc;
+    final policyVersionJsonValue = policyVersion;
+    final totpJsonValue = totp;
+
+    return {
+      "id": id,
+      "factorType": factorType,
+      "status": status,
+      "displayLabel": displayLabelJsonValue,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "verifiedAtUtc": verifiedAtUtcJsonValue == null ? null : verifiedAtUtcJsonValue.toUtc().toIso8601String(),
+      "lastUsedAtUtc": lastUsedAtUtcJsonValue == null ? null : lastUsedAtUtcJsonValue.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "disabledAtUtc": disabledAtUtcJsonValue == null ? null : disabledAtUtcJsonValue.toUtc().toIso8601String(),
+      "revokedAtUtc": revokedAtUtcJsonValue == null ? null : revokedAtUtcJsonValue.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtcJsonValue == null ? null : expiresAtUtcJsonValue.toUtc().toIso8601String(),
+      "policyVersion": policyVersionJsonValue,
+      "totp": totpJsonValue == null ? null : totpJsonValue.toJson(),
+    };
+  }
+}
+
+/// Safe TOTP factor configuration metadata. It excludes shared secrets, secret references, encrypted payloads, provisioning URIs, and QR payloads.
+class TotpFactorMetadata {
+  const TotpFactorMetadata({
+    required this.issuer,
+    required this.accountLabel,
+    required this.algorithm,
+    required this.digits,
+    required this.periodSeconds,
+  });
+
+  final String issuer;
+  final String accountLabel;
+  final String algorithm;
+  final int digits;
+  final int periodSeconds;
+
+  factory TotpFactorMetadata.fromJson(JsonObject json) {
+    return TotpFactorMetadata(
+      issuer: json["issuer"] as String,
+      accountLabel: json["accountLabel"] as String,
+      algorithm: json["algorithm"] as String,
+      digits: (json["digits"] as num).toInt(),
+      periodSeconds: (json["periodSeconds"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "issuer": issuer,
+      "accountLabel": accountLabel,
+      "algorithm": algorithm,
+      "digits": digits,
+      "periodSeconds": periodSeconds,
+    };
+  }
+}
+
+/// Bounded MFA factor display metadata update. This cannot change factor secrets, status, ownership, policy, audit truth, or authorization.
+class MfaFactorUpdateRequest {
+  static const Object _unsetDisplayLabel = Object();
+
+  MfaFactorUpdateRequest({
+    Object? displayLabel = _unsetDisplayLabel,
+  })
+      : displayLabel = identical(displayLabel, _unsetDisplayLabel) ? null : displayLabel as String?,
+        _hasDisplayLabel = !identical(displayLabel, _unsetDisplayLabel);
+
+  /// User-visible label after server-side trimming. Explicit null clears the label where policy allows.
+  final String? displayLabel;
+  final bool _hasDisplayLabel;
+
+  factory MfaFactorUpdateRequest.fromJson(JsonObject json) {
+    return MfaFactorUpdateRequest(
+      displayLabel: json.containsKey("displayLabel")
+          ? json["displayLabel"] == null ? null : json["displayLabel"] as String
+          : _unsetDisplayLabel,
+    );
+  }
+
+  JsonObject toJson() {
+    final displayLabelJsonValue = displayLabel;
+
+    return {
+      if (_hasDisplayLabel) "displayLabel": displayLabelJsonValue,
+    };
+  }
+}
+
+/// MFA challenge create request for a pending sign-in flow or authenticated step-up flow. Clients may request a challenge, but the API decides requiredness and allowed factors.
+class MfaChallengeCreateRequest {
+  static const Object _unsetPreferredFactorType = Object();
+  static const Object _unsetPendingAuthFlowId = Object();
+  static const Object _unsetOperationCategory = Object();
+
+  MfaChallengeCreateRequest({
+    this.purpose,
+    Object? preferredFactorType = _unsetPreferredFactorType,
+    Object? pendingAuthFlowId = _unsetPendingAuthFlowId,
+    Object? operationCategory = _unsetOperationCategory,
+  })
+      : preferredFactorType = identical(preferredFactorType, _unsetPreferredFactorType) ? null : preferredFactorType as AuthChallengeFactorType?,
+        _hasPreferredFactorType = !identical(preferredFactorType, _unsetPreferredFactorType),
+        pendingAuthFlowId = identical(pendingAuthFlowId, _unsetPendingAuthFlowId) ? null : pendingAuthFlowId as String?,
+        _hasPendingAuthFlowId = !identical(pendingAuthFlowId, _unsetPendingAuthFlowId),
+        operationCategory = identical(operationCategory, _unsetOperationCategory) ? null : operationCategory as String?,
+        _hasOperationCategory = !identical(operationCategory, _unsetOperationCategory);
+
+  final AuthChallengePurpose? purpose;
+  final AuthChallengeFactorType? preferredFactorType;
+  final bool _hasPreferredFactorType;
+  /// Opaque pending auth-flow identifier where a prior primary authentication step created one.
+  final String? pendingAuthFlowId;
+  final bool _hasPendingAuthFlowId;
+  /// Safe operation category for step-up challenges.
+  final String? operationCategory;
+  final bool _hasOperationCategory;
+
+  factory MfaChallengeCreateRequest.fromJson(JsonObject json) {
+    return MfaChallengeCreateRequest(
+      purpose: json["purpose"] == null ? null : json["purpose"] as String,
+      preferredFactorType: json.containsKey("preferredFactorType")
+          ? json["preferredFactorType"] == null ? null : json["preferredFactorType"] as String
+          : _unsetPreferredFactorType,
+      pendingAuthFlowId: json.containsKey("pendingAuthFlowId")
+          ? json["pendingAuthFlowId"] == null ? null : json["pendingAuthFlowId"] as String
+          : _unsetPendingAuthFlowId,
+      operationCategory: json.containsKey("operationCategory")
+          ? json["operationCategory"] == null ? null : json["operationCategory"] as String
+          : _unsetOperationCategory,
+    );
+  }
+
+  JsonObject toJson() {
+    final purposeJsonValue = purpose;
+    final preferredFactorTypeJsonValue = preferredFactorType;
+    final pendingAuthFlowIdJsonValue = pendingAuthFlowId;
+    final operationCategoryJsonValue = operationCategory;
+
+    return {
+      if (purposeJsonValue != null) "purpose": purposeJsonValue,
+      if (_hasPreferredFactorType) "preferredFactorType": preferredFactorTypeJsonValue,
+      if (_hasPendingAuthFlowId) "pendingAuthFlowId": pendingAuthFlowIdJsonValue,
+      if (_hasOperationCategory) "operationCategory": operationCategoryJsonValue,
+    };
+  }
+}
+
+/// Safe MFA challenge metadata and allowed factor choices.
+class MfaChallengeResponse {
+  const MfaChallengeResponse({
+    required this.mfaChallengeId,
+    required this.purpose,
+    required this.status,
+    required this.allowedFactorTypes,
+    required this.factorChoices,
+    required this.expiresAtUtc,
+    required this.remainingAttempts,
+    required this.operationCategory,
+    required this.policy,
+  });
+
+  final String mfaChallengeId;
+  final AuthChallengePurpose purpose;
+  final AuthChallengeStatus status;
+  final List<AuthChallengeFactorType> allowedFactorTypes;
+  final List<MfaChallengeFactorChoice> factorChoices;
+  final DateTime expiresAtUtc;
+  final int? remainingAttempts;
+  final String? operationCategory;
+  final AuthMfaPolicyReadout policy;
+
+  factory MfaChallengeResponse.fromJson(JsonObject json) {
+    return MfaChallengeResponse(
+      mfaChallengeId: json["mfaChallengeId"] as String,
+      purpose: json["purpose"] as String,
+      status: json["status"] as String,
+      allowedFactorTypes: (json["allowedFactorTypes"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      factorChoices: (json["factorChoices"] as List<dynamic>).map((item) => MfaChallengeFactorChoice.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      remainingAttempts: json["remainingAttempts"] == null ? null : (json["remainingAttempts"] as num).toInt(),
+      operationCategory: json["operationCategory"] == null ? null : json["operationCategory"] as String,
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final remainingAttemptsJsonValue = remainingAttempts;
+    final operationCategoryJsonValue = operationCategory;
+
+    return {
+      "mfaChallengeId": mfaChallengeId,
+      "purpose": purpose,
+      "status": status,
+      "allowedFactorTypes": allowedFactorTypes,
+      "factorChoices": factorChoices.map((item) => item.toJson()).toList(growable: false),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "remainingAttempts": remainingAttemptsJsonValue,
+      "operationCategory": operationCategoryJsonValue,
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Safe display choice for a factor that may satisfy an MFA challenge.
+class MfaChallengeFactorChoice {
+  const MfaChallengeFactorChoice({
+    required this.factorType,
+    required this.mfaFactorId,
+    required this.displayLabel,
+    required this.maskedDisplay,
+  });
+
+  final AuthChallengeFactorType factorType;
+  /// Present only when safe and applicable for an account-bound factor.
+  final String? mfaFactorId;
+  final String? displayLabel;
+  /// Safe masked user-facing hint that does not reveal secrets or full identifiers.
+  final String? maskedDisplay;
+
+  factory MfaChallengeFactorChoice.fromJson(JsonObject json) {
+    return MfaChallengeFactorChoice(
+      factorType: json["factorType"] as String,
+      mfaFactorId: json["mfaFactorId"] == null ? null : json["mfaFactorId"] as String,
+      displayLabel: json["displayLabel"] == null ? null : json["displayLabel"] as String,
+      maskedDisplay: json["maskedDisplay"] == null ? null : json["maskedDisplay"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final mfaFactorIdJsonValue = mfaFactorId;
+    final displayLabelJsonValue = displayLabel;
+    final maskedDisplayJsonValue = maskedDisplay;
+
+    return {
+      "factorType": factorType,
+      "mfaFactorId": mfaFactorIdJsonValue,
+      "displayLabel": displayLabelJsonValue,
+      "maskedDisplay": maskedDisplayJsonValue,
+    };
+  }
+}
+
+/// TOTP MFA challenge verification request. The submitted code is verified server-side and must never be logged or stored by clients.
+class MfaTotpVerifyRequest {
+  const MfaTotpVerifyRequest({
+    required this.code,
+  });
+
+  final String code;
+
+  factory MfaTotpVerifyRequest.fromJson(JsonObject json) {
+    return MfaTotpVerifyRequest(
+      code: json["code"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "code": code,
+    };
+  }
+}
+
+/// Recovery-code MFA challenge verification request. The submitted code is consumed server-side on success and must never be logged or stored by clients.
+class MfaRecoveryCodeVerifyRequest {
+  const MfaRecoveryCodeVerifyRequest({
+    required this.recoveryCode,
+  });
+
+  final String recoveryCode;
+
+  factory MfaRecoveryCodeVerifyRequest.fromJson(JsonObject json) {
+    return MfaRecoveryCodeVerifyRequest(
+      recoveryCode: json["recoveryCode"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "recoveryCode": recoveryCode,
+    };
+  }
+}
+
+/// Server-authoritative MFA verification result. It excludes raw access-session, refresh, bearer, recovery-code, TOTP, or challenge tokens.
+class MfaChallengeVerifyResponse {
+  const MfaChallengeVerifyResponse({
+    required this.status,
+    required this.mfaChallengeId,
+    required this.verifiedAtUtc,
+    required this.freshUntilUtc,
+    required this.currentUser,
+    required this.recoveryCodeBatch,
+  });
+
+  final String status;
+  final String mfaChallengeId;
+  final DateTime verifiedAtUtc;
+  final DateTime? freshUntilUtc;
+  /// Present only when the server has established an authenticated session summary without exposing raw token material.
+  final CurrentUserResponse? currentUser;
+  /// Updated safe recovery-code metadata after recovery-code use where policy allows.
+  final RecoveryCodeBatchSummary? recoveryCodeBatch;
+
+  factory MfaChallengeVerifyResponse.fromJson(JsonObject json) {
+    return MfaChallengeVerifyResponse(
+      status: json["status"] as String,
+      mfaChallengeId: json["mfaChallengeId"] as String,
+      verifiedAtUtc: DateTime.parse(json["verifiedAtUtc"] as String),
+      freshUntilUtc: json["freshUntilUtc"] == null ? null : DateTime.parse(json["freshUntilUtc"] as String),
+      currentUser: json["currentUser"] == null ? null : CurrentUserResponse.fromJson(JsonObject.from(json["currentUser"] as Map)),
+      recoveryCodeBatch: json["recoveryCodeBatch"] == null ? null : RecoveryCodeBatchSummary.fromJson(JsonObject.from(json["recoveryCodeBatch"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final freshUntilUtcJsonValue = freshUntilUtc;
+    final currentUserJsonValue = currentUser;
+    final recoveryCodeBatchJsonValue = recoveryCodeBatch;
+
+    return {
+      "status": status,
+      "mfaChallengeId": mfaChallengeId,
+      "verifiedAtUtc": verifiedAtUtc.toUtc().toIso8601String(),
+      "freshUntilUtc": freshUntilUtcJsonValue == null ? null : freshUntilUtcJsonValue.toUtc().toIso8601String(),
+      "currentUser": currentUserJsonValue == null ? null : currentUserJsonValue.toJson(),
+      "recoveryCodeBatch": recoveryCodeBatchJsonValue == null ? null : recoveryCodeBatchJsonValue.toJson(),
+    };
+  }
+}
+
+/// Recovery-code generation or regeneration request. The API derives account, policy, randomness, verifier storage, and audit context server-side.
+class RecoveryCodeBatchGenerateRequest {
+  const RecoveryCodeBatchGenerateRequest({
+    this.reasonCategory,
+    this.replaceExisting,
+  });
+
+  /// Optional safe reason category for audit and user security history.
+  final String? reasonCategory;
+  /// When true, requests replacement of prior unused codes according to server policy.
+  final bool? replaceExisting;
+
+  factory RecoveryCodeBatchGenerateRequest.fromJson(JsonObject json) {
+    return RecoveryCodeBatchGenerateRequest(
+      reasonCategory: json["reasonCategory"] == null ? null : json["reasonCategory"] as String,
+      replaceExisting: json["replaceExisting"] == null ? null : json["replaceExisting"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final reasonCategoryJsonValue = reasonCategory;
+    final replaceExistingJsonValue = replaceExisting;
+
+    return {
+      if (reasonCategoryJsonValue != null) "reasonCategory": reasonCategoryJsonValue,
+      if (replaceExistingJsonValue != null) "replaceExisting": replaceExistingJsonValue,
+    };
+  }
+}
+
+/// Recovery-code generation response. Raw codes are display-once and are never returned by metadata reads.
+class RecoveryCodeBatchGenerateResponse {
+  const RecoveryCodeBatchGenerateResponse({
+    required this.batch,
+    required this.recoveryCodes,
+    required this.displayOnce,
+    required this.policy,
+  });
+
+  final RecoveryCodeBatchSummary batch;
+  /// Raw recovery codes returned exactly once in this response.
+  final List<String> recoveryCodes;
+  final bool displayOnce;
+  final AuthMfaPolicyReadout policy;
+
+  factory RecoveryCodeBatchGenerateResponse.fromJson(JsonObject json) {
+    return RecoveryCodeBatchGenerateResponse(
+      batch: RecoveryCodeBatchSummary.fromJson(JsonObject.from(json["batch"] as Map)),
+      recoveryCodes: (json["recoveryCodes"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      displayOnce: json["displayOnce"] as bool,
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "batch": batch.toJson(),
+      "recoveryCodes": recoveryCodes,
+      "displayOnce": displayOnce,
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Safe current-account recovery-code batch metadata list.
+class RecoveryCodeBatchListResponse {
+  const RecoveryCodeBatchListResponse({
+    required this.batches,
+    required this.policy,
+  });
+
+  final List<RecoveryCodeBatchSummary> batches;
+  final AuthMfaPolicyReadout policy;
+
+  factory RecoveryCodeBatchListResponse.fromJson(JsonObject json) {
+    return RecoveryCodeBatchListResponse(
+      batches: (json["batches"] as List<dynamic>).map((item) => RecoveryCodeBatchSummary.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "batches": batches.map((item) => item.toJson()).toList(growable: false),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Safe recovery-code batch metadata response.
+class RecoveryCodeBatchResponse {
+  const RecoveryCodeBatchResponse({
+    required this.batch,
+    required this.policy,
+  });
+
+  final RecoveryCodeBatchSummary batch;
+  final AuthMfaPolicyReadout policy;
+
+  factory RecoveryCodeBatchResponse.fromJson(JsonObject json) {
+    return RecoveryCodeBatchResponse(
+      batch: RecoveryCodeBatchSummary.fromJson(JsonObject.from(json["batch"] as Map)),
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "batch": batch.toJson(),
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Safe recovery-code batch metadata. It excludes raw codes, hashes, salts, verifiers, code prefixes, submitted values, and challenge material.
+class RecoveryCodeBatchSummary {
+  const RecoveryCodeBatchSummary({
+    required this.id,
+    required this.status,
+    required this.totalGenerated,
+    required this.remainingUnused,
+    required this.usedCount,
+    required this.displayedOnce,
+    required this.generatedAtUtc,
+    required this.lastUsedAtUtc,
+    required this.replacedAtUtc,
+    required this.revokedAtUtc,
+    required this.expiresAtUtc,
+    required this.policyVersion,
+  });
+
+  final String id;
+  final AuthRecoveryCodeBatchStatus status;
+  final int totalGenerated;
+  final int remainingUnused;
+  final int usedCount;
+  final bool displayedOnce;
+  final DateTime generatedAtUtc;
+  final DateTime? lastUsedAtUtc;
+  final DateTime? replacedAtUtc;
+  final DateTime? revokedAtUtc;
+  final DateTime? expiresAtUtc;
+  final String? policyVersion;
+
+  factory RecoveryCodeBatchSummary.fromJson(JsonObject json) {
+    return RecoveryCodeBatchSummary(
+      id: json["id"] as String,
+      status: json["status"] as String,
+      totalGenerated: (json["totalGenerated"] as num).toInt(),
+      remainingUnused: (json["remainingUnused"] as num).toInt(),
+      usedCount: (json["usedCount"] as num).toInt(),
+      displayedOnce: json["displayedOnce"] as bool,
+      generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
+      lastUsedAtUtc: json["lastUsedAtUtc"] == null ? null : DateTime.parse(json["lastUsedAtUtc"] as String),
+      replacedAtUtc: json["replacedAtUtc"] == null ? null : DateTime.parse(json["replacedAtUtc"] as String),
+      revokedAtUtc: json["revokedAtUtc"] == null ? null : DateTime.parse(json["revokedAtUtc"] as String),
+      expiresAtUtc: json["expiresAtUtc"] == null ? null : DateTime.parse(json["expiresAtUtc"] as String),
+      policyVersion: json["policyVersion"] == null ? null : json["policyVersion"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final lastUsedAtUtcJsonValue = lastUsedAtUtc;
+    final replacedAtUtcJsonValue = replacedAtUtc;
+    final revokedAtUtcJsonValue = revokedAtUtc;
+    final expiresAtUtcJsonValue = expiresAtUtc;
+    final policyVersionJsonValue = policyVersion;
+
+    return {
+      "id": id,
+      "status": status,
+      "totalGenerated": totalGenerated,
+      "remainingUnused": remainingUnused,
+      "usedCount": usedCount,
+      "displayedOnce": displayedOnce,
+      "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+      "lastUsedAtUtc": lastUsedAtUtcJsonValue == null ? null : lastUsedAtUtcJsonValue.toUtc().toIso8601String(),
+      "replacedAtUtc": replacedAtUtcJsonValue == null ? null : replacedAtUtcJsonValue.toUtc().toIso8601String(),
+      "revokedAtUtc": revokedAtUtcJsonValue == null ? null : revokedAtUtcJsonValue.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtcJsonValue == null ? null : expiresAtUtcJsonValue.toUtc().toIso8601String(),
+      "policyVersion": policyVersionJsonValue,
+    };
+  }
+}
+
+/// Client-visible current-account MFA/passkey policy readout. Server-side enforcement remains authoritative.
+class AuthMfaPolicyReadoutResponse {
+  const AuthMfaPolicyReadoutResponse({
+    required this.policy,
+  });
+
+  final AuthMfaPolicyReadout policy;
+
+  factory AuthMfaPolicyReadoutResponse.fromJson(JsonObject json) {
+    return AuthMfaPolicyReadoutResponse(
+      policy: AuthMfaPolicyReadout.fromJson(JsonObject.from(json["policy"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "policy": policy.toJson(),
+    };
+  }
+}
+
+/// Safe MFA/passkey policy and readiness readout for display. Clients must not treat it as authorization or enforcement truth.
+class AuthMfaPolicyReadout {
+  const AuthMfaPolicyReadout({
+    required this.policyVersion,
+    required this.passkeySupportMode,
+    required this.totpSupportMode,
+    required this.recoveryCodeSupportMode,
+    required this.enforcementMode,
+    required this.accountCompliance,
+    required this.requiresEnrollment,
+    required this.requiresFreshStepUp,
+    required this.recoveryCodesLow,
+    required this.serverAuthoritative,
+  });
+
+  final String? policyVersion;
+  final AuthMfaSupportMode passkeySupportMode;
+  final AuthMfaSupportMode totpSupportMode;
+  final AuthMfaSupportMode recoveryCodeSupportMode;
+  final AuthMfaEnforcementMode enforcementMode;
+  final String accountCompliance;
+  final bool requiresEnrollment;
+  final bool requiresFreshStepUp;
+  final bool recoveryCodesLow;
+  final bool serverAuthoritative;
+
+  factory AuthMfaPolicyReadout.fromJson(JsonObject json) {
+    return AuthMfaPolicyReadout(
+      policyVersion: json["policyVersion"] == null ? null : json["policyVersion"] as String,
+      passkeySupportMode: json["passkeySupportMode"] as String,
+      totpSupportMode: json["totpSupportMode"] as String,
+      recoveryCodeSupportMode: json["recoveryCodeSupportMode"] as String,
+      enforcementMode: json["enforcementMode"] as String,
+      accountCompliance: json["accountCompliance"] as String,
+      requiresEnrollment: json["requiresEnrollment"] as bool,
+      requiresFreshStepUp: json["requiresFreshStepUp"] as bool,
+      recoveryCodesLow: json["recoveryCodesLow"] as bool,
+      serverAuthoritative: json["serverAuthoritative"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final policyVersionJsonValue = policyVersion;
+
+    return {
+      "policyVersion": policyVersionJsonValue,
+      "passkeySupportMode": passkeySupportMode,
+      "totpSupportMode": totpSupportMode,
+      "recoveryCodeSupportMode": recoveryCodeSupportMode,
+      "enforcementMode": enforcementMode,
+      "accountCompliance": accountCompliance,
+      "requiresEnrollment": requiresEnrollment,
+      "requiresFreshStepUp": requiresFreshStepUp,
+      "recoveryCodesLow": recoveryCodesLow,
+      "serverAuthoritative": serverAuthoritative,
+    };
+  }
+}
+
+/// Passkey credential lifecycle status.
+typedef AuthPasskeyCredentialStatus = String;
+class AuthPasskeyCredentialStatusValues {
+  const AuthPasskeyCredentialStatusValues._();
+  static const AuthPasskeyCredentialStatus pending = "pending";
+  static const AuthPasskeyCredentialStatus enrolled = "enrolled";
+  static const AuthPasskeyCredentialStatus disabled = "disabled";
+  static const AuthPasskeyCredentialStatus revoked = "revoked";
+  static const Set<AuthPasskeyCredentialStatus> values = {pending, enrolled, disabled, revoked};
+}
+
+/// MFA factor type values currently exposed to clients.
+typedef AuthMfaFactorType = String;
+class AuthMfaFactorTypeValues {
+  const AuthMfaFactorTypeValues._();
+  static const AuthMfaFactorType totp = "totp";
+  static const Set<AuthMfaFactorType> values = {totp};
+}
+
+/// MFA factor lifecycle status.
+typedef AuthMfaFactorStatus = String;
+class AuthMfaFactorStatusValues {
+  const AuthMfaFactorStatusValues._();
+  static const AuthMfaFactorStatus pending = "pending";
+  static const AuthMfaFactorStatus enrolled = "enrolled";
+  static const AuthMfaFactorStatus disabled = "disabled";
+  static const AuthMfaFactorStatus revoked = "revoked";
+  static const AuthMfaFactorStatus expired = "expired";
+  static const Set<AuthMfaFactorStatus> values = {pending, enrolled, disabled, revoked, expired};
+}
+
+/// Auth challenge purpose values.
+typedef AuthChallengePurpose = String;
+class AuthChallengePurposeValues {
+  const AuthChallengePurposeValues._();
+  static const AuthChallengePurpose passkeyEnrollment = "passkey_enrollment";
+  static const AuthChallengePurpose passkeySignIn = "passkey_sign_in";
+  static const AuthChallengePurpose passkeyStepUp = "passkey_step_up";
+  static const AuthChallengePurpose totpEnrollment = "totp_enrollment";
+  static const AuthChallengePurpose signIn = "sign_in";
+  static const AuthChallengePurpose stepUp = "step_up";
+  static const AuthChallengePurpose recovery = "recovery";
+  static const Set<AuthChallengePurpose> values = {passkeyEnrollment, passkeySignIn, passkeyStepUp, totpEnrollment, signIn, stepUp, recovery};
+}
+
+/// Factor category that may satisfy an auth challenge.
+typedef AuthChallengeFactorType = String;
+class AuthChallengeFactorTypeValues {
+  const AuthChallengeFactorTypeValues._();
+  static const AuthChallengeFactorType passkey = "passkey";
+  static const AuthChallengeFactorType totp = "totp";
+  static const AuthChallengeFactorType recoveryCode = "recovery_code";
+  static const AuthChallengeFactorType mfa = "mfa";
+  static const Set<AuthChallengeFactorType> values = {passkey, totp, recoveryCode, mfa};
+}
+
+/// Auth challenge lifecycle status.
+typedef AuthChallengeStatus = String;
+class AuthChallengeStatusValues {
+  const AuthChallengeStatusValues._();
+  static const AuthChallengeStatus pending = "pending";
+  static const AuthChallengeStatus consumed = "consumed";
+  static const AuthChallengeStatus verified = "verified";
+  static const AuthChallengeStatus expired = "expired";
+  static const AuthChallengeStatus failed = "failed";
+  static const AuthChallengeStatus blocked = "blocked";
+  static const AuthChallengeStatus cancelled = "cancelled";
+  static const AuthChallengeStatus replayDetected = "replay_detected";
+  static const Set<AuthChallengeStatus> values = {pending, consumed, verified, expired, failed, blocked, cancelled, replayDetected};
+}
+
+/// Recovery-code batch lifecycle status.
+typedef AuthRecoveryCodeBatchStatus = String;
+class AuthRecoveryCodeBatchStatusValues {
+  const AuthRecoveryCodeBatchStatusValues._();
+  static const AuthRecoveryCodeBatchStatus active = "active";
+  static const AuthRecoveryCodeBatchStatus replaced = "replaced";
+  static const AuthRecoveryCodeBatchStatus revoked = "revoked";
+  static const AuthRecoveryCodeBatchStatus expired = "expired";
+  static const Set<AuthRecoveryCodeBatchStatus> values = {active, replaced, revoked, expired};
+}
+
+/// Client-visible factor support mode.
+typedef AuthMfaSupportMode = String;
+class AuthMfaSupportModeValues {
+  const AuthMfaSupportModeValues._();
+  static const AuthMfaSupportMode disabled = "disabled";
+  static const AuthMfaSupportMode optional = "optional";
+  static const AuthMfaSupportMode requiredForAdmins = "required_for_admins";
+  static const AuthMfaSupportMode requiredForAllUsers = "required_for_all_users";
+  static const AuthMfaSupportMode policyPendingEnrollment = "policy_pending_enrollment";
+  static const Set<AuthMfaSupportMode> values = {disabled, optional, requiredForAdmins, requiredForAllUsers, policyPendingEnrollment};
+}
+
+/// Client-visible MFA/passkey enforcement mode.
+typedef AuthMfaEnforcementMode = String;
+class AuthMfaEnforcementModeValues {
+  const AuthMfaEnforcementModeValues._();
+  static const AuthMfaEnforcementMode optional = "optional";
+  static const AuthMfaEnforcementMode blockingWarning = "blocking_warning";
+  static const AuthMfaEnforcementMode required = "required";
+  static const Set<AuthMfaEnforcementMode> values = {optional, blockingWarning, required};
+}
+
 /// Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.
 class InAppNotificationListResponse {
   const InAppNotificationListResponse({
