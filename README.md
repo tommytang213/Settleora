@@ -34,6 +34,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Bill revision review UX gate](docs/features/expenses-bills/BILL_REVISION_REVIEW_UX.md)
 - [Settlement runtime architecture](docs/architecture/SETTLEMENT_RUNTIME_ARCHITECTURE.md)
 - [Notification event taxonomy](docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md)
+- [SMTP email provider policy](docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md)
 - [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [Receipt OCR review apply policy](docs/architecture/RECEIPT_OCR_REVIEW_APPLY_POLICY.md)
