@@ -230,6 +230,31 @@ Use this checklist on future OpenAPI/generated-client issues:
       status transitions, sync acceptance, and audit.
 ```
 
+### PR Merge Gate And CI Evidence
+
+Day 1 PR/merge-gate tasks use the evidence requirements in
+[Codex task guide](CODEX_TASK_GUIDE.md#day-1-pr-merge-gate-and-ci-evidence).
+The `CI / Merge Gate` status means both local validation evidence and GitHub PR
+evidence are being checked against the exact PR head SHA. Required evidence
+includes clean worktree checks before PR and before merge, exact validation
+commands/results, changed-file and forbidden-change scope guard, PR URL/title,
+base/head/head SHA, PR body accuracy, GitHub checks on the exact PR head,
+mergeability/clean status, and unresolved review-thread or blocker status.
+
+Manual gates remain explicit for CI workflow, deployment, Docker, production or
+public exposure, mobile store release, signing, secrets, OpenAPI,
+generated-client, auth/session/security, storage/privacy, money/settlement,
+schema/migration, destructive data, branch deletion, force-like history, Day 1
+scope-reduction, architecture-direction, PR-only, and human-merge-only work.
+Checklist/reference/docs issues may complete only their documentation slice;
+they do not complete parent or follow-up implementation work.
+
+Source branches are retained by default. Do not delete them unless the human
+explicitly requests deletion. After any PR merge, verify the remote source
+branch still exists. If GitHub auto-deletes it despite no deletion request,
+restore the exact reviewed source branch SHA with a normal branch creation push
+and report the retention or restoration result.
+
 ## Codex Workflow
 
 1. Triage an issue into the correct Day scope, area, type, risk, size, validation class, and status.
@@ -245,7 +270,8 @@ Use this checklist on future OpenAPI/generated-client issues:
 8. Run the validation requested by the issue and task prompt.
 9. Upload the Codex report with the planning outcome block and move the item to `Report Uploaded`.
 10. Open a PR only after the report is complete and scope guard is clean.
-11. Use normal GitHub PR merge gates. Do not push directly to `main`.
+11. Use normal GitHub PR merge gates. Do not push directly to `main`, and do not
+    delete source branches unless explicitly requested.
 
 ## Bundle Planning
 
