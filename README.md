@@ -18,6 +18,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Auth credential workflow design](docs/architecture/AUTH_CREDENTIAL_WORKFLOW_DESIGN.md)
 - [Auth MFA and passkey architecture](docs/architecture/AUTH_MFA_PASSKEY_ARCHITECTURE.md)
 - [Auth MFA and passkey policy audit](docs/architecture/AUTH_MFA_PASSKEY_POLICY_AUDIT.md)
+- [Auth passkey WebAuthn API contract](docs/architecture/AUTH_PASSKEY_WEBAUTHN_API_CONTRACT.md)
 - [Auth runtime and current-user design](docs/architecture/AUTH_RUNTIME_CURRENT_USER_DESIGN.md)
 - [Auth refresh-token rotation policy](docs/architecture/AUTH_REFRESH_TOKEN_ROTATION_POLICY.md)
 - [Auth sign-in abuse policy](docs/architecture/AUTH_SIGN_IN_ABUSE_POLICY.md)
