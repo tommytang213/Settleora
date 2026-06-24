@@ -178,6 +178,75 @@ Future OpenAPI/generated-client issue bodies must include a checklist covering:
 - Push only the task branch unless asked otherwise.
 - Do not merge to `main` unless the task explicitly asks for a PR/merge-gate action and the development-stage main merge policy permits it.
 
+## Day 1 PR Merge-Gate And CI Evidence
+
+Day 1 PR and merge-gate tasks must leave enough evidence for a reviewer to
+replay the decision. A docs-only checklist or reference issue may complete that
+documentation slice, but it must not be described as completing the runtime,
+deployment, release, security, storage, money, schema, OpenAPI, generated-client,
+or UI implementation that the checklist discusses. Parent epics and follow-up
+implementation issues remain authoritative for incomplete code/runtime work.
+
+Before opening a PR or entering a merge gate, record:
+
+- Exact local commands run from the repo root, with exact pass/fail results.
+- The changed file list from the task base to `HEAD`.
+- A forbidden-change scope guard stating whether the diff touches runtime,
+  API behavior, OpenAPI/contracts, generated clients, CI workflows, Docker,
+  deployment, secrets, auth/session/security, storage/privacy, schema,
+  money/settlement/payment/bill calculation, OCR runtime, or UI code.
+- Clean worktree evidence before PR creation and again immediately before any
+  merge.
+
+Every PR evidence block must include:
+
+- PR URL and title.
+- PR base branch, head branch, and exact head SHA.
+- Confirmation that the PR body accurately lists scope, files changed,
+  validation, and known manual gates.
+- GitHub checks/CI result summary for the exact PR head SHA.
+- Mergeability and clean/dirty status.
+- Unresolved review thread or blocking comment status.
+
+Manual gates must be explicit. Trigger and report a manual gate for CI workflow
+changes, deployment/Docker/release infrastructure, production deploy, public or
+admin exposure, mobile store release, signing, secrets/credentials/tokens,
+OpenAPI contracts, generated clients, auth/session/security-critical runtime,
+storage/privacy/file-byte authorization, money/settlement/payment/bill
+calculation authority, schema/migrations, destructive data operations, Day 1
+scope reduction, architecture direction replacement, branch deletion/cleanup,
+force-like history changes, or any task marked PR-only, human-merge-only, or
+manual-gated.
+
+Source branches are retained by default:
+
+- Do not delete task/source branches unless the human explicitly requests
+  deletion.
+- After a PR merge, verify the remote source branch still exists.
+- If GitHub repository settings auto-delete the source branch despite no
+  explicit deletion request, restore the exact reviewed source branch SHA with a
+  normal branch creation push. Do not force push.
+- Report the source branch retention or restoration result explicitly.
+
+Day 1 PR/merge-gate reports must include:
+
+- Status, branch names, source branch, target/base branch, and head SHA.
+- Source, integration, and task commit SHAs where applicable.
+- Files changed.
+- Commit hash and PR URL.
+- Issue status and whether the issue was closed, left open, or only completed
+  for a docs/reference/checklist slice.
+- Exact validation commands and results.
+- GitHub CI/check names, conclusions, and SHA checked.
+- Merge result, merge commit, or stop reason.
+- Scope guard result.
+- Source branch retention/restoration state.
+- Failures, follow-ups, next action, manual decisions needed, and start/end
+  timezone plus elapsed time.
+- Confirmation that no forbidden runtime, API, security, money, schema,
+  deployment, secret, OpenAPI, generated-client, storage, settlement, OCR, or UI
+  changes were made when the task is documentation-only.
+
 ## Development-Stage Main Merge Policy
 
 Settleora is currently in development stage with no production deployment. Future explicit PR/merge-gate tasks may auto-merge to `main` only through a GitHub PR when all required gates pass:
@@ -194,6 +263,9 @@ Settleora is currently in development stage with no production deployment. Futur
 - No manual gate is triggered.
 - Merge is a normal GitHub merge commit unless the task explicitly says otherwise.
 - Source branch is not deleted unless the human explicitly requests deletion.
+- Remote source branch retention is verified after merge, or restored to the
+  exact reviewed source branch SHA if GitHub auto-deleted it despite no explicit
+  deletion request.
 
 Dev-stage auto-merge never means direct push to `main`, force push, skipped validation, skipped GitHub CI, merge of a dirty/stale/unstable/changed-head PR, or auto-merge of production, security, destructive, or otherwise manual-gated work.
 
