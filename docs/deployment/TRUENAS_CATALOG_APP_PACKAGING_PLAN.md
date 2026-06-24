@@ -14,6 +14,10 @@ acceptance criteria remain in
 [TrueNAS catalog app readiness](TRUENAS_CATALOG_APP_READINESS.md). Backup,
 restore, rollback, and redaction evidence are covered by
 [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md).
+Install/upgrade orchestration, unsafe-migration blocking, failed-start recovery,
+rollback limits, health checks, image update flow, and operator evidence are
+planned in
+[Self-hosted install/upgrade orchestration](SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md).
 Exposure decisions are governed by
 [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
