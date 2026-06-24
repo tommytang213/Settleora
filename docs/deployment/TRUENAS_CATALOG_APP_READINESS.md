@@ -119,7 +119,7 @@ A catalog app follow-up still must define:
 
 ## Backup And Restore
 
-Day 1 backup/restore notes must cover the consistency set:
+Day 1 backup/restore planning is defined in [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md). The runbook covers the deployment consistency set:
 
 - PostgreSQL database.
 - API local file storage dataset.
