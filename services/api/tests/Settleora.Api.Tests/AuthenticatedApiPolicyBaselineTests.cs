@@ -24,7 +24,9 @@ public sealed class AuthenticatedApiPolicyBaselineTests : IClassFixture<WebAppli
         new("POST", "/api/v1/auth/bootstrap/local-owner", "First-owner bootstrap is setup-only while no account exists."),
         new("POST", "/api/v1/auth/sign-in", "Legacy local sign-in must accept credentials before a session exists."),
         new("POST", "/api/v1/auth/local/sign-in", "Local-session sign-in must accept credentials before a session exists."),
-        new("POST", "/api/v1/auth/refresh", "Refresh rotates the submitted refresh credential without bearer auth.")
+        new("POST", "/api/v1/auth/refresh", "Refresh rotates the submitted refresh credential without bearer auth."),
+        new("POST", "/api/v1/auth/passkeys/sign-in/options", "Passkey sign-in ceremony options must start before a session exists."),
+        new("POST", "/api/v1/auth/passkeys/sign-in/complete", "Passkey sign-in ceremony completion validates assertions before a session exists.")
     ];
 
     private static readonly HashSet<string> PublicEndpointKeys = PublicEndpointAllowlist
@@ -172,6 +174,16 @@ public sealed class AuthenticatedApiPolicyBaselineTests : IClassFixture<WebAppli
             "/api/v1/auth/refresh",
             CreateJsonContent(new { }));
         await AssertProblemTitleAsync(refreshResponse, HttpStatusCode.Unauthorized, "Refresh failed");
+
+        using var passkeyOptionsResponse = await client.PostAsync(
+            "/api/v1/auth/passkeys/sign-in/options",
+            CreateJsonContent(new { }));
+        Assert.Equal(HttpStatusCode.OK, passkeyOptionsResponse.StatusCode);
+
+        using var passkeyCompleteResponse = await client.PostAsync(
+            "/api/v1/auth/passkeys/sign-in/complete",
+            CreateJsonContent(new { }));
+        await AssertProblemTitleAsync(passkeyCompleteResponse, HttpStatusCode.BadRequest, "Invalid auth request");
     }
 
     private WebApplicationFactory<Program> CreateFactory()
