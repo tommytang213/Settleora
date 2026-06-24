@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the Day 1 target for a polished Settleora TrueNAS app/catalog-style package. It is a readiness plan and acceptance checklist, not evidence that the package exists. Exposure-mode guardrails for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access are defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
+This document defines the Day 1 target for a polished Settleora TrueNAS app/catalog-style package. It is a readiness plan and acceptance checklist, not evidence that the package exists. The focused packaging plan for app metadata, form fields, dataset mappings, topology, image tags, upgrade/rollback warnings, and operator stop conditions is [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md). Exposure-mode guardrails for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access are defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
 Current repo evidence supports a Docker/Compose LAN testing foundation through `infra/docker-compose.yml`, `infra/docker-compose.truenas-lan.yml`, `infra/docker-compose.truenas-lan.image.yml`, `infra/env/.env.truenas-lan.example`, and `services/api/Dockerfile`. The LAN package now includes a first-class API-hosted migration runner service for managed/default and manual/pro schema-control modes. TrueNAS catalog metadata, app form schema, backup/rollback automation, screenshots, and maintainer-run install evidence remain pending.
 
@@ -179,6 +179,7 @@ Recommended follow-up slices:
 
 - Actual TrueNAS install evidence is pending.
 - Polished catalog app package is pending.
+- The catalog packaging plan exists in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md), but catalog implementation and publishing remain pending manual-gated follow-ups.
 - First-class migration command and LAN compose service exist; TrueNAS catalog hook wiring, backup-before-migrate enforcement, rollback strategy, and maintainer-visible failure UI remain pending.
 - Backup/restore evidence is pending.
 - Public exposure and admin exposure are blocked by manual gates.

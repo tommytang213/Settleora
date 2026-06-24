@@ -218,6 +218,7 @@ Stop and escalate before proceeding if:
 
 - [TrueNAS LAN Docker testing](TRUENAS_LAN_DOCKER_TESTING.md)
 - [TrueNAS catalog app readiness](TRUENAS_CATALOG_APP_READINESS.md)
+- [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md)
 - [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md)
 - [CI/CD and publishing requirements](../architecture/CI_CD_AND_PUBLISHING_REQUIREMENTS.md)
 - [Branching and release strategy](../architecture/BRANCHING_AND_RELEASE_STRATEGY.md)

@@ -4,7 +4,7 @@
 
 This runbook is a LAN-only testing foundation for running the current Settleora server stack on a TrueNAS / TrueNAS SCALE-style host. The maintainer-reported target version is TrueNAS `25.10.1`.
 
-This is not a production deployment guide, not public exposure approval, and not a completed TrueNAS catalog app. Public internet exposure is blocked until the auth/session/security, storage/privacy, admin exposure, deployment, backup/restore, and manual release gates in the Day 1 acceptance package have passed. Exposure-mode planning for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access is defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
+This is not a production deployment guide, not public exposure approval, and not a completed TrueNAS catalog app. Public internet exposure is blocked until the auth/session/security, storage/privacy, admin exposure, deployment, backup/restore, and manual release gates in the Day 1 acceptance package have passed. Future catalog metadata, form fields, dataset mappings, image tags, upgrade/rollback notes, and operator warnings are planned in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md). Exposure-mode planning for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access is defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
 ## Current Repo Deployment Shape
 
@@ -71,7 +71,7 @@ For TrueNAS LAN testing, create or choose datasets before running the stack. The
 
 Do not publish the API storage dataset directly through SMB, NFS, HTTP, or a public file share for app access. Settleora file access must go through the API storage abstraction and API authorization checks.
 
-Use [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md) for the PostgreSQL, RabbitMQ, API local file storage, app configuration, migration-state, restore-validation, and redaction evidence path. That runbook is planning guidance only and does not execute backup or restore operations.
+Use [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md) for the PostgreSQL, RabbitMQ, API local file storage, app configuration, migration-state, restore-validation, and redaction evidence path. Use [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md) for future catalog-specific metadata, form, dataset, topology, image, upgrade, rollback, and stop-condition planning. Both documents are planning guidance only and do not execute backup, restore, catalog implementation, or catalog publishing operations.
 
 ## Environment Variables
 
@@ -407,7 +407,7 @@ Manual gates and report fields:
 
 ## Current Blockers For Polished LAN Hosting
 
-- No TrueNAS catalog app package exists yet.
+- No TrueNAS catalog app package exists yet; the planning path is documented in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md).
 - `infra/docker-compose.truenas-lan.yml` is a practical LAN Docker package path, but maintainer-run TrueNAS evidence is still pending.
 - No polished production install/upgrade orchestration exists beyond the current LAN package's first-class `migrate` service.
 - No backup/restore runbook exists for PostgreSQL, RabbitMQ, and local file storage as one consistency unit.
