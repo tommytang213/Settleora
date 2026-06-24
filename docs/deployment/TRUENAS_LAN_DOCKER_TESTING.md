@@ -4,7 +4,7 @@
 
 This runbook is a LAN-only testing foundation for running the current Settleora server stack on a TrueNAS / TrueNAS SCALE-style host. The maintainer-reported target version is TrueNAS `25.10.1`.
 
-This is not a production deployment guide, not public exposure approval, and not a completed TrueNAS catalog app. Public internet exposure is blocked until the auth/session/security, storage/privacy, admin exposure, deployment, backup/restore, and manual release gates in the Day 1 acceptance package have passed.
+This is not a production deployment guide, not public exposure approval, and not a completed TrueNAS catalog app. Public internet exposure is blocked until the auth/session/security, storage/privacy, admin exposure, deployment, backup/restore, and manual release gates in the Day 1 acceptance package have passed. Exposure-mode planning for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access is defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
 ## Current Repo Deployment Shape
 
@@ -110,7 +110,7 @@ The compose file also sets service-internal connection strings:
 - Do not forward router ports to Settleora.
 - Do not expose PostgreSQL port `5432`, RabbitMQ AMQP port `5672`, RabbitMQ management port `15672`, or the storage dataset to the public internet.
 - Treat admin APIs as protected even when only LAN-exposed.
-- Use LAN or trusted VPN testing first. Cloudflare Access or any public tunnel is a future manual-gated deployment decision, not enabled by this guide.
+- Use LAN or trusted VPN testing first. Cloudflare Access or any public tunnel is a future manual-gated deployment decision, not enabled by this guide. See [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md) before planning reverse proxy, TLS, admin exposure, or public access.
 
 ## LAN Compose Commands
 
