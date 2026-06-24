@@ -41,6 +41,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Product requirements](docs/prd/)
 - [Day 1 acceptance evidence package](docs/acceptance/day1/)
 - [TrueNAS LAN Docker testing](docs/deployment/TRUENAS_LAN_DOCKER_TESTING.md)
+- [Self-hosting exposure guardrails](docs/deployment/SELF_HOSTING_EXPOSURE_GUARDRAILS.md)
 - [TrueNAS catalog app readiness](docs/deployment/TRUENAS_CATALOG_APP_READINESS.md)
 - [TrueNAS backup/restore consistency runbook](docs/deployment/TRUENAS_BACKUP_RESTORE_RUNBOOK.md)
 - [Codemagic/TestFlight setup](docs/workflow/CODEMAGIC_TESTFLIGHT_SETUP.md)
@@ -77,7 +78,7 @@ docker compose --env-file infra/env/.env.example -f infra/docker-compose.yml up 
 
 The health endpoint is available at `http://localhost:8080/health` by default. PostgreSQL, RabbitMQ, and storage readiness is available at `http://localhost:8080/health/ready` when the API is run with configured dependency settings. The self payment QR flow goes through the internal storage abstraction, and future public file flows must also avoid exposing physical storage paths or provider object keys.
 
-For trusted LAN-only TrueNAS testing with an iPhone TestFlight server-mode build, use [TrueNAS LAN Docker testing](docs/deployment/TRUENAS_LAN_DOCKER_TESTING.md). That path publishes only the API port by default, keeps PostgreSQL, RabbitMQ, and API local storage private to the host/app network, and runs a first-class `migrate` service before API startup. The migration service defaults to `managed-auto`, which applies pending migrations only when the API migration safety policy classifies them as safe; professional hosters can use `check-only`, `manual`, `validate-only`, `apply-safe`, or the explicit dangerous `force-allow-destructive` mode documented in the runbook.
+For trusted LAN-only TrueNAS testing with an iPhone TestFlight server-mode build, use [TrueNAS LAN Docker testing](docs/deployment/TRUENAS_LAN_DOCKER_TESTING.md). That path publishes only the API port by default, keeps PostgreSQL, RabbitMQ, and API local storage private to the host/app network, and runs a first-class `migrate` service before API startup. The migration service defaults to `managed-auto`, which applies pending migrations only when the API migration safety policy classifies them as safe; professional hosters can use `check-only`, `manual`, `validate-only`, `apply-safe`, or the explicit dangerous `force-allow-destructive` mode documented in the runbook. Reverse proxy, TLS, trusted VPN, Cloudflare Access-style protection, admin exposure, and public exposure planning is tracked in [Self-hosting exposure guardrails](docs/deployment/SELF_HOSTING_EXPOSURE_GUARDRAILS.md); it is not an implementation or approval of public/admin exposure.
 
 ## Scaffold Validation
 

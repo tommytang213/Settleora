@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines the Day 1 target for a polished Settleora TrueNAS app/catalog-style package. It is a readiness plan and acceptance checklist, not evidence that the package exists.
+This document defines the Day 1 target for a polished Settleora TrueNAS app/catalog-style package. It is a readiness plan and acceptance checklist, not evidence that the package exists. Exposure-mode guardrails for LAN, trusted VPN/private access, Cloudflare Access-style protection, reverse proxy/TLS, admin surfaces, and future public access are defined in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
 Current repo evidence supports a Docker/Compose LAN testing foundation through `infra/docker-compose.yml`, `infra/docker-compose.truenas-lan.yml`, `infra/docker-compose.truenas-lan.image.yml`, `infra/env/.env.truenas-lan.example`, and `services/api/Dockerfile`. The LAN package now includes a first-class API-hosted migration runner service for managed/default and manual/pro schema-control modes. TrueNAS catalog metadata, app form schema, backup/rollback automation, screenshots, and maintainer-run install evidence remain pending.
 
@@ -87,7 +87,7 @@ Future/manual-gated access patterns:
 - Any public DNS or internet-routable endpoint.
 - Any admin web surface exposure.
 
-Public exposure remains blocked until auth/session/security, storage/privacy, admin exposure, deployment, and release gates are manually reviewed and passed.
+Public exposure remains blocked until auth/session/security, storage/privacy, admin exposure, deployment, and release gates are manually reviewed and passed. Admin exposure and user web/API exposure remain separate decisions under [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
 ## Upgrade And Migration Strategy
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-This runbook defines the deployment-level backup and restore consistency plan for the current Day 1 TrueNAS LAN Docker posture. It is operator guidance and evidence structure only.
+This runbook defines the deployment-level backup and restore consistency plan for the current Day 1 TrueNAS LAN Docker posture. It is operator guidance and evidence structure only. Public, reverse-proxy/TLS, trusted private access, and admin exposure requirements are defined separately in [Self-hosting exposure guardrails](SELF_HOSTING_EXPOSURE_GUARDRAILS.md).
 
 It does not implement backup automation, execute a backup, execute a restore, mutate TrueNAS datasets, change Docker/Compose behavior, change runtime configuration, or approve production or public exposure. Any real restore against maintainer or production-like data requires a manual deployment/storage/privacy gate before execution.
 
