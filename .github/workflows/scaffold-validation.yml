@@ -116,6 +116,10 @@ jobs:
         if: steps.changes.outputs.run_full_validation == 'true'
         run: npm run validate:openapi
 
+      - name: Validate generated clients
+        if: steps.changes.outputs.run_full_validation == 'true'
+        run: npm run validate:clients
+
       - name: Validate API
         if: steps.changes.outputs.run_full_validation == 'true'
         run: npm run validate:api
