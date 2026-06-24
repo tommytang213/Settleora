@@ -35,4 +35,22 @@ public sealed class AuthAccount
     public ICollection<AuthAuditEvent> ActorAuditEvents { get; } = new List<AuthAuditEvent>();
 
     public ICollection<AuthAuditEvent> SubjectAuditEvents { get; } = new List<AuthAuditEvent>();
+
+    public ICollection<AuthPasskeyCredential> PasskeyCredentials { get; } = new List<AuthPasskeyCredential>();
+
+    public ICollection<AuthPasskeyCredential> ChangedPasskeyCredentialStatuses { get; } = new List<AuthPasskeyCredential>();
+
+    public ICollection<AuthMfaFactor> MfaFactors { get; } = new List<AuthMfaFactor>();
+
+    public ICollection<AuthMfaFactor> ChangedMfaFactorStatuses { get; } = new List<AuthMfaFactor>();
+
+    public ICollection<AuthRecoveryCodeBatch> RecoveryCodeBatches { get; } = new List<AuthRecoveryCodeBatch>();
+
+    public ICollection<AuthRecoveryCodeBatch> CreatedRecoveryCodeBatches { get; } = new List<AuthRecoveryCodeBatch>();
+
+    public ICollection<AuthRecoveryCodeVerifier> RecoveryCodeVerifiers { get; } = new List<AuthRecoveryCodeVerifier>();
+
+    public ICollection<AuthChallenge> Challenges { get; } = new List<AuthChallenge>();
+
+    public ICollection<AuthSecurityPolicy> ChangedSecurityPolicies { get; } = new List<AuthSecurityPolicy>();
 }

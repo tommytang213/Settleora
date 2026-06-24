@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Finance;
@@ -30,7 +31,13 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Equal(39, dbContext.Model.GetEntityTypes().Count());
+        Assert.Equal(45, dbContext.Model.GetEntityTypes().Count());
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthPasskeyCredential)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthMfaFactor)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthRecoveryCodeBatch)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthRecoveryCodeVerifier)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthChallenge)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthSecurityPolicy)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(FileObject)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ManualFinancialAccount)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(ManualIncomeSource)));

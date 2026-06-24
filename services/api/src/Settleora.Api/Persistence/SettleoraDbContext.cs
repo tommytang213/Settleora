@@ -43,6 +43,46 @@ public sealed class SettleoraDbContext : DbContext
     private const int AuthAuditCorrelationIdMaxLength = 120;
     private const int AuthAuditRequestIdMaxLength = 120;
     private const int AuthAuditSafeMetadataJsonMaxLength = 4096;
+    private const int AuthPasskeyCredentialIdHashMaxLength = 256;
+    private const int AuthPasskeyCredentialPublicKeyCoseMaxLength = 8192;
+    private const int AuthPasskeyCredentialUserHandleHashMaxLength = 128;
+    private const int AuthPasskeyCredentialTransportsMaxLength = 256;
+    private const int AuthPasskeyCredentialAttestationPolicyResultMaxLength = 64;
+    private const int AuthPasskeyCredentialDisplayLabelMaxLength = 120;
+    private const int AuthPasskeyCredentialStatusMaxLength = 16;
+    private const int AuthPasskeyCredentialStatusReasonMaxLength = 120;
+    private const int AuthMfaFactorTypeMaxLength = 32;
+    private const int AuthMfaFactorStatusMaxLength = 16;
+    private const int AuthMfaFactorDisplayLabelMaxLength = 120;
+    private const int AuthMfaFactorTotpSecretStorageKindMaxLength = 32;
+    private const int AuthMfaFactorTotpProtectedSecretReferenceMaxLength = 256;
+    private const int AuthMfaFactorTotpEncryptedSecretPayloadMaxLength = 8192;
+    private const int AuthMfaFactorTotpIssuerMaxLength = 120;
+    private const int AuthMfaFactorTotpAccountLabelMaxLength = 320;
+    private const int AuthMfaFactorTotpAlgorithmMaxLength = 32;
+    private const int AuthMfaFactorPolicyVersionMaxLength = 32;
+    private const int AuthMfaFactorStatusReasonMaxLength = 120;
+    private const int AuthRecoveryCodeBatchStatusMaxLength = 16;
+    private const int AuthRecoveryCodeBatchPolicyVersionMaxLength = 32;
+    private const int AuthRecoveryCodeBatchStatusReasonMaxLength = 120;
+    private const int AuthRecoveryCodeVerifierHashMaxLength = 256;
+    private const int AuthRecoveryCodeVerifierSaltMaxLength = 128;
+    private const int AuthRecoveryCodeVerifierAlgorithmMaxLength = 64;
+    private const int AuthRecoveryCodeVerifierParametersMaxLength = 1024;
+    private const int AuthRecoveryCodeVerifierStatusMaxLength = 16;
+    private const int AuthChallengePurposeMaxLength = 32;
+    private const int AuthChallengeFactorTypeMaxLength = 32;
+    private const int AuthChallengeStatusMaxLength = 32;
+    private const int AuthChallengeVerifierHashMaxLength = 256;
+    private const int AuthChallengeVerifierAlgorithmMaxLength = 64;
+    private const int AuthChallengeBoundRpIdMaxLength = 255;
+    private const int AuthChallengeBoundOriginMaxLength = 512;
+    private const int AuthChallengeRequestContextHashMaxLength = 128;
+    private const int AuthChallengeFailureCategoryMaxLength = 120;
+    private const int AuthSecurityPolicyStatusMaxLength = 16;
+    private const int AuthSecurityPolicySupportModeMaxLength = 32;
+    private const int AuthSecurityPolicyEnforcementModeMaxLength = 32;
+    private const int AuthSecurityPolicyChangeReasonCategoryMaxLength = 120;
 
     public SettleoraDbContext(DbContextOptions<SettleoraDbContext> options)
         : base(options)
@@ -87,6 +127,12 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<AuthSessionFamily>(ConfigureAuthSessionFamily);
         modelBuilder.Entity<AuthRefreshCredential>(ConfigureAuthRefreshCredential);
         modelBuilder.Entity<AuthAuditEvent>(ConfigureAuthAuditEvent);
+        modelBuilder.Entity<AuthPasskeyCredential>(ConfigureAuthPasskeyCredential);
+        modelBuilder.Entity<AuthMfaFactor>(ConfigureAuthMfaFactor);
+        modelBuilder.Entity<AuthRecoveryCodeBatch>(ConfigureAuthRecoveryCodeBatch);
+        modelBuilder.Entity<AuthRecoveryCodeVerifier>(ConfigureAuthRecoveryCodeVerifier);
+        modelBuilder.Entity<AuthChallenge>(ConfigureAuthChallenge);
+        modelBuilder.Entity<AuthSecurityPolicy>(ConfigureAuthSecurityPolicy);
         modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
         modelBuilder.Entity<FileObject>(ConfigureFileObject);
         modelBuilder.Entity<InAppNotification>(ConfigureInAppNotification);
@@ -3950,6 +3996,545 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany(credential => credential.ReplacedRefreshCredentials)
             .HasForeignKey(credential => credential.ReplacedByRefreshCredentialId)
             .HasConstraintName("fk_auth_refresh_credentials_replaced_by_refresh_credential_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthPasskeyCredential(EntityTypeBuilder<AuthPasskeyCredential> entity)
+    {
+        entity.ToTable("auth_passkey_credentials", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_passkey_credentials_status",
+                "status IN ('pending', 'enrolled', 'disabled', 'revoked')");
+            table.HasCheckConstraint(
+                "ck_auth_passkey_credentials_credential_hash_not_blank",
+                "length(btrim(credential_id_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_passkey_credentials_public_key_not_blank",
+                "length(btrim(public_key_cose)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_passkey_credentials_user_handle_hash_not_blank",
+                "user_handle_hash IS NULL OR length(btrim(user_handle_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_passkey_credentials_status_reason_not_blank",
+                "status_reason IS NULL OR length(btrim(status_reason)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_passkey_credentials_last_status_correlation_not_blank",
+                "last_status_change_correlation_id IS NULL OR length(btrim(last_status_change_correlation_id)) > 0");
+        });
+
+        entity.HasKey(credential => credential.Id);
+
+        entity.Property(credential => credential.Id).HasColumnName("id");
+        entity.Property(credential => credential.AuthAccountId).HasColumnName("auth_account_id");
+        entity.Property(credential => credential.CredentialIdHash)
+            .HasColumnName("credential_id_hash")
+            .HasMaxLength(AuthPasskeyCredentialIdHashMaxLength)
+            .IsRequired();
+        entity.Property(credential => credential.PublicKeyCose)
+            .HasColumnName("public_key_cose")
+            .HasMaxLength(AuthPasskeyCredentialPublicKeyCoseMaxLength)
+            .IsRequired();
+        entity.Property(credential => credential.UserHandleHash)
+            .HasColumnName("user_handle_hash")
+            .HasMaxLength(AuthPasskeyCredentialUserHandleHashMaxLength);
+        entity.Property(credential => credential.SignatureCounter).HasColumnName("signature_counter");
+        entity.Property(credential => credential.BackupEligible).HasColumnName("backup_eligible").IsRequired();
+        entity.Property(credential => credential.BackupState).HasColumnName("backup_state").IsRequired();
+        entity.Property(credential => credential.Transports)
+            .HasColumnName("transports")
+            .HasMaxLength(AuthPasskeyCredentialTransportsMaxLength);
+        entity.Property(credential => credential.AttestationPolicyResult)
+            .HasColumnName("attestation_policy_result")
+            .HasMaxLength(AuthPasskeyCredentialAttestationPolicyResultMaxLength);
+        entity.Property(credential => credential.DisplayLabel)
+            .HasColumnName("display_label")
+            .HasMaxLength(AuthPasskeyCredentialDisplayLabelMaxLength);
+        entity.Property(credential => credential.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthPasskeyCredentialStatusMaxLength)
+            .IsRequired();
+        entity.Property(credential => credential.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        entity.Property(credential => credential.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+        entity.Property(credential => credential.EnrolledAtUtc).HasColumnName("enrolled_at_utc");
+        entity.Property(credential => credential.LastUsedAtUtc).HasColumnName("last_used_at_utc");
+        entity.Property(credential => credential.DisabledAtUtc).HasColumnName("disabled_at_utc");
+        entity.Property(credential => credential.RevokedAtUtc).HasColumnName("revoked_at_utc");
+        entity.Property(credential => credential.LastReplaySuspectedAtUtc)
+            .HasColumnName("last_replay_suspected_at_utc");
+        entity.Property(credential => credential.StatusReason)
+            .HasColumnName("status_reason")
+            .HasMaxLength(AuthPasskeyCredentialStatusReasonMaxLength);
+        entity.Property(credential => credential.LastStatusChangedByAuthAccountId)
+            .HasColumnName("last_status_changed_by_auth_account_id");
+        entity.Property(credential => credential.LastStatusChangeCorrelationId)
+            .HasColumnName("last_status_change_correlation_id")
+            .HasMaxLength(AuthAuditCorrelationIdMaxLength);
+
+        entity.HasIndex(credential => credential.AuthAccountId)
+            .HasDatabaseName("ix_auth_passkey_credentials_auth_account_id");
+        entity.HasIndex(credential => new { credential.AuthAccountId, credential.Status })
+            .HasDatabaseName("ix_auth_passkey_credentials_account_status");
+        entity.HasIndex(credential => credential.CredentialIdHash)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_passkey_credentials_credential_id_hash");
+        entity.HasIndex(credential => credential.LastStatusChangedByAuthAccountId)
+            .HasDatabaseName("ix_auth_passkey_credentials_status_actor_id");
+
+        entity.HasOne(credential => credential.AuthAccount)
+            .WithMany(account => account.PasskeyCredentials)
+            .HasForeignKey(credential => credential.AuthAccountId)
+            .HasConstraintName("fk_auth_passkey_credentials_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(credential => credential.LastStatusChangedByAuthAccount)
+            .WithMany(account => account.ChangedPasskeyCredentialStatuses)
+            .HasForeignKey(credential => credential.LastStatusChangedByAuthAccountId)
+            .HasConstraintName("fk_auth_passkey_credentials_status_actor")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthMfaFactor(EntityTypeBuilder<AuthMfaFactor> entity)
+    {
+        entity.ToTable("auth_mfa_factors", table =>
+        {
+            table.HasCheckConstraint("ck_auth_mfa_factors_factor_type", "factor_type IN ('totp')");
+            table.HasCheckConstraint(
+                "ck_auth_mfa_factors_status",
+                "status IN ('pending', 'enrolled', 'disabled', 'revoked', 'expired')");
+            table.HasCheckConstraint(
+                "ck_auth_mfa_factors_secret_storage_kind",
+                "totp_secret_storage_kind IS NULL OR totp_secret_storage_kind IN ('none', 'protected_reference', 'encrypted_payload')");
+            table.HasCheckConstraint(
+                "ck_auth_mfa_factors_totp_digits",
+                "totp_digits IS NULL OR totp_digits BETWEEN 6 AND 8");
+            table.HasCheckConstraint(
+                "ck_auth_mfa_factors_totp_period_seconds",
+                "totp_period_seconds IS NULL OR totp_period_seconds BETWEEN 15 AND 120");
+            table.HasCheckConstraint(
+                "ck_auth_mfa_factors_totp_secret_reference_not_blank",
+                "totp_protected_secret_reference IS NULL OR length(btrim(totp_protected_secret_reference)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_mfa_factors_totp_encrypted_payload_not_blank",
+                "totp_encrypted_secret_payload IS NULL OR length(btrim(totp_encrypted_secret_payload)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_mfa_factors_no_plaintext_totp_secret_pair",
+                "(totp_secret_storage_kind = 'protected_reference' AND totp_protected_secret_reference IS NOT NULL AND totp_encrypted_secret_payload IS NULL) OR (totp_secret_storage_kind = 'encrypted_payload' AND totp_encrypted_secret_payload IS NOT NULL AND totp_protected_secret_reference IS NULL) OR ((totp_secret_storage_kind IS NULL OR totp_secret_storage_kind = 'none') AND totp_protected_secret_reference IS NULL AND totp_encrypted_secret_payload IS NULL)");
+            table.HasCheckConstraint(
+                "ck_auth_mfa_factors_status_reason_not_blank",
+                "status_reason IS NULL OR length(btrim(status_reason)) > 0");
+        });
+
+        entity.HasKey(factor => factor.Id);
+
+        entity.Property(factor => factor.Id).HasColumnName("id");
+        entity.Property(factor => factor.AuthAccountId).HasColumnName("auth_account_id");
+        entity.Property(factor => factor.FactorType)
+            .HasColumnName("factor_type")
+            .HasMaxLength(AuthMfaFactorTypeMaxLength)
+            .IsRequired();
+        entity.Property(factor => factor.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthMfaFactorStatusMaxLength)
+            .IsRequired();
+        entity.Property(factor => factor.DisplayLabel)
+            .HasColumnName("display_label")
+            .HasMaxLength(AuthMfaFactorDisplayLabelMaxLength);
+        entity.Property(factor => factor.TotpSecretStorageKind)
+            .HasColumnName("totp_secret_storage_kind")
+            .HasMaxLength(AuthMfaFactorTotpSecretStorageKindMaxLength);
+        entity.Property(factor => factor.TotpProtectedSecretReference)
+            .HasColumnName("totp_protected_secret_reference")
+            .HasMaxLength(AuthMfaFactorTotpProtectedSecretReferenceMaxLength);
+        entity.Property(factor => factor.TotpEncryptedSecretPayload)
+            .HasColumnName("totp_encrypted_secret_payload")
+            .HasMaxLength(AuthMfaFactorTotpEncryptedSecretPayloadMaxLength);
+        entity.Property(factor => factor.TotpIssuer)
+            .HasColumnName("totp_issuer")
+            .HasMaxLength(AuthMfaFactorTotpIssuerMaxLength);
+        entity.Property(factor => factor.TotpAccountLabel)
+            .HasColumnName("totp_account_label")
+            .HasMaxLength(AuthMfaFactorTotpAccountLabelMaxLength);
+        entity.Property(factor => factor.TotpAlgorithm)
+            .HasColumnName("totp_algorithm")
+            .HasMaxLength(AuthMfaFactorTotpAlgorithmMaxLength);
+        entity.Property(factor => factor.TotpDigits).HasColumnName("totp_digits");
+        entity.Property(factor => factor.TotpPeriodSeconds).HasColumnName("totp_period_seconds");
+        entity.Property(factor => factor.PolicyVersion)
+            .HasColumnName("policy_version")
+            .HasMaxLength(AuthMfaFactorPolicyVersionMaxLength);
+        entity.Property(factor => factor.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        entity.Property(factor => factor.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+        entity.Property(factor => factor.VerifiedAtUtc).HasColumnName("verified_at_utc");
+        entity.Property(factor => factor.LastUsedAtUtc).HasColumnName("last_used_at_utc");
+        entity.Property(factor => factor.DisabledAtUtc).HasColumnName("disabled_at_utc");
+        entity.Property(factor => factor.RevokedAtUtc).HasColumnName("revoked_at_utc");
+        entity.Property(factor => factor.RotatedAtUtc).HasColumnName("rotated_at_utc");
+        entity.Property(factor => factor.ExpiresAtUtc).HasColumnName("expires_at_utc");
+        entity.Property(factor => factor.StatusReason)
+            .HasColumnName("status_reason")
+            .HasMaxLength(AuthMfaFactorStatusReasonMaxLength);
+        entity.Property(factor => factor.LastStatusChangedByAuthAccountId)
+            .HasColumnName("last_status_changed_by_auth_account_id");
+        entity.Property(factor => factor.LastStatusChangeCorrelationId)
+            .HasColumnName("last_status_change_correlation_id")
+            .HasMaxLength(AuthAuditCorrelationIdMaxLength);
+
+        entity.HasIndex(factor => factor.AuthAccountId).HasDatabaseName("ix_auth_mfa_factors_auth_account_id");
+        entity.HasIndex(factor => new { factor.AuthAccountId, factor.FactorType, factor.Status })
+            .HasDatabaseName("ix_auth_mfa_factors_account_type_status");
+        entity.HasIndex(factor => factor.ExpiresAtUtc).HasDatabaseName("ix_auth_mfa_factors_expires_at_utc");
+        entity.HasIndex(factor => factor.LastStatusChangedByAuthAccountId)
+            .HasDatabaseName("ix_auth_mfa_factors_status_actor_id");
+
+        entity.HasOne(factor => factor.AuthAccount)
+            .WithMany(account => account.MfaFactors)
+            .HasForeignKey(factor => factor.AuthAccountId)
+            .HasConstraintName("fk_auth_mfa_factors_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(factor => factor.LastStatusChangedByAuthAccount)
+            .WithMany(account => account.ChangedMfaFactorStatuses)
+            .HasForeignKey(factor => factor.LastStatusChangedByAuthAccountId)
+            .HasConstraintName("fk_auth_mfa_factors_status_actor")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthRecoveryCodeBatch(EntityTypeBuilder<AuthRecoveryCodeBatch> entity)
+    {
+        entity.ToTable("auth_recovery_code_batches", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_recovery_code_batches_status",
+                "status IN ('active', 'replaced', 'revoked', 'expired')");
+            table.HasCheckConstraint(
+                "ck_auth_recovery_code_batches_counts",
+                "total_generated_count >= 0 AND remaining_unused_count >= 0 AND used_count >= 0 AND remaining_unused_count + used_count <= total_generated_count");
+            table.HasCheckConstraint(
+                "ck_auth_recovery_code_batches_status_reason_not_blank",
+                "status_reason IS NULL OR length(btrim(status_reason)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_recovery_code_batches_created_correlation_not_blank",
+                "created_correlation_id IS NULL OR length(btrim(created_correlation_id)) > 0");
+        });
+
+        entity.HasKey(batch => batch.Id);
+
+        entity.Property(batch => batch.Id).HasColumnName("id");
+        entity.Property(batch => batch.AuthAccountId).HasColumnName("auth_account_id");
+        entity.Property(batch => batch.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthRecoveryCodeBatchStatusMaxLength)
+            .IsRequired();
+        entity.Property(batch => batch.PolicyVersion)
+            .HasColumnName("policy_version")
+            .HasMaxLength(AuthRecoveryCodeBatchPolicyVersionMaxLength);
+        entity.Property(batch => batch.TotalGeneratedCount).HasColumnName("total_generated_count").IsRequired();
+        entity.Property(batch => batch.RemainingUnusedCount).HasColumnName("remaining_unused_count").IsRequired();
+        entity.Property(batch => batch.UsedCount).HasColumnName("used_count").IsRequired();
+        entity.Property(batch => batch.GeneratedAtUtc).HasColumnName("generated_at_utc").IsRequired();
+        entity.Property(batch => batch.DisplayedAtUtc).HasColumnName("displayed_at_utc");
+        entity.Property(batch => batch.LastUsedAtUtc).HasColumnName("last_used_at_utc");
+        entity.Property(batch => batch.ReplacedAtUtc).HasColumnName("replaced_at_utc");
+        entity.Property(batch => batch.RevokedAtUtc).HasColumnName("revoked_at_utc");
+        entity.Property(batch => batch.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        entity.Property(batch => batch.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+        entity.Property(batch => batch.StatusReason)
+            .HasColumnName("status_reason")
+            .HasMaxLength(AuthRecoveryCodeBatchStatusReasonMaxLength);
+        entity.Property(batch => batch.CreatedByAuthAccountId).HasColumnName("created_by_auth_account_id");
+        entity.Property(batch => batch.CreatedCorrelationId)
+            .HasColumnName("created_correlation_id")
+            .HasMaxLength(AuthAuditCorrelationIdMaxLength);
+
+        entity.HasIndex(batch => batch.AuthAccountId)
+            .HasDatabaseName("ix_auth_recovery_code_batches_auth_account_id");
+        entity.HasIndex(batch => new { batch.AuthAccountId, batch.Status })
+            .HasDatabaseName("ix_auth_recovery_code_batches_account_status");
+        entity.HasIndex(batch => batch.CreatedByAuthAccountId)
+            .HasDatabaseName("ix_auth_recovery_code_batches_created_by_id");
+
+        entity.HasOne(batch => batch.AuthAccount)
+            .WithMany(account => account.RecoveryCodeBatches)
+            .HasForeignKey(batch => batch.AuthAccountId)
+            .HasConstraintName("fk_auth_recovery_code_batches_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(batch => batch.CreatedByAuthAccount)
+            .WithMany(account => account.CreatedRecoveryCodeBatches)
+            .HasForeignKey(batch => batch.CreatedByAuthAccountId)
+            .HasConstraintName("fk_auth_recovery_code_batches_created_by")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthRecoveryCodeVerifier(EntityTypeBuilder<AuthRecoveryCodeVerifier> entity)
+    {
+        entity.ToTable("auth_recovery_code_verifiers", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_recovery_code_verifiers_status",
+                "status IN ('unused', 'consumed', 'revoked', 'replaced', 'expired')");
+            table.HasCheckConstraint("ck_auth_recovery_code_verifiers_hash_not_blank", "length(btrim(verifier_hash)) > 0");
+            table.HasCheckConstraint("ck_auth_recovery_code_verifiers_salt_not_blank", "length(btrim(verifier_salt)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_recovery_code_verifiers_algorithm_not_blank",
+                "length(btrim(verifier_algorithm)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_recovery_code_verifiers_parameters_not_blank",
+                "length(btrim(verifier_parameters)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_recovery_code_verifiers_use_correlation_not_blank",
+                "use_correlation_id IS NULL OR length(btrim(use_correlation_id)) > 0");
+        });
+
+        entity.HasKey(verifier => verifier.Id);
+
+        entity.Property(verifier => verifier.Id).HasColumnName("id");
+        entity.Property(verifier => verifier.AuthRecoveryCodeBatchId).HasColumnName("auth_recovery_code_batch_id");
+        entity.Property(verifier => verifier.AuthAccountId).HasColumnName("auth_account_id");
+        entity.Property(verifier => verifier.VerifierHash)
+            .HasColumnName("verifier_hash")
+            .HasMaxLength(AuthRecoveryCodeVerifierHashMaxLength)
+            .IsRequired();
+        entity.Property(verifier => verifier.VerifierSalt)
+            .HasColumnName("verifier_salt")
+            .HasMaxLength(AuthRecoveryCodeVerifierSaltMaxLength)
+            .IsRequired();
+        entity.Property(verifier => verifier.VerifierAlgorithm)
+            .HasColumnName("verifier_algorithm")
+            .HasMaxLength(AuthRecoveryCodeVerifierAlgorithmMaxLength)
+            .IsRequired();
+        entity.Property(verifier => verifier.VerifierParameters)
+            .HasColumnName("verifier_parameters")
+            .HasMaxLength(AuthRecoveryCodeVerifierParametersMaxLength)
+            .IsRequired();
+        entity.Property(verifier => verifier.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthRecoveryCodeVerifierStatusMaxLength)
+            .IsRequired();
+        entity.Property(verifier => verifier.GeneratedAtUtc).HasColumnName("generated_at_utc").IsRequired();
+        entity.Property(verifier => verifier.ConsumedAtUtc).HasColumnName("consumed_at_utc");
+        entity.Property(verifier => verifier.RevokedAtUtc).HasColumnName("revoked_at_utc");
+        entity.Property(verifier => verifier.ReplacedAtUtc).HasColumnName("replaced_at_utc");
+        entity.Property(verifier => verifier.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        entity.Property(verifier => verifier.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+        entity.Property(verifier => verifier.ConsumedByAuthChallengeId).HasColumnName("consumed_by_auth_challenge_id");
+        entity.Property(verifier => verifier.UseCorrelationId)
+            .HasColumnName("use_correlation_id")
+            .HasMaxLength(AuthAuditCorrelationIdMaxLength);
+
+        entity.HasIndex(verifier => verifier.AuthRecoveryCodeBatchId)
+            .HasDatabaseName("ix_auth_recovery_code_verifiers_batch_id");
+        entity.HasIndex(verifier => verifier.AuthAccountId)
+            .HasDatabaseName("ix_auth_recovery_code_verifiers_auth_account_id");
+        entity.HasIndex(verifier => new { verifier.AuthRecoveryCodeBatchId, verifier.Status })
+            .HasDatabaseName("ix_auth_recovery_code_verifiers_batch_status");
+        entity.HasIndex(verifier => verifier.VerifierHash)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_recovery_code_verifiers_hash");
+        entity.HasIndex(verifier => verifier.ConsumedByAuthChallengeId)
+            .HasDatabaseName("ix_auth_recovery_code_verifiers_consumed_challenge_id");
+
+        entity.HasOne(verifier => verifier.Batch)
+            .WithMany(batch => batch.Verifiers)
+            .HasForeignKey(verifier => verifier.AuthRecoveryCodeBatchId)
+            .HasConstraintName("fk_auth_recovery_code_verifiers_batches")
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(verifier => verifier.AuthAccount)
+            .WithMany(account => account.RecoveryCodeVerifiers)
+            .HasForeignKey(verifier => verifier.AuthAccountId)
+            .HasConstraintName("fk_auth_recovery_code_verifiers_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(verifier => verifier.ConsumedByAuthChallenge)
+            .WithMany()
+            .HasForeignKey(verifier => verifier.ConsumedByAuthChallengeId)
+            .HasConstraintName("fk_auth_recovery_code_verifiers_consumed_challenge")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthChallenge(EntityTypeBuilder<AuthChallenge> entity)
+    {
+        entity.ToTable("auth_challenges", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_challenges_purpose",
+                "purpose IN ('passkey_enrollment', 'passkey_sign_in', 'passkey_step_up', 'totp_enrollment', 'sign_in', 'step_up', 'recovery')");
+            table.HasCheckConstraint(
+                "ck_auth_challenges_factor_type",
+                "factor_type IN ('passkey', 'totp', 'recovery_code', 'mfa')");
+            table.HasCheckConstraint(
+                "ck_auth_challenges_status",
+                "status IN ('pending', 'consumed', 'verified', 'expired', 'failed', 'blocked', 'cancelled', 'replay_detected')");
+            table.HasCheckConstraint("ck_auth_challenges_verifier_hash_not_blank", "length(btrim(challenge_verifier_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_challenges_attempt_counts",
+                "attempt_count >= 0 AND max_attempt_count >= 0 AND attempt_count <= max_attempt_count");
+            table.HasCheckConstraint("ck_auth_challenges_expiry_after_created", "expires_at_utc > created_at_utc");
+            table.HasCheckConstraint("ck_auth_challenges_bound_origin_not_blank", "bound_origin IS NULL OR length(btrim(bound_origin)) > 0");
+            table.HasCheckConstraint("ck_auth_challenges_bound_rp_id_not_blank", "bound_rp_id IS NULL OR length(btrim(bound_rp_id)) > 0");
+            table.HasCheckConstraint("ck_auth_challenges_failure_category_not_blank", "failure_category IS NULL OR length(btrim(failure_category)) > 0");
+        });
+
+        entity.HasKey(challenge => challenge.Id);
+
+        entity.Property(challenge => challenge.Id).HasColumnName("id");
+        entity.Property(challenge => challenge.AuthAccountId).HasColumnName("auth_account_id");
+        entity.Property(challenge => challenge.AuthSessionId).HasColumnName("auth_session_id");
+        entity.Property(challenge => challenge.AuthMfaFactorId).HasColumnName("auth_mfa_factor_id");
+        entity.Property(challenge => challenge.AuthPasskeyCredentialId).HasColumnName("auth_passkey_credential_id");
+        entity.Property(challenge => challenge.Purpose)
+            .HasColumnName("purpose")
+            .HasMaxLength(AuthChallengePurposeMaxLength)
+            .IsRequired();
+        entity.Property(challenge => challenge.FactorType)
+            .HasColumnName("factor_type")
+            .HasMaxLength(AuthChallengeFactorTypeMaxLength)
+            .IsRequired();
+        entity.Property(challenge => challenge.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthChallengeStatusMaxLength)
+            .IsRequired();
+        entity.Property(challenge => challenge.ChallengeVerifierHash)
+            .HasColumnName("challenge_verifier_hash")
+            .HasMaxLength(AuthChallengeVerifierHashMaxLength)
+            .IsRequired();
+        entity.Property(challenge => challenge.ChallengeVerifierAlgorithm)
+            .HasColumnName("challenge_verifier_algorithm")
+            .HasMaxLength(AuthChallengeVerifierAlgorithmMaxLength);
+        entity.Property(challenge => challenge.BoundRpId)
+            .HasColumnName("bound_rp_id")
+            .HasMaxLength(AuthChallengeBoundRpIdMaxLength);
+        entity.Property(challenge => challenge.BoundOrigin)
+            .HasColumnName("bound_origin")
+            .HasMaxLength(AuthChallengeBoundOriginMaxLength);
+        entity.Property(challenge => challenge.RequestContextHash)
+            .HasColumnName("request_context_hash")
+            .HasMaxLength(AuthChallengeRequestContextHashMaxLength);
+        entity.Property(challenge => challenge.CorrelationId)
+            .HasColumnName("correlation_id")
+            .HasMaxLength(AuthAuditCorrelationIdMaxLength);
+        entity.Property(challenge => challenge.AttemptCount).HasColumnName("attempt_count").IsRequired();
+        entity.Property(challenge => challenge.MaxAttemptCount).HasColumnName("max_attempt_count").IsRequired();
+        entity.Property(challenge => challenge.FailureCategory)
+            .HasColumnName("failure_category")
+            .HasMaxLength(AuthChallengeFailureCategoryMaxLength);
+        entity.Property(challenge => challenge.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        entity.Property(challenge => challenge.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+        entity.Property(challenge => challenge.ExpiresAtUtc).HasColumnName("expires_at_utc").IsRequired();
+        entity.Property(challenge => challenge.ConsumedAtUtc).HasColumnName("consumed_at_utc");
+        entity.Property(challenge => challenge.FailedAtUtc).HasColumnName("failed_at_utc");
+        entity.Property(challenge => challenge.BlockedAtUtc).HasColumnName("blocked_at_utc");
+        entity.Property(challenge => challenge.ReplayDetectedAtUtc).HasColumnName("replay_detected_at_utc");
+
+        entity.HasIndex(challenge => challenge.AuthAccountId).HasDatabaseName("ix_auth_challenges_auth_account_id");
+        entity.HasIndex(challenge => challenge.AuthSessionId).HasDatabaseName("ix_auth_challenges_auth_session_id");
+        entity.HasIndex(challenge => challenge.AuthMfaFactorId)
+            .HasDatabaseName("ix_auth_challenges_auth_mfa_factor_id");
+        entity.HasIndex(challenge => challenge.AuthPasskeyCredentialId)
+            .HasDatabaseName("ix_auth_challenges_auth_passkey_credential_id");
+        entity.HasIndex(challenge => new { challenge.Purpose, challenge.Status, challenge.ExpiresAtUtc })
+            .HasDatabaseName("ix_auth_challenges_purpose_status_expires");
+        entity.HasIndex(challenge => challenge.ExpiresAtUtc).HasDatabaseName("ix_auth_challenges_expires_at_utc");
+
+        entity.HasOne(challenge => challenge.AuthAccount)
+            .WithMany(account => account.Challenges)
+            .HasForeignKey(challenge => challenge.AuthAccountId)
+            .HasConstraintName("fk_auth_challenges_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(challenge => challenge.AuthSession)
+            .WithMany()
+            .HasForeignKey(challenge => challenge.AuthSessionId)
+            .HasConstraintName("fk_auth_challenges_auth_sessions")
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(challenge => challenge.AuthMfaFactor)
+            .WithMany()
+            .HasForeignKey(challenge => challenge.AuthMfaFactorId)
+            .HasConstraintName("fk_auth_challenges_auth_mfa_factors")
+            .OnDelete(DeleteBehavior.Restrict);
+        entity.HasOne(challenge => challenge.AuthPasskeyCredential)
+            .WithMany()
+            .HasForeignKey(challenge => challenge.AuthPasskeyCredentialId)
+            .HasConstraintName("fk_auth_challenges_auth_passkey_credentials")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthSecurityPolicy(EntityTypeBuilder<AuthSecurityPolicy> entity)
+    {
+        entity.ToTable("auth_security_policies", table =>
+        {
+            table.HasCheckConstraint("ck_auth_security_policies_status", "status IN ('draft', 'active', 'retired')");
+            table.HasCheckConstraint(
+                "ck_auth_security_policies_support_modes",
+                "passkey_support_mode IN ('disabled', 'optional', 'required_for_admins', 'required_for_all_users', 'policy_pending_enrollment') AND totp_support_mode IN ('disabled', 'optional', 'required_for_admins', 'required_for_all_users', 'policy_pending_enrollment') AND recovery_code_support_mode IN ('disabled', 'optional', 'required_for_admins', 'required_for_all_users', 'policy_pending_enrollment')");
+            table.HasCheckConstraint(
+                "ck_auth_security_policies_enforcement_modes",
+                "owner_admin_mfa_mode IN ('optional', 'blocking_warning', 'required') AND user_mfa_mode IN ('optional', 'blocking_warning', 'required')");
+            table.HasCheckConstraint(
+                "ck_auth_security_policies_positive_limits",
+                "policy_version > 0 AND challenge_expiry_seconds > 0 AND challenge_max_attempt_count > 0 AND recovery_code_count >= 0 AND recovery_code_minimum_remaining_warning_count >= 0");
+            table.HasCheckConstraint(
+                "ck_auth_security_policies_change_reason_not_blank",
+                "change_reason_category IS NULL OR length(btrim(change_reason_category)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_security_policies_change_correlation_not_blank",
+                "change_correlation_id IS NULL OR length(btrim(change_correlation_id)) > 0");
+        });
+
+        entity.HasKey(policy => policy.Id);
+
+        entity.Property(policy => policy.Id).HasColumnName("id");
+        entity.Property(policy => policy.PolicyVersion).HasColumnName("policy_version").IsRequired();
+        entity.Property(policy => policy.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthSecurityPolicyStatusMaxLength)
+            .IsRequired();
+        entity.Property(policy => policy.PasskeySupportMode)
+            .HasColumnName("passkey_support_mode")
+            .HasMaxLength(AuthSecurityPolicySupportModeMaxLength)
+            .IsRequired();
+        entity.Property(policy => policy.TotpSupportMode)
+            .HasColumnName("totp_support_mode")
+            .HasMaxLength(AuthSecurityPolicySupportModeMaxLength)
+            .IsRequired();
+        entity.Property(policy => policy.RecoveryCodeSupportMode)
+            .HasColumnName("recovery_code_support_mode")
+            .HasMaxLength(AuthSecurityPolicySupportModeMaxLength)
+            .IsRequired();
+        entity.Property(policy => policy.OwnerAdminMfaMode)
+            .HasColumnName("owner_admin_mfa_mode")
+            .HasMaxLength(AuthSecurityPolicyEnforcementModeMaxLength)
+            .IsRequired();
+        entity.Property(policy => policy.UserMfaMode)
+            .HasColumnName("user_mfa_mode")
+            .HasMaxLength(AuthSecurityPolicyEnforcementModeMaxLength)
+            .IsRequired();
+        entity.Property(policy => policy.ChallengeExpirySeconds).HasColumnName("challenge_expiry_seconds").IsRequired();
+        entity.Property(policy => policy.ChallengeMaxAttemptCount).HasColumnName("challenge_max_attempt_count").IsRequired();
+        entity.Property(policy => policy.RecoveryCodeCount).HasColumnName("recovery_code_count").IsRequired();
+        entity.Property(policy => policy.RecoveryCodeMinimumRemainingWarningCount)
+            .HasColumnName("recovery_code_minimum_remaining_warning_count")
+            .IsRequired();
+        entity.Property(policy => policy.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        entity.Property(policy => policy.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+        entity.Property(policy => policy.EffectiveFromUtc).HasColumnName("effective_from_utc");
+        entity.Property(policy => policy.RetiredAtUtc).HasColumnName("retired_at_utc");
+        entity.Property(policy => policy.ChangedByAuthAccountId).HasColumnName("changed_by_auth_account_id");
+        entity.Property(policy => policy.ChangeReasonCategory)
+            .HasColumnName("change_reason_category")
+            .HasMaxLength(AuthSecurityPolicyChangeReasonCategoryMaxLength);
+        entity.Property(policy => policy.ChangeCorrelationId)
+            .HasColumnName("change_correlation_id")
+            .HasMaxLength(AuthAuditCorrelationIdMaxLength);
+
+        entity.HasIndex(policy => policy.PolicyVersion)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_security_policies_policy_version");
+        entity.HasIndex(policy => policy.Status).HasDatabaseName("ix_auth_security_policies_status");
+        entity.HasIndex(policy => policy.EffectiveFromUtc).HasDatabaseName("ix_auth_security_policies_effective_from_utc");
+        entity.HasIndex(policy => policy.ChangedByAuthAccountId)
+            .HasDatabaseName("ix_auth_security_policies_changed_by_id");
+
+        entity.HasOne(policy => policy.ChangedByAuthAccount)
+            .WithMany(account => account.ChangedSecurityPolicies)
+            .HasForeignKey(policy => policy.ChangedByAuthAccountId)
+            .HasConstraintName("fk_auth_security_policies_changed_by")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
