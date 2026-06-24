@@ -10,3 +10,6 @@ Regenerate and validate from the repo root:
 npm run generate:clients
 npm run validate:clients
 ```
+
+`npm run validate:clients` is non-mutating: it generates into a temporary
+workspace and compares that output with the checked-in generated files.

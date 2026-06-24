@@ -1,45 +1,97 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 const generatedTargets = [
-  "packages/client-web/src/generated",
-  "packages/client-dart/lib/generated"
+  {
+    name: "web",
+    committedPath: "packages/client-web/src/generated"
+  },
+  {
+    name: "dart",
+    committedPath: "packages/client-dart/lib/generated"
+  }
 ];
 
-const before = await snapshotTargets(generatedTargets);
+let tempRoot;
+
 try {
-  await import(new URL("./generate-clients.mjs", import.meta.url).href);
-} catch (error) {
-  console.error("Client generation failed.");
-  console.error("Command: node tools/generate-clients.mjs");
-  console.error(formatError(error));
-  process.exit(1);
-}
+  tempRoot = await mkdtemp(join(tmpdir(), "settleora-client-validation-"));
+  const webTempPath = join(tempRoot, "client-web");
+  const dartTempPath = join(tempRoot, "client-dart");
+  const tempTargets = generatedTargets.map((target) => ({
+    ...target,
+    generatedPath: target.name === "web" ? webTempPath : dartTempPath
+  }));
 
-const after = await snapshotTargets(generatedTargets);
-const changes = diffSnapshots(before, after);
+  process.env.SETTLEORA_CLIENT_WEB_OUTPUT_PATH = webTempPath;
+  process.env.SETTLEORA_CLIENT_DART_OUTPUT_PATH = dartTempPath;
 
-if (changes.length > 0) {
-  console.error("Generated clients are stale. Run `npm run generate:clients` and review the generated diff.");
-  console.error("Changed generated files:");
-  for (const change of changes) {
-    console.error(`- ${change}`);
+  try {
+    await import(new URL(`./generate-clients.mjs?validate=${Date.now()}`, import.meta.url).href);
+  } catch (error) {
+    console.error("Client generation failed.");
+    console.error("Command: node tools/generate-clients.mjs");
+    console.error(formatError(error));
+    process.exitCode = 1;
+    throw error;
+  } finally {
+    delete process.env.SETTLEORA_CLIENT_WEB_OUTPUT_PATH;
+    delete process.env.SETTLEORA_CLIENT_DART_OUTPUT_PATH;
   }
 
+  const committed = await snapshotCommittedTargets(tempTargets);
+  const generated = await snapshotGeneratedTargets(tempTargets);
+  const changes = diffSnapshots(committed, generated);
+
+  if (changes.length > 0) {
+    console.error("Generated clients are stale. Run `npm run generate:clients` and review the generated diff.");
+    console.error("Changed generated files:");
+    for (const change of changes) {
+      console.error(`- ${change}`);
+    }
+
+    process.exitCode = 1;
+    throw new Error("Generated client drift detected.");
+  }
+
+  await validateGeneratedDartNullSafety(join(dartTempPath, "models.dart"));
+
+  console.log("Generated client validation passed.");
+} catch (error) {
+  if (process.exitCode !== 1) {
+    console.error(formatError(error));
+    process.exitCode = 1;
+  }
+} finally {
+  if (tempRoot) {
+    await rm(tempRoot, { force: true, recursive: true });
+  }
+}
+
+if (process.exitCode === 1) {
   process.exit(1);
 }
 
-await validateGeneratedDartNullSafety();
-
-console.log("Generated client validation passed.");
-
-async function snapshotTargets(targets) {
+async function snapshotCommittedTargets(targets) {
   const entries = new Map();
 
   for (const target of targets) {
-    for (const file of await listFiles(target)) {
-      entries.set(normalizePath(file), await hashFile(file));
+    for (const file of await listFiles(target.committedPath)) {
+      entries.set(snapshotKey(target.committedPath, target.committedPath, file), await hashFile(file));
+    }
+  }
+
+  return entries;
+}
+
+async function snapshotGeneratedTargets(targets) {
+  const entries = new Map();
+
+  for (const target of targets) {
+    for (const file of await listFiles(target.generatedPath)) {
+      entries.set(snapshotKey(target.generatedPath, target.committedPath, file), await hashFile(file));
     }
   }
 
@@ -50,6 +102,10 @@ async function listFiles(directory) {
   const files = [];
 
   for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.name === ".gitkeep") {
+      continue;
+    }
+
     const fullPath = join(directory, entry.name);
     if (entry.isDirectory()) {
       files.push(...await listFiles(fullPath));
@@ -91,12 +147,15 @@ function diffSnapshots(before, after) {
   return changes;
 }
 
+function snapshotKey(root, displayRoot, file) {
+  return normalizePath(join(displayRoot, relative(root, file)));
+}
+
 function normalizePath(file) {
   return relative(process.cwd(), file).replaceAll("\\", "/");
 }
 
-async function validateGeneratedDartNullSafety() {
-  const modelsPath = "packages/client-dart/lib/generated/models.dart";
+async function validateGeneratedDartNullSafety(modelsPath) {
   const content = await readFile(modelsPath, "utf8");
   const unsafeCalls = [];
 
@@ -108,7 +167,7 @@ async function validateGeneratedDartNullSafety() {
       let match;
       while ((match = unsafeMemberCall.exec(dartClass.body)) !== null) {
         const lineNumber = lineNumberAt(content, dartClass.bodyStartIndex + match.index);
-        unsafeCalls.push(`${modelsPath}:${lineNumber} direct method call on nullable field \`${fieldName}\` in ${dartClass.name}`);
+        unsafeCalls.push(`packages/client-dart/lib/generated/models.dart:${lineNumber} direct method call on nullable field \`${fieldName}\` in ${dartClass.name}`);
       }
     }
   }
