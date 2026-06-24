@@ -71,6 +71,8 @@ For TrueNAS LAN testing, create or choose datasets before running the stack. The
 
 Do not publish the API storage dataset directly through SMB, NFS, HTTP, or a public file share for app access. Settleora file access must go through the API storage abstraction and API authorization checks.
 
+Use [TrueNAS backup/restore consistency runbook](TRUENAS_BACKUP_RESTORE_RUNBOOK.md) for the PostgreSQL, RabbitMQ, API local file storage, app configuration, migration-state, restore-validation, and redaction evidence path. That runbook is planning guidance only and does not execute backup or restore operations.
+
 ## Environment Variables
 
 Start from `infra/env/.env.truenas-lan.example`, not the local development `.env.example`. Do not use example placeholder passwords for persistent maintainer testing.
