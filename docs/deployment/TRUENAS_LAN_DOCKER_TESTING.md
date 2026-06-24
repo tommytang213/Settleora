@@ -282,25 +282,132 @@ Do not use a public DNS name, public tunnel, or forwarded router port for this t
 
 ## LAN Validation Checklist
 
-Record exact commands, URLs, device, iOS version, TrueNAS version, and screenshots/logs for Day 1 evidence.
+This checklist is deployment-readiness evidence for issue `#381`. It hardens
+the current LAN Docker validation path only; it does not authorize production
+deployment, public exposure, signing, release, secrets, environment, Docker,
+compose, CI, schema, or runtime behavior changes.
+
+Record exact commands, exit statuses, URLs, device model, iOS version, TrueNAS
+version, compose file path, env file source, screenshots/logs, and redacted
+output summaries for Day 1 evidence. Do not paste real passwords, bearer tokens,
+connection strings, storage paths containing private names, provider object
+keys, signing material, or private `.env` contents into reports.
+
+Repository-side validation evidence before PR/review:
+
+```bash
+cd /workspace/repos/Settleora
+git status --short
+git diff --name-only origin/main...HEAD
+git diff --check origin/main...HEAD
+npm run validate:docs
+npm run doctor:docker
+npm run validate:compose
+```
+
+For this TrueNAS LAN package, also record the LAN compose config result:
+
+```bash
+cd /workspace/repos/Settleora
+npm run validate:compose:truenas-lan
+npm run validate:compose:truenas-lan-image
+```
+
+When the task or release gate requires API Docker image evidence, record:
+
+```bash
+cd /workspace/repos/Settleora
+npm run validate:api-docker
+```
+
+If Docker is unavailable, the daemon is unreachable, or a Docker validation
+command fails for environment reasons, do not substitute a pass. Record the
+exact command, exit status, and concise failure reason.
+
+LAN host and compose posture:
 
 - Confirm TrueNAS version is `25.10.1` or record the exact version tested.
-- Confirm API container starts from `services/api/Dockerfile`.
-- Confirm PostgreSQL and RabbitMQ containers start and remain healthy enough for `/health/ready`.
-- Confirm API local storage root is backed by a persistent dataset or mounted volume.
+- Confirm the tested package is `infra/docker-compose.truenas-lan.yml` or
+  `infra/docker-compose.truenas-lan.image.yml`, not the local development
+  `infra/docker-compose.yml`.
+- Confirm the build-based package starts the API container from
+  `services/api/Dockerfile`, or record the exact pinned
+  `SETTLEORA_API_IMAGE` used for the image-based package.
+- Confirm the stack contains the current real services: `migrate`, `api`,
+  `postgres`, and `rabbitmq`.
+- Confirm the `migrate` service runs before API startup, exits successfully, and
+  uses the intended `SETTLEORA_DATABASE_MIGRATION_MODE`.
+- Confirm PostgreSQL and RabbitMQ containers start and remain healthy enough for
+  `/health/ready`.
+- Confirm only the API host port is published by the LAN package.
+- Confirm PostgreSQL `5432`, RabbitMQ AMQP `5672`, RabbitMQ management `15672`,
+  the API storage dataset, and any future admin web surface are not publicly
+  reachable. Admin web, when implemented, must remain behind LAN, trusted VPN,
+  Cloudflare Access-style protection, or an equivalent explicit access gate.
+- Confirm no router port forward, public DNS name, public tunnel, or direct
+  internet exposure is used for this LAN validation.
+
+Persistent storage and env evidence:
+
+- Confirm PostgreSQL data, RabbitMQ data, and API local file storage are backed
+  by persistent bind-mounted datasets or mounted volumes.
+- Confirm the API local storage dataset contains sensitive app file bytes and is
+  not exposed directly through SMB, NFS, HTTP, or any public file share for app
+  access.
+- Confirm file access remains through API storage abstraction and API
+  authorization checks.
+- Confirm the private LAN env file was copied from
+  `infra/env/.env.truenas-lan.example`, not from the local development
+  `infra/env/.env.example`.
+- Confirm `POSTGRES_PASSWORD` and `RABBITMQ_DEFAULT_PASS` are generated private
+  secrets and are not example placeholders.
+- Confirm the report records which required env variables were reviewed without
+  disclosing real secret values.
+
+Health, readiness, and bootstrap evidence:
+
 - Confirm `GET /health` returns HTTP `200`.
-- Confirm `GET /health/ready` returns HTTP `200` with `postgres`, `rabbitmq`, and `storage` ready.
+- Confirm `GET /health/ready` returns HTTP `200` with `postgres`, `rabbitmq`,
+  and `storage` ready.
+- Confirm `/health/ready` does not expose connection strings, storage roots,
+  filesystem paths, passwords, queue credentials, or provider object keys.
 - Confirm `GET /api/v1/auth/bootstrap/status`.
-- If supported in the test database state, perform first-owner bootstrap and then local sign-in.
-- In the iPhone TestFlight build, enter `http://<truenas-lan-ip>:8080` and confirm server-mode connection.
-- Smoke-test only implemented server-mode mobile flows: current user/session, self profile/payment details, group list/create where available, personal bill create/list/detail, group bill read/create where available, receipt attachment/OCR review starter flow where available, settlement balance/request/payment/proof starter flow where available.
-- Do not mark OCR worker behavior, web/admin behavior, production deployment, public exposure, backup/restore, or polished catalog install complete from this LAN smoke test.
+- If supported in the test database state, perform first-owner bootstrap and
+  then local sign-in from a trusted LAN client.
+- In the iPhone TestFlight build, enter `http://<truenas-lan-ip>:8080` and
+  confirm server-mode connection. Do not use `localhost` from the iPhone.
+- Smoke-test only implemented server-mode mobile flows: current user/session,
+  self profile/payment details, group list/create where available, personal
+  bill create/list/detail, group bill read/create where available, receipt
+  attachment/OCR review starter flow where available, and settlement
+  balance/request/payment/proof starter flow where available.
+
+Manual gates and report fields:
+
+- Preserve manual gates for production deploy, public exposure, admin exposure,
+  mobile store release, signing, release promotion, secrets/credentials/tokens,
+  sensitive environment changes, destructive migrations, backup/restore,
+  reverse proxy/TLS setup, TrueNAS catalog packaging, Docker/compose behavior
+  changes, CI/deployment workflow changes, auth/session/security runtime,
+  storage/privacy/file-byte behavior, schema/migrations, OpenAPI/generated
+  clients, and money/settlement/payment/bill calculation authority.
+- Do not mark OCR worker behavior, web/admin behavior, production deployment,
+  public exposure, backup/restore, reverse proxy/TLS protection, mobile store
+  release, signing, or polished catalog install complete from this LAN smoke
+  test.
+- Before PR or merge review, report branch name, base branch, source and task
+  commit SHAs, changed files, exact validation commands and results, scope
+  guard confirmation, Docker availability or failure reason, LAN evidence
+  collected, manual gates still open, and confirmation that no Docker, CI,
+  deploy, runtime, secret, signing, release, schema, OpenAPI, generated-client,
+  auth/security, storage/privacy, money, settlement, payment, or bill
+  calculation behavior changed.
 
 ## Current Blockers For Polished LAN Hosting
 
 - No TrueNAS catalog app package exists yet.
 - `infra/docker-compose.truenas-lan.yml` is a practical LAN Docker package path, but maintainer-run TrueNAS evidence is still pending.
-- No production migration/install/upgrade runner exists.
+- No polished production install/upgrade orchestration exists beyond the current LAN package's first-class `migrate` service.
 - No backup/restore runbook exists for PostgreSQL, RabbitMQ, and local file storage as one consistency unit.
 - No reverse proxy/TLS/admin-surface protection package exists.
 - Web user/admin portals and OCR worker runtime are placeholders.
