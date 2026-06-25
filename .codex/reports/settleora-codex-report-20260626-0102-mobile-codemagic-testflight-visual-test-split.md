@@ -3,8 +3,8 @@
 Status: `READY_FOR_REVIEW`
 
 HKT start: `2026-06-26 01:02 HKT`
-HKT end: `2026-06-26 01:14 HKT`
-Elapsed: `12 minutes`
+HKT end: `2026-06-26 01:16 HKT`
+Elapsed: `14 minutes`
 
 ## Branches And SHAs
 
@@ -12,8 +12,9 @@ Elapsed: `12 minutes`
 - Base branch: `origin/main`
 - Base/source SHA before changes: `af67e2583a8670ea1abe5aa454c529e930776b0a`
 - Integration SHA: not used for this CI/mobile branch
-- Task commit SHA: final SHA is reported after commit; a Git commit cannot self-contain its own final hash without changing that hash.
-- Branch pushed: pending at report write time
+- Implementation commit SHA: `8f097132a0ecbdc1a40c723a8963bd4adcdbf54b`
+- Final branch HEAD SHA: reported in the final Codex response; a Git commit cannot self-contain its own final hash without changing that hash.
+- Branch pushed: yes
 
 ## Files Changed
 
