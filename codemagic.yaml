@@ -34,18 +34,23 @@ workflows:
       - name: Run non-visual Flutter tests
         script: |
           # Normal validation proves app validity without blocking on visual
-          # evidence/screen-compare capture tests. Those run in
+          # evidence/screen-compare capture tests. Filename-selected visual
+          # captures and visual-tagged mixed-file tests run in
           # mobile-ios-visual-evidence for Codex/Figma/UI review.
           pwd
           TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual_capture_test.dart' | sort)
           TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
+          VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
           echo "Selected non-visual Flutter test files: $TEST_COUNT"
           printf '%s\n' "$TEST_FILES"
+          echo "Visual-tagged Flutter test files excluded by --exclude-tags visual: $VISUAL_TAGGED_COUNT"
+          printf '%s\n' "$VISUAL_TAGGED_FILES"
           if [ "$TEST_COUNT" = "0" ]; then
             echo "No non-visual Flutter tests were selected"
             exit 1
           fi
-          flutter test -r expanded $TEST_FILES
+          flutter test -r expanded --exclude-tags visual $TEST_FILES
 
     artifacts:
       - build/**/outputs/**/*.log
@@ -86,15 +91,25 @@ workflows:
           # Codex/Figma/UI review can collect screenshots without blocking
           # internal TestFlight preview builds.
           pwd
-          TEST_FILES=$(find test -type f -name '*visual_capture_test.dart' | sort)
-          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
-          echo "Selected visual Flutter test files: $TEST_COUNT"
-          printf '%s\n' "$TEST_FILES"
+          VISUAL_CAPTURE_FILES=$(find test -type f -name '*visual_capture_test.dart' | sort)
+          VISUAL_CAPTURE_COUNT=$(printf '%s\n' "$VISUAL_CAPTURE_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
+          VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          TEST_COUNT=$((VISUAL_CAPTURE_COUNT + VISUAL_TAGGED_COUNT))
+          echo "Selected visual capture Flutter test files: $VISUAL_CAPTURE_COUNT"
+          printf '%s\n' "$VISUAL_CAPTURE_FILES"
+          echo "Selected visual-tagged Flutter test files: $VISUAL_TAGGED_COUNT"
+          printf '%s\n' "$VISUAL_TAGGED_FILES"
           if [ "$TEST_COUNT" = "0" ]; then
             echo "No visual Flutter tests were selected"
             exit 1
           fi
-          flutter test -r expanded $TEST_FILES
+          if [ "$VISUAL_CAPTURE_COUNT" != "0" ]; then
+            flutter test -r expanded $VISUAL_CAPTURE_FILES
+          fi
+          if [ "$VISUAL_TAGGED_COUNT" != "0" ]; then
+            flutter test -r expanded --tags visual $VISUAL_TAGGED_FILES
+          fi
 
     artifacts:
       - build/**/outputs/**/*.log
@@ -147,13 +162,17 @@ workflows:
           pwd
           TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual_capture_test.dart' | sort)
           TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
+          VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
           echo "Selected non-visual Flutter test files: $TEST_COUNT"
           printf '%s\n' "$TEST_FILES"
+          echo "Visual-tagged Flutter test files excluded by --exclude-tags visual: $VISUAL_TAGGED_COUNT"
+          printf '%s\n' "$VISUAL_TAGGED_FILES"
           if [ "$TEST_COUNT" = "0" ]; then
             echo "No non-visual Flutter tests were selected"
             exit 1
           fi
-          flutter test -r expanded $TEST_FILES
+          flutter test -r expanded --exclude-tags visual $TEST_FILES
 
       - name: Set up iOS code signing settings
         script: |
