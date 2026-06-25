@@ -308,43 +308,103 @@ The #418 classification packet intentionally leaves these details to separate is
 
 Do not use this document as permission to make schema, API, OpenAPI, generated-client, auth/session/security runtime, storage provider, file byte, UI, deployment, CI, Docker, secret, money, settlement, payment, OCR runtime, import/export, or backup automation changes.
 
-## Key Model
+## Key, Envelope, And Recovery Architecture
 
-### User Vault Key
+This section is the #419 architecture/control packet for recoverable vault keys, envelope records, and recovery boundaries. It is design-only. It does not approve schema, migration, API, OpenAPI, generated-client, auth runtime, storage provider, file byte handling, UI, backup automation, or recovery runtime changes.
 
-Each user with vault enabled has a vault master key or equivalent vault root key.
+### Terminology And Key Hierarchy
 
-The vault key is used to wrap/encrypt per-item data keys. Large files should use per-file data encryption keys rather than encrypting all files directly with the vault key.
+Recoverable Private Vault uses a layered key model so storage metadata, authorization, and recovery state remain server-readable while sensitive payload content stays encrypted.
 
-### Device Keys
+Suggested terminology:
 
-Each trusted device should have its own asymmetric key pair.
+| Term | Purpose | Storage boundary |
+| --- | --- | --- |
+| Vault root key | User-scoped root key or equivalent key-encryption key for recoverable vault content. | Never stored raw in PostgreSQL, logs, audit, reports, issue comments, validation output, metrics, or traces. |
+| Vault key version | Monotonic version for a user's active or retired vault root key material. | Server-readable metadata only; must not contain raw key bytes. |
+| Data encryption key | Random per-file, per-field, or per-record content key used to encrypt a sensitive payload. | Never stored raw; wrapped by a vault root key or participant-specific envelope path. |
+| Encrypted payload | Ciphertext bytes or ciphertext field value plus non-secret crypto metadata needed for decryption. | Stored with file bytes or approved payload storage, not as server-readable plaintext. |
+| Envelope record | Server-readable row/document describing a wrapped key relationship and lifecycle. | Stores wrapped key ciphertext only where approved; never stores raw key material. |
+| Device key pair | Device-scoped asymmetric key pair used to unwrap or receive vault access. | Public key and safe attestation/display metadata may be server-side; private key stays device-side. |
+| Recovery envelope | Recoverable-mode wrapping path that can restore or rewrap vault access after strong verification and policy checks. | Highly sensitive control material; server-stored ciphertext and safe metadata only. |
+| Participant envelope | Wrapping path that lets an authorized participant access shared sensitive payload content without changing server authorization authority. | Server stores safe envelope metadata and wrapped key material, not payload plaintext. |
 
-```text
-device public key: stored on server
-device private key: stored only on device secure storage
-```
-
-Device private keys should use:
-
-- iOS Keychain / Secure Enclave where available.
-- Android Keystore where available.
-- Browser storage only with clear limitation warnings for web clients.
-
-The vault key is encrypted for each trusted device.
-
-### Data Keys
-
-Each sensitive file/field may use a random data key.
+Hierarchy direction:
 
 ```text
-sensitive data
-→ encrypted with data key
-→ data key encrypted/wrapped by vault key
-→ vault key encrypted for trusted devices and, in recoverable mode, recovery envelope
+selected sensitive payload
+  -> encrypted with data encryption key
+  -> data encryption key wrapped by user vault root key or participant access path
+  -> vault root key wrapped for trusted devices
+  -> vault root key also wrapped by recovery envelope when Recoverable Private Vault allows recovery
 ```
 
-### Key Envelopes
+Large files should use per-file data encryption keys. Field-level payloads may use per-field, per-row, or small-batch data keys if a future implementation review proves the blast radius, rotation, indexing, and retention behavior are acceptable.
+
+### Envelope Encryption Model
+
+Vault encryption changes content protection, not storage ownership:
+
+- File bytes still go through the API-owned storage abstraction.
+- File metadata stays in PostgreSQL.
+- API/domain services still authorize every read, write, attach, detach, delete, restore, purge, recovery, rewrap, and export/import operation.
+- API responses expose stable IDs and safe metadata only, not storage internals, vault key references, envelope internals, provider object keys, raw ciphertext internals, or decryption hints that function as secrets.
+
+Provider-neutral PostgreSQL metadata should identify the business subject and policy state without decrypting payload bytes. Future metadata may need fields or linked tables for:
+
+```text
+vault_subject_type
+vault_subject_id
+encryption_mode
+vault_payload_kind
+vault_key_version
+payload_crypto_version
+envelope_set_id
+retention_policy
+recovery_policy_version
+rotation_state
+```
+
+These names are directional only, not schema approval. Metadata must stay sufficient for API authorization, lifecycle, retention, audit, backup consistency, and recovery warnings even when payload plaintext is unavailable.
+
+### Recoverable Payload Versus Provider-neutral Metadata
+
+Recoverable vault payload may include selected sensitive content only where the server does not need plaintext to enforce accounting truth:
+
+- receipt/proof/QR/supporting attachment bytes
+- payment handle/details and payment notes where policy allows field-level vaulting
+- private notes not needed for shared accounting truth
+- full OCR raw text if stored after a later OCR/privacy review
+- future statement/import/export payloads only after #420 or a later focused review
+
+Provider-neutral metadata remains server-readable:
+
+- stable file ID, owner, creator, purpose, status, content type, size, safe hash where allowed, lifecycle timestamps, retention policy, and subject association
+- bill, settlement, payment, group, membership, participant, status, archive/restore, sync, and authorization facts
+- encryption mode category, payload/envelope version, recovery policy category, rotation state, and safe warning flags
+- audit metadata needed to investigate privacy, recovery, storage, and security events
+
+Vault-protected payload must not contain the only copy of server-authoritative money, settlement, group, role, session, credential, audit, or file-lifecycle facts. The server may be unable to search, index, preview, OCR, or process vault payload plaintext unless a future reviewed flow explicitly decrypts it inside an approved boundary.
+
+### Allowed Key Material And Control Categories
+
+Future implementation should keep key/control categories explicit and separately reviewed:
+
+| Category | Allowed direction | Prohibited direction |
+| --- | --- | --- |
+| Vault root key | Generated with cryptographic randomness in an approved boundary; wrapped for devices and recovery. | No raw storage in DB, files, logs, audit, examples, support bundles, issue comments, or reports. |
+| Data encryption key | Random per payload or approved batch; wrapped by vault/participant path. | No direct reuse as stable identifiers; no raw storage or API exposure. |
+| Device public key | May be stored server-side with safe device label, status, created/last-used timestamps, and algorithm/version metadata. | Must not be treated as authorization by itself; stale/revoked devices cannot receive new wraps. |
+| Device private key | Stored only on device secure storage where available. | Never sent to server or stored in PostgreSQL/backups. |
+| Recovery wrapping material | Stored only as approved encrypted/wrapped recovery envelope material plus safe metadata. | No plaintext recovery secret, raw recovery key, or decrypted envelope material in server-readable state. |
+| User-held recovery key future | May be supported later as display-once or user-held material with verifier/envelope metadata. | No raw user recovery key retained after display. |
+| Auth credential material | Governed by auth docs, not vault docs. | Passwords, password verifiers, passkey private material, TOTP seeds, recovery codes, reset tokens, session tokens, and OIDC tokens must not be placed in the user vault. |
+
+Key identifiers must be non-secret, non-derivable handles. If a value can decrypt, unwrap, replay, or materially help brute-force key material, it is a secret and must not be logged, audited, reported, exposed through APIs, or committed.
+
+### Envelope Records, Versioning, Rotation, And Retirement
+
+Envelope records should carry lifecycle metadata that supports recovery, rewrap, revocation, backup warnings, and audit without exposing protected content.
 
 Suggested envelope categories:
 
@@ -353,9 +413,215 @@ device_envelope
 recovery_envelope
 participant_envelope
 recovery_key_envelope_future
+migration_envelope
 ```
 
-For shared sensitive files, the file data key should be wrapped for each authorized participant or their vault/device key path.
+Candidate safe metadata:
+
+- envelope ID, envelope set ID, owner profile/account ID, subject type/ID where needed, envelope category, status, key version, crypto suite/version, policy version, created/updated/retired timestamps, actor/correlation IDs, and safe reason category.
+- device envelope metadata such as device ID, public key ID, device status, and last successful rewrap timestamp.
+- participant envelope metadata such as participant profile ID, subject relationship category, and access status.
+- recovery envelope metadata such as recovery policy version, status, creation/revocation timestamp, and last recovery attempt outcome category.
+
+Forbidden envelope metadata:
+
+- raw keys, raw recovery secrets, decrypted vault key bytes, data-key plaintext, device private keys, envelope ciphertext in audit/logs/reports, password/MFA/passkey/recovery-code material, raw request/response bodies, provider object keys, storage paths, and decrypted sensitive payload details.
+
+Versioning direction:
+
+- Each vault root key version must have a clear status such as `active`, `rewrapping`, `retired`, `revoked`, or `destroyed` where implementation chooses equivalent names.
+- Data payloads should record which vault/data-key version can decrypt them.
+- Crypto suite and payload format versions must be explicit enough to support future migration without guessing.
+- Retired versions may remain needed to decrypt old payloads until all payload data keys are rewrapped or content is purged.
+- Revoked device envelopes must not be used for new wraps and should trigger session/device review where policy requires it.
+
+Rotation/rekey decision points:
+
+- user changes privacy mode
+- trusted device is added, lost, revoked, or suspected compromised
+- recovery envelope is created, used, revoked, or policy-upgraded
+- crypto suite or key size changes
+- account compromise, admin security action, or suspicious recovery attempt
+- Recoverable-to-Strict or Strict-to-Recoverable migration
+- backup restore detects stale envelope state or missing key/metadata consistency
+
+Rotation may mean rewrapping data keys under a new vault root key, rotating the vault root key and rewrapping eligible payloads, creating new data keys for future writes only, or leaving old payloads readable through retired versions until background migration completes. Runtime implementation must explicitly choose the behavior per case.
+
+### Recovery Model Options And Day 1 Boundary
+
+Recoverable Private Vault should support recovery through a controlled server-assisted recovery envelope after strong account verification and recovery policy checks. This is the Day 1 architecture direction, subject to later implementation review.
+
+Allowed Day 1 architecture option:
+
+- Account recovery or step-up verification proves the account actor through auth-owned flows.
+- Recovery policy verifies that recovery is allowed for the account, deployment, privacy mode, risk state, and current session context.
+- Recovery envelope is used to rewrap the vault root key for a newly trusted device or renewed device key.
+- Recovery writes bounded audit/security history and user-visible security notification where available.
+- Recovery does not expose plaintext vault content to admins, support screens, issue comments, logs, reports, or ordinary API responses.
+
+Deferred or future options:
+
+- trusted-device-only recovery for Strict Private Vault
+- user-held recovery key or recovery phrase
+- multi-party recovery or owner-approved organizational recovery
+- hardware-backed recovery keys
+- break-glass content access
+- escrow-provider or external KMS integration
+
+Non-goals for this packet:
+
+- no runtime recovery flow
+- no endpoint or OpenAPI contract
+- no schema or migration
+- no generation, storage, or handling of real keys/secrets
+- no account recovery, password reset, passkey, TOTP, MFA, recovery-code, session, or auth policy runtime change
+- no backup/restore automation
+
+### Recovery Initiation And Verification Policy
+
+Recovery initiation must be explicit, user-visible where practical, and rate-limited by future auth/security policy. It must not be triggered silently by ordinary sign-in, token refresh, device listing, file read, support action, admin view, or backup restore.
+
+Architecture-level recovery gates:
+
+- authenticated or account-recovery actor is verified through auth-owned flows
+- session freshness or step-up requirement is satisfied
+- account, role, device, and recovery policy are in a state that allows recovery
+- privacy mode permits a recovery envelope
+- recovery request is not blocked by risk policy, rate limiting, suspicious activity, active compromise response, or admin/deployment lock
+- user receives warning that Recoverable Private Vault is not strict zero-knowledge
+- recovery result is audited with safe metadata and correlation ID
+
+Denied or failed recovery must return only bounded reason categories. It must not reveal whether a specific sensitive payload, payment detail, proof, receipt, private note, OCR text, statement, export, envelope, or device exists to an unrelated actor.
+
+### Admin, Owner, And User Recovery Boundaries
+
+System owners/admins manage operational policy; they do not automatically receive vault plaintext access.
+
+Rules:
+
+- No silent admin decryption. Owner/admin roles must not decrypt user vault content through ordinary admin UI, support UI, database access path, issue workflow, report workflow, or backup workflow unless a future explicit policy approves, gates, warns, and audits that behavior.
+- Admin-assisted recovery may help verify account state, lock or unlock recovery eligibility, revoke sessions/devices, or reset policy state, but it must not show raw vault keys, decrypted envelopes, or sensitive payload plaintext.
+- If future owner-approved recovery is added, it must be separate from content access and must require explicit policy enablement, reason capture, audit, user-visible history where practical, and least-data-needed behavior.
+- Break-glass content access remains non-Day 1 and cannot bypass Strict Private Vault cryptographic limits.
+- A self-hosting operator with filesystem/database backups may possess infrastructure-level access, but the product architecture must not normalize silent product-level admin decryption.
+
+### Device, Session, And Account State Interactions
+
+Vault device trust is separate from API session validity.
+
+- A valid API session proves the caller can ask the API for authorized metadata and envelope operations; it does not prove the device can decrypt vault payloads.
+- A trusted vault device proves it can unwrap vault keys; it does not grant API authorization to records the actor cannot access.
+- Session revocation, account disablement, role changes, credential reset, suspicious refresh replay, and MFA/passkey recovery may require device-envelope review or revocation, but auth/session authority remains in the API.
+- New-device vault trust must require either existing trusted-device approval or the recoverable envelope flow. Ordinary login alone must not silently mark the device vault-trusted.
+- Lost-device handling should revoke or retire the device envelope and may revoke sessions according to auth policy; it must not require deleting unrelated payloads or changing server-authoritative financial truth.
+- Account recovery can restore account access without automatically completing vault recovery. The vault remains locked until recovery policy completes and the new device receives a valid wrap.
+
+Local-only mode may reuse device key concepts, but it is not required to use server recovery envelopes. Local-to-server import must explicitly choose whether sensitive imported payloads become server-managed, recoverable-vault protected, or rejected/deferred.
+
+### Key And Recovery Audit Redaction
+
+Key, envelope, and recovery events need enough accountability for security review without preserving the secrets being protected.
+
+Suggested event families:
+
+```text
+vault_key_created
+vault_key_rotated
+vault_key_retired
+vault_key_destroyed
+vault_payload_key_wrapped
+vault_payload_key_rewrapped
+device_envelope_created
+device_envelope_revoked
+participant_envelope_created
+participant_envelope_revoked
+recovery_envelope_created
+recovery_envelope_used
+recovery_envelope_revoked
+vault_recovery_requested
+vault_recovery_completed
+vault_recovery_denied
+vault_recovery_rate_limited
+vault_export_requested
+vault_export_completed
+vault_import_requested
+vault_import_completed
+vault_backup_restore_warning_acknowledged
+```
+
+Allowed bounded audit metadata:
+
+- actor account/profile ID where safe, subject account/profile ID, subject type/ID, file purpose category, privacy mode, envelope category, key version number or non-secret key-version ID, policy version, action, outcome, reason category, timestamp, and correlation ID.
+
+Audit/log/report exclusions:
+
+- raw keys, data keys, vault root keys, recovery secrets, user recovery keys, device private keys, decrypted envelope metadata, envelope ciphertext, encrypted payload bytes, plaintext payload, raw OCR text, payment details, payment notes, private notes, receipt/proof/QR bytes, statement rows, user-entered sensitive filenames, provider object keys, storage roots, local paths, raw request/response bodies, auth tokens, passwords, password verifiers, TOTP seeds, passkey private material, recovery codes, reset tokens, and unbounded provider payloads.
+
+Export/import, backup/restore, recovery warnings, and validation evidence must follow the same redaction rules as audit. GitHub issue comments and Codex reports may summarize categories, decisions, file paths, SHAs, and validation results, but must not include vault secrets or private payload details.
+
+### Backup, Restore, And Self-hosting Implications
+
+Recoverable vault backups are a consistency problem, not only a file-copy problem.
+
+Backups must preserve the matching set of:
+
+- encrypted payload bytes
+- PostgreSQL metadata and subject associations
+- envelope records and key-version metadata
+- recovery envelopes where recoverable mode allows them
+- privacy mode and recovery policy metadata
+- audit/security history needed to understand recovery, rotation, revocation, export/import, and warnings
+
+Important restore caveats:
+
+- Backups without keys/envelopes are not enough to decrypt recoverable vault payloads.
+- Keys/envelopes without PostgreSQL metadata are not enough for the API to authorize, locate, lifecycle-manage, or safely serve payloads.
+- Storage bytes without matching metadata must not be served directly.
+- Metadata without matching storage bytes must fail closed and surface a safe missing-content state.
+- Older backups may retain recovery envelopes that were later revoked or removed during Recoverable-to-Strict migration.
+- Restoring older envelope state can reintroduce a recoverable path inside the restored environment until explicit review revokes or retires it again.
+
+Self-hosted operators must treat PostgreSQL, storage bytes, private env/config, and future vault/envelope metadata as one sensitive consistency set. Vault mode does not remove the need for encrypted backups, private datasets, least-privilege service accounts, secret management, LAN/VPN/public-exposure review, or manual gates for real restore execution.
+
+### Migration, Rekey, And Non-goals
+
+Future implementation must define migration behavior before changing encryption state for existing data.
+
+Decision points:
+
+- enabling vault mode for a user with existing server-managed sensitive files/fields
+- disabling vault mode or downgrading to Standard Secure
+- migrating Recoverable Private Vault to Strict Private Vault future mode
+- migrating Strict future mode back to Recoverable
+- rotating keys after suspected compromise
+- changing crypto suite or payload format version
+- restoring from a backup with stale or missing envelope state
+- importing/exporting user data that includes sensitive payloads
+
+Required architecture properties:
+
+- no silent plaintext downgrade
+- explicit user/admin warnings where privacy or recovery properties change
+- bounded audit for every key/envelope/recovery/migration decision
+- rollback and partial-failure behavior that fails closed
+- retained old key versions only as long as needed for decryption, migration, retention, or audit policy
+- no changes to server-authoritative money, settlement, authorization, group, audit, or file-lifecycle truth during rekey unless a separate reviewed domain task approves it
+
+Non-goals:
+
+- choosing a concrete cryptographic library, cipher suite, KMS provider, table name, endpoint path, or UI flow
+- implementing runtime encryption, recovery, migration, export/import, backup, restore, or key generation
+- authorizing direct admin content access
+- changing OpenAPI, generated clients, schema, storage provider behavior, auth/session runtime, deployment, Docker, CI, secrets, or file-byte handling
+
+### Dependencies And Handoffs
+
+#419 establishes the key/envelope/recovery architecture that later slices must consume.
+
+- #420 must define exact sensitive file/field integration, subject ownership, API authorization rules, metadata shape, payload placement, retention, and OpenAPI/schema impact before runtime work.
+- #422 must turn these audit, backup, restore, and warning boundaries into implementation checklists, bounded event names, evidence expectations, and no-silent-downgrade checks.
+- #421 remains the UX/reference gate for privacy-mode onboarding, device approval, recovery warnings, lost-device states, and settings.
+- #343 remains the broad parent tracker for privacy-mode file handling and must not be closed by this child packet.
 
 ## Device Onboarding
 
