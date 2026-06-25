@@ -10,7 +10,13 @@ Settleora must protect sensitive user data without turning the first release int
 - Recoverable Private Vault for selected sensitive data.
 - A future/Day 3+ compatible path to Strict Private Vault.
 
-This document does not authorize implementation by itself. It defines architecture, data boundaries, recovery behavior, non-goals, and future implementation candidates.
+This document does not authorize implementation by itself. It defines architecture, data classification, policy boundaries, recovery behavior, non-goals, and future implementation candidates.
+
+## Current State
+
+The current repository has Standard Secure server-side protection foundations for auth/session, PostgreSQL persistence, file metadata, local file storage, self payment details, self payment QR files, settlement proof files, bill attachments, and bill-scoped receipt OCR review rows. It does not implement recoverable vault runtime encryption, vault API endpoints, device envelopes, recovery envelopes, vault-aware file byte handling, vault UI, schema migrations for vault tables, or Strict Private Vault.
+
+The existing `file_objects` metadata table already records a constrained `encryption_mode` and optional vault metadata reference, but current runtime behavior remains server-managed. This document narrows the policy and data-classification decisions for #418 so later issues can design keys, sensitive file/field integration, audit, backup, and warning behavior without moving money, authorization, or storage authority to clients.
 
 ## Product Decision
 
@@ -96,9 +102,9 @@ Characteristics:
 - OIDC/local account recovery restores account access only, not vault data.
 - Converting Recoverable to Strict must rotate/revoke recovery envelopes and warn about old backups.
 
-## Data Classification
+## Data Classification Model
 
-Suggested sensitivity classes:
+Settleora uses three data classes for recoverable vault policy:
 
 ```text
 normal
@@ -107,6 +113,8 @@ highly_sensitive
 ```
 
 ### Normal Data
+
+Normal data is server-managed application data that still requires authentication, authorization, encrypted-at-rest deployment, and audit where policy requires it. It is not public data. Normal data normally stays `server_managed` because the API/domain layer needs it to enforce server-mode truth.
 
 Normal server-managed data includes the core data the API needs for authoritative server-mode behavior:
 
@@ -119,12 +127,15 @@ Normal server-managed data includes the core data the API needs for authoritativ
 - sync state
 - business audit metadata
 - report summary values
+- notification routing state
+- recurrence schedules and generated occurrence links
+- non-sensitive readiness and policy metadata
 
-Normal does not mean public. It still requires authentication, authorization, server-side validation, audit where required, and encrypted-at-rest deployment.
+Normal data can include personal or business context when the server must read it to authorize, calculate, settle, sync, audit, or report. A later implementation may redact normal data in admin surfaces, but it must not place core authority behind client-only vault access.
 
 ### Sensitive Data
 
-Sensitive data should be admin-redacted and eligible for Recoverable Private Vault protection:
+Sensitive data should be admin-redacted by default and is generally eligible for Recoverable Private Vault protection when vault support exists:
 
 - receipt images
 - receipt thumbnails where practical
@@ -134,19 +145,60 @@ Sensitive data should be admin-redacted and eligible for Recoverable Private Vau
 - private notes
 - full OCR raw text if stored
 - supporting attachments
+- statement import source files before reconciliation implementation chooses final policy
+- user-entered attachment filenames when they reveal private context
+- user-provided free-text fields that are not required for shared accounting truth
 - other non-shared sensitive personal or financial data
 
 Data related to money or personal information that is not shared should generally be eligible for vault protection.
 
 ### Highly Sensitive Data
 
-Highly sensitive data should default to the strongest available policy:
+Highly sensitive data should default to the strongest available policy and must receive explicit review before being stored, exported, logged, or shown in admin/support surfaces:
 
 - statement files/rows when statement reconciliation exists
 - exported backup bundles
 - recovery envelopes and key metadata
 - secret references
 - payment proof containing bank/account details
+- recovery-key metadata
+- migration records that mention envelope revocation or key rewrap outcomes
+- vault-protected export manifests
+
+Highly sensitive does not automatically mean recoverable-vault content. Some highly sensitive items, such as recovery envelopes and secret references, are vault control material and must not be stored as ordinary recoverable vault payloads.
+
+## Recoverable Vault Eligibility
+
+Recoverable Private Vault may protect selected sensitive field values, file bytes, and derived sensitive content only when the API can still enforce ownership, subject association, file purpose, lifecycle state, authorization, audit, retention, and recovery policy from server-readable metadata.
+
+Eligible Day 1 recoverable-vault targets:
+
+| Data class | Examples | Policy direction |
+| --- | --- | --- |
+| Sensitive payment profile content | Payment handle, payment note, preferred payment method detail, QR/payment images | Eligible for `recoverable_user_vault`; self updates and counterparty visibility remain API-authorized. |
+| Sensitive bill/receipt files | Receipt images, receipt thumbnails where practical, supporting attachments | Eligible when participant access is preserved through server-readable subject metadata and participant envelopes. |
+| OCR-sensitive derivatives | Full OCR raw text if stored, OCR source files | Eligible; reviewed OCR line items used for draft bill creation remain provisional and API-validated before becoming bill truth. |
+| Settlement proof content | Proof screenshots, PDFs, payment confirmation attachments, proof notes that may contain account details | Eligible; settlement/payment relationship authorization remains server-enforced. |
+| Private notes and personal-only fields | User notes that are not required for shared bill truth, local-only import notes during migration | Eligible when the server does not need plaintext for money, settlement, sync acceptance, or audit truth. |
+| Statement and reconciliation sources | Future statement files, raw imported rows, provider-specific account labels | Highly sensitive and eligible only after #420 or a later statement-specific review defines owner, subject, retention, audit, and reporting boundaries. |
+| User-owned export files | Future generated export files containing sensitive personal/financial data | Highly sensitive and eligible only after export/backup policy defines retention, warning, and restore behavior. |
+
+Eligibility does not approve runtime implementation. Each future implementation slice must define the exact owner, subject, API authorization rule, storage purpose, metadata shape, envelope model, audit metadata, retention behavior, validation profile, and migration/backfill plan.
+
+## Must Not Be Stored As Recoverable Vault Payload
+
+The following data classes must not be stored only in recoverable vault form because doing so would break server authority, recovery safety, or auditability:
+
+- Bill totals, currencies, item split resolved amounts, participant shares, payer contributions, adjustments, settlement request amounts, settlement payment amounts, residual amounts, and any other authoritative money values.
+- Settlement request/payment status, bill status, participant acknowledgement state, archive/restore state, recurrence occurrence state, sync state, and conflict state.
+- Group membership, product role assignments, account/profile linkage, business authorization facts, and visibility policy state.
+- Auth credentials and reusable secrets, including plaintext passwords, password verifier material, raw session credentials, raw refresh credentials, reset tokens, recovery codes, MFA secrets, passkey private material, OIDC provider tokens, signing keys, pepper secrets, secret-provider values, and SSH or deployment secrets.
+- Audit records required to investigate money, authorization, storage access, security, recovery, privacy-mode changes, or policy changes.
+- File metadata needed for API authorization and lifecycle, including stable file ID, owner/creator profile IDs, purpose, status, content type, size, safe hash where policy allows it, storage provider category, provider-internal object key, retention policy, and timestamps. Provider-internal object keys remain server-private and must not be exposed through APIs or reports.
+- Key control material as ordinary user content, including vault root keys, raw data keys, raw device private keys, raw recovery keys, raw recovery-envelope secrets, and decrypted key material.
+- Database migration metadata, OpenAPI contracts, generated-client source, Docker/CI/deployment configuration, and environment/secret files.
+
+Vault protection may encrypt file bytes or selected field values, but it must not make clients authoritative for deciding who may read them, whether they exist, how they relate to a bill/settlement/profile, or whether they can be restored.
 
 ## Encryption Modes
 
@@ -202,6 +254,59 @@ core accounting records
 The API/domain layer remains authoritative for money, settlement, status transitions, authorization, audit, policy, and server-mode validation.
 
 Shared sensitive files and fields may be vault-protected only where the design preserves authorized access for the intended participants and does not move financial authority to clients.
+
+## Auth, Session, And Credential Boundaries
+
+Recoverable vault recovery and authentication recovery are related but separate control planes:
+
+- Local password credentials, password verifier metadata, password hashing parameters, passkeys, TOTP secrets, MFA challenges, recovery codes, reset tokens, bearer session credentials, refresh-like credentials, OIDC provider tokens, and signing or pepper secrets must not be stored in recoverable vault form.
+- Auth/session tables remain server-authoritative security state. Vault mode must not make clients authoritative for sign-in, session validity, role assignment, group membership, authorization, or account recovery decisions.
+- Password reset, passkey recovery, TOTP factor reset, or recovery-code use can help prove account recovery only through separately reviewed auth/security flows. They must not by themselves expose vault data or raw key material.
+- Recoverable vault recovery may use account recovery only through the approved recovery envelope flow, step-up verification, warnings, and audit events.
+- Auth audit records may mention safe categories such as `vault_recovery_requested` or `recovery_envelope_revoked`, but they must not store raw keys, envelope ciphertext details, plaintext secrets, raw tokens, password material, MFA secrets, recovery codes, or decrypted vault content.
+
+Future passkey, TOTP, and recovery-code runtime work remains governed by the auth architecture docs. Vault design may depend on those flows for step-up proof, but it must not place auth credentials inside the vault or make vault availability a prerequisite for revoking compromised sessions.
+
+## File And Storage Relationship
+
+Vault protection changes the encryption policy for selected content; it does not change storage authority:
+
+- File bytes still go through the API-owned storage abstraction.
+- File metadata belongs in PostgreSQL.
+- API responses expose stable file IDs and safe metadata only.
+- API responses must not expose filesystem paths, storage roots, object keys, bucket names, provider URLs, vault key references, envelope internals, or provider-specific implementation details.
+- File access requires API authentication and authorization for every read, write, attach, detach, delete, restore, or purge action.
+- Storage provider internals and provider-internal object keys remain operational metadata and must not appear in generated clients, public APIs, audit records, logs, support reports, or Codex reports.
+- Workers may process approved jobs only through reviewed job payloads and API validation. Workers must not directly mutate file metadata, vault metadata, auth rows, or core business tables.
+
+For vault-protected files, PostgreSQL metadata must remain sufficient for the API to enforce owner, creator, purpose, subject association, lifecycle status, content type, size, retention policy, and audit decisions without decrypting the file bytes. Sensitive field integration details are deferred to #420.
+
+## Recovery And Warning Policy
+
+In Recoverable Private Vault, "recoverable" means a reviewed server-assisted recovery path can rewrap or recover vault access after strong account verification and policy checks. It does not mean plaintext vault content, raw data keys, raw vault root keys, or decrypted recovery material may be stored in PostgreSQL, logs, audit, metrics, traces, validation output, issue comments, or reports.
+
+User/admin warning boundaries:
+
+- Users must be warned that Recoverable Private Vault is stronger than Standard Secure Mode for selected sensitive content but is not strict zero-knowledge.
+- Users must be warned before enabling, disabling, recovering, migrating, or downgrading vault protection.
+- Admins/operators must be warned that backup retention can preserve old recovery envelopes until backup expiry.
+- Recovery, mode changes, rewraps, and envelope revocation must be auditable with bounded metadata and user-visible security history where practical.
+- No flow may silently downgrade privacy or security, such as converting vault content to server-managed plaintext, removing envelope protection, exposing admin content access, weakening recovery requirements, or restoring an older privacy mode without explicit warning and audit.
+- Denied or failed recovery should reveal only safe status categories and must avoid leaking whether a specific sensitive file, payment detail, note, proof, or OCR text exists for an unrelated actor.
+
+Warnings must be product/runtime behavior in later implementation tasks. This docs/control packet only defines the boundaries that those tasks must satisfy.
+
+## Deferred Design Boundaries
+
+The #418 classification packet intentionally leaves these details to separate issues:
+
+- #419 owns key and envelope architecture, including vault root keys, per-item data keys, device envelopes, recovery envelopes, participant envelopes, trusted-device approval, lost-device recovery, key rotation, rewrap, envelope revocation, and key-loss behavior.
+- #420 owns sensitive file and field integration, including exact owners, subjects, encryption modes, file purposes, field-level vaulting, attachment/QR/proof/OCR/statement/export boundaries, retention, migration, OpenAPI impact, generated-client impact, and API authorization contracts.
+- #422 owns audit, backup, restore, and recovery warning checklists, including bounded event names, redaction rules, backup-retention caveats, restore-mode warnings, operator evidence, and no-silent-downgrade checks.
+- #421 remains the UI/reference gate for privacy mode onboarding, settings, warnings, and recovery UX. This document does not clear that Figma/reference gate.
+- #343 remains the broad parent tracker for privacy-mode file handling and must not be closed by this child packet.
+
+Do not use this document as permission to make schema, API, OpenAPI, generated-client, auth/session/security runtime, storage provider, file byte, UI, deployment, CI, Docker, secret, money, settlement, payment, OCR runtime, import/export, or backup automation changes.
 
 ## Key Model
 
@@ -420,6 +525,26 @@ Backup restore must not silently downgrade privacy mode.
 
 Recoverable-to-Strict migration must warn that older backups may retain recoverable envelopes until retention expiry.
 
+Restore warnings must distinguish these cases:
+
+- Restoring Standard Secure content keeps normal server-managed access under current auth and authorization policy.
+- Restoring Recoverable Private Vault content requires matching encrypted blobs, PostgreSQL metadata, vault metadata, recovery envelopes where mode allows them, and audit records.
+- Restoring a database snapshot without matching storage bytes may leave vault-protected metadata pointing at unavailable content.
+- Restoring storage bytes without matching PostgreSQL metadata may create orphaned encrypted blobs that the API must not serve.
+- Restoring older backups after a Recoverable-to-Strict migration may reintroduce old recoverable envelopes inside the restored environment until explicit review handles them.
+
+Real restore execution against maintainer, production, or production-like data remains manual-gated under the deployment backup/restore runbook. This document does not authorize running backup or restore commands.
+
+## Deployment And Self-hosting Implications
+
+Self-hosted deployments remain responsible for protecting PostgreSQL, local file storage, RabbitMQ state where preserved, private app settings, and generated secrets as one deployment consistency set. Recoverable vault support adds these requirements for future implementation planning:
+
+- Deployment docs and admin settings must not imply that vault mode removes the need for encrypted backups, private datasets, secret management, or LAN/VPN/public-exposure review.
+- Operators must understand that Recoverable Private Vault has a trusted recovery path and that recovery envelopes are sensitive control material.
+- Environment files, Docker/Compose templates, CI, catalog app metadata, secret stores, and deployment defaults must not be changed by this architecture packet.
+- Health checks, readiness checks, validation output, support reports, and operator evidence must not reveal storage roots, object keys, provider internals, vault metadata internals, envelope contents, secrets, tokens, or raw file contents.
+- Public/admin exposure decisions remain separate manual gates. Vault mode does not make direct storage exposure, broad admin content access, public API exposure, or weak backup handling acceptable.
+
 ## Local Mode Interaction
 
 Local-only mode does not require server authentication and remains locally authoritative.
@@ -466,6 +591,13 @@ break_glass_content_accessed
 
 Audit records must avoid raw keys, raw secrets, decrypted content, raw tokens, and unnecessary sensitive payloads.
 
+Audit redaction requirements:
+
+- Record stable IDs and safe categories only where needed for investigation, such as actor account/profile ID, subject type, subject ID, file purpose, privacy mode category, envelope action category, outcome category, timestamp, and correlation ID.
+- Do not record payment handles, payment notes, raw OCR text, private notes, receipt/proof/QR bytes, statement rows, user-entered filenames when sensitive, provider object keys, storage roots, bucket names, local paths, key IDs that function as secrets, envelope ciphertext, decrypted envelope metadata, raw request bodies, raw response bodies, or full provider payloads.
+- Recovery and break-glass events must include enough bounded metadata to support accountability without storing the content or key material being protected.
+- Reports, validation output, GitHub comments, and support screenshots must follow the same redaction rules as audit/logging.
+
 ## API And OpenAPI Direction
 
 Future implementation should expose privacy/vault behavior through OpenAPI, but this architecture document does not authorize OpenAPI changes.
@@ -489,6 +621,7 @@ This document does not authorize:
 - login implementation
 - token issuance
 - session middleware
+- password reset, passkey, TOTP, MFA, or recovery-code runtime
 - vault API endpoints
 - OpenAPI feature paths
 - generated client changes
@@ -496,6 +629,9 @@ This document does not authorize:
 - database migrations
 - actual encryption implementation
 - Strict Private Vault implementation
+- storage provider changes or file byte handling changes
+- deployment, Docker, CI, environment, or secret changes
+- money, settlement, payment, bill calculation, OCR runtime, import/export, backup automation, or restore execution changes
 
 ## Day 1 Acceptance Criteria
 
@@ -521,11 +657,11 @@ Audit requirements are defined.
 
 Implementation should remain split into focused, reviewable branches:
 
-1. Documentation-only branch adding this architecture and updating references.
-2. Storage metadata sensitivity/encryption-mode schema design.
-3. Admin redaction policy design.
-4. Sensitive file storage/encryption implementation.
-5. Privacy mode settings UI/API.
-6. Device/key-envelope implementation.
-7. Recovery-envelope implementation.
-8. Future Strict Vault design review before implementation.
+1. #419 key, envelope, trusted-device, and recovery architecture review.
+2. #420 sensitive file and field integration boundaries for payment details, QR files, receipts, OCR raw text, proof files, private notes, statements, exports, and backups.
+3. #422 audit, backup, restore, and recovery warning checklist.
+4. #421 privacy mode onboarding, settings, and warning UX reference before UI work.
+5. Storage metadata sensitivity/encryption-mode schema design only after manual storage/privacy/security review.
+6. Privacy mode API/OpenAPI/generated-client design only after schema and security review.
+7. Sensitive file storage/encryption runtime only after #419/#420/#422 gates are satisfied.
+8. Future Strict Vault design review before any Strict Private Vault implementation.
