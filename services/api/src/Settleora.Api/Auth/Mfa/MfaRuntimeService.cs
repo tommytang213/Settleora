@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Auth.CurrentUser;
+using Settleora.Api.Auth.Policy;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Persistence;
 
@@ -20,6 +21,7 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
     private readonly ITotpCodeService totpCodeService;
     private readonly IRecoveryCodeHasher recoveryCodeHasher;
     private readonly IMfaAuditWriter auditWriter;
+    private readonly IAuthSecurityPolicyService policyService;
     private readonly TimeProvider timeProvider;
     private readonly MfaRuntimeOptions options;
 
@@ -29,6 +31,7 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         ITotpCodeService totpCodeService,
         IRecoveryCodeHasher recoveryCodeHasher,
         IMfaAuditWriter auditWriter,
+        IAuthSecurityPolicyService policyService,
         TimeProvider timeProvider,
         IOptions<MfaRuntimeOptions> options)
     {
@@ -37,6 +40,7 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         this.totpCodeService = totpCodeService;
         this.recoveryCodeHasher = recoveryCodeHasher;
         this.auditWriter = auditWriter;
+        this.policyService = policyService;
         this.timeProvider = timeProvider;
         this.options = options.Value;
     }
@@ -47,6 +51,13 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         CancellationToken cancellationToken)
     {
         var occurredAtUtc = timeProvider.GetUtcNow();
+        if (!await policyService.IsTotpSupportedAsync(actor, cancellationToken))
+        {
+            await WriteAuditAsync("totp.enrollment_denied", AuthAuditOutcomes.Denied, actor.AuthAccountId, actor.AuthAccountId, null, null, null, AuthChallengeFactorTypes.Totp, "totp_disabled", occurredAtUtc, cancellationToken);
+            await TrySaveAsync(cancellationToken);
+            return new TotpEnrollmentStartServiceResult(MfaServiceStatus.Denied);
+        }
+
         var account = await LoadAvailableAccountAsync(actor.AuthAccountId, cancellationToken);
         if (account is null)
         {
@@ -109,7 +120,7 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
                 new TotpEnrollmentSetup(issuer, accountLabel, "sha1", digits, periodSeconds, provisioningUri, manualEntryKey),
                 MapFactor(factor),
                 expiresAtUtc,
-                CreatePolicyReadout()));
+                await CreatePolicyReadoutAsync(actor, cancellationToken)));
     }
 
     public async Task<MfaFactorServiceResult> VerifyTotpEnrollmentAsync(
@@ -158,7 +169,9 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
             return new MfaFactorServiceResult(MfaServiceStatus.PersistenceFailed);
         }
 
-        return new MfaFactorServiceResult(MfaServiceStatus.Succeeded, new MfaFactorResponse(MapFactor(factor), CreatePolicyReadout()));
+        return new MfaFactorServiceResult(
+            MfaServiceStatus.Succeeded,
+            new MfaFactorResponse(MapFactor(factor), await CreatePolicyReadoutAsync(actor, cancellationToken)));
     }
 
     public async Task<MfaMutationResult> CancelTotpEnrollmentAsync(
@@ -190,7 +203,9 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
             .OrderByDescending(factor => factor.CreatedAtUtc)
             .Take(50)
             .ToListAsync(cancellationToken);
-        return new MfaFactorListResponse(factors.Select(MapFactor).ToArray(), CreatePolicyReadout());
+        return new MfaFactorListResponse(
+            factors.Select(MapFactor).ToArray(),
+            await CreatePolicyReadoutAsync(actor, cancellationToken));
     }
 
     public async Task<MfaFactorServiceResult> UpdateFactorAsync(
@@ -206,6 +221,18 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         }
 
         var occurredAtUtc = timeProvider.GetUtcNow();
+        if (!await EnsureFreshStepUpForSensitiveOperationAsync(
+                actor,
+                AuthSecurityPolicyOperations.MfaFactorManagement,
+                "mfa.factor_metadata_updated",
+                factor.Id,
+                null,
+                occurredAtUtc,
+                cancellationToken))
+        {
+            return new MfaFactorServiceResult(MfaServiceStatus.Denied);
+        }
+
         factor.DisplayLabel = BoundOptional(request.DisplayLabel, DisplayLabelMaxLength);
         factor.UpdatedAtUtc = occurredAtUtc;
         await WriteAuditAsync("mfa.factor_metadata_updated", AuthAuditOutcomes.Success, actor.AuthAccountId, actor.AuthAccountId, factor.Id, null, null, factor.FactorType, "metadata_updated", occurredAtUtc, cancellationToken);
@@ -214,7 +241,9 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
             return new MfaFactorServiceResult(MfaServiceStatus.PersistenceFailed);
         }
 
-        return new MfaFactorServiceResult(MfaServiceStatus.Succeeded, new MfaFactorResponse(MapFactor(factor), CreatePolicyReadout()));
+        return new MfaFactorServiceResult(
+            MfaServiceStatus.Succeeded,
+            new MfaFactorResponse(MapFactor(factor), await CreatePolicyReadoutAsync(actor, cancellationToken)));
     }
 
     public async Task<MfaMutationResult> RevokeFactorAsync(
@@ -232,6 +261,18 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         if (factor.Status == AuthMfaFactorStatuses.Revoked)
         {
             return new MfaMutationResult(MfaServiceStatus.Succeeded);
+        }
+
+        if (!await EnsureFreshStepUpForSensitiveOperationAsync(
+                actor,
+                AuthSecurityPolicyOperations.MfaFactorManagement,
+                "mfa.factor_revoked",
+                factor.Id,
+                null,
+                occurredAtUtc,
+                cancellationToken))
+        {
+            return new MfaMutationResult(MfaServiceStatus.Denied);
         }
 
         factor.Status = AuthMfaFactorStatuses.Revoked;
@@ -260,6 +301,12 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         if (purpose is not AuthChallengePurposes.StepUp and not AuthChallengePurposes.SignIn)
         {
             return new MfaChallengeServiceResult(MfaServiceStatus.InvalidRequest);
+        }
+
+        if (!await policyService.IsTotpSupportedAsync(actor, cancellationToken)
+            && !await policyService.IsRecoveryCodeSupportedAsync(actor, cancellationToken))
+        {
+            return new MfaChallengeServiceResult(MfaServiceStatus.Denied);
         }
 
         var factors = await LoadActiveTotpFactorsAsync(actor.AuthAccountId, cancellationToken);
@@ -299,7 +346,9 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
             return new MfaChallengeServiceResult(MfaServiceStatus.PersistenceFailed);
         }
 
-        return new MfaChallengeServiceResult(MfaServiceStatus.Succeeded, MapChallenge(challenge, factors, hasRecoveryCodes));
+        return new MfaChallengeServiceResult(
+            MfaServiceStatus.Succeeded,
+            await MapChallengeAsync(actor, challenge, factors, hasRecoveryCodes, cancellationToken));
     }
 
     public async Task<MfaChallengeVerifyServiceResult> VerifyTotpChallengeAsync(
@@ -396,6 +445,25 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         CancellationToken cancellationToken)
     {
         var occurredAtUtc = timeProvider.GetUtcNow();
+        if (!await policyService.IsRecoveryCodeSupportedAsync(actor, cancellationToken))
+        {
+            await WriteAuditAsync("recovery_codes.policy_denied", AuthAuditOutcomes.Denied, actor.AuthAccountId, actor.AuthAccountId, null, null, null, AuthChallengeFactorTypes.RecoveryCode, "recovery_codes_disabled", occurredAtUtc, cancellationToken);
+            await TrySaveAsync(cancellationToken);
+            return new RecoveryCodeBatchGenerateServiceResult(MfaServiceStatus.Denied);
+        }
+
+        if (!await EnsureFreshStepUpForSensitiveOperationAsync(
+                actor,
+                AuthSecurityPolicyOperations.RecoveryCodeManagement,
+                "recovery_codes.generated",
+                null,
+                null,
+                occurredAtUtc,
+                cancellationToken))
+        {
+            return new RecoveryCodeBatchGenerateServiceResult(MfaServiceStatus.Denied);
+        }
+
         if (!await dbContext.Set<AuthMfaFactor>().AnyAsync(
                 factor => factor.AuthAccountId == actor.AuthAccountId
                     && factor.Status == AuthMfaFactorStatuses.Enrolled
@@ -476,7 +544,11 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
 
         return new RecoveryCodeBatchGenerateServiceResult(
             MfaServiceStatus.Succeeded,
-            new RecoveryCodeBatchGenerateResponse(MapBatch(newBatch), rawCodes, DisplayOnce: true, CreatePolicyReadout()));
+            new RecoveryCodeBatchGenerateResponse(
+                MapBatch(newBatch),
+                rawCodes,
+                DisplayOnce: true,
+                await CreatePolicyReadoutAsync(actor, cancellationToken)));
     }
 
     public async Task<RecoveryCodeBatchListResponse> ListRecoveryCodeBatchesAsync(
@@ -488,7 +560,9 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
             .OrderByDescending(batch => batch.GeneratedAtUtc)
             .Take(20)
             .ToListAsync(cancellationToken);
-        return new RecoveryCodeBatchListResponse(batches.Select(MapBatch).ToArray(), CreatePolicyReadout());
+        return new RecoveryCodeBatchListResponse(
+            batches.Select(MapBatch).ToArray(),
+            await CreatePolicyReadoutAsync(actor, cancellationToken));
     }
 
     public async Task<MfaMutationResult> RevokeRecoveryCodeBatchAsync(
@@ -507,6 +581,18 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         }
 
         var occurredAtUtc = timeProvider.GetUtcNow();
+        if (!await EnsureFreshStepUpForSensitiveOperationAsync(
+                actor,
+                AuthSecurityPolicyOperations.RecoveryCodeManagement,
+                "recovery_codes.revoked",
+                null,
+                batch.Id,
+                occurredAtUtc,
+                cancellationToken))
+        {
+            return new MfaMutationResult(MfaServiceStatus.Denied);
+        }
+
         batch.Status = AuthRecoveryCodeBatchStatuses.Revoked;
         batch.RevokedAtUtc = occurredAtUtc;
         batch.UpdatedAtUtc = occurredAtUtc;
@@ -658,7 +744,12 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         challenge.UpdatedAtUtc = occurredAtUtc;
     }
 
-    private MfaChallengeResponse MapChallenge(AuthChallenge challenge, IReadOnlyList<AuthMfaFactor> factors, bool hasRecoveryCodes)
+    private async Task<MfaChallengeResponse> MapChallengeAsync(
+        AuthenticatedActor actor,
+        AuthChallenge challenge,
+        IReadOnlyList<AuthMfaFactor> factors,
+        bool hasRecoveryCodes,
+        CancellationToken cancellationToken)
     {
         var allowed = new List<string>();
         var choices = new List<MfaChallengeFactorChoice>();
@@ -687,7 +778,10 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
             challenge.ExpiresAtUtc,
             Math.Max(0, challenge.MaxAttemptCount - challenge.AttemptCount),
             challenge.RequestContextHash,
-            CreatePolicyReadout(requiresFreshStepUp: challenge.Purpose == AuthChallengePurposes.StepUp));
+            await CreatePolicyReadoutAsync(
+                actor,
+                cancellationToken,
+                requiresFreshStepUp: challenge.Purpose == AuthChallengePurposes.StepUp));
     }
 
     private MfaChallengeVerifyResponse CreateVerifyResponse(
@@ -784,19 +878,85 @@ internal sealed class MfaRuntimeService : IMfaRuntimeService
         return output.ToString();
     }
 
-    private MfaPolicyReadout CreatePolicyReadout(bool requiresFreshStepUp = false)
+    private async Task<MfaPolicyReadout> CreatePolicyReadoutAsync(
+        AuthenticatedActor actor,
+        CancellationToken cancellationToken,
+        bool requiresFreshStepUp = false)
     {
+        var readout = await policyService.CreateReadoutAsync(actor, requiresFreshStepUp, cancellationToken);
         return new MfaPolicyReadout(
-            PolicyVersion,
-            AuthSecurityPolicySupportModes.Optional,
-            AuthSecurityPolicySupportModes.Optional,
-            AuthSecurityPolicySupportModes.Optional,
-            AuthSecurityPolicyEnforcementModes.Optional,
-            "unknown",
-            RequiresEnrollment: false,
-            RequiresFreshStepUp: requiresFreshStepUp,
-            RecoveryCodesLow: false,
-            ServerAuthoritative: true);
+            readout.PolicyVersion,
+            readout.PasskeySupportMode,
+            readout.TotpSupportMode,
+            readout.RecoveryCodeSupportMode,
+            readout.EnforcementMode,
+            readout.AccountCompliance,
+            readout.RequiresEnrollment,
+            readout.RequiresFreshStepUp,
+            readout.RecoveryCodesLow,
+            readout.ServerAuthoritative);
+    }
+
+    private async Task<bool> EnsureFreshStepUpForSensitiveOperationAsync(
+        AuthenticatedActor actor,
+        string operationCategory,
+        string action,
+        Guid? mfaFactorId,
+        Guid? recoveryCodeBatchId,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (!await policyService.RequiresFreshStepUpAsync(actor, operationCategory, cancellationToken))
+        {
+            return true;
+        }
+
+        var freshness = await policyService.EvaluateFreshnessAsync(
+            new StepUpFreshnessRequest(actor.AuthAccountId, actor.AuthSessionId, operationCategory),
+            cancellationToken);
+        if (freshness.Satisfied)
+        {
+            await WriteAuditAsync(
+                "step_up.satisfied",
+                AuthAuditOutcomes.Success,
+                actor.AuthAccountId,
+                actor.AuthAccountId,
+                mfaFactorId,
+                recoveryCodeBatchId,
+                freshness.ChallengeId,
+                freshness.FactorType ?? AuthChallengeFactorTypes.Mfa,
+                operationCategory,
+                occurredAtUtc,
+                cancellationToken);
+            return true;
+        }
+
+        await WriteAuditAsync(
+            "step_up.required",
+            AuthAuditOutcomes.Denied,
+            actor.AuthAccountId,
+            actor.AuthAccountId,
+            mfaFactorId,
+            recoveryCodeBatchId,
+            freshness.ChallengeId,
+            freshness.FactorType ?? AuthChallengeFactorTypes.Mfa,
+            freshness.ReasonCategory,
+            occurredAtUtc,
+            cancellationToken);
+        await WriteAuditAsync(
+            action,
+            AuthAuditOutcomes.Denied,
+            actor.AuthAccountId,
+            actor.AuthAccountId,
+            mfaFactorId,
+            recoveryCodeBatchId,
+            freshness.ChallengeId,
+            freshness.FactorType ?? AuthChallengeFactorTypes.Mfa,
+            "fresh_step_up_required",
+            occurredAtUtc,
+            cancellationToken);
+        await TrySaveAsync(cancellationToken);
+        return false;
     }
 
     private async Task WriteAuditAsync(

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Auth.CurrentUser;
+using Settleora.Api.Auth.Policy;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Persistence;
@@ -19,6 +20,7 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
     private readonly IPasskeyWebAuthnProvider webAuthnProvider;
     private readonly IPasskeyAuditWriter auditWriter;
     private readonly IAuthSessionRuntimeService sessionRuntimeService;
+    private readonly IAuthSecurityPolicyService policyService;
     private readonly TimeProvider timeProvider;
     private readonly PasskeyWebAuthnOptions options;
 
@@ -27,6 +29,7 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
         IPasskeyWebAuthnProvider webAuthnProvider,
         IPasskeyAuditWriter auditWriter,
         IAuthSessionRuntimeService sessionRuntimeService,
+        IAuthSecurityPolicyService policyService,
         TimeProvider timeProvider,
         IOptions<PasskeyWebAuthnOptions> options)
     {
@@ -34,6 +37,7 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
         this.webAuthnProvider = webAuthnProvider;
         this.auditWriter = auditWriter;
         this.sessionRuntimeService = sessionRuntimeService;
+        this.policyService = policyService;
         this.timeProvider = timeProvider;
         this.options = options.Value;
     }
@@ -44,6 +48,22 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
         CancellationToken cancellationToken)
     {
         var occurredAtUtc = timeProvider.GetUtcNow();
+        if (!await policyService.IsPasskeySupportedAsync(actor, cancellationToken))
+        {
+            await WriteAuditAsync(
+                "passkey.policy_denied",
+                AuthAuditOutcomes.Denied,
+                actor.AuthAccountId,
+                actor.AuthAccountId,
+                null,
+                null,
+                "passkey_disabled",
+                occurredAtUtc,
+                cancellationToken);
+            await TrySaveAsync(cancellationToken);
+            return new PasskeyEnrollmentOptionsServiceResult(PasskeyServiceStatus.Denied);
+        }
+
         var account = await LoadAvailableAccountAsync(actor.AuthAccountId, cancellationToken);
         if (account is null)
         {
@@ -102,7 +122,7 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
                 challenge.Id,
                 optionsResult.Options,
                 expiresAtUtc,
-                CreatePolicyReadout()));
+                await CreatePolicyReadoutAsync(actor, cancellationToken)));
     }
 
     public async Task<PasskeyCredentialServiceResult> CompleteEnrollmentAsync(
@@ -213,7 +233,7 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
 
         return new PasskeyCredentialServiceResult(
             PasskeyServiceStatus.Succeeded,
-            new PasskeyCredentialResponse(MapCredential(credential), CreatePolicyReadout()));
+            new PasskeyCredentialResponse(MapCredential(credential), await CreatePolicyReadoutAsync(actor, cancellationToken)));
     }
 
     public async Task<PasskeyCredentialListResponse> ListCredentialsAsync(
@@ -226,7 +246,9 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
             .Take(50)
             .ToListAsync(cancellationToken);
 
-        return new PasskeyCredentialListResponse(credentials.Select(MapCredential).ToArray(), CreatePolicyReadout());
+        return new PasskeyCredentialListResponse(
+            credentials.Select(MapCredential).ToArray(),
+            await CreatePolicyReadoutAsync(actor, cancellationToken));
     }
 
     public async Task<PasskeyCredentialServiceResult> UpdateCredentialAsync(
@@ -242,6 +264,17 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
         }
 
         var occurredAtUtc = timeProvider.GetUtcNow();
+        if (!await EnsureFreshStepUpForSensitiveOperationAsync(
+                actor,
+                AuthSecurityPolicyOperations.PasskeyCredentialManagement,
+                "passkey.renamed",
+                credential.Id,
+                occurredAtUtc,
+                cancellationToken))
+        {
+            return new PasskeyCredentialServiceResult(PasskeyServiceStatus.Denied);
+        }
+
         credential.DisplayLabel = BoundOptional(request.DisplayLabel, DisplayLabelMaxLength);
         credential.UpdatedAtUtc = occurredAtUtc;
         await WriteAuditAsync(
@@ -262,7 +295,7 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
 
         return new PasskeyCredentialServiceResult(
             PasskeyServiceStatus.Succeeded,
-            new PasskeyCredentialResponse(MapCredential(credential), CreatePolicyReadout()));
+            new PasskeyCredentialResponse(MapCredential(credential), await CreatePolicyReadoutAsync(actor, cancellationToken)));
     }
 
     public async Task<PasskeyCredentialMutationResult> RevokeCredentialAsync(
@@ -280,6 +313,17 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
         if (credential.Status == AuthPasskeyCredentialStatuses.Revoked)
         {
             return new PasskeyCredentialMutationResult(PasskeyServiceStatus.Succeeded);
+        }
+
+        if (!await EnsureFreshStepUpForSensitiveOperationAsync(
+                actor,
+                AuthSecurityPolicyOperations.PasskeyCredentialManagement,
+                "passkey.revoked",
+                credential.Id,
+                occurredAtUtc,
+                cancellationToken))
+        {
+            return new PasskeyCredentialMutationResult(PasskeyServiceStatus.Denied);
         }
 
         credential.Status = AuthPasskeyCredentialStatuses.Revoked;
@@ -309,6 +353,11 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
         CancellationToken cancellationToken)
     {
         var occurredAtUtc = timeProvider.GetUtcNow();
+        if (!await policyService.IsPasskeySupportedAsync(actor: null, cancellationToken))
+        {
+            return new PasskeySignInOptionsServiceResult(PasskeyServiceStatus.Denied);
+        }
+
         var credentials = await LoadSignInCandidateCredentialsAsync(request.IdentifierHint, cancellationToken);
         var optionsResult = webAuthnProvider.CreateAssertionOptions(new PasskeyAssertionOptionsRequest(
             credentials,
@@ -466,6 +515,11 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
             return new PasskeyStepUpOptionsServiceResult(PasskeyServiceStatus.InvalidRequest);
         }
 
+        if (!await policyService.IsPasskeySupportedAsync(actor, cancellationToken))
+        {
+            return new PasskeyStepUpOptionsServiceResult(PasskeyServiceStatus.Denied);
+        }
+
         var credentials = await LoadAccountPasskeysAsync(actor.AuthAccountId, enrolledOnly: true, cancellationToken);
         if (credentials.Count == 0)
         {
@@ -506,7 +560,7 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
                 operationCategory,
                 optionsResult.Options,
                 expiresAtUtc,
-                CreatePolicyReadout(requiresFreshStepUp: true)));
+                await CreatePolicyReadoutAsync(actor, cancellationToken, requiresFreshStepUp: true)));
     }
 
     public async Task<PasskeyStepUpCompleteServiceResult> CompleteStepUpAsync(
@@ -593,7 +647,7 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
                 challenge.RequestContextHash ?? "unspecified",
                 occurredAtUtc,
                 occurredAtUtc.AddSeconds(Math.Max(60, options.StepUpFreshnessSeconds)),
-                PolicyVersion));
+                (await policyService.GetCurrentPolicyAsync(cancellationToken)).PolicyVersion));
     }
 
     private async Task<AuthAccount?> LoadAvailableAccountAsync(Guid authAccountId, CancellationToken cancellationToken)
@@ -782,19 +836,78 @@ internal sealed class PasskeyRuntimeService : IPasskeyRuntimeService
         return roles;
     }
 
-    private PasskeyPolicyReadout CreatePolicyReadout(bool requiresFreshStepUp = false)
+    private async Task<PasskeyPolicyReadout> CreatePolicyReadoutAsync(
+        AuthenticatedActor actor,
+        CancellationToken cancellationToken,
+        bool requiresFreshStepUp = false)
     {
+        var readout = await policyService.CreateReadoutAsync(actor, requiresFreshStepUp, cancellationToken);
         return new PasskeyPolicyReadout(
-            PolicyVersion,
-            AuthSecurityPolicySupportModes.Optional,
-            AuthSecurityPolicySupportModes.Disabled,
-            AuthSecurityPolicySupportModes.Disabled,
-            AuthSecurityPolicyEnforcementModes.Optional,
-            "unknown",
-            RequiresEnrollment: false,
-            RequiresFreshStepUp: requiresFreshStepUp,
-            RecoveryCodesLow: false,
-            ServerAuthoritative: true);
+            readout.PolicyVersion,
+            readout.PasskeySupportMode,
+            readout.TotpSupportMode,
+            readout.RecoveryCodeSupportMode,
+            readout.EnforcementMode,
+            readout.AccountCompliance,
+            readout.RequiresEnrollment,
+            readout.RequiresFreshStepUp,
+            readout.RecoveryCodesLow,
+            readout.ServerAuthoritative);
+    }
+
+    private async Task<bool> EnsureFreshStepUpForSensitiveOperationAsync(
+        AuthenticatedActor actor,
+        string operationCategory,
+        string action,
+        Guid? credentialId,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (!await policyService.RequiresFreshStepUpAsync(actor, operationCategory, cancellationToken))
+        {
+            return true;
+        }
+
+        var freshness = await policyService.EvaluateFreshnessAsync(
+            new StepUpFreshnessRequest(actor.AuthAccountId, actor.AuthSessionId, operationCategory),
+            cancellationToken);
+        if (freshness.Satisfied)
+        {
+            await WriteAuditAsync(
+                "step_up.satisfied",
+                AuthAuditOutcomes.Success,
+                actor.AuthAccountId,
+                actor.AuthAccountId,
+                credentialId,
+                freshness.ChallengeId,
+                operationCategory,
+                occurredAtUtc,
+                cancellationToken);
+            return true;
+        }
+
+        await WriteAuditAsync(
+            "step_up.required",
+            AuthAuditOutcomes.Denied,
+            actor.AuthAccountId,
+            actor.AuthAccountId,
+            credentialId,
+            freshness.ChallengeId,
+            freshness.ReasonCategory,
+            occurredAtUtc,
+            cancellationToken);
+        await WriteAuditAsync(
+            action,
+            AuthAuditOutcomes.Denied,
+            actor.AuthAccountId,
+            actor.AuthAccountId,
+            credentialId,
+            freshness.ChallengeId,
+            "fresh_step_up_required",
+            occurredAtUtc,
+            cancellationToken);
+        await TrySaveAsync(cancellationToken);
+        return false;
     }
 
     private static PasskeyCredentialSummary MapCredential(AuthPasskeyCredential credential)

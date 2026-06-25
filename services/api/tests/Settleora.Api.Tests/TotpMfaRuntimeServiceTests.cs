@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Auth.Mfa;
+using Settleora.Api.Auth.Policy;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
@@ -89,6 +90,7 @@ public sealed class TotpMfaRuntimeServiceTests
                 new TotpCodeService(),
                 new RecoveryCodeHasher(),
                 new EfMfaAuditWriter(dbContext),
+                new AuthSecurityPolicyService(dbContext, timeProvider),
                 timeProvider,
                 options));
     }

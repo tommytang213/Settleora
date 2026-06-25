@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Auth.Passkeys;
+using Settleora.Api.Auth.Policy;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Users;
@@ -208,6 +209,7 @@ public sealed class PasskeyRuntimeServiceTests
                 webAuthnProvider,
                 auditWriter,
                 sessionRuntimeService,
+                new AuthSecurityPolicyService(dbContext, timeProvider),
                 timeProvider,
                 options));
     }
