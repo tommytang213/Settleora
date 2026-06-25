@@ -16,7 +16,7 @@ This document does not authorize implementation by itself. It defines architectu
 
 The current repository has Standard Secure server-side protection foundations for auth/session, PostgreSQL persistence, file metadata, local file storage, self payment details, self payment QR files, settlement proof files, bill attachments, and bill-scoped receipt OCR review rows. It does not implement recoverable vault runtime encryption, vault API endpoints, device envelopes, recovery envelopes, vault-aware file byte handling, vault UI, schema migrations for vault tables, or Strict Private Vault.
 
-The existing `file_objects` metadata table already records a constrained `encryption_mode` and optional vault metadata reference, but current runtime behavior remains server-managed. This document narrows the policy and data-classification decisions for #418 so later issues can design keys, sensitive file/field integration, audit, backup, and warning behavior without moving money, authorization, or storage authority to clients.
+The existing `file_objects` metadata table already records a constrained `encryption_mode` and optional vault metadata reference, but current runtime behavior remains server-managed. This document narrows the policy and data-classification decisions for #418, the key/envelope/recovery decisions for #419, and the sensitive file/field integration-boundary decisions for #420 so later issues can design audit, backup, warning, and runtime behavior without moving money, authorization, or storage authority to clients.
 
 ## Product Decision
 
@@ -255,6 +255,118 @@ The API/domain layer remains authoritative for money, settlement, status transit
 
 Shared sensitive files and fields may be vault-protected only where the design preserves authorized access for the intended participants and does not move financial authority to clients.
 
+## Sensitive File And Field Integration Boundaries
+
+This section is the #420 architecture/control packet for recoverable-vault sensitive file and field integration boundaries. It is design-only. It does not approve runtime encryption, storage-provider changes, schema, migrations, OpenAPI, generated-client changes, UI/Figma work, `docs/design/mobile/*` changes, OCR runtime, import/export runtime, backup automation, or file-byte handling changes.
+
+### Boundary Terms
+
+Recoverable-vault integration uses these terms:
+
+| Term | Boundary |
+| --- | --- |
+| Recoverable-vault payload | Encrypted sensitive file bytes, encrypted selected field values, or encrypted derived content whose plaintext is not required for server-authoritative money, authorization, lifecycle, audit, reconciliation, warning, retention, backup, or policy enforcement. |
+| Server-readable metadata | PostgreSQL and safe response/audit metadata the API must read to authorize, locate, lifecycle-manage, warn about, retain, restore, reconcile, or audit content without decrypting vault payload plaintext. |
+| Provider-neutral file reference | Stable file or attachment IDs exposed to clients and domain records, such as `fileId`, not physical paths, object keys, bucket names, provider URLs, or storage implementation details. |
+| Storage object identifier | Provider-internal object key or equivalent operational reference stored only as server-private metadata. It is not user content and must not appear in public APIs, generated clients, logs, issue comments, support reports, or Codex reports. |
+| Encrypted field payload | Ciphertext plus non-secret payload format/version metadata for one selected field or approved field group. It must not carry the only copy of server-authoritative facts. |
+| Encrypted file payload | Ciphertext file bytes, thumbnail bytes, preview bytes, or derived-file bytes stored through the storage abstraction and linked by server-readable file metadata. |
+| Thumbnails, previews, and derived files | Separate sensitive payloads when they reveal receipt, proof, QR, statement, OCR, payment, or private-note content. They need their own purpose, lifecycle, retention, authorization, and audit policy. |
+| OCR text and extracted field candidates | Sensitive derived content. Raw OCR text is eligible for vault protection if stored; reviewed field candidates may be server-readable only where needed for user review, draft apply, validation, warnings, and audit boundaries. |
+| Statement/import rows | Highly sensitive reconciliation source content. Raw source rows and account labels are eligible only after statement-specific owner, subject, retention, audit, and reporting boundaries are approved. |
+| Payment-profile, QR, and proof fields | Sensitive payment content including payment handles, payment notes, QR images, proof files, and proof notes. Visibility remains API/domain-authorized even when payloads are vault-wrapped. |
+| Private notes and sensitive user text | User-entered text that is not required for shared accounting truth. It is eligible for vault protection when search, report, audit, warning, retention, reconciliation, and policy requirements do not need plaintext. |
+
+### File Storage Interaction
+
+Vault wrapping changes content encryption; it does not replace Settleora's storage or metadata model:
+
+- File bytes still go through the API-owned storage abstraction for receipt images, supporting attachments, payment QR images, settlement proof files, thumbnails/previews, OCR source files, statement/import files, exports, and future derived files.
+- File metadata still belongs in PostgreSQL, including stable file ID, owner, creator, purpose, status, content type, size, safe hash where policy allows it, subject association, lifecycle timestamps, retention policy, encryption mode, and safe vault/envelope status metadata.
+- API authorization remains required for every file read, write, attach, detach, replace, archive, restore, delete, purge, export, import, recovery, and rewrap action.
+- API responses must expose stable IDs and safe metadata only. They must not expose filesystem paths, mounted paths, object keys, bucket names, provider URLs, provider diagnostics, storage roots, envelope internals, raw ciphertext internals, vault key references that function as secrets, recovery material, or vault key material.
+- Vault encryption must not bypass API authorization, file purpose constraints, subject association checks, metadata lifecycle rules, retention policy, audit requirements, or backup/restore consistency checks.
+- Possessing a file ID, storage object identifier, envelope ID, generated-client method, cached local file row, or local vault/cache state is never authorization.
+- Workers may process sensitive files only through reviewed job payloads and API/domain validation. Workers must not receive provider internals or mutate file metadata, vault metadata, auth rows, or core business tables directly.
+
+Provider-neutral file references may be visible to clients only as stable application identifiers. Storage object identifiers remain server-private operational metadata even if the encrypted file payload is unreadable to the server.
+
+### Field-level Vault Interaction
+
+Candidate recoverable-vault field payloads are selected fields whose plaintext is not required for server-authoritative operation:
+
+- payment profile free-text content such as payment handle, payment method detail, and payment note, where counterparty visibility can still be decided from server-readable policy and relationship metadata.
+- private notes on bills, settlements, profiles, imports, or attachments when they are not needed for shared accounting truth, report/search truth, reconciliation, warnings, retention, or audit evidence.
+- proof notes or payment references that may contain bank/account details when the settlement/payment relationship and lifecycle facts remain server-readable.
+- full OCR raw text if a future OCR/privacy task stores it; OCR review candidates used for draft apply may remain bounded server-readable provisional data only where the API must validate or present review state.
+- user-entered attachment filenames or labels only when a future policy approves storing them and defines redaction, search, retention, and display behavior.
+- future statement/import source rows, account labels, and mapping notes only after statement-specific privacy, reconciliation, owner, subject, retention, reporting, and audit boundaries are approved.
+
+Server-readable metadata must remain available for:
+
+- authentication, authorization, role, group, participant, payer, debtor, creditor, requester, and visibility checks.
+- search/index safety, including deciding what is searchable and what must be excluded because plaintext is vault-protected.
+- lifecycle, archive/restore, delete/purge, retention, backup/restore consistency, and stale-envelope warnings.
+- audit categories, correlation IDs, actor/subject IDs, action outcomes, safe reason codes, policy versions, recovery status, and privacy-mode changes.
+- settlement, bill, recurring, import, reconciliation, notification, and reporting policy enforcement.
+- user-visible warnings and blocked states when vault content is locked, missing, stale, quarantined, deleted, inaccessible, or needs recovery/rewrap.
+
+Fields that must remain server-readable metadata, or be excluded from vault payloads entirely, include:
+
+- authoritative bill totals, currencies, item totals, split shares, participant shares, payer contributions, settlement request/payment/residual amounts, balances, recurrence forecast truth, and report totals.
+- bill, settlement, payment, residual, recurrence, archive/restore, sync, conflict, notification routing, and lifecycle states.
+- group membership, product roles, account/profile linkage, visibility policy, ownership, creator, subject association, and authorization facts.
+- file purpose, file status, content type, size, safe hash where policy allows it, retention policy, lifecycle timestamps, storage provider category, and provider-internal object key.
+- audit records needed to investigate money, authorization, storage access, privacy-mode changes, key/envelope/recovery, security, backup/restore, migration, and policy changes.
+- reconciliation status and bounded import/export bookkeeping that the server needs to prevent duplicate, unsafe, or misleading accounting behavior.
+
+These values must never become ordinary recoverable-vault payloads: raw passwords, password verifiers, passkey private material, raw TOTP seeds, raw recovery codes, raw session tokens, raw bearer tokens, raw refresh tokens, provider access/refresh/ID tokens, raw auth challenges, reset tokens, signing keys, pepper secrets, secret-provider values, decrypted key material, raw vault root keys, raw data keys, raw recovery secrets, unrestricted logs, raw request/response bodies, and unbounded audit/debug traces.
+
+### Subject-specific Boundary Direction
+
+Future implementation slices must define the owner, subject, metadata, envelope, authorization, retention, and audit behavior per purpose before changing runtime behavior.
+
+| Surface | Recoverable-vault payload candidates | Server-readable boundary that must remain |
+| --- | --- | --- |
+| Payment profile and QR | Payment handle/detail/note where policy allows, QR image bytes, QR preview bytes. | Profile owner, visibility setting, counterparty relationship proof, QR file ID, purpose `payment_qr`, lifecycle, content type/size, retention, audit categories. |
+| Receipt and bill attachments | Receipt image bytes, supporting attachment bytes, thumbnails/previews, sensitive attachment labels. | Bill/group subject IDs, participant/payer/creator visibility, file ID, purpose, status, content metadata, OCR review linkage, retention, audit categories. |
+| OCR review and extracted candidates | Full OCR raw text and OCR source bytes if stored; sensitive derived text not needed for authoritative bill truth. | Review ID, bill/file IDs, status/source, bounded reviewed candidate fields needed for review/apply, validation issues, timestamps, creator, draft-only apply policy, audit categories. |
+| Settlement proof | Proof file bytes, proof previews, proof notes/reference text containing account details. | Settlement request/payment IDs, debtor/creditor/requester/creator facts, proof file ID, purpose `settlement_proof`, payment status, lifecycle, content metadata, retention, audit categories. |
+| Statement import and reconciliation | Raw statement files, parsed raw rows, account labels, provider references, import notes. | Import owner, statement/import job ID, reconciliation status, linked bill/payment IDs, duplicate-safety metadata, row counts, policy version, retention, audit categories. |
+| Private notes and sensitive text | Personal notes and user-entered sensitive text not needed for shared truth. | Owning subject, author, visibility class, lifecycle, search exclusion flag, retention, warning state, audit categories. |
+| Exports and backups | Export file bytes and manifests containing sensitive payload references. | Export owner, scope, created/expiry timestamps, privacy mode, payload categories, retention, restore/warning status, audit categories. |
+
+### Sharing And Collaboration Rules
+
+Vault wrapping must preserve server-mode collaboration authority:
+
+- Shared financial records cannot silently become unreadable to authorized participants when the product has promised those participants access to the shared record or supporting sensitive content.
+- Vault-wrapped shared content still requires per-viewer API authorization and, where payload decryption is allowed, an approved participant envelope or equivalent access path for that viewer.
+- Recipients must not receive sensitive payloads merely because they know a file ID, bill ID, group ID, profile ID, settlement ID, envelope ID, or storage object identifier.
+- Group and shared receipt visibility must follow API/domain policy for the bill, group, participant, payer, creator, and lifecycle state. Group membership alone is not enough unless the domain policy says the member may view that specific receipt/proof/attachment.
+- Clients must not infer authorization from local vault state, cached envelope availability, cached group membership, hidden UI controls, route availability, generated-client methods, local thumbnails, or offline cache records.
+- If a viewer is API-authorized but lacks a usable envelope or trusted device, the API/client flow should surface a safe locked/recovery-needed state rather than exposing plaintext, leaking existence to unrelated actors, or treating the client as authoritative.
+- Participant envelope creation, revocation, and rewrap must follow server-readable authorization and lifecycle policy and must be auditable with bounded metadata.
+
+### Day 1 Boundaries And Handoffs
+
+Day 1 architecture boundaries for #420:
+
+- No full zero-knowledge collaborative vault implementation is approved.
+- No runtime encryption implementation is approved by this task.
+- No storage provider implementation or file-byte handling change is approved by this task.
+- No schema, migration, model snapshot, DbContext, or persistence implementation is approved by this task.
+- No OpenAPI or generated-client change is approved by this task.
+- No UI/Figma or `docs/design/mobile/*` change is approved by this task.
+- Future runtime, storage, schema, API/OpenAPI, generated-client, import/export, backup/restore, OCR, and UI implementation must be split into separately gated tasks with explicit validation and manual gates where required.
+
+Handoffs:
+
+- #422 owns audit, backup, restore, recovery warnings, validation checklist, bounded event names, redaction evidence, backup-retention caveats, and no-silent-downgrade checks.
+- #421 remains the separate UX/reference gate for privacy mode onboarding, settings, warnings, locked states, recovery flows, and device approval.
+- #343 remains the parent tracker for privacy-mode file handling and must not be closed by this child packet.
+- Future statement/reconciliation, export/backup, OCR raw-text, and shared collaborative vault slices must each define their exact subject, metadata, envelope, retention, audit, warning, OpenAPI/schema impact, and validation plan before runtime implementation.
+
 ## Auth, Session, And Credential Boundaries
 
 Recoverable vault recovery and authentication recovery are related but separate control planes:
@@ -301,7 +413,7 @@ Warnings must be product/runtime behavior in later implementation tasks. This do
 The #418 classification packet intentionally leaves these details to separate issues:
 
 - #419 owns key and envelope architecture, including vault root keys, per-item data keys, device envelopes, recovery envelopes, participant envelopes, trusted-device approval, lost-device recovery, key rotation, rewrap, envelope revocation, and key-loss behavior.
-- #420 owns sensitive file and field integration, including exact owners, subjects, encryption modes, file purposes, field-level vaulting, attachment/QR/proof/OCR/statement/export boundaries, retention, migration, OpenAPI impact, generated-client impact, and API authorization contracts.
+- #420 defines sensitive file and field integration boundaries, including recoverable payloads, server-readable metadata, provider-neutral file references, field-level vaulting, attachment/QR/proof/OCR/statement/import/private-note boundaries, sharing/collaboration rules, Day 1 non-goals, and future implementation handoffs.
 - #422 owns audit, backup, restore, and recovery warning checklists, including bounded event names, redaction rules, backup-retention caveats, restore-mode warnings, operator evidence, and no-silent-downgrade checks.
 - #421 remains the UI/reference gate for privacy mode onboarding, settings, warnings, and recovery UX. This document does not clear that Figma/reference gate.
 - #343 remains the broad parent tracker for privacy-mode file handling and must not be closed by this child packet.
