@@ -20,6 +20,7 @@ workflows:
     scripts:
       - name: Show Flutter version
         script: |
+          pwd
           flutter --version
 
       - name: Install Flutter dependencies
@@ -30,13 +31,75 @@ workflows:
         script: |
           flutter analyze
 
-      - name: Run Flutter tests
+      - name: Run non-visual Flutter tests
         script: |
-          flutter test
+          # Normal validation proves app validity without blocking on visual
+          # evidence/screen-compare capture tests. Those run in
+          # mobile-ios-visual-evidence for Codex/Figma/UI review.
+          pwd
+          TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual_capture_test.dart' | sort)
+          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          echo "Selected non-visual Flutter test files: $TEST_COUNT"
+          printf '%s\n' "$TEST_FILES"
+          if [ "$TEST_COUNT" = "0" ]; then
+            echo "No non-visual Flutter tests were selected"
+            exit 1
+          fi
+          flutter test -r expanded $TEST_FILES
 
     artifacts:
       - build/**/outputs/**/*.log
       - flutter_drive.log
+
+  mobile-ios-visual-evidence:
+    name: Mobile iOS visual evidence
+    working_directory: apps/mobile
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    # Manual-only Codex/Figma/UI comparison path. This workflow runs visual
+    # evidence and screen-compare capture tests separately from app validity
+    # and TestFlight preview build validation.
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    cache:
+      cache_paths:
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+
+    scripts:
+      - name: Show Flutter version
+        script: |
+          pwd
+          flutter --version
+
+      - name: Install Flutter dependencies
+        script: |
+          flutter pub get
+
+      - name: Run visual evidence Flutter tests
+        script: |
+          # Visual evidence/screen-compare tests are intentionally explicit so
+          # Codex/Figma/UI review can collect screenshots without blocking
+          # internal TestFlight preview builds.
+          pwd
+          TEST_FILES=$(find test -type f -name '*visual_capture_test.dart' | sort)
+          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          echo "Selected visual Flutter test files: $TEST_COUNT"
+          printf '%s\n' "$TEST_FILES"
+          if [ "$TEST_COUNT" = "0" ]; then
+            echo "No visual Flutter tests were selected"
+            exit 1
+          fi
+          flutter test -r expanded $TEST_FILES
+
+    artifacts:
+      - build/**/outputs/**/*.log
+      - flutter_drive.log
+      - /workspace/logs/settleora-visual-qa/**/*.png
 
   mobile-ios-testflight-internal:
     name: Mobile iOS internal TestFlight
@@ -65,6 +128,7 @@ workflows:
     scripts:
       - name: Show Flutter version
         script: |
+          pwd
           flutter --version
 
       - name: Install Flutter dependencies
@@ -75,9 +139,21 @@ workflows:
         script: |
           flutter analyze
 
-      - name: Run Flutter tests
+      - name: Run non-visual Flutter tests
         script: |
-          flutter test
+          # TestFlight/internal preview builds validate app correctness and the
+          # installable IPA path without being blocked by visual evidence or
+          # screen-compare capture tests.
+          pwd
+          TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual_capture_test.dart' | sort)
+          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          echo "Selected non-visual Flutter test files: $TEST_COUNT"
+          printf '%s\n' "$TEST_FILES"
+          if [ "$TEST_COUNT" = "0" ]; then
+            echo "No non-visual Flutter tests were selected"
+            exit 1
+          fi
+          flutter test -r expanded $TEST_FILES
 
       - name: Set up iOS code signing settings
         script: |
