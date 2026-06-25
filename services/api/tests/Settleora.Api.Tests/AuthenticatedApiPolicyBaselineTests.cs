@@ -26,7 +26,10 @@ public sealed class AuthenticatedApiPolicyBaselineTests : IClassFixture<WebAppli
         new("POST", "/api/v1/auth/local/sign-in", "Local-session sign-in must accept credentials before a session exists."),
         new("POST", "/api/v1/auth/refresh", "Refresh rotates the submitted refresh credential without bearer auth."),
         new("POST", "/api/v1/auth/passkeys/sign-in/options", "Passkey sign-in ceremony options must start before a session exists."),
-        new("POST", "/api/v1/auth/passkeys/sign-in/complete", "Passkey sign-in ceremony completion validates assertions before a session exists.")
+        new("POST", "/api/v1/auth/passkeys/sign-in/complete", "Passkey sign-in ceremony completion validates assertions before a session exists."),
+        new("POST", "/api/v1/auth/mfa/challenges", "MFA challenges can be created for pending auth flows before a full session exists."),
+        new("POST", "/api/v1/auth/mfa/challenges/{mfaChallengeId:guid}/totp/verify", "TOTP challenge verification can complete a pending auth flow before a full session exists."),
+        new("POST", "/api/v1/auth/mfa/challenges/{mfaChallengeId:guid}/recovery-code/verify", "Recovery-code challenge verification can complete a pending auth flow before a full session exists.")
     ];
 
     private static readonly HashSet<string> PublicEndpointKeys = PublicEndpointAllowlist
@@ -104,6 +107,8 @@ public sealed class AuthenticatedApiPolicyBaselineTests : IClassFixture<WebAppli
     [Theory]
     [InlineData("GET", "/api/v1/auth/current-user")]
     [InlineData("GET", "/api/v1/auth/me")]
+    [InlineData("GET", "/api/v1/auth/mfa/factors")]
+    [InlineData("GET", "/api/v1/auth/recovery-codes")]
     [InlineData("GET", "/api/v1/users/me/profile")]
     [InlineData("GET", "/api/v1/users/me/payment-details")]
     [InlineData("GET", "/api/v1/users/me/payment-details/qr/content")]
