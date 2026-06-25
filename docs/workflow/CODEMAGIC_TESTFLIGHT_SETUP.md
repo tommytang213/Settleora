@@ -13,6 +13,8 @@ working_directory: apps/mobile
 The root `codemagic.yaml` defines:
 
 - `mobile-ios-validation`: safe Flutter validation only.
+- `mobile-ios-visual-evidence`: explicit visual capture / screen-compare
+  evidence tests for Codex/Figma/UI review.
 - `mobile-ios-testflight-internal`: manual internal TestFlight-oriented App Store Connect upload through the confirmed Codemagic Apple Developer Portal integration.
 
 Codemagic validates the whole YAML when detecting configuration, including workflows that are run manually. Keep the root file parse-safe and do not commit signing material, App Store Connect API keys, provisioning profiles, certificates, `.p8` files, passwords, or other secrets.
@@ -26,10 +28,37 @@ Run `Mobile iOS validation` manually in Codemagic for mobile/iOS changes, Codema
 ```bash
 flutter pub get
 flutter analyze
-flutter test
+flutter test -r expanded <all test files except *visual_capture_test.dart>
 ```
 
 This workflow does not publish, upload to App Store Connect, invite testers, or require Apple signing secrets.
+
+Normal mobile validation intentionally excludes `apps/mobile/test/**/*visual_capture_test.dart`.
+Those visual capture and screen-compare tests are useful review evidence, but they
+should not block app validity checks or an installable internal TestFlight preview
+build. The workflow prints the selected non-visual test count and file list before
+running the tests.
+
+## Visual Evidence Workflow
+
+`Mobile iOS visual evidence` is manual-only in Codemagic and runs only files
+matching:
+
+```bash
+test/**/*visual_capture_test.dart
+```
+
+It is the explicit Codex/Figma/UI comparison path for collecting visual evidence
+and diagnosing screen-compare failures. It runs:
+
+```bash
+flutter pub get
+flutter test -r expanded <only *visual_capture_test.dart files>
+```
+
+The workflow prints the selected visual test count and file list, and publishes
+captured PNG evidence from `/workspace/logs/settleora-visual-qa/` when tests
+produce it.
 
 ## Manual Codemagic Setup
 
@@ -70,7 +99,7 @@ The active internal workflow:
 - Uses `integrations.app_store_connect: settleora-app-store-connect`.
 - Uses `ios_signing.distribution_type: app_store`.
 - Uses `ios_signing.bundle_identifier: com.tommytang213.settleora`.
-- Runs Flutter dependency, analyze, and test steps before signing.
+- Runs Flutter dependency, analyze, and non-visual test steps before signing.
 - Passes `testFlightInternalTestingOnly` through `xcode-project use-profiles`.
 - Builds a signed iOS IPA with `flutter build ipa --release`.
 - Publishes to App Store Connect with `auth: integration`.
@@ -81,6 +110,12 @@ The active internal workflow:
 Do not configure `beta_groups: Internal Testers`. App Store Connect internal tester groups are not valid Codemagic `beta_groups` assignment targets, and using that wiring can fail after the build has already uploaded and processed. If a future workflow adds external beta tester distribution, keep it explicitly external-only, require beta review intentionally, and never include the internal `Internal Testers` group in `beta_groups`.
 
 No public App Store release is configured. No external tester automation is configured. No `submit_to_app_store`, external beta groups, certificates, provisioning profiles, `.p8` files, passwords, or signing material are committed.
+
+The internal TestFlight workflow uses the same non-visual selection rule as
+`Mobile iOS validation`: it runs every Flutter test file except
+`*visual_capture_test.dart` with expanded output. Visual capture/screen-compare
+evidence remains available through `Mobile iOS visual evidence` without blocking
+the installable preview build path.
 
 ## Manual Release Gate Checklist
 
