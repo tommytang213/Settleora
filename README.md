@@ -39,6 +39,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Offline queue persistence and sync state model](docs/architecture/OFFLINE_QUEUE_SYNC_STATE_MODEL.md)
 - [Server sync acceptance, idempotency, and conflict policy](docs/architecture/SERVER_SYNC_ACCEPTANCE_IDEMPOTENCY_CONFLICT_POLICY.md)
 - [Local, server, import, export, and restore boundaries](docs/architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
+- [CSV export and import privacy authority](docs/architecture/CSV_EXPORT_IMPORT_PRIVACY_AUTHORITY.md)
 - [Sync audit and validation matrix](docs/architecture/SYNC_AUDIT_VALIDATION_MATRIX.md)
 - [Expense bill multi-tax-rate architecture](docs/architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md)
 - [Day 1 receipt and bill edge-case architecture](docs/architecture/DAY1_RECEIPT_BILL_EDGE_CASE_ARCHITECTURE.md)
