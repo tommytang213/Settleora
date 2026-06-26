@@ -62,6 +62,169 @@ Authority guardrails:
 - Receipt-total mismatch becomes a review, error, blocked-finalization, or explicit manual-adjustment state. It must never silently mutate item totals, tax groups, discounts, refunds, payer contribution, or participant shares.
 - Offline or queued edits in server mode remain pending until the API accepts them. Local previews must preserve pending/conflict/failed state rather than presenting client-computed financial truth as accepted.
 
+## API/domain calculation policy
+
+Future API/domain implementation must treat multi-tax calculation as a normalized server-side command, not as a client-submitted total. This branch does not add OpenAPI request or response shapes; names below are stable planning names for later runtime and contract work.
+
+Server-authoritative calculation inputs should include:
+
+- bill identity, bill status, expected version, active accepted revision or active pending revision basis, actor identity from the authenticated session, and group scope where applicable;
+- bill currency, item currency, payer contribution currency, and any later manual FX snapshot reference when cross-currency work is explicitly in scope;
+- line items with quantity, unit amount, line total, tax group linkage or explicit exempt/none state, tax rate snapshot, tax label snapshot, tax-inclusion mode, discount tax treatment, source kind, and safe OCR review line references where present;
+- item split or claim basis, including equal, exact, ratio/percentage/share, quantity, open/self-claim, manual, unresolved, and allocation order metadata;
+- tax group summaries with taxable subtotal, tax amount, effective total, rate snapshot, tax label snapshot, inclusion mode, discount tax treatment, source kind, review state, and policy versions;
+- financial components for fees, service charges, delivery or packaging fees, discounts, coupons, credits, refund/return lines, tax corrections, tender/change lines, and manual adjustments, each with direction, scope, allocation method, contribution treatment where applicable, tax linkage where applicable, safe reason code, and safe source references;
+- receipt summary fields for reviewed subtotal, tax totals by group where available, fee total, discount total, refund total, grand total, calculated total, reconciliation state, and manual adjustment reference where applicable;
+- rounding inputs, including money policy version, rounding policy version, normalized allocation order, eligible residual recipients, and previous calculation hash when validating stale basis.
+
+Server-authoritative calculation outputs should include:
+
+- normalized item totals, taxable bases, tax components, effective item totals, split allocations, and participant share effects;
+- tax group summaries, tax allocation by item/split/participant, and any explicit item-level override explanation;
+- financial component allocation effects across bill, item, tax group, participant, and payer scopes;
+- payer contribution validation, payer residuals, payer reconfirmation trigger category, and safe payer-side impact readouts;
+- receipt reconciliation result, calculated total, mismatch amount, mismatch category, review/block state, and manual adjustment eligibility;
+- deterministic rounding residual assignments with scope, recipient, amount, currency, allocation order, reason, policy versions, and calculation hash;
+- stable validation outcomes and problem categories suitable for API responses and audit without making clients the authority;
+- bill/revision status transition recommendations, affected participant set, payer reconfirmation requirement, settlement-impact category, and safe audit metadata.
+
+The API/domain service must derive these outputs from normalized inputs and policy. A client may submit proposed facts, reviewed OCR candidates, or a preview request, but it must not submit final participant shares, final tax allocation, final residual recipients, final mismatch classification, final status transitions, settlement truth, or audit truth as authority.
+
+## Stable planning names for validation and mismatch outcomes
+
+Future runtime and OpenAPI branches should use bounded machine-readable names. The names in this section are planning names only; do not add them to OpenAPI enums in this docs/control branch.
+
+Recommended calculation validation outcomes:
+
+```text
+calculation_valid
+draft_calculation_valid_with_review_warnings
+manual_review_required
+blocked_until_required_tax_detail
+blocked_until_receipt_reconciles
+blocked_until_manual_adjustment_policy
+blocked_until_affected_approval
+blocked_until_payer_reconfirmation
+blocked_until_settlement_policy
+stale_calculation_basis
+unsupported_currency_or_precision
+unsupported_mixed_currency
+unsupported_tax_configuration
+```
+
+Recommended receipt reconciliation states:
+
+```text
+not_provided
+not_required_for_draft
+matched
+matched_with_rounding_residual
+mismatch_requires_review
+mismatch_manual_adjustment_allowed
+mismatch_manual_adjustment_applied
+mismatch_blocked
+unsupported_receipt_shape
+```
+
+Recommended mismatch reason categories:
+
+```text
+line_sum_differs_from_receipt_subtotal
+tax_group_total_differs_from_receipt_tax_total
+grand_total_differs_from_calculated_total
+discount_total_unallocated
+fee_total_unallocated
+refund_or_return_unlinked
+tender_or_change_included_in_error
+tax_inclusion_mode_unknown
+discount_tax_treatment_unknown
+manual_adjustment_required
+rounding_residual_out_of_policy
+currency_mismatch
+ocr_or_review_source_stale
+```
+
+Recommended safe problem categories:
+
+```text
+money_validation_failed
+tax_group_validation_failed
+financial_component_validation_failed
+receipt_reconciliation_failed
+rounding_allocation_failed
+manual_adjustment_not_allowed
+approval_or_payer_gate_required
+settlement_state_blocks_apply
+stale_or_conflicting_basis
+unsupported_detail_for_finalization
+```
+
+Problem responses should include a safe code, correlation ID, subject category, and bounded amount/currency or count data only where policy permits. They must not include raw request bodies, raw OCR text, receipt bytes, storage paths, object keys, signed URLs, secrets, tokens, unrelated user data, or unbounded notes.
+
+## Receipt-total mismatch policy
+
+Receipt-total reconciliation must be explicit. Settleora must not silently balance an unmatched receipt by changing items, tax groups, discounts, refunds, payer contributions, participant shares, or settlement bases.
+
+Allowed outcomes are:
+
+- leave the draft or pending revision in a review state with a mismatch amount and bounded reason category;
+- block submission, confirmation, finalization, or apply when policy requires a reconciled total;
+- allow an explicit manual adjustment component only when the API/domain policy permits the actor, bill state, amount bounds, reason code, audit metadata, and affected-user review path;
+- reject or fail closed when the mismatch involves unsupported currency, unsupported precision, stale OCR review data, incomplete tax details, unresolved refund linkage, or progressed settlement state.
+
+Manual adjustment is not automatic balancing. A manual adjustment must be a first-class reviewed financial component with direction, amount/currency, scope, reason code, optional bounded reason summary, affected participant and payer impact, revision snapshot preservation, audit event, and calculation hash participation.
+
+Tender and change lines must be excluded from shared bill cost by default. Payment tender can become payer contribution metadata only through explicit reviewed policy. Change returned must not become a refund, discount, or shared participant share unless a later reviewed correction workflow explicitly converts it.
+
+Refunds, returns, credits, coupons, points redemption, gift card payments, store credit, and tax corrections must preserve component classification and contribution treatment. If the contribution treatment changes payer obligation or participant shares, the change is money-impacting and follows revision approval and payer reconfirmation policy.
+
+## Historical stability rules
+
+Tax and fee calculations must remain historically stable after acceptance.
+
+Rules:
+
+- Tax rates, tax labels, tax category labels, tax-inclusion modes, discount tax treatment, tax group keys, fee classifications, refund/return linkages, contribution treatments, money policy versions, and rounding policy versions are snapshots on the bill or revision basis.
+- Settleora must not use one global tax assumption for a bill, a merchant, a country, a user locale, a currency, or a future reference table when calculating historical shares.
+- Future jurisdiction reference data may help validate new drafts, but it must not silently recalculate accepted bills, revision snapshots, settlement candidates, request lines, payments, residuals, balances, reports, or audit history.
+- Bill revision snapshots must preserve tax, fee, discount, coupon, credit, refund/return, tax correction, manual adjustment, receipt summary, mismatch, and rounding residual detail when those details affect shares, payer contribution, settlement basis, review evidence, or reportable totals.
+- Any tax, fee, discount, refund, manual adjustment, or receipt mismatch decision that affects participant shares, payer contribution, settlement basis, accepted calculation hash, or reportable totals is money-impacting and must use the existing revision approval and payer reconfirmation policy.
+
+## Settlement interaction policy
+
+Pending tax revisions are not settlement truth.
+
+Pending or review-only tax, fee, discount, refund, receipt mismatch, manual adjustment, or rounding changes must not mutate:
+
+- settlement candidates;
+- settlement requests or request lines;
+- settlement payments;
+- payment allocations;
+- settlement residuals;
+- settlement proof attachments;
+- balance projections or persisted balance caches;
+- reconciliation/report truth based on active accepted bills;
+- active accepted participant shares or payer contributions.
+
+If a bill already has requested, partially paid, marked paid, confirmed, disputed, cancelled-with-history, allocation, residual, proof, balance-impact, locked, finalized, or equivalent progressed settlement state, tax-affecting apply remains blocked until a future reviewed invalidation, correction, adjustment, reopen, refund, waiver, credit, or settlement-history policy exists.
+
+This document does not authorize settlement reopen, settlement adjustment, refund ledger, credit ledger, balance rewrite, proof relinking, or payment allocation mutation.
+
+## Audit and redaction policy
+
+Money-impacting multi-tax decisions require API/domain audit for both successful writes and policy-relevant denials. Required audit categories include:
+
+- tax group creation, update, removal, manual correction, and review-state decision;
+- item tax group linkage, tax-inclusion mode, discount tax treatment, and tax override decision;
+- fee, service charge, discount, coupon, credit, refund/return, tax correction, tender/change exclusion, contribution treatment, and manual adjustment decision;
+- receipt subtotal, tax total, grand-total reconciliation, mismatch classification, mismatch review state, manual adjustment allowance, and mismatch denial;
+- rounding residual assignment, residual recipient, allocation order, policy version, and calculation hash category where non-zero or money-impacting;
+- affected participant reset, payer reconfirmation requirement, revision apply block, settlement-impact block, stale-basis denial, and unsupported-detail denial.
+
+Safe audit metadata may include actor ID, bill ID, revision ID, tax group ID, component ID, safe source file or OCR review IDs, participant or payer IDs where policy permits, operation, outcome, bounded reason category, amount/currency where policy permits, affected counts, policy versions, calculation hash category, request ID, and correlation ID.
+
+Audit, logs, reports, examples, validation output, problem details, and snapshots must not contain raw OCR text, receipt bytes, thumbnails, storage paths, object keys, bucket names, provider internals, signed URLs, local device paths, raw request/response bodies, multipart payloads, secrets, tokens, credentials, session values, private keys, unbounded notes, unrelated sensitive profile data, unrelated user financial data, or local Codex/auth state.
+
 ## Recommended model
 
 A bill item should preserve tax metadata where known:
@@ -471,21 +634,21 @@ Applying a tax-affecting revision after settlement, payment, proof, residual, lo
 
 ## Implementation sequencing
 
-Issue `#427` is a docs/control design slice only. It does not implement schema, migrations, EF model changes, DbContext changes, model snapshots, OpenAPI, generated clients, runtime calculation behavior, OCR worker behavior, UI, settlement mutation, storage behavior, Docker, CI, deployment, secrets, or auth/session/security changes.
+Issue `#427` was the multi-tax schema and migration docs/control design slice. Issue `#428` is the API/domain calculation and receipt-total reconciliation docs/control design slice. Neither branch implements schema, migrations, EF model changes, DbContext changes, model snapshots, OpenAPI, generated clients, runtime calculation behavior, OCR worker behavior, UI, settlement mutation, storage behavior, Docker, CI, deployment, secrets, or auth/session/security changes.
 
 Recommended follow-up order:
 
 1. Schema/migration implementation slice for additive tax groups, item links, financial components, receipt summaries, and residual metadata, with constraints, indexes, backfill strategy, and migration validation.
-2. API/domain calculation and reconciliation implementation for #428, including authority checks, receipt mismatch state, tax/fee/discount/refund allocation, calculation hashes, and audit.
+2. API/domain calculation and reconciliation implementation after #428 review, including authority checks, receipt mismatch state, tax/fee/discount/refund allocation, calculation hashes, status transitions, problem categories, and audit.
 3. OCR review/UI reference work for #429 only when the Stream B gate explicitly allows UI/reference scope.
 4. Validation matrix and tests for #430, including mixed rates, included/excluded modes, discounts, refunds, residuals, receipt mismatches, OCR provisional boundaries, and revision/settlement non-mutation.
 5. OpenAPI and generated-client changes only if a later contract exposure is needed, using the reviewed OpenAPI/generated-client gate and regeneration workflow.
 
 The parent #351 remains open until the implementation, UI/reference, validation, and merge-gate work it tracks is complete.
 
-## Required Day 1 validation cases
+## Validation and test expectations for #430
 
-Day 1 implementation must include automated validation coverage for at least:
+Issue `#430` should convert this architecture into concrete validation matrices and future runtime/API tests. Day 1 implementation must include automated validation coverage for at least:
 
 - one bill with 8% and 10% item tax groups;
 - tax-included item amounts;
@@ -500,6 +663,23 @@ Day 1 implementation must include automated validation coverage for at least:
 - returned/refunded 10% item affecting only the 10% tax group;
 - receipt total mismatch producing review/error state rather than silent correction;
 - rounding residual assignment being deterministic and reproducible.
+- fees, service charges, delivery or packaging fees, surcharges, and manually allocated fee-like components with taxable, exempt, tax-included, tax-excluded, and unknown/manual review handling;
+- coupons, credits, points redemption, gift card payment, store credit, refund credit, tender, and change classification with editable contribution treatment and safe default exclusion where applicable;
+- explicit manual adjustment acceptance and rejection paths, including reason code bounds, amount bounds, audit metadata, affected participant reset, payer reconfirmation trigger, and no automatic balancing;
+- stale OCR review, stale bill version, stale calculation hash, stale pending revision, and conflicting active pending revision failures;
+- unsupported currency, unsupported precision, mixed currency without an approved FX snapshot policy, and rounding residual out-of-policy failures;
+- pending tax revisions not mutating settlement candidates, requests, request lines, payments, allocations, residuals, proof attachments, balances, reports, active accepted shares, or payer contributions;
+- progressed settlement state blocking tax-affecting apply until explicit reviewed policy exists;
+- audit/log redaction proving no raw OCR text, receipt bytes, storage internals, raw bodies, secrets, tokens, or unrelated sensitive content are emitted.
+
+Future validation should be layered:
+
+- Domain/unit tests for normalization, tax group allocation, component allocation, mismatch classification, deterministic residual assignment, calculation hashes, and affected-user/payer trigger derivation.
+- API integration tests for personal and group bill paths, authorization failures, stale basis, problem categories, draft versus submitted/confirmed/revision states, and safe response metadata.
+- Revision/settlement tests proving pending tax changes remain proposals only and settlement state blocks apply without mutation.
+- Audit redaction tests or log scans for success and denial paths.
+- Schema/migration tests only in a future schema branch.
+- OpenAPI/generated-client validation only in a future contract branch.
 
 ## Non-goals
 
