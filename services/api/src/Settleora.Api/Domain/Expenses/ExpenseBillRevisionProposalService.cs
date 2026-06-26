@@ -268,7 +268,8 @@ internal sealed class ExpenseBillRevisionProposalService
     {
         if (revision.ExpenseBillId != bill.Id
             || bill.BillOwnerUserProfileId != actorUserProfileId
-            || revision.Status != ExpenseBillRevisionStatuses.SubmittedForReview)
+            || revision.Status != ExpenseBillRevisionStatuses.SubmittedForReview
+            || !BillRevisionSnapshotFoundation.IsApplyBasisSupported(revision))
         {
             return false;
         }
@@ -384,13 +385,23 @@ internal sealed class ExpenseBillRevisionProposalService
             return ExpenseBillRevisionOperationResult.Failed("active_pending_revision_exists");
         }
 
-        var candidateHash = BillRevisionCalculationHash.Create(candidateSnapshot);
         var affectedResult = affectedParticipantService.Compare(
             activeAcceptedSnapshot.ToMoneyBasis(),
             candidateSnapshot.ToMoneyBasis(),
             proposerUserProfileId);
         var affectedParticipantIds = affectedResult.AffectedParticipantIds.ToHashSet();
         var payerConfirmationIds = affectedResult.PayersRequiringConfirmation.ToHashSet();
+        if (activeAcceptedSnapshot.UnsupportedDetailReason is not null
+            || candidateSnapshot.UnsupportedDetailReason is not null)
+        {
+            return ExpenseBillRevisionOperationResult.Failed("unsupported_revision_snapshot_detail");
+        }
+
+        var snapshotMaterialization = BillRevisionSnapshotFoundation.Materialize(
+            activeAcceptedSnapshot,
+            candidateSnapshot,
+            affectedParticipantIds,
+            payerConfirmationIds);
         var activeAcceptedParticipantIds = activeAcceptedSnapshot.Participants
             .Select(participant => participant.UserProfileId)
             .ToHashSet();
@@ -401,10 +412,22 @@ internal sealed class ExpenseBillRevisionProposalService
             ExpenseBillId = bill.Id,
             ProposalCreatorUserProfileId = proposerUserProfileId,
             SupersedesExpenseBillRevisionId = supersedesRevisionId,
+            RevisionSequence = bill.Revisions.Count == 0
+                ? 1
+                : bill.Revisions.Max(existingRevision => existingRevision.RevisionSequence) + 1,
             Status = status,
             TotalAmount = candidateSnapshot.TotalAmount,
             TotalCurrency = candidateSnapshot.TotalCurrency,
-            CalculationHash = candidateHash,
+            CalculationHash = snapshotMaterialization.CalculationHash,
+            SnapshotSchemaVersion = BillRevisionSnapshotPolicyVersions.SnapshotSchemaVersion,
+            MoneyPolicyVersion = BillRevisionSnapshotPolicyVersions.MoneyPolicyVersion,
+            RoundingPolicyVersion = BillRevisionSnapshotPolicyVersions.RoundingPolicyVersion,
+            BaselineSnapshotJson = snapshotMaterialization.BaselineSnapshotJson,
+            ProposedSnapshotJson = snapshotMaterialization.ProposedSnapshotJson,
+            AffectedUserSetHash = snapshotMaterialization.AffectedUserSetHash,
+            AffectedUserIdsJson = snapshotMaterialization.AffectedUserIdsJson,
+            PayerConfirmationBasisHash = snapshotMaterialization.PayerConfirmationBasisHash,
+            PayerConfirmationUserIdsJson = snapshotMaterialization.PayerConfirmationUserIdsJson,
             SubmittedAtUtc = status == ExpenseBillRevisionStatuses.SubmittedForReview ? now : null,
             CreatedAtUtc = now,
             UpdatedAtUtc = now
@@ -432,7 +455,7 @@ internal sealed class ExpenseBillRevisionProposalService
                 ParticipantUserProfileId = participant.UserProfileId,
                 AcceptedAmount = participant.ResolvedShareAmount,
                 Currency = participant.ResolvedShareCurrency,
-                CalculationHash = candidateHash,
+                CalculationHash = snapshotMaterialization.CalculationHash,
                 Status = preservedAccepted
                     ? ExpenseBillRevisionApprovalStatuses.Approved
                     : ExpenseBillRevisionApprovalStatuses.PendingReview,
@@ -479,8 +502,15 @@ internal sealed record BillRevisionProposalSnapshot(
     decimal TotalAmount,
     string TotalCurrency,
     IReadOnlyList<BillRevisionParticipantBasis> Participants,
-    IReadOnlyList<BillRevisionPayerBasis> Payers)
+    IReadOnlyList<BillRevisionPayerBasis> Payers,
+    IReadOnlyList<Guid>? AttachmentFileIdSet = null,
+    IReadOnlyList<Guid>? ReceiptOcrReviewIdSet = null,
+    string? UnsupportedDetailReason = null)
 {
+    public IReadOnlyList<Guid> AttachmentFileIds { get; } = AttachmentFileIdSet ?? [];
+
+    public IReadOnlyList<Guid> ReceiptOcrReviewIds { get; } = ReceiptOcrReviewIdSet ?? [];
+
     public BillRevisionMoneyBasis ToMoneyBasis()
     {
         return new BillRevisionMoneyBasis(Participants, Payers);
