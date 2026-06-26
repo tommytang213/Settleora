@@ -73,7 +73,83 @@ internal static class BillRevisionSnapshotFoundation
             && !string.IsNullOrWhiteSpace(revision.ProposedSnapshotJson)
             && StringComparer.Ordinal.Equals(
                 revision.CalculationHash,
-                ComputeCalculationHash(revision.ProposedSnapshotJson));
+                ComputeCalculationHash(revision.ProposedSnapshotJson))
+            && StringComparer.Ordinal.Equals(
+                revision.AffectedUserSetHash,
+                ComputeHash($"affected|{revision.ProposedSnapshotJson}|{revision.AffectedUserIdsJson}"))
+            && StringComparer.Ordinal.Equals(
+                revision.PayerConfirmationBasisHash,
+                ComputeHash($"payer-confirmation|{revision.ProposedSnapshotJson}|{revision.PayerConfirmationUserIdsJson}"))
+            && StoredRowsMatchProposedSnapshot(revision);
+    }
+
+    private static bool StoredRowsMatchProposedSnapshot(ExpenseBillRevision revision)
+    {
+        try
+        {
+            var proposedSnapshot = JsonSerializer.Deserialize<BillRevisionSnapshotEnvelope>(
+                revision.ProposedSnapshotJson,
+                JsonOptions);
+            if (proposedSnapshot is null
+                || !StringComparer.Ordinal.Equals(proposedSnapshot.SnapshotRole, "proposed")
+                || !StringComparer.Ordinal.Equals(proposedSnapshot.TotalAmount, FormatAmount(revision.TotalAmount))
+                || !StringComparer.Ordinal.Equals(proposedSnapshot.TotalCurrency, revision.TotalCurrency))
+            {
+                return false;
+            }
+
+            var snapshotParticipants = proposedSnapshot.Participants
+                .OrderBy(participant => participant.UserProfileId)
+                .ToArray();
+            var revisionParticipants = revision.Participants
+                .OrderBy(participant => participant.UserProfileId)
+                .ToArray();
+            if (snapshotParticipants.Length != revisionParticipants.Length)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < snapshotParticipants.Length; index++)
+            {
+                var snapshotParticipant = snapshotParticipants[index];
+                var revisionParticipant = revisionParticipants[index];
+                if (snapshotParticipant.UserProfileId != revisionParticipant.UserProfileId
+                    || !StringComparer.Ordinal.Equals(snapshotParticipant.ResolvedShareAmount, FormatAmount(revisionParticipant.ResolvedShareAmount))
+                    || !StringComparer.Ordinal.Equals(snapshotParticipant.ResolvedShareCurrency, revisionParticipant.ResolvedShareCurrency))
+                {
+                    return false;
+                }
+            }
+
+            var snapshotPayers = proposedSnapshot.Payers
+                .OrderBy(payer => payer.UserProfileId)
+                .ToArray();
+            var revisionPayers = revision.Payers
+                .OrderBy(payer => payer.UserProfileId)
+                .ToArray();
+            if (snapshotPayers.Length != revisionPayers.Length)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < snapshotPayers.Length; index++)
+            {
+                var snapshotPayer = snapshotPayers[index];
+                var revisionPayer = revisionPayers[index];
+                if (snapshotPayer.UserProfileId != revisionPayer.UserProfileId
+                    || !StringComparer.Ordinal.Equals(snapshotPayer.Amount, FormatAmount(revisionPayer.Amount))
+                    || !StringComparer.Ordinal.Equals(snapshotPayer.Currency, revisionPayer.Currency))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static string SerializeSnapshot(string snapshotRole, BillRevisionProposalSnapshot snapshot)

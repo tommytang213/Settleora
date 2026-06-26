@@ -292,6 +292,99 @@ public sealed class ExpenseBillRevisionProposalServiceTests
         Assert.All(bill.Participants, participant => Assert.Equal(ExpenseBillParticipantStatuses.Accepted, participant.Status));
     }
 
+    [Theory]
+    [InlineData("affected_user_set")]
+    [InlineData("payer_confirmation_basis")]
+    public void TamperedApprovalOrPayerBasisHashBlocksApplyWithoutMutatingAcceptedTruth(string tamperedBasis)
+    {
+        var bill = CreateBill(Creator, ParticipantOne);
+        var active = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var candidate = Snapshot(
+            [(Creator, 40m), (ParticipantOne, 60m)],
+            [(ParticipantOne, 100m)]);
+        var revision = service.CreateDraftProposal(
+            bill,
+            Creator,
+            active,
+            candidate,
+            InitialTimestamp).Revision!;
+        service.SubmitProposal(revision, Creator, InitialTimestamp.AddMinutes(1));
+        ApproveAll(revision, InitialTimestamp.AddMinutes(2));
+        Assert.True(service.RecordPayerConfirmation(
+            revision,
+            ParticipantOne,
+            revision.CalculationHash,
+            InitialTimestamp.AddMinutes(3)).Succeeded);
+        var originalTotal = bill.TotalAmount;
+        var originalActiveRevisionId = bill.ActiveAcceptedBillRevisionId;
+
+        if (tamperedBasis == "affected_user_set")
+        {
+            revision.AffectedUserIdsJson = "[]";
+        }
+        else
+        {
+            revision.PayerConfirmationUserIdsJson = "[]";
+        }
+
+        var apply = service.ApplyProposal(
+            bill,
+            revision,
+            Creator,
+            InitialTimestamp.AddMinutes(4));
+
+        Assert.False(apply.Succeeded);
+        Assert.Equal("revision_apply_not_allowed", apply.FailureCode);
+        Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, revision.Status);
+        Assert.Equal(originalTotal, bill.TotalAmount);
+        Assert.Equal(originalActiveRevisionId, bill.ActiveAcceptedBillRevisionId);
+        Assert.All(bill.Participants, participant => Assert.Equal(ExpenseBillParticipantStatuses.Accepted, participant.Status));
+    }
+
+    [Fact]
+    public void TamperedParticipantOrPayerRowsCannotDriftFromApprovedSnapshotAtApply()
+    {
+        var bill = CreateBill(Creator, ParticipantOne);
+        var active = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var candidate = Snapshot(
+            [(Creator, 40m), (ParticipantOne, 60m)],
+            [(ParticipantOne, 100m)]);
+        var revision = service.CreateDraftProposal(
+            bill,
+            Creator,
+            active,
+            candidate,
+            InitialTimestamp).Revision!;
+        service.SubmitProposal(revision, Creator, InitialTimestamp.AddMinutes(1));
+        ApproveAll(revision, InitialTimestamp.AddMinutes(2));
+        Assert.True(service.RecordPayerConfirmation(
+            revision,
+            ParticipantOne,
+            revision.CalculationHash,
+            InitialTimestamp.AddMinutes(3)).Succeeded);
+        var originalTotal = bill.TotalAmount;
+        var originalActiveRevisionId = bill.ActiveAcceptedBillRevisionId;
+
+        revision.Payers.Single().UserProfileId = Creator;
+
+        var apply = service.ApplyProposal(
+            bill,
+            revision,
+            Creator,
+            InitialTimestamp.AddMinutes(4));
+
+        Assert.False(apply.Succeeded);
+        Assert.Equal("revision_apply_not_allowed", apply.FailureCode);
+        Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, revision.Status);
+        Assert.Equal(originalTotal, bill.TotalAmount);
+        Assert.Equal(originalActiveRevisionId, bill.ActiveAcceptedBillRevisionId);
+        Assert.All(bill.Participants, participant => Assert.Equal(ExpenseBillParticipantStatuses.Accepted, participant.Status));
+    }
+
     [Fact]
     public void PendingRevisionDoesNotMutateActiveAcceptedBillTruth()
     {
@@ -663,6 +756,23 @@ public sealed class ExpenseBillRevisionProposalServiceTests
             revision.Participants,
             candidate => candidate.UserProfileId == participantId);
         Assert.Equal(expectedAffected, participant.AffectedByRevision);
+    }
+
+    private static void ApproveAll(
+        ExpenseBillRevision revision,
+        DateTimeOffset approvedAtUtc)
+    {
+        var service = new ExpenseBillRevisionProposalService();
+        foreach (var approval in revision.Approvals)
+        {
+            Assert.True(service.RecordApproval(
+                revision,
+                approval.ParticipantUserProfileId,
+                approval.AcceptedAmount,
+                approval.Currency,
+                approval.CalculationHash,
+                approvedAtUtc).Succeeded);
+        }
     }
 
     private static Guid StableGuid(int value)

@@ -46,9 +46,15 @@ public sealed class ExpenseBillRevisionSettlementApplyPolicyTests
 
     [Theory]
     [InlineData("partially_paid_request")]
+    [InlineData("marked_paid_request")]
     [InlineData("confirmed_request")]
+    [InlineData("disputed_request")]
+    [InlineData("cancelled_request")]
     [InlineData("non_open_line")]
     [InlineData("payment")]
+    [InlineData("confirmed_payment")]
+    [InlineData("disputed_payment")]
+    [InlineData("cancelled_payment")]
     [InlineData("allocation")]
     [InlineData("proof")]
     [InlineData("request_residual")]
@@ -208,15 +214,44 @@ public sealed class ExpenseBillRevisionSettlementApplyPolicyTests
             case "partially_paid_request":
                 settlementRequest.Status = SettlementRequestStatuses.PartiallyPaid;
                 break;
+            case "marked_paid_request":
+                settlementRequest.Status = SettlementRequestStatuses.MarkedPaid;
+                break;
             case "confirmed_request":
                 settlementRequest.Status = SettlementRequestStatuses.Confirmed;
                 settlementRequest.ConfirmedAtUtc = Timestamp;
+                break;
+            case "disputed_request":
+                settlementRequest.Status = SettlementRequestStatuses.Disputed;
+                settlementRequest.DisputedAtUtc = Timestamp;
+                break;
+            case "cancelled_request":
+                settlementRequest.Status = SettlementRequestStatuses.Cancelled;
+                settlementRequest.CancelledAtUtc = Timestamp;
                 break;
             case "non_open_line":
                 settlementRequest.Lines.Single().Status = SettlementRequestLineStatuses.PartiallyCleared;
                 break;
             case "payment":
                 settlementRequest.Payments.Add(CreateSettlementPayment(settlementRequest.Id));
+                break;
+            case "confirmed_payment":
+                var confirmedPayment = CreateSettlementPayment(settlementRequest.Id);
+                confirmedPayment.Status = SettlementPaymentStatuses.Confirmed;
+                confirmedPayment.ConfirmedAtUtc = Timestamp;
+                settlementRequest.Payments.Add(confirmedPayment);
+                break;
+            case "disputed_payment":
+                var disputedPayment = CreateSettlementPayment(settlementRequest.Id);
+                disputedPayment.Status = SettlementPaymentStatuses.Disputed;
+                disputedPayment.DisputedAtUtc = Timestamp;
+                settlementRequest.Payments.Add(disputedPayment);
+                break;
+            case "cancelled_payment":
+                var cancelledPayment = CreateSettlementPayment(settlementRequest.Id);
+                cancelledPayment.Status = SettlementPaymentStatuses.Cancelled;
+                cancelledPayment.CancelledAtUtc = Timestamp;
+                settlementRequest.Payments.Add(cancelledPayment);
                 break;
             case "allocation":
                 var allocatedPayment = CreateSettlementPayment(settlementRequest.Id);
