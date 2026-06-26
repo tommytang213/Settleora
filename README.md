@@ -42,6 +42,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [CSV export and import privacy authority](docs/architecture/CSV_EXPORT_IMPORT_PRIVACY_AUTHORITY.md)
 - [Local backup and restore package security](docs/architecture/LOCAL_BACKUP_RESTORE_PACKAGE_SECURITY.md)
 - [Import validation, conflict, and migration policy](docs/architecture/IMPORT_VALIDATION_CONFLICT_MIGRATION_POLICY.md)
+- [Import/export storage, privacy, and audit validation matrix](docs/architecture/IMPORT_EXPORT_STORAGE_PRIVACY_AUDIT_VALIDATION_MATRIX.md)
 - [Sync audit and validation matrix](docs/architecture/SYNC_AUDIT_VALIDATION_MATRIX.md)
 - [Expense bill multi-tax-rate architecture](docs/architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md)
 - [Day 1 receipt and bill edge-case architecture](docs/architecture/DAY1_RECEIPT_BILL_EDGE_CASE_ARCHITECTURE.md)
