@@ -4061,15 +4061,71 @@ class RejectBillParticipantRequest {
   }
 }
 
-/// Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, free-text reasons, or internal database-only fields.
+/// Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, raw OCR text, raw request bodies, file bytes, or internal database-only fields. Optional stale guards, idempotency metadata, and OCR source references are advisory transport fields; the API/domain remains authoritative.
 class CreateBillRevisionProposalRequest {
-  const CreateBillRevisionProposalRequest({
+  static const Object _unsetExpectedBillVersion = Object();
+  static const Object _unsetExpectedActiveAcceptedRevisionId = Object();
+  static const Object _unsetExpectedActivePendingRevisionId = Object();
+  static const Object _unsetIdempotencyKey = Object();
+  static const Object _unsetCorrelationId = Object();
+  static const Object _unsetReasonCode = Object();
+  static const Object _unsetReasonNoteSummary = Object();
+  static const Object _unsetOcrSource = Object();
+
+  CreateBillRevisionProposalRequest({
+    Object? expectedBillVersion = _unsetExpectedBillVersion,
+    Object? expectedActiveAcceptedRevisionId = _unsetExpectedActiveAcceptedRevisionId,
+    Object? expectedActivePendingRevisionId = _unsetExpectedActivePendingRevisionId,
+    Object? idempotencyKey = _unsetIdempotencyKey,
+    Object? correlationId = _unsetCorrelationId,
+    Object? reasonCode = _unsetReasonCode,
+    Object? reasonNoteSummary = _unsetReasonNoteSummary,
+    Object? ocrSource = _unsetOcrSource,
     required this.totalAmount,
     required this.totalCurrency,
     required this.participants,
     required this.payers,
-  });
+  })
+      : expectedBillVersion = identical(expectedBillVersion, _unsetExpectedBillVersion) ? null : expectedBillVersion as String?,
+        _hasExpectedBillVersion = !identical(expectedBillVersion, _unsetExpectedBillVersion),
+        expectedActiveAcceptedRevisionId = identical(expectedActiveAcceptedRevisionId, _unsetExpectedActiveAcceptedRevisionId) ? null : expectedActiveAcceptedRevisionId as String?,
+        _hasExpectedActiveAcceptedRevisionId = !identical(expectedActiveAcceptedRevisionId, _unsetExpectedActiveAcceptedRevisionId),
+        expectedActivePendingRevisionId = identical(expectedActivePendingRevisionId, _unsetExpectedActivePendingRevisionId) ? null : expectedActivePendingRevisionId as String?,
+        _hasExpectedActivePendingRevisionId = !identical(expectedActivePendingRevisionId, _unsetExpectedActivePendingRevisionId),
+        idempotencyKey = identical(idempotencyKey, _unsetIdempotencyKey) ? null : idempotencyKey as String?,
+        _hasIdempotencyKey = !identical(idempotencyKey, _unsetIdempotencyKey),
+        correlationId = identical(correlationId, _unsetCorrelationId) ? null : correlationId as String?,
+        _hasCorrelationId = !identical(correlationId, _unsetCorrelationId),
+        reasonCode = identical(reasonCode, _unsetReasonCode) ? null : reasonCode as String?,
+        _hasReasonCode = !identical(reasonCode, _unsetReasonCode),
+        reasonNoteSummary = identical(reasonNoteSummary, _unsetReasonNoteSummary) ? null : reasonNoteSummary as String?,
+        _hasReasonNoteSummary = !identical(reasonNoteSummary, _unsetReasonNoteSummary),
+        ocrSource = identical(ocrSource, _unsetOcrSource) ? null : ocrSource as BillRevisionOcrSourceRequest?,
+        _hasOcrSource = !identical(ocrSource, _unsetOcrSource);
 
+  /// Optional optimistic-concurrency guard for the bill basis the client reviewed. It is not an authorization token.
+  final String? expectedBillVersion;
+  final bool _hasExpectedBillVersion;
+  /// Optional stale-basis guard for the active accepted revision the client reviewed.
+  final String? expectedActiveAcceptedRevisionId;
+  final bool _hasExpectedActiveAcceptedRevisionId;
+  /// Optional stale-basis guard for revising an existing active pending revision under the one-active-pending Day 1 policy.
+  final String? expectedActivePendingRevisionId;
+  final bool _hasExpectedActivePendingRevisionId;
+  /// Optional retry key scoped by the API to actor, route subject, operation, and normalized request body hash.
+  final String? idempotencyKey;
+  final bool _hasIdempotencyKey;
+  /// Optional caller correlation ID echoed only where safe for tracing and audit linkage.
+  final String? correlationId;
+  final bool _hasCorrelationId;
+  /// Optional bounded reason category. Free-text notes remain bounded and are never authority for policy decisions.
+  final String? reasonCode;
+  final bool _hasReasonCode;
+  /// Optional bounded human note summary after server-side trimming. It must not contain secrets, raw OCR text, payment secrets, storage internals, or unrelated sensitive content.
+  final String? reasonNoteSummary;
+  final bool _hasReasonNoteSummary;
+  final BillRevisionOcrSourceRequest? ocrSource;
+  final bool _hasOcrSource;
   /// Decimal-safe proposed bill total amount represented as a string. Must be positive and match participant and payer totals.
   final String totalAmount;
   final CurrencyCode totalCurrency;
@@ -4080,6 +4136,30 @@ class CreateBillRevisionProposalRequest {
 
   factory CreateBillRevisionProposalRequest.fromJson(JsonObject json) {
     return CreateBillRevisionProposalRequest(
+      expectedBillVersion: json.containsKey("expectedBillVersion")
+          ? json["expectedBillVersion"] == null ? null : json["expectedBillVersion"] as String
+          : _unsetExpectedBillVersion,
+      expectedActiveAcceptedRevisionId: json.containsKey("expectedActiveAcceptedRevisionId")
+          ? json["expectedActiveAcceptedRevisionId"] == null ? null : json["expectedActiveAcceptedRevisionId"] as String
+          : _unsetExpectedActiveAcceptedRevisionId,
+      expectedActivePendingRevisionId: json.containsKey("expectedActivePendingRevisionId")
+          ? json["expectedActivePendingRevisionId"] == null ? null : json["expectedActivePendingRevisionId"] as String
+          : _unsetExpectedActivePendingRevisionId,
+      idempotencyKey: json.containsKey("idempotencyKey")
+          ? json["idempotencyKey"] == null ? null : json["idempotencyKey"] as String
+          : _unsetIdempotencyKey,
+      correlationId: json.containsKey("correlationId")
+          ? json["correlationId"] == null ? null : json["correlationId"] as String
+          : _unsetCorrelationId,
+      reasonCode: json.containsKey("reasonCode")
+          ? json["reasonCode"] == null ? null : json["reasonCode"] as String
+          : _unsetReasonCode,
+      reasonNoteSummary: json.containsKey("reasonNoteSummary")
+          ? json["reasonNoteSummary"] == null ? null : json["reasonNoteSummary"] as String
+          : _unsetReasonNoteSummary,
+      ocrSource: json.containsKey("ocrSource")
+          ? json["ocrSource"] == null ? null : BillRevisionOcrSourceRequest.fromJson(JsonObject.from(json["ocrSource"] as Map))
+          : _unsetOcrSource,
       totalAmount: json["totalAmount"] as String,
       totalCurrency: json["totalCurrency"] as String,
       participants: (json["participants"] as List<dynamic>).map((item) => BillRevisionProposalParticipantRequest.fromJson(JsonObject.from(item as Map))).toList(growable: false),
@@ -4088,7 +4168,24 @@ class CreateBillRevisionProposalRequest {
   }
 
   JsonObject toJson() {
+    final expectedBillVersionJsonValue = expectedBillVersion;
+    final expectedActiveAcceptedRevisionIdJsonValue = expectedActiveAcceptedRevisionId;
+    final expectedActivePendingRevisionIdJsonValue = expectedActivePendingRevisionId;
+    final idempotencyKeyJsonValue = idempotencyKey;
+    final correlationIdJsonValue = correlationId;
+    final reasonCodeJsonValue = reasonCode;
+    final reasonNoteSummaryJsonValue = reasonNoteSummary;
+    final ocrSourceJsonValue = ocrSource;
+
     return {
+      if (_hasExpectedBillVersion) "expectedBillVersion": expectedBillVersionJsonValue,
+      if (_hasExpectedActiveAcceptedRevisionId) "expectedActiveAcceptedRevisionId": expectedActiveAcceptedRevisionIdJsonValue,
+      if (_hasExpectedActivePendingRevisionId) "expectedActivePendingRevisionId": expectedActivePendingRevisionIdJsonValue,
+      if (_hasIdempotencyKey) "idempotencyKey": idempotencyKeyJsonValue,
+      if (_hasCorrelationId) "correlationId": correlationIdJsonValue,
+      if (_hasReasonCode) "reasonCode": reasonCodeJsonValue,
+      if (_hasReasonNoteSummary) "reasonNoteSummary": reasonNoteSummaryJsonValue,
+      if (_hasOcrSource) "ocrSource": ocrSourceJsonValue == null ? null : ocrSourceJsonValue.toJson(),
       "totalAmount": totalAmount,
       "totalCurrency": totalCurrency,
       "participants": participants.map((item) => item.toJson()).toList(growable: false),
@@ -4208,6 +4305,68 @@ class ConfirmBillRevisionPayerRequest {
   }
 }
 
+/// Safe optional OCR-source handoff reference for future non-draft OCR-to-revision routing. It carries stable IDs and stale guards only, never raw OCR text, file bytes, local paths, storage object keys, provider internals, signed URLs, thumbnails, or worker payloads.
+class BillRevisionOcrSourceRequest {
+  static const Object _unsetExpectedOcrReviewVersion = Object();
+  static const Object _unsetExpectedOcrReviewUpdatedAtUtc = Object();
+
+  BillRevisionOcrSourceRequest({
+    required this.receiptAttachmentFileId,
+    required this.ocrReviewId,
+    Object? expectedOcrReviewVersion = _unsetExpectedOcrReviewVersion,
+    Object? expectedOcrReviewUpdatedAtUtc = _unsetExpectedOcrReviewUpdatedAtUtc,
+    this.sourceMode,
+    this.sourceLineIds,
+  })
+      : expectedOcrReviewVersion = identical(expectedOcrReviewVersion, _unsetExpectedOcrReviewVersion) ? null : expectedOcrReviewVersion as String?,
+        _hasExpectedOcrReviewVersion = !identical(expectedOcrReviewVersion, _unsetExpectedOcrReviewVersion),
+        expectedOcrReviewUpdatedAtUtc = identical(expectedOcrReviewUpdatedAtUtc, _unsetExpectedOcrReviewUpdatedAtUtc) ? null : expectedOcrReviewUpdatedAtUtc as DateTime?,
+        _hasExpectedOcrReviewUpdatedAtUtc = !identical(expectedOcrReviewUpdatedAtUtc, _unsetExpectedOcrReviewUpdatedAtUtc);
+
+  final String receiptAttachmentFileId;
+  final String ocrReviewId;
+  /// Optional stale-source guard for the saved OCR review.
+  final String? expectedOcrReviewVersion;
+  final bool _hasExpectedOcrReviewVersion;
+  /// Optional stale-source timestamp guard for the saved OCR review.
+  final DateTime? expectedOcrReviewUpdatedAtUtc;
+  final bool _hasExpectedOcrReviewUpdatedAtUtc;
+  final BillRevisionOcrSourceMode? sourceMode;
+  /// Optional stable OCR review line IDs that contributed to the proposed revision. Clients must not treat line IDs as proof of visibility or authority.
+  final List<String>? sourceLineIds;
+
+  factory BillRevisionOcrSourceRequest.fromJson(JsonObject json) {
+    return BillRevisionOcrSourceRequest(
+      receiptAttachmentFileId: json["receiptAttachmentFileId"] as String,
+      ocrReviewId: json["ocrReviewId"] as String,
+      expectedOcrReviewVersion: json.containsKey("expectedOcrReviewVersion")
+          ? json["expectedOcrReviewVersion"] == null ? null : json["expectedOcrReviewVersion"] as String
+          : _unsetExpectedOcrReviewVersion,
+      expectedOcrReviewUpdatedAtUtc: json.containsKey("expectedOcrReviewUpdatedAtUtc")
+          ? json["expectedOcrReviewUpdatedAtUtc"] == null ? null : DateTime.parse(json["expectedOcrReviewUpdatedAtUtc"] as String)
+          : _unsetExpectedOcrReviewUpdatedAtUtc,
+      sourceMode: json["sourceMode"] == null ? null : json["sourceMode"] as String,
+      sourceLineIds: json["sourceLineIds"] == null ? null : (json["sourceLineIds"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final expectedOcrReviewVersionJsonValue = expectedOcrReviewVersion;
+    final expectedOcrReviewUpdatedAtUtcJsonValue = expectedOcrReviewUpdatedAtUtc;
+    final sourceModeJsonValue = sourceMode;
+    final sourceLineIdsJsonValue = sourceLineIds;
+
+    return {
+      "receiptAttachmentFileId": receiptAttachmentFileId,
+      "ocrReviewId": ocrReviewId,
+      if (_hasExpectedOcrReviewVersion) "expectedOcrReviewVersion": expectedOcrReviewVersionJsonValue,
+      if (_hasExpectedOcrReviewUpdatedAtUtc) "expectedOcrReviewUpdatedAtUtc": expectedOcrReviewUpdatedAtUtcJsonValue == null ? null : expectedOcrReviewUpdatedAtUtcJsonValue.toUtc().toIso8601String(),
+      if (sourceModeJsonValue != null) "sourceMode": sourceModeJsonValue,
+      if (sourceLineIdsJsonValue != null) "sourceLineIds": sourceLineIdsJsonValue,
+    };
+  }
+}
+
 /// Bill revisions visible to the authenticated actor. The response is intentionally unpaginated for this first lifecycle slice.
 class BillRevisionListResponse {
   const BillRevisionListResponse({
@@ -4231,7 +4390,17 @@ class BillRevisionListResponse {
 
 /// Safe bill revision response. It exposes bounded revision lifecycle, money, affected-participant, payer-confirmation, approval review fields, and server-authoritative review context/diff data while excluding auth/session/credential data, storage internals, proof data, settlement rows, raw audit metadata, and unrelated user data.
 class BillRevisionResponse {
-  const BillRevisionResponse({
+  static const Object _unsetSnapshot = Object();
+  static const Object _unsetSettlementImpact = Object();
+  static const Object _unsetSourceOcrReview = Object();
+  static const Object _unsetServerVersion = Object();
+  static const Object _unsetSnapshotSchemaVersion = Object();
+  static const Object _unsetMoneyPolicyVersion = Object();
+  static const Object _unsetRoundingPolicyVersion = Object();
+  static const Object _unsetRequestMetadata = Object();
+  static const Object _unsetIdempotency = Object();
+
+  BillRevisionResponse({
     required this.id,
     required this.billId,
     required this.groupId,
@@ -4255,7 +4424,35 @@ class BillRevisionResponse {
     required this.approvals,
     required this.viewerActions,
     required this.reviewContext,
-  });
+    Object? snapshot = _unsetSnapshot,
+    Object? settlementImpact = _unsetSettlementImpact,
+    Object? sourceOcrReview = _unsetSourceOcrReview,
+    Object? serverVersion = _unsetServerVersion,
+    Object? snapshotSchemaVersion = _unsetSnapshotSchemaVersion,
+    Object? moneyPolicyVersion = _unsetMoneyPolicyVersion,
+    Object? roundingPolicyVersion = _unsetRoundingPolicyVersion,
+    Object? requestMetadata = _unsetRequestMetadata,
+    Object? idempotency = _unsetIdempotency,
+    this.limitations,
+  })
+      : snapshot = identical(snapshot, _unsetSnapshot) ? null : snapshot as BillRevisionSnapshotSummaryResponse?,
+        _hasSnapshot = !identical(snapshot, _unsetSnapshot),
+        settlementImpact = identical(settlementImpact, _unsetSettlementImpact) ? null : settlementImpact as BillRevisionSettlementImpactSummaryResponse?,
+        _hasSettlementImpact = !identical(settlementImpact, _unsetSettlementImpact),
+        sourceOcrReview = identical(sourceOcrReview, _unsetSourceOcrReview) ? null : sourceOcrReview as BillRevisionOcrSourceResponse?,
+        _hasSourceOcrReview = !identical(sourceOcrReview, _unsetSourceOcrReview),
+        serverVersion = identical(serverVersion, _unsetServerVersion) ? null : serverVersion as String?,
+        _hasServerVersion = !identical(serverVersion, _unsetServerVersion),
+        snapshotSchemaVersion = identical(snapshotSchemaVersion, _unsetSnapshotSchemaVersion) ? null : snapshotSchemaVersion as String?,
+        _hasSnapshotSchemaVersion = !identical(snapshotSchemaVersion, _unsetSnapshotSchemaVersion),
+        moneyPolicyVersion = identical(moneyPolicyVersion, _unsetMoneyPolicyVersion) ? null : moneyPolicyVersion as String?,
+        _hasMoneyPolicyVersion = !identical(moneyPolicyVersion, _unsetMoneyPolicyVersion),
+        roundingPolicyVersion = identical(roundingPolicyVersion, _unsetRoundingPolicyVersion) ? null : roundingPolicyVersion as String?,
+        _hasRoundingPolicyVersion = !identical(roundingPolicyVersion, _unsetRoundingPolicyVersion),
+        requestMetadata = identical(requestMetadata, _unsetRequestMetadata) ? null : requestMetadata as BillRevisionRequestMetadataResponse?,
+        _hasRequestMetadata = !identical(requestMetadata, _unsetRequestMetadata),
+        idempotency = identical(idempotency, _unsetIdempotency) ? null : idempotency as BillRevisionIdempotencyMetadataResponse?,
+        _hasIdempotency = !identical(idempotency, _unsetIdempotency);
 
   final String id;
   final String billId;
@@ -4282,6 +4479,30 @@ class BillRevisionResponse {
   final List<BillRevisionApprovalResponse> approvals;
   final BillRevisionViewerActionsResponse viewerActions;
   final BillRevisionReviewContextResponse reviewContext;
+  final BillRevisionSnapshotSummaryResponse? snapshot;
+  final bool _hasSnapshot;
+  final BillRevisionSettlementImpactSummaryResponse? settlementImpact;
+  final bool _hasSettlementImpact;
+  final BillRevisionOcrSourceResponse? sourceOcrReview;
+  final bool _hasSourceOcrReview;
+  /// Server-issued revision version or ETag-style stale guard for future mutation commands. It is not an authorization token.
+  final String? serverVersion;
+  final bool _hasServerVersion;
+  /// Version of the normalized revision snapshot used for review and calculation hashing.
+  final String? snapshotSchemaVersion;
+  final bool _hasSnapshotSchemaVersion;
+  /// Money policy version used by the API/domain when producing this revision readout.
+  final String? moneyPolicyVersion;
+  final bool _hasMoneyPolicyVersion;
+  /// Rounding policy version used by the API/domain when producing this revision readout.
+  final String? roundingPolicyVersion;
+  final bool _hasRoundingPolicyVersion;
+  final BillRevisionRequestMetadataResponse? requestMetadata;
+  final bool _hasRequestMetadata;
+  final BillRevisionIdempotencyMetadataResponse? idempotency;
+  final bool _hasIdempotency;
+  /// Safe server-provided limitations for this revision readout.
+  final List<BillRevisionLimitationCode>? limitations;
 
   factory BillRevisionResponse.fromJson(JsonObject json) {
     return BillRevisionResponse(
@@ -4308,6 +4529,34 @@ class BillRevisionResponse {
       approvals: (json["approvals"] as List<dynamic>).map((item) => BillRevisionApprovalResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
       viewerActions: BillRevisionViewerActionsResponse.fromJson(JsonObject.from(json["viewerActions"] as Map)),
       reviewContext: BillRevisionReviewContextResponse.fromJson(JsonObject.from(json["reviewContext"] as Map)),
+      snapshot: json.containsKey("snapshot")
+          ? json["snapshot"] == null ? null : BillRevisionSnapshotSummaryResponse.fromJson(JsonObject.from(json["snapshot"] as Map))
+          : _unsetSnapshot,
+      settlementImpact: json.containsKey("settlementImpact")
+          ? json["settlementImpact"] == null ? null : BillRevisionSettlementImpactSummaryResponse.fromJson(JsonObject.from(json["settlementImpact"] as Map))
+          : _unsetSettlementImpact,
+      sourceOcrReview: json.containsKey("sourceOcrReview")
+          ? json["sourceOcrReview"] == null ? null : BillRevisionOcrSourceResponse.fromJson(JsonObject.from(json["sourceOcrReview"] as Map))
+          : _unsetSourceOcrReview,
+      serverVersion: json.containsKey("serverVersion")
+          ? json["serverVersion"] == null ? null : json["serverVersion"] as String
+          : _unsetServerVersion,
+      snapshotSchemaVersion: json.containsKey("snapshotSchemaVersion")
+          ? json["snapshotSchemaVersion"] == null ? null : json["snapshotSchemaVersion"] as String
+          : _unsetSnapshotSchemaVersion,
+      moneyPolicyVersion: json.containsKey("moneyPolicyVersion")
+          ? json["moneyPolicyVersion"] == null ? null : json["moneyPolicyVersion"] as String
+          : _unsetMoneyPolicyVersion,
+      roundingPolicyVersion: json.containsKey("roundingPolicyVersion")
+          ? json["roundingPolicyVersion"] == null ? null : json["roundingPolicyVersion"] as String
+          : _unsetRoundingPolicyVersion,
+      requestMetadata: json.containsKey("requestMetadata")
+          ? json["requestMetadata"] == null ? null : BillRevisionRequestMetadataResponse.fromJson(JsonObject.from(json["requestMetadata"] as Map))
+          : _unsetRequestMetadata,
+      idempotency: json.containsKey("idempotency")
+          ? json["idempotency"] == null ? null : BillRevisionIdempotencyMetadataResponse.fromJson(JsonObject.from(json["idempotency"] as Map))
+          : _unsetIdempotency,
+      limitations: json["limitations"] == null ? null : (json["limitations"] as List<dynamic>).map((item) => item as String).toList(growable: false),
     );
   }
 
@@ -4321,6 +4570,16 @@ class BillRevisionResponse {
     final rejectedAtUtcJsonValue = rejectedAtUtc;
     final appliedAtUtcJsonValue = appliedAtUtc;
     final cancelledAtUtcJsonValue = cancelledAtUtc;
+    final snapshotJsonValue = snapshot;
+    final settlementImpactJsonValue = settlementImpact;
+    final sourceOcrReviewJsonValue = sourceOcrReview;
+    final serverVersionJsonValue = serverVersion;
+    final snapshotSchemaVersionJsonValue = snapshotSchemaVersion;
+    final moneyPolicyVersionJsonValue = moneyPolicyVersion;
+    final roundingPolicyVersionJsonValue = roundingPolicyVersion;
+    final requestMetadataJsonValue = requestMetadata;
+    final idempotencyJsonValue = idempotency;
+    final limitationsJsonValue = limitations;
 
     return {
       "id": id,
@@ -4346,6 +4605,567 @@ class BillRevisionResponse {
       "approvals": approvals.map((item) => item.toJson()).toList(growable: false),
       "viewerActions": viewerActions.toJson(),
       "reviewContext": reviewContext.toJson(),
+      if (_hasSnapshot) "snapshot": snapshotJsonValue == null ? null : snapshotJsonValue.toJson(),
+      if (_hasSettlementImpact) "settlementImpact": settlementImpactJsonValue == null ? null : settlementImpactJsonValue.toJson(),
+      if (_hasSourceOcrReview) "sourceOcrReview": sourceOcrReviewJsonValue == null ? null : sourceOcrReviewJsonValue.toJson(),
+      if (_hasServerVersion) "serverVersion": serverVersionJsonValue,
+      if (_hasSnapshotSchemaVersion) "snapshotSchemaVersion": snapshotSchemaVersionJsonValue,
+      if (_hasMoneyPolicyVersion) "moneyPolicyVersion": moneyPolicyVersionJsonValue,
+      if (_hasRoundingPolicyVersion) "roundingPolicyVersion": roundingPolicyVersionJsonValue,
+      if (_hasRequestMetadata) "requestMetadata": requestMetadataJsonValue == null ? null : requestMetadataJsonValue.toJson(),
+      if (_hasIdempotency) "idempotency": idempotencyJsonValue == null ? null : idempotencyJsonValue.toJson(),
+      if (limitationsJsonValue != null) "limitations": limitationsJsonValue,
+    };
+  }
+}
+
+/// Stable envelope for a standalone revision review-context read. Clients render the server-generated context and must not infer authorization, affected-user state, payer-confirmation truth, settlement truth, or financial truth from the generated client surface.
+class BillRevisionReviewContextEnvelopeResponse {
+  static const Object _unsetRequestMetadata = Object();
+
+  BillRevisionReviewContextEnvelopeResponse({
+    required this.revisionId,
+    required this.billId,
+    required this.reviewContext,
+    required this.calculationHash,
+    required this.snapshotSchemaVersion,
+    required this.moneyPolicyVersion,
+    required this.roundingPolicyVersion,
+    Object? requestMetadata = _unsetRequestMetadata,
+    required this.limitations,
+  })
+      : requestMetadata = identical(requestMetadata, _unsetRequestMetadata) ? null : requestMetadata as BillRevisionRequestMetadataResponse?,
+        _hasRequestMetadata = !identical(requestMetadata, _unsetRequestMetadata);
+
+  final String revisionId;
+  final String billId;
+  final BillRevisionReviewContextResponse reviewContext;
+  final String calculationHash;
+  final String snapshotSchemaVersion;
+  final String moneyPolicyVersion;
+  final String roundingPolicyVersion;
+  final BillRevisionRequestMetadataResponse? requestMetadata;
+  final bool _hasRequestMetadata;
+  final List<BillRevisionLimitationCode> limitations;
+
+  factory BillRevisionReviewContextEnvelopeResponse.fromJson(JsonObject json) {
+    return BillRevisionReviewContextEnvelopeResponse(
+      revisionId: json["revisionId"] as String,
+      billId: json["billId"] as String,
+      reviewContext: BillRevisionReviewContextResponse.fromJson(JsonObject.from(json["reviewContext"] as Map)),
+      calculationHash: json["calculationHash"] as String,
+      snapshotSchemaVersion: json["snapshotSchemaVersion"] as String,
+      moneyPolicyVersion: json["moneyPolicyVersion"] as String,
+      roundingPolicyVersion: json["roundingPolicyVersion"] as String,
+      requestMetadata: json.containsKey("requestMetadata")
+          ? json["requestMetadata"] == null ? null : BillRevisionRequestMetadataResponse.fromJson(JsonObject.from(json["requestMetadata"] as Map))
+          : _unsetRequestMetadata,
+      limitations: (json["limitations"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final requestMetadataJsonValue = requestMetadata;
+
+    return {
+      "revisionId": revisionId,
+      "billId": billId,
+      "reviewContext": reviewContext.toJson(),
+      "calculationHash": calculationHash,
+      "snapshotSchemaVersion": snapshotSchemaVersion,
+      "moneyPolicyVersion": moneyPolicyVersion,
+      "roundingPolicyVersion": roundingPolicyVersion,
+      if (_hasRequestMetadata) "requestMetadata": requestMetadataJsonValue == null ? null : requestMetadataJsonValue.toJson(),
+      "limitations": limitations,
+    };
+  }
+}
+
+/// Safe bill revision snapshot readout. It exposes normalized metadata, bounded money rows, stable attachment file IDs, and stable OCR review IDs only. It excludes raw request bodies, raw OCR full text, file bytes, thumbnails, storage paths, object keys, provider internals, signed URLs, secrets, tokens, and unrelated sensitive data.
+class BillRevisionSnapshotResponse {
+  static const Object _unsetRequestMetadata = Object();
+
+  BillRevisionSnapshotResponse({
+    required this.revisionId,
+    required this.billId,
+    required this.snapshot,
+    required this.calculationHash,
+    required this.snapshotSchemaVersion,
+    required this.moneyPolicyVersion,
+    required this.roundingPolicyVersion,
+    Object? requestMetadata = _unsetRequestMetadata,
+    required this.limitations,
+  })
+      : requestMetadata = identical(requestMetadata, _unsetRequestMetadata) ? null : requestMetadata as BillRevisionRequestMetadataResponse?,
+        _hasRequestMetadata = !identical(requestMetadata, _unsetRequestMetadata);
+
+  final String revisionId;
+  final String billId;
+  final BillRevisionSnapshotSummaryResponse snapshot;
+  final String calculationHash;
+  final String snapshotSchemaVersion;
+  final String moneyPolicyVersion;
+  final String roundingPolicyVersion;
+  final BillRevisionRequestMetadataResponse? requestMetadata;
+  final bool _hasRequestMetadata;
+  final List<BillRevisionLimitationCode> limitations;
+
+  factory BillRevisionSnapshotResponse.fromJson(JsonObject json) {
+    return BillRevisionSnapshotResponse(
+      revisionId: json["revisionId"] as String,
+      billId: json["billId"] as String,
+      snapshot: BillRevisionSnapshotSummaryResponse.fromJson(JsonObject.from(json["snapshot"] as Map)),
+      calculationHash: json["calculationHash"] as String,
+      snapshotSchemaVersion: json["snapshotSchemaVersion"] as String,
+      moneyPolicyVersion: json["moneyPolicyVersion"] as String,
+      roundingPolicyVersion: json["roundingPolicyVersion"] as String,
+      requestMetadata: json.containsKey("requestMetadata")
+          ? json["requestMetadata"] == null ? null : BillRevisionRequestMetadataResponse.fromJson(JsonObject.from(json["requestMetadata"] as Map))
+          : _unsetRequestMetadata,
+      limitations: (json["limitations"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final requestMetadataJsonValue = requestMetadata;
+
+    return {
+      "revisionId": revisionId,
+      "billId": billId,
+      "snapshot": snapshot.toJson(),
+      "calculationHash": calculationHash,
+      "snapshotSchemaVersion": snapshotSchemaVersion,
+      "moneyPolicyVersion": moneyPolicyVersion,
+      "roundingPolicyVersion": roundingPolicyVersion,
+      if (_hasRequestMetadata) "requestMetadata": requestMetadataJsonValue == null ? null : requestMetadataJsonValue.toJson(),
+      "limitations": limitations,
+    };
+  }
+}
+
+/// Bounded normalized revision snapshot summary. File and OCR references are stable IDs only and are never storage access grants.
+class BillRevisionSnapshotSummaryResponse {
+  const BillRevisionSnapshotSummaryResponse({
+    required this.snapshotRole,
+    required this.total,
+    required this.participants,
+    required this.payers,
+    required this.attachmentFileRefs,
+    required this.receiptOcrReviewRefs,
+    required this.unsupportedDetailReasons,
+  });
+
+  final BillRevisionSnapshotRole snapshotRole;
+  final BillRevisionMoneyValueResponse total;
+  final List<BillRevisionSnapshotParticipantResponse> participants;
+  final List<BillRevisionSnapshotPayerResponse> payers;
+  /// Stable file IDs and safe attachment purpose/lifecycle metadata only. These IDs are not storage paths or access grants.
+  final List<BillRevisionAttachmentFileReferenceResponse> attachmentFileRefs;
+  /// Stable OCR review references only. Raw OCR full text and worker payloads are excluded.
+  final List<BillRevisionOcrReviewReferenceResponse> receiptOcrReviewRefs;
+  final List<BillRevisionUnsupportedDetailReason> unsupportedDetailReasons;
+
+  factory BillRevisionSnapshotSummaryResponse.fromJson(JsonObject json) {
+    return BillRevisionSnapshotSummaryResponse(
+      snapshotRole: json["snapshotRole"] as String,
+      total: BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["total"] as Map)),
+      participants: (json["participants"] as List<dynamic>).map((item) => BillRevisionSnapshotParticipantResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      payers: (json["payers"] as List<dynamic>).map((item) => BillRevisionSnapshotPayerResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      attachmentFileRefs: (json["attachmentFileRefs"] as List<dynamic>).map((item) => BillRevisionAttachmentFileReferenceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      receiptOcrReviewRefs: (json["receiptOcrReviewRefs"] as List<dynamic>).map((item) => BillRevisionOcrReviewReferenceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      unsupportedDetailReasons: (json["unsupportedDetailReasons"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "snapshotRole": snapshotRole,
+      "total": total.toJson(),
+      "participants": participants.map((item) => item.toJson()).toList(growable: false),
+      "payers": payers.map((item) => item.toJson()).toList(growable: false),
+      "attachmentFileRefs": attachmentFileRefs.map((item) => item.toJson()).toList(growable: false),
+      "receiptOcrReviewRefs": receiptOcrReviewRefs.map((item) => item.toJson()).toList(growable: false),
+      "unsupportedDetailReasons": unsupportedDetailReasons,
+    };
+  }
+}
+
+class BillRevisionSnapshotParticipantResponse {
+  const BillRevisionSnapshotParticipantResponse({
+    required this.userProfileId,
+    required this.resolvedShare,
+    this.affectedByRevision,
+  });
+
+  final String userProfileId;
+  final BillRevisionMoneyValueResponse resolvedShare;
+  final bool? affectedByRevision;
+
+  factory BillRevisionSnapshotParticipantResponse.fromJson(JsonObject json) {
+    return BillRevisionSnapshotParticipantResponse(
+      userProfileId: json["userProfileId"] as String,
+      resolvedShare: BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["resolvedShare"] as Map)),
+      affectedByRevision: json["affectedByRevision"] == null ? null : json["affectedByRevision"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final affectedByRevisionJsonValue = affectedByRevision;
+
+    return {
+      "userProfileId": userProfileId,
+      "resolvedShare": resolvedShare.toJson(),
+      if (affectedByRevisionJsonValue != null) "affectedByRevision": affectedByRevisionJsonValue,
+    };
+  }
+}
+
+class BillRevisionSnapshotPayerResponse {
+  static const Object _unsetPayerConfirmationStatus = Object();
+
+  BillRevisionSnapshotPayerResponse({
+    required this.userProfileId,
+    required this.contribution,
+    this.requiresPayerConfirmation,
+    Object? payerConfirmationStatus = _unsetPayerConfirmationStatus,
+  })
+      : payerConfirmationStatus = identical(payerConfirmationStatus, _unsetPayerConfirmationStatus) ? null : payerConfirmationStatus as ExpenseBillPayerConfirmationStatus?,
+        _hasPayerConfirmationStatus = !identical(payerConfirmationStatus, _unsetPayerConfirmationStatus);
+
+  final String userProfileId;
+  final BillRevisionMoneyValueResponse contribution;
+  final bool? requiresPayerConfirmation;
+  final ExpenseBillPayerConfirmationStatus? payerConfirmationStatus;
+  final bool _hasPayerConfirmationStatus;
+
+  factory BillRevisionSnapshotPayerResponse.fromJson(JsonObject json) {
+    return BillRevisionSnapshotPayerResponse(
+      userProfileId: json["userProfileId"] as String,
+      contribution: BillRevisionMoneyValueResponse.fromJson(JsonObject.from(json["contribution"] as Map)),
+      requiresPayerConfirmation: json["requiresPayerConfirmation"] == null ? null : json["requiresPayerConfirmation"] as bool,
+      payerConfirmationStatus: json.containsKey("payerConfirmationStatus")
+          ? json["payerConfirmationStatus"] == null ? null : json["payerConfirmationStatus"] as String
+          : _unsetPayerConfirmationStatus,
+    );
+  }
+
+  JsonObject toJson() {
+    final requiresPayerConfirmationJsonValue = requiresPayerConfirmation;
+    final payerConfirmationStatusJsonValue = payerConfirmationStatus;
+
+    return {
+      "userProfileId": userProfileId,
+      "contribution": contribution.toJson(),
+      if (requiresPayerConfirmationJsonValue != null) "requiresPayerConfirmation": requiresPayerConfirmationJsonValue,
+      if (_hasPayerConfirmationStatus) "payerConfirmationStatus": payerConfirmationStatusJsonValue,
+    };
+  }
+}
+
+/// Safe attachment reference for revision review. It never includes bytes, paths, object keys, provider internals, signed URLs, or thumbnails.
+class BillRevisionAttachmentFileReferenceResponse {
+  const BillRevisionAttachmentFileReferenceResponse({
+    required this.fileId,
+    required this.purpose,
+    required this.lifecycleState,
+  });
+
+  final String fileId;
+  final BillRevisionAttachmentPurpose purpose;
+  final BillRevisionAttachmentLifecycleState lifecycleState;
+
+  factory BillRevisionAttachmentFileReferenceResponse.fromJson(JsonObject json) {
+    return BillRevisionAttachmentFileReferenceResponse(
+      fileId: json["fileId"] as String,
+      purpose: json["purpose"] as String,
+      lifecycleState: json["lifecycleState"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "fileId": fileId,
+      "purpose": purpose,
+      "lifecycleState": lifecycleState,
+    };
+  }
+}
+
+/// Safe OCR review reference for revision review. It excludes raw OCR text, confidence payloads, line text, worker payloads, and storage internals.
+class BillRevisionOcrReviewReferenceResponse {
+  static const Object _unsetReceiptAttachmentFileId = Object();
+  static const Object _unsetCandidateVersion = Object();
+  static const Object _unsetReviewedAtUtc = Object();
+
+  BillRevisionOcrReviewReferenceResponse({
+    required this.ocrReviewId,
+    Object? receiptAttachmentFileId = _unsetReceiptAttachmentFileId,
+    Object? candidateVersion = _unsetCandidateVersion,
+    Object? reviewedAtUtc = _unsetReviewedAtUtc,
+  })
+      : receiptAttachmentFileId = identical(receiptAttachmentFileId, _unsetReceiptAttachmentFileId) ? null : receiptAttachmentFileId as String?,
+        _hasReceiptAttachmentFileId = !identical(receiptAttachmentFileId, _unsetReceiptAttachmentFileId),
+        candidateVersion = identical(candidateVersion, _unsetCandidateVersion) ? null : candidateVersion as String?,
+        _hasCandidateVersion = !identical(candidateVersion, _unsetCandidateVersion),
+        reviewedAtUtc = identical(reviewedAtUtc, _unsetReviewedAtUtc) ? null : reviewedAtUtc as DateTime?,
+        _hasReviewedAtUtc = !identical(reviewedAtUtc, _unsetReviewedAtUtc);
+
+  final String ocrReviewId;
+  final String? receiptAttachmentFileId;
+  final bool _hasReceiptAttachmentFileId;
+  final String? candidateVersion;
+  final bool _hasCandidateVersion;
+  final DateTime? reviewedAtUtc;
+  final bool _hasReviewedAtUtc;
+
+  factory BillRevisionOcrReviewReferenceResponse.fromJson(JsonObject json) {
+    return BillRevisionOcrReviewReferenceResponse(
+      ocrReviewId: json["ocrReviewId"] as String,
+      receiptAttachmentFileId: json.containsKey("receiptAttachmentFileId")
+          ? json["receiptAttachmentFileId"] == null ? null : json["receiptAttachmentFileId"] as String
+          : _unsetReceiptAttachmentFileId,
+      candidateVersion: json.containsKey("candidateVersion")
+          ? json["candidateVersion"] == null ? null : json["candidateVersion"] as String
+          : _unsetCandidateVersion,
+      reviewedAtUtc: json.containsKey("reviewedAtUtc")
+          ? json["reviewedAtUtc"] == null ? null : DateTime.parse(json["reviewedAtUtc"] as String)
+          : _unsetReviewedAtUtc,
+    );
+  }
+
+  JsonObject toJson() {
+    final receiptAttachmentFileIdJsonValue = receiptAttachmentFileId;
+    final candidateVersionJsonValue = candidateVersion;
+    final reviewedAtUtcJsonValue = reviewedAtUtc;
+
+    return {
+      "ocrReviewId": ocrReviewId,
+      if (_hasReceiptAttachmentFileId) "receiptAttachmentFileId": receiptAttachmentFileIdJsonValue,
+      if (_hasCandidateVersion) "candidateVersion": candidateVersionJsonValue,
+      if (_hasReviewedAtUtc) "reviewedAtUtc": reviewedAtUtcJsonValue == null ? null : reviewedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Safe OCR-to-revision source handoff metadata. It is informational and does not authorize OCR apply or bill mutation.
+class BillRevisionOcrSourceResponse {
+  static const Object _unsetExpectedOcrReviewVersion = Object();
+  static const Object _unsetExpectedOcrReviewUpdatedAtUtc = Object();
+
+  BillRevisionOcrSourceResponse({
+    required this.receiptAttachmentFileId,
+    required this.ocrReviewId,
+    required this.sourceMode,
+    required this.status,
+    Object? expectedOcrReviewVersion = _unsetExpectedOcrReviewVersion,
+    Object? expectedOcrReviewUpdatedAtUtc = _unsetExpectedOcrReviewUpdatedAtUtc,
+  })
+      : expectedOcrReviewVersion = identical(expectedOcrReviewVersion, _unsetExpectedOcrReviewVersion) ? null : expectedOcrReviewVersion as String?,
+        _hasExpectedOcrReviewVersion = !identical(expectedOcrReviewVersion, _unsetExpectedOcrReviewVersion),
+        expectedOcrReviewUpdatedAtUtc = identical(expectedOcrReviewUpdatedAtUtc, _unsetExpectedOcrReviewUpdatedAtUtc) ? null : expectedOcrReviewUpdatedAtUtc as DateTime?,
+        _hasExpectedOcrReviewUpdatedAtUtc = !identical(expectedOcrReviewUpdatedAtUtc, _unsetExpectedOcrReviewUpdatedAtUtc);
+
+  final String receiptAttachmentFileId;
+  final String ocrReviewId;
+  final BillRevisionOcrSourceMode sourceMode;
+  final BillRevisionOcrSourceStatus status;
+  final String? expectedOcrReviewVersion;
+  final bool _hasExpectedOcrReviewVersion;
+  final DateTime? expectedOcrReviewUpdatedAtUtc;
+  final bool _hasExpectedOcrReviewUpdatedAtUtc;
+
+  factory BillRevisionOcrSourceResponse.fromJson(JsonObject json) {
+    return BillRevisionOcrSourceResponse(
+      receiptAttachmentFileId: json["receiptAttachmentFileId"] as String,
+      ocrReviewId: json["ocrReviewId"] as String,
+      sourceMode: json["sourceMode"] as String,
+      status: json["status"] as String,
+      expectedOcrReviewVersion: json.containsKey("expectedOcrReviewVersion")
+          ? json["expectedOcrReviewVersion"] == null ? null : json["expectedOcrReviewVersion"] as String
+          : _unsetExpectedOcrReviewVersion,
+      expectedOcrReviewUpdatedAtUtc: json.containsKey("expectedOcrReviewUpdatedAtUtc")
+          ? json["expectedOcrReviewUpdatedAtUtc"] == null ? null : DateTime.parse(json["expectedOcrReviewUpdatedAtUtc"] as String)
+          : _unsetExpectedOcrReviewUpdatedAtUtc,
+    );
+  }
+
+  JsonObject toJson() {
+    final expectedOcrReviewVersionJsonValue = expectedOcrReviewVersion;
+    final expectedOcrReviewUpdatedAtUtcJsonValue = expectedOcrReviewUpdatedAtUtc;
+
+    return {
+      "receiptAttachmentFileId": receiptAttachmentFileId,
+      "ocrReviewId": ocrReviewId,
+      "sourceMode": sourceMode,
+      "status": status,
+      if (_hasExpectedOcrReviewVersion) "expectedOcrReviewVersion": expectedOcrReviewVersionJsonValue,
+      if (_hasExpectedOcrReviewUpdatedAtUtc) "expectedOcrReviewUpdatedAtUtc": expectedOcrReviewUpdatedAtUtcJsonValue == null ? null : expectedOcrReviewUpdatedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Standalone safe settlement-impact readout for a bill revision. It is read-only and must not mutate settlement candidates, requests, payments, allocations, residuals, proof attachments, balances, reports, or active bill truth.
+class BillRevisionSettlementImpactResponse {
+  static const Object _unsetRequestMetadata = Object();
+
+  BillRevisionSettlementImpactResponse({
+    required this.revisionId,
+    required this.billId,
+    required this.impact,
+    Object? requestMetadata = _unsetRequestMetadata,
+  })
+      : requestMetadata = identical(requestMetadata, _unsetRequestMetadata) ? null : requestMetadata as BillRevisionRequestMetadataResponse?,
+        _hasRequestMetadata = !identical(requestMetadata, _unsetRequestMetadata);
+
+  final String revisionId;
+  final String billId;
+  final BillRevisionSettlementImpactSummaryResponse impact;
+  final BillRevisionRequestMetadataResponse? requestMetadata;
+  final bool _hasRequestMetadata;
+
+  factory BillRevisionSettlementImpactResponse.fromJson(JsonObject json) {
+    return BillRevisionSettlementImpactResponse(
+      revisionId: json["revisionId"] as String,
+      billId: json["billId"] as String,
+      impact: BillRevisionSettlementImpactSummaryResponse.fromJson(JsonObject.from(json["impact"] as Map)),
+      requestMetadata: json.containsKey("requestMetadata")
+          ? json["requestMetadata"] == null ? null : BillRevisionRequestMetadataResponse.fromJson(JsonObject.from(json["requestMetadata"] as Map))
+          : _unsetRequestMetadata,
+    );
+  }
+
+  JsonObject toJson() {
+    final requestMetadataJsonValue = requestMetadata;
+
+    return {
+      "revisionId": revisionId,
+      "billId": billId,
+      "impact": impact.toJson(),
+      if (_hasRequestMetadata) "requestMetadata": requestMetadataJsonValue == null ? null : requestMetadataJsonValue.toJson(),
+    };
+  }
+}
+
+/// Bounded server-derived settlement-impact summary. Source references are safe categories and IDs only when visible to the actor.
+class BillRevisionSettlementImpactSummaryResponse {
+  const BillRevisionSettlementImpactSummaryResponse({
+    required this.category,
+    required this.applyBlocked,
+    required this.blockedReasons,
+    required this.sourceRefs,
+    required this.policyVersion,
+  });
+
+  final BillRevisionSettlementImpactCategory category;
+  final bool applyBlocked;
+  final List<BillRevisionSettlementImpactBlockReason> blockedReasons;
+  /// Bounded visible settlement source references. Missing references must not leak unrelated settlement existence.
+  final List<BillRevisionSettlementImpactSourceReferenceResponse> sourceRefs;
+  final String policyVersion;
+
+  factory BillRevisionSettlementImpactSummaryResponse.fromJson(JsonObject json) {
+    return BillRevisionSettlementImpactSummaryResponse(
+      category: json["category"] as String,
+      applyBlocked: json["applyBlocked"] as bool,
+      blockedReasons: (json["blockedReasons"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      sourceRefs: (json["sourceRefs"] as List<dynamic>).map((item) => BillRevisionSettlementImpactSourceReferenceResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      policyVersion: json["policyVersion"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "category": category,
+      "applyBlocked": applyBlocked,
+      "blockedReasons": blockedReasons,
+      "sourceRefs": sourceRefs.map((item) => item.toJson()).toList(growable: false),
+      "policyVersion": policyVersion,
+    };
+  }
+}
+
+/// Safe settlement source reference by category and stable ID only. It excludes proof bytes, storage metadata, payment details, and unrelated participant data.
+class BillRevisionSettlementImpactSourceReferenceResponse {
+  const BillRevisionSettlementImpactSourceReferenceResponse({
+    required this.sourceType,
+    required this.sourceId,
+  });
+
+  final BillRevisionSettlementImpactSourceType sourceType;
+  final String sourceId;
+
+  factory BillRevisionSettlementImpactSourceReferenceResponse.fromJson(JsonObject json) {
+    return BillRevisionSettlementImpactSourceReferenceResponse(
+      sourceType: json["sourceType"] as String,
+      sourceId: json["sourceId"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "sourceType": sourceType,
+      "sourceId": sourceId,
+    };
+  }
+}
+
+/// Safe request/correlation metadata returned where useful for tracing and audit linkage. Values are not authorization tokens.
+class BillRevisionRequestMetadataResponse {
+  const BillRevisionRequestMetadataResponse({
+    this.requestId,
+    this.correlationId,
+  });
+
+  final String? requestId;
+  final String? correlationId;
+
+  factory BillRevisionRequestMetadataResponse.fromJson(JsonObject json) {
+    return BillRevisionRequestMetadataResponse(
+      requestId: json["requestId"] == null ? null : json["requestId"] as String,
+      correlationId: json["correlationId"] == null ? null : json["correlationId"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final requestIdJsonValue = requestId;
+    final correlationIdJsonValue = correlationId;
+
+    return {
+      if (requestIdJsonValue != null) "requestId": requestIdJsonValue,
+      if (correlationIdJsonValue != null) "correlationId": correlationIdJsonValue,
+    };
+  }
+}
+
+/// Safe idempotency readout. It does not authorize a request and must be scoped server-side.
+class BillRevisionIdempotencyMetadataResponse {
+  const BillRevisionIdempotencyMetadataResponse({
+    this.idempotencyKey,
+    this.replayed,
+    this.bodyHash,
+  });
+
+  final String? idempotencyKey;
+  final bool? replayed;
+  final String? bodyHash;
+
+  factory BillRevisionIdempotencyMetadataResponse.fromJson(JsonObject json) {
+    return BillRevisionIdempotencyMetadataResponse(
+      idempotencyKey: json["idempotencyKey"] == null ? null : json["idempotencyKey"] as String,
+      replayed: json["replayed"] == null ? null : json["replayed"] as bool,
+      bodyHash: json["bodyHash"] == null ? null : json["bodyHash"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final idempotencyKeyJsonValue = idempotencyKey;
+    final replayedJsonValue = replayed;
+    final bodyHashJsonValue = bodyHash;
+
+    return {
+      if (idempotencyKeyJsonValue != null) "idempotencyKey": idempotencyKeyJsonValue,
+      if (replayedJsonValue != null) "replayed": replayedJsonValue,
+      if (bodyHashJsonValue != null) "bodyHash": bodyHashJsonValue,
     };
   }
 }
@@ -4958,6 +5778,157 @@ class BillRevisionReviewChangeViewerImpactValues {
   static const BillRevisionReviewChangeViewerImpact billContext = "bill_context";
   static const BillRevisionReviewChangeViewerImpact noDirectViewerImpact = "no_direct_viewer_impact";
   static const Set<BillRevisionReviewChangeViewerImpact> values = {directViewerMoneyImpact, directViewerPayerImpact, billContext, noDirectViewerImpact};
+}
+
+typedef BillRevisionSnapshotRole = String;
+class BillRevisionSnapshotRoleValues {
+  const BillRevisionSnapshotRoleValues._();
+  static const BillRevisionSnapshotRole baseline = "baseline";
+  static const BillRevisionSnapshotRole proposed = "proposed";
+  static const BillRevisionSnapshotRole activeAccepted = "active_accepted";
+  static const Set<BillRevisionSnapshotRole> values = {baseline, proposed, activeAccepted};
+}
+
+typedef BillRevisionAttachmentPurpose = String;
+class BillRevisionAttachmentPurposeValues {
+  const BillRevisionAttachmentPurposeValues._();
+  static const BillRevisionAttachmentPurpose receiptImage = "receipt_image";
+  static const BillRevisionAttachmentPurpose supportingAttachment = "supporting_attachment";
+  static const Set<BillRevisionAttachmentPurpose> values = {receiptImage, supportingAttachment};
+}
+
+typedef BillRevisionAttachmentLifecycleState = String;
+class BillRevisionAttachmentLifecycleStateValues {
+  const BillRevisionAttachmentLifecycleStateValues._();
+  static const BillRevisionAttachmentLifecycleState active = "active";
+  static const BillRevisionAttachmentLifecycleState removed = "removed";
+  static const BillRevisionAttachmentLifecycleState unavailableToViewer = "unavailable_to_viewer";
+  static const Set<BillRevisionAttachmentLifecycleState> values = {active, removed, unavailableToViewer};
+}
+
+typedef BillRevisionOcrSourceMode = String;
+class BillRevisionOcrSourceModeValues {
+  const BillRevisionOcrSourceModeValues._();
+  static const BillRevisionOcrSourceMode none = "none";
+  static const BillRevisionOcrSourceMode savedReceiptOcrReview = "saved_receipt_ocr_review";
+  static const BillRevisionOcrSourceMode futureNonDraftOcrToRevisionHandoff = "future_non_draft_ocr_to_revision_handoff";
+  static const Set<BillRevisionOcrSourceMode> values = {none, savedReceiptOcrReview, futureNonDraftOcrToRevisionHandoff};
+}
+
+typedef BillRevisionOcrSourceStatus = String;
+class BillRevisionOcrSourceStatusValues {
+  const BillRevisionOcrSourceStatusValues._();
+  static const BillRevisionOcrSourceStatus notPresent = "not_present";
+  static const BillRevisionOcrSourceStatus referenced = "referenced";
+  static const BillRevisionOcrSourceStatus stale = "stale";
+  static const BillRevisionOcrSourceStatus unavailableToViewer = "unavailable_to_viewer";
+  static const BillRevisionOcrSourceStatus policyBlocked = "policy_blocked";
+  static const Set<BillRevisionOcrSourceStatus> values = {notPresent, referenced, stale, unavailableToViewer, policyBlocked};
+}
+
+typedef BillRevisionUnsupportedDetailReason = String;
+class BillRevisionUnsupportedDetailReasonValues {
+  const BillRevisionUnsupportedDetailReasonValues._();
+  static const BillRevisionUnsupportedDetailReason unsupportedSnapshotSchemaVersion = "unsupported_snapshot_schema_version";
+  static const BillRevisionUnsupportedDetailReason itemDetailUnsupportedInCurrentRevisionSnapshot = "item_detail_unsupported_in_current_revision_snapshot";
+  static const BillRevisionUnsupportedDetailReason itemSplitDetailUnsupportedInCurrentRevisionSnapshot = "item_split_detail_unsupported_in_current_revision_snapshot";
+  static const BillRevisionUnsupportedDetailReason adjustmentDetailUnsupportedInCurrentRevisionSnapshot = "adjustment_detail_unsupported_in_current_revision_snapshot";
+  static const BillRevisionUnsupportedDetailReason attachmentReceiptOcrDetailUnsupportedInCurrentRevisionSnapshot = "attachment_receipt_ocr_detail_unsupported_in_current_revision_snapshot";
+  static const BillRevisionUnsupportedDetailReason noteMetadataDetailUnsupportedInCurrentRevisionSnapshot = "note_metadata_detail_unsupported_in_current_revision_snapshot";
+  static const BillRevisionUnsupportedDetailReason viewerNotAuthorizedForDetail = "viewer_not_authorized_for_detail";
+  static const Set<BillRevisionUnsupportedDetailReason> values = {unsupportedSnapshotSchemaVersion, itemDetailUnsupportedInCurrentRevisionSnapshot, itemSplitDetailUnsupportedInCurrentRevisionSnapshot, adjustmentDetailUnsupportedInCurrentRevisionSnapshot, attachmentReceiptOcrDetailUnsupportedInCurrentRevisionSnapshot, noteMetadataDetailUnsupportedInCurrentRevisionSnapshot, viewerNotAuthorizedForDetail};
+}
+
+typedef BillRevisionLimitationCode = String;
+class BillRevisionLimitationCodeValues {
+  const BillRevisionLimitationCodeValues._();
+  static const BillRevisionLimitationCode lastViewWithoutApprovalOrRejectionNotPersisted = "last_view_without_approval_or_rejection_not_persisted";
+  static const BillRevisionLimitationCode itemSplitAttachmentNoteDiffUnsupportedInCurrentRevisionSnapshot = "item_split_attachment_note_diff_unsupported_in_current_revision_snapshot";
+  static const BillRevisionLimitationCode snapshotDetailViewerFiltered = "snapshot_detail_viewer_filtered";
+  static const BillRevisionLimitationCode settlementAdjustmentReopenPolicyNotImplemented = "settlement_adjustment_reopen_policy_not_implemented";
+  static const BillRevisionLimitationCode nonDraftOcrToRevisionRoutingNotImplemented = "non_draft_ocr_to_revision_routing_not_implemented";
+  static const BillRevisionLimitationCode clientHintsAreNotAuthorization = "client_hints_are_not_authorization";
+  static const Set<BillRevisionLimitationCode> values = {lastViewWithoutApprovalOrRejectionNotPersisted, itemSplitAttachmentNoteDiffUnsupportedInCurrentRevisionSnapshot, snapshotDetailViewerFiltered, settlementAdjustmentReopenPolicyNotImplemented, nonDraftOcrToRevisionRoutingNotImplemented, clientHintsAreNotAuthorization};
+}
+
+typedef BillRevisionSettlementImpactCategory = String;
+class BillRevisionSettlementImpactCategoryValues {
+  const BillRevisionSettlementImpactCategoryValues._();
+  static const BillRevisionSettlementImpactCategory none = "none";
+  static const BillRevisionSettlementImpactCategory pendingRevisionNotSettlementTruth = "pending_revision_not_settlement_truth";
+  static const BillRevisionSettlementImpactCategory noFinancialImpact = "no_financial_impact";
+  static const BillRevisionSettlementImpactCategory affectedParticipantSharesChanged = "affected_participant_shares_changed";
+  static const BillRevisionSettlementImpactCategory payerContributionChanged = "payer_contribution_changed";
+  static const BillRevisionSettlementImpactCategory totalAmountChanged = "total_amount_changed";
+  static const BillRevisionSettlementImpactCategory currencyRoundingChanged = "currency_rounding_changed";
+  static const BillRevisionSettlementImpactCategory taxFeeDiscountAllocationChanged = "tax_fee_discount_allocation_changed";
+  static const BillRevisionSettlementImpactCategory participantAddedRemoved = "participant_added_removed";
+  static const BillRevisionSettlementImpactCategory requestedSettlementBlocksApply = "requested_settlement_blocks_apply";
+  static const BillRevisionSettlementImpactCategory progressedSettlementBlocksApply = "progressed_settlement_blocks_apply";
+  static const BillRevisionSettlementImpactCategory settlementProofOrPaymentRecordsExist = "settlement_proof_or_payment_records_exist";
+  static const BillRevisionSettlementImpactCategory futureInvalidationRequired = "future_invalidation_required";
+  static const BillRevisionSettlementImpactCategory futureAdjustmentOrReopenRequired = "future_adjustment_or_reopen_required";
+  static const BillRevisionSettlementImpactCategory unsupportedDetailBlocksApply = "unsupported_detail_blocks_apply";
+  static const BillRevisionSettlementImpactCategory policyBlocked = "policy_blocked";
+  static const Set<BillRevisionSettlementImpactCategory> values = {none, pendingRevisionNotSettlementTruth, noFinancialImpact, affectedParticipantSharesChanged, payerContributionChanged, totalAmountChanged, currencyRoundingChanged, taxFeeDiscountAllocationChanged, participantAddedRemoved, requestedSettlementBlocksApply, progressedSettlementBlocksApply, settlementProofOrPaymentRecordsExist, futureInvalidationRequired, futureAdjustmentOrReopenRequired, unsupportedDetailBlocksApply, policyBlocked};
+}
+
+typedef BillRevisionSettlementImpactBlockReason = String;
+class BillRevisionSettlementImpactBlockReasonValues {
+  const BillRevisionSettlementImpactBlockReasonValues._();
+  static const BillRevisionSettlementImpactBlockReason missingRequiredApprovals = "missing_required_approvals";
+  static const BillRevisionSettlementImpactBlockReason payerConfirmationRequired = "payer_confirmation_required";
+  static const BillRevisionSettlementImpactBlockReason settlementStateBlocksApply = "settlement_state_blocks_apply";
+  static const BillRevisionSettlementImpactBlockReason requestedSettlementExists = "requested_settlement_exists";
+  static const BillRevisionSettlementImpactBlockReason progressedPaymentOrResidualExists = "progressed_payment_or_residual_exists";
+  static const BillRevisionSettlementImpactBlockReason proofAttachmentExists = "proof_attachment_exists";
+  static const BillRevisionSettlementImpactBlockReason staleRevisionBasis = "stale_revision_basis";
+  static const BillRevisionSettlementImpactBlockReason unsupportedSnapshotDetail = "unsupported_snapshot_detail";
+  static const BillRevisionSettlementImpactBlockReason policyBlocked = "policy_blocked";
+  static const Set<BillRevisionSettlementImpactBlockReason> values = {missingRequiredApprovals, payerConfirmationRequired, settlementStateBlocksApply, requestedSettlementExists, progressedPaymentOrResidualExists, proofAttachmentExists, staleRevisionBasis, unsupportedSnapshotDetail, policyBlocked};
+}
+
+typedef BillRevisionSettlementImpactSourceType = String;
+class BillRevisionSettlementImpactSourceTypeValues {
+  const BillRevisionSettlementImpactSourceTypeValues._();
+  static const BillRevisionSettlementImpactSourceType settlementCandidate = "settlement_candidate";
+  static const BillRevisionSettlementImpactSourceType settlementRequest = "settlement_request";
+  static const BillRevisionSettlementImpactSourceType settlementRequestLine = "settlement_request_line";
+  static const BillRevisionSettlementImpactSourceType settlementPayment = "settlement_payment";
+  static const BillRevisionSettlementImpactSourceType settlementPaymentAllocation = "settlement_payment_allocation";
+  static const BillRevisionSettlementImpactSourceType settlementResidual = "settlement_residual";
+  static const BillRevisionSettlementImpactSourceType settlementProofAttachment = "settlement_proof_attachment";
+  static const BillRevisionSettlementImpactSourceType balanceProjection = "balance_projection";
+  static const Set<BillRevisionSettlementImpactSourceType> values = {settlementCandidate, settlementRequest, settlementRequestLine, settlementPayment, settlementPaymentAllocation, settlementResidual, settlementProofAttachment, balanceProjection};
+}
+
+/// Safe machine-readable bill revision problem code. Codes must not leak unrelated bill, revision, OCR, file, settlement, group, user, or storage existence.
+typedef BillRevisionProblemCode = String;
+class BillRevisionProblemCodeValues {
+  const BillRevisionProblemCodeValues._();
+  static const BillRevisionProblemCode validationFailed = "validation_failed";
+  static const BillRevisionProblemCode malformedRequest = "malformed_request";
+  static const BillRevisionProblemCode authorizationOrVisibilityDenied = "authorization_or_visibility_denied";
+  static const BillRevisionProblemCode staleBillVersion = "stale_bill_version";
+  static const BillRevisionProblemCode staleRevisionVersion = "stale_revision_version";
+  static const BillRevisionProblemCode staleCalculationHash = "stale_calculation_hash";
+  static const BillRevisionProblemCode activePendingRevisionConflict = "active_pending_revision_conflict";
+  static const BillRevisionProblemCode supersededRevision = "superseded_revision";
+  static const BillRevisionProblemCode missingRequiredApprovals = "missing_required_approvals";
+  static const BillRevisionProblemCode payerConfirmationRequired = "payer_confirmation_required";
+  static const BillRevisionProblemCode payerConfirmationBasisMismatch = "payer_confirmation_basis_mismatch";
+  static const BillRevisionProblemCode approvalBasisMismatch = "approval_basis_mismatch";
+  static const BillRevisionProblemCode settlementStateBlocksApply = "settlement_state_blocks_apply";
+  static const BillRevisionProblemCode unsupportedSnapshotDetail = "unsupported_snapshot_detail";
+  static const BillRevisionProblemCode unsupportedSnapshotSchemaVersion = "unsupported_snapshot_schema_version";
+  static const BillRevisionProblemCode ocrReviewStale = "ocr_review_stale";
+  static const BillRevisionProblemCode ocrSourceNotVisible = "ocr_source_not_visible";
+  static const BillRevisionProblemCode fileReferenceNotVisible = "file_reference_not_visible";
+  static const BillRevisionProblemCode policyBlocked = "policy_blocked";
+  static const BillRevisionProblemCode moneyValidationFailed = "money_validation_failed";
+  static const BillRevisionProblemCode roundingPolicyMismatch = "rounding_policy_mismatch";
+  static const BillRevisionProblemCode idempotencyConflict = "idempotency_conflict";
+  static const Set<BillRevisionProblemCode> values = {validationFailed, malformedRequest, authorizationOrVisibilityDenied, staleBillVersion, staleRevisionVersion, staleCalculationHash, activePendingRevisionConflict, supersededRevision, missingRequiredApprovals, payerConfirmationRequired, payerConfirmationBasisMismatch, approvalBasisMismatch, settlementStateBlocksApply, unsupportedSnapshotDetail, unsupportedSnapshotSchemaVersion, ocrReviewStale, ocrSourceNotVisible, fileReferenceNotVisible, policyBlocked, moneyValidationFailed, roundingPolicyMismatch, idempotencyConflict};
 }
 
 /// Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.
@@ -9368,19 +10339,36 @@ class StorageObjectRef {
 
 /// RFC 7807 / RFC 9457 style problem response.
 class ProblemDetails {
-  const ProblemDetails({
+  static const Object _unsetCode = Object();
+
+  ProblemDetails({
     this.type,
     this.title,
     this.status,
     this.detail,
     this.instance,
-  });
+    Object? code = _unsetCode,
+    this.correlationId,
+    this.requestId,
+    this.errors,
+  })
+      : code = identical(code, _unsetCode) ? null : code as Object?,
+        _hasCode = !identical(code, _unsetCode);
 
   final String? type;
   final String? title;
   final int? status;
   final String? detail;
   final String? instance;
+  /// Optional safe machine-readable problem code. For bill revision operations, codes must not leak unrelated record existence or sensitive payload details.
+  final Object? code;
+  final bool _hasCode;
+  /// Optional safe correlation identifier for support and audit linkage. It is not an authorization token.
+  final String? correlationId;
+  /// Optional safe request identifier for support and audit linkage. It is not an authorization token.
+  final String? requestId;
+  /// Optional bounded validation errors. Entries must not echo raw request bodies, raw OCR text, secrets, file bytes, storage internals, or unrelated sensitive content.
+  final List<ProblemDetailsError>? errors;
 
   factory ProblemDetails.fromJson(JsonObject json) {
     return ProblemDetails(
@@ -9389,6 +10377,12 @@ class ProblemDetails {
       status: json["status"] == null ? null : (json["status"] as num).toInt(),
       detail: json["detail"] == null ? null : json["detail"] as String,
       instance: json["instance"] == null ? null : json["instance"] as String,
+      code: json.containsKey("code")
+          ? json["code"]
+          : _unsetCode,
+      correlationId: json["correlationId"] == null ? null : json["correlationId"] as String,
+      requestId: json["requestId"] == null ? null : json["requestId"] as String,
+      errors: json["errors"] == null ? null : (json["errors"] as List<dynamic>).map((item) => ProblemDetailsError.fromJson(JsonObject.from(item as Map))).toList(growable: false),
     );
   }
 
@@ -9398,6 +10392,10 @@ class ProblemDetails {
     final statusJsonValue = status;
     final detailJsonValue = detail;
     final instanceJsonValue = instance;
+    final codeJsonValue = code;
+    final correlationIdJsonValue = correlationId;
+    final requestIdJsonValue = requestId;
+    final errorsJsonValue = errors;
 
     return {
       if (typeJsonValue != null) "type": typeJsonValue,
@@ -9405,6 +10403,41 @@ class ProblemDetails {
       if (statusJsonValue != null) "status": statusJsonValue,
       if (detailJsonValue != null) "detail": detailJsonValue,
       if (instanceJsonValue != null) "instance": instanceJsonValue,
+      if (_hasCode) "code": codeJsonValue,
+      if (correlationIdJsonValue != null) "correlationId": correlationIdJsonValue,
+      if (requestIdJsonValue != null) "requestId": requestIdJsonValue,
+      if (errorsJsonValue != null) "errors": errorsJsonValue.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe validation problem detail for one field or operation.
+class ProblemDetailsError {
+  const ProblemDetailsError({
+    this.field,
+    required this.code,
+    required this.message,
+  });
+
+  final String? field;
+  final String code;
+  final String message;
+
+  factory ProblemDetailsError.fromJson(JsonObject json) {
+    return ProblemDetailsError(
+      field: json["field"] == null ? null : json["field"] as String,
+      code: json["code"] as String,
+      message: json["message"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final fieldJsonValue = field;
+
+    return {
+      if (fieldJsonValue != null) "field": fieldJsonValue,
+      "code": code,
+      "message": message,
     };
   }
 }
