@@ -157,6 +157,9 @@ Required rules:
 - Payment details must never be anonymous.
 - Payment details must never be globally visible.
 - System owner/admin role must not imply broad payment-detail viewing by default.
+- Accepted friend status alone must never authorize payment-detail reads, QR/payment-file reads, settlement-proof-file reads, receipt/supporting-attachment reads, file-byte reads, storage metadata reads, provider URL reads, vault/internal reads, or raw payment identifier reads.
+- Group membership alone must not expose payment details unless a concrete payment, settlement, bill, or reviewed group-payment context requires that exposure and the actor is authorized for that context.
+- Direct-share selection or eligibility alone must not expose payment details unless API/domain authorization proves the actor is an eligible counterparty for a concrete settlement or payment action.
 - Day 1 QR attach/replace/remove should be self-only: the authenticated actor is derived server-side, the profile authorization boundary must approve the actor's own profile, and the file owner/creator must match that actor.
 - A linked QR file must have purpose `payment_qr`; generic file objects, receipt images, statement uploads, settlement proofs, OCR source files, exports, and supporting attachments must not be attachable to payment details.
 - QR files must not become readable by group members merely because the owner and actor share a group.
@@ -169,6 +172,123 @@ Required rules:
 Current counterparty implementation rule:
 
 - Counterparty read endpoints are scoped to existing authorized settlement relationships that the API proves at request time. They must not rely on user search, display names, hidden UI, generated client method availability, group membership alone, or client-submitted relationship claims.
+
+## Planning Visibility States
+
+Future runtime may use different internal names, but payment-detail work should be planned against these visibility states until a future OpenAPI/runtime task defines canonical contract fields. These are planning vocabulary only and are not approved OpenAPI enum values, runtime problem codes, or generated-client types.
+
+| State | Planning meaning |
+|---|---|
+| `hidden_not_applicable` | No payment-detail surface should be shown because the workflow does not need payment details or the actor has no relevant payment context. |
+| `eligible_summary_only` | The actor may see a bounded non-sensitive summary, such as that payment details may be available after a settlement action, but no handle, note, QR metadata, file metadata, or file bytes. |
+| `payment_context_pending` | A concrete bill, settlement, or payment workflow exists but is not yet in a state that allows payment-detail exposure, for example pending acceptance, payer confirmation, or settlement creation. |
+| `payment_detail_visible` | Text payment details are visible because API/domain authorization proved a concrete eligible counterparty context and the owner's visibility setting permits the read. |
+| `proof_file_visible` | Settlement proof metadata or bytes are visible only through the settlement/payment proof authorization path, not through payment-detail visibility itself. |
+| `denied` | The actor is not authorized, and the response must avoid confirming whether the payment detail, payment profile, target user, relationship, settlement proof, or file exists. |
+| `redacted` | A support, admin, audit, notification, or summary surface may show bounded non-sensitive metadata while hiding raw payment handles, notes, QR content, file bytes, object keys, provider URLs, and vault internals. |
+| `expired_revoked` | A previously valid payment detail, QR file, proof file, share, claim, link, relationship, or signed access path is no longer valid and must fail closed. |
+| `historical_reference_only` | Historical financial or audit records may retain bounded references needed for accounting, support, idempotency, or provenance without exposing current payment-detail contents or file bytes. |
+
+UI, generated clients, and cached state must render server-provided visibility safely. They must not derive a more permissive state from friend status, group membership, routes, deep links, stale cache rows, or local-only visibility assumptions.
+
+## Counterparty And Context Proof
+
+Future runtime must prove both relationship eligibility and concrete payment context before showing payment details to anyone other than the owner.
+
+Required contextual proofs:
+
+- The actor is authenticated, active, and resolved through the current-actor boundary.
+- The target payment-profile owner is active enough for the requested workflow and is the intended payee, payer, participant, settlement counterparty, or reviewed payment-action counterparty for the relevant record.
+- The relationship path is valid for that workflow: accepted friend where applicable, approved group/shared context where applicable, or another future reviewed context that explicitly authorizes the payment action.
+- The actor is a participant, payer, payee, creditor, debtor, settlement request party, settlement payment party, or otherwise reviewed eligible counterparty for the concrete bill, settlement, payment request, or payment action.
+- The settlement, payment, bill, revision, request line, payment allocation, residual, or related state allows payment-detail visibility at read time.
+- The bill, revision, settlement, payment, or payment-detail source is not stale, revoked, blocked, deleted, unauthorized, archived-only, hidden by policy, or superseded in a way that should fail closed.
+- Storage/file authorization passes independently before any QR content, proof file, receipt/supporting attachment, file metadata, or file bytes are returned.
+
+Future runtime must explicitly deny:
+
+- unrelated users;
+- blocked users;
+- unfriended users where a historical policy does not preserve a bounded read for a concrete old record;
+- pending, declined, cancelled, stale, archived-reference, or historical-only friend relationships;
+- stale cached friend or group rows;
+- route-derived, deep-link-derived, hidden-control-derived, UI-derived, or generated-client-derived access;
+- possession of a user profile ID, payment profile ID, file ID, settlement ID, group ID, bill ID, payment ID, or claim token without server-side authorization;
+- direct-share selection that has not produced a concrete authorized payment or settlement context;
+- group membership without bill, payment, settlement, or reviewed group-payment context authority.
+
+## QR, Content, And File Boundaries
+
+Payment QR content, payment-account identifiers, proof files, receipt/supporting attachments, OCR-derived file references, and file bytes must be served only through purpose-specific API authorization checks.
+
+Boundary rules:
+
+- Text payment details and QR/payment file metadata must be returned only from payment-detail APIs after profile/payment-context authorization.
+- QR/payment image bytes must be returned only from dedicated content endpoints after both payment-detail authorization and file-purpose/lifecycle/ownership checks pass.
+- Settlement proof metadata and bytes must be returned only from settlement/payment proof APIs after settlement/payment authorization and file-purpose/lifecycle checks pass.
+- Receipt and supporting attachment metadata and bytes must be returned only from bill/group attachment APIs after bill/group/participant authorization and file-purpose/lifecycle checks pass.
+- A file ID, stable payment profile ID, payment handle, QR metadata reference, proof attachment ID, or generated client method does not authorize file bytes.
+- API responses must not expose storage paths, provider object keys, bucket names, mounted volume paths, temporary local paths, provider URLs, signed URLs where not explicitly authorized, vault internals, file-byte identifiers, storage hashes beyond reviewed safe metadata, or raw object lifecycle internals.
+- If a future signed URL flow is reviewed, it must remain short-lived, purpose-specific, auditable, revocable where practical, and never returned as a substitute for authorization.
+
+Audit, logs, telemetry, validation errors, and support/debug surfaces must not dump:
+
+- QR payloads or decoded QR content;
+- full raw payment identifiers beyond safe references or redacted suffixes;
+- raw OCR text;
+- receipt, proof, QR, statement, export, or attachment bytes;
+- object keys, storage paths, provider URLs, signed URLs, local paths, bucket names, mount paths, vault internals, data keys, recovery envelopes, tokens, credentials, secrets, or unrelated sensitive content.
+
+## Denial Privacy
+
+Unauthorized payment-detail and file reads must avoid confirming whether sensitive targets exist.
+
+User-facing denial categories should stay broad and safe, for example:
+
+```text
+not_available
+not_authorized
+payment_context_required
+expired_or_no_longer_available
+policy_block
+```
+
+Internal audit and security telemetry may use more specific bounded categories when the actor, subject, and policy allow it, for example:
+
+```text
+payment_details.denied_no_context
+payment_details.denied_relationship_not_eligible
+payment_details.denied_blocked
+payment_details.denied_stale_context
+payment_details.denied_visibility_private
+payment_details.denied_file_authz
+payment_details.denied_file_lifecycle
+```
+
+User-facing responses must not disclose:
+
+- whether the target user exists;
+- whether a friend relationship exists or was blocked;
+- whether a payment profile is configured;
+- whether a payment handle, QR file, settlement proof, receipt, supporting attachment, storage object, vault record, bill, or settlement exists;
+- whether another actor has access;
+- whether a file was deleted, quarantined, revoked, expired, or never existed, unless the actor is already authorized for that lifecycle readout.
+
+Support/debug correlation can be preserved through correlation IDs, request IDs, bounded policy categories, actor IDs, subject IDs only where authorized internally, and timestamps. Correlation data must not carry raw payment details, file bytes, storage internals, QR payloads, raw OCR text, tokens, secrets, or unrelated user content.
+
+## Historical Preservation And Revocation
+
+Unfriend, block, relationship expiry, direct-share revocation, payment-profile removal, QR removal, proof removal, bill archive, settlement cancellation, or policy change should stop future exposure by default while preserving financial and audit history.
+
+Historical preservation rules:
+
+- Historical bills, settlement requests, payments, allocations, residuals, proof attachment references, and audit events may keep bounded references needed for accounting, dispute review, support, idempotency, and provenance.
+- Historical references must not expose current payment handles, payment notes, QR contents, settlement proof bytes, receipt/supporting attachment bytes, storage object keys, provider URLs, vault internals, or file-byte identifiers beyond the authorized context.
+- A user who participated in an old bill or settlement may retain only the visibility that the old record's domain policy still authorizes; that history does not create future friend, group, payment-detail, or file-directory access.
+- Unfriend should stop future friend-derived direct sharing and future friend-derived payment context by default. Existing authorized financial records remain governed by bill/settlement/file policies.
+- Block should stop future sharing, requests, payment-detail exposure, claim/link flows, comments/messages where applicable, and notification paths where policy requires it, without deleting or rewriting old financial facts.
+- Revoked, expired, deleted, quarantined, upload-failed, purged, disabled, archived-reference, or superseded payment detail and file states must fail closed.
+- Recoverable Private Vault or future vault-protected content must preserve API/domain authorization. Vault recoverability or local possession must not become proof of payment-detail visibility.
 
 ## Storage And QR/Payment Image Boundaries
 
@@ -374,6 +494,34 @@ Payment QR content validation direction:
 - Validate content type by sniffing magic bytes where practical instead of trusting only client-supplied headers.
 - Do not allow SVG for Day 1 unless explicitly reviewed because scriptable/vector image formats carry disproportionate serving and sanitization risk.
 - Do not allow PDFs for payment QR unless explicitly reviewed; PDFs belong to separately designed receipt, proof, statement, or supporting-attachment policies.
+
+## Future Validation Plan
+
+Future implementation branches that change payment-detail exposure must choose validation based on changed surface and must not rely on docs-only validation when runtime, contracts, storage, money, schema, or UI changes are present.
+
+Required validation classes:
+
+| Class | Required proof |
+|---|---|
+| API/domain authorization tests | Prove self-only reads, settlement/payment counterparty reads, friend/group/direct-share non-authority, blocked/unfriended/pending/stale denial, route/generated-client non-authority, and eligible counterparty context checks. |
+| Storage/file authorization tests | Prove QR, settlement proof, receipt/supporting attachment, and file-byte reads require purpose-specific API authorization, lifecycle status, ownership/subject checks, and do not expose storage internals. |
+| Payment-detail read denial privacy tests | Prove unauthorized actors cannot distinguish missing, unconfigured, private, blocked, expired, revoked, deleted, or unrelated payment profiles/files/users beyond safe categories and correlation IDs. |
+| Audit redaction tests | Prove audit/log/telemetry metadata omits raw payment handles, notes, QR payloads, OCR text, file bytes, object keys, signed URLs, local paths, vault internals, tokens, credentials, secrets, and unrelated sensitive content. |
+| OpenAPI/generated-client contract tests | Required only when future contract or generated-client files change; prove contract responses expose no storage internals or new authorization implications, then regenerate clients through the canonical command. |
+| Money/settlement/bill-context tests | Required when visibility depends on settlement, payment, bill, revision, allocation, residual, confirmation, dispute, cancellation, or payer/payee state; prove state transitions open and close visibility correctly without changing money authority. |
+| Mobile/web/admin UI tests | Required only when #434 or a later UI task scopes UI work; prove UI renders server-provided visibility and denial states without inferring authorization from hidden controls, route state, cache, or generated clients. |
+
+Future implementation branches must stop for explicit review before continuing when they would touch:
+
+- auth/session/security runtime or configuration;
+- storage/file bytes, file authorization, lifecycle, signed URL, provider, vault, or retention behavior;
+- money, settlement, payment, bill, revision, residual, allocation, payer/payee, or calculation authority;
+- OpenAPI contracts, generated clients, or generation tooling;
+- schema, EF models, migrations, DbContext, or model snapshots;
+- mobile, web, admin UI, Figma, reference assets, or product copy that defines user-facing visibility behavior;
+- Docker, CI, deployment, release, env, public/admin exposure, secrets, credentials, tokens, SSH, or local Codex/auth state.
+
+If a future task discovers that any of these changes are necessary but not explicitly scoped, it must stop and report rather than silently expanding scope.
 
 ## Admin And Support Boundaries
 
