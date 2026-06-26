@@ -791,7 +791,7 @@ void main() {
     expect(find.text('Visual QA helper'), findsOneWidget);
     expect(find.byIcon(Icons.info_outline), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });
+  }, tags: ['visual']);
 }
 
 Future<void> _useLargeSurface(WidgetTester tester) async {

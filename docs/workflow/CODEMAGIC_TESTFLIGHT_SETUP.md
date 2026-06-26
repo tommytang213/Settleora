@@ -28,37 +28,44 @@ Run `Mobile iOS validation` manually in Codemagic for mobile/iOS changes, Codema
 ```bash
 flutter pub get
 flutter analyze
-flutter test -r expanded <all test files except *visual_capture_test.dart>
+flutter test -r expanded --exclude-tags visual <all test files except *visual_capture_test.dart>
 ```
 
 This workflow does not publish, upload to App Store Connect, invite testers, or require Apple signing secrets.
 
-Normal mobile validation intentionally excludes `apps/mobile/test/**/*visual_capture_test.dart`.
-Those visual capture and screen-compare tests are useful review evidence, but they
-should not block app validity checks or an installable internal TestFlight preview
-build. The workflow prints the selected non-visual test count and file list before
-running the tests.
+Normal mobile validation intentionally excludes:
+
+- `apps/mobile/test/**/*visual_capture_test.dart`
+- individual tests tagged `visual` inside otherwise non-visual/mixed files.
+
+Those visual capture, screenshot-helper, and screen-compare tests are useful
+review evidence, but they should not block app validity checks or an installable
+internal TestFlight preview build. The workflow prints the selected non-visual
+test count and file list, plus visual-tagged file exclusions, before running the
+tests.
 
 ## Visual Evidence Workflow
 
-`Mobile iOS visual evidence` is manual-only in Codemagic and runs only files
-matching:
+`Mobile iOS visual evidence` is manual-only in Codemagic and runs files matching:
 
 ```bash
 test/**/*visual_capture_test.dart
 ```
 
-It is the explicit Codex/Figma/UI comparison path for collecting visual evidence
-and diagnosing screen-compare failures. It runs:
+It also runs mixed-file tests tagged `visual`, such as screenshot-helper tests
+that live beside non-visual component guardrails. It is the explicit
+Codex/Figma/UI comparison path for collecting visual evidence and diagnosing
+screen-compare failures. It runs:
 
 ```bash
 flutter pub get
 flutter test -r expanded <only *visual_capture_test.dart files>
+flutter test -r expanded --tags visual <visual-tagged mixed files>
 ```
 
-The workflow prints the selected visual test count and file list, and publishes
-captured PNG evidence from `/workspace/logs/settleora-visual-qa/` when tests
-produce it.
+The workflow prints the selected visual capture and visual-tagged test counts
+and file lists, and publishes captured PNG evidence from
+`/workspace/logs/settleora-visual-qa/` when tests produce it.
 
 ## Manual Codemagic Setup
 
@@ -113,9 +120,10 @@ No public App Store release is configured. No external tester automation is conf
 
 The internal TestFlight workflow uses the same non-visual selection rule as
 `Mobile iOS validation`: it runs every Flutter test file except
-`*visual_capture_test.dart` with expanded output. Visual capture/screen-compare
-evidence remains available through `Mobile iOS visual evidence` without blocking
-the installable preview build path.
+`*visual_capture_test.dart`, and it excludes tests tagged `visual`, with
+expanded output. Visual capture/screenshot-helper/screen-compare evidence
+remains available through `Mobile iOS visual evidence` without blocking the
+installable preview build path.
 
 ## Manual Release Gate Checklist
 
