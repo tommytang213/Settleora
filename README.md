@@ -36,6 +36,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Currency exchange architecture](docs/architecture/CURRENCY_EXCHANGE_ARCHITECTURE.md)
 - [User experience modes architecture](docs/architecture/USER_EXPERIENCE_MODES_ARCHITECTURE.md)
 - [Expense, bill, split, and settlement architecture](docs/architecture/EXPENSE_BILL_SPLIT_SETTLEMENT_ARCHITECTURE.md)
+- [Offline queue persistence and sync state model](docs/architecture/OFFLINE_QUEUE_SYNC_STATE_MODEL.md)
 - [Expense bill multi-tax-rate architecture](docs/architecture/EXPENSE_BILL_MULTI_TAX_RATE_ARCHITECTURE.md)
 - [Day 1 receipt and bill edge-case architecture](docs/architecture/DAY1_RECEIPT_BILL_EDGE_CASE_ARCHITECTURE.md)
 - [Bill revision snapshot architecture](docs/architecture/BILL_REVISION_SNAPSHOT_ARCHITECTURE.md)
