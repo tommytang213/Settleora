@@ -26,7 +26,26 @@ internal sealed record ExpenseBillRevisionResponse(
     IReadOnlyList<ExpenseBillRevisionPayerResponse> Payers,
     IReadOnlyList<ExpenseBillRevisionApprovalResponse> Approvals,
     ExpenseBillRevisionViewerActionsResponse ViewerActions,
-    ExpenseBillRevisionReviewContextResponse ReviewContext);
+    ExpenseBillRevisionReviewContextResponse ReviewContext,
+    ExpenseBillRevisionOcrSourceResponse? SourceOcrReview = null,
+    string? ServerVersion = null,
+    string? SnapshotSchemaVersion = null,
+    string? MoneyPolicyVersion = null,
+    string? RoundingPolicyVersion = null,
+    ExpenseBillRevisionRequestMetadataResponse? RequestMetadata = null,
+    IReadOnlyList<string>? Limitations = null);
+
+internal sealed record ExpenseBillRevisionOcrSourceResponse(
+    Guid ReceiptAttachmentFileId,
+    Guid OcrReviewId,
+    string SourceMode,
+    string Status,
+    string? ExpectedOcrReviewVersion,
+    DateTimeOffset? ExpectedOcrReviewUpdatedAtUtc);
+
+internal sealed record ExpenseBillRevisionRequestMetadataResponse(
+    string? RequestId,
+    string? CorrelationId);
 
 internal sealed record ExpenseBillRevisionViewerActionsResponse(
     bool CanSubmit,
