@@ -39,6 +39,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Bill revision snapshot architecture](docs/architecture/BILL_REVISION_SNAPSHOT_ARCHITECTURE.md)
 - [Bill revision approval and payer reconfirmation policy](docs/architecture/BILL_REVISION_APPROVAL_POLICY.md)
 - [Bill revision settlement impact and audit matrix](docs/architecture/BILL_REVISION_SETTLEMENT_IMPACT_AUDIT_MATRIX.md)
+- [Bill revision OCR apply policy](docs/architecture/BILL_REVISION_OCR_APPLY_POLICY.md)
 - [Bill revision review UX gate](docs/features/expenses-bills/BILL_REVISION_REVIEW_UX.md)
 - [Settlement runtime architecture](docs/architecture/SETTLEMENT_RUNTIME_ARCHITECTURE.md)
 - [Notification event taxonomy](docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md)
