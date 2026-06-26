@@ -648,38 +648,96 @@ The parent #351 remains open until the implementation, UI/reference, validation,
 
 ## Validation and test expectations for #430
 
-Issue `#430` should convert this architecture into concrete validation matrices and future runtime/API tests. Day 1 implementation must include automated validation coverage for at least:
+Issue `#430` is a docs/control planning slice only. This section names the
+future validation matrix for implementation branches; it does not implement
+runtime calculation, EF schema, migrations, OpenAPI, generated clients, OCR
+runtime, UI, Figma/reference assets, settlement mutation, storage behavior,
+Docker, CI, deployment, secrets, or auth/session/security behavior.
 
-- one bill with 8% and 10% item tax groups;
-- tax-included item amounts;
-- tax-excluded item amounts;
-- mixed tax-included and tax-excluded lines in the same bill;
-- item-level discount before tax;
-- item-level discount after tax;
-- bill-level discount allocated across affected tax groups;
-- participant assigned only reduced-rate items receiving no standard-rate tax;
-- shared item tax following the item split;
-- returned/refunded 8% item affecting only the 8% tax group;
-- returned/refunded 10% item affecting only the 10% tax group;
-- receipt total mismatch producing review/error state rather than silent correction;
-- rounding residual assignment being deterministic and reproducible.
-- fees, service charges, delivery or packaging fees, surcharges, and manually allocated fee-like components with taxable, exempt, tax-included, tax-excluded, and unknown/manual review handling;
-- coupons, credits, points redemption, gift card payment, store credit, refund credit, tender, and change classification with editable contribution treatment and safe default exclusion where applicable;
-- explicit manual adjustment acceptance and rejection paths, including reason code bounds, amount bounds, audit metadata, affected participant reset, payer reconfirmation trigger, and no automatic balancing;
-- stale OCR review, stale bill version, stale calculation hash, stale pending revision, and conflicting active pending revision failures;
-- unsupported currency, unsupported precision, mixed currency without an approved FX snapshot policy, and rounding residual out-of-policy failures;
-- pending tax revisions not mutating settlement candidates, requests, request lines, payments, allocations, residuals, proof attachments, balances, reports, active accepted shares, or payer contributions;
-- progressed settlement state blocking tax-affecting apply until explicit reviewed policy exists;
-- audit/log redaction proving no raw OCR text, receipt bytes, storage internals, raw bodies, secrets, tokens, or unrelated sensitive content are emitted.
+Future validation must prove that tax follows matching items and accepted item
+splits. A participant assigned only reduced-rate items must not silently receive
+standard-rate tax, a participant assigned only non-taxable items must not
+silently receive taxable components, and no client, OCR worker, or generated
+client may become the source of financial, authorization, settlement, or audit
+truth.
 
-Future validation should be layered:
+### Future validation matrix
 
-- Domain/unit tests for normalization, tax group allocation, component allocation, mismatch classification, deterministic residual assignment, calculation hashes, and affected-user/payer trigger derivation.
-- API integration tests for personal and group bill paths, authorization failures, stale basis, problem categories, draft versus submitted/confirmed/revision states, and safe response metadata.
-- Revision/settlement tests proving pending tax changes remain proposals only and settlement state blocks apply without mutation.
-- Audit redaction tests or log scans for success and denial paths.
-- Schema/migration tests only in a future schema branch.
-- OpenAPI/generated-client validation only in a future contract branch.
+| Validation area | Required future coverage | Expected assertion |
+|---|---|---|
+| Mixed tax rates | Domain/API cases with one receipt containing 8% and 10% tax groups, including grouped receipt tax totals. | Each tax group allocates only to items linked to that group; unrelated participants receive no silent tax. |
+| Tax-included items | Domain/API cases for item amounts where tax is included, including visible labels such as `税込` or `税入` when OCR/review data provides them. | The tax component is preserved or derived from accepted detail without increasing the item total twice. |
+| Tax-excluded items | Domain/API cases for item amounts where tax is excluded, including visible labels such as `税抜` or `稅前` when OCR/review data provides them. | Tax is added only for linked taxable items and remains tied to the correct group and split. |
+| Mixed inclusion modes | Same-bill cases with tax-included, tax-excluded, exempt, unknown, and manual modes. | Unknown or conflicting mode fails closed for finalization or apply until reviewed; no global included/excluded assumption is used. |
+| Item-to-tax-group linkage | Item split, quantity claim, and open/self-claim cases with tax group links and explicit exempt/none state. | Tax follows accepted item ownership, quantity, or split basis with deterministic residuals. |
+| Grouped tax totals | Receipt-level tax summaries by group without per-item tax amounts. | Group totals allocate only across matching linked items and never across all participants globally. |
+| Before-tax discounts | Item-level and bill-level before-tax discounts across one or more groups. | Taxable subtotal is reduced only for affected items/groups before tax calculation. |
+| After-tax discounts | Item-level and bill-level after-tax discounts across one or more groups. | Discount reduces accepted cost after tax without rewriting tax group totals. |
+| Coupons and credits | Coupons, points redemption, gift card payment, store credit, refund credit, and unknown negative lines. | Safe defaults and editable contribution treatment are enforced; payment-like components do not silently reduce unrelated participant shares. |
+| Fees and service charges | Service charge, delivery fee, packaging fee, bag fee, seat charge, surcharge, and manual fee components with taxable, non-taxable, included, excluded, exempt, and unknown treatment. | Fee tax treatment and allocation method are explicit; unknown fee tax detail requires review rather than a global fee assumption. |
+| Refunds and returns | Returned/refunded 8% item, returned/refunded 10% item, partial return, refund credit, and tax correction cases. | Refunds preserve original item/tax-group/split linkage or require manual review; no unrelated group receives the correction. |
+| Tender and change exclusion | Cash/card tender, gift tender, change returned, and payment metadata lines from OCR/review. | Tender and change are excluded from shared cost by default and never become refund, discount, or participant share without explicit reviewed conversion. |
+| Receipt-total mismatch | Line subtotal mismatch, grouped tax mismatch, fee/discount/refund mismatch, grand-total mismatch, and stale source mismatch states. | Mismatch becomes a review/error/block state or explicit manual adjustment path; no silent receipt balancing occurs. |
+| Manual adjustments | Allowed and denied manual adjustment cases with reason codes, amount bounds, scope, affected users, payer impact, and audit metadata. | Manual adjustment is a first-class reviewed component, not automatic balancing; money-impacting adjustments trigger approval and payer reconfirmation where required. |
+| Deterministic residuals | Residual assignment for item, tax group, component, participant, payer, and bill total allocation. | Residual recipient, amount, currency, allocation order, policy versions, and calculation hash are reproducible and auditable. |
+| Unsupported OCR tax detail | OCR missing tax rate, inclusion mode, discount treatment, refund linkage, fee taxability, or grouped totals. | OCR-derived data remains provisional; unsupported or incomplete detail fails safe into manual review or blocked finalization/apply. |
+| Historical stability | Accepted bill, active revision, superseded revision, legacy bill, and future reference-data-change cases. | Tax rates, labels, inclusion modes, component treatment, residuals, and calculation hashes are snapshotted; accepted history is not silently recalculated. |
+| Bill revision snapshots | Tax-affecting pending revisions and applied revisions that include item links, components, summaries, mismatch state, and residuals. | Snapshot detail is sufficient for review, approval, payer reconfirmation, audit, and settlement-impact decisions. |
+| Settlement safety | Pending tax revision with eligible settlement candidate, requested settlement, partial/marked/confirmed payment, allocation, residual, proof, report, or balance projection. | Pending tax revisions are not settlement truth and do not mutate settlement candidates, requests, payments, allocations, residuals, proof attachments, balances, reports, active shares, or payer contributions. |
+| Progressed settlement block | Tax-affecting apply after requested, partially paid, marked paid, confirmed, disputed, cancelled-with-history, locked, or finalized states. | Apply is blocked until a future reviewed invalidation, correction, adjustment, reopen, refund, waiver, credit, or settlement-history policy exists. |
+| Authorization and privacy denial | Unrelated actor, removed group member, non-participant, unauthorized receipt file, unauthorized OCR review, and hidden bill/payment/profile contexts. | Denied, missing, deleted, unrelated, and not-visible responses avoid leaking existence, storage internals, raw OCR text, file bytes, payment details, or unrelated financial data. |
+| Audit and redaction | Success and denial audit/log coverage for tax groups, item links, components, mismatch decisions, residuals, manual adjustments, revision gates, and settlement blocks. | Audit/log/problem metadata stays bounded and excludes raw OCR text, receipt bytes, thumbnails, storage paths, object keys, provider internals, signed URLs, raw bodies, secrets, tokens, unbounded notes, and unrelated sensitive content. |
+| Regression guard | Existing same-currency bill, split, payer, settlement, receipt attachment, draft OCR apply-preview, and draft-only OCR apply paths. | Existing behavior remains stable unless a future scoped implementation branch explicitly changes it with tests and manual gates. |
+
+### Future validation by change type
+
+Validation must match the files and authority surface changed by each future
+branch:
+
+| Future change type | Required validation commands |
+|---|---|
+| Documentation/control only | `git status --short`; `git diff --name-only origin/main...HEAD`; `git diff --check origin/main...HEAD`; `npm run doctor:validation`; `npm run validate:docs`; `npm run validate:scaffold`. |
+| API/domain calculation or bill/revision/settlement policy | Documentation/control commands plus `timeout 900s npm run validate:api-local`; add focused domain/API tests for changed calculation, authorization, settlement-safety, mismatch, and audit behavior. |
+| Schema or EF migration | API/domain commands plus migration validation such as `npm run validate:api-migrations`; include additive/backfill/legacy stability checks and model snapshot review. |
+| OpenAPI or generated clients | API/domain commands plus `npm run validate:openapi`, `npm run generate:clients`, and `npm run validate:clients`; generated clients must come only from generation and must not be hand-edited. |
+| OCR review/mobile/web/admin UI | API/domain or OpenAPI commands as applicable plus mobile/UI validation for the touched client, including `npm run validate:mobile` for Flutter changes. UI-sensitive work remains blocked by #429 or another approved Figma/reference issue. |
+| Storage/privacy/file-byte behavior | API/domain commands plus storage/privacy authorization tests proving stable file IDs, scoped access, and no storage internals or file bytes in unsafe responses/logs. |
+| Audit/redaction hardening | API/domain commands plus audit/log/problem-detail redaction tests or scans for both success and denial paths. |
+| Docker, CI, deployment, or release infrastructure | Only for future explicit infrastructure tasks: run the relevant Docker/CI/deployment validation profile and manual gate; this #430 docs/control task does not authorize those changes. |
+
+OpenAPI/generated-client validation is required only when contract, generated
+client, or generation-tooling files change. Migration validation is required
+only when schema, EF migration, DbContext, model, model snapshot, or migration
+tooling files change. Mobile/UI validation is required only for future client or
+reference work. Issue `#429` remains the external OCR review UI/Figma/reference
+blocker and is not completed by this matrix. Parent issue `#351` remains open
+until its implementation, UI/reference, validation, and merge-gate work is
+complete.
+
+### Explicit forbidden validation outcomes
+
+Future branches must fail validation, block review, or require a manual gate if
+they introduce any of these outcomes:
+
+- silent receipt-total balancing by mutating items, tax groups, discounts,
+  refunds, fees, payer contributions, participant shares, or settlement bases;
+- client-side, generated-client-side, OCR-worker-side, or UI-side financial
+  authority for final tax, split, residual, mismatch, settlement, or audit truth;
+- one global bill tax rate, one global tax-inclusion mode, one global discount
+  tax treatment, or one global service-charge tax assumption;
+- tax allocation to participants who do not own or share matching taxable items,
+  unless an explicit reviewed manual override is accepted and audited;
+- raw OCR text, receipt bytes, thumbnails, direct storage paths, object keys,
+  bucket names, provider internals, signed URLs, raw request bodies, multipart
+  payloads, secrets, tokens, credentials, session values, unbounded notes, or
+  unrelated sensitive content in API responses, problem details, audit, logs,
+  reports, examples, or validation output;
+- mutation of settlement candidates, requests, request lines, payments,
+  allocations, residuals, proof attachments, balances, reports, active accepted
+  shares, or payer contributions from pending tax/revision state;
+- hand-edited generated clients, unreviewed OpenAPI changes, destructive schema
+  migration, settlement reopen/adjustment/refund/credit behavior, or UI/Figma
+  implementation inside docs/control tasks.
 
 ## Non-goals
 
