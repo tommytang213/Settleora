@@ -33,6 +33,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Privacy vault architecture](docs/architecture/PRIVACY_VAULT_ARCHITECTURE.md)
 - [Payment details visibility architecture](docs/architecture/PAYMENT_DETAILS_VISIBILITY_ARCHITECTURE.md)
 - [Friends and direct sharing API policy](docs/architecture/FRIENDS_DIRECT_SHARING_API_POLICY.md)
+- [Direct bill sharing authorization model](docs/architecture/DIRECT_BILL_SHARING_AUTHORIZATION_MODEL.md)
 - [Money and rounding architecture](docs/architecture/MONEY_ROUNDING_ARCHITECTURE.md)
 - [Currency exchange architecture](docs/architecture/CURRENCY_EXCHANGE_ARCHITECTURE.md)
 - [User experience modes architecture](docs/architecture/USER_EXPERIENCE_MODES_ARCHITECTURE.md)
