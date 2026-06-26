@@ -43,10 +43,41 @@ public sealed class ExpenseBillRevisionProposalSchemaFoundationTests
             "SupersededByExpenseBillRevisionId",
             "superseded_by_expense_bill_revision_id",
             isNullable: true);
+        AssertColumn(revision, revisionStore, "RevisionSequence", "revision_sequence", isNullable: false);
         AssertColumn(revision, revisionStore, "Status", "status", isNullable: false, maxLength: 40);
         AssertMoneyColumn(revision, revisionStore, "TotalAmount", "total_amount");
         AssertColumn(revision, revisionStore, "TotalCurrency", "total_currency", isNullable: false, maxLength: 3);
         AssertColumn(revision, revisionStore, "CalculationHash", "calculation_hash", isNullable: false, maxLength: 128);
+        AssertColumn(revision, revisionStore, "SnapshotSchemaVersion", "snapshot_schema_version", isNullable: false, maxLength: 64);
+        AssertColumn(revision, revisionStore, "MoneyPolicyVersion", "money_policy_version", isNullable: false, maxLength: 64);
+        AssertColumn(revision, revisionStore, "RoundingPolicyVersion", "rounding_policy_version", isNullable: false, maxLength: 64);
+        AssertColumn(revision, revisionStore, "BaselineSnapshotJson", "baseline_snapshot_json", isNullable: false, columnType: "jsonb");
+        AssertColumn(revision, revisionStore, "ProposedSnapshotJson", "proposed_snapshot_json", isNullable: false, columnType: "jsonb");
+        AssertColumn(revision, revisionStore, "AffectedUserSetHash", "affected_user_set_hash", isNullable: false, maxLength: 128);
+        AssertColumn(revision, revisionStore, "AffectedUserIdsJson", "affected_user_ids_json", isNullable: false, columnType: "jsonb");
+        AssertColumn(
+            revision,
+            revisionStore,
+            "PayerConfirmationBasisHash",
+            "payer_confirmation_basis_hash",
+            isNullable: false,
+            maxLength: 128);
+        AssertColumn(
+            revision,
+            revisionStore,
+            "PayerConfirmationUserIdsJson",
+            "payer_confirmation_user_ids_json",
+            isNullable: false,
+            columnType: "jsonb");
+        AssertColumn(
+            revision,
+            revisionStore,
+            "UnsupportedDetailReason",
+            "unsupported_detail_reason",
+            isNullable: true,
+            maxLength: 120);
+        AssertColumn(revision, revisionStore, "RequestId", "request_id", isNullable: true, maxLength: 120);
+        AssertColumn(revision, revisionStore, "CorrelationId", "correlation_id", isNullable: true, maxLength: 120);
         AssertColumn(revision, revisionStore, "SubmittedAtUtc", "submitted_at_utc", isNullable: true);
         AssertColumn(revision, revisionStore, "WithdrawnAtUtc", "withdrawn_at_utc", isNullable: true);
         AssertColumn(revision, revisionStore, "SupersededAtUtc", "superseded_at_utc", isNullable: true);
@@ -56,6 +87,12 @@ public sealed class ExpenseBillRevisionProposalSchemaFoundationTests
 
         AssertIndex(revision, "ix_expense_bill_revisions_creator_user_profile_id", ["ProposalCreatorUserProfileId"], isUnique: false);
         AssertIndex(revision, "ix_expense_bill_revisions_status", ["Status"], isUnique: false);
+        AssertIndex(revision, "ix_expense_bill_revisions_calculation_hash", ["CalculationHash"], isUnique: false);
+        AssertIndex(
+            revision,
+            "ux_expense_bill_revisions_bill_sequence",
+            ["ExpenseBillId", "RevisionSequence"],
+            isUnique: true);
         var activePendingIndex = AssertIndex(
             revision,
             "ux_expense_bill_revisions_one_active_pending_per_bill",
@@ -72,6 +109,26 @@ public sealed class ExpenseBillRevisionProposalSchemaFoundationTests
             revision,
             "ck_expense_bill_revisions_calculation_hash_not_blank",
             "length(btrim(calculation_hash)) > 0");
+        AssertCheckConstraint(
+            revision,
+            "ck_expense_bill_revisions_revision_sequence_positive",
+            "revision_sequence > 0");
+        AssertCheckConstraint(
+            revision,
+            "ck_expense_bill_revisions_baseline_snapshot_json_object",
+            "jsonb_typeof(baseline_snapshot_json) = 'object'");
+        AssertCheckConstraint(
+            revision,
+            "ck_expense_bill_revisions_proposed_snapshot_json_object",
+            "jsonb_typeof(proposed_snapshot_json) = 'object'");
+        AssertCheckConstraint(
+            revision,
+            "ck_expense_bill_revisions_affected_user_ids_json_array",
+            "jsonb_typeof(affected_user_ids_json) = 'array'");
+        AssertCheckConstraint(
+            revision,
+            "ck_expense_bill_revisions_payer_ids_json_array",
+            "jsonb_typeof(payer_confirmation_user_ids_json) = 'array'");
 
         var participant = FindEntityType<ExpenseBillRevisionParticipant>(dbContext);
         var participantStore = StoreObjectIdentifier.Table("expense_bill_revision_participants", null);
@@ -226,6 +283,63 @@ public sealed class ExpenseBillRevisionProposalSchemaFoundationTests
                 && operation.OnDelete == ReferentialAction.Restrict);
     }
 
+    [Fact]
+    public void BillRevisionSnapshotMigrationIsAdditiveAndBackfillsReviewableBasis()
+    {
+        using var dbContext = CreateDbContext();
+
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddBillRevisionSnapshotRuntimeFoundation", StringComparison.Ordinal));
+
+        var migration = new AddBillRevisionSnapshotRuntimeFoundation();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation);
+
+        AssertAddColumn(migration, "expense_bill_revisions", "revision_sequence", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "snapshot_schema_version", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "money_policy_version", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "rounding_policy_version", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "baseline_snapshot_json", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "proposed_snapshot_json", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "affected_user_ids_json", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "payer_confirmation_user_ids_json", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "request_id", isNullable: true);
+        AssertAddColumn(migration, "expense_bill_revisions", "correlation_id", isNullable: true);
+
+        Assert.Contains(
+            migration.UpOperations.OfType<SqlOperation>(),
+            operation => operation.Sql.Contains("ROW_NUMBER()", StringComparison.Ordinal)
+                && operation.Sql.Contains("jsonb_build_object", StringComparison.Ordinal)
+                && operation.Sql.Contains("legacy_snapshot_detail_unavailable", StringComparison.Ordinal)
+                && !operation.Sql.Contains("raw_ocr", StringComparison.OrdinalIgnoreCase)
+                && !operation.Sql.Contains("object_key", StringComparison.OrdinalIgnoreCase)
+                && !operation.Sql.Contains("signed_url", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Contains(
+            migration.UpOperations.OfType<AlterColumnOperation>(),
+            operation => operation.Table == "expense_bill_revisions"
+                && operation.Name == "revision_sequence"
+                && !operation.IsNullable);
+
+        var indexes = migration.UpOperations.OfType<CreateIndexOperation>().ToArray();
+        AssertMigrationIndex(
+            indexes,
+            "ux_expense_bill_revisions_bill_sequence",
+            "expense_bill_revisions",
+            ["expense_bill_id", "revision_sequence"],
+            isUnique: true);
+        AssertMigrationIndex(
+            indexes,
+            "ix_expense_bill_revisions_calculation_hash",
+            "expense_bill_revisions",
+            ["calculation_hash"]);
+    }
+
     private static SettleoraDbContext CreateDbContext()
     {
         Dictionary<string, string?> values = new()
@@ -275,7 +389,8 @@ public sealed class ExpenseBillRevisionProposalSchemaFoundationTests
         bool isNullable,
         int? maxLength = null,
         int? precision = null,
-        int? scale = null)
+        int? scale = null,
+        string? columnType = null)
     {
         var property = entity.FindProperty(propertyName);
 
@@ -285,6 +400,10 @@ public sealed class ExpenseBillRevisionProposalSchemaFoundationTests
         Assert.Equal(maxLength, property.GetMaxLength());
         Assert.Equal(precision, property.GetPrecision());
         Assert.Equal(scale, property.GetScale());
+        if (columnType is not null)
+        {
+            Assert.Equal(columnType, property.GetColumnType());
+        }
     }
 
     private static IIndex AssertIndex(

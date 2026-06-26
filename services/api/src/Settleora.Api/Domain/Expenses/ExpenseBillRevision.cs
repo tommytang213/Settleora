@@ -18,6 +18,8 @@ public sealed class ExpenseBillRevision
 
     public Guid? SupersededByExpenseBillRevisionId { get; set; }
 
+    public int RevisionSequence { get; set; }
+
     public string Status { get; set; } = ExpenseBillRevisionStatuses.DraftRevision;
 
     public decimal TotalAmount { get; set; }
@@ -25,6 +27,30 @@ public sealed class ExpenseBillRevision
     public string TotalCurrency { get; set; } = string.Empty;
 
     public string CalculationHash { get; set; } = string.Empty;
+
+    public string SnapshotSchemaVersion { get; set; } = BillRevisionSnapshotPolicyVersions.SnapshotSchemaVersion;
+
+    public string MoneyPolicyVersion { get; set; } = BillRevisionSnapshotPolicyVersions.MoneyPolicyVersion;
+
+    public string RoundingPolicyVersion { get; set; } = BillRevisionSnapshotPolicyVersions.RoundingPolicyVersion;
+
+    public string BaselineSnapshotJson { get; set; } = string.Empty;
+
+    public string ProposedSnapshotJson { get; set; } = string.Empty;
+
+    public string AffectedUserSetHash { get; set; } = string.Empty;
+
+    public string AffectedUserIdsJson { get; set; } = "[]";
+
+    public string PayerConfirmationBasisHash { get; set; } = string.Empty;
+
+    public string PayerConfirmationUserIdsJson { get; set; } = "[]";
+
+    public string? UnsupportedDetailReason { get; set; }
+
+    public string? RequestId { get; set; }
+
+    public string? CorrelationId { get; set; }
 
     public DateTimeOffset? SubmittedAtUtc { get; set; }
 

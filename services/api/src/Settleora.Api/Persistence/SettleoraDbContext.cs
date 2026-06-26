@@ -2436,6 +2436,30 @@ public sealed class SettleoraDbContext : DbContext
             table.HasCheckConstraint(
                 "ck_expense_bill_revisions_calculation_hash_not_blank",
                 "length(btrim(calculation_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_revision_sequence_positive",
+                "revision_sequence > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_snapshot_schema_version_not_blank",
+                "length(btrim(snapshot_schema_version)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_money_policy_version_not_blank",
+                "length(btrim(money_policy_version)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_rounding_policy_version_not_blank",
+                "length(btrim(rounding_policy_version)) > 0");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_baseline_snapshot_json_object",
+                "jsonb_typeof(baseline_snapshot_json) = 'object'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_proposed_snapshot_json_object",
+                "jsonb_typeof(proposed_snapshot_json) = 'object'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_affected_user_ids_json_array",
+                "jsonb_typeof(affected_user_ids_json) = 'array'");
+            table.HasCheckConstraint(
+                "ck_expense_bill_revisions_payer_ids_json_array",
+                "jsonb_typeof(payer_confirmation_user_ids_json) = 'array'");
         });
 
         entity.HasKey(revision => revision.Id);
@@ -2454,6 +2478,10 @@ public sealed class SettleoraDbContext : DbContext
 
         entity.Property(revision => revision.SupersededByExpenseBillRevisionId)
             .HasColumnName("superseded_by_expense_bill_revision_id");
+
+        entity.Property(revision => revision.RevisionSequence)
+            .HasColumnName("revision_sequence")
+            .IsRequired();
 
         entity.Property(revision => revision.Status)
             .HasColumnName("status")
@@ -2476,6 +2504,63 @@ public sealed class SettleoraDbContext : DbContext
             .HasColumnName("calculation_hash")
             .HasMaxLength(ExpenseBillConstraints.BillRevisionCalculationHashMaxLength)
             .IsRequired();
+
+        entity.Property(revision => revision.SnapshotSchemaVersion)
+            .HasColumnName("snapshot_schema_version")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionPolicyVersionMaxLength)
+            .IsRequired();
+
+        entity.Property(revision => revision.MoneyPolicyVersion)
+            .HasColumnName("money_policy_version")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionPolicyVersionMaxLength)
+            .IsRequired();
+
+        entity.Property(revision => revision.RoundingPolicyVersion)
+            .HasColumnName("rounding_policy_version")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionPolicyVersionMaxLength)
+            .IsRequired();
+
+        entity.Property(revision => revision.BaselineSnapshotJson)
+            .HasColumnName("baseline_snapshot_json")
+            .HasColumnType("jsonb")
+            .IsRequired();
+
+        entity.Property(revision => revision.ProposedSnapshotJson)
+            .HasColumnName("proposed_snapshot_json")
+            .HasColumnType("jsonb")
+            .IsRequired();
+
+        entity.Property(revision => revision.AffectedUserSetHash)
+            .HasColumnName("affected_user_set_hash")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionCalculationHashMaxLength)
+            .IsRequired();
+
+        entity.Property(revision => revision.AffectedUserIdsJson)
+            .HasColumnName("affected_user_ids_json")
+            .HasColumnType("jsonb")
+            .IsRequired();
+
+        entity.Property(revision => revision.PayerConfirmationBasisHash)
+            .HasColumnName("payer_confirmation_basis_hash")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionCalculationHashMaxLength)
+            .IsRequired();
+
+        entity.Property(revision => revision.PayerConfirmationUserIdsJson)
+            .HasColumnName("payer_confirmation_user_ids_json")
+            .HasColumnType("jsonb")
+            .IsRequired();
+
+        entity.Property(revision => revision.UnsupportedDetailReason)
+            .HasColumnName("unsupported_detail_reason")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionUnsupportedDetailReasonMaxLength);
+
+        entity.Property(revision => revision.RequestId)
+            .HasColumnName("request_id")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionRequestMetadataMaxLength);
+
+        entity.Property(revision => revision.CorrelationId)
+            .HasColumnName("correlation_id")
+            .HasMaxLength(ExpenseBillConstraints.BillRevisionRequestMetadataMaxLength);
 
         entity.Property(revision => revision.SubmittedAtUtc)
             .HasColumnName("submitted_at_utc");
@@ -2508,6 +2593,17 @@ public sealed class SettleoraDbContext : DbContext
 
         entity.HasIndex(revision => revision.Status)
             .HasDatabaseName("ix_expense_bill_revisions_status");
+
+        entity.HasIndex(revision => new
+            {
+                revision.ExpenseBillId,
+                revision.RevisionSequence
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_expense_bill_revisions_bill_sequence");
+
+        entity.HasIndex(revision => revision.CalculationHash)
+            .HasDatabaseName("ix_expense_bill_revisions_calculation_hash");
 
         entity.HasIndex(revision => revision.ExpenseBillId)
             .IsUnique()

@@ -9,6 +9,9 @@ public static class ExpenseBillConstraints
     public const int BillRevisionStatusMaxLength = 40;
     public const int BillRevisionApprovalStatusMaxLength = 40;
     public const int BillRevisionCalculationHashMaxLength = 128;
+    public const int BillRevisionPolicyVersionMaxLength = 64;
+    public const int BillRevisionRequestMetadataMaxLength = 120;
+    public const int BillRevisionUnsupportedDetailReasonMaxLength = 120;
     public const int ItemNameMaxLength = 240;
     public const int ItemSourceKindMaxLength = 40;
     public const int NoteMaxLength = 1000;

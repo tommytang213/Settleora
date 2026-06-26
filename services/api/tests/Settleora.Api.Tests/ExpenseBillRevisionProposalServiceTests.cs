@@ -1,4 +1,5 @@
 using Settleora.Api.Domain.Expenses;
+using System.Text.Json;
 
 namespace Settleora.Api.Tests;
 
@@ -169,6 +170,160 @@ public sealed class ExpenseBillRevisionProposalServiceTests
         Assert.Equal(firstRevision.Id, secondRevision.SupersedesExpenseBillRevisionId);
         Assert.Equal(secondRevision.Id, firstRevision.SupersededByExpenseBillRevisionId);
         Assert.NotEqual(firstRevision.CalculationHash, secondRevision.CalculationHash);
+        Assert.Equal(1, firstRevision.RevisionSequence);
+        Assert.Equal(2, secondRevision.RevisionSequence);
+    }
+
+    [Fact]
+    public void DraftProposalPreservesBaselineAndProposedSnapshotBasisWithVersions()
+    {
+        var attachmentFileId = StableGuid(41);
+        var ocrReviewId = StableGuid(42);
+        var bill = CreateBill(Creator, ParticipantOne);
+        var active = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var candidate = Snapshot(
+            [(Creator, 40m), (ParticipantOne, 60m)],
+            [(ParticipantOne, 100m)],
+            [attachmentFileId],
+            [ocrReviewId]);
+
+        var revision = service.CreateDraftProposal(
+            bill,
+            Creator,
+            active,
+            candidate,
+            InitialTimestamp).Revision!;
+
+        Assert.Equal(BillRevisionSnapshotPolicyVersions.SnapshotSchemaVersion, revision.SnapshotSchemaVersion);
+        Assert.Equal(BillRevisionSnapshotPolicyVersions.MoneyPolicyVersion, revision.MoneyPolicyVersion);
+        Assert.Equal(BillRevisionSnapshotPolicyVersions.RoundingPolicyVersion, revision.RoundingPolicyVersion);
+        Assert.Equal(BillRevisionSnapshotFoundation.ComputeCalculationHash(revision.ProposedSnapshotJson), revision.CalculationHash);
+        Assert.False(string.IsNullOrWhiteSpace(revision.AffectedUserSetHash));
+        Assert.False(string.IsNullOrWhiteSpace(revision.PayerConfirmationBasisHash));
+        Assert.Null(revision.UnsupportedDetailReason);
+
+        using var baseline = JsonDocument.Parse(revision.BaselineSnapshotJson);
+        using var proposed = JsonDocument.Parse(revision.ProposedSnapshotJson);
+        Assert.Equal("baseline", baseline.RootElement.GetProperty("snapshotRole").GetString());
+        Assert.Equal("proposed", proposed.RootElement.GetProperty("snapshotRole").GetString());
+        Assert.Equal("100.0000", baseline.RootElement.GetProperty("totalAmount").GetString());
+        Assert.Equal("100.0000", proposed.RootElement.GetProperty("totalAmount").GetString());
+        Assert.Equal(attachmentFileId, proposed.RootElement.GetProperty("attachmentFileIds")[0].GetGuid());
+        Assert.Equal(ocrReviewId, proposed.RootElement.GetProperty("receiptOcrReviewIds")[0].GetGuid());
+        Assert.DoesNotContain("rawOcr", revision.ProposedSnapshotJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("objectKey", revision.ProposedSnapshotJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("signedUrl", revision.ProposedSnapshotJson, StringComparison.OrdinalIgnoreCase);
+
+        using var affectedUsers = JsonDocument.Parse(revision.AffectedUserIdsJson);
+        Assert.Equal(2, affectedUsers.RootElement.GetArrayLength());
+        using var payerConfirmations = JsonDocument.Parse(revision.PayerConfirmationUserIdsJson);
+        Assert.Equal(ParticipantOne, payerConfirmations.RootElement[0].GetGuid());
+    }
+
+    [Fact]
+    public void UnsupportedSnapshotDetailFailsClosedWithoutCreatingRevision()
+    {
+        var bill = CreateBill(Creator, ParticipantOne);
+        var active = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var unsupportedCandidate = Snapshot(
+            [(Creator, 40m), (ParticipantOne, 60m)],
+            [(Creator, 100m)],
+            unsupportedDetailReason: "item_split_detail_unavailable");
+
+        var result = service.CreateDraftProposal(
+            bill,
+            Creator,
+            active,
+            unsupportedCandidate,
+            InitialTimestamp);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("unsupported_revision_snapshot_detail", result.FailureCode);
+        Assert.Empty(bill.Revisions);
+    }
+
+    [Fact]
+    public void StaleOrTamperedSnapshotBasisBlocksApplyWithoutMutatingAcceptedTruth()
+    {
+        var bill = CreateBill(Creator, ParticipantOne);
+        var active = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var candidate = Snapshot(
+            [(Creator, 40m), (ParticipantOne, 60m)],
+            [(Creator, 100m)]);
+        var revision = service.CreateDraftProposal(
+            bill,
+            Creator,
+            active,
+            candidate,
+            InitialTimestamp).Revision!;
+        service.SubmitProposal(revision, Creator, InitialTimestamp.AddMinutes(1));
+        foreach (var approval in revision.Approvals)
+        {
+            service.RecordApproval(
+                revision,
+                approval.ParticipantUserProfileId,
+                approval.AcceptedAmount,
+                approval.Currency,
+                approval.CalculationHash,
+                InitialTimestamp.AddMinutes(2));
+        }
+
+        var originalTotal = bill.TotalAmount;
+        var originalActiveRevisionId = bill.ActiveAcceptedBillRevisionId;
+        revision.ProposedSnapshotJson = revision.ProposedSnapshotJson.Replace("60.0000", "61.0000", StringComparison.Ordinal);
+
+        var apply = service.ApplyProposal(
+            bill,
+            revision,
+            Creator,
+            InitialTimestamp.AddMinutes(3));
+
+        Assert.False(apply.Succeeded);
+        Assert.Equal("revision_apply_not_allowed", apply.FailureCode);
+        Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, revision.Status);
+        Assert.Equal(originalTotal, bill.TotalAmount);
+        Assert.Equal(originalActiveRevisionId, bill.ActiveAcceptedBillRevisionId);
+        Assert.All(bill.Participants, participant => Assert.Equal(ExpenseBillParticipantStatuses.Accepted, participant.Status));
+    }
+
+    [Fact]
+    public void PendingRevisionDoesNotMutateActiveAcceptedBillTruth()
+    {
+        var bill = CreateBill(Creator, ParticipantOne);
+        var activeParticipantShares = bill.Participants
+            .ToDictionary(participant => participant.UserProfileId, participant => participant.ResolvedShareAmount);
+        var active = Snapshot(
+            [(Creator, 50m), (ParticipantOne, 50m)],
+            [(Creator, 100m)]);
+        var candidate = Snapshot(
+            [(Creator, 25m), (ParticipantOne, 75m)],
+            [(ParticipantOne, 100m)]);
+
+        var revision = service.CreateDraftProposal(
+            bill,
+            Creator,
+            active,
+            candidate,
+            InitialTimestamp).Revision!;
+        service.SubmitProposal(revision, Creator, InitialTimestamp.AddMinutes(1));
+
+        Assert.Equal(ExpenseBillRevisionStatuses.SubmittedForReview, revision.Status);
+        Assert.Equal(100m, bill.TotalAmount);
+        Assert.Null(bill.ActiveAcceptedBillRevisionId);
+        Assert.All(
+            bill.Participants,
+            participant =>
+            {
+                Assert.Equal(activeParticipantShares[participant.UserProfileId], participant.ResolvedShareAmount);
+                Assert.Equal(ExpenseBillParticipantStatuses.Accepted, participant.Status);
+            });
+        Assert.All(bill.Payers, payer => Assert.NotEqual(ParticipantOne, payer.UserProfileId));
     }
 
     [Fact]
@@ -465,7 +620,10 @@ public sealed class ExpenseBillRevisionProposalServiceTests
 
     private static BillRevisionProposalSnapshot Snapshot(
         IReadOnlyList<(Guid UserProfileId, decimal Amount)> participants,
-        IReadOnlyList<(Guid UserProfileId, decimal Amount)> payers)
+        IReadOnlyList<(Guid UserProfileId, decimal Amount)> payers,
+        IReadOnlyList<Guid>? attachmentFileIds = null,
+        IReadOnlyList<Guid>? receiptOcrReviewIds = null,
+        string? unsupportedDetailReason = null)
     {
         return new BillRevisionProposalSnapshot(
             participants.Sum(participant => participant.Amount),
@@ -475,7 +633,10 @@ public sealed class ExpenseBillRevisionProposalServiceTests
                 .ToArray(),
             payers
                 .Select(payer => new BillRevisionPayerBasis(payer.UserProfileId, payer.Amount, "USD"))
-                .ToArray());
+                .ToArray(),
+            attachmentFileIds,
+            receiptOcrReviewIds,
+            unsupportedDetailReason);
     }
 
     private static void AssertApproval(
