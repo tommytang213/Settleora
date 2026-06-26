@@ -3593,6 +3593,165 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/review-context:
+    get:
+      summary: Get bill revision review context
+      description: Returns the server-authoritative viewer-specific review context for one visible bill revision. The API/domain derives baseline selection, view-mode recommendation, accessible change markers, viewer financial impact, limitations, calculation hash, policy versions, and safe correlation metadata. Clients render this response and must not compute affected-user state, payer-confirmation truth, settlement truth, authorization, or financial truth from raw revision rows.
+      operationId: getBillRevisionReviewContext
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Viewer-specific revision review context.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionReviewContextEnvelopeResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Review context cannot be produced because the revision basis is stale, unsupported, superseded, or policy-blocked.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/snapshot:
+    get:
+      summary: Get bill revision snapshot
+      description: Returns safe snapshot metadata and bounded normalized snapshot readouts for one visible bill revision. Snapshot fields use stable bill, user profile, attachment file, and OCR review IDs only. The response must not expose file bytes, storage paths, object keys, provider internals, signed URLs, raw OCR full text, raw request bodies, secrets, tokens, unrelated sensitive content, or storage-provider data.
+      operationId: getBillRevisionSnapshot
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe revision snapshot readout visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionSnapshotResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Snapshot detail is unsupported, stale, or policy-blocked for this actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/revisions/{revisionId}/settlement-impact:
+    get:
+      summary: Get bill revision settlement impact
+      description: Returns a bounded server-derived settlement-impact readout for one visible bill revision. The endpoint is read-only and must not mutate settlement candidates, requests, request lines, payments, allocations, residuals, proof attachments, balances, reports, or active bill truth. Clients may render categories and blocked action hints but must not compute settlement truth or apply eligibility.
+      operationId: getBillRevisionSettlementImpact
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Bill ID.
+          schema:
+            type: string
+            format: uuid
+        - name: revisionId
+          in: path
+          required: true
+          description: Bill revision proposal ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe settlement-impact readout visible to the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillRevisionSettlementImpactResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill or revision is missing, archived, deleted, unrelated, inactive, removed from group access, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Settlement impact cannot be safely read because the revision basis is stale, unsupported, or policy-blocked.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/{billId}/settlement-candidates:
     get:
       summary: List personal bill settlement candidates
@@ -11518,7 +11677,7 @@ components:
           $ref: "#/components/schemas/ExpenseBillParticipantRejectionReasonCode"
     CreateBillRevisionProposalRequest:
       type: object
-      description: Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, free-text reasons, or internal database-only fields.
+      description: Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, raw OCR text, raw request bodies, file bytes, or internal database-only fields. Optional stale guards, idempotency metadata, and OCR source references are advisory transport fields; the API/domain remains authoritative.
       additionalProperties: false
       required:
         - totalAmount
@@ -11526,6 +11685,53 @@ components:
         - participants
         - payers
       properties:
+        expectedBillVersion:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Optional optimistic-concurrency guard for the bill basis the client reviewed. It is not an authorization token.
+        expectedActiveAcceptedRevisionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional stale-basis guard for the active accepted revision the client reviewed.
+        expectedActivePendingRevisionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional stale-basis guard for revising an existing active pending revision under the one-active-pending Day 1 policy.
+        idempotencyKey:
+          oneOf:
+            - type: string
+              minLength: 8
+              maxLength: 120
+            - type: "null"
+          description: Optional retry key scoped by the API to actor, route subject, operation, and normalized request body hash.
+        correlationId:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Optional caller correlation ID echoed only where safe for tracing and audit linkage.
+        reasonCode:
+          oneOf:
+            - type: string
+              maxLength: 80
+            - type: "null"
+          description: Optional bounded reason category. Free-text notes remain bounded and are never authority for policy decisions.
+        reasonNoteSummary:
+          oneOf:
+            - type: string
+              maxLength: 240
+            - type: "null"
+          description: Optional bounded human note summary after server-side trimming. It must not contain secrets, raw OCR text, payment secrets, storage internals, or unrelated sensitive content.
+        ocrSource:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionOcrSourceRequest"
+            - type: "null"
         totalAmount:
           type: string
           description: Decimal-safe proposed bill total amount represented as a string. Must be positive and match participant and payer totals.
@@ -11616,6 +11822,41 @@ components:
           maxLength: 64
           pattern: "^[0-9a-f]{64}$"
           description: Deterministic revision review hash returned by the API for this calculation state. It is not an auth/session token or storage secret.
+    BillRevisionOcrSourceRequest:
+      type: object
+      description: Safe optional OCR-source handoff reference for future non-draft OCR-to-revision routing. It carries stable IDs and stale guards only, never raw OCR text, file bytes, local paths, storage object keys, provider internals, signed URLs, thumbnails, or worker payloads.
+      additionalProperties: false
+      required:
+        - receiptAttachmentFileId
+        - ocrReviewId
+      properties:
+        receiptAttachmentFileId:
+          type: string
+          format: uuid
+        ocrReviewId:
+          type: string
+          format: uuid
+        expectedOcrReviewVersion:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Optional stale-source guard for the saved OCR review.
+        expectedOcrReviewUpdatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Optional stale-source timestamp guard for the saved OCR review.
+        sourceMode:
+          $ref: "#/components/schemas/BillRevisionOcrSourceMode"
+        sourceLineIds:
+          type: array
+          maxItems: 500
+          description: Optional stable OCR review line IDs that contributed to the proposed revision. Clients must not treat line IDs as proof of visibility or authority.
+          items:
+            type: string
+            format: uuid
     BillRevisionListResponse:
       type: object
       description: Bill revisions visible to the authenticated actor. The response is intentionally unpaginated for this first lifecycle slice.
@@ -11743,6 +11984,359 @@ components:
           $ref: "#/components/schemas/BillRevisionViewerActionsResponse"
         reviewContext:
           $ref: "#/components/schemas/BillRevisionReviewContextResponse"
+        snapshot:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionSnapshotSummaryResponse"
+            - type: "null"
+        settlementImpact:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionSettlementImpactSummaryResponse"
+            - type: "null"
+        sourceOcrReview:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionOcrSourceResponse"
+            - type: "null"
+        serverVersion:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Server-issued revision version or ETag-style stale guard for future mutation commands. It is not an authorization token.
+        snapshotSchemaVersion:
+          oneOf:
+            - type: string
+              maxLength: 80
+            - type: "null"
+          description: Version of the normalized revision snapshot used for review and calculation hashing.
+        moneyPolicyVersion:
+          oneOf:
+            - type: string
+              maxLength: 80
+            - type: "null"
+          description: Money policy version used by the API/domain when producing this revision readout.
+        roundingPolicyVersion:
+          oneOf:
+            - type: string
+              maxLength: 80
+            - type: "null"
+          description: Rounding policy version used by the API/domain when producing this revision readout.
+        requestMetadata:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionRequestMetadataResponse"
+            - type: "null"
+        idempotency:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionIdempotencyMetadataResponse"
+            - type: "null"
+        limitations:
+          type: array
+          description: Safe server-provided limitations for this revision readout.
+          items:
+            $ref: "#/components/schemas/BillRevisionLimitationCode"
+    BillRevisionReviewContextEnvelopeResponse:
+      type: object
+      description: Stable envelope for a standalone revision review-context read. Clients render the server-generated context and must not infer authorization, affected-user state, payer-confirmation truth, settlement truth, or financial truth from the generated client surface.
+      required:
+        - revisionId
+        - billId
+        - reviewContext
+        - calculationHash
+        - snapshotSchemaVersion
+        - moneyPolicyVersion
+        - roundingPolicyVersion
+        - limitations
+      properties:
+        revisionId:
+          type: string
+          format: uuid
+        billId:
+          type: string
+          format: uuid
+        reviewContext:
+          $ref: "#/components/schemas/BillRevisionReviewContextResponse"
+        calculationHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+        snapshotSchemaVersion:
+          type: string
+          maxLength: 80
+        moneyPolicyVersion:
+          type: string
+          maxLength: 80
+        roundingPolicyVersion:
+          type: string
+          maxLength: 80
+        requestMetadata:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionRequestMetadataResponse"
+            - type: "null"
+        limitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionLimitationCode"
+    BillRevisionSnapshotResponse:
+      type: object
+      description: Safe bill revision snapshot readout. It exposes normalized metadata, bounded money rows, stable attachment file IDs, and stable OCR review IDs only. It excludes raw request bodies, raw OCR full text, file bytes, thumbnails, storage paths, object keys, provider internals, signed URLs, secrets, tokens, and unrelated sensitive data.
+      required:
+        - revisionId
+        - billId
+        - snapshot
+        - calculationHash
+        - snapshotSchemaVersion
+        - moneyPolicyVersion
+        - roundingPolicyVersion
+        - limitations
+      properties:
+        revisionId:
+          type: string
+          format: uuid
+        billId:
+          type: string
+          format: uuid
+        snapshot:
+          $ref: "#/components/schemas/BillRevisionSnapshotSummaryResponse"
+        calculationHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
+        snapshotSchemaVersion:
+          type: string
+          maxLength: 80
+        moneyPolicyVersion:
+          type: string
+          maxLength: 80
+        roundingPolicyVersion:
+          type: string
+          maxLength: 80
+        requestMetadata:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionRequestMetadataResponse"
+            - type: "null"
+        limitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionLimitationCode"
+    BillRevisionSnapshotSummaryResponse:
+      type: object
+      description: Bounded normalized revision snapshot summary. File and OCR references are stable IDs only and are never storage access grants.
+      required:
+        - snapshotRole
+        - total
+        - participants
+        - payers
+        - attachmentFileRefs
+        - receiptOcrReviewRefs
+        - unsupportedDetailReasons
+      properties:
+        snapshotRole:
+          $ref: "#/components/schemas/BillRevisionSnapshotRole"
+        total:
+          $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionSnapshotParticipantResponse"
+        payers:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionSnapshotPayerResponse"
+        attachmentFileRefs:
+          type: array
+          description: Stable file IDs and safe attachment purpose/lifecycle metadata only. These IDs are not storage paths or access grants.
+          items:
+            $ref: "#/components/schemas/BillRevisionAttachmentFileReferenceResponse"
+        receiptOcrReviewRefs:
+          type: array
+          description: Stable OCR review references only. Raw OCR full text and worker payloads are excluded.
+          items:
+            $ref: "#/components/schemas/BillRevisionOcrReviewReferenceResponse"
+        unsupportedDetailReasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionUnsupportedDetailReason"
+    BillRevisionSnapshotParticipantResponse:
+      type: object
+      required:
+        - userProfileId
+        - resolvedShare
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        resolvedShare:
+          $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+        affectedByRevision:
+          type: boolean
+    BillRevisionSnapshotPayerResponse:
+      type: object
+      required:
+        - userProfileId
+        - contribution
+      properties:
+        userProfileId:
+          type: string
+          format: uuid
+        contribution:
+          $ref: "#/components/schemas/BillRevisionMoneyValueResponse"
+        requiresPayerConfirmation:
+          type: boolean
+        payerConfirmationStatus:
+          oneOf:
+            - $ref: "#/components/schemas/ExpenseBillPayerConfirmationStatus"
+            - type: "null"
+    BillRevisionAttachmentFileReferenceResponse:
+      type: object
+      description: Safe attachment reference for revision review. It never includes bytes, paths, object keys, provider internals, signed URLs, or thumbnails.
+      required:
+        - fileId
+        - purpose
+        - lifecycleState
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        purpose:
+          $ref: "#/components/schemas/BillRevisionAttachmentPurpose"
+        lifecycleState:
+          $ref: "#/components/schemas/BillRevisionAttachmentLifecycleState"
+    BillRevisionOcrReviewReferenceResponse:
+      type: object
+      description: Safe OCR review reference for revision review. It excludes raw OCR text, confidence payloads, line text, worker payloads, and storage internals.
+      required:
+        - ocrReviewId
+      properties:
+        ocrReviewId:
+          type: string
+          format: uuid
+        receiptAttachmentFileId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        candidateVersion:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        reviewedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+    BillRevisionOcrSourceResponse:
+      type: object
+      description: Safe OCR-to-revision source handoff metadata. It is informational and does not authorize OCR apply or bill mutation.
+      required:
+        - receiptAttachmentFileId
+        - ocrReviewId
+        - sourceMode
+        - status
+      properties:
+        receiptAttachmentFileId:
+          type: string
+          format: uuid
+        ocrReviewId:
+          type: string
+          format: uuid
+        sourceMode:
+          $ref: "#/components/schemas/BillRevisionOcrSourceMode"
+        status:
+          $ref: "#/components/schemas/BillRevisionOcrSourceStatus"
+        expectedOcrReviewVersion:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+        expectedOcrReviewUpdatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+    BillRevisionSettlementImpactResponse:
+      type: object
+      description: Standalone safe settlement-impact readout for a bill revision. It is read-only and must not mutate settlement candidates, requests, payments, allocations, residuals, proof attachments, balances, reports, or active bill truth.
+      required:
+        - revisionId
+        - billId
+        - impact
+      properties:
+        revisionId:
+          type: string
+          format: uuid
+        billId:
+          type: string
+          format: uuid
+        impact:
+          $ref: "#/components/schemas/BillRevisionSettlementImpactSummaryResponse"
+        requestMetadata:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionRequestMetadataResponse"
+            - type: "null"
+    BillRevisionSettlementImpactSummaryResponse:
+      type: object
+      description: Bounded server-derived settlement-impact summary. Source references are safe categories and IDs only when visible to the actor.
+      required:
+        - category
+        - applyBlocked
+        - blockedReasons
+        - sourceRefs
+        - policyVersion
+      properties:
+        category:
+          $ref: "#/components/schemas/BillRevisionSettlementImpactCategory"
+        applyBlocked:
+          type: boolean
+        blockedReasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillRevisionSettlementImpactBlockReason"
+        sourceRefs:
+          type: array
+          description: Bounded visible settlement source references. Missing references must not leak unrelated settlement existence.
+          items:
+            $ref: "#/components/schemas/BillRevisionSettlementImpactSourceReferenceResponse"
+        policyVersion:
+          type: string
+          maxLength: 80
+    BillRevisionSettlementImpactSourceReferenceResponse:
+      type: object
+      description: Safe settlement source reference by category and stable ID only. It excludes proof bytes, storage metadata, payment details, and unrelated participant data.
+      required:
+        - sourceType
+        - sourceId
+      properties:
+        sourceType:
+          $ref: "#/components/schemas/BillRevisionSettlementImpactSourceType"
+        sourceId:
+          type: string
+          format: uuid
+    BillRevisionRequestMetadataResponse:
+      type: object
+      description: Safe request/correlation metadata returned where useful for tracing and audit linkage. Values are not authorization tokens.
+      properties:
+        requestId:
+          type: string
+          maxLength: 120
+        correlationId:
+          type: string
+          maxLength: 120
+    BillRevisionIdempotencyMetadataResponse:
+      type: object
+      description: Safe idempotency readout. It does not authorize a request and must be scoped server-side.
+      properties:
+        idempotencyKey:
+          type: string
+          maxLength: 120
+        replayed:
+          type: boolean
+        bodyHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: "^[0-9a-f]{64}$"
     BillRevisionViewerActionsResponse:
       type: object
       description: Server-authoritative viewer action capability hint for the authenticated actor. These booleans are derived from the same bill/revision/payer-confirmation/approval/apply-policy state used by mutation endpoints, but they are only UI hints and are not an authorization boundary.
@@ -12145,6 +12739,124 @@ components:
         - direct_viewer_payer_impact
         - bill_context
         - no_direct_viewer_impact
+    BillRevisionSnapshotRole:
+      type: string
+      enum:
+        - baseline
+        - proposed
+        - active_accepted
+    BillRevisionAttachmentPurpose:
+      type: string
+      enum:
+        - receipt_image
+        - supporting_attachment
+    BillRevisionAttachmentLifecycleState:
+      type: string
+      enum:
+        - active
+        - removed
+        - unavailable_to_viewer
+    BillRevisionOcrSourceMode:
+      type: string
+      enum:
+        - none
+        - saved_receipt_ocr_review
+        - future_non_draft_ocr_to_revision_handoff
+    BillRevisionOcrSourceStatus:
+      type: string
+      enum:
+        - not_present
+        - referenced
+        - stale
+        - unavailable_to_viewer
+        - policy_blocked
+    BillRevisionUnsupportedDetailReason:
+      type: string
+      enum:
+        - unsupported_snapshot_schema_version
+        - item_detail_unsupported_in_current_revision_snapshot
+        - item_split_detail_unsupported_in_current_revision_snapshot
+        - adjustment_detail_unsupported_in_current_revision_snapshot
+        - attachment_receipt_ocr_detail_unsupported_in_current_revision_snapshot
+        - note_metadata_detail_unsupported_in_current_revision_snapshot
+        - viewer_not_authorized_for_detail
+    BillRevisionLimitationCode:
+      type: string
+      enum:
+        - last_view_without_approval_or_rejection_not_persisted
+        - item_split_attachment_note_diff_unsupported_in_current_revision_snapshot
+        - snapshot_detail_viewer_filtered
+        - settlement_adjustment_reopen_policy_not_implemented
+        - non_draft_ocr_to_revision_routing_not_implemented
+        - client_hints_are_not_authorization
+    BillRevisionSettlementImpactCategory:
+      type: string
+      enum:
+        - none
+        - pending_revision_not_settlement_truth
+        - no_financial_impact
+        - affected_participant_shares_changed
+        - payer_contribution_changed
+        - total_amount_changed
+        - currency_rounding_changed
+        - tax_fee_discount_allocation_changed
+        - participant_added_removed
+        - requested_settlement_blocks_apply
+        - progressed_settlement_blocks_apply
+        - settlement_proof_or_payment_records_exist
+        - future_invalidation_required
+        - future_adjustment_or_reopen_required
+        - unsupported_detail_blocks_apply
+        - policy_blocked
+    BillRevisionSettlementImpactBlockReason:
+      type: string
+      enum:
+        - missing_required_approvals
+        - payer_confirmation_required
+        - settlement_state_blocks_apply
+        - requested_settlement_exists
+        - progressed_payment_or_residual_exists
+        - proof_attachment_exists
+        - stale_revision_basis
+        - unsupported_snapshot_detail
+        - policy_blocked
+    BillRevisionSettlementImpactSourceType:
+      type: string
+      enum:
+        - settlement_candidate
+        - settlement_request
+        - settlement_request_line
+        - settlement_payment
+        - settlement_payment_allocation
+        - settlement_residual
+        - settlement_proof_attachment
+        - balance_projection
+    BillRevisionProblemCode:
+      type: string
+      description: Safe machine-readable bill revision problem code. Codes must not leak unrelated bill, revision, OCR, file, settlement, group, user, or storage existence.
+      enum:
+        - validation_failed
+        - malformed_request
+        - authorization_or_visibility_denied
+        - stale_bill_version
+        - stale_revision_version
+        - stale_calculation_hash
+        - active_pending_revision_conflict
+        - superseded_revision
+        - missing_required_approvals
+        - payer_confirmation_required
+        - payer_confirmation_basis_mismatch
+        - approval_basis_mismatch
+        - settlement_state_blocks_apply
+        - unsupported_snapshot_detail
+        - unsupported_snapshot_schema_version
+        - ocr_review_stale
+        - ocr_source_not_visible
+        - file_reference_not_visible
+        - policy_blocked
+        - money_validation_failed
+        - rounding_policy_mismatch
+        - idempotency_conflict
     ExpenseBillReconciliationUpdateRequest:
       type: object
       description: Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.
@@ -15264,6 +15976,42 @@ components:
         instance:
           type: string
           format: uri-reference
+        code:
+          oneOf:
+            - $ref: "#/components/schemas/BillRevisionProblemCode"
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Optional safe machine-readable problem code. For bill revision operations, codes must not leak unrelated record existence or sensitive payload details.
+        correlationId:
+          type: string
+          maxLength: 120
+          description: Optional safe correlation identifier for support and audit linkage. It is not an authorization token.
+        requestId:
+          type: string
+          maxLength: 120
+          description: Optional safe request identifier for support and audit linkage. It is not an authorization token.
+        errors:
+          type: array
+          description: Optional bounded validation errors. Entries must not echo raw request bodies, raw OCR text, secrets, file bytes, storage internals, or unrelated sensitive content.
+          items:
+            $ref: "#/components/schemas/ProblemDetailsError"
+    ProblemDetailsError:
+      type: object
+      description: Safe validation problem detail for one field or operation.
+      required:
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          maxLength: 120
+        code:
+          type: string
+          maxLength: 120
+        message:
+          type: string
+          maxLength: 240
     OcrJobStatus:
       type: string
       description: Placeholder OCR job status values for future worker contract design.

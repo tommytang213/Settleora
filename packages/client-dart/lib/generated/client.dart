@@ -725,6 +725,39 @@ class SettleoraApiClient {
     return BillRevisionResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<BillRevisionReviewContextEnvelopeResponse> getBillRevisionReviewContext(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}/review-context',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionReviewContextEnvelopeResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionSettlementImpactResponse> getBillRevisionSettlementImpact(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}/settlement-impact',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionSettlementImpactResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillRevisionSnapshotResponse> getBillRevisionSnapshot(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bills/${Uri.encodeComponent(billId.toString())}/revisions/${Uri.encodeComponent(revisionId.toString())}/snapshot',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillRevisionSnapshotResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<BillRevisionResponse> submitBillRevision(String billId, String revisionId, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",

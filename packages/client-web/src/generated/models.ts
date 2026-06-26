@@ -1355,9 +1355,38 @@ export interface RejectBillParticipantRequest {
 }
 
 /**
- * Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, free-text reasons, or internal database-only fields.
+ * Bounded candidate money snapshot for a bill revision proposal. The server derives actor identity, bill visibility, active revision policy, timestamps, approval rows, affected participants, payer confirmation flags, audit metadata, and settlement safety behavior. This snapshot does not accept auth/session IDs, storage fields, settlement fields, proof fields, raw OCR text, raw request bodies, file bytes, or internal database-only fields. Optional stale guards, idempotency metadata, and OCR source references are advisory transport fields; the API/domain remains authoritative.
  */
 export interface CreateBillRevisionProposalRequest {
+  /**
+   * Optional optimistic-concurrency guard for the bill basis the client reviewed. It is not an authorization token.
+   */
+  expectedBillVersion?: string | null;
+  /**
+   * Optional stale-basis guard for the active accepted revision the client reviewed.
+   */
+  expectedActiveAcceptedRevisionId?: string | null;
+  /**
+   * Optional stale-basis guard for revising an existing active pending revision under the one-active-pending Day 1 policy.
+   */
+  expectedActivePendingRevisionId?: string | null;
+  /**
+   * Optional retry key scoped by the API to actor, route subject, operation, and normalized request body hash.
+   */
+  idempotencyKey?: string | null;
+  /**
+   * Optional caller correlation ID echoed only where safe for tracing and audit linkage.
+   */
+  correlationId?: string | null;
+  /**
+   * Optional bounded reason category. Free-text notes remain bounded and are never authority for policy decisions.
+   */
+  reasonCode?: string | null;
+  /**
+   * Optional bounded human note summary after server-side trimming. It must not contain secrets, raw OCR text, payment secrets, storage internals, or unrelated sensitive content.
+   */
+  reasonNoteSummary?: string | null;
+  ocrSource?: BillRevisionOcrSourceRequest | null;
   /**
    * Decimal-safe proposed bill total amount represented as a string. Must be positive and match participant and payer totals.
    */
@@ -1417,6 +1446,27 @@ export interface ConfirmBillRevisionPayerRequest {
 }
 
 /**
+ * Safe optional OCR-source handoff reference for future non-draft OCR-to-revision routing. It carries stable IDs and stale guards only, never raw OCR text, file bytes, local paths, storage object keys, provider internals, signed URLs, thumbnails, or worker payloads.
+ */
+export interface BillRevisionOcrSourceRequest {
+  receiptAttachmentFileId: string;
+  ocrReviewId: string;
+  /**
+   * Optional stale-source guard for the saved OCR review.
+   */
+  expectedOcrReviewVersion?: string | null;
+  /**
+   * Optional stale-source timestamp guard for the saved OCR review.
+   */
+  expectedOcrReviewUpdatedAtUtc?: string | null;
+  sourceMode?: BillRevisionOcrSourceMode;
+  /**
+   * Optional stable OCR review line IDs that contributed to the proposed revision. Clients must not treat line IDs as proof of visibility or authority.
+   */
+  sourceLineIds?: string[];
+}
+
+/**
  * Bill revisions visible to the authenticated actor. The response is intentionally unpaginated for this first lifecycle slice.
  */
 export interface BillRevisionListResponse {
@@ -1456,6 +1506,173 @@ export interface BillRevisionResponse {
   approvals: BillRevisionApprovalResponse[];
   viewerActions: BillRevisionViewerActionsResponse;
   reviewContext: BillRevisionReviewContextResponse;
+  snapshot?: BillRevisionSnapshotSummaryResponse | null;
+  settlementImpact?: BillRevisionSettlementImpactSummaryResponse | null;
+  sourceOcrReview?: BillRevisionOcrSourceResponse | null;
+  /**
+   * Server-issued revision version or ETag-style stale guard for future mutation commands. It is not an authorization token.
+   */
+  serverVersion?: string | null;
+  /**
+   * Version of the normalized revision snapshot used for review and calculation hashing.
+   */
+  snapshotSchemaVersion?: string | null;
+  /**
+   * Money policy version used by the API/domain when producing this revision readout.
+   */
+  moneyPolicyVersion?: string | null;
+  /**
+   * Rounding policy version used by the API/domain when producing this revision readout.
+   */
+  roundingPolicyVersion?: string | null;
+  requestMetadata?: BillRevisionRequestMetadataResponse | null;
+  idempotency?: BillRevisionIdempotencyMetadataResponse | null;
+  /**
+   * Safe server-provided limitations for this revision readout.
+   */
+  limitations?: BillRevisionLimitationCode[];
+}
+
+/**
+ * Stable envelope for a standalone revision review-context read. Clients render the server-generated context and must not infer authorization, affected-user state, payer-confirmation truth, settlement truth, or financial truth from the generated client surface.
+ */
+export interface BillRevisionReviewContextEnvelopeResponse {
+  revisionId: string;
+  billId: string;
+  reviewContext: BillRevisionReviewContextResponse;
+  calculationHash: string;
+  snapshotSchemaVersion: string;
+  moneyPolicyVersion: string;
+  roundingPolicyVersion: string;
+  requestMetadata?: BillRevisionRequestMetadataResponse | null;
+  limitations: BillRevisionLimitationCode[];
+}
+
+/**
+ * Safe bill revision snapshot readout. It exposes normalized metadata, bounded money rows, stable attachment file IDs, and stable OCR review IDs only. It excludes raw request bodies, raw OCR full text, file bytes, thumbnails, storage paths, object keys, provider internals, signed URLs, secrets, tokens, and unrelated sensitive data.
+ */
+export interface BillRevisionSnapshotResponse {
+  revisionId: string;
+  billId: string;
+  snapshot: BillRevisionSnapshotSummaryResponse;
+  calculationHash: string;
+  snapshotSchemaVersion: string;
+  moneyPolicyVersion: string;
+  roundingPolicyVersion: string;
+  requestMetadata?: BillRevisionRequestMetadataResponse | null;
+  limitations: BillRevisionLimitationCode[];
+}
+
+/**
+ * Bounded normalized revision snapshot summary. File and OCR references are stable IDs only and are never storage access grants.
+ */
+export interface BillRevisionSnapshotSummaryResponse {
+  snapshotRole: BillRevisionSnapshotRole;
+  total: BillRevisionMoneyValueResponse;
+  participants: BillRevisionSnapshotParticipantResponse[];
+  payers: BillRevisionSnapshotPayerResponse[];
+  /**
+   * Stable file IDs and safe attachment purpose/lifecycle metadata only. These IDs are not storage paths or access grants.
+   */
+  attachmentFileRefs: BillRevisionAttachmentFileReferenceResponse[];
+  /**
+   * Stable OCR review references only. Raw OCR full text and worker payloads are excluded.
+   */
+  receiptOcrReviewRefs: BillRevisionOcrReviewReferenceResponse[];
+  unsupportedDetailReasons: BillRevisionUnsupportedDetailReason[];
+}
+
+export interface BillRevisionSnapshotParticipantResponse {
+  userProfileId: string;
+  resolvedShare: BillRevisionMoneyValueResponse;
+  affectedByRevision?: boolean;
+}
+
+export interface BillRevisionSnapshotPayerResponse {
+  userProfileId: string;
+  contribution: BillRevisionMoneyValueResponse;
+  requiresPayerConfirmation?: boolean;
+  payerConfirmationStatus?: ExpenseBillPayerConfirmationStatus | null;
+}
+
+/**
+ * Safe attachment reference for revision review. It never includes bytes, paths, object keys, provider internals, signed URLs, or thumbnails.
+ */
+export interface BillRevisionAttachmentFileReferenceResponse {
+  fileId: string;
+  purpose: BillRevisionAttachmentPurpose;
+  lifecycleState: BillRevisionAttachmentLifecycleState;
+}
+
+/**
+ * Safe OCR review reference for revision review. It excludes raw OCR text, confidence payloads, line text, worker payloads, and storage internals.
+ */
+export interface BillRevisionOcrReviewReferenceResponse {
+  ocrReviewId: string;
+  receiptAttachmentFileId?: string | null;
+  candidateVersion?: string | null;
+  reviewedAtUtc?: string | null;
+}
+
+/**
+ * Safe OCR-to-revision source handoff metadata. It is informational and does not authorize OCR apply or bill mutation.
+ */
+export interface BillRevisionOcrSourceResponse {
+  receiptAttachmentFileId: string;
+  ocrReviewId: string;
+  sourceMode: BillRevisionOcrSourceMode;
+  status: BillRevisionOcrSourceStatus;
+  expectedOcrReviewVersion?: string | null;
+  expectedOcrReviewUpdatedAtUtc?: string | null;
+}
+
+/**
+ * Standalone safe settlement-impact readout for a bill revision. It is read-only and must not mutate settlement candidates, requests, payments, allocations, residuals, proof attachments, balances, reports, or active bill truth.
+ */
+export interface BillRevisionSettlementImpactResponse {
+  revisionId: string;
+  billId: string;
+  impact: BillRevisionSettlementImpactSummaryResponse;
+  requestMetadata?: BillRevisionRequestMetadataResponse | null;
+}
+
+/**
+ * Bounded server-derived settlement-impact summary. Source references are safe categories and IDs only when visible to the actor.
+ */
+export interface BillRevisionSettlementImpactSummaryResponse {
+  category: BillRevisionSettlementImpactCategory;
+  applyBlocked: boolean;
+  blockedReasons: BillRevisionSettlementImpactBlockReason[];
+  /**
+   * Bounded visible settlement source references. Missing references must not leak unrelated settlement existence.
+   */
+  sourceRefs: BillRevisionSettlementImpactSourceReferenceResponse[];
+  policyVersion: string;
+}
+
+/**
+ * Safe settlement source reference by category and stable ID only. It excludes proof bytes, storage metadata, payment details, and unrelated participant data.
+ */
+export interface BillRevisionSettlementImpactSourceReferenceResponse {
+  sourceType: BillRevisionSettlementImpactSourceType;
+  sourceId: string;
+}
+
+/**
+ * Safe request/correlation metadata returned where useful for tracing and audit linkage. Values are not authorization tokens.
+ */
+export interface BillRevisionRequestMetadataResponse {
+  requestId?: string;
+  correlationId?: string;
+}
+
+/**
+ * Safe idempotency readout. It does not authorize a request and must be scoped server-side.
+ */
+export interface BillRevisionIdempotencyMetadataResponse {
+  idempotencyKey?: string;
+  replayed?: boolean;
+  bodyHash?: string;
 }
 
 /**
@@ -1635,6 +1852,31 @@ export type BillRevisionReviewChangeType = "bill_total_changed" | "participant_s
 export type BillRevisionReviewChangeScope = "bill_total" | "participant_share" | "payer_contribution" | "payer_role";
 
 export type BillRevisionReviewChangeViewerImpact = "direct_viewer_money_impact" | "direct_viewer_payer_impact" | "bill_context" | "no_direct_viewer_impact";
+
+export type BillRevisionSnapshotRole = "baseline" | "proposed" | "active_accepted";
+
+export type BillRevisionAttachmentPurpose = "receipt_image" | "supporting_attachment";
+
+export type BillRevisionAttachmentLifecycleState = "active" | "removed" | "unavailable_to_viewer";
+
+export type BillRevisionOcrSourceMode = "none" | "saved_receipt_ocr_review" | "future_non_draft_ocr_to_revision_handoff";
+
+export type BillRevisionOcrSourceStatus = "not_present" | "referenced" | "stale" | "unavailable_to_viewer" | "policy_blocked";
+
+export type BillRevisionUnsupportedDetailReason = "unsupported_snapshot_schema_version" | "item_detail_unsupported_in_current_revision_snapshot" | "item_split_detail_unsupported_in_current_revision_snapshot" | "adjustment_detail_unsupported_in_current_revision_snapshot" | "attachment_receipt_ocr_detail_unsupported_in_current_revision_snapshot" | "note_metadata_detail_unsupported_in_current_revision_snapshot" | "viewer_not_authorized_for_detail";
+
+export type BillRevisionLimitationCode = "last_view_without_approval_or_rejection_not_persisted" | "item_split_attachment_note_diff_unsupported_in_current_revision_snapshot" | "snapshot_detail_viewer_filtered" | "settlement_adjustment_reopen_policy_not_implemented" | "non_draft_ocr_to_revision_routing_not_implemented" | "client_hints_are_not_authorization";
+
+export type BillRevisionSettlementImpactCategory = "none" | "pending_revision_not_settlement_truth" | "no_financial_impact" | "affected_participant_shares_changed" | "payer_contribution_changed" | "total_amount_changed" | "currency_rounding_changed" | "tax_fee_discount_allocation_changed" | "participant_added_removed" | "requested_settlement_blocks_apply" | "progressed_settlement_blocks_apply" | "settlement_proof_or_payment_records_exist" | "future_invalidation_required" | "future_adjustment_or_reopen_required" | "unsupported_detail_blocks_apply" | "policy_blocked";
+
+export type BillRevisionSettlementImpactBlockReason = "missing_required_approvals" | "payer_confirmation_required" | "settlement_state_blocks_apply" | "requested_settlement_exists" | "progressed_payment_or_residual_exists" | "proof_attachment_exists" | "stale_revision_basis" | "unsupported_snapshot_detail" | "policy_blocked";
+
+export type BillRevisionSettlementImpactSourceType = "settlement_candidate" | "settlement_request" | "settlement_request_line" | "settlement_payment" | "settlement_payment_allocation" | "settlement_residual" | "settlement_proof_attachment" | "balance_projection";
+
+/**
+ * Safe machine-readable bill revision problem code. Codes must not leak unrelated bill, revision, OCR, file, settlement, group, user, or storage existence.
+ */
+export type BillRevisionProblemCode = "validation_failed" | "malformed_request" | "authorization_or_visibility_denied" | "stale_bill_version" | "stale_revision_version" | "stale_calculation_hash" | "active_pending_revision_conflict" | "superseded_revision" | "missing_required_approvals" | "payer_confirmation_required" | "payer_confirmation_basis_mismatch" | "approval_basis_mismatch" | "settlement_state_blocks_apply" | "unsupported_snapshot_detail" | "unsupported_snapshot_schema_version" | "ocr_review_stale" | "ocr_source_not_visible" | "file_reference_not_visible" | "policy_blocked" | "money_validation_failed" | "rounding_policy_mismatch" | "idempotency_conflict";
 
 /**
  * Manual reconciliation status update. The server derives actor identity and authorized bill visibility; this request must not include money, participant, payer, settlement, file, OCR, auth, session, or storage fields.
@@ -3262,6 +3504,31 @@ export interface ProblemDetails {
   status?: number;
   detail?: string;
   instance?: string;
+  /**
+   * Optional safe machine-readable problem code. For bill revision operations, codes must not leak unrelated record existence or sensitive payload details.
+   */
+  code?: BillRevisionProblemCode | string | null;
+  /**
+   * Optional safe correlation identifier for support and audit linkage. It is not an authorization token.
+   */
+  correlationId?: string;
+  /**
+   * Optional safe request identifier for support and audit linkage. It is not an authorization token.
+   */
+  requestId?: string;
+  /**
+   * Optional bounded validation errors. Entries must not echo raw request bodies, raw OCR text, secrets, file bytes, storage internals, or unrelated sensitive content.
+   */
+  errors?: ProblemDetailsError[];
+}
+
+/**
+ * Safe validation problem detail for one field or operation.
+ */
+export interface ProblemDetailsError {
+  field?: string;
+  code: string;
+  message: string;
 }
 
 /**
