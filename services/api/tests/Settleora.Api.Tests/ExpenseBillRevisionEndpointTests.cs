@@ -357,6 +357,126 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public async Task ConfirmedBillRevisionCanReferenceSavedReceiptOcrReviewWithoutRewritingActiveBillTruth()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision OCR Creator");
+        var participant = await SeedAccountAsync(testFactory, "Revision OCR Participant", InitialTimestamp.AddMinutes(1));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 50m),
+                new ParticipantSeed(participant.UserProfileId, 50m)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var fileId = await SeedReceiptAttachmentAsync(testFactory, billId, creatorSession.UserProfileId);
+        var reviewId = await SeedReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            fileId,
+            creatorSession.UserProfileId,
+            groupId: null,
+            updatedAtUtc: InitialTimestamp.AddMinutes(7));
+        var review = await ReadReceiptOcrReviewAsync(testFactory, reviewId);
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            RevisionsPath(billId),
+            creatorSession.RawSessionToken,
+            SnapshotJsonWithOcrSource(
+                [(creatorSession.UserProfileId, 40m), (participant.UserProfileId, 60m)],
+                [(creatorSession.UserProfileId, 100m)],
+                fileId,
+                reviewId,
+                review.UpdatedAtUtc));
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.True(createResponse.StatusCode == HttpStatusCode.Created, createContent);
+        using var createPayload = JsonDocument.Parse(createContent);
+        Assert.Equal(ExpenseBillRevisionStatuses.DraftRevision, createPayload.RootElement.GetProperty("status").GetString());
+        var source = createPayload.RootElement.GetProperty("sourceOcrReview");
+        Assert.Equal(fileId, source.GetProperty("receiptAttachmentFileId").GetGuid());
+        Assert.Equal(reviewId, source.GetProperty("ocrReviewId").GetGuid());
+        Assert.Equal("saved_receipt_ocr_review", source.GetProperty("sourceMode").GetString());
+        Assert.Equal("referenced", source.GetProperty("status").GetString());
+        Assert.DoesNotContain("private ocr text", createContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("receipts/private-key", createContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("rawOcr", createContent, StringComparison.OrdinalIgnoreCase);
+
+        var bill = await ReadBillAsync(testFactory, billId);
+        Assert.Equal(100m, bill.TotalAmount);
+        Assert.Null(bill.ActiveAcceptedBillRevisionId);
+        Assert.Equal(ExpenseBillStatuses.Confirmed, bill.Status);
+
+        var revisionId = createPayload.RootElement.GetProperty("id").GetGuid();
+        var revision = await ReadRevisionAsync(testFactory, revisionId);
+        using var proposedSnapshot = JsonDocument.Parse(revision.ProposedSnapshotJson);
+        Assert.Equal(fileId, proposedSnapshot.RootElement.GetProperty("attachmentFileIds")[0].GetGuid());
+        Assert.Equal(reviewId, proposedSnapshot.RootElement.GetProperty("receiptOcrReviewIds")[0].GetGuid());
+        Assert.DoesNotContain("private ocr text", revision.ProposedSnapshotJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("objectKey", revision.ProposedSnapshotJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task StaleReceiptOcrReviewSourceFailsClosedWithoutCreatingRevision()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Stale OCR Creator");
+        var participant = await SeedAccountAsync(testFactory, "Revision Stale OCR Participant", InitialTimestamp.AddMinutes(1));
+        var billId = await SeedBillAsync(
+            testFactory,
+            creatorSession.UserProfileId,
+            ownerProfileId: creatorSession.UserProfileId,
+            groupId: null,
+            [
+                new ParticipantSeed(creatorSession.UserProfileId, 50m),
+                new ParticipantSeed(participant.UserProfileId, 50m)
+            ],
+            [new PayerSeed(creatorSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        var fileId = await SeedReceiptAttachmentAsync(testFactory, billId, creatorSession.UserProfileId);
+        var reviewId = await SeedReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            fileId,
+            creatorSession.UserProfileId,
+            groupId: null,
+            updatedAtUtc: InitialTimestamp.AddMinutes(7));
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            RevisionsPath(billId),
+            creatorSession.RawSessionToken,
+            SnapshotJsonWithOcrSource(
+                [(creatorSession.UserProfileId, 40m), (participant.UserProfileId, 60m)],
+                [(creatorSession.UserProfileId, 100m)],
+                fileId,
+                reviewId,
+                InitialTimestamp.AddMinutes(6)));
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+        Assert.Contains("OCR source review timestamp is stale.", createContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("private ocr text", createContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("receipts/private-key", createContent, StringComparison.OrdinalIgnoreCase);
+
+        var revisions = await ReadRevisionsAsync(testFactory);
+        Assert.DoesNotContain(revisions, revision => revision.ExpenseBillId == billId);
+    }
+
+    [Fact]
     public async Task PersonalBillDetailExposesRevisionCreationCapabilityForEligibleStatesOnly()
     {
         var testContext = CreateFactory();
@@ -2780,6 +2900,87 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         return revisionId;
     }
 
+    private static async Task<Guid> SeedReceiptAttachmentAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid ownerUserProfileId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var fileId = Guid.NewGuid();
+        dbContext.Set<FileObject>().Add(new FileObject
+        {
+            Id = fileId,
+            OwnerUserProfileId = ownerUserProfileId,
+            CreatedByUserProfileId = ownerUserProfileId,
+            Purpose = FileObjectPurposes.ReceiptImage,
+            Status = FileObjectStatuses.Active,
+            ContentType = "image/png",
+            OriginalFilename = "hidden-revision-receipt.png",
+            SizeBytes = 128,
+            Sha256Hash = new string('a', 64),
+            StorageProvider = "local",
+            StorageObjectKey = "receipts/private-key",
+            EncryptionMode = FileObjectEncryptionModes.ServerManaged,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<ExpenseBillAttachment>().Add(new ExpenseBillAttachment
+        {
+            ExpenseBillId = billId,
+            FileObjectId = fileId,
+            Purpose = ExpenseBillAttachmentPurposes.Receipt,
+            CreatedByUserProfileId = ownerUserProfileId,
+            CreatedAtUtc = InitialTimestamp
+        });
+
+        await dbContext.SaveChangesAsync();
+        return fileId;
+    }
+
+    private static async Task<Guid> SeedReceiptOcrReviewAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid billId,
+        Guid fileId,
+        Guid createdByUserProfileId,
+        Guid? groupId,
+        DateTimeOffset updatedAtUtc)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var review = new ReceiptOcrReview
+        {
+            Id = Guid.NewGuid(),
+            ExpenseBillId = billId,
+            FileObjectId = fileId,
+            CreatedByUserProfileId = createdByUserProfileId,
+            GroupId = groupId,
+            Status = ReceiptOcrReviewStatuses.Reviewed,
+            Source = ReceiptOcrReviewSources.OnDevice,
+            MerchantText = "private ocr text",
+            Currency = "USD",
+            GrandTotalAmount = 100m,
+            CreatedAtUtc = updatedAtUtc.AddMinutes(-1),
+            UpdatedAtUtc = updatedAtUtc
+        };
+        review.Lines.Add(new ReceiptOcrReviewLine
+        {
+            Id = Guid.NewGuid(),
+            ReceiptOcrReviewId = review.Id,
+            SortOrder = 0,
+            Text = "private ocr text line",
+            Quantity = 1m,
+            UnitPriceAmount = 100m,
+            LineTotalAmount = 100m,
+            CreatedAtUtc = updatedAtUtc.AddMinutes(-1),
+            UpdatedAtUtc = updatedAtUtc
+        });
+
+        dbContext.Set<ReceiptOcrReview>().Add(review);
+        await dbContext.SaveChangesAsync();
+        return review.Id;
+    }
+
     private static async Task ApproveAllRevisionApprovalsAsync(
         WebApplicationFactory<Program> testFactory,
         Guid billId,
@@ -3094,6 +3295,31 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             .Include(revision => revision.Payers)
             .Include(revision => revision.Approvals)
             .SingleAsync(revision => revision.Id == revisionId);
+    }
+
+    private static async Task<IReadOnlyList<ExpenseBillRevision>> ReadRevisionsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<ExpenseBillRevision>()
+            .AsNoTracking()
+            .OrderBy(revision => revision.CreatedAtUtc)
+            .ThenBy(revision => revision.Id)
+            .ToArrayAsync();
+    }
+
+    private static async Task<ReceiptOcrReview> ReadReceiptOcrReviewAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid reviewId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<ReceiptOcrReview>()
+            .Include(review => review.Lines)
+            .SingleAsync(review => review.Id == reviewId);
     }
 
     private static async Task<ExpenseBillRevisionApproval> ReadApprovalAsync(
@@ -3411,6 +3637,18 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
                 $$"""{"userProfileId":"{{payer.UserProfileId:D}}","amount":"{{FormatAmount(payer.Amount)}}","currency":"USD"}"""));
 
         return $$"""{"totalAmount":"{{FormatAmount(total)}}","totalCurrency":"USD","participants":[{{participantJson}}],"payers":[{{payerJson}}]}""";
+    }
+
+    private static string SnapshotJsonWithOcrSource(
+        IReadOnlyList<(Guid UserProfileId, decimal Amount)> participants,
+        IReadOnlyList<(Guid UserProfileId, decimal Amount)> payers,
+        Guid receiptAttachmentFileId,
+        Guid ocrReviewId,
+        DateTimeOffset expectedOcrReviewUpdatedAtUtc)
+    {
+        var snapshot = SnapshotJson(participants, payers);
+        var source = $$""","ocrSource":{"receiptAttachmentFileId":"{{receiptAttachmentFileId:D}}","ocrReviewId":"{{ocrReviewId:D}}","expectedOcrReviewVersion":"{{expectedOcrReviewUpdatedAtUtc.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture)}}","expectedOcrReviewUpdatedAtUtc":"{{expectedOcrReviewUpdatedAtUtc.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture)}}","sourceMode":"saved_receipt_ocr_review"}""";
+        return snapshot[..^1] + source + "}";
     }
 
     private static string ApprovalJson(

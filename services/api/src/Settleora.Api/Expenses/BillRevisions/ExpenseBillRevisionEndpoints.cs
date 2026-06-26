@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
@@ -188,7 +189,7 @@ internal static class ExpenseBillRevisionEndpoints
             return BillUnavailable();
         }
 
-        var readResult = await ReadRevisionSnapshotRequestAsync(request, bill, cancellationToken);
+        var readResult = await ReadRevisionSnapshotRequestAsync(request, dbContext, bill, cancellationToken);
         if (!readResult.Succeeded || readResult.Snapshot is null)
         {
             return InvalidBillRevisionRequest(readResult.Errors);
@@ -276,7 +277,7 @@ internal static class ExpenseBillRevisionEndpoints
             return BillRevisionUnavailable();
         }
 
-        var readResult = await ReadRevisionSnapshotRequestAsync(request, bill, cancellationToken);
+        var readResult = await ReadRevisionSnapshotRequestAsync(request, dbContext, bill, cancellationToken);
         if (!readResult.Succeeded || readResult.Snapshot is null)
         {
             return InvalidBillRevisionRequest(readResult.Errors);
@@ -949,6 +950,7 @@ internal static class ExpenseBillRevisionEndpoints
 
     private static async Task<RevisionSnapshotReadResult> ReadRevisionSnapshotRequestAsync(
         HttpRequest request,
+        SettleoraDbContext dbContext,
         ExpenseBill bill,
         CancellationToken cancellationToken)
     {
@@ -991,11 +993,52 @@ internal static class ExpenseBillRevisionEndpoints
                 : null;
             List<RevisionParticipantRequest>? participants = null;
             List<RevisionPayerRequest>? payers = null;
+            BillRevisionOcrSourceRequest? ocrSource = null;
+            string? expectedBillVersion = null;
+            Guid? expectedActiveAcceptedRevisionId = null;
+            Guid? expectedActivePendingRevisionId = null;
+            var expectedActiveAcceptedRevisionIdSupplied = false;
+            var expectedActivePendingRevisionIdSupplied = false;
+            string? idempotencyKey = null;
+            string? correlationId = null;
+            string? reasonCode = null;
+            string? reasonNoteSummary = null;
 
             foreach (var property in document.RootElement.EnumerateObject())
             {
                 switch (property.Name)
                 {
+                    case "expectedBillVersion":
+                        expectedBillVersion = ReadOptionalBoundedString(property.Value, "expectedBillVersion", 120, errors);
+                        break;
+                    case "expectedActiveAcceptedRevisionId":
+                        expectedActiveAcceptedRevisionIdSupplied = true;
+                        expectedActiveAcceptedRevisionId = ReadOptionalGuid(property.Value, "expectedActiveAcceptedRevisionId", errors);
+                        break;
+                    case "expectedActivePendingRevisionId":
+                        expectedActivePendingRevisionIdSupplied = true;
+                        expectedActivePendingRevisionId = ReadOptionalGuid(property.Value, "expectedActivePendingRevisionId", errors);
+                        break;
+                    case "idempotencyKey":
+                        idempotencyKey = ReadOptionalBoundedString(property.Value, "idempotencyKey", 120, errors);
+                        if (idempotencyKey is not null)
+                        {
+                            AddError(errors, "idempotencyKey", "Idempotency keys are not supported by this bill revision runtime slice.");
+                        }
+
+                        break;
+                    case "correlationId":
+                        correlationId = ReadOptionalBoundedString(property.Value, "correlationId", 120, errors);
+                        break;
+                    case "reasonCode":
+                        reasonCode = ReadOptionalBoundedString(property.Value, "reasonCode", 80, errors);
+                        break;
+                    case "reasonNoteSummary":
+                        reasonNoteSummary = ReadOptionalBoundedString(property.Value, "reasonNoteSummary", 240, errors);
+                        break;
+                    case "ocrSource":
+                        ocrSource = await ReadOcrSourceRequestAsync(property.Value, dbContext, bill, errors, cancellationToken);
+                        break;
                     case "totalAmount":
                         totalAmount = ReadMoneyAmount(
                             property.Value,
@@ -1018,6 +1061,15 @@ internal static class ExpenseBillRevisionEndpoints
                         break;
                 }
             }
+
+            ValidateRevisionStaleGuards(
+                bill,
+                expectedBillVersion,
+                expectedActiveAcceptedRevisionId,
+                expectedActiveAcceptedRevisionIdSupplied,
+                expectedActivePendingRevisionId,
+                expectedActivePendingRevisionIdSupplied,
+                errors);
 
             if (totalCurrency is null)
             {
@@ -1094,7 +1146,9 @@ internal static class ExpenseBillRevisionEndpoints
                         payer.UserProfileId,
                         payer.Amount,
                         payer.Currency))
-                    .ToArray()));
+                    .ToArray(),
+                ocrSource is null ? [] : [ocrSource.ReceiptAttachmentFileId],
+                ocrSource is null ? [] : [ocrSource.OcrReviewId]));
         }
     }
 
@@ -1443,6 +1497,149 @@ internal static class ExpenseBillRevisionEndpoints
             : null;
     }
 
+    private static async Task<BillRevisionOcrSourceRequest?> ReadOcrSourceRequestAsync(
+        JsonElement value,
+        SettleoraDbContext dbContext,
+        ExpenseBill bill,
+        Dictionary<string, List<string>> errors,
+        CancellationToken cancellationToken)
+    {
+        if (value.ValueKind is JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.ValueKind is not JsonValueKind.Object)
+        {
+            AddError(errors, "ocrSource", "OCR source must be an object when supplied.");
+            return null;
+        }
+
+        Guid? receiptAttachmentFileId = null;
+        Guid? ocrReviewId = null;
+        string? expectedOcrReviewVersion = null;
+        DateTimeOffset? expectedOcrReviewUpdatedAtUtc = null;
+        string? sourceMode = null;
+        List<Guid>? sourceLineIds = null;
+
+        foreach (var property in value.EnumerateObject())
+        {
+            switch (property.Name)
+            {
+                case "receiptAttachmentFileId":
+                    receiptAttachmentFileId = ReadGuid(property.Value, "ocrSource.receiptAttachmentFileId", errors);
+                    break;
+                case "ocrReviewId":
+                    ocrReviewId = ReadGuid(property.Value, "ocrSource.ocrReviewId", errors);
+                    break;
+                case "expectedOcrReviewVersion":
+                    expectedOcrReviewVersion = ReadOptionalBoundedString(
+                        property.Value,
+                        "ocrSource.expectedOcrReviewVersion",
+                        120,
+                        errors);
+                    break;
+                case "expectedOcrReviewUpdatedAtUtc":
+                    expectedOcrReviewUpdatedAtUtc = ReadOptionalDateTimeOffset(
+                        property.Value,
+                        "ocrSource.expectedOcrReviewUpdatedAtUtc",
+                        errors);
+                    break;
+                case "sourceMode":
+                    sourceMode = ReadOptionalBoundedString(property.Value, "ocrSource.sourceMode", 80, errors);
+                    if (sourceMode is not null
+                        && sourceMode is not "saved_receipt_ocr_review" and not "future_non_draft_ocr_to_revision_handoff")
+                    {
+                        AddError(errors, "ocrSource.sourceMode", "OCR source mode is not supported.");
+                    }
+
+                    break;
+                case "sourceLineIds":
+                    sourceLineIds = ReadOptionalGuidArray(property.Value, "ocrSource.sourceLineIds", 500, errors);
+                    break;
+                default:
+                    AddUnsupportedFieldError(errors);
+                    break;
+            }
+        }
+
+        if (receiptAttachmentFileId is null)
+        {
+            AddError(errors, "ocrSource.receiptAttachmentFileId", "Receipt attachment file ID is required.");
+        }
+
+        if (ocrReviewId is null)
+        {
+            AddError(errors, "ocrSource.ocrReviewId", "OCR review ID is required.");
+        }
+
+        if (expectedOcrReviewUpdatedAtUtc is null)
+        {
+            AddError(errors, "ocrSource.expectedOcrReviewUpdatedAtUtc", "Expected OCR review update timestamp is required.");
+        }
+
+        if (receiptAttachmentFileId is null || ocrReviewId is null)
+        {
+            return null;
+        }
+
+        var source = await dbContext.Set<ReceiptOcrReview>()
+            .Include(review => review.Lines)
+            .Include(review => review.Attachment)
+                .ThenInclude(attachment => attachment.FileObject)
+            .SingleOrDefaultAsync(
+                review => review.Id == ocrReviewId.Value
+                    && review.ExpenseBillId == bill.Id
+                    && review.FileObjectId == receiptAttachmentFileId.Value
+                    && review.RemovedAtUtc == null
+                    && review.Attachment.RemovedAtUtc == null
+                    && review.Attachment.Purpose == ExpenseBillAttachmentPurposes.Receipt
+                    && review.Attachment.FileObject.DeletedAtUtc == null
+                    && review.Attachment.FileObject.Status == FileObjectStatuses.Active
+                    && review.Attachment.FileObject.Purpose == FileObjectPurposes.ReceiptImage
+                    && review.Attachment.FileObject.OwnerUserProfileId == review.Attachment.CreatedByUserProfileId
+                    && review.Attachment.FileObject.CreatedByUserProfileId == review.Attachment.CreatedByUserProfileId,
+                cancellationToken);
+        if (source is null)
+        {
+            AddError(errors, "ocrSource", "OCR source review or receipt attachment is unavailable.");
+            return null;
+        }
+
+        if (source.GroupId != bill.GroupId)
+        {
+            AddError(errors, "ocrSource", "OCR source group basis is stale.");
+        }
+
+        if (source.Status != ReceiptOcrReviewStatuses.Reviewed
+            || !ReceiptOcrReviewSources.IsSupported(source.Source))
+        {
+            AddError(errors, "ocrSource", "OCR source review must be reviewed and supported.");
+        }
+
+        if (expectedOcrReviewUpdatedAtUtc != source.UpdatedAtUtc)
+        {
+            AddError(errors, "ocrSource.expectedOcrReviewUpdatedAtUtc", "OCR source review timestamp is stale.");
+        }
+
+        if (expectedOcrReviewVersion is not null
+            && !StringComparer.Ordinal.Equals(expectedOcrReviewVersion, FormatVersion(source.UpdatedAtUtc)))
+        {
+            AddError(errors, "ocrSource.expectedOcrReviewVersion", "OCR source review version is stale.");
+        }
+
+        if (sourceLineIds is not null && sourceLineIds.Count > 0)
+        {
+            var reviewLineIds = source.Lines.Select(line => line.Id).ToHashSet();
+            if (sourceLineIds.Any(lineId => !reviewLineIds.Contains(lineId)))
+            {
+                AddError(errors, "ocrSource.sourceLineIds", "OCR source line IDs must belong to the saved review.");
+            }
+        }
+
+        return new BillRevisionOcrSourceRequest(receiptAttachmentFileId.Value, ocrReviewId.Value);
+    }
+
     private static void ValidateParticipantSet(
         ExpenseBill bill,
         IReadOnlyCollection<RevisionParticipantRequest> participants,
@@ -1501,6 +1698,47 @@ internal static class ExpenseBillRevisionEndpoints
         }
     }
 
+    private static void ValidateRevisionStaleGuards(
+        ExpenseBill bill,
+        string? expectedBillVersion,
+        Guid? expectedActiveAcceptedRevisionId,
+        bool expectedActiveAcceptedRevisionIdSupplied,
+        Guid? expectedActivePendingRevisionId,
+        bool expectedActivePendingRevisionIdSupplied,
+        Dictionary<string, List<string>> errors)
+    {
+        if (expectedBillVersion is not null
+            && !StringComparer.Ordinal.Equals(expectedBillVersion, FormatVersion(bill.UpdatedAtUtc)))
+        {
+            AddError(errors, "expectedBillVersion", "Bill version is stale.");
+        }
+
+        if (expectedActiveAcceptedRevisionIdSupplied
+            && expectedActiveAcceptedRevisionId != bill.ActiveAcceptedBillRevisionId)
+        {
+            AddError(errors, "expectedActiveAcceptedRevisionId", "Active accepted revision basis is stale.");
+        }
+
+        if (expectedActivePendingRevisionIdSupplied)
+        {
+            var activePendingRevisionId = bill.Revisions
+                .Where(revision => ExpenseBillRevisionStatuses.IsActivePending(revision.Status))
+                .OrderByDescending(revision => revision.UpdatedAtUtc)
+                .ThenByDescending(revision => revision.Id)
+                .Select(revision => (Guid?)revision.Id)
+                .FirstOrDefault();
+            if (expectedActivePendingRevisionId != activePendingRevisionId)
+            {
+                AddError(errors, "expectedActivePendingRevisionId", "Active pending revision basis is stale.");
+            }
+        }
+    }
+
+    private static string FormatVersion(DateTimeOffset timestamp)
+    {
+        return timestamp.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+    }
+
     private static Guid? ReadGuid(
         JsonElement value,
         string errorKey,
@@ -1515,6 +1753,111 @@ internal static class ExpenseBillRevisionEndpoints
         }
 
         return id;
+    }
+
+    private static Guid? ReadOptionalGuid(
+        JsonElement value,
+        string errorKey,
+        Dictionary<string, List<string>> errors)
+    {
+        return value.ValueKind is JsonValueKind.Null
+            ? null
+            : ReadGuid(value, errorKey, errors);
+    }
+
+    private static List<Guid>? ReadOptionalGuidArray(
+        JsonElement value,
+        string errorKey,
+        int maxItems,
+        Dictionary<string, List<string>> errors)
+    {
+        if (value.ValueKind is JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        var ids = new List<Guid>();
+        if (value.ValueKind is not JsonValueKind.Array)
+        {
+            AddError(errors, errorKey, "Expected an array of UUID strings.");
+            return ids;
+        }
+
+        if (value.GetArrayLength() > maxItems)
+        {
+            AddError(errors, errorKey, $"At most {maxItems} IDs are supported.");
+        }
+
+        var seen = new HashSet<Guid>();
+        var index = 0;
+        foreach (var item in value.EnumerateArray())
+        {
+            var id = ReadGuid(item, $"{errorKey}[{index}]", errors);
+            if (id is not null)
+            {
+                if (!seen.Add(id.Value))
+                {
+                    AddError(errors, $"{errorKey}[{index}]", "Duplicate IDs are not supported.");
+                }
+
+                ids.Add(id.Value);
+            }
+
+            index++;
+        }
+
+        return ids;
+    }
+
+    private static string? ReadOptionalBoundedString(
+        JsonElement value,
+        string errorKey,
+        int maxLength,
+        Dictionary<string, List<string>> errors)
+    {
+        if (value.ValueKind is JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.ValueKind is not JsonValueKind.String)
+        {
+            AddError(errors, errorKey, "Value must be a string when supplied.");
+            return null;
+        }
+
+        var text = value.GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(text) || text.Length > maxLength)
+        {
+            AddError(errors, errorKey, $"Value must be between 1 and {maxLength} characters when supplied.");
+            return null;
+        }
+
+        return text;
+    }
+
+    private static DateTimeOffset? ReadOptionalDateTimeOffset(
+        JsonElement value,
+        string errorKey,
+        Dictionary<string, List<string>> errors)
+    {
+        if (value.ValueKind is JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.ValueKind is not JsonValueKind.String
+            || !DateTimeOffset.TryParse(
+                value.GetString(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var timestamp))
+        {
+            AddError(errors, errorKey, "Timestamp must be an ISO-8601 UTC date-time string.");
+            return null;
+        }
+
+        return timestamp.ToUniversalTime();
     }
 
     private static string? ReadCurrency(
@@ -1668,7 +2011,56 @@ internal static class ExpenseBillRevisionEndpoints
                 revision,
                 viewerUserProfileId,
                 cancellationToken),
-            ExpenseBillRevisionReviewContextBuilder.Build(bill, revision, viewerUserProfileId));
+            ExpenseBillRevisionReviewContextBuilder.Build(bill, revision, viewerUserProfileId),
+            ReadOcrSourceResponse(revision),
+            FormatVersion(revision.UpdatedAtUtc),
+            revision.SnapshotSchemaVersion,
+            revision.MoneyPolicyVersion,
+            revision.RoundingPolicyVersion,
+            revision.RequestId is null && revision.CorrelationId is null
+                ? null
+                : new ExpenseBillRevisionRequestMetadataResponse(revision.RequestId, revision.CorrelationId),
+            [
+                "client_hints_are_not_authorization"
+            ]);
+    }
+
+    private static ExpenseBillRevisionOcrSourceResponse? ReadOcrSourceResponse(ExpenseBillRevision revision)
+    {
+        try
+        {
+            using var proposedSnapshot = JsonDocument.Parse(revision.ProposedSnapshotJson);
+            var root = proposedSnapshot.RootElement;
+            if (!root.TryGetProperty("attachmentFileIds", out var attachmentFileIds)
+                || attachmentFileIds.ValueKind is not JsonValueKind.Array
+                || attachmentFileIds.GetArrayLength() == 0
+                || !root.TryGetProperty("receiptOcrReviewIds", out var receiptOcrReviewIds)
+                || receiptOcrReviewIds.ValueKind is not JsonValueKind.Array
+                || receiptOcrReviewIds.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            return new ExpenseBillRevisionOcrSourceResponse(
+                attachmentFileIds[0].GetGuid(),
+                receiptOcrReviewIds[0].GetGuid(),
+                "saved_receipt_ocr_review",
+                "referenced",
+                null,
+                null);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 
     private static ExpenseBillRevisionAuditEvent CreateAuditEvent(
@@ -1872,6 +2264,10 @@ internal static class ExpenseBillRevisionEndpoints
         Guid UserProfileId,
         decimal Amount,
         string Currency);
+
+    private sealed record BillRevisionOcrSourceRequest(
+        Guid ReceiptAttachmentFileId,
+        Guid OcrReviewId);
 
     private sealed record RevisionApprovalRequest(
         decimal AcceptedAmount,
