@@ -61,6 +61,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Notification preference resolution model](docs/architecture/NOTIFICATION_PREFERENCE_RESOLUTION_MODEL.md)
 - [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
+- [OCR parser and review handoff test plan](docs/architecture/OCR_PARSER_REVIEW_HANDOFF_TEST_PLAN.md)
 - [Receipt OCR review apply policy](docs/architecture/RECEIPT_OCR_REVIEW_APPLY_POLICY.md)
 - [Receipt OCR review UX flow](docs/architecture/RECEIPT_OCR_REVIEW_UX_FLOW.md)
 - [Recurring bills technical spec](docs/features/recurring-bills/TECHNICAL_SPEC.md)
