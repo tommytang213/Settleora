@@ -16,7 +16,7 @@ This document does not authorize implementation by itself. It defines architectu
 
 The current repository has Standard Secure server-side protection foundations for auth/session, PostgreSQL persistence, file metadata, local file storage, self payment details, self payment QR files, settlement proof files, bill attachments, and bill-scoped receipt OCR review rows. It does not implement recoverable vault runtime encryption, vault API endpoints, device envelopes, recovery envelopes, vault-aware file byte handling, vault UI, schema migrations for vault tables, or Strict Private Vault.
 
-The existing `file_objects` metadata table already records a constrained `encryption_mode` and optional vault metadata reference, but current runtime behavior remains server-managed. This document narrows the policy and data-classification decisions for #418, the key/envelope/recovery decisions for #419, and the sensitive file/field integration-boundary decisions for #420 so later issues can design audit, backup, warning, and runtime behavior without moving money, authorization, or storage authority to clients.
+The existing `file_objects` metadata table already records a constrained `encryption_mode` and optional vault metadata reference, but current runtime behavior remains server-managed. This document narrows the policy and data-classification decisions for #418, the key/envelope/recovery decisions for #419, the sensitive file/field integration-boundary decisions for #420, and the audit/backup/restore/recovery-warning checklist for #422 so later issues can design runtime behavior without moving money, authorization, audit, or storage authority to clients.
 
 ## Product Decision
 
@@ -975,6 +975,190 @@ Audit redaction requirements:
 - Do not record payment handles, payment notes, raw OCR text, private notes, receipt/proof/QR bytes, statement rows, user-entered filenames when sensitive, provider object keys, storage roots, bucket names, local paths, key IDs that function as secrets, envelope ciphertext, decrypted envelope metadata, raw request bodies, raw response bodies, or full provider payloads.
 - Recovery and break-glass events must include enough bounded metadata to support accountability without storing the content or key material being protected.
 - Reports, validation output, GitHub comments, and support screenshots must follow the same redaction rules as audit/logging.
+
+## Audit, Backup, Restore, And Recovery Warning Checklist
+
+This section is the #422 architecture/control packet for privacy vault audit, backup, restore, recovery warning, redaction, validation, and no-silent-downgrade guardrails. It is design-only. It does not approve runtime API handlers, storage provider changes, file-byte handling changes, encryption/key management implementation, EF/domain schema changes, migrations, DbContext/model snapshot changes, OpenAPI or generated-client changes, mobile/web/admin UI, Figma/reference files, deployment/Docker/CI changes, auth/session/security runtime changes, money/settlement/payment/bill calculation changes, OCR runtime, import/export runtime, backup automation, or restore execution.
+
+### Audit Event Categories
+
+Future vault implementation must define audit events in API/domain-owned boundaries, not as client-only assertions. Event names below are directional categories; exact persisted enum values require the relevant schema/API task.
+
+Required audit coverage:
+
+- Privacy mode and vault intent: vault enable requested/completed/denied, vault disable requested/completed/denied, privacy-mode downgrade requested/blocked/completed, privacy-mode policy mismatch detected, user/deployment/admin policy change requested/applied/denied.
+- Policy changes: vault eligibility policy changed, recovery policy changed, retention policy changed, audit redaction policy changed, export/import policy changed, backup/restore warning policy changed, admin/deployment vault policy changed.
+- Key and envelope lifecycle: vault key created/rotated/retired/destroyed, payload data key wrapped/rewrapped, device envelope created/revoked/retired, participant envelope created/revoked/rewrapped, recovery envelope created/used/revoked/retired, stale envelope detected, missing envelope detected, envelope rewrap failed.
+- Recovery attempts: recovery requested, recovery verification started/passed/failed, recovery completed, recovery denied, recovery rate limited, recovery lockout started/cleared, recovery cancelled, recovery policy blocked, suspicious recovery detected.
+- Export/import: vault export requested/preflighted/completed/failed/denied/expired/purged, vault import requested/preflighted/completed/failed/denied/quarantined, import privacy-mode mismatch detected, import payload missing envelope/key material, export manifest redaction check completed.
+- Backup and restore warnings: backup warning generated/acknowledged, backup consistency warning generated, restore preflight started/passed/failed/denied, restore mismatch detected, restore consistency check passed/failed, restore warning acknowledged, restore quarantine applied/released, restored privacy-mode mismatch detected.
+- Runtime validation and redaction: audit/log redaction violation detected, API response redaction violation detected, provider-internal identifier exposure blocked, vault payload leak check failed, no-silent-downgrade guard blocked a write, migration/rewrap partial failure recorded.
+
+Allowed audit metadata:
+
+- actor account/profile ID or bounded system actor category
+- subject account/profile ID where safe
+- subject type and stable subject ID, such as file, payment profile, bill, settlement payment, export, import, device, envelope set, policy, or recovery attempt
+- file purpose, payload kind, privacy mode, encryption mode, envelope category, key version number or non-secret key-version ID, policy version, retention category, recovery policy category, action, outcome, reason category, timestamp, request/correlation ID, and safe client/device category
+- counts, high-level consistency state, and warning state when they do not disclose private filenames, payment details, raw OCR text, financial amounts, provider internals, or vault secrets
+
+Audit records must not become a vault data leak path. They must exclude raw vault keys, raw data encryption keys, decrypted envelope plaintext, envelope ciphertext, recovery secrets, raw passphrases, raw recovery codes, TOTP seeds, passkey private material, password material, raw session/bearer/refresh credentials, reset tokens, provider tokens, signing keys, file bytes, OCR raw text where not explicitly needed and reviewed, payment handles/details/notes, private notes, raw request bodies, raw response bodies, storage roots, object keys, bucket names, provider URLs, local filesystem paths, queue payloads, database dumps, and unbounded provider diagnostics.
+
+### Audit Ownership And Leak Prevention
+
+Audit decisions belong in API/domain services that also own authorization, policy, storage lifecycle, recovery, and server-mode validation. Clients may display security history and may submit user intent, but clients must not be the source of truth for whether vault enablement, recovery, export/import, backup warning acknowledgement, or restore consistency occurred.
+
+Audit implementation guardrails:
+
+- Every event category must define the API/domain owner, authorization rule, subject lookup, safe metadata contract, redaction rule, retention rule, and validation evidence before runtime work starts.
+- Workers may emit structured job results, but API/domain services must validate them before audit records become authoritative.
+- Denied and failed audit records must avoid existence leaks. A failed recovery or import response must not reveal whether an unrelated actor's file, payment detail, proof, OCR text, device envelope, or recovery envelope exists.
+- Audit viewing, export, support reports, CI logs, test fixtures, issue comments, and Codex reports must follow the same redaction rules as runtime logs.
+- Audit retention must not preserve secrets by accident. Longer retention is acceptable for security accountability only when the persisted metadata remains bounded and safe.
+
+### Backup Consistency Checklist
+
+Recoverable vault backup is a coupled consistency requirement across database metadata, storage payloads, envelope/key metadata, policy, and audit history. A backup that preserves only one part of the set must be reported as partial and potentially unusable for vault restore.
+
+Future backup planning must preserve a matching consistency set:
+
+- PostgreSQL metadata: user/profile/account links, group/bill/settlement subjects, file metadata, lifecycle state, encryption mode, vault payload status, retention state, policy records, audit records, migration metadata, import/export manifests, and safe warning state.
+- Storage objects/file bytes: encrypted receipt/proof/QR/supporting attachment bytes, thumbnails/previews, OCR source files, statement/import/export payloads where implemented, and derived sensitive files. These remain accessible only through API authorization, never direct provider paths.
+- Envelope and key metadata: vault key versions, envelope set IDs, device/participant/recovery envelope records, recovery policy versions, rotation state, retired/revoked state, and non-secret crypto/payload format versions.
+- Recovery material: only approved wrapped/encrypted recovery envelope material and safe metadata for recoverable mode. Raw recovery secrets, raw vault root keys, raw data keys, passphrases, and decrypted envelope material must not appear in backup evidence.
+- Policy and warning records: active privacy mode, deployment/admin vault policy, retention policy, recovery policy, export/import policy, warning acknowledgements, no-silent-downgrade decisions, and backup/restore caveats.
+- Audit/security history: bounded records needed to understand vault enable/disable, recovery envelope creation/use/revocation, key rotation, export/import, restore warnings, consistency checks, and policy changes.
+
+Explicit caveats:
+
+- Backups without matching envelope/key material may be unusable for decrypting recoverable vault payloads.
+- Keys/envelopes without PostgreSQL metadata and subject associations are insufficient because the API cannot authorize, locate, lifecycle-manage, warn about, retain, or safely serve payloads.
+- Storage bytes without matching metadata must not be served directly.
+- Metadata without matching storage bytes must fail closed with safe missing-content state.
+- Older backups may retain recovery envelopes that were later revoked, removed, or made incompatible by a Recoverable-to-Strict migration.
+- Restoring old envelope state can reintroduce a recovery path inside the restored environment until explicit review revokes, retires, or rewraps it again.
+
+Self-hosted and TrueNAS implications:
+
+- PostgreSQL, API local storage bytes, RabbitMQ where queued work matters, private app config/secrets, envelope/key metadata, and future vault policy records must be treated as one sensitive consistency set.
+- Snapshot-friendly dataset layouts are useful, but a crash-consistent filesystem snapshot is not proof of PostgreSQL or vault restore readiness until a restore test passes.
+- Operator evidence may report dataset roles, timestamps, commit/image references, validation commands, and redacted consistency outcomes; it must not disclose real dataset paths, object keys, env values, secrets, private filenames, payment details, OCR text, receipt/proof/QR bytes, or user financial data.
+- Backup automation, catalog hooks, and real restore execution remain separate manually gated deployment/storage/privacy tasks.
+
+### Restore Preflight And Post-restore Checklist
+
+Restore must fail closed when the consistency set is incomplete, stale, or mismatched. It must not silently downgrade privacy mode, vault policy, retention policy, authorization, recovery behavior, key/envelope status, audit retention, or import/export warning behavior.
+
+Restore preflight must check:
+
+- target environment is disposable or explicitly approved for restore
+- matching PostgreSQL metadata, storage bytes, envelope/key metadata, policy records, and required private config are present
+- backup commit/image/runtime version and migration metadata are known
+- target migration mode is non-mutating until schema compatibility is understood
+- no client writes or background jobs are active during restore
+- privacy mode and deployment/admin policy in the backup are compatible with the target environment
+- recovery envelope status is understood, including revoked, retired, missing, stale, or older-than-current states
+- storage object consistency can be checked without exposing provider internals to clients or reports
+- audit/security history required to explain the restored vault state is present or the absence is treated as a warning/blocker
+
+Post-restore checks must verify:
+
+- API health/readiness, PostgreSQL, queue where relevant, and storage readiness do not leak connection strings, storage roots, object keys, or raw exception details
+- migration metadata is current or explicitly blocked for manual review
+- file metadata references matching storage bytes only through the API storage abstraction
+- storage bytes without active metadata remain inaccessible and are not surfaced as direct files
+- vault payload metadata, key versions, envelope sets, and recovery policy versions are internally consistent
+- authorized users see safe locked/missing/recovery-needed states when payloads are unavailable, not plaintext leaks or unrelated existence leaks
+- privacy mode, vault policy, retention policy, authz, audit retention, and recovery behavior after restore match the restored policy or are explicitly blocked for review
+- restore warnings are generated for missing bytes, missing metadata, missing envelopes, stale key versions, restored revoked envelopes, old recoverable paths, partial import/export state, or backup age policy concerns
+- evidence is redacted and excludes secrets, file bytes, raw OCR text, payment details, object keys, storage paths, private env values, and raw request/response bodies
+
+Mismatch states requiring user/admin warnings or fail-closed behavior:
+
+- metadata exists but storage bytes are missing
+- storage bytes exist but metadata is missing or inactive
+- encrypted payload exists but data-key envelope is missing
+- envelope exists but subject metadata is missing
+- recovery envelope exists but privacy mode or policy says recovery is disabled
+- privacy mode in backup is weaker than the current target policy
+- restored backup contains a recovery envelope later known to have been revoked
+- old key version is needed but marked destroyed or unavailable
+- export/import manifests reference missing payloads or missing envelopes
+- audit/security history is missing for a sensitive restore, recovery, rewrap, or policy change
+
+### Recovery Warning Checklist
+
+Recovery warnings are product-behavior requirements for future runtime/UI work, not copy implementation in this docs branch. #421 remains the Figma/reference gate for onboarding, settings, locked states, and warning UX.
+
+Future product behavior must warn users and admins that:
+
+- Recoverable Private Vault protects selected sensitive content more strongly than Standard Secure Mode, but it is not strict zero-knowledge while recovery envelopes are enabled.
+- Account recovery does not automatically equal vault recovery. Auth recovery may restore sign-in, but vault access stays locked until recovery policy, verification, warning, and envelope rewrap steps complete.
+- API session validity does not automatically equal vault trust. A valid session may authorize metadata operations, but the device still needs a trusted device envelope or approved recovery flow to decrypt vault payloads.
+- Admin/operator roles do not grant silent product-level decryption. No admin UI, support UI, backup workflow, report, issue workflow, or database path may show vault plaintext unless a future explicit break-glass policy is approved, gated, warned, and audited.
+- Disabling vault mode, downgrading privacy mode, removing recovery envelopes, restoring old backups, importing partial payloads, exporting vault data, rotating keys, revoking devices, or changing retention/recovery policy can affect recoverability and must not be silent.
+- Recoverable-to-Strict future migration may make content unrecoverable without trusted devices or user-held keys, and old backups may preserve old recoverable envelopes until backup expiry.
+
+Recovery initiation and verification gates for future runtime tasks:
+
+- explicit user or authorized recovery actor intent
+- auth-owned account verification plus step-up/session freshness where policy requires it
+- deployment/admin policy allows recovery for the account and privacy mode
+- risk, lockout, rate-limit, device, account, and suspicious-activity checks pass
+- recovery warning acknowledgement is captured with bounded audit metadata
+- recovery envelope use only rewraps access for an approved device or key path; it does not expose plaintext content to admins, logs, reports, or ordinary API responses
+- lockout and attempt limits block repeated guessing or probing and emit bounded audit events
+
+Denied or failed recovery responses must be redacted. They may return bounded categories such as denied, failed verification, rate limited, recovery disabled, policy blocked, locked, stale request, or contact admin where appropriate. They must not reveal key, envelope, device, payment detail, file, proof, receipt, private note, OCR text, statement, export, or backup existence beyond the caller's authorized scope.
+
+### Validation Matrix For Future Runtime Slices
+
+Future implementation tasks must choose validation based on the changed surface and must not use this docs checklist as permission to skip high-risk tests. At minimum, each relevant slice should prove:
+
+| Future slice | Required validation focus |
+| --- | --- |
+| Schema/migration | Vault/envelope/policy/audit tables or fields preserve safe metadata only, forbid raw secrets, handle nullability/status/versioning, and include migration rollback/manual-gate evidence. |
+| API/OpenAPI/generated clients | Responses expose stable IDs and safe categories only; no storage paths, object keys, bucket names, provider URLs, envelope internals, raw ciphertext internals, key material, recovery material, or raw request/response echoes. |
+| Storage/file bytes | All reads/writes go through API authorization and storage abstraction; metadata/bytes mismatch fails closed; provider internals stay server-private; direct storage access is not a product path. |
+| Key/envelope/recovery runtime | Raw keys, data keys, passphrases, recovery codes, decrypted envelopes, device private keys, and auth secrets never appear in DB, logs, audit, reports, examples, traces, metrics, or API responses. |
+| Audit/log/reporting | No raw secret/key/file/OCR/payment-proof/private-note leakage in audit records, app logs, validation output, support reports, issue comments, screenshots, or examples. |
+| Backup/restore | Consistency set includes metadata, storage bytes, envelope/key metadata, policy, warning state, and audit/security history; partial or stale restore states warn and fail closed. |
+| Import/export | Vault-protected fields/files require manifests with safe metadata, explicit user/admin warnings, missing-envelope handling, redacted errors, retention/expiry, and no plaintext downgrade unless separately approved and audited. |
+| Auth/session/device trust | Account recovery, session validity, role/admin status, and vault device trust remain separate; recovery requires explicit gates and does not silently trust a new device. |
+| UI/Figma/reference | Privacy-mode onboarding, settings, locked states, recovery warnings, no-silent-downgrade confirmations, and device approval remain under #421 and must not be implemented by docs/control branches. |
+
+Cross-cutting test cases:
+
+- API responses never expose storage paths, object keys, bucket names, provider URLs, provider diagnostics, envelope internals, key material, recovery material, raw ciphertext internals, raw request bodies, or raw response bodies.
+- Logs, audit records, reports, fixtures, examples, and validation output never contain raw secrets, raw vault keys, raw data keys, raw recovery codes, raw passphrases, TOTP/passkey/session/password material, file bytes, OCR raw text, payment proof details, private notes, storage provider internals, or private env/config values.
+- Import/export of vault-protected data preserves privacy mode, payload category, envelope/key requirements, warning state, and retention behavior without silently converting sensitive payloads to server-managed plaintext.
+- Backup/restore mismatch states produce safe warnings and blocked/locked states, not invisible downgrade, admin plaintext access, direct file serving, or unrelated existence leaks.
+- Privacy mode changes, key/envelope lifecycle events, recovery attempts, export/import, backup/restore warnings, and restore consistency checks all emit bounded API/domain-owned audit records.
+
+### No-silent-downgrade Rules
+
+No future implementation may silently:
+
+- convert vault-protected payloads to server-managed plaintext
+- disable recoverable vault protection
+- weaken privacy mode, deployment/admin vault policy, retention policy, recovery policy, authz, or audit retention
+- treat restored older policy as current without warning and review
+- treat account recovery or API session validity as vault recovery
+- grant admin/support/operator plaintext access
+- serve storage bytes without active authorized metadata
+- ignore missing/stale envelopes or key versions
+- skip warning acknowledgement for recovery, export/import, restore, downgrade, or key/envelope revocation decisions
+
+If a requested operation would downgrade privacy, reduce recoverability, remove an envelope, restore stale recovery material, or expose sensitive content more broadly, it must require explicit product warning, policy check, API/domain audit, and fail-closed partial-failure handling in the future runtime task.
+
+### Handoffs After #422
+
+#422 completes this docs/control checklist only. It does not close the parent tracker.
+
+- #343 remains open as the parent tracker for privacy-mode file handling until remaining privacy-mode/privacy-vault children are complete and the parent is explicitly refreshed.
+- #421 remains open as the separate UX/Figma/reference gate for privacy mode onboarding, settings, warnings, locked states, recovery flows, and device approval.
+- #418, #419, and #420 are prerequisite docs/control packets for classification, key/envelope/recovery architecture, and sensitive file/field boundaries.
+- Future runtime/storage/schema/API/import/export/backup/privacy-mode implementation must be separately scoped with explicit manual gates where required.
 
 ## API And OpenAPI Direction
 
