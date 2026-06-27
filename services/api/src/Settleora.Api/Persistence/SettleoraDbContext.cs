@@ -136,8 +136,84 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
         modelBuilder.Entity<FileObject>(ConfigureFileObject);
         modelBuilder.Entity<InAppNotification>(ConfigureInAppNotification);
+        modelBuilder.Entity<UserNotificationPreference>(ConfigureUserNotificationPreference);
         modelBuilder.Entity<SyncOperation>(ConfigureSyncOperation);
         modelBuilder.Entity<SyncResourceVersion>(ConfigureSyncResourceVersion);
+    }
+
+    private static void ConfigureUserNotificationPreference(EntityTypeBuilder<UserNotificationPreference> entity)
+    {
+        entity.ToTable("user_notification_preferences", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_user_notification_preferences_delivery_timing",
+                "delivery_timing IN ('immediate', 'digest_readout')");
+            table.HasCheckConstraint(
+                "ck_user_notification_preferences_quiet_start_hour",
+                "quiet_hours_start_hour >= 0 AND quiet_hours_start_hour <= 23");
+            table.HasCheckConstraint(
+                "ck_user_notification_preferences_quiet_end_hour",
+                "quiet_hours_end_hour >= 0 AND quiet_hours_end_hour <= 23");
+            table.HasCheckConstraint(
+                "ck_user_notification_preferences_sync_security_required",
+                "sync_security_enabled = TRUE");
+        });
+
+        entity.HasKey(preference => preference.UserProfileId);
+
+        entity.Property(preference => preference.UserProfileId)
+            .HasColumnName("user_profile_id");
+
+        entity.Property(preference => preference.InAppEnabled)
+            .HasColumnName("in_app_enabled")
+            .IsRequired();
+
+        entity.Property(preference => preference.BillsEnabled)
+            .HasColumnName("bills_enabled")
+            .IsRequired();
+
+        entity.Property(preference => preference.SettlementsEnabled)
+            .HasColumnName("settlements_enabled")
+            .IsRequired();
+
+        entity.Property(preference => preference.RecurringEnabled)
+            .HasColumnName("recurring_enabled")
+            .IsRequired();
+
+        entity.Property(preference => preference.SyncSecurityEnabled)
+            .HasColumnName("sync_security_enabled")
+            .IsRequired();
+
+        entity.Property(preference => preference.QuietHoursEnabled)
+            .HasColumnName("quiet_hours_enabled")
+            .IsRequired();
+
+        entity.Property(preference => preference.QuietHoursStartHour)
+            .HasColumnName("quiet_hours_start_hour")
+            .IsRequired();
+
+        entity.Property(preference => preference.QuietHoursEndHour)
+            .HasColumnName("quiet_hours_end_hour")
+            .IsRequired();
+
+        entity.Property(preference => preference.DeliveryTiming)
+            .HasColumnName("delivery_timing")
+            .HasMaxLength(NotificationPreferenceConstraints.DeliveryTimingMaxLength)
+            .IsRequired();
+
+        entity.Property(preference => preference.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(preference => preference.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasOne(preference => preference.UserProfile)
+            .WithMany()
+            .HasForeignKey(preference => preference.UserProfileId)
+            .HasConstraintName("fk_user_notification_preferences_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private static void ConfigureManualFinancialAccount(EntityTypeBuilder<ManualFinancialAccount> entity)

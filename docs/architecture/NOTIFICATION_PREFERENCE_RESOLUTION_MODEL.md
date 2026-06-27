@@ -29,14 +29,21 @@ push lifecycle slices includes:
   permission/readiness states, stale-token cleanup, provider gates, and
   no-fake-success behavior.
 - Current API runtime includes guarded current-user in-app notification
-  list/summary/read/archive endpoints. Persisted server notification
-  preferences, email sending, push sending, digest scheduling, reminder
-  scheduling, provider workers, notification deep links/background delivery,
-  and broader web/admin UI remain future work.
+  list/summary/read/archive endpoints and guarded current-user notification
+  preference get/update endpoints. The persisted Day 1 preference slice stores
+  only the current user's in-app preference readout, optional bills,
+  settlements, and recurring category preferences, required sync/security
+  visibility, quiet-hours readout hours, and `immediate` versus
+  `digest_readout` timing preference. Email sending, push sending, provider
+  policy, group preferences/mute, server-side notification suppression or
+  filtering, digest scheduling, reminder scheduling, provider workers,
+  notification deep links/background delivery, and broader web/admin UI remain
+  future work.
 
-This task does not implement runtime preference APIs, database schema,
-migrations, generated clients, UI, email sending, push sending, digest workers,
-provider adapters, or worker delivery behavior.
+The current persisted preference runtime does not implement email sending, push
+sending, digest workers, quiet-hours deferral workers, provider adapters,
+device-token handling, group mute, admin/global notification policy APIs, or
+worker delivery behavior.
 
 ## Authority Boundaries
 

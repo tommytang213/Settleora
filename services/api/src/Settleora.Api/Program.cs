@@ -131,6 +131,7 @@ app.MapRecurringBillEndpoints();
 app.MapFutureBillEndpoints();
 app.MapManualFinanceEndpoints();
 app.MapInAppNotificationEndpoints();
+app.MapNotificationPreferenceEndpoints();
 app.MapExpenseBillWorkflowEndpoints();
 app.MapExpenseBillRevisionEndpoints();
 app.MapExpenseBillReconciliationEndpoints();

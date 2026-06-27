@@ -681,6 +681,66 @@ export type AuthMfaSupportMode = "disabled" | "optional" | "required_for_admins"
 export type AuthMfaEnforcementMode = "optional" | "blocking_warning" | "required";
 
 /**
+ * User preference readout for notification timing. Digest is a preference/readout only in this Day 1 slice and does not schedule digest delivery.
+ */
+export type NotificationPreferenceDeliveryTiming = "immediate" | "digest_readout";
+
+/**
+ * Current-user notification preference update. The server derives the user profile from the authenticated session; sync/security remains required and cannot be disabled.
+ */
+export interface NotificationPreferenceUpdateRequest {
+  /**
+   * Optional in-app preference for non-required notification categories.
+   */
+  inAppEnabled: boolean;
+  categories: NotificationPreferenceCategoryUpdate;
+  quietHours: NotificationPreferenceQuietHours;
+  deliveryTiming: NotificationPreferenceDeliveryTiming;
+}
+
+/**
+ * Optional category preferences. Omitted optional category fields default to enabled; sync/security may be omitted or true, but false is rejected.
+ */
+export interface NotificationPreferenceCategoryUpdate {
+  bills?: boolean;
+  settlements?: boolean;
+  recurring?: boolean;
+  /**
+   * Required sync/security readout. If supplied, it must be true.
+   */
+  syncSecurity?: boolean;
+}
+
+/**
+ * Safe current-user notification preference response. It excludes user profile IDs, auth/session fields, provider state, device tokens, payment details, storage/file internals, OCR text, and unrelated user data.
+ */
+export interface NotificationPreferenceResponse {
+  inAppEnabled: boolean;
+  categories: NotificationPreferenceCategoryResponse;
+  quietHours: NotificationPreferenceQuietHours;
+  deliveryTiming: NotificationPreferenceDeliveryTiming;
+}
+
+/**
+ * Current-user notification category preferences. Sync/security is always true in this slice.
+ */
+export interface NotificationPreferenceCategoryResponse {
+  bills: boolean;
+  settlements: boolean;
+  recurring: boolean;
+  syncSecurity: true;
+}
+
+/**
+ * Quiet-hours preference readout. It does not schedule delivery deferral in this Day 1 slice.
+ */
+export interface NotificationPreferenceQuietHours {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+}
+
+/**
  * Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.
  */
 export interface InAppNotificationListResponse {

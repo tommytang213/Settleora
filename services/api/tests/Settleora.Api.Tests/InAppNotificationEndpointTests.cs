@@ -18,6 +18,7 @@ namespace Settleora.Api.Tests;
 public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string NotificationsPath = "/api/v1/notifications";
+    private const string PreferencesPath = "/api/v1/notifications/preferences";
     private const string WrongRawToken = "visible-wrong-notification-session-token";
 
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 5, 16, 15, 0, 0, TimeSpan.Zero);
@@ -531,6 +532,222 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
         Assert.Null(otherNotification.ArchivedAtUtc);
     }
 
+    [Fact]
+    public async Task NotificationPreferencesReturnDefaultsWhenNoRowExists()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Preference Default Actor");
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(HttpMethod.Get, PreferencesPath, actor.RawSessionToken);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AssertSafeNotificationResponseContent(content, actor.RawSessionToken, actor.AuthAccountId.ToString("D"), actor.UserProfileId.ToString("D"));
+        using var payload = JsonDocument.Parse(content);
+        AssertPreferenceShape(payload.RootElement);
+        Assert.True(payload.RootElement.GetProperty("inAppEnabled").GetBoolean());
+        Assert.Equal("immediate", payload.RootElement.GetProperty("deliveryTiming").GetString());
+        var categories = payload.RootElement.GetProperty("categories");
+        Assert.True(categories.GetProperty("bills").GetBoolean());
+        Assert.True(categories.GetProperty("settlements").GetBoolean());
+        Assert.True(categories.GetProperty("recurring").GetBoolean());
+        Assert.True(categories.GetProperty("syncSecurity").GetBoolean());
+        var quietHours = payload.RootElement.GetProperty("quietHours");
+        Assert.False(quietHours.GetProperty("enabled").GetBoolean());
+        Assert.Equal(22, quietHours.GetProperty("startHour").GetInt32());
+        Assert.Equal(7, quietHours.GetProperty("endHour").GetInt32());
+
+        Assert.Null(await ReadPreferenceAsync(testFactory, actor.UserProfileId));
+    }
+
+    [Fact]
+    public async Task NotificationPreferencesPersistAndRemainCurrentUserScoped()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Preference Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Preference Other");
+        await SeedPreferenceAsync(
+            testFactory,
+            other.UserProfileId,
+            inAppEnabled: true,
+            billsEnabled: true,
+            settlementsEnabled: true,
+            recurringEnabled: true,
+            quietHoursEnabled: false,
+            quietHoursStartHour: 20,
+            quietHoursEndHour: 6,
+            deliveryTiming: NotificationPreferenceDeliveryTimings.Immediate);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using var putRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PreferencesPath,
+            actor.RawSessionToken,
+            """
+            {
+              "inAppEnabled": false,
+              "categories": {
+                "bills": false,
+                "settlements": true,
+                "recurring": false
+              },
+              "quietHours": {
+                "enabled": true,
+                "startHour": 21,
+                "endHour": 6
+              },
+              "deliveryTiming": "digest_readout"
+            }
+            """);
+        using var putResponse = await client.SendAsync(putRequest);
+        var putContent = await putResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, putResponse.StatusCode);
+        AssertSafeNotificationResponseContent(
+            putContent,
+            actor.RawSessionToken,
+            other.RawSessionToken,
+            actor.AuthAccountId.ToString("D"),
+            other.AuthAccountId.ToString("D"),
+            actor.UserProfileId.ToString("D"),
+            other.UserProfileId.ToString("D"));
+        using var putPayload = JsonDocument.Parse(putContent);
+        Assert.False(putPayload.RootElement.GetProperty("inAppEnabled").GetBoolean());
+        Assert.Equal("digest_readout", putPayload.RootElement.GetProperty("deliveryTiming").GetString());
+        Assert.False(putPayload.RootElement.GetProperty("categories").GetProperty("bills").GetBoolean());
+        Assert.True(putPayload.RootElement.GetProperty("categories").GetProperty("settlements").GetBoolean());
+        Assert.False(putPayload.RootElement.GetProperty("categories").GetProperty("recurring").GetBoolean());
+        Assert.True(putPayload.RootElement.GetProperty("categories").GetProperty("syncSecurity").GetBoolean());
+        Assert.True(putPayload.RootElement.GetProperty("quietHours").GetProperty("enabled").GetBoolean());
+        Assert.Equal(21, putPayload.RootElement.GetProperty("quietHours").GetProperty("startHour").GetInt32());
+        Assert.Equal(6, putPayload.RootElement.GetProperty("quietHours").GetProperty("endHour").GetInt32());
+
+        using var getRequest = CreateBearerRequest(HttpMethod.Get, PreferencesPath, actor.RawSessionToken);
+        using var getResponse = await client.SendAsync(getRequest);
+        using var getPayload = JsonDocument.Parse(await getResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        Assert.Equal("digest_readout", getPayload.RootElement.GetProperty("deliveryTiming").GetString());
+
+        var persistedPreference = await ReadPreferenceAsync(testFactory, actor.UserProfileId);
+        Assert.NotNull(persistedPreference);
+        Assert.False(persistedPreference.InAppEnabled);
+        Assert.False(persistedPreference.BillsEnabled);
+        Assert.True(persistedPreference.SettlementsEnabled);
+        Assert.False(persistedPreference.RecurringEnabled);
+        Assert.True(persistedPreference.SyncSecurityEnabled);
+        Assert.Equal(21, persistedPreference.QuietHoursStartHour);
+        Assert.Equal(6, persistedPreference.QuietHoursEndHour);
+        Assert.Equal(NotificationPreferenceDeliveryTimings.DigestReadout, persistedPreference.DeliveryTiming);
+        Assert.Equal(WriteTimestamp, persistedPreference.CreatedAtUtc);
+        Assert.Equal(WriteTimestamp, persistedPreference.UpdatedAtUtc);
+
+        var otherPreference = await ReadPreferenceAsync(testFactory, other.UserProfileId);
+        Assert.NotNull(otherPreference);
+        Assert.True(otherPreference.InAppEnabled);
+        Assert.True(otherPreference.BillsEnabled);
+        Assert.True(otherPreference.RecurringEnabled);
+        Assert.Equal(NotificationPreferenceDeliveryTimings.Immediate, otherPreference.DeliveryTiming);
+    }
+
+    [Fact]
+    public async Task NotificationPreferencesRejectInvalidInputsWithoutPersisting()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Preference Validation Actor");
+        using var client = testFactory.CreateClient();
+
+        using var invalidRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PreferencesPath,
+            actor.RawSessionToken,
+            """
+            {
+              "inAppEnabled": true,
+              "categories": {
+                "bills": true,
+                "settlements": true,
+                "recurring": true,
+                "syncSecurity": false
+              },
+              "quietHours": {
+                "enabled": true,
+                "startHour": 24,
+                "endHour": -1
+              },
+              "deliveryTiming": "deliver_now_external_provider"
+            }
+            """);
+        using var invalidResponse = await client.SendAsync(invalidRequest);
+        var invalidContent = await invalidResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, invalidResponse.StatusCode);
+        Assert.Equal("application/problem+json", invalidResponse.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("deliver_now_external_provider", invalidContent);
+        Assert.DoesNotContain(actor.UserProfileId.ToString("D"), invalidContent);
+        using var payload = JsonDocument.Parse(invalidContent);
+        Assert.Equal("Invalid notification preference request", payload.RootElement.GetProperty("title").GetString());
+        var errors = payload.RootElement.GetProperty("errors");
+        Assert.True(errors.TryGetProperty("categories.syncSecurity", out _));
+        Assert.True(errors.TryGetProperty("quietHours.startHour", out _));
+        Assert.True(errors.TryGetProperty("quietHours.endHour", out _));
+        Assert.True(errors.TryGetProperty("deliveryTiming", out _));
+        Assert.Null(await ReadPreferenceAsync(testFactory, actor.UserProfileId));
+    }
+
+    [Fact]
+    public async Task NotificationPreferencesRequireAuthAndRejectReadoutBodies()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Preference Guard Actor");
+        using var client = testFactory.CreateClient();
+
+        using var missingResponse = await client.GetAsync(PreferencesPath);
+        await AssertUnauthenticatedProblemAsync(missingResponse);
+
+        using var smuggledGet = CreateJsonBearerRequest(
+            HttpMethod.Get,
+            $"{PreferencesPath}?userProfileId={actor.UserProfileId:D}",
+            actor.RawSessionToken,
+            $$"""
+            {
+              "userProfileId": "{{actor.UserProfileId:D}}"
+            }
+            """);
+        using var smuggledGetResponse = await client.SendAsync(smuggledGet);
+        await AssertInvalidNotificationPreferenceRequestProblemAsync(
+            smuggledGetResponse,
+            actor.UserProfileId.ToString("D"));
+
+        using var smuggledPut = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            $"{PreferencesPath}?userProfileId={actor.UserProfileId:D}",
+            actor.RawSessionToken,
+            """
+            {
+              "inAppEnabled": true,
+              "categories": {},
+              "quietHours": {
+                "enabled": false,
+                "startHour": 22,
+                "endHour": 7
+              },
+              "deliveryTiming": "immediate"
+            }
+            """);
+        using var smuggledPutResponse = await client.SendAsync(smuggledPut);
+        await AssertInvalidNotificationPreferenceRequestProblemAsync(
+            smuggledPutResponse,
+            actor.UserProfileId.ToString("D"));
+        Assert.Null(await ReadPreferenceAsync(testFactory, actor.UserProfileId));
+    }
+
     private FactoryTestContext CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -662,6 +879,48 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
             .SingleAsync(notification => notification.Id == notificationId);
     }
 
+    private static async Task SeedPreferenceAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid userProfileId,
+        bool inAppEnabled,
+        bool billsEnabled,
+        bool settlementsEnabled,
+        bool recurringEnabled,
+        bool quietHoursEnabled,
+        int quietHoursStartHour,
+        int quietHoursEndHour,
+        string deliveryTiming)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        dbContext.Set<UserNotificationPreference>().Add(new UserNotificationPreference
+        {
+            UserProfileId = userProfileId,
+            InAppEnabled = inAppEnabled,
+            BillsEnabled = billsEnabled,
+            SettlementsEnabled = settlementsEnabled,
+            RecurringEnabled = recurringEnabled,
+            SyncSecurityEnabled = true,
+            QuietHoursEnabled = quietHoursEnabled,
+            QuietHoursStartHour = quietHoursStartHour,
+            QuietHoursEndHour = quietHoursEndHour,
+            DeliveryTiming = deliveryTiming,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task<UserNotificationPreference?> ReadPreferenceAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid userProfileId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<UserNotificationPreference>()
+            .SingleOrDefaultAsync(preference => preference.UserProfileId == userProfileId);
+    }
+
     private static HttpRequestMessage CreateBearerRequest(
         HttpMethod method,
         string path,
@@ -763,6 +1022,29 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
         Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
     }
 
+    private static async Task AssertInvalidNotificationPreferenceRequestProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedResponseText)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("auth", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("session", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("token", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("recipient", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("owner", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("account", content, StringComparison.OrdinalIgnoreCase);
+        foreach (var unexpectedText in unexpectedResponseText)
+        {
+            Assert.DoesNotContain(unexpectedText, content);
+        }
+
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal("Invalid notification preference request", payload.RootElement.GetProperty("title").GetString());
+        Assert.Equal(400, payload.RootElement.GetProperty("status").GetInt32());
+    }
+
     private static void AssertNotificationResponseShape(JsonElement response)
     {
         Assert.Equal(
@@ -788,6 +1070,46 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
                 "titleKey"
             ],
             response.EnumerateObject()
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    private static void AssertPreferenceShape(JsonElement response)
+    {
+        Assert.Equal(
+            [
+                "categories",
+                "deliveryTiming",
+                "inAppEnabled",
+                "quietHours"
+            ],
+            response.EnumerateObject()
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+
+        Assert.Equal(
+            [
+                "bills",
+                "recurring",
+                "settlements",
+                "syncSecurity"
+            ],
+            response.GetProperty("categories")
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+
+        Assert.Equal(
+            [
+                "enabled",
+                "endHour",
+                "startHour"
+            ],
+            response.GetProperty("quietHours")
+                .EnumerateObject()
                 .Select(property => property.Name)
                 .Order(StringComparer.Ordinal)
                 .ToArray());
