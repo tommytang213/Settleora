@@ -15,6 +15,7 @@ Day 1 remains defined by the live repository source documents, especially:
 - [Day 1 acceptance state](DAY1_ACCEPTANCE_STATE.md)
 - [Day 1 evidence map](DAY1_EVIDENCE_MAP.md)
 - [Day 1 E2E regression matrix](DAY1_E2E_REGRESSION_MATRIX.md)
+- [Day 1 manual code review checklist](DAY1_MANUAL_CODE_REVIEW_CHECKLIST.md)
 - [Manual gate package](MANUAL_GATE_PACKAGE.md)
 - [M15 readiness QA](M15_READINESS_QA.md)
 
