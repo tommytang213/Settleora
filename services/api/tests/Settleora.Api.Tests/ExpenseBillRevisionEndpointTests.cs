@@ -789,15 +789,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Single(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
         Assert.All(notifications, notification =>
         {
-            Assert.Equal(ownerSession.UserProfileId, notification.ActorUserProfileId);
-            Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
-            Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
-            Assert.Equal(billId, notification.ExpenseBillId);
-            Assert.Equal(revisionId, notification.ExpenseBillRevisionId);
-            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionProposed}.title", notification.TitleKey);
-            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionProposed}.message", notification.MessageKey);
-            Assert.Equal("Bill revision was proposed.", notification.SafeSummary);
-            Assert.Equal($"/api/v1/bills/{billId:D}/revisions/{revisionId:D}", notification.ActionUrl);
+            AssertRevisionNotificationEnvelope(
+                notification,
+                InAppNotificationEventTypes.BillRevisionProposed,
+                InAppNotificationPriorities.Attention,
+                "Bill revision was proposed.",
+                ownerSession.UserProfileId,
+                billId,
+                revisionId,
+                expectedGroupId: null);
         });
     }
 
@@ -862,15 +862,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Single(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
         Assert.All(notifications, notification =>
         {
-            Assert.Equal(ownerSession.UserProfileId, notification.ActorUserProfileId);
-            Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
-            Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
-            Assert.Equal(billId, notification.ExpenseBillId);
-            Assert.Equal(revisionId, notification.ExpenseBillRevisionId);
-            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionResubmitted}.title", notification.TitleKey);
-            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionResubmitted}.message", notification.MessageKey);
-            Assert.Equal("Bill revision was resubmitted for review.", notification.SafeSummary);
-            Assert.Equal($"/api/v1/bills/{billId:D}/revisions/{revisionId:D}", notification.ActionUrl);
+            AssertRevisionNotificationEnvelope(
+                notification,
+                InAppNotificationEventTypes.BillRevisionResubmitted,
+                InAppNotificationPriorities.Attention,
+                "Bill revision was resubmitted for review.",
+                ownerSession.UserProfileId,
+                billId,
+                revisionId,
+                expectedGroupId: null);
         });
     }
 
@@ -926,15 +926,15 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
         Assert.Single(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
         Assert.All(notifications, notification =>
         {
-            Assert.Equal(ownerSession.UserProfileId, notification.ActorUserProfileId);
-            Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
-            Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
-            Assert.Equal(billId, notification.ExpenseBillId);
-            Assert.Equal(revisionId, notification.ExpenseBillRevisionId);
-            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionSubmitted}.title", notification.TitleKey);
-            Assert.Equal($"notifications.{InAppNotificationEventTypes.BillRevisionSubmitted}.message", notification.MessageKey);
-            Assert.Equal("Bill revision is ready for review.", notification.SafeSummary);
-            Assert.Equal($"/api/v1/bills/{billId:D}/revisions/{revisionId:D}", notification.ActionUrl);
+            AssertRevisionNotificationEnvelope(
+                notification,
+                InAppNotificationEventTypes.BillRevisionSubmitted,
+                InAppNotificationPriorities.Attention,
+                "Bill revision is ready for review.",
+                ownerSession.UserProfileId,
+                billId,
+                revisionId,
+                expectedGroupId: null);
         });
     }
 
@@ -985,6 +985,18 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             payerSession.UserProfileId);
         Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == ownerSession.UserProfileId);
         Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == unrelatedSession.UserProfileId);
+        Assert.All(notifications, notification =>
+        {
+            AssertRevisionNotificationEnvelope(
+                notification,
+                InAppNotificationEventTypes.BillRevisionWithdrawn,
+                InAppNotificationPriorities.Normal,
+                "Bill revision was withdrawn.",
+                ownerSession.UserProfileId,
+                billId,
+                revisionId,
+                expectedGroupId: null);
+        });
     }
 
     [Fact]
@@ -1039,6 +1051,18 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             creatorSession.UserProfileId,
             ownerSession.UserProfileId);
         Assert.DoesNotContain(approvedNotifications, notification => notification.RecipientUserProfileId == reviewerSession.UserProfileId);
+        Assert.All(approvedNotifications, notification =>
+        {
+            AssertRevisionNotificationEnvelope(
+                notification,
+                InAppNotificationEventTypes.BillRevisionApproved,
+                InAppNotificationPriorities.Normal,
+                "Bill revision was approved.",
+                reviewerSession.UserProfileId,
+                billId,
+                revisionId,
+                expectedGroupId: null);
+        });
 
         using var rejectRequest = CreateBearerRequest(HttpMethod.Post, RejectPath(billId, revisionId), reviewerSession.RawSessionToken);
         using var rejectResponse = await client.SendAsync(rejectRequest);
@@ -1050,6 +1074,18 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             creatorSession.UserProfileId,
             ownerSession.UserProfileId);
         Assert.DoesNotContain(rejectedNotifications, notification => notification.RecipientUserProfileId == reviewerSession.UserProfileId);
+        Assert.All(rejectedNotifications, notification =>
+        {
+            AssertRevisionNotificationEnvelope(
+                notification,
+                InAppNotificationEventTypes.BillRevisionRejected,
+                InAppNotificationPriorities.Attention,
+                "Bill revision was rejected.",
+                reviewerSession.UserProfileId,
+                billId,
+                revisionId,
+                expectedGroupId: null);
+        });
     }
 
     [Fact]
@@ -1103,6 +1139,18 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             creatorSession.UserProfileId,
             ownerSession.UserProfileId);
         Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
+        Assert.All(notifications, notification =>
+        {
+            AssertRevisionNotificationEnvelope(
+                notification,
+                InAppNotificationEventTypes.BillRevisionPayerConfirmed,
+                InAppNotificationPriorities.Normal,
+                "Bill revision payer confirmation was completed.",
+                payerSession.UserProfileId,
+                billId,
+                revisionId,
+                expectedGroupId: null);
+        });
     }
 
     [Fact]
@@ -1172,7 +1220,90 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
             payerSession.UserProfileId);
         Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == ownerSession.UserProfileId);
         Assert.Single(notifications, notification => notification.RecipientUserProfileId == payerSession.UserProfileId);
+        Assert.All(notifications, notification =>
+        {
+            AssertRevisionNotificationEnvelope(
+                notification,
+                InAppNotificationEventTypes.BillRevisionApplied,
+                InAppNotificationPriorities.Attention,
+                "Bill revision was applied.",
+                ownerSession.UserProfileId,
+                billId,
+                revisionId,
+                expectedGroupId: null);
+        });
         AssertSafeNotificationMetadata(notifications);
+    }
+
+    [Fact]
+    public async Task GroupRevisionNotificationsCarryGroupIdButDoNotGrantLinkedResourceAuthorization()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Group Owner");
+        var reviewerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Group Reviewer");
+        var observerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Group Observer");
+        var outsiderSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Revision Notify Group Outsider");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Revision Notify Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(reviewerSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(observerSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            ownerProfileId: ownerSession.UserProfileId,
+            groupId,
+            [
+                new ParticipantSeed(ownerSession.UserProfileId, 50m),
+                new ParticipantSeed(reviewerSession.UserProfileId, 50m)
+            ],
+            [new PayerSeed(ownerSession.UserProfileId, 100m)],
+            ExpenseBillStatuses.Confirmed,
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            RevisionsPath(billId),
+            ownerSession.RawSessionToken,
+            SnapshotJson(
+                [(ownerSession.UserProfileId, 40m), (reviewerSession.UserProfileId, 60m)],
+                [(ownerSession.UserProfileId, 100m)]));
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using var createPayload = JsonDocument.Parse(createContent);
+        var revisionId = createPayload.RootElement.GetProperty("id").GetGuid();
+        var notification = Assert.Single(await ReadNotificationsAsync(
+            testFactory,
+            InAppNotificationEventTypes.BillRevisionProposed));
+        Assert.Equal(reviewerSession.UserProfileId, notification.RecipientUserProfileId);
+        AssertRevisionNotificationEnvelope(
+            notification,
+            InAppNotificationEventTypes.BillRevisionProposed,
+            InAppNotificationPriorities.Attention,
+            "Bill revision was proposed.",
+            ownerSession.UserProfileId,
+            billId,
+            revisionId,
+            groupId);
+
+        using (var observerGetRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, revisionId), observerSession.RawSessionToken))
+        using (var observerGetResponse = await client.SendAsync(observerGetRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, observerGetResponse.StatusCode);
+        }
+
+        using var outsiderGetRequest = CreateBearerRequest(HttpMethod.Get, RevisionPath(billId, revisionId), outsiderSession.RawSessionToken);
+        using var outsiderGetResponse = await client.SendAsync(outsiderGetRequest);
+
+        Assert.Equal(HttpStatusCode.NotFound, outsiderGetResponse.StatusCode);
     }
 
     [Fact]
@@ -3439,6 +3570,40 @@ public sealed class ExpenseBillRevisionEndpointTests : IClassFixture<WebApplicat
                 .Select(notification => notification.RecipientUserProfileId)
                 .Order()
                 .ToArray());
+    }
+
+    private static void AssertRevisionNotificationEnvelope(
+        InAppNotification notification,
+        string expectedEventType,
+        string expectedPriority,
+        string expectedSafeSummary,
+        Guid expectedActorUserProfileId,
+        Guid expectedBillId,
+        Guid expectedRevisionId,
+        Guid? expectedGroupId)
+    {
+        Assert.NotEqual(Guid.Empty, notification.Id);
+        Assert.NotEqual(Guid.Empty, notification.RecipientUserProfileId);
+        Assert.NotEqual(notification.RecipientUserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(expectedActorUserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(expectedEventType, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Null(notification.ReadAtUtc);
+        Assert.Null(notification.ArchivedAtUtc);
+        Assert.Equal(expectedPriority, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
+        Assert.Equal($"notifications.{expectedEventType}.title", notification.TitleKey);
+        Assert.Equal($"notifications.{expectedEventType}.message", notification.MessageKey);
+        Assert.Equal(expectedSafeSummary, notification.SafeSummary);
+        Assert.Equal($"/api/v1/bills/{expectedBillId:D}/revisions/{expectedRevisionId:D}", notification.ActionUrl);
+        Assert.Equal(expectedGroupId, notification.GroupId);
+        Assert.Equal(expectedBillId, notification.ExpenseBillId);
+        Assert.Equal(expectedRevisionId, notification.ExpenseBillRevisionId);
+        Assert.Null(notification.SettlementRequestId);
+        Assert.Null(notification.SettlementPaymentId);
+        Assert.Null(notification.RecurringBillTemplateId);
+        Assert.Null(notification.RecurringBillOccurrenceId);
+        Assert.True(notification.CreatedAtUtc >= InitialTimestamp);
     }
 
     private static void AssertSafeNotificationMetadata(IReadOnlyList<InAppNotification> notifications)
