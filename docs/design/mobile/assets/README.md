@@ -25,6 +25,7 @@ Approved slice directories:
 - `more-settings-v1/` - More hub, profile/account, payment details, app settings, appearance/theme, privacy/security, sessions/devices, notifications settings, data/import/export, local/server mode, and settings shared-component screenshots.
 - `notifications-v1/` - Notification Center, Review Queue, notification detail, bulk triage, notification states, and notification shared-component screenshots.
 - `bill-revision-diff-v1/` - Bill revision review entry, changed-only review, full bill review, approval saved status, blocked/stale/denied states, propose-changes input, desktop overview, desktop full review, desktop change request, desktop settlement impact, and desktop activity screenshots.
+- `ocr-tax-discount-fee-refund-v1/` - OCR receipt match correction screenshots for tax groups, discounts, refunds, payment/change evidence, line cleanup, manual review, and desktop progressive review.
 
 Suggested filename patterns:
 
@@ -62,5 +63,8 @@ Suggested filename patterns:
 - `bill-revision-diff-v1/m03-full-bill-review-part-01.png`
 - `bill-revision-diff-v1/w01-desktop-overview-part-01.png`
 - `bill-revision-diff-v1/w04-desktop-settlement-impact-part-01.png`
+- `ocr-tax-discount-fee-refund-v1/ocr-429-m01-receipt-match-overview-part-01.png`
+- `ocr-tax-discount-fee-refund-v1/ocr-429-m04-tax-group-item-mapping-part-01.png`
+- `ocr-tax-discount-fee-refund-v1/ocr-429-w01-desktop-receipt-match-overview-part-01.png`
 
 Use the slice prefix plus a short screen or component name when additional frames are needed, for example `groups-v1/group-manage-members-sheet.png` or `settle-v1/settle-provider-payment-status.png`.
