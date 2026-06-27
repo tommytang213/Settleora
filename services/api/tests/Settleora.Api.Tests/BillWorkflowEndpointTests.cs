@@ -537,29 +537,56 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             rejectionReasonCode: null);
 
         var notifications = await ReadNotificationsAsync(testFactory);
-        Assert.Equal(
-            [InAppNotificationEventTypes.BillParticipantAccepted, InAppNotificationEventTypes.BillConfirmed],
-            notifications.Select(notification => notification.EventType).ToArray());
-        foreach (var notification in notifications)
+        var expectedNotificationEventTypes = new[]
         {
-            AssertBillWorkflowNotification(
-                notification,
-                recipientUserProfileId: creator.UserProfileId,
-                actorUserProfileId: participantSession.UserProfileId,
-                eventType: notification.EventType,
-                priority: InAppNotificationPriorities.Normal,
-                billId,
-                groupId: null,
-                activeRevisionId,
-                expectedActionUrl: $"/api/v1/bills/{billId:D}",
-                WriteTimestamp);
-            AssertSafeBillWorkflowNotificationContent(
-                notification,
-                participantSession.RawSessionToken,
-                "Final Accept Merchant",
-                "Seeded Item",
-                participantSession.UserProfileId.ToString("D"));
-        }
+            InAppNotificationEventTypes.BillParticipantAccepted,
+            InAppNotificationEventTypes.BillConfirmed
+        };
+        Assert.Equal(
+            expectedNotificationEventTypes.Order(StringComparer.Ordinal).ToArray(),
+            notifications.Select(notification => notification.EventType).Order(StringComparer.Ordinal).ToArray());
+
+        var participantAcceptedNotification = Assert.Single(
+            notifications,
+            notification => notification.EventType == InAppNotificationEventTypes.BillParticipantAccepted);
+        AssertBillWorkflowNotification(
+            participantAcceptedNotification,
+            recipientUserProfileId: creator.UserProfileId,
+            actorUserProfileId: participantSession.UserProfileId,
+            eventType: InAppNotificationEventTypes.BillParticipantAccepted,
+            priority: InAppNotificationPriorities.Normal,
+            billId,
+            groupId: null,
+            activeRevisionId,
+            expectedActionUrl: $"/api/v1/bills/{billId:D}",
+            WriteTimestamp);
+        AssertSafeBillWorkflowNotificationContent(
+            participantAcceptedNotification,
+            participantSession.RawSessionToken,
+            "Final Accept Merchant",
+            "Seeded Item",
+            participantSession.UserProfileId.ToString("D"));
+
+        var confirmedNotification = Assert.Single(
+            notifications,
+            notification => notification.EventType == InAppNotificationEventTypes.BillConfirmed);
+        AssertBillWorkflowNotification(
+            confirmedNotification,
+            recipientUserProfileId: creator.UserProfileId,
+            actorUserProfileId: participantSession.UserProfileId,
+            eventType: InAppNotificationEventTypes.BillConfirmed,
+            priority: InAppNotificationPriorities.Normal,
+            billId,
+            groupId: null,
+            activeRevisionId,
+            expectedActionUrl: $"/api/v1/bills/{billId:D}",
+            WriteTimestamp);
+        AssertSafeBillWorkflowNotificationContent(
+            confirmedNotification,
+            participantSession.RawSessionToken,
+            "Final Accept Merchant",
+            "Seeded Item",
+            participantSession.UserProfileId.ToString("D"));
     }
 
     [Fact]
