@@ -12,6 +12,7 @@ using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
@@ -198,6 +199,19 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
             "proof_removed",
             HiddenOriginalFilename,
             HiddenStorageObjectKey);
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(creditor.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(debtorSession.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.SettlementProofAttached, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.SettlementPayment, notification.SubjectType);
+        Assert.Equal(settlementId, notification.SettlementRequestId);
+        Assert.Equal(paymentId, notification.SettlementPaymentId);
+        Assert.Equal($"/api/v1/settlement-payments/{paymentId:D}/proof", notification.ActionUrl);
+        Assert.Equal(WriteTimestamp, notification.CreatedAtUtc);
+        Assert.Null(notification.SafeSummary);
 
         var lifecycleActions = (await ReadFileLifecycleAuditEventsAsync(testFactory))
             .Select(audit => audit.Action)
@@ -1296,6 +1310,18 @@ public sealed class SettlementPaymentProofEndpointTests : IClassFixture<WebAppli
                 || auditEvent.Action == ProofReadAction)
             .OrderBy(auditEvent => auditEvent.OccurredAtUtc)
             .ThenBy(auditEvent => auditEvent.Action)
+            .ToArrayAsync();
+    }
+
+    private static async Task<IReadOnlyList<InAppNotification>> ReadNotificationsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<InAppNotification>()
+            .AsNoTracking()
+            .OrderBy(notification => notification.CreatedAtUtc)
+            .ThenBy(notification => notification.Id)
             .ToArrayAsync();
     }
 
