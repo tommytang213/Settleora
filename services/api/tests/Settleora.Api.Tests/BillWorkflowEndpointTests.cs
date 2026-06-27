@@ -42,6 +42,8 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         using var testFactory = testContext.Factory;
         var creatorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Personal Submit Creator");
         var participant = await SeedAccountAsync(testFactory, "Personal Submit Participant", InitialTimestamp.AddMinutes(1));
+        var unrelated = await SeedAccountAsync(testFactory, "Personal Submit Unrelated", InitialTimestamp.AddMinutes(2));
+        var activeRevisionId = Guid.NewGuid();
         var billId = await SeedBillAsync(
             testFactory,
             creatorSession.UserProfileId,
@@ -59,7 +61,8 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             ],
             ExpenseBillStatuses.Draft,
             "Draft Submit Reset Merchant",
-            InitialTimestamp);
+            InitialTimestamp,
+            activeAcceptedBillRevisionId: activeRevisionId);
         testContext.TimeProvider.SetUtcNow(WriteTimestamp);
         using var client = testFactory.CreateClient();
         using var request = CreateBearerRequest(
@@ -117,15 +120,26 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             ExpenseBillParticipantRejectionReasonCodes.WrongAmount);
 
         var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
-        Assert.Equal(participant.UserProfileId, notification.RecipientUserProfileId);
-        Assert.Equal(creatorSession.UserProfileId, notification.ActorUserProfileId);
-        Assert.Equal(InAppNotificationEventTypes.BillSubmitted, notification.EventType);
-        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
-        Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
-        Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
-        Assert.Equal(billId, notification.ExpenseBillId);
-        Assert.Equal($"/api/v1/bills/{billId:D}", notification.ActionUrl);
-        Assert.Equal(WriteTimestamp, notification.CreatedAtUtc);
+        AssertBillWorkflowNotification(
+            notification,
+            recipientUserProfileId: participant.UserProfileId,
+            actorUserProfileId: creatorSession.UserProfileId,
+            eventType: InAppNotificationEventTypes.BillSubmitted,
+            priority: InAppNotificationPriorities.Attention,
+            billId,
+            groupId: null,
+            activeRevisionId,
+            expectedActionUrl: $"/api/v1/bills/{billId:D}",
+            WriteTimestamp);
+        Assert.NotEqual(creatorSession.UserProfileId, notification.RecipientUserProfileId);
+        Assert.NotEqual(unrelated.UserProfileId, notification.RecipientUserProfileId);
+        AssertSafeBillWorkflowNotificationContent(
+            notification,
+            creatorSession.RawSessionToken,
+            "Draft Submit Reset Merchant",
+            "Seeded Item",
+            unrelated.UserProfileId.ToString("D"),
+            ExpenseBillParticipantRejectionReasonCodes.WrongAmount);
     }
 
     [Fact]
@@ -315,6 +329,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             null,
             new MembershipSeed(creatorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
             new MembershipSeed(memberSession.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var activeRevisionId = Guid.NewGuid();
         var billId = await SeedBillAsync(
             testFactory,
             creatorSession.UserProfileId,
@@ -325,7 +340,8 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             ],
             ExpenseBillStatuses.Draft,
             "Group Self Submit Merchant",
-            InitialTimestamp);
+            InitialTimestamp,
+            activeAcceptedBillRevisionId: activeRevisionId);
         testContext.TimeProvider.SetUtcNow(WriteTimestamp);
         using var client = testFactory.CreateClient();
         using var submitRequest = CreateBearerRequest(
@@ -350,9 +366,17 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
                 && participant.AcceptedAtUtc == null);
 
         var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
-        Assert.Equal(memberSession.UserProfileId, notification.RecipientUserProfileId);
-        Assert.Equal(creatorSession.UserProfileId, notification.ActorUserProfileId);
-        Assert.Equal(InAppNotificationEventTypes.BillSubmitted, notification.EventType);
+        AssertBillWorkflowNotification(
+            notification,
+            recipientUserProfileId: memberSession.UserProfileId,
+            actorUserProfileId: creatorSession.UserProfileId,
+            eventType: InAppNotificationEventTypes.BillSubmitted,
+            priority: InAppNotificationPriorities.Attention,
+            billId,
+            groupId,
+            activeRevisionId,
+            expectedActionUrl: $"/api/v1/groups/{groupId:D}/bills/{billId:D}",
+            WriteTimestamp);
 
         var submitAudit = Assert.Single(await ReadWorkflowAuditEventsAsync(testFactory));
         AssertWorkflowAuditMetadata(
@@ -424,8 +448,17 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             candidate => candidate.UserProfileId == creatorSession.UserProfileId);
 
         var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
-        Assert.Equal(memberSession.UserProfileId, notification.RecipientUserProfileId);
-        Assert.Equal(creatorSession.UserProfileId, notification.ActorUserProfileId);
+        AssertBillWorkflowNotification(
+            notification,
+            recipientUserProfileId: memberSession.UserProfileId,
+            actorUserProfileId: creatorSession.UserProfileId,
+            eventType: InAppNotificationEventTypes.BillSubmitted,
+            priority: InAppNotificationPriorities.Attention,
+            billId,
+            groupId,
+            expectedActiveRevisionId: null,
+            expectedActionUrl: $"/api/v1/groups/{groupId:D}/bills/{billId:D}",
+            WriteTimestamp);
     }
 
     [Fact]
@@ -435,6 +468,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         using var testFactory = testContext.Factory;
         var participantSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Final Accept Participant");
         var creator = await SeedAccountAsync(testFactory, "Final Accept Creator", InitialTimestamp.AddMinutes(1));
+        var activeRevisionId = Guid.NewGuid();
         var billId = await SeedBillAsync(
             testFactory,
             creator.UserProfileId,
@@ -448,7 +482,8 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             ],
             ExpenseBillStatuses.PendingConfirmation,
             "Final Accept Merchant",
-            InitialTimestamp);
+            InitialTimestamp,
+            activeAcceptedBillRevisionId: activeRevisionId);
         testContext.TimeProvider.SetUtcNow(WriteTimestamp);
         using var client = testFactory.CreateClient();
         using var request = CreateBearerRequest(
@@ -500,6 +535,31 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             acceptedCount: 2,
             rejectedCount: 0,
             rejectionReasonCode: null);
+
+        var notifications = await ReadNotificationsAsync(testFactory);
+        Assert.Equal(
+            [InAppNotificationEventTypes.BillParticipantAccepted, InAppNotificationEventTypes.BillConfirmed],
+            notifications.Select(notification => notification.EventType).ToArray());
+        foreach (var notification in notifications)
+        {
+            AssertBillWorkflowNotification(
+                notification,
+                recipientUserProfileId: creator.UserProfileId,
+                actorUserProfileId: participantSession.UserProfileId,
+                eventType: notification.EventType,
+                priority: InAppNotificationPriorities.Normal,
+                billId,
+                groupId: null,
+                activeRevisionId,
+                expectedActionUrl: $"/api/v1/bills/{billId:D}",
+                WriteTimestamp);
+            AssertSafeBillWorkflowNotificationContent(
+                notification,
+                participantSession.RawSessionToken,
+                "Final Accept Merchant",
+                "Seeded Item",
+                participantSession.UserProfileId.ToString("D"));
+        }
     }
 
     [Fact]
@@ -706,6 +766,21 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
                 && participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance
                 && participant.RejectionReasonCode is null);
         Assert.Equal([BillParticipantAcceptedAction], (await ReadWorkflowAuditEventsAsync(testFactory)).Select(audit => audit.Action).ToArray());
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        AssertBillWorkflowNotification(
+            notification,
+            recipientUserProfileId: otherMember.UserProfileId,
+            actorUserProfileId: participantSession.UserProfileId,
+            eventType: InAppNotificationEventTypes.BillParticipantAccepted,
+            priority: InAppNotificationPriorities.Normal,
+            routeBillId,
+            groupId,
+            expectedActiveRevisionId: null,
+            expectedActionUrl: $"/api/v1/groups/{groupId:D}/bills/{routeBillId:D}",
+            notification.CreatedAtUtc);
+        Assert.DoesNotContain(
+            await ReadNotificationsAsync(testFactory),
+            candidate => candidate.ExpenseBillId == bodyTargetBillId);
     }
 
     [Fact]
@@ -792,6 +867,21 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
                 && participant.Status == ExpenseBillParticipantStatuses.PendingAcceptance
                 && participant.RejectionReasonCode is null);
         Assert.Equal([BillParticipantAcceptedAction], (await ReadWorkflowAuditEventsAsync(testFactory)).Select(audit => audit.Action).ToArray());
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        AssertBillWorkflowNotification(
+            notification,
+            recipientUserProfileId: other.UserProfileId,
+            actorUserProfileId: participantSession.UserProfileId,
+            eventType: InAppNotificationEventTypes.BillParticipantAccepted,
+            priority: InAppNotificationPriorities.Normal,
+            routeBillId,
+            groupId: null,
+            expectedActiveRevisionId: null,
+            expectedActionUrl: $"/api/v1/bills/{routeBillId:D}",
+            notification.CreatedAtUtc);
+        Assert.DoesNotContain(
+            await ReadNotificationsAsync(testFactory),
+            candidate => candidate.ExpenseBillId == bodyTargetBillId);
     }
 
     [Fact]
@@ -865,6 +955,25 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             participantSession.RawSessionToken,
             "Reject Merchant",
             "Seeded Item");
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        AssertBillWorkflowNotification(
+            notification,
+            recipientUserProfileId: creator.UserProfileId,
+            actorUserProfileId: participantSession.UserProfileId,
+            eventType: InAppNotificationEventTypes.BillParticipantRejected,
+            priority: InAppNotificationPriorities.Attention,
+            billId,
+            groupId: null,
+            expectedActiveRevisionId: null,
+            expectedActionUrl: $"/api/v1/bills/{billId:D}",
+            WriteTimestamp);
+        AssertSafeBillWorkflowNotificationContent(
+            notification,
+            participantSession.RawSessionToken,
+            "Reject Merchant",
+            "Seeded Item",
+            ExpenseBillParticipantRejectionReasonCodes.WrongSplit);
     }
 
     [Fact]
@@ -927,6 +1036,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         await AssertBillWorkflowConflictProblemAsync(rejectRejectedResponse, actorSession.RawSessionToken);
 
         Assert.Empty(await ReadWorkflowAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadNotificationsAsync(testFactory));
     }
 
     [Fact]
@@ -1013,6 +1123,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         await AssertGroupBillUnavailableProblemAsync(wrongGroupResponse);
 
         Assert.Empty(await ReadWorkflowAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadNotificationsAsync(testFactory));
     }
 
     [Fact]
@@ -1039,6 +1150,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         await AssertUnauthenticatedProblemAsync(invalidResponse, WrongRawToken);
 
         Assert.Empty(await ReadWorkflowAuditEventsAsync(testFactory));
+        Assert.Empty(await ReadNotificationsAsync(testFactory));
     }
 
     private FactoryTestContext CreateFactory()
@@ -1185,7 +1297,8 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         string status,
         string merchantName,
         DateTimeOffset createdAtUtc,
-        DateTimeOffset? archivedAtUtc = null)
+        DateTimeOffset? archivedAtUtc = null,
+        Guid? activeAcceptedBillRevisionId = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
@@ -1203,6 +1316,7 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
             Status = status,
             TotalAmount = 10m,
             TotalCurrency = "USD",
+            ActiveAcceptedBillRevisionId = activeAcceptedBillRevisionId,
             CreatedAtUtc = createdAtUtc,
             UpdatedAtUtc = createdAtUtc,
             ArchivedAtUtc = archivedAtUtc
@@ -1376,6 +1490,94 @@ public sealed class BillWorkflowEndpointTests : IClassFixture<WebApplicationFact
         }
 
         Assert.Equal(expectedValue, element.GetProperty(propertyName).GetString());
+    }
+
+    private static void AssertBillWorkflowNotification(
+        InAppNotification notification,
+        Guid recipientUserProfileId,
+        Guid actorUserProfileId,
+        string eventType,
+        string priority,
+        Guid expectedBillId,
+        Guid? groupId,
+        Guid? expectedActiveRevisionId,
+        string expectedActionUrl,
+        DateTimeOffset expectedCreatedAtUtc)
+    {
+        Assert.Equal(recipientUserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(actorUserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(eventType, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(priority, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.ExpenseBill, notification.SubjectType);
+        Assert.Equal($"notifications.{eventType}.title", notification.TitleKey);
+        Assert.Equal($"notifications.{eventType}.message", notification.MessageKey);
+        Assert.Null(notification.SafeSummary);
+        Assert.Equal(expectedActionUrl, notification.ActionUrl);
+        var actionUrl = Assert.IsType<string>(notification.ActionUrl);
+        Assert.StartsWith("/api/v1/", actionUrl, StringComparison.Ordinal);
+        Assert.DoesNotContain("://", actionUrl, StringComparison.Ordinal);
+        Assert.DoesNotContain('\\', actionUrl);
+        Assert.Equal(groupId, notification.GroupId);
+        Assert.Equal(expectedBillId, notification.ExpenseBillId);
+        Assert.Equal(expectedActiveRevisionId, notification.ExpenseBillRevisionId);
+        Assert.Null(notification.SettlementRequestId);
+        Assert.Null(notification.SettlementPaymentId);
+        Assert.Null(notification.RecurringBillTemplateId);
+        Assert.Null(notification.RecurringBillOccurrenceId);
+        Assert.Equal(expectedCreatedAtUtc, notification.CreatedAtUtc);
+        Assert.Null(notification.ReadAtUtc);
+        Assert.Null(notification.ArchivedAtUtc);
+    }
+
+    private static void AssertSafeBillWorkflowNotificationContent(
+        InAppNotification notification,
+        params string[] forbiddenValues)
+    {
+        var notificationText = string.Join(
+            "\n",
+            notification.EventType,
+            notification.Status,
+            notification.Priority,
+            notification.SubjectType,
+            notification.TitleKey,
+            notification.MessageKey,
+            notification.SafeSummary ?? string.Empty,
+            notification.ActionUrl ?? string.Empty,
+            notification.GroupId?.ToString("D") ?? string.Empty,
+            notification.ExpenseBillId?.ToString("D") ?? string.Empty,
+            notification.ExpenseBillRevisionId?.ToString("D") ?? string.Empty,
+            notification.SettlementRequestId?.ToString("D") ?? string.Empty,
+            notification.SettlementPaymentId?.ToString("D") ?? string.Empty,
+            notification.RecurringBillTemplateId?.ToString("D") ?? string.Empty,
+            notification.RecurringBillOccurrenceId?.ToString("D") ?? string.Empty);
+        var lowerNotificationText = notificationText.ToLowerInvariant();
+
+        foreach (var forbiddenValue in forbiddenValues)
+        {
+            Assert.DoesNotContain(forbiddenValue, notificationText);
+        }
+
+        Assert.DoesNotContain("merchant", lowerNotificationText);
+        Assert.DoesNotContain("seeded item", lowerNotificationText);
+        Assert.DoesNotContain("note", lowerNotificationText);
+        Assert.DoesNotContain("payment", lowerNotificationText);
+        Assert.DoesNotContain("proof", lowerNotificationText);
+        Assert.DoesNotContain("receipt", lowerNotificationText);
+        Assert.DoesNotContain("ocr", lowerNotificationText);
+        Assert.DoesNotContain("storage", lowerNotificationText);
+        Assert.DoesNotContain("path", lowerNotificationText);
+        Assert.DoesNotContain("filename", lowerNotificationText);
+        Assert.DoesNotContain("fileobject", lowerNotificationText);
+        Assert.DoesNotContain("objectkey", lowerNotificationText);
+        Assert.DoesNotContain("vault", lowerNotificationText);
+        Assert.DoesNotContain("secret", lowerNotificationText);
+        Assert.DoesNotContain("token", lowerNotificationText);
+        Assert.DoesNotContain("session", lowerNotificationText);
+        Assert.DoesNotContain("credential", lowerNotificationText);
+        Assert.DoesNotContain("password", lowerNotificationText);
+        Assert.DoesNotContain("provider", lowerNotificationText);
+        Assert.DoesNotContain("payload", lowerNotificationText);
     }
 
     private static void AssertSafeWorkflowAuditContent(
