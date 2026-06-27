@@ -15,6 +15,9 @@ namespace Settleora.Api.Tests;
 public sealed class InAppNotificationSchemaFoundationTests
 {
     private const string UserNotificationEventTypeConstraintSql =
+        "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.due_soon', 'recurring_bill.draft_generated')";
+
+    private const string BillRevisionNotificationEventTypeConstraintSql =
         "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.draft_generated')";
 
     private static readonly string[] RequiredBillRevisionNotificationEventTypes =
@@ -42,6 +45,7 @@ public sealed class InAppNotificationSchemaFoundationTests
 
         Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.BillSubmitted));
         Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.SettlementProofAttached));
+        Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.RecurringBillDueSoon));
         Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.RecurringBillDraftGenerated));
         Assert.All(
             RequiredBillRevisionNotificationEventTypes,
@@ -166,10 +170,43 @@ public sealed class InAppNotificationSchemaFoundationTests
             migration.UpOperations.OfType<AddCheckConstraintOperation>(),
             operation => operation.Name == "ck_user_notifications_event_type"
                 && operation.Table == "user_notifications");
-        Assert.Equal(UserNotificationEventTypeConstraintSql, addConstraint.Sql);
+        Assert.Equal(BillRevisionNotificationEventTypeConstraintSql, addConstraint.Sql);
         Assert.All(
             RequiredBillRevisionNotificationEventTypes,
             eventType => Assert.Contains($"'{eventType}'", addConstraint.Sql, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RecurringDueSoonNotificationEventTypeMigrationOnlyWidensNotificationConstraint()
+    {
+        using var dbContext = CreateDbContext();
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddRecurringDueSoonNotificationEventType", StringComparison.Ordinal));
+
+        var migration = new AddRecurringDueSoonNotificationEventType();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropForeignKeyOperation
+                or DropIndexOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        Assert.Single(
+            migration.UpOperations.OfType<DropCheckConstraintOperation>(),
+            operation => operation.Name == "ck_user_notifications_event_type"
+                && operation.Table == "user_notifications");
+        var addConstraint = Assert.Single(
+            migration.UpOperations.OfType<AddCheckConstraintOperation>(),
+            operation => operation.Name == "ck_user_notifications_event_type"
+                && operation.Table == "user_notifications");
+        Assert.Equal(UserNotificationEventTypeConstraintSql, addConstraint.Sql);
+        Assert.Contains(
+            $"'{InAppNotificationEventTypes.RecurringBillDueSoon}'",
+            addConstraint.Sql,
+            StringComparison.Ordinal);
     }
 
     private static SettleoraDbContext CreateDbContext()

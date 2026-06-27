@@ -612,6 +612,137 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
+    public async Task ForecastCreatesIdempotentDueSoonNotificationsForVisibleActiveForecastedOccurrencesOnly()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Due Soon Forecast Actor");
+        var unrelated = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Due Soon Hidden Actor");
+        var activeTemplateId = await SeedTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId: null,
+            merchantName: "Visible Due Soon",
+            scheduleType: RecurringBillScheduleTypes.Weekly,
+            intervalCount: 1,
+            startDate: new DateOnly(2026, 6, 1));
+        var pausedTemplateId = await SeedTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId: null,
+            merchantName: "Paused Due Soon",
+            scheduleType: RecurringBillScheduleTypes.Weekly,
+            intervalCount: 1,
+            startDate: new DateOnly(2026, 6, 1));
+        await SeedTemplateAsync(
+            testFactory,
+            unrelated.UserProfileId,
+            groupId: null,
+            merchantName: "Hidden Due Soon",
+            scheduleType: RecurringBillScheduleTypes.Weekly,
+            intervalCount: 1,
+            startDate: new DateOnly(2026, 6, 1));
+        await SetTemplateStatusAsync(
+            testFactory,
+            pausedTemplateId,
+            RecurringBillTemplateStatuses.Paused,
+            nextOccurrenceDate: new DateOnly(2026, 6, 1));
+        testContext.TimeProvider.SetUtcNow(LaterTimestamp);
+        using var client = testFactory.CreateClient();
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var request = CreateBearerRequest(
+                HttpMethod.Get,
+                $"{RecurringBillsPath}/forecast?fromDate=2026-06-01&toDate=2026-06-08&limit=10",
+                actor.RawSessionToken);
+            using var response = await client.SendAsync(request);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        var notifications = await ReadNotificationsAsync(testFactory);
+        Assert.Equal(2, notifications.Count);
+        Assert.All(notifications, notification =>
+        {
+            Assert.Equal(actor.UserProfileId, notification.RecipientUserProfileId);
+            Assert.Equal(actor.UserProfileId, notification.ActorUserProfileId);
+            Assert.Equal(InAppNotificationEventTypes.RecurringBillDueSoon, notification.EventType);
+            Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+            Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+            Assert.Equal(InAppNotificationSubjectTypes.RecurringBillOccurrence, notification.SubjectType);
+            Assert.Equal(activeTemplateId, notification.RecurringBillTemplateId);
+            Assert.Null(notification.RecurringBillOccurrenceId);
+            Assert.Null(notification.ExpenseBillId);
+            Assert.Null(notification.GroupId);
+            Assert.Equal($"/api/v1/recurring-bills/{activeTemplateId:D}", notification.ActionUrl);
+            Assert.Equal(LaterTimestamp, notification.CreatedAtUtc);
+        });
+        Assert.Equal(
+            ["Recurring bill due on 2026-06-03.", "Recurring bill due on 2026-06-10."],
+            notifications.Select(notification => notification.SafeSummary!).Order().ToArray());
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadAuditEventsAsync(testFactory),
+            auditEvent => auditEvent.Action.StartsWith("recurring_bill.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ForecastDueSoonNotificationsFollowGroupVisibilityAndDoNotNotifyUnrelatedUsers()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Due Soon Group Owner");
+        var member = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Due Soon Group Member");
+        var outsider = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Due Soon Group Outsider");
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            owner.UserProfileId,
+            "Due Soon Notification Group",
+            new MembershipSeed(owner.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(member.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var templateId = await SeedGroupTemplateAsync(
+            testFactory,
+            owner.UserProfileId,
+            groupId,
+            "Group Due Soon Template",
+            [owner.UserProfileId, member.UserProfileId]);
+        using var client = testFactory.CreateClient();
+
+        using (var memberRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}/forecast?fromDate=2026-06-01&toDate=2026-06-01&groupId={groupId:D}",
+            member.RawSessionToken))
+        using (var memberResponse = await client.SendAsync(memberRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, memberResponse.StatusCode);
+        }
+
+        using (var outsiderRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"{RecurringBillsPath}/forecast?fromDate=2026-06-01&toDate=2026-06-01&groupId={groupId:D}",
+            outsider.RawSessionToken))
+        using (var outsiderResponse = await client.SendAsync(outsiderRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, outsiderResponse.StatusCode);
+            using var payload = JsonDocument.Parse(await outsiderResponse.Content.ReadAsStringAsync());
+            Assert.Empty(payload.RootElement.GetProperty("occurrences").EnumerateArray());
+        }
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(member.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(member.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.RecurringBillDueSoon, notification.EventType);
+        Assert.Equal(templateId, notification.RecurringBillTemplateId);
+        Assert.Equal(groupId, notification.GroupId);
+        Assert.Equal("Recurring bill due on 2026-06-03.", notification.SafeSummary);
+        Assert.Equal($"/api/v1/recurring-bills/{templateId:D}", notification.ActionUrl);
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+    }
+
+    [Fact]
     public async Task ForecastRejectsSmuggledQueryAndBodyFieldsBeforeForecastReadsOrSideEffects()
     {
         var testContext = CreateFactory();
@@ -1135,6 +1266,22 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
         await dbContext.SaveChangesAsync();
 
         return templateId;
+    }
+
+    private static async Task SetTemplateStatusAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid templateId,
+        string status,
+        DateOnly? nextOccurrenceDate)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var template = await dbContext.Set<RecurringBillTemplate>()
+            .SingleAsync(candidate => candidate.Id == templateId);
+        template.Status = status;
+        template.NextOccurrenceDate = nextOccurrenceDate;
+        template.UpdatedAtUtc = LaterTimestamp;
+        await dbContext.SaveChangesAsync();
     }
 
     private static string CreateGroupTemplateJson(

@@ -13,6 +13,7 @@ Define the first backend-owned recurring bill foundation: guarded recurring bill
 - `POST /api/v1/recurring-bills/{templateId}/pause`, `/resume`, and `/archive` transition template state.
 - `GET /api/v1/recurring-bills/forecast` returns upcoming forecast occurrences without creating bills.
 - `POST /api/v1/recurring-bills/{templateId}/occurrences/{occurrenceDate}/generate-draft` generates or returns the idempotent draft bill for an explicit occurrence.
+- `GET /api/v1/recurring-bills/forecast` also writes bounded in-app `recurring_bill.due_soon` notifications for the authenticated actor when active visible forecasted occurrences appear in the authorized forecast window. This is informational only and does not create bills or confirmed financial truth.
 
 OpenAPI remains the source of truth for exact request and response schemas.
 
@@ -48,6 +49,10 @@ OpenAPI remains the source of truth for exact request and response schemas.
 ## Draft Generation
 
 - Forecast reads never create bills.
+- The Day 1 due-soon window is the existing forecast read window: `fromDate` defaults to the current UTC date, `toDate` defaults to 60 days after `fromDate`, and `limit` defaults to 50 with the existing maximum forecast limit. Explicit `fromDate`, `toDate`, `limit`, and `groupId` filters narrow that window.
+- Due-soon notifications are written only for active visible forecasted occurrences returned in the authorized forecast response. Paused, archived, skipped, cancelled, already draft-generated, and unauthorized templates are not surfaced.
+- Due-soon notification idempotency is keyed by recipient actor, event type, subject type, recurring template ID, group ID, action URL, and the due-date safe summary. Repeating the same forecast read does not create duplicate due-soon notifications for the same visible template due date.
+- Due-soon notifications use the existing in-app notification persistence and readout endpoints. Persisted server notification preferences are not implemented in this slice; the current default is in-app visibility for authorized recipients only.
 - Draft generation requires explicit user action for one template occurrence.
 - Generation revalidates current actor access, template status, schedule membership, payload JSON, money/currency, participants, group membership, and payer policy.
 - Generated bills use the existing expense bill domain conventions and bill calculation service and start in `draft` status.
@@ -63,7 +68,8 @@ Recurring bill audit events are written for create, update, pause, resume, archi
 - Web/admin screens.
 - Dashboard widgets or dashboard preference storage.
 - Background worker auto-generation, cron, or scheduled runtime.
-- Reminder or notification delivery.
+- Background scheduled reminder delivery.
+- Push/email provider delivery for due-soon reminders.
 - Advanced recurrence exceptions or skip-one occurrence UX.
 - FX-aware forecasting, statement reconciliation, imports, or reporting.
 - Direct mutation of historical bills when a template changes.

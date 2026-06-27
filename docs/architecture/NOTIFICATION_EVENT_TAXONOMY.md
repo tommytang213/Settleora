@@ -257,7 +257,12 @@ Sensitive exclusions: no raw template payload JSON, full notes, hidden
 participants, future private bill details, payment details, or worker internals.
 
 In-app baseline: required for generated drafts, due-soon reminders where enabled,
-and generation failures that need user action.
+and generation failures that need user action. The current Day 1 recurring
+due-soon implementation uses the authorized recurring forecast read window as
+the due-soon window and writes in-app-only `recurring_bill.due_soon`
+notifications for visible active forecasted occurrences. It does not create
+bills, confirmed occurrences, settlements, payments, external provider delivery,
+or financial truth.
 
 Read/archive/summary/digest impact: due-soon events may digest/defer where policy
 allows. Generated/failed events count according to priority. Read/archive does
