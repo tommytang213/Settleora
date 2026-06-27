@@ -37,6 +37,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Temporary participant claim and link flow](docs/architecture/TEMPORARY_PARTICIPANT_CLAIM_LINK_FLOW.md)
 - [Money and rounding architecture](docs/architecture/MONEY_ROUNDING_ARCHITECTURE.md)
 - [Day 1 money rounding authority audit](docs/architecture/DAY1_MONEY_ROUNDING_AUTHORITY_AUDIT.md)
+- [Quantity claim state money policy](docs/architecture/QUANTITY_CLAIM_STATE_MONEY_POLICY.md)
 - [Currency exchange architecture](docs/architecture/CURRENCY_EXCHANGE_ARCHITECTURE.md)
 - [User experience modes architecture](docs/architecture/USER_EXPERIENCE_MODES_ARCHITECTURE.md)
 - [Expense, bill, split, and settlement architecture](docs/architecture/EXPENSE_BILL_SPLIT_SETTLEMENT_ARCHITECTURE.md)
