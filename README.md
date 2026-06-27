@@ -42,6 +42,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Currency exchange architecture](docs/architecture/CURRENCY_EXCHANGE_ARCHITECTURE.md)
 - [User experience modes architecture](docs/architecture/USER_EXPERIENCE_MODES_ARCHITECTURE.md)
 - [Expense, bill, split, and settlement architecture](docs/architecture/EXPENSE_BILL_SPLIT_SETTLEMENT_ARCHITECTURE.md)
+- [Local-only and server-mode authority boundary audit](docs/architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md)
 - [Offline queue persistence and sync state model](docs/architecture/OFFLINE_QUEUE_SYNC_STATE_MODEL.md)
 - [Server sync acceptance, idempotency, and conflict policy](docs/architecture/SERVER_SYNC_ACCEPTANCE_IDEMPOTENCY_CONFLICT_POLICY.md)
 - [Local, server, import, export, and restore boundaries](docs/architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
