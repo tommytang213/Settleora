@@ -6834,6 +6834,81 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/notifications/preferences:
+    get:
+      summary: Get current-user notification preferences
+      description: Returns the authenticated user's persisted notification preference readout, or safe defaults when no row exists. This endpoint is current-user only and does not expose admin policy, group preferences, delivery provider state, device tokens, recipient IDs, auth/session fields, payment details, storage/file internals, OCR text, or unrelated users. Sync and security notifications remain required and cannot be disabled by user preference. Digest and quiet-hours fields are readout/preferences only; this endpoint does not schedule digest delivery or defer notification creation.
+      operationId: getNotificationPreferences
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Current-user notification preferences.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreferenceResponse"
+        "400":
+          description: The preference readout request includes an unsupported query field or body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    put:
+      summary: Update current-user notification preferences
+      description: Persists the authenticated user's notification preference readout. The actor is derived from the bearer session; request bodies cannot target another user. User preferences may narrow optional in-app category visibility/readout state but do not authorize recipients, expose linked resources, enable unsupported email/push providers, schedule digest delivery, or suppress required sync/security notifications.
+      operationId: updateNotificationPreferences
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPreferenceUpdateRequest"
+      responses:
+        "200":
+          description: Persisted current-user notification preferences.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPreferenceResponse"
+        "400":
+          description: The submitted preference request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Notification preferences could not be persisted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/notifications/summary:
     get:
       summary: Get current-user notification summary
@@ -10319,6 +10394,100 @@ components:
         - optional
         - blocking_warning
         - required
+    NotificationPreferenceDeliveryTiming:
+      type: string
+      description: User preference readout for notification timing. Digest is a preference/readout only in this Day 1 slice and does not schedule digest delivery.
+      enum:
+        - immediate
+        - digest_readout
+    NotificationPreferenceUpdateRequest:
+      type: object
+      description: Current-user notification preference update. The server derives the user profile from the authenticated session; sync/security remains required and cannot be disabled.
+      additionalProperties: false
+      required:
+        - inAppEnabled
+        - categories
+        - quietHours
+        - deliveryTiming
+      properties:
+        inAppEnabled:
+          type: boolean
+          description: Optional in-app preference for non-required notification categories.
+        categories:
+          $ref: "#/components/schemas/NotificationPreferenceCategoryUpdate"
+        quietHours:
+          $ref: "#/components/schemas/NotificationPreferenceQuietHours"
+        deliveryTiming:
+          $ref: "#/components/schemas/NotificationPreferenceDeliveryTiming"
+    NotificationPreferenceCategoryUpdate:
+      type: object
+      description: Optional category preferences. Omitted optional category fields default to enabled; sync/security may be omitted or true, but false is rejected.
+      additionalProperties: false
+      properties:
+        bills:
+          type: boolean
+        settlements:
+          type: boolean
+        recurring:
+          type: boolean
+        syncSecurity:
+          type: boolean
+          description: Required sync/security readout. If supplied, it must be true.
+    NotificationPreferenceResponse:
+      type: object
+      description: Safe current-user notification preference response. It excludes user profile IDs, auth/session fields, provider state, device tokens, payment details, storage/file internals, OCR text, and unrelated user data.
+      required:
+        - inAppEnabled
+        - categories
+        - quietHours
+        - deliveryTiming
+      properties:
+        inAppEnabled:
+          type: boolean
+        categories:
+          $ref: "#/components/schemas/NotificationPreferenceCategoryResponse"
+        quietHours:
+          $ref: "#/components/schemas/NotificationPreferenceQuietHours"
+        deliveryTiming:
+          $ref: "#/components/schemas/NotificationPreferenceDeliveryTiming"
+    NotificationPreferenceCategoryResponse:
+      type: object
+      description: Current-user notification category preferences. Sync/security is always true in this slice.
+      required:
+        - bills
+        - settlements
+        - recurring
+        - syncSecurity
+      properties:
+        bills:
+          type: boolean
+        settlements:
+          type: boolean
+        recurring:
+          type: boolean
+        syncSecurity:
+          type: boolean
+          enum:
+            - true
+    NotificationPreferenceQuietHours:
+      type: object
+      description: Quiet-hours preference readout. It does not schedule delivery deferral in this Day 1 slice.
+      additionalProperties: false
+      required:
+        - enabled
+        - startHour
+        - endHour
+      properties:
+        enabled:
+          type: boolean
+        startHour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        endHour:
+          type: integer
+          minimum: 0
+          maximum: 23
     InAppNotificationListResponse:
       type: object
       description: Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.

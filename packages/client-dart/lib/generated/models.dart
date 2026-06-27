@@ -1901,6 +1901,183 @@ class AuthMfaEnforcementModeValues {
   static const Set<AuthMfaEnforcementMode> values = {optional, blockingWarning, required};
 }
 
+/// User preference readout for notification timing. Digest is a preference/readout only in this Day 1 slice and does not schedule digest delivery.
+typedef NotificationPreferenceDeliveryTiming = String;
+class NotificationPreferenceDeliveryTimingValues {
+  const NotificationPreferenceDeliveryTimingValues._();
+  static const NotificationPreferenceDeliveryTiming immediate = "immediate";
+  static const NotificationPreferenceDeliveryTiming digestReadout = "digest_readout";
+  static const Set<NotificationPreferenceDeliveryTiming> values = {immediate, digestReadout};
+}
+
+/// Current-user notification preference update. The server derives the user profile from the authenticated session; sync/security remains required and cannot be disabled.
+class NotificationPreferenceUpdateRequest {
+  const NotificationPreferenceUpdateRequest({
+    required this.inAppEnabled,
+    required this.categories,
+    required this.quietHours,
+    required this.deliveryTiming,
+  });
+
+  /// Optional in-app preference for non-required notification categories.
+  final bool inAppEnabled;
+  final NotificationPreferenceCategoryUpdate categories;
+  final NotificationPreferenceQuietHours quietHours;
+  final NotificationPreferenceDeliveryTiming deliveryTiming;
+
+  factory NotificationPreferenceUpdateRequest.fromJson(JsonObject json) {
+    return NotificationPreferenceUpdateRequest(
+      inAppEnabled: json["inAppEnabled"] as bool,
+      categories: NotificationPreferenceCategoryUpdate.fromJson(JsonObject.from(json["categories"] as Map)),
+      quietHours: NotificationPreferenceQuietHours.fromJson(JsonObject.from(json["quietHours"] as Map)),
+      deliveryTiming: json["deliveryTiming"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "inAppEnabled": inAppEnabled,
+      "categories": categories.toJson(),
+      "quietHours": quietHours.toJson(),
+      "deliveryTiming": deliveryTiming,
+    };
+  }
+}
+
+/// Optional category preferences. Omitted optional category fields default to enabled; sync/security may be omitted or true, but false is rejected.
+class NotificationPreferenceCategoryUpdate {
+  const NotificationPreferenceCategoryUpdate({
+    this.bills,
+    this.settlements,
+    this.recurring,
+    this.syncSecurity,
+  });
+
+  final bool? bills;
+  final bool? settlements;
+  final bool? recurring;
+  /// Required sync/security readout. If supplied, it must be true.
+  final bool? syncSecurity;
+
+  factory NotificationPreferenceCategoryUpdate.fromJson(JsonObject json) {
+    return NotificationPreferenceCategoryUpdate(
+      bills: json["bills"] == null ? null : json["bills"] as bool,
+      settlements: json["settlements"] == null ? null : json["settlements"] as bool,
+      recurring: json["recurring"] == null ? null : json["recurring"] as bool,
+      syncSecurity: json["syncSecurity"] == null ? null : json["syncSecurity"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final billsJsonValue = bills;
+    final settlementsJsonValue = settlements;
+    final recurringJsonValue = recurring;
+    final syncSecurityJsonValue = syncSecurity;
+
+    return {
+      if (billsJsonValue != null) "bills": billsJsonValue,
+      if (settlementsJsonValue != null) "settlements": settlementsJsonValue,
+      if (recurringJsonValue != null) "recurring": recurringJsonValue,
+      if (syncSecurityJsonValue != null) "syncSecurity": syncSecurityJsonValue,
+    };
+  }
+}
+
+/// Safe current-user notification preference response. It excludes user profile IDs, auth/session fields, provider state, device tokens, payment details, storage/file internals, OCR text, and unrelated user data.
+class NotificationPreferenceResponse {
+  const NotificationPreferenceResponse({
+    required this.inAppEnabled,
+    required this.categories,
+    required this.quietHours,
+    required this.deliveryTiming,
+  });
+
+  final bool inAppEnabled;
+  final NotificationPreferenceCategoryResponse categories;
+  final NotificationPreferenceQuietHours quietHours;
+  final NotificationPreferenceDeliveryTiming deliveryTiming;
+
+  factory NotificationPreferenceResponse.fromJson(JsonObject json) {
+    return NotificationPreferenceResponse(
+      inAppEnabled: json["inAppEnabled"] as bool,
+      categories: NotificationPreferenceCategoryResponse.fromJson(JsonObject.from(json["categories"] as Map)),
+      quietHours: NotificationPreferenceQuietHours.fromJson(JsonObject.from(json["quietHours"] as Map)),
+      deliveryTiming: json["deliveryTiming"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "inAppEnabled": inAppEnabled,
+      "categories": categories.toJson(),
+      "quietHours": quietHours.toJson(),
+      "deliveryTiming": deliveryTiming,
+    };
+  }
+}
+
+/// Current-user notification category preferences. Sync/security is always true in this slice.
+class NotificationPreferenceCategoryResponse {
+  const NotificationPreferenceCategoryResponse({
+    required this.bills,
+    required this.settlements,
+    required this.recurring,
+    required this.syncSecurity,
+  });
+
+  final bool bills;
+  final bool settlements;
+  final bool recurring;
+  final bool syncSecurity;
+
+  factory NotificationPreferenceCategoryResponse.fromJson(JsonObject json) {
+    return NotificationPreferenceCategoryResponse(
+      bills: json["bills"] as bool,
+      settlements: json["settlements"] as bool,
+      recurring: json["recurring"] as bool,
+      syncSecurity: json["syncSecurity"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "bills": bills,
+      "settlements": settlements,
+      "recurring": recurring,
+      "syncSecurity": syncSecurity,
+    };
+  }
+}
+
+/// Quiet-hours preference readout. It does not schedule delivery deferral in this Day 1 slice.
+class NotificationPreferenceQuietHours {
+  const NotificationPreferenceQuietHours({
+    required this.enabled,
+    required this.startHour,
+    required this.endHour,
+  });
+
+  final bool enabled;
+  final int startHour;
+  final int endHour;
+
+  factory NotificationPreferenceQuietHours.fromJson(JsonObject json) {
+    return NotificationPreferenceQuietHours(
+      enabled: json["enabled"] as bool,
+      startHour: (json["startHour"] as num).toInt(),
+      endHour: (json["endHour"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "enabled": enabled,
+      "startHour": startHour,
+      "endHour": endHour,
+    };
+  }
+}
+
 /// Bounded current-user in-app notification list. It excludes recipient and actor user profile IDs, auth/session/account data, payment details, storage/file internals, OCR text, and unrelated user data.
 class InAppNotificationListResponse {
   const InAppNotificationListResponse({

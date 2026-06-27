@@ -1355,6 +1355,28 @@ class SettleoraApiClient {
     return InAppNotificationListResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<NotificationPreferenceResponse> getNotificationPreferences({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/notifications/preferences",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return NotificationPreferenceResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<NotificationPreferenceResponse> updateNotificationPreferences(NotificationPreferenceUpdateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PUT",
+      "/api/v1/notifications/preferences",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return NotificationPreferenceResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<InAppNotificationSummaryResponse> markAllNotificationsRead({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",

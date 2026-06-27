@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Notifications;
@@ -42,6 +43,7 @@ public sealed class InAppNotificationSchemaFoundationTests
         Assert.Equal(120, InAppNotificationConstraints.TemplateKeyMaxLength);
         Assert.Equal(240, InAppNotificationConstraints.SafeSummaryMaxLength);
         Assert.Equal(240, InAppNotificationConstraints.ActionUrlMaxLength);
+        Assert.Equal(32, NotificationPreferenceConstraints.DeliveryTimingMaxLength);
 
         Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.BillSubmitted));
         Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.SettlementProofAttached));
@@ -62,6 +64,10 @@ public sealed class InAppNotificationSchemaFoundationTests
         Assert.True(InAppNotificationPriorities.IsSupported(InAppNotificationPriorities.Attention));
         Assert.True(InAppNotificationPriorities.IsSupported(InAppNotificationPriorities.Urgent));
         Assert.False(InAppNotificationPriorities.IsSupported("push"));
+
+        Assert.True(NotificationPreferenceDeliveryTimings.IsSupported(NotificationPreferenceDeliveryTimings.Immediate));
+        Assert.True(NotificationPreferenceDeliveryTimings.IsSupported(NotificationPreferenceDeliveryTimings.DigestReadout));
+        Assert.False(NotificationPreferenceDeliveryTimings.IsSupported("provider_scheduled"));
     }
 
     [Fact]
@@ -115,6 +121,47 @@ public sealed class InAppNotificationSchemaFoundationTests
         Assert.DoesNotContain(columnNames, name => name.Contains("password", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(columnNames, name => name.Contains("object_key", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(columnNames, name => name.Contains("payment_handle", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("ocr", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void UserNotificationPreferenceModelUsesCurrentUserOnlySafeState()
+    {
+        using var dbContext = CreateDbContext();
+        var entity = dbContext.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(UserNotificationPreference));
+        Assert.NotNull(entity);
+        var storeObject = StoreObjectIdentifier.Table("user_notification_preferences", null);
+
+        Assert.Equal("user_notification_preferences", entity.GetTableName());
+        Assert.Equal(["UserProfileId"], entity.FindPrimaryKey()!.Properties.Select(property => property.Name));
+
+        AssertColumn(entity, storeObject, "UserProfileId", "user_profile_id", isNullable: false);
+        AssertColumn(entity, storeObject, "InAppEnabled", "in_app_enabled", isNullable: false);
+        AssertColumn(entity, storeObject, "BillsEnabled", "bills_enabled", isNullable: false);
+        AssertColumn(entity, storeObject, "SettlementsEnabled", "settlements_enabled", isNullable: false);
+        AssertColumn(entity, storeObject, "RecurringEnabled", "recurring_enabled", isNullable: false);
+        AssertColumn(entity, storeObject, "SyncSecurityEnabled", "sync_security_enabled", isNullable: false);
+        AssertColumn(entity, storeObject, "QuietHoursEnabled", "quiet_hours_enabled", isNullable: false);
+        AssertColumn(entity, storeObject, "QuietHoursStartHour", "quiet_hours_start_hour", isNullable: false);
+        AssertColumn(entity, storeObject, "QuietHoursEndHour", "quiet_hours_end_hour", isNullable: false);
+        AssertColumn(entity, storeObject, "DeliveryTiming", "delivery_timing", isNullable: false, NotificationPreferenceConstraints.DeliveryTimingMaxLength);
+        AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
+        AssertColumn(entity, storeObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
+
+        AssertForeignKey(entity, typeof(UserProfile), ["UserProfileId"], DeleteBehavior.Restrict);
+        AssertCheckConstraint(entity, "ck_user_notification_preferences_delivery_timing", "delivery_timing IN ('immediate', 'digest_readout')");
+        AssertCheckConstraint(entity, "ck_user_notification_preferences_quiet_start_hour", "quiet_hours_start_hour >= 0 AND quiet_hours_start_hour <= 23");
+        AssertCheckConstraint(entity, "ck_user_notification_preferences_quiet_end_hour", "quiet_hours_end_hour >= 0 AND quiet_hours_end_hour <= 23");
+        AssertCheckConstraint(entity, "ck_user_notification_preferences_sync_security_required", "sync_security_enabled = TRUE");
+
+        var columnNames = entity.GetProperties()
+            .Select(property => property.GetColumnName(storeObject) ?? property.Name)
+            .ToArray();
+        Assert.DoesNotContain(columnNames, name => name.Contains("token", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("password", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("provider", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("device", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("payment", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(columnNames, name => name.Contains("ocr", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -207,6 +254,40 @@ public sealed class InAppNotificationSchemaFoundationTests
             $"'{InAppNotificationEventTypes.RecurringBillDueSoon}'",
             addConstraint.Sql,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UserNotificationPreferenceMigrationAddsOnlyPreferenceTable()
+    {
+        using var dbContext = CreateDbContext();
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddUserNotificationPreferences", StringComparison.Ordinal));
+
+        var migration = new AddUserNotificationPreferences();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropForeignKeyOperation
+                or DropIndexOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        var createTable = Assert.Single(migration.UpOperations.OfType<CreateTableOperation>());
+        Assert.Equal("user_notification_preferences", createTable.Name);
+        Assert.Contains(
+            createTable.Columns,
+            column => column.Name == "delivery_timing" && column.MaxLength == NotificationPreferenceConstraints.DeliveryTimingMaxLength);
+        Assert.Contains(
+            createTable.ForeignKeys,
+            foreignKey => foreignKey.Name == "fk_user_notification_preferences_user_profiles"
+                && foreignKey.PrincipalTable == "user_profiles"
+                && foreignKey.OnDelete == ReferentialAction.Restrict);
+        Assert.Contains(
+            createTable.CheckConstraints,
+            constraint => constraint.Name == "ck_user_notification_preferences_sync_security_required"
+                && constraint.Sql == "sync_security_enabled = TRUE");
     }
 
     private static SettleoraDbContext CreateDbContext()
