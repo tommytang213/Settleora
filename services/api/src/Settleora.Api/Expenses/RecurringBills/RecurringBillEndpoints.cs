@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Primitives;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Notifications;
@@ -31,6 +32,7 @@ internal static class RecurringBillEndpoints
     private const string TemplateResumedAction = "recurring_bill.template_resumed";
     private const string TemplateArchivedAction = "recurring_bill.template_archived";
     private const string DraftGeneratedAction = "recurring_bill.draft_generated";
+    private const string DueSoonSummaryTemplate = "Recurring bill due on {0}.";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
 
@@ -467,6 +469,7 @@ internal static class RecurringBillEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IInAppNotificationWriter notificationWriter,
         RecurringBillScheduleService scheduleService,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -532,6 +535,19 @@ internal static class RecurringBillEndpoints
             .ThenBy(occurrence => occurrence.TemplateId)
             .Take(filter.Limit)
             .ToArray();
+
+        var dueSoonWriteSucceeded = await WriteDueSoonNotificationsAsync(
+            notificationWriter,
+            dbContext,
+            templates,
+            responseOccurrences,
+            actor.UserProfileId,
+            timeProvider.GetUtcNow(),
+            cancellationToken);
+        if (!dueSoonWriteSucceeded)
+        {
+            return RecurringBillWriteFailed();
+        }
 
         return Results.Ok(new RecurringBillForecastListResponse(responseOccurrences));
     }
@@ -791,6 +807,85 @@ internal static class RecurringBillEndpoints
         }
 
         return Results.Ok(MapTemplateResponse(template));
+    }
+
+    private static async Task<bool> WriteDueSoonNotificationsAsync(
+        IInAppNotificationWriter notificationWriter,
+        SettleoraDbContext dbContext,
+        IReadOnlyCollection<RecurringBillTemplate> templates,
+        IReadOnlyCollection<RecurringBillForecastOccurrenceResponse> occurrences,
+        Guid actorUserProfileId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (occurrences.Count == 0)
+        {
+            return true;
+        }
+
+        var templatesById = templates.ToDictionary(template => template.Id);
+        var createdAny = false;
+        foreach (var occurrence in occurrences)
+        {
+            if (occurrence.Status != RecurringBillOccurrenceStatuses.Forecasted
+                || occurrence.DraftGenerated
+                || !templatesById.TryGetValue(occurrence.TemplateId, out var template))
+            {
+                continue;
+            }
+
+            var safeSummary = DueSoonSummary(occurrence.DueDate ?? occurrence.OccurrenceDate);
+            var actionUrl = $"/api/v1/recurring-bills/{template.Id:D}";
+            var duplicateExists = await dbContext.Set<InAppNotification>()
+                .AsNoTracking()
+                .AnyAsync(notification => notification.RecipientUserProfileId == actorUserProfileId
+                    && notification.ActorUserProfileId == actorUserProfileId
+                    && notification.EventType == InAppNotificationEventTypes.RecurringBillDueSoon
+                    && notification.SubjectType == InAppNotificationSubjectTypes.RecurringBillOccurrence
+                    && notification.GroupId == template.GroupId
+                    && notification.RecurringBillTemplateId == template.Id
+                    && notification.SafeSummary == safeSummary
+                    && notification.ActionUrl == actionUrl,
+                    cancellationToken);
+            if (duplicateExists)
+            {
+                continue;
+            }
+
+            var result = await notificationWriter.WriteAsync(
+                new InAppNotificationWriteRequest(
+                    actorUserProfileId,
+                    actorUserProfileId,
+                    InAppNotificationEventTypes.RecurringBillDueSoon,
+                    InAppNotificationPriorities.Attention,
+                    InAppNotificationSubjectTypes.RecurringBillOccurrence,
+                    TitleKey(InAppNotificationEventTypes.RecurringBillDueSoon),
+                    MessageKey(InAppNotificationEventTypes.RecurringBillDueSoon),
+                    now,
+                    SafeSummary: safeSummary,
+                    ActionUrl: actionUrl,
+                    GroupId: template.GroupId,
+                    RecurringBillTemplateId: template.Id,
+                    AllowSelfNotification: true),
+                cancellationToken);
+            createdAny |= result.Succeeded;
+        }
+
+        if (!createdAny)
+        {
+            return true;
+        }
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return false;
+        }
     }
 
     private static IQueryable<RecurringBillTemplate> VisibleTemplates(
@@ -1834,6 +1929,24 @@ internal static class RecurringBillEndpoints
     private static string FormatAmount(decimal amount)
     {
         return amount.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    private static string DueSoonSummary(DateOnly dueDate)
+    {
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            DueSoonSummaryTemplate,
+            dueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+    }
+
+    private static string TitleKey(string eventType)
+    {
+        return $"notifications.{eventType}.title";
+    }
+
+    private static string MessageKey(string eventType)
+    {
+        return $"notifications.{eventType}.message";
     }
 
     private static void AddUnsupportedFieldError(Dictionary<string, List<string>> errors)

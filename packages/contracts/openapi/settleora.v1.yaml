@@ -15223,6 +15223,7 @@ components:
         - settlement.request_cancelled
         - settlement.payment_cancelled
         - settlement.proof_attached
+        - recurring_bill.due_soon
         - recurring_bill.draft_generated
     InAppNotificationStatus:
       type: string
