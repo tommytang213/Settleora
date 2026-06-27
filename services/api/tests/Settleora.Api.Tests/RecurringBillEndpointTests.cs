@@ -1007,16 +1007,20 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
             auditEvent => auditEvent.Action == "recurring_bill.draft_generated");
         Assert.DoesNotContain(actor.RawSessionToken, auditEvent.SafeMetadataJson);
         Assert.DoesNotContain("Generate Template", auditEvent.SafeMetadataJson);
+
+        // The current writer suppresses self-notifications, so owner-generated
+        // personal drafts do not create recurring draft notifications.
         Assert.Empty(await ReadNotificationsAsync(testFactory));
     }
 
     [Fact]
-    public async Task GroupMemberGenerateDraftNotifiesTemplateOwnerWithoutSelfNotification()
+    public async Task GroupMemberGenerateDraftNotifiesTemplateOwnerWithSafeRecurringMetadataAndAuthorizedRoute()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
         var owner = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Recurring Notification Owner");
         var member = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Recurring Notification Member");
+        var outsider = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Recurring Notification Outsider");
         var groupId = await SeedGroupAsync(
             testFactory,
             owner.UserProfileId,
@@ -1051,12 +1055,128 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
         Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
         Assert.Equal(InAppNotificationPriorities.Normal, notification.Priority);
         Assert.Equal(InAppNotificationSubjectTypes.RecurringBillOccurrence, notification.SubjectType);
+        Assert.Equal("notifications.recurring_bill.draft_generated.title", notification.TitleKey);
+        Assert.Equal("notifications.recurring_bill.draft_generated.message", notification.MessageKey);
+        Assert.Null(notification.SafeSummary);
         Assert.Equal(groupId, notification.GroupId);
         Assert.Equal(templateId, notification.RecurringBillTemplateId);
         Assert.Equal(occurrenceId, notification.RecurringBillOccurrenceId);
         Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Null(notification.ExpenseBillRevisionId);
+        Assert.Null(notification.SettlementRequestId);
+        Assert.Null(notification.SettlementPaymentId);
         Assert.Equal($"/api/v1/groups/{groupId:D}/bills/{billId:D}", notification.ActionUrl);
         Assert.Equal(WriteTimestamp, notification.CreatedAtUtc);
+        Assert.Null(notification.ReadAtUtc);
+        Assert.Null(notification.ArchivedAtUtc);
+        Assert.DoesNotContain(owner.RawSessionToken, NotificationSafeText(notification));
+        Assert.DoesNotContain(member.RawSessionToken, NotificationSafeText(notification));
+        Assert.DoesNotContain("Recurring Owner Notification Template", NotificationSafeText(notification));
+        Assert.DoesNotContain("Recurring Notification Group", NotificationSafeText(notification));
+        Assert.DoesNotContain("settlement", NotificationSafeText(notification), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("proof", NotificationSafeText(notification), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("receipt", NotificationSafeText(notification), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ocr", NotificationSafeText(notification), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("token", NotificationSafeText(notification), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("provider", NotificationSafeText(notification), StringComparison.OrdinalIgnoreCase);
+
+        testContext.TimeProvider.SetUtcNow(LaterTimestamp);
+        using var secondRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"{RecurringBillsPath}/{templateId:D}/occurrences/2026-06-01/generate-draft",
+            member.RawSessionToken);
+        using var secondResponse = await client.SendAsync(secondRequest);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        Assert.Single(
+            await ReadNotificationsAsync(testFactory),
+            candidate => candidate.EventType == InAppNotificationEventTypes.RecurringBillDraftGenerated);
+
+        using var ownerBillRequest = CreateBearerRequest(HttpMethod.Get, notification.ActionUrl!, owner.RawSessionToken);
+        using var ownerBillResponse = await client.SendAsync(ownerBillRequest);
+        Assert.Equal(HttpStatusCode.OK, ownerBillResponse.StatusCode);
+
+        using var outsiderBillRequest = CreateBearerRequest(HttpMethod.Get, notification.ActionUrl!, outsider.RawSessionToken);
+        using var outsiderBillResponse = await client.SendAsync(outsiderBillRequest);
+        Assert.Equal(HttpStatusCode.NotFound, outsiderBillResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task FailedGenerateDraftPathsDoNotWriteRecurringDraftNotifications()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actor = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Failed Draft Actor");
+        var other = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Failed Draft Other");
+        var activeTemplateId = await SeedTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId: null,
+            "Failed Draft Active");
+        var hiddenTemplateId = await SeedTemplateAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            "Failed Draft Hidden");
+        var pausedTemplateId = await SeedTemplateAsync(
+            testFactory,
+            actor.UserProfileId,
+            groupId: null,
+            "Failed Draft Paused");
+        await SetTemplateStatusAsync(
+            testFactory,
+            pausedTemplateId,
+            RecurringBillTemplateStatuses.Paused,
+            nextOccurrenceDate: new DateOnly(2026, 6, 1));
+        using var client = testFactory.CreateClient();
+
+        using (var unauthenticatedResponse = await client.PostAsync(
+            $"{RecurringBillsPath}/{activeTemplateId:D}/occurrences/2026-06-01/generate-draft",
+            content: null))
+        {
+            await AssertUnauthenticatedProblemAsync(unauthenticatedResponse);
+        }
+
+        using (var crossUserRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"{RecurringBillsPath}/{hiddenTemplateId:D}/occurrences/2026-06-01/generate-draft",
+            actor.RawSessionToken))
+        using (var crossUserResponse = await client.SendAsync(crossUserRequest))
+        {
+            await AssertRecurringBillUnavailableProblemAsync(crossUserResponse);
+        }
+
+        using (var invalidDateRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"{RecurringBillsPath}/{activeTemplateId:D}/occurrences/not-a-date/generate-draft",
+            actor.RawSessionToken))
+        using (var invalidDateResponse = await client.SendAsync(invalidDateRequest))
+        {
+            await AssertInvalidRecurringBillRequestProblemAsync(invalidDateResponse);
+        }
+
+        using (var offScheduleRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"{RecurringBillsPath}/{activeTemplateId:D}/occurrences/2026-06-02/generate-draft",
+            actor.RawSessionToken))
+        using (var offScheduleResponse = await client.SendAsync(offScheduleRequest))
+        {
+            await AssertInvalidRecurringBillRequestProblemAsync(offScheduleResponse);
+        }
+
+        using (var pausedRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"{RecurringBillsPath}/{pausedTemplateId:D}/occurrences/2026-06-01/generate-draft",
+            actor.RawSessionToken))
+        using (var pausedResponse = await client.SendAsync(pausedRequest))
+        {
+            await AssertRecurringBillConflictProblemAsync(pausedResponse);
+        }
+
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadNotificationsAsync(testFactory),
+            notification => notification.EventType == InAppNotificationEventTypes.RecurringBillDraftGenerated);
     }
 
     private FactoryTestContext CreateFactory()
@@ -1422,6 +1542,27 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
             .OrderBy(notification => notification.CreatedAtUtc)
             .ThenBy(notification => notification.Id)
             .ToListAsync();
+    }
+
+    private static string NotificationSafeText(InAppNotification notification)
+    {
+        return string.Join(
+            ' ',
+            notification.EventType,
+            notification.Status,
+            notification.Priority,
+            notification.SubjectType,
+            notification.TitleKey,
+            notification.MessageKey,
+            notification.SafeSummary,
+            notification.ActionUrl,
+            notification.GroupId?.ToString("D"),
+            notification.ExpenseBillId?.ToString("D"),
+            notification.ExpenseBillRevisionId?.ToString("D"),
+            notification.SettlementRequestId?.ToString("D"),
+            notification.SettlementPaymentId?.ToString("D"),
+            notification.RecurringBillTemplateId?.ToString("D"),
+            notification.RecurringBillOccurrenceId?.ToString("D"));
     }
 
     private static async Task<AuthAuditEvent> AssertSingleAuditEventAsync(
