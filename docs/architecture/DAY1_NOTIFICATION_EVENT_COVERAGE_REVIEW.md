@@ -1,0 +1,138 @@
+# Day 1 Notification Event Coverage Review
+
+## Purpose
+
+This is a docs/control architecture review packet for GitHub issue
+[#369](https://github.com/tommytang213/Settleora/issues/369), `Complete Day 1
+in-app notification event coverage`, under parent epic
+[#368](https://github.com/tommytang213/Settleora/issues/368), `E9
+Notifications`.
+
+This document does not implement notification event coverage. It does not
+complete #369, #368, or Day 1 notification acceptance. It does not implement
+push, email, deep links, mobile UI, provider workers, digest scheduling,
+background delivery, delivery receipts, admin/global policy, device-token
+lifecycle, or security-event suppression policy.
+
+The purpose is to make the Day 1 event-family coverage boundary explicit before
+future runtime work expands notification event types, writers, OpenAPI enums,
+generated clients, tests, or UI behavior.
+
+## Current Completed Slices
+
+- #367 implemented the recurring due-soon in-app notification path. The current
+  API writes `recurring_bill.due_soon` notifications from authorized recurring
+  forecast reads for visible active forecasted occurrences only. It is
+  idempotent for the same recipient/template/due-date readout and does not
+  create bills, occurrence truth, settlements, payments, provider delivery, or
+  financial truth.
+- #370 implemented persisted current-user notification preferences. Current
+  preferences persist in-app/category readout state for the authenticated user,
+  require sync/security visibility, and store quiet-hours and
+  `immediate`/`digest_readout` readout preferences. They do not implement
+  server-side filtering, suppression, digest workers, quiet-hours deferral,
+  email, push, device tokens, provider policy, group mute, admin/global policy,
+  or mobile UI persistence wiring.
+- The current in-app foundation includes guarded current-user
+  list/summary/read/archive endpoints, safe notification metadata, bounded
+  response shape, and tests for current-user visibility, read/archive behavior,
+  safe fields, schema constraints, and writer safety.
+
+## Architecture Boundaries
+
+The source API/domain service that owns the business state owns notification
+eligibility. Notification creation is a consequence of an authorized domain
+event, not a separate authority layer.
+
+- API/domain owns recipient eligibility, authorization, business state, money
+  status, storage access, and audit.
+- Workers and provider adapters may deliver approved jobs later. They must not
+  decide recipient eligibility, business truth, money state, OCR acceptance,
+  storage authorization, sync acceptance, or audit truth.
+- Clients may render notifications, preferences, local cache, and navigation
+  hints. They must not decide notification authorization from UI state, cached
+  rows, hidden controls, route availability, generated-client methods, or local
+  notification metadata.
+- Opening a notification must reauthorize the linked resource through the API.
+  Notification visibility is not proof that the linked bill, settlement, OCR
+  review, sync operation, security event, or file is still visible.
+- Read/archive state is inbox state only. It must not mutate bills,
+  settlements, payments, proof, OCR reviews, recurring templates, generated
+  drafts, sync operations, auth/session state, security policy, storage files,
+  source audit, or money truth.
+- Notification payloads, provider payloads, audit metadata, logs, and external
+  snippets must not expose storage internals, file bytes, raw OCR/receipt text,
+  provider payloads, tokens, secrets, raw payment details, private notes,
+  unauthorized resource details, hidden participant data, or unrelated user
+  data.
+
+## Event Family Inventory
+
+| Family | Owner and requiredness | Safe payload and exclusions | Current repo state | Missing pieces and future issue split |
+| --- | --- | --- | --- | --- |
+| Bills and bill revisions/approvals | Expense bill workflow and bill revision domain services. Required for shared bill submission, participant accept/reject/confirmation, revision proposal/resubmission/submission/withdrawal/approval/rejection/payer-confirmation/apply. Money-impactful where financial state, approvals, payer confirmation, or revision apply are involved. | Safe IDs: recipient, safe actor, group, expense bill, revision IDs. Exclude itemized receipt/OCR lines, private notes, storage details, hidden shares, payment details, raw request bodies, and unauthorized participant data. | Implemented event constants and tests exist for bill workflow and bill revision notification writes. Current OpenAPI enum includes bill workflow/revision types. | Split future work for remaining bill updated/financially-impactful edit/acknowledgement/correction/dispute coverage only when exact source runtime transitions exist. Add API tests proving affected recipients, self-notification policy, idempotency, bounded metadata, and no money/source mutation from read/archive. |
+| Item claim, split, and creator-review handoffs | Expense bill split/claim workflow services. Required when claim conflicts, unresolved states, or creator review need user action. Money-impactful because claim acceptance affects shares. UI/Figma-gated for claim review screens. | Safe IDs: bill, group, safe actor, recipient, stable claim/item IDs only when already bill-visible. Exclude OCR item text, hidden amounts, assignment matrices, private notes, receipt files, and unreviewed financial summaries. | Taxonomy documents representative item-claim events, but current API constants/OpenAPI enum do not expose item-claim event types and no runtime claim notification writer was found. | Create a small item-claim notification runtime issue after claim/split source states are implemented. Add exact event enum values, source-domain writer, OpenAPI/client regeneration only with runtime event types, and tests for conflicts, unresolved claims, owner review, and read/archive non-resolution. |
+| Settlements, payment requests, proof/review/dispute/mismatch | Settlement request/payment/proof services. Required for request created, marked paid, partial paid, confirmed, disputed, cancelled, and proof attached. Money-impactful and storage/privacy-impactful for proof. | Safe IDs: settlement request/payment, group, already-visible bill, stable proof file ID only through authorized proof APIs. Exclude raw payment handles, QR contents, account numbers, proof contents, bank screenshots, storage object keys, hidden bill lines, and unbounded amount/payment details in external snippets. | Implemented settlement constants, writer helpers, endpoint integrations, and tests exist for several request/payment/proof actions. OpenAPI enum includes settlement request/payment/proof events. | Add focused settlement follow-ups for any Day 1 mismatch/residual/review states not yet mapped. Tests must prove counterparty derivation, no unauthorized recipient/event leaks, proof authorization on open, and no settlement/payment/proof mutation from notification read/archive. |
+| OCR receipt review/apply/provisional/manual-correction handoffs | Receipt OCR review intake, future OCR job, and API validation services. Required for failed/needs-review/completed server OCR states where user action is expected. Money-impactful when OCR apply changes draft or revision candidates; storage/privacy-impactful because receipt/OCR content is sensitive. UI/Figma-gated for review flows. | Safe IDs: bill, attachment file ID only through authorized attachment metadata, OCR review ID, group, safe job/correlation ID. Exclude raw OCR text, receipt text, images, file bytes, storage internals, itemized extracted lines, hidden amounts, and worker debug output. | Current API has bill-scoped OCR review intake, apply-preview, and draft-only apply, but notification event constants/OpenAPI enum do not include OCR events and server OCR worker runtime is not implemented. | Split OCR notifications into review-needed/failure handoff first, then completed server-OCR handoff only when server OCR exists. Non-draft OCR-to-bill changes must remain under revision policy. Add tests for redaction, authorized re-fetch, idempotency, and no automatic bill mutation from OCR completion or notification read/archive. |
+| Recurring due-soon and generated draft/confirmation handoffs | Recurring bill template, forecast, and explicit draft-generation services. Due-soon visibility is required; generated draft handoff is required where another actor creates a draft or confirmation is needed. Money-impactful when draft generation creates a bill, but notifications do not create financial truth. | Safe IDs: recurring template, occurrence, generated bill where visible, group, safe actor. Exclude raw template payload JSON, private notes, hidden participants, payment details, worker internals, and future private bill details. | #367 implemented `recurring_bill.due_soon`. Current runtime also writes `recurring_bill.draft_generated` for explicit draft generation. OpenAPI enum includes both. | Future recurring notification issues should cover generation skipped/failed only when skip/failure runtime exists, plus confirmation UX/deep-link handoff under #371. Tests must preserve forecast-read non-mutation and draft-generation API/domain authority. |
+| Sync/offline conflict and failure handoffs | Sync acceptance and offline queue services. Required for conflicts and failures needing user action. Security-impactful where sync touches auth, storage, money, or server/local boundaries. UI/Figma-gated for conflict/failure states. | Safe IDs: sync operation ID, bounded correlation/hash, target type, safe target ID only when already visible. Exclude raw queued request body, local mutation payload, local file paths, local cache data, hidden server current data, storage internals, and unrelated user data. | Taxonomy and local/server authority docs define sync notification expectations. Current notification enum/OpenAPI does not include sync event types, and broad sync/offline runtime remains future work. | Split into sync conflict/failure notification issue after sync operation records and conflict/failure states exist. Add tests for no raw queued payload leakage, authorization recheck on open, read/archive not retrying or resolving sync, and conflict preservation. |
+| Auth/session/security-impactful events | Auth/session/security policy services. Required for new device/session, session revocation, password/MFA/passkey/recovery/policy/account-impact events where policy says user/admin visibility is necessary. Security-impactful and manual-gated. UI/Figma-gated for security/session detail screens and #371 deep links. | Safe IDs: auth audit event, safe auth session ID for the account owner, recipient, safe actor, bounded policy ID. Exclude session tokens, refresh/reset tokens, recovery codes, passwords, MFA secrets, passkey private material, provider tokens, exact abuse identifiers, full IP history, unbounded user agents, and provider payloads. | Auth/session runtime foundations exist, but notification event constants/OpenAPI enum do not include security/session event types and no security notification writer was found. Preferences require sync/security visibility but do not generate security notifications. | Create a security/session required-event review issue before runtime. Each event requires explicit policy for recipient, suppression/bypass behavior, audit source, external snippet safety, and tests for secret redaction, authorization, and source-audit separation. |
+
+## Remaining Work For #369
+
+#369 remains open. The future runtime should be split into small issues rather
+than one broad event-coverage PR:
+
+1. Bills/revisions/approval event gap closure for exact missing bill lifecycle
+   states.
+2. Item claim, split, and creator-review event coverage after claim source
+   runtime is available.
+3. Settlement/payment/proof/residual or mismatch event gap closure for exact
+   implemented source states.
+4. OCR review/apply/failure handoff events, keeping non-draft OCR under bill
+   revision policy.
+5. Sync conflict/failure notification events after sync records and state
+   transitions exist.
+6. Security/session required-event review before any auth/session notification
+   runtime.
+7. Schema/OpenAPI/generated-client enum expansion only when exact runtime event
+   types are implemented.
+8. API tests and acceptance evidence for every new event family slice.
+
+#371 remains open and Figma-gated for notification deep links/mobile UI.
+Deep-link work should route to authorized destination APIs and must avoid
+leaking record existence through stale, missing, or unauthorized notification
+targets.
+
+Push/email delivery, provider workers, digest scheduling, background delivery,
+delivery receipts, and admin/global policy remain out of scope unless a future
+issue explicitly implements them.
+
+## Future Validation Expectations
+
+Every future #369 runtime slice should prove:
+
+- API/domain recipient derivation and authorization filtering.
+- Idempotency for repeat source actions or retryable notification writes.
+- No unauthorized recipient/event leaks.
+- Bounded metadata with safe subject IDs only.
+- No raw OCR, receipt, storage, payment, provider, token, secret, private note,
+  or unauthorized resource details in payloads, logs, audits, tests, or snippets.
+- No fake push/email success and no provider-success claims unless a provider
+  delivery slice actually implements that state.
+- Notification read/archive never mutates source money, settlement, payment,
+  OCR, recurring, sync, storage, auth/session, or audit state.
+- Linked resources are reauthorized through their own API paths when opened.
+- OpenAPI is changed only for exact implemented event types, and generated
+  web/Dart clients are regenerated only from OpenAPI with reviewed diffs.
+- Required/security-impactful behavior, mute/digest bypass, and external
+  snippets are implemented only after explicit reviewed policy.
+
+## Non-Pass Statement
+
+This review packet is not a pass for #369, #368, or Day 1 notification
+acceptance. It is an architecture/control gate that records the safe event
+family breakdown and future validation expectations. Runtime implementation,
+issue closure, PR creation, OpenAPI/client changes, schema changes, UI/Figma
+work, provider delivery, workers, digest scheduling, security suppression, and
+mobile deep links remain separate future work.
