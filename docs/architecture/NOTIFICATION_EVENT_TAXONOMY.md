@@ -202,6 +202,8 @@ Representative event types:
 - `settlement.payment_confirmed`
 - `settlement.request_disputed`
 - `settlement.payment_disputed`
+- `settlement.request_cancelled`
+- `settlement.payment_cancelled`
 - `settlement.proof_attached`
 
 Owning domain: settlement request/payment/proof services.
@@ -232,9 +234,12 @@ Channel eligibility: in-app baseline; email optional with high-level settlement
 copy; push optional with generic settlement update copy. Proof snippets must not
 describe proof contents.
 
-Validation expectation: tests prove payment/proof resources reauthorize on open,
-proof file IDs never expose storage internals, read/archive does not mutate
-settlement state, and optional channel snippets exclude payment details.
+Validation expectation: tests prove successful authorized settlement transitions
+write only the counterparty or directly affected user's in-app notification with
+bounded settlement request/payment IDs and route-like action URLs; payment/proof
+resources reauthorize on open; proof file IDs never expose storage internals;
+read/archive does not mutate settlement state; and optional channel snippets
+exclude payment details.
 
 ### Recurring Bills
 

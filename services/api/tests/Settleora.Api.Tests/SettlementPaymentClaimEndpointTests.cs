@@ -11,6 +11,7 @@ using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
@@ -170,6 +171,19 @@ public sealed class SettlementPaymentClaimEndpointTests : IClassFixture<WebAppli
             "50",
             "50",
             "USD");
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(creditor.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(debtorSession.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.SettlementPaymentMarkedPaid, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.SettlementPayment, notification.SubjectType);
+        Assert.Equal(settlementId, notification.SettlementRequestId);
+        Assert.Equal(paymentId, notification.SettlementPaymentId);
+        Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Equal($"/api/v1/settlement-payments/{paymentId:D}", notification.ActionUrl);
+        Assert.Equal(ValidationTimestamp, notification.CreatedAtUtc);
     }
 
     [Fact]
@@ -241,6 +255,20 @@ public sealed class SettlementPaymentClaimEndpointTests : IClassFixture<WebAppli
         Assert.Equal(
             ["settlement.payment_partially_paid", "settlement.payment_marked_paid"],
             persisted.PaymentAuditEvents.OrderBy(auditEvent => auditEvent.OccurredAtUtc).Select(auditEvent => auditEvent.Action).ToArray());
+
+        var notifications = await ReadNotificationsAsync(testFactory);
+        Assert.Equal(
+            [InAppNotificationEventTypes.SettlementPaymentPartiallyPaid, InAppNotificationEventTypes.SettlementPaymentMarkedPaid],
+            notifications.Select(notification => notification.EventType).ToArray());
+        Assert.All(notifications, notification =>
+        {
+            Assert.Equal(creditor.UserProfileId, notification.RecipientUserProfileId);
+            Assert.Equal(debtorSession.UserProfileId, notification.ActorUserProfileId);
+            Assert.Equal(InAppNotificationSubjectTypes.SettlementPayment, notification.SubjectType);
+            Assert.Equal(settlementId, notification.SettlementRequestId);
+            Assert.Equal(billId, notification.ExpenseBillId);
+            Assert.StartsWith("/api/v1/settlement-payments/", notification.ActionUrl, StringComparison.Ordinal);
+        });
     }
 
     [Fact]
@@ -1481,6 +1509,19 @@ public sealed class SettlementPaymentClaimEndpointTests : IClassFixture<WebAppli
             "USD",
             expectedWorkflowName: "settlement_payment_confirmation",
             expectedPaymentStatus: SettlementPaymentStatuses.Confirmed);
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(debtor.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(creditorSession.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.SettlementPaymentConfirmed, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Normal, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.SettlementPayment, notification.SubjectType);
+        Assert.Equal(settlementId, notification.SettlementRequestId);
+        Assert.Equal(paymentId, notification.SettlementPaymentId);
+        Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Equal($"/api/v1/settlement-payments/{paymentId:D}", notification.ActionUrl);
+        Assert.Equal(ValidationTimestamp, notification.CreatedAtUtc);
     }
 
     [Fact]
@@ -2549,6 +2590,18 @@ public sealed class SettlementPaymentClaimEndpointTests : IClassFixture<WebAppli
                 .OrderBy(auditEvent => auditEvent.OccurredAtUtc)
                 .ToListAsync(),
             await ReadMutationCountsAsync(testFactory));
+    }
+
+    private static async Task<IReadOnlyList<InAppNotification>> ReadNotificationsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<InAppNotification>()
+            .AsNoTracking()
+            .OrderBy(notification => notification.CreatedAtUtc)
+            .ThenBy(notification => notification.Id)
+            .ToListAsync();
     }
 
     private static async Task<MutationCounts> ReadMutationCountsAsync(WebApplicationFactory<Program> testFactory)

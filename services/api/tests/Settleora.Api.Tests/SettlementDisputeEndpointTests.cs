@@ -11,6 +11,7 @@ using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
@@ -104,6 +105,19 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
             debtorSession.UserProfileId,
             creditor.UserProfileId,
             SettlementRequestStatuses.Requested);
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(creditor.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(debtorSession.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.SettlementRequestDisputed, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Urgent, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.SettlementRequest, notification.SubjectType);
+        Assert.Equal(settlementId, notification.SettlementRequestId);
+        Assert.Null(notification.SettlementPaymentId);
+        Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Equal($"/api/v1/settlements/{settlementId:D}", notification.ActionUrl);
+        Assert.Equal(ValidationTimestamp, notification.CreatedAtUtc);
     }
 
     [Fact]
@@ -286,6 +300,19 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
             SettlementRequestStatuses.MarkedPaid,
             "40",
             "0");
+
+        var notification = Assert.Single(await ReadNotificationsAsync(testFactory));
+        Assert.Equal(debtor.UserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(creditorSession.UserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.SettlementPaymentDisputed, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Urgent, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.SettlementPayment, notification.SubjectType);
+        Assert.Equal(settlementId, notification.SettlementRequestId);
+        Assert.Equal(paymentId, notification.SettlementPaymentId);
+        Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Equal($"/api/v1/settlement-payments/{paymentId:D}", notification.ActionUrl);
+        Assert.Equal(ValidationTimestamp, notification.CreatedAtUtc);
     }
 
     [Fact]
@@ -1089,6 +1116,18 @@ public sealed class SettlementDisputeEndpointTests : IClassFixture<WebApplicatio
             await dbContext.Set<FileObject>().CountAsync(),
             await dbContext.Set<UserPaymentProfile>().CountAsync(),
             await dbContext.Set<AuthAuditEvent>().CountAsync(auditEvent => IsSettlementDisputeAuditAction(auditEvent.Action)));
+    }
+
+    private static async Task<IReadOnlyList<InAppNotification>> ReadNotificationsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<InAppNotification>()
+            .AsNoTracking()
+            .OrderBy(notification => notification.CreatedAtUtc)
+            .ThenBy(notification => notification.Id)
+            .ToListAsync();
     }
 
     private static bool IsSettlementDisputeAuditAction(string action)
