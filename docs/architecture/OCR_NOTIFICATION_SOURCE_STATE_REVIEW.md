@@ -106,6 +106,12 @@ missing. Adding an event constant or writer now would either:
 The safe decision is to keep #570 in architecture/source-state review or split
 it into a narrower follow-up that first designs the source transition.
 
+[OCR needs-review notification source policy](OCR_NEEDS_REVIEW_NOTIFICATION_SOURCE_POLICY.md)
+selects the recommended design-level transition: an explicit API-owned OCR
+review assignment/source-state handoff that persists a responsible editor before
+`ocr.needs_review` notification runtime is added. Direct runtime remains blocked
+until that source state exists.
+
 ## Exact Next Implementation Task
 
 The next task should be a docs/control or implementation-design slice titled
