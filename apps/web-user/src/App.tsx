@@ -41,6 +41,11 @@ import {
   type SettlementPresentationFilter,
   type SettlementsReadoutState
 } from "./settlementsReadout";
+import {
+  loadProfilePaymentReadout,
+  summarizePaymentConfiguration,
+  type ProfilePaymentReadoutState
+} from "./profileReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
   ExpenseBillReconciliationStatus,
@@ -48,6 +53,7 @@ import type {
   GroupBillResponse,
   GroupResponse,
   PersonalBillResponse,
+  SelfPaymentDetailsQrFileResponse,
   SettlementBalanceProjectionResponse,
   SettlementPaymentResponse,
   SettlementRequestResponse
@@ -63,11 +69,16 @@ const mobileNav = [
   { item: navItems.find((item) => item.id === "settings") ?? navItems[0], label: "More" }
 ];
 
-function getInitialActiveId() {
-  const routeId = window.location.hash.replace(/^#\/?/, "");
+export function normalizeRouteId(routeId: string): string {
   const normalizedRouteId = routeId === "settle" ? "settlements" : routeId;
 
   return navItems.some((item) => item.id === normalizedRouteId) ? normalizedRouteId : "home";
+}
+
+function getInitialActiveId() {
+  const routeId = window.location.hash.replace(/^#\/?/, "");
+
+  return normalizeRouteId(routeId);
 }
 
 function setActiveRoute(id: string) {
@@ -114,6 +125,11 @@ export function App() {
   const [settlementDetail, setSettlementDetail] = useState<SettlementDetailReadoutState>({
     status: "auth_required",
     message: "Select a visible settlement after sign-in to open the read-only detail."
+  });
+  const [profileReadout, setProfileReadout] = useState<ProfilePaymentReadoutState>({
+    status: "auth_required",
+    message: "Sign in is required before Settleora can show profile and payment details on the web.",
+    unavailableSections: []
   });
   const [billSearch, setBillSearch] = useState("");
   const [billStatusFilter, setBillStatusFilter] = useState<ExpenseBillStatus | "all">("all");
@@ -352,6 +368,29 @@ export function App() {
     };
   }, [activeId, selectedSettlementId, session.accessToken]);
 
+  useEffect(() => {
+    if (activeId !== "profile") {
+      return;
+    }
+
+    let isMounted = true;
+    setProfileReadout({
+      status: "loading",
+      message: "Loading profile and payment detail metadata from Settleora.",
+      unavailableSections: []
+    });
+
+    void loadProfilePaymentReadout({ accessToken: session.accessToken }).then((nextState) => {
+      if (isMounted) {
+        setProfileReadout(nextState);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, session.accessToken]);
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -478,6 +517,8 @@ export function App() {
               filter={settlementFilter}
               onFilterChange={setSettlementFilter}
             />
+          ) : activeId === "profile" ? (
+            <ProfilePaymentReadoutPanel readout={profileReadout} />
           ) : (
 
           <section className="content-grid" aria-label="Workspace readouts">
@@ -568,6 +609,114 @@ export function App() {
         </main>
       </div>
     </div>
+  );
+}
+
+function ProfilePaymentReadoutPanel({ readout }: { readout: ProfilePaymentReadoutState }) {
+  const summary = useMemo(() => summarizePaymentConfiguration(readout.paymentDetails), [readout.paymentDetails]);
+  const paymentDetails = readout.paymentDetails;
+  const profile = readout.profile;
+
+  return (
+    <section className="content-grid" aria-label="Profile and payment details readout">
+      <div className="dashboard-column">
+        <section className="metric-grid" aria-label="Profile payment summary">
+          {summary.map((item) => (
+            <ReadoutMetric key={item.label} label={item.label} value={item.value} detail="Server-returned readout" />
+          ))}
+        </section>
+
+        <section className="surface-panel" aria-labelledby="profile-readout-title">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Profile</p>
+              <h3 id="profile-readout-title">{profile?.displayName ?? "Profile details"}</h3>
+            </div>
+            <span className={`status-chip ${statusClassForReadout(readout.status)}`}>
+              {labelize(readout.status)}
+            </span>
+          </div>
+
+          {profile ? (
+            <>
+              <dl className="readout-list detail-readouts">
+                <div>
+                  <dt>Display name</dt>
+                  <dd>{profile.displayName}</dd>
+                </div>
+                <div>
+                  <dt>Preferred currency</dt>
+                  <dd>{profile.defaultCurrency ?? "Not set"}</dd>
+                </div>
+                <div>
+                  <dt>Created</dt>
+                  <dd>{formatDate(profile.createdAtUtc)}</dd>
+                </div>
+                <div>
+                  <dt>Updated</dt>
+                  <dd>{formatDate(profile.updatedAtUtc)}</dd>
+                </div>
+              </dl>
+
+              <ReadoutSection title="Payment details">
+                {paymentDetails?.isConfigured ? (
+                  <>
+                    <StatusPill label="Method" value={paymentDetails.preferredMethodLabel ?? "Not set"} />
+                    <StatusPill label="Handle" value={paymentDetails.paymentHandle ?? "Not set"} />
+                    <StatusPill label="Visibility" value={labelize(paymentDetails.visibility)} />
+                    <StatusPill label="Note" value={paymentDetails.paymentNote ?? "Not set"} />
+                  </>
+                ) : (
+                  <p className="muted-copy">No active payment detail row is configured for this account.</p>
+                )}
+              </ReadoutSection>
+
+              <ReadoutSection title="QR metadata">
+                {paymentDetails?.qrFile ? (
+                  <QrMetadataReadout qrFile={paymentDetails.qrFile} />
+                ) : (
+                  <p className="muted-copy">No active payment QR metadata was returned.</p>
+                )}
+              </ReadoutSection>
+            </>
+          ) : (
+            <StateMessage
+              state={readout.status}
+              message={readout.message}
+              emptyTitle="No profile details"
+              errorTitle="Could not load profile"
+            />
+          )}
+        </section>
+      </div>
+
+      <aside className="right-rail" aria-label="Payment detail boundaries">
+        <section className="surface-panel compact-panel">
+          <p className="eyebrow">Boundary</p>
+          <h3>Read-only scope</h3>
+          <p>{readout.message}</p>
+          <div className="state-list">
+            {readout.unavailableSections.map((item) => (
+              <article className="state-row" key={item}>
+                <strong>Unavailable</strong>
+                <span>{item}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      </aside>
+    </section>
+  );
+}
+
+function QrMetadataReadout({ qrFile }: { qrFile: SelfPaymentDetailsQrFileResponse }) {
+  return (
+    <>
+      <StatusPill label="File metadata ID" value={qrFile.id} />
+      <StatusPill label="Content type" value={qrFile.contentType} />
+      <StatusPill label="Size" value={`${qrFile.sizeBytes} bytes`} />
+      <StatusPill label="Updated" value={formatDate(qrFile.updatedAtUtc)} />
+    </>
   );
 }
 
