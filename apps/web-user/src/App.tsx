@@ -32,11 +32,13 @@ import {
 } from "./groupsFriendsReadout";
 import {
   filterSettlementsForPresentation,
+  formatProofSize,
   loadSettlementDetailReadout,
   loadSettlementsReadout,
   settlementFilterLabels,
   summarizeCounterpartyPaymentDetails,
   summarizeBalanceDirections,
+  summarizeSettlementProofMetadata,
   summarizeSettlementStatuses,
   type SettlementDetailReadoutState,
   type SettlementPresentationFilter,
@@ -69,6 +71,7 @@ import type {
   SelfPaymentDetailsQrFileResponse,
   SettlementBalanceProjectionResponse,
   SettlementPaymentResponse,
+  SettlementPaymentProofResponse,
   SettlementRequestResponse
 } from "../../../packages/client-web/src/generated";
 
@@ -1464,6 +1467,10 @@ function SettlementDetailPanel({
     () => summarizeCounterpartyPaymentDetails(counterpartyPaymentDetails?.details),
     [counterpartyPaymentDetails?.details]
   );
+  const proofMetadataSummary = useMemo(
+    () => summarizeSettlementProofMetadata(readout.proofMetadata),
+    [readout.proofMetadata]
+  );
 
   return (
     <aside className="surface-panel bills-detail-panel" aria-label="Settlement detail readout">
@@ -1525,6 +1532,37 @@ function SettlementDetailPanel({
             )}
           </ReadoutSection>
 
+          <ReadoutSection title="Payment proof metadata">
+            <div className="mini-metric-row" aria-label="Settlement proof metadata summary">
+              {proofMetadataSummary.map((item) => (
+                <StatusPill key={item.label} label={item.label} value={item.value} />
+              ))}
+            </div>
+            {readout.proofMetadata?.paymentProofs.some((item) => item.proofs.length > 0) ? (
+              readout.proofMetadata.paymentProofs.map((item) => (
+                <SettlementPaymentProofGroup
+                  key={item.paymentId}
+                  paymentId={item.paymentId}
+                  proofs={item.proofs}
+                />
+              ))
+            ) : (
+              <p className="muted-copy">
+                {readout.proofMetadata?.message ??
+                  "Proof metadata is unavailable until Settleora loads a selected settlement and visible payment rows."}
+              </p>
+            )}
+            {readout.proofMetadata?.missingMethods.length ? (
+              <StatusPill
+                label="Missing client read"
+                value={readout.proofMetadata.missingMethods.join(", ")}
+              />
+            ) : null}
+            <p className="muted-copy">
+              Proof content is not fetched in this readout. Upload, remove, and content methods stay unused.
+            </p>
+          </ReadoutSection>
+
           <ReadoutSection title="Counterparty payment details">
             <div className="mini-metric-row" aria-label="Counterparty payment detail summary">
               {counterpartySummary.map((item) => (
@@ -1577,6 +1615,32 @@ function SettlementDetailPanel({
         </div>
       )}
     </aside>
+  );
+}
+
+function SettlementPaymentProofGroup({
+  paymentId,
+  proofs
+}: {
+  paymentId: string;
+  proofs: SettlementPaymentProofResponse[];
+}) {
+  if (proofs.length === 0) {
+    return <DataRow label={`Payment ${paymentId}`} value="No proof metadata returned" />;
+  }
+
+  return (
+    <div className="state-list">
+      {proofs.map((proof) => (
+        <article className="state-row" key={`${paymentId}:${proof.fileId}`}>
+          <strong>{proof.fileId}</strong>
+          <span>
+            Payment {proof.settlementPaymentId} · {proof.contentType} · {formatProofSize(proof.sizeBytes)} · Uploaded{" "}
+            {formatDate(proof.uploadedAtUtc)}
+          </span>
+        </article>
+      ))}
+    </div>
   );
 }
 
