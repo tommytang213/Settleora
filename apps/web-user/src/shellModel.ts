@@ -43,8 +43,8 @@ export const navItems: NavItem[] = [
     status: "placeholder"
   },
   {
-    id: "settle",
-    label: "Settle",
+    id: "settlements",
+    label: "Settlements",
     description: "Balances, requests, payment detail checks, proof summaries, and activity.",
     actionLabel: "Request payment",
     section: "primary",

@@ -30,13 +30,27 @@ import {
   type GroupDetailReadoutState,
   type GroupsReadoutState
 } from "./groupsFriendsReadout";
+import {
+  filterSettlementsForPresentation,
+  loadSettlementDetailReadout,
+  loadSettlementsReadout,
+  settlementFilterLabels,
+  summarizeBalanceDirections,
+  summarizeSettlementStatuses,
+  type SettlementDetailReadoutState,
+  type SettlementPresentationFilter,
+  type SettlementsReadoutState
+} from "./settlementsReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
   ExpenseBillReconciliationStatus,
   ExpenseBillStatus,
   GroupBillResponse,
   GroupResponse,
-  PersonalBillResponse
+  PersonalBillResponse,
+  SettlementBalanceProjectionResponse,
+  SettlementPaymentResponse,
+  SettlementRequestResponse
 } from "../../../packages/client-web/src/generated";
 
 const primaryNav = navItems.filter((item) => item.section === "primary");
@@ -45,14 +59,15 @@ const mobileNav = [
   { item: navItems.find((item) => item.id === "home") ?? navItems[0], label: "Home" },
   { item: navItems.find((item) => item.id === "bills") ?? navItems[0], label: "Bills" },
   { item: navItems.find((item) => item.id === "groups") ?? navItems[0], label: "Groups" },
-  { item: navItems.find((item) => item.id === "settle") ?? navItems[0], label: "Settle" },
+  { item: navItems.find((item) => item.id === "settlements") ?? navItems[0], label: "Settle" },
   { item: navItems.find((item) => item.id === "settings") ?? navItems[0], label: "More" }
 ];
 
 function getInitialActiveId() {
   const routeId = window.location.hash.replace(/^#\/?/, "");
+  const normalizedRouteId = routeId === "settle" ? "settlements" : routeId;
 
-  return navItems.some((item) => item.id === routeId) ? routeId : "home";
+  return navItems.some((item) => item.id === normalizedRouteId) ? normalizedRouteId : "home";
 }
 
 function setActiveRoute(id: string) {
@@ -64,6 +79,7 @@ export function App() {
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedGroupBillId, setSelectedGroupBillId] = useState<string | null>(null);
+  const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
   const [session, setSession] = useState<SessionBoundaryState>(() =>
     createInitialSessionBoundaryState()
   );
@@ -90,12 +106,22 @@ export function App() {
     message: "Select a visible group bill after sign-in to open the read-only detail."
   });
   const [friendsReadout] = useState<FriendsReadoutState>(() => createFriendsUnavailableReadout());
+  const [settlementsReadout, setSettlementsReadout] = useState<SettlementsReadoutState>({
+    status: "auth_required",
+    message: "Sign in is required before Settleora can show settlement requests on the web.",
+    settlements: []
+  });
+  const [settlementDetail, setSettlementDetail] = useState<SettlementDetailReadoutState>({
+    status: "auth_required",
+    message: "Select a visible settlement after sign-in to open the read-only detail."
+  });
   const [billSearch, setBillSearch] = useState("");
   const [billStatusFilter, setBillStatusFilter] = useState<ExpenseBillStatus | "all">("all");
   const [billReconciliationFilter, setBillReconciliationFilter] = useState<
     ExpenseBillReconciliationStatus | "all"
   >("all");
   const [groupSearch, setGroupSearch] = useState("");
+  const [settlementFilter, setSettlementFilter] = useState<SettlementPresentationFilter>("all");
 
   useEffect(() => {
     let isMounted = true;
@@ -271,6 +297,61 @@ export function App() {
     };
   }, [activeId, selectedGroupBillId, selectedGroupId, session.accessToken]);
 
+  useEffect(() => {
+    if (activeId !== "settlements") {
+      return;
+    }
+
+    let isMounted = true;
+    setSettlementsReadout({
+      status: "loading",
+      message: "Loading visible settlements from Settleora.",
+      settlements: []
+    });
+
+    void loadSettlementsReadout({ accessToken: session.accessToken }).then((nextState) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setSettlementsReadout(nextState);
+      setSelectedSettlementId((currentSettlementId) => currentSettlementId ?? nextState.settlements[0]?.id ?? null);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, session.accessToken]);
+
+  useEffect(() => {
+    if (activeId !== "settlements" || !selectedSettlementId) {
+      setSettlementDetail({
+        status: "auth_required",
+        message: "Select a visible settlement after sign-in to open the read-only detail."
+      });
+      return;
+    }
+
+    let isMounted = true;
+    setSettlementDetail({
+      status: "loading",
+      message: "Loading settlement request detail and payment readouts."
+    });
+
+    void loadSettlementDetailReadout({
+      accessToken: session.accessToken,
+      settlementId: selectedSettlementId
+    }).then((nextState) => {
+      if (isMounted) {
+        setSettlementDetail(nextState);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, selectedSettlementId, session.accessToken]);
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -349,6 +430,8 @@ export function App() {
                     ? "Create group unavailable"
                     : activeId === "friends"
                       ? "Invite unavailable"
+                      : activeId === "settlements"
+                        ? "Settlement actions unavailable"
                       : activeItem.actionLabel}
               </button>
             </div>
@@ -386,6 +469,15 @@ export function App() {
             />
           ) : activeId === "friends" ? (
             <FriendsReadoutPanel readout={friendsReadout} />
+          ) : activeId === "settlements" ? (
+            <SettlementsReadoutPanel
+              settlementsReadout={settlementsReadout}
+              detailReadout={settlementDetail}
+              selectedSettlementId={selectedSettlementId}
+              onSelectSettlement={setSelectedSettlementId}
+              filter={settlementFilter}
+              onFilterChange={setSettlementFilter}
+            />
           ) : (
 
           <section className="content-grid" aria-label="Workspace readouts">
@@ -761,6 +853,268 @@ function FriendsReadoutPanel({ readout }: { readout: FriendsReadoutState }) {
       </aside>
     </section>
   );
+}
+
+function SettlementsReadoutPanel({
+  settlementsReadout,
+  detailReadout,
+  selectedSettlementId,
+  onSelectSettlement,
+  filter,
+  onFilterChange
+}: {
+  settlementsReadout: SettlementsReadoutState;
+  detailReadout: SettlementDetailReadoutState;
+  selectedSettlementId: string | null;
+  onSelectSettlement: (settlementId: string) => void;
+  filter: SettlementPresentationFilter;
+  onFilterChange: (value: SettlementPresentationFilter) => void;
+}) {
+  const visibleSettlements = useMemo(
+    () => filterSettlementsForPresentation(settlementsReadout.settlements, filter),
+    [filter, settlementsReadout.settlements]
+  );
+  const statusCounts = useMemo(
+    () => summarizeSettlementStatuses(settlementsReadout.settlements),
+    [settlementsReadout.settlements]
+  );
+  const balanceDirections = useMemo(
+    () => summarizeBalanceDirections(settlementsReadout.balances),
+    [settlementsReadout.balances]
+  );
+  const canFilter = settlementsReadout.status === "loaded" || settlementsReadout.status === "empty";
+  const balanceRows = settlementsReadout.balances?.balances ?? [];
+
+  return (
+    <section className="bills-workspace" aria-label="Settlements readout">
+      <div className="bills-summary-row" aria-label="Settlements summary">
+        <ReadoutMetric
+          label="Requests"
+          value={String(settlementsReadout.settlements.length)}
+          detail="API-backed settlement rows"
+        />
+        <ReadoutMetric
+          label="Statuses"
+          value={statusCounts.length === 0 ? "None" : statusCounts.map((item) => `${item.count} ${item.label}`).join(", ")}
+          detail="Returned by Settleora"
+        />
+        <ReadoutMetric
+          label="Balances"
+          value={balanceDirections.length === 0 ? "None" : balanceDirections.map((item) => `${item.count} ${item.label}`).join(", ")}
+          detail="No browser-side netting"
+        />
+      </div>
+
+      <section className="bills-toolbar settlements-toolbar surface-panel" aria-label="Settlement filters">
+        <label className="filter-field">
+          <span>Request view</span>
+          <select
+            value={filter}
+            onChange={(event) => onFilterChange(event.target.value as SettlementPresentationFilter)}
+            disabled={!canFilter}
+          >
+            {Object.entries(settlementFilterLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section className="bills-split" aria-label="Settlement list and detail">
+        <div className="surface-panel bills-list-panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Settlements list</p>
+              <h3>Requests and balance rows</h3>
+            </div>
+            <span className={`status-chip ${statusClassForReadout(settlementsReadout.status)}`}>
+              {labelize(settlementsReadout.status)}
+            </span>
+          </div>
+          <StateMessage
+            state={settlementsReadout.status}
+            message={settlementsReadout.message}
+            emptyTitle="No settlements yet"
+            errorTitle="Could not load settlements"
+          />
+          {settlementsReadout.status === "loaded" && visibleSettlements.length === 0 ? (
+            <div className="empty-state" role="status">
+              <h4>No settlements match this view</h4>
+              <p>Change the local view to return to the loaded Settleora settlement list.</p>
+            </div>
+          ) : null}
+
+          {balanceRows.length ? (
+            <ReadoutSection title="Balance projection rows">
+              {balanceRows.map((balance) => (
+                <BalanceProjectionRow key={balanceProjectionKey(balance)} balance={balance} />
+              ))}
+            </ReadoutSection>
+          ) : null}
+
+          <div className="bill-row-list" aria-label="Loaded settlement requests">
+            {visibleSettlements.map((settlement) => (
+              <SettlementListRow
+                key={settlement.id}
+                settlement={settlement}
+                selected={settlement.id === selectedSettlementId}
+                onSelect={() => onSelectSettlement(settlement.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <SettlementDetailPanel
+          readout={detailReadout}
+          fallbackSettlement={settlementsReadout.settlements.find(
+            (settlement) => settlement.id === selectedSettlementId
+          )}
+        />
+      </section>
+    </section>
+  );
+}
+
+function SettlementListRow({
+  settlement,
+  selected,
+  onSelect
+}: {
+  settlement: SettlementRequestResponse;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={selected ? "bill-row active" : "bill-row"}
+      aria-current={selected ? "true" : undefined}
+      onClick={onSelect}
+    >
+      <span>
+        <strong>{settlement.creditorUserProfileId}</strong>
+        <small>Debtor {settlement.debtorUserProfileId}</small>
+      </span>
+      <span>
+        <strong>{formatMoney(settlement.amount, settlement.currency)}</strong>
+        <small>{labelize(settlement.status)}</small>
+      </span>
+    </button>
+  );
+}
+
+function SettlementDetailPanel({
+  readout,
+  fallbackSettlement
+}: {
+  readout: SettlementDetailReadoutState;
+  fallbackSettlement?: SettlementRequestResponse;
+}) {
+  const settlement = readout.settlement ?? fallbackSettlement;
+  const payments = readout.payments?.payments ?? [];
+
+  return (
+    <aside className="surface-panel bills-detail-panel" aria-label="Settlement detail readout">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Settlement detail</p>
+          <h3>{settlement ? formatMoney(settlement.amount, settlement.currency) : "Select a settlement"}</h3>
+        </div>
+        <span className={`status-chip ${statusClassForReadout(readout.status)}`}>{labelize(readout.status)}</span>
+      </div>
+      {settlement ? (
+        <>
+          <dl className="readout-list detail-readouts">
+            <div>
+              <dt>Status</dt>
+              <dd>{labelize(settlement.status)}</dd>
+            </div>
+            <div>
+              <dt>Requested</dt>
+              <dd>{formatDate(settlement.requestedAtUtc)}</dd>
+            </div>
+            <div>
+              <dt>Group</dt>
+              <dd>{settlement.groupId ?? "Personal"}</dd>
+            </div>
+            <div>
+              <dt>Source bill</dt>
+              <dd>{settlement.sourceExpenseBillId}</dd>
+            </div>
+          </dl>
+
+          <ReadoutSection title="Participants">
+            <StatusPill label="Debtor" value={settlement.debtorUserProfileId} />
+            <StatusPill label="Creditor" value={settlement.creditorUserProfileId} />
+            <StatusPill label="Requested by" value={settlement.requestedByUserProfileId} />
+          </ReadoutSection>
+
+          <ReadoutSection title="Request lines">
+            {settlement.lines.length === 0 ? (
+              <p className="muted-copy">No request-line rows were returned.</p>
+            ) : (
+              settlement.lines.map((line) => (
+                <DataRow
+                  key={line.id}
+                  label={`${line.sourceExpenseBillId} · ${labelize(line.status)}`}
+                  value={formatMoney(line.exactAmount, line.currency)}
+                />
+              ))
+            )}
+          </ReadoutSection>
+
+          <ReadoutSection title="Payment readout">
+            {readout.status === "loading" ? (
+              <p className="muted-copy">Loading visible payment claims.</p>
+            ) : payments.length ? (
+              payments.map((payment) => <SettlementPaymentRow key={payment.paymentId} payment={payment} />)
+            ) : (
+              <p className="muted-copy">No visible settlement payment rows were returned.</p>
+            )}
+          </ReadoutSection>
+        </>
+      ) : (
+        <div className="empty-state" role="status">
+          <h4>{readoutStateTitle(readout.status, "No settlement selected", "Could not load settlement")}</h4>
+          <p>{readout.message}</p>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function SettlementPaymentRow({ payment }: { payment: SettlementPaymentResponse }) {
+  return (
+    <div className="data-row">
+      <span>
+        {labelize(payment.status)} · {formatDate(payment.paymentDate)}
+      </span>
+      <strong>
+        {formatMoney(payment.amount, payment.currency)} · {payment.allocations.length} allocations ·{" "}
+        {payment.residuals.length} residuals
+      </strong>
+    </div>
+  );
+}
+
+function BalanceProjectionRow({ balance }: { balance: SettlementBalanceProjectionResponse }) {
+  return (
+    <DataRow
+      label={`${labelize(balance.direction)} · ${balance.counterpartyUserProfileId}`}
+      value={`${formatMoney(balance.remainingUnclaimedAmount, balance.currency)} remaining`}
+    />
+  );
+}
+
+function balanceProjectionKey(balance: SettlementBalanceProjectionResponse): string {
+  return [
+    balance.counterpartyUserProfileId,
+    balance.groupId ?? "personal",
+    balance.direction,
+    balance.currency
+  ].join(":");
 }
 
 function ReadoutMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
