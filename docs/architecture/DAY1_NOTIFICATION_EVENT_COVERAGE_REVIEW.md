@@ -18,6 +18,25 @@ The purpose is to make the Day 1 event-family coverage boundary explicit before
 future runtime work expands notification event types, writers, OpenAPI enums,
 generated clients, tests, or UI behavior.
 
+## Target Reference Gate
+
+[Notification target reference gap review](NOTIFICATION_TARGET_REFERENCE_GAP_REVIEW.md)
+is the narrower #369 control gate for remaining event families that need safe
+linked-resource IDs. Current notification rows support bill, bill revision,
+settlement request/payment, recurring template/occurrence, group, recipient,
+actor, and route-like action URL references. They do not support OCR review,
+receipt attachment file, sync operation, auth audit/session/security event,
+item claim, provider delivery, digest, or admin policy references as
+first-class notification targets.
+
+OCR, sync/offline, and auth/session/security event constants or runtime writers
+must not be added by hiding target identity in `safeSummary`, overloading
+unrelated subject types, or relying only on opaque action URLs. OCR and sync
+need a reviewed target-reference schema/OpenAPI slice where first-class target
+IDs are required. Auth/session/security notifications need manual auth-security
+policy first, then safe target-reference design. Item claim/split notifications
+remain blocked on source claim runtime and #371/Figma/deep-link references.
+
 ## Current Completed Slices
 
 - #367 implemented the recurring due-soon in-app notification path. The current
@@ -96,7 +115,7 @@ than one broad event-coverage PR:
 6. Security/session required-event review before any auth/session notification
    runtime.
 7. Schema/OpenAPI/generated-client enum expansion only when exact runtime event
-   types are implemented.
+   types are implemented and the target-reference gate is satisfied.
 8. API tests and acceptance evidence for every new event family slice.
 
 #371 remains open and Figma-gated for notification deep links/mobile UI.
