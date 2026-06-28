@@ -1,0 +1,183 @@
+# Notification Target Reference Gap Review
+
+## Purpose
+
+This docs/control review answers the narrow target-reference question for
+GitHub issue [#369](https://github.com/tommytang213/Settleora/issues/369):
+can the remaining Day 1 notification event families be implemented safely with
+the current in-app notification target model, or do they need a schema/OpenAPI
+target-reference slice first?
+
+This review does not implement notification runtime writers, event constants,
+subject types, database columns, migrations, OpenAPI changes, generated-client
+changes, mobile/web/admin UI, deep links, OCR workers, sync runtime expansion,
+auth/security notification runtime, provider delivery, push, email, digests,
+delivery receipts, settlement/payment/bill calculation logic, storage behavior,
+or security policy changes.
+
+## Current Supported Notification Target Model
+
+The current notification persistence model is `user_notifications`, represented
+by `InAppNotification`. It supports these first-class references:
+
+- `recipient_user_profile_id`, required.
+- `actor_user_profile_id`, optional.
+- `group_id`, optional.
+- `expense_bill_id`, optional.
+- `expense_bill_revision_id`, optional.
+- `settlement_request_id`, optional.
+- `settlement_payment_id`, optional.
+- `recurring_bill_template_id`, optional.
+- `recurring_bill_occurrence_id`, optional.
+- `action_url`, optional, constrained to a relative `/api/v1/...` route-like
+  path.
+
+The writer contract mirrors that model through `InAppNotificationWriteRequest`.
+`EfInAppNotificationWriter` rejects unsupported event types, unsupported subject
+types, unsafe priorities, blank template keys, oversized safe summaries, unsafe
+action URLs, missing/deleted recipients, self-notifications unless explicitly
+allowed, and duplicate unread rows tracked in the same unit of work.
+
+The supported subject types are currently:
+
+- `expense_bill`
+- `settlement_request`
+- `settlement_payment`
+- `recurring_bill_occurrence`
+
+The current OpenAPI `InAppNotificationResponse` and generated web/Dart models
+expose only those safe notification fields and nullable reference IDs. They do
+not expose recipient or actor profile IDs. They also do not expose OCR review
+IDs, attachment file IDs as notification targets, sync operation IDs, auth audit
+event IDs, auth session IDs, item claim IDs, provider delivery IDs, digest IDs,
+device-token IDs, or admin policy IDs.
+
+The persistence check constraints and OpenAPI enum currently allow only the
+implemented bill workflow/revision, settlement request/payment/proof, and
+recurring due-soon/draft-generated event types. The current database and
+contract therefore cannot persist or return a new OCR, sync, auth/security,
+item-claim, provider, digest, delivery-receipt, or admin-policy notification as
+a first-class event without a reviewed schema/OpenAPI/runtime slice.
+
+Notification visibility remains inbox state only. Any target opened from a
+notification must re-fetch through an authorized API route. A notification row
+is not authorization proof for a bill, settlement, recurring bill, OCR review,
+sync operation, file, auth session, audit event, provider delivery record, or
+policy record.
+
+## Remaining Target Needs
+
+The remaining #369 families need safe linked-resource IDs that are not all
+present in the current model:
+
+- OCR handoffs need at least a safe `receiptOcrReviewId`, the related bill ID,
+  and sometimes a receipt attachment/file ID available only through authorized
+  bill attachment/OCR review APIs.
+- Sync/offline handoffs need a safe `syncOperationId` or equivalent conflict
+  record ID plus the target resource type and safe target ID.
+- Auth/session/security handoffs need a reviewed safe target such as an auth
+  audit event ID, auth session ID, policy event ID, or security event ID,
+  depending on the event policy.
+- Item claim/split handoffs need stable item/claim/review IDs from a claim
+  runtime model that does not exist yet.
+- Future settlement mismatch/residual/review handoffs may be able to use the
+  existing settlement request/payment IDs for some events, but mismatch/review
+  states still need exact source runtime and safe target policy before event
+  constants are added.
+- Provider/digest/delivery/admin policy work needs provider/delivery/policy
+  records that are out of scope for the current in-app baseline.
+
+The current `safeSummary` field is not a substitute for missing target IDs. It
+is bounded display metadata, not a durable authorization target, not a foreign
+key, and not an escape hatch for raw OCR text, sync payloads, session details,
+provider internals, payment details, storage data, or hidden bill facts.
+
+## Gap Table
+
+| Event family | Required conclusion | Current target/reference fit | Gate |
+| --- | --- | --- | --- |
+| OCR review/needs-review/failure/completed handoffs | `requires-target-reference-schema-first` | Current OCR review runtime stores bill-scoped `ReceiptOcrReview` rows for existing receipt attachments and exposes authorized list/read/apply-preview/apply routes. Current notification rows can reference the bill and group, but they cannot carry `receiptOcrReviewId` or attachment `fileObjectId` as first-class notification targets. Server OCR worker completion/failure runtime is also absent. | Add a reviewed notification target-reference schema/OpenAPI slice for OCR review/file references before adding OCR notification constants or writers. Server-OCR completed/failed events also require source runtime first. |
+| Sync/offline conflict/failure handoffs | `requires-target-reference-schema-first` | A narrow sync foundation now exists for bill archive/restore operations with `SyncOperation` rows and `accepted`, `rejected`, and `conflict` outcomes. Current notification rows cannot carry `syncOperationId`, and broad sync/offline conflict/failure UI/runtime is still limited. | Add a reviewed sync notification target (`syncOperationId` or conflict record reference) before sync event constants/writers. Broader sync conflict/failure notifications require source runtime first. |
+| Auth/session/security-impactful handoffs | `requires-manual-auth-security-policy-first` | Auth sessions, auth audit events, passkey/MFA foundations, and security policy readouts exist, but notification rows cannot carry `authSessionId`, `authAuditEventId`, challenge/factor/passkey IDs, or security policy event references. Security notification recipient rules, bypass/suppression, external snippets, and audit separation remain policy-sensitive. | Run a manual auth/security policy review first. Any later implementation also needs a reviewed safe target-reference schema/OpenAPI slice before event constants/writers. |
+| Item claim/split/creator-review handoffs | `requires-source-runtime-first` | Current bill/OCR rows contain quantities, but there is no implemented item-claim domain model, claim ID, claim state runtime, creator-review command model, or notification target. Current bill IDs alone are insufficient for a claim-specific handoff. | Implement/review claim source runtime and stable claim/item target model first. #371/Figma remains required for UI/deep-link behavior. |
+| Future settlement mismatch/residual/review states | `requires-source-runtime-first` | Current notification model already supports settlement request/payment IDs, and existing residual rows are tied to settlement/payment runtime. However, future mismatch/review event semantics, recipient rules, safe summaries, and target routes are not yet defined as notification source events. | For events that can safely target existing settlement request/payment IDs, no new target columns may be needed, but exact source runtime and event policy must come first. Add schema only if a future event needs a residual/review-specific target ID. |
+| Push/email/provider/digest/delivery receipts/background/admin policy | `requires-source-runtime-first` | Provider delivery, digest, receipt, background worker, device-token delivery-state, and admin policy notification records are not part of the current in-app notification target model. | Out of scope for #369 target-reference implementation. Keep provider/delivery/admin policy work separate from in-app event coverage. |
+
+## Safe Next Child Issue Recommendations
+
+Recommended next issue split:
+
+1. Notification target-reference schema/OpenAPI design for OCR and sync targets:
+   add reviewed target fields such as `receiptOcrReviewId`,
+   `receiptAttachmentFileId`, and `syncOperationId` only if the API/domain
+   authorization model and OpenAPI response shape are approved. Regenerate
+   clients only from OpenAPI after review.
+2. OCR notification runtime after the OCR target fields exist: start with
+   review-needed/failure handoffs for existing authorized OCR review routes.
+   Server-OCR completed/failed handoffs remain blocked until server OCR worker
+   runtime exists.
+3. Sync conflict/failure notification runtime after safe `syncOperationId` or
+   conflict record targeting exists and source operations produce conflict or
+   failure states needing user action.
+4. Auth/session/security notification policy review: define exact event
+   categories, recipient rules, bypass/mute behavior, safe external snippets,
+   source audit separation, and safe target IDs before any runtime or schema
+   change.
+5. Item claim notification runtime only after claim/source models, stable
+   claim/item IDs, and claim review UX/deep-link references exist.
+6. Settlement residual/mismatch notification runtime only for exact implemented
+   source transitions, using existing settlement request/payment IDs where
+   sufficient and adding residual/review target references only when needed.
+
+## Forbidden Shortcuts
+
+Future work must not:
+
+- Put raw OCR text, OCR line dumps, receipt text, file paths, storage object
+  keys, filenames, signed URLs, provider internals, or worker debug output into
+  `safeSummary`, logs, tests, audit metadata, provider payloads, or docs
+  examples.
+- Store sync request bodies, full pending payloads, local file paths, local
+  cache data, hidden server-current data, or unrelated user data in notification
+  fields.
+- Store session tokens, refresh tokens, reset tokens, recovery codes, MFA
+  secrets, passkey private material, reusable challenge material, provider
+  tokens, exact abuse identifiers, or unbounded IP/user-agent history in
+  notifications.
+- Abuse `expense_bill`, `settlement_payment`, or `recurring_bill_occurrence`
+  subject types for unrelated OCR, sync, auth/security, provider, digest, or
+  admin policy targets.
+- Treat an `action_url` or generated-client method as permission to open the
+  target. The target resource must reauthorize through its own API path.
+- Add event constants without a source runtime and a safe first-class target.
+
+## Validation Expectations For Later Runtime Slices
+
+Later runtime slices should prove:
+
+- Recipient derivation is owned by the source API/domain service.
+- Linked target resources reauthorize through their own API routes.
+- Notification read/archive does not mutate OCR, sync, auth/session, money,
+  settlement, bill, storage, provider, audit, or source business state.
+- Every target ID is either a first-class safe reference or intentionally absent
+  because the event can be fully handled by an existing subject ID.
+- Event payloads, response models, logs, tests, audit metadata, and external
+  snippets exclude raw OCR, receipt, storage, payment, sync payload, auth
+  secret, provider, private note, and unrelated user data.
+- OpenAPI and generated clients change only through reviewed contract updates.
+- Security-impactful notifications have explicit manual policy approval before
+  runtime work.
+
+## Non-Pass Statement
+
+#369 remains open and should remain in `Needs Architecture Review` unless a
+separate manual/project update explicitly changes it. This review records that
+the current notification target/reference model is sufficient for implemented
+bill, settlement, and recurring notification families, but it is not sufficient
+for OCR, sync, auth/security, item-claim, provider/delivery, digest, or admin
+policy families without the gates above.
+
+This document is not Day 1 notification acceptance, production readiness,
+release readiness, manual UI retest, manual code review, schema approval,
+OpenAPI approval, generated-client approval, security-policy approval, or
+runtime implementation approval.
