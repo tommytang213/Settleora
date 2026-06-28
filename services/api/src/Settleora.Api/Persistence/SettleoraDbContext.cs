@@ -739,6 +739,15 @@ public sealed class SettleoraDbContext : DbContext
         entity.Property(notification => notification.RecurringBillOccurrenceId)
             .HasColumnName("recurring_bill_occurrence_id");
 
+        entity.Property(notification => notification.ReceiptOcrReviewId)
+            .HasColumnName("receipt_ocr_review_id");
+
+        entity.Property(notification => notification.ReceiptAttachmentFileId)
+            .HasColumnName("receipt_attachment_file_id");
+
+        entity.Property(notification => notification.SyncOperationId)
+            .HasColumnName("sync_operation_id");
+
         entity.Property(notification => notification.CreatedAtUtc)
             .HasColumnName("created_at_utc")
             .IsRequired();
@@ -783,6 +792,15 @@ public sealed class SettleoraDbContext : DbContext
 
         entity.HasIndex(notification => notification.RecurringBillOccurrenceId)
             .HasDatabaseName("ix_user_notifications_recurring_bill_occurrence_id");
+
+        entity.HasIndex(notification => notification.ReceiptOcrReviewId)
+            .HasDatabaseName("ix_user_notifications_receipt_ocr_review_id");
+
+        entity.HasIndex(notification => notification.ReceiptAttachmentFileId)
+            .HasDatabaseName("ix_user_notifications_receipt_attachment_file_id");
+
+        entity.HasIndex(notification => notification.SyncOperationId)
+            .HasDatabaseName("ix_user_notifications_sync_operation_id");
 
         entity.HasOne(notification => notification.RecipientUserProfile)
             .WithMany()
@@ -836,6 +854,24 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(notification => notification.RecurringBillOccurrenceId)
             .HasConstraintName("fk_user_notifications_recurring_bill_occurrences_occurrence_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.ReceiptOcrReview)
+            .WithMany()
+            .HasForeignKey(notification => notification.ReceiptOcrReviewId)
+            .HasConstraintName("fk_user_notifications_receipt_ocr_reviews_review_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.ReceiptAttachmentFile)
+            .WithMany()
+            .HasForeignKey(notification => notification.ReceiptAttachmentFileId)
+            .HasConstraintName("fk_user_notifications_file_objects_receipt_attachment_file_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(notification => notification.SyncOperation)
+            .WithMany()
+            .HasForeignKey(notification => notification.SyncOperationId)
+            .HasConstraintName("fk_user_notifications_sync_operations_operation_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

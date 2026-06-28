@@ -18,4 +18,7 @@ internal sealed record InAppNotificationWriteRequest(
     Guid? SettlementPaymentId = null,
     Guid? RecurringBillTemplateId = null,
     Guid? RecurringBillOccurrenceId = null,
+    Guid? ReceiptOcrReviewId = null,
+    Guid? ReceiptAttachmentFileId = null,
+    Guid? SyncOperationId = null,
     bool AllowSelfNotification = false);

@@ -1,6 +1,8 @@
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
+using Settleora.Api.Domain.Sync;
 using Settleora.Api.Domain.Users;
 
 namespace Settleora.Api.Domain.Notifications;
@@ -60,6 +62,18 @@ public sealed class InAppNotification
     public Guid? RecurringBillOccurrenceId { get; set; }
 
     public RecurringBillOccurrence? RecurringBillOccurrence { get; set; }
+
+    public Guid? ReceiptOcrReviewId { get; set; }
+
+    public ReceiptOcrReview? ReceiptOcrReview { get; set; }
+
+    public Guid? ReceiptAttachmentFileId { get; set; }
+
+    public FileObject? ReceiptAttachmentFile { get; set; }
+
+    public Guid? SyncOperationId { get; set; }
+
+    public SyncOperation? SyncOperation { get; set; }
 
     public DateTimeOffset CreatedAtUtc { get; set; }
 

@@ -65,6 +65,9 @@ internal sealed class EfInAppNotificationWriter : IInAppNotificationWriter
             SettlementPaymentId = request.SettlementPaymentId,
             RecurringBillTemplateId = request.RecurringBillTemplateId,
             RecurringBillOccurrenceId = request.RecurringBillOccurrenceId,
+            ReceiptOcrReviewId = request.ReceiptOcrReviewId,
+            ReceiptAttachmentFileId = request.ReceiptAttachmentFileId,
+            SyncOperationId = request.SyncOperationId,
             CreatedAtUtc = request.CreatedAtUtc
         };
 
@@ -90,6 +93,9 @@ internal sealed class EfInAppNotificationWriter : IInAppNotificationWriter
                     && notification.SettlementPaymentId == request.SettlementPaymentId
                     && notification.RecurringBillTemplateId == request.RecurringBillTemplateId
                     && notification.RecurringBillOccurrenceId == request.RecurringBillOccurrenceId
+                    && notification.ReceiptOcrReviewId == request.ReceiptOcrReviewId
+                    && notification.ReceiptAttachmentFileId == request.ReceiptAttachmentFileId
+                    && notification.SyncOperationId == request.SyncOperationId
                     && notification.Status == InAppNotificationStatuses.Unread;
             });
     }
@@ -104,12 +110,20 @@ internal sealed class EfInAppNotificationWriter : IInAppNotificationWriter
             && IsRequiredTextSafe(request.TitleKey, InAppNotificationConstraints.TemplateKeyMaxLength)
             && IsRequiredTextSafe(request.MessageKey, InAppNotificationConstraints.TemplateKeyMaxLength)
             && IsOptionalTextSafe(request.SafeSummary, InAppNotificationConstraints.SafeSummaryMaxLength)
+            && IsOptionalTargetIdSafe(request.ReceiptOcrReviewId)
+            && IsOptionalTargetIdSafe(request.ReceiptAttachmentFileId)
+            && IsOptionalTargetIdSafe(request.SyncOperationId)
             && IsActionUrlSafe(request.ActionUrl);
     }
 
     private static bool IsOptionalProfileIdSafe(Guid? profileId)
     {
         return profileId is null || profileId.Value != Guid.Empty;
+    }
+
+    private static bool IsOptionalTargetIdSafe(Guid? targetId)
+    {
+        return targetId is null || targetId.Value != Guid.Empty;
     }
 
     private static bool IsRequiredTextSafe(string value, int maxLength)
