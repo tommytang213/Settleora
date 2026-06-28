@@ -51,6 +51,7 @@ import {
   collectNotificationTargetFields,
   filterNotificationsForPresentation,
   loadNotificationsReadout,
+  summarizeNotificationPreferences,
   summarizeNotificationPriorities,
   summarizeNotificationStatuses,
   type NotificationPresentationFilter,
@@ -906,6 +907,19 @@ function NotificationsReadoutPanel({
             {priorityCounts.map((item) => (
               <StatusPill key={item.label} label={labelize(item.label)} value={String(item.count)} />
             ))}
+          </ReadoutSection>
+
+          <ReadoutSection title="Preference readout">
+            {readout.preferences ? (
+              summarizeNotificationPreferences(readout.preferences).map((item) => (
+                <StatusPill key={item.label} label={item.label} value={item.value} />
+              ))
+            ) : (
+              <p className="muted-copy">
+                Notification preferences are unavailable until the server returns the current user's preference
+                readout.
+              </p>
+            )}
           </ReadoutSection>
 
           <ReadoutSection title="Unsupported actions">
