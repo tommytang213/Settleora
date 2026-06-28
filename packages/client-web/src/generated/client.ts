@@ -688,6 +688,10 @@ export class SettleoraApiClient {
     return this.request<SyncOperationResponse>("POST", "/api/v1/sync/operations", body, options, options.accessToken);
   }
 
+  async getSyncOperation(syncOperationId: string, options: SettleoraAuthenticatedRequestOptions): Promise<SyncOperationResponse> {
+    return this.request<SyncOperationResponse>("GET", `/api/v1/sync/operations/${encodeURIComponent(String(syncOperationId))}`, undefined, options, options.accessToken);
+  }
+
   async getSelfPaymentDetails(options: SettleoraAuthenticatedRequestOptions): Promise<SelfPaymentDetailsResponse> {
     return this.request<SelfPaymentDetailsResponse>("GET", "/api/v1/users/me/payment-details", undefined, options, options.accessToken);
   }

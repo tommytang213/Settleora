@@ -25,6 +25,7 @@ public static class InAppNotificationEventTypes
     public const string SettlementProofAttached = "settlement.proof_attached";
     public const string RecurringBillDueSoon = "recurring_bill.due_soon";
     public const string RecurringBillDraftGenerated = "recurring_bill.draft_generated";
+    public const string SyncConflictDetected = "sync.conflict_detected";
 
     private static readonly string[] SupportedValues =
     [
@@ -50,7 +51,8 @@ public static class InAppNotificationEventTypes
         SettlementPaymentCancelled,
         SettlementProofAttached,
         RecurringBillDueSoon,
-        RecurringBillDraftGenerated
+        RecurringBillDraftGenerated,
+        SyncConflictDetected
     ];
 
     public static bool IsSupported(string? value)

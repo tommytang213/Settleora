@@ -7,6 +7,7 @@ using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Sync;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Expenses.BillLifecycle;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Sync;
@@ -32,17 +33,20 @@ internal sealed class SyncOperationService
     private readonly SettleoraDbContext dbContext;
     private readonly ExpenseBillLifecycleService lifecycleService;
     private readonly ISyncOperationAuditWriter auditWriter;
+    private readonly IInAppNotificationWriter notificationWriter;
     private readonly TimeProvider timeProvider;
 
     public SyncOperationService(
         SettleoraDbContext dbContext,
         ExpenseBillLifecycleService lifecycleService,
         ISyncOperationAuditWriter auditWriter,
+        IInAppNotificationWriter notificationWriter,
         TimeProvider timeProvider)
     {
         this.dbContext = dbContext;
         this.lifecycleService = lifecycleService;
         this.auditWriter = auditWriter;
+        this.notificationWriter = notificationWriter;
         this.timeProvider = timeProvider;
     }
 
@@ -113,6 +117,7 @@ internal sealed class SyncOperationService
             return await PersistTerminalOperationAsync(
                 operation,
                 actor,
+                loadedBill.Bill,
                 SyncOperationStatuses.Conflict,
                 StaleBaseVersionCode,
                 currentVersion,
@@ -130,6 +135,7 @@ internal sealed class SyncOperationService
             return await PersistTerminalOperationAsync(
                 operation,
                 actor,
+                loadedBill.Bill,
                 SyncOperationStatuses.Conflict,
                 ResourceStateConflictCode,
                 currentVersion,
@@ -257,9 +263,52 @@ internal sealed class SyncOperationService
             changes));
     }
 
+    public async Task<SyncOperationReadResult> GetOperationAsync(
+        Guid syncOperationId,
+        AuthenticatedActor actor,
+        CancellationToken cancellationToken)
+    {
+        if (syncOperationId == Guid.Empty)
+        {
+            return SyncOperationReadResult.Unavailable();
+        }
+
+        var operation = await dbContext.Set<SyncOperation>()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                candidate => candidate.Id == syncOperationId
+                    && candidate.ActorUserProfileId == actor.UserProfileId,
+                cancellationToken);
+        if (operation is null)
+        {
+            return SyncOperationReadResult.Unavailable();
+        }
+
+        return SyncOperationReadResult.Ok(MapOperation(operation));
+    }
+
     private async Task<SyncOperationProcessResult> PersistTerminalOperationAsync(
         ValidatedSyncOperation operation,
         AuthenticatedActor actor,
+        string status,
+        string safeErrorCode,
+        long? resultVersion,
+        CancellationToken cancellationToken)
+    {
+        return await PersistTerminalOperationAsync(
+            operation,
+            actor,
+            bill: null,
+            status,
+            safeErrorCode,
+            resultVersion,
+            cancellationToken);
+    }
+
+    private async Task<SyncOperationProcessResult> PersistTerminalOperationAsync(
+        ValidatedSyncOperation operation,
+        AuthenticatedActor actor,
+        ExpenseBill? bill,
         string status,
         string safeErrorCode,
         long? resultVersion,
@@ -274,6 +323,17 @@ internal sealed class SyncOperationService
             resultVersion,
             now);
         await WriteSyncAuditAsync(syncOperation, actor, now, cancellationToken);
+        if (status is SyncOperationStatuses.Conflict)
+        {
+            await InAppNotificationEvents.WriteSyncConflictDetectedNotificationAsync(
+                notificationWriter,
+                syncOperation,
+                actor.UserProfileId,
+                bill?.GroupId,
+                bill?.Id,
+                now,
+                cancellationToken);
+        }
 
         return await SaveAsync(
             new SyncOperationResponse(
@@ -398,9 +458,16 @@ internal sealed class SyncOperationService
             ? ReplayedStatus
             : operation.Status;
 
+        return MapOperation(operation, responseStatus);
+    }
+
+    private static SyncOperationResponse MapOperation(
+        SyncOperation operation,
+        string? responseStatus = null)
+    {
         return new SyncOperationResponse(
             operation.Id,
-            responseStatus,
+            responseStatus ?? operation.Status,
             operation.ResourceType,
             operation.ResultResourceId ?? operation.ResourceId,
             operation.ResultVersion,
@@ -641,6 +708,31 @@ internal sealed record SyncOperationResponse(
     long? ResultingVersion,
     string? SafeErrorCode,
     string? SafeMessage);
+
+internal enum SyncOperationReadResultKind
+{
+    Ok,
+    Unavailable
+}
+
+internal sealed record SyncOperationReadResult(
+    SyncOperationReadResultKind Kind,
+    SyncOperationResponse? Response)
+{
+    public static SyncOperationReadResult Ok(SyncOperationResponse response)
+    {
+        return new SyncOperationReadResult(
+            SyncOperationReadResultKind.Ok,
+            response);
+    }
+
+    public static SyncOperationReadResult Unavailable()
+    {
+        return new SyncOperationReadResult(
+            SyncOperationReadResultKind.Unavailable,
+            Response: null);
+    }
+}
 
 internal sealed record SyncChangesResponse(
     long SinceVersion,

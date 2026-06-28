@@ -2264,6 +2264,46 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/sync/operations/{syncOperationId}:
+    get:
+      summary: Get current-user sync operation
+      description: Returns one bounded sync operation result owned by the authenticated actor. The response excludes idempotency keys, request payload hashes, raw queued payloads, local file paths, local cache data, hidden server-current data, storage internals, OCR text, auth account IDs, session tokens, and unrelated user data.
+      operationId: getSyncOperation
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: syncOperationId
+          in: path
+          required: true
+          description: Sync operation ID previously returned to or targeted at the current actor.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Bounded current-actor sync operation result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncOperationResponse"
+        "401":
+          description: Authentication is required to read a sync operation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Sync operation is unavailable to the current actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/sync/changes:
     get:
       summary: List visible sync changes
@@ -15415,6 +15455,7 @@ components:
         - settlement.proof_attached
         - recurring_bill.due_soon
         - recurring_bill.draft_generated
+        - sync.conflict_detected
     InAppNotificationStatus:
       type: string
       description: Current lifecycle state for an in-app notification.
@@ -15437,6 +15478,7 @@ components:
         - settlement_request
         - settlement_payment
         - recurring_bill_occurrence
+        - sync_operation
     ExpenseBillArchiveState:
       type: string
       description: Bounded archive visibility filter or lifecycle state for expense bills.

@@ -2,6 +2,7 @@ using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
+using Settleora.Api.Domain.Sync;
 
 namespace Settleora.Api.Notifications;
 
@@ -203,6 +204,33 @@ internal static class InAppNotificationEvents
                 ExpenseBillId: bill.Id,
                 RecurringBillTemplateId: template.Id,
                 RecurringBillOccurrenceId: occurrence.Id),
+            cancellationToken);
+    }
+
+    public static Task WriteSyncConflictDetectedNotificationAsync(
+        IInAppNotificationWriter notificationWriter,
+        SyncOperation operation,
+        Guid actorUserProfileId,
+        Guid? groupId,
+        Guid? expenseBillId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        return notificationWriter.WriteAsync(
+            new InAppNotificationWriteRequest(
+                actorUserProfileId,
+                actorUserProfileId,
+                InAppNotificationEventTypes.SyncConflictDetected,
+                InAppNotificationPriorities.Attention,
+                InAppNotificationSubjectTypes.SyncOperation,
+                TitleKey(InAppNotificationEventTypes.SyncConflictDetected),
+                MessageKey(InAppNotificationEventTypes.SyncConflictDetected),
+                now,
+                ActionUrl: $"/api/v1/sync/operations/{operation.Id:D}",
+                GroupId: groupId,
+                ExpenseBillId: expenseBillId,
+                SyncOperationId: operation.Id,
+                AllowSelfNotification: true),
             cancellationToken);
     }
 

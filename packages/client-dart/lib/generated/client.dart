@@ -1780,6 +1780,17 @@ class SettleoraApiClient {
     return SyncOperationResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SyncOperationResponse> getSyncOperation(String syncOperationId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/sync/operations/${Uri.encodeComponent(syncOperationId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SyncOperationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SelfPaymentDetailsResponse> getSelfPaymentDetails({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

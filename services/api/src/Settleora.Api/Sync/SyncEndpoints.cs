@@ -10,6 +10,8 @@ internal static class SyncEndpoints
     private const string InvalidSyncRequestTitle = "Invalid sync request";
     private const string InvalidSyncRequestDetail = "The submitted sync request is invalid.";
     private const string InvalidChangeFeedBodyMessage = "Sync change feed requests do not accept a body.";
+    private const string SyncOperationUnavailableTitle = "Sync operation unavailable";
+    private const string SyncOperationUnavailableDetail = "The requested sync operation is unavailable.";
     private const string SyncWriteFailedTitle = "Sync write failed";
     private const string SyncWriteFailedDetail = "Unable to complete sync operation write.";
     private static readonly string[] SupportedChangeFeedQueryFields = ["sinceVersion", "limit", "resourceType"];
@@ -20,6 +22,7 @@ internal static class SyncEndpoints
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         sync.MapPost("/operations", PostOperationAsync);
+        sync.MapGet("/operations/{syncOperationId:guid}", GetOperationAsync);
         sync.MapGet("/changes", GetChangesAsync);
 
         return app;
@@ -47,6 +50,33 @@ internal static class SyncEndpoints
             SyncOperationProcessResultKind.InvalidRequest => InvalidSyncRequest(result.Error!),
             _ => SyncWriteFailed()
         };
+    }
+
+    private static async Task<IResult> GetOperationAsync(
+        Guid syncOperationId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        SyncOperationService syncOperationService,
+        CancellationToken cancellationToken)
+    {
+        if (UnsupportedRequestFieldGuards.RequestHasBody(request))
+        {
+            return InvalidSyncRequest("This sync operation readout does not accept a request body.");
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var result = await syncOperationService.GetOperationAsync(
+            syncOperationId,
+            actor,
+            cancellationToken);
+
+        return result.Kind is SyncOperationReadResultKind.Ok
+            ? Results.Ok(result.Response)
+            : SyncOperationUnavailable();
     }
 
     private static async Task<IResult> GetChangesAsync(
@@ -233,6 +263,14 @@ internal static class SyncEndpoints
             title: SyncWriteFailedTitle,
             detail: SyncWriteFailedDetail,
             statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    private static IResult SyncOperationUnavailable()
+    {
+        return Results.Problem(
+            title: SyncOperationUnavailableTitle,
+            detail: SyncOperationUnavailableDetail,
+            statusCode: StatusCodes.Status404NotFound);
     }
 
     private static void AddError(
