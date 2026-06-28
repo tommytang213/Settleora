@@ -1,6 +1,9 @@
 import {
   SettleoraApiClient,
   SettleoraApiError,
+  type ExpenseBillArchiveState,
+  type GroupBillListResponse,
+  type GroupBillResponse,
   type GroupListResponse,
   type GroupMemberListResponse,
   type GroupMembershipStatus,
@@ -28,6 +31,13 @@ export interface GroupDetailReadoutState {
   message: string;
   group?: GroupResponse;
   members?: GroupMemberListResponse;
+  bills?: GroupBillListResponse;
+}
+
+export interface GroupBillDetailReadoutState {
+  status: GroupsReadoutStatus;
+  message: string;
+  bill?: GroupBillResponse;
 }
 
 export interface FriendsReadoutState {
@@ -39,8 +49,13 @@ export interface FriendsReadoutState {
 export interface GroupsReadoutOptions {
   accessToken?: string | null;
   baseUrl?: string;
-  client?: Pick<SettleoraApiClient, "listGroups" | "getGroup" | "listGroupMembers">;
+  client?: Pick<SettleoraApiClient, "listGroups" | "getGroup" | "listGroupMembers" | "listGroupBills" | "getGroupBill">;
 }
+
+export const groupBillsListQuery = {
+  archiveState: "all" as ExpenseBillArchiveState,
+  limit: 50
+};
 
 export async function loadGroupsReadout(options: GroupsReadoutOptions): Promise<GroupsReadoutState> {
   const accessToken = options.accessToken?.trim();
@@ -91,19 +106,51 @@ export async function loadGroupDetailReadout(
   const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
 
   try {
-    const [group, members] = await Promise.all([
+    const [group, members, bills] = await Promise.all([
       client.getGroup(options.groupId, { accessToken }),
-      client.listGroupMembers(options.groupId, { accessToken })
+      client.listGroupMembers(options.groupId, { accessToken }),
+      client.listGroupBills(options.groupId, { accessToken }, groupBillsListQuery)
     ]);
 
     return {
       status: "loaded",
       message: "Group detail loaded from Settleora.",
       group,
-      members
+      members,
+      bills
     };
   } catch (error) {
     return toGroupsDetailFailure(error, "Settleora could not load this group detail. No private group details were shown.");
+  }
+}
+
+export async function loadGroupBillDetailReadout(
+  options: GroupsReadoutOptions & { groupId: string; billId: string }
+): Promise<GroupBillDetailReadoutState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can show group bill details."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    const bill = await client.getGroupBill(options.groupId, options.billId, { accessToken });
+
+    return {
+      status: "loaded",
+      message: "Group bill detail loaded from Settleora.",
+      bill
+    };
+  } catch (error) {
+    return toGroupsBillDetailFailure(
+      error,
+      "Settleora could not load this group bill detail. No private bill details were shown."
+    );
   }
 }
 
@@ -170,6 +217,10 @@ function toGroupsReadoutFailure(error: unknown, fallback: string): GroupsReadout
 }
 
 function toGroupsDetailFailure(error: unknown, fallback: string): GroupDetailReadoutState {
+  return classifyApiFailure(error, fallback);
+}
+
+function toGroupsBillDetailFailure(error: unknown, fallback: string): GroupBillDetailReadoutState {
   return classifyApiFailure(error, fallback);
 }
 

@@ -20,11 +20,13 @@ import {
 import {
   createFriendsUnavailableReadout,
   filterGroupsForPresentation,
+  loadGroupBillDetailReadout,
   loadGroupDetailReadout,
   loadGroupsReadout,
   summarizeGroupRoles,
   summarizeGroupStatuses,
   type FriendsReadoutState,
+  type GroupBillDetailReadoutState,
   type GroupDetailReadoutState,
   type GroupsReadoutState
 } from "./groupsFriendsReadout";
@@ -32,6 +34,7 @@ import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shell
 import type {
   ExpenseBillReconciliationStatus,
   ExpenseBillStatus,
+  GroupBillResponse,
   GroupResponse,
   PersonalBillResponse
 } from "../../../packages/client-web/src/generated";
@@ -60,6 +63,7 @@ export function App() {
   const [activeId, setActiveId] = useState(() => getInitialActiveId());
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedGroupBillId, setSelectedGroupBillId] = useState<string | null>(null);
   const [session, setSession] = useState<SessionBoundaryState>(() =>
     createInitialSessionBoundaryState()
   );
@@ -80,6 +84,10 @@ export function App() {
   const [groupDetail, setGroupDetail] = useState<GroupDetailReadoutState>({
     status: "auth_required",
     message: "Select a visible group after sign-in to open the read-only detail."
+  });
+  const [groupBillDetail, setGroupBillDetail] = useState<GroupBillDetailReadoutState>({
+    status: "auth_required",
+    message: "Select a visible group bill after sign-in to open the read-only detail."
   });
   const [friendsReadout] = useState<FriendsReadoutState>(() => createFriendsUnavailableReadout());
   const [billSearch, setBillSearch] = useState("");
@@ -208,25 +216,60 @@ export function App() {
         status: "auth_required",
         message: "Select a visible group after sign-in to open the read-only detail."
       });
+      setSelectedGroupBillId(null);
       return;
     }
 
     let isMounted = true;
+    setSelectedGroupBillId(null);
     setGroupDetail({
       status: "loading",
-      message: "Loading group detail and member readouts."
+      message: "Loading group detail, member readouts, and visible group bills."
     });
 
     void loadGroupDetailReadout({ accessToken: session.accessToken, groupId: selectedGroupId }).then((nextState) => {
-      if (isMounted) {
-        setGroupDetail(nextState);
+      if (!isMounted) {
+        return;
       }
+
+      setGroupDetail(nextState);
+      setSelectedGroupBillId(nextState.bills?.bills[0]?.id ?? null);
     });
 
     return () => {
       isMounted = false;
     };
   }, [activeId, selectedGroupId, session.accessToken]);
+
+  useEffect(() => {
+    if (activeId !== "groups" || !selectedGroupId || !selectedGroupBillId) {
+      setGroupBillDetail({
+        status: "auth_required",
+        message: "Select a visible group bill after sign-in to open the read-only detail."
+      });
+      return;
+    }
+
+    let isMounted = true;
+    setGroupBillDetail({
+      status: "loading",
+      message: "Loading group bill detail from Settleora."
+    });
+
+    void loadGroupBillDetailReadout({
+      accessToken: session.accessToken,
+      groupId: selectedGroupId,
+      billId: selectedGroupBillId
+    }).then((nextState) => {
+      if (isMounted) {
+        setGroupBillDetail(nextState);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, selectedGroupBillId, selectedGroupId, session.accessToken]);
 
   return (
     <div className="app-shell">
@@ -330,8 +373,14 @@ export function App() {
             <GroupsReadoutPanel
               groupsReadout={groupsReadout}
               detailReadout={groupDetail}
+              groupBillDetail={groupBillDetail}
               selectedGroupId={selectedGroupId}
-              onSelectGroup={setSelectedGroupId}
+              selectedGroupBillId={selectedGroupBillId}
+              onSelectGroup={(groupId) => {
+                setSelectedGroupId(groupId);
+                setSelectedGroupBillId(null);
+              }}
+              onSelectGroupBill={setSelectedGroupBillId}
               search={groupSearch}
               onSearchChange={setGroupSearch}
             />
@@ -570,15 +619,21 @@ function BillsReadoutPanel({
 function GroupsReadoutPanel({
   groupsReadout,
   detailReadout,
+  groupBillDetail,
   selectedGroupId,
+  selectedGroupBillId,
   onSelectGroup,
+  onSelectGroupBill,
   search,
   onSearchChange
 }: {
   groupsReadout: GroupsReadoutState;
   detailReadout: GroupDetailReadoutState;
+  groupBillDetail: GroupBillDetailReadoutState;
   selectedGroupId: string | null;
+  selectedGroupBillId: string | null;
   onSelectGroup: (groupId: string) => void;
+  onSelectGroupBill: (billId: string) => void;
   search: string;
   onSearchChange: (value: string) => void;
 }) {
@@ -656,6 +711,9 @@ function GroupsReadoutPanel({
         <GroupDetailPanel
           readout={detailReadout}
           fallbackGroup={groupsReadout.groups.find((group) => group.id === selectedGroupId)}
+          selectedGroupBillId={selectedGroupBillId}
+          groupBillDetail={groupBillDetail}
+          onSelectGroupBill={onSelectGroupBill}
         />
       </section>
     </section>
@@ -743,7 +801,7 @@ function BillListRow({
   selected,
   onSelect
 }: {
-  bill: PersonalBillResponse;
+  bill: Pick<PersonalBillResponse | GroupBillResponse, "id" | "merchantName" | "billDate" | "totalAmount" | "totalCurrency" | "status">;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -895,12 +953,19 @@ function GroupListRow({
 
 function GroupDetailPanel({
   readout,
-  fallbackGroup
+  fallbackGroup,
+  selectedGroupBillId,
+  groupBillDetail,
+  onSelectGroupBill
 }: {
   readout: GroupDetailReadoutState;
   fallbackGroup?: GroupResponse;
+  selectedGroupBillId: string | null;
+  groupBillDetail: GroupBillDetailReadoutState;
+  onSelectGroupBill: (billId: string) => void;
 }) {
   const group = readout.group ?? fallbackGroup;
+  const groupBills = readout.bills?.bills ?? [];
 
   return (
     <aside className="surface-panel bills-detail-panel" aria-label="Group detail readout">
@@ -949,11 +1014,28 @@ function GroupDetailPanel({
           </ReadoutSection>
 
           <ReadoutSection title="Group bills">
-            <p className="muted-copy">
-              Open bill rows for this group will appear in a later group workspace slice. This panel shows group summary
-              and visible members only.
-            </p>
+            {readout.status === "loading" ? (
+              <p className="muted-copy">Loading visible group bills.</p>
+            ) : groupBills.length ? (
+              <div className="embedded-row-list" aria-label="Loaded group bills">
+                {groupBills.map((bill) => (
+                  <BillListRow
+                    key={bill.id}
+                    bill={bill}
+                    selected={bill.id === selectedGroupBillId}
+                    onSelect={() => onSelectGroupBill(bill.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="muted-copy">No visible group bill rows were returned.</p>
+            )}
           </ReadoutSection>
+
+          <GroupBillDetailPanel
+            readout={groupBillDetail}
+            fallbackBill={groupBills.find((bill) => bill.id === selectedGroupBillId)}
+          />
         </>
       ) : (
         <div className="empty-state" role="status">
@@ -962,6 +1044,35 @@ function GroupDetailPanel({
         </div>
       )}
     </aside>
+  );
+}
+
+function GroupBillDetailPanel({
+  readout,
+  fallbackBill
+}: {
+  readout: GroupBillDetailReadoutState;
+  fallbackBill?: GroupBillResponse;
+}) {
+  const bill = readout.bill ?? fallbackBill;
+
+  return (
+    <ReadoutSection title="Group bill detail">
+      {bill ? (
+        <>
+          <StatusPill label="Merchant" value={bill.merchantName ?? "Untitled bill"} />
+          <StatusPill label="Date" value={formatDate(bill.billDate)} />
+          <StatusPill label="Total" value={formatMoney(bill.totalAmount, bill.totalCurrency)} />
+          <StatusPill label="Status" value={labelize(bill.status)} />
+          <StatusPill label="Reconciliation" value={labelize(bill.reconciliation.status)} />
+          <StatusPill label="Items" value={String(bill.items.length)} />
+          <StatusPill label="Participants" value={String(bill.participants.length)} />
+          <StatusPill label="Payers" value={String(bill.payers.length)} />
+        </>
+      ) : (
+        <p className="muted-copy">{readout.message}</p>
+      )}
+    </ReadoutSection>
   );
 }
 
