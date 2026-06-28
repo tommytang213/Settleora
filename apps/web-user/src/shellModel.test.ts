@@ -9,7 +9,7 @@ describe("user web shell model", () => {
         "Bills",
         "Groups",
         "Friends",
-        "Settle",
+        "Settlements",
         "Reports",
         "Import and export",
         "Notifications",
