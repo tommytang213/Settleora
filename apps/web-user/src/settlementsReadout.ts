@@ -2,6 +2,7 @@ import {
   SettleoraApiClient,
   SettleoraApiError,
   type SettlementBalanceProjectionListResponse,
+  type SettlementCounterpartyPaymentDetailsResponse,
   type SettlementPaymentListResponse,
   type SettlementRequestListResponse,
   type SettlementRequestResponse,
@@ -36,14 +37,27 @@ export interface SettlementDetailReadoutState {
   message: string;
   settlement?: SettlementRequestResponse;
   payments?: SettlementPaymentListResponse;
+  counterpartyPaymentDetails?: CounterpartyPaymentDetailsReadoutState;
+}
+
+export interface CounterpartyPaymentDetailsReadoutState {
+  status: SettlementsReadoutStatus;
+  message: string;
+  counterpartyUserProfileId?: string;
+  details?: SettlementCounterpartyPaymentDetailsResponse;
 }
 
 export interface SettlementsReadoutOptions {
   accessToken?: string | null;
   baseUrl?: string;
+  currentUserProfileId?: string | null;
   client?: Pick<
     SettleoraApiClient,
-    "listSettlementBalanceProjections" | "listSettlementRequests" | "getSettlementRequest" | "listSettlementPayments"
+    | "listSettlementBalanceProjections"
+    | "listSettlementRequests"
+    | "getSettlementRequest"
+    | "listSettlementPayments"
+    | "getSettlementCounterpartyPaymentDetails"
   >;
 }
 
@@ -110,12 +124,19 @@ export async function loadSettlementDetailReadout(
       client.getSettlementRequest(options.settlementId, { accessToken }),
       client.listSettlementPayments(options.settlementId, { accessToken })
     ]);
+    const counterpartyPaymentDetails = await loadCounterpartyPaymentDetailsReadout({
+      accessToken,
+      client,
+      currentUserProfileId: options.currentUserProfileId,
+      settlement
+    });
 
     return {
       status: "loaded",
       message: "Settlement detail loaded from Settleora.",
       settlement,
-      payments
+      payments,
+      counterpartyPaymentDetails
     };
   } catch (error) {
     return toSettlementsDetailFailure(
@@ -123,6 +144,90 @@ export async function loadSettlementDetailReadout(
       "Settleora could not load this settlement detail. No private settlement details were shown."
     );
   }
+}
+
+export async function loadCounterpartyPaymentDetailsReadout({
+  accessToken,
+  client,
+  currentUserProfileId,
+  settlement
+}: {
+  accessToken: string;
+  client: Pick<SettleoraApiClient, "getSettlementCounterpartyPaymentDetails">;
+  currentUserProfileId?: string | null;
+  settlement: SettlementRequestResponse;
+}): Promise<CounterpartyPaymentDetailsReadoutState> {
+  const counterpartyUserProfileId = getSettlementCounterpartyUserProfileId(
+    settlement,
+    currentUserProfileId
+  );
+
+  if (!counterpartyUserProfileId) {
+    return {
+      status: "unavailable",
+      message:
+        "Counterparty payment details need the signed-in profile to match the selected settlement debtor or creditor.",
+      counterpartyUserProfileId: undefined
+    };
+  }
+
+  try {
+    const details = await client.getSettlementCounterpartyPaymentDetails(
+      settlement.id,
+      counterpartyUserProfileId,
+      { accessToken }
+    );
+
+    return {
+      status: "loaded",
+      message: details.isConfigured
+        ? "Counterparty payment detail metadata loaded through this settlement."
+        : "The counterparty has no visible configured payment details for this settlement.",
+      counterpartyUserProfileId,
+      details
+    };
+  } catch (error) {
+    return toCounterpartyPaymentDetailsFailure(error, counterpartyUserProfileId);
+  }
+}
+
+export function getSettlementCounterpartyUserProfileId(
+  settlement: SettlementRequestResponse,
+  currentUserProfileId?: string | null
+): string | null {
+  const actorProfileId = currentUserProfileId?.trim();
+
+  if (!actorProfileId) {
+    return null;
+  }
+
+  if (settlement.debtorUserProfileId === actorProfileId) {
+    return settlement.creditorUserProfileId;
+  }
+
+  if (settlement.creditorUserProfileId === actorProfileId) {
+    return settlement.debtorUserProfileId;
+  }
+
+  return null;
+}
+
+export function summarizeCounterpartyPaymentDetails(
+  details: SettlementCounterpartyPaymentDetailsResponse | undefined
+): Array<{ label: string; value: string }> {
+  if (!details) {
+    return [
+      { label: "Payment details", value: "Unavailable" },
+      { label: "QR metadata", value: "Unavailable" },
+      { label: "Visibility", value: "Unavailable" }
+    ];
+  }
+
+  return [
+    { label: "Payment details", value: details.isConfigured ? "Configured" : "Not configured" },
+    { label: "QR metadata", value: details.qrFile ? "Linked metadata" : "No QR metadata" },
+    { label: "Visibility", value: labelize(details.visibilityApplied) }
+  ];
 }
 
 export function filterSettlementsForPresentation(
@@ -204,6 +309,22 @@ function toSettlementsDetailFailure(error: unknown, fallback: string): Settlemen
   return classifyApiFailure(error, fallback);
 }
 
+function toCounterpartyPaymentDetailsFailure(
+  error: unknown,
+  counterpartyUserProfileId: string
+): CounterpartyPaymentDetailsReadoutState {
+  const detail = classifyApiFailure(
+    error,
+    "Settleora could not load counterparty payment detail metadata for this settlement."
+  );
+
+  return {
+    status: detail.status,
+    message: detail.message,
+    counterpartyUserProfileId
+  };
+}
+
 function classifyApiFailure(
   error: unknown,
   fallback: string
@@ -219,6 +340,13 @@ function classifyApiFailure(
     return {
       status: "unavailable",
       message: "This account cannot open the requested settlement information."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 404) {
+    return {
+      status: "unavailable",
+      message: "The requested settlement information is not available to this account."
     };
   }
 

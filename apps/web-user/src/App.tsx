@@ -35,6 +35,7 @@ import {
   loadSettlementDetailReadout,
   loadSettlementsReadout,
   settlementFilterLabels,
+  summarizeCounterpartyPaymentDetails,
   summarizeBalanceDirections,
   summarizeSettlementStatuses,
   type SettlementDetailReadoutState,
@@ -356,6 +357,7 @@ export function App() {
 
     void loadSettlementDetailReadout({
       accessToken: session.accessToken,
+      currentUserProfileId: session.currentUser?.userProfile.id,
       settlementId: selectedSettlementId
     }).then((nextState) => {
       if (isMounted) {
@@ -366,7 +368,7 @@ export function App() {
     return () => {
       isMounted = false;
     };
-  }, [activeId, selectedSettlementId, session.accessToken]);
+  }, [activeId, selectedSettlementId, session.accessToken, session.currentUser?.userProfile.id]);
 
   useEffect(() => {
     if (activeId !== "profile") {
@@ -1163,6 +1165,11 @@ function SettlementDetailPanel({
 }) {
   const settlement = readout.settlement ?? fallbackSettlement;
   const payments = readout.payments?.payments ?? [];
+  const counterpartyPaymentDetails = readout.counterpartyPaymentDetails;
+  const counterpartySummary = useMemo(
+    () => summarizeCounterpartyPaymentDetails(counterpartyPaymentDetails?.details),
+    [counterpartyPaymentDetails?.details]
+  );
 
   return (
     <aside className="surface-panel bills-detail-panel" aria-label="Settlement detail readout">
@@ -1221,6 +1228,51 @@ function SettlementDetailPanel({
               payments.map((payment) => <SettlementPaymentRow key={payment.paymentId} payment={payment} />)
             ) : (
               <p className="muted-copy">No visible settlement payment rows were returned.</p>
+            )}
+          </ReadoutSection>
+
+          <ReadoutSection title="Counterparty payment details">
+            <div className="mini-metric-row" aria-label="Counterparty payment detail summary">
+              {counterpartySummary.map((item) => (
+                <StatusPill key={item.label} label={item.label} value={item.value} />
+              ))}
+            </div>
+            {counterpartyPaymentDetails?.details ? (
+              <>
+                <StatusPill
+                  label="Counterparty"
+                  value={counterpartyPaymentDetails.details.userProfileId}
+                />
+                <StatusPill
+                  label="Method"
+                  value={counterpartyPaymentDetails.details.preferredMethodLabel ?? "Not set"}
+                />
+                <StatusPill
+                  label="Handle"
+                  value={counterpartyPaymentDetails.details.paymentHandle ?? "Not set"}
+                />
+                <StatusPill
+                  label="Note"
+                  value={counterpartyPaymentDetails.details.paymentNote ?? "Not set"}
+                />
+                <StatusPill
+                  label="Visibility applied"
+                  value={labelize(counterpartyPaymentDetails.details.visibilityApplied)}
+                />
+                {counterpartyPaymentDetails.details.qrFile ? (
+                  <QrMetadataReadout qrFile={counterpartyPaymentDetails.details.qrFile} />
+                ) : (
+                  <p className="muted-copy">No counterparty QR metadata was returned for this settlement.</p>
+                )}
+                <p className="muted-copy">
+                  QR image content is not fetched in this readout. Only server-returned metadata is shown.
+                </p>
+              </>
+            ) : (
+              <p className="muted-copy">
+                {counterpartyPaymentDetails?.message ??
+                  "Counterparty payment details are unavailable until Settleora verifies a settlement-scoped counterparty context."}
+              </p>
             )}
           </ReadoutSection>
         </>
