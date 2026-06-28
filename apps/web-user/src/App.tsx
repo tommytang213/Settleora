@@ -17,10 +17,22 @@ import {
   type BillDetailReadoutState,
   type BillsReadoutState
 } from "./billsReadout";
+import {
+  createFriendsUnavailableReadout,
+  filterGroupsForPresentation,
+  loadGroupDetailReadout,
+  loadGroupsReadout,
+  summarizeGroupRoles,
+  summarizeGroupStatuses,
+  type FriendsReadoutState,
+  type GroupDetailReadoutState,
+  type GroupsReadoutState
+} from "./groupsFriendsReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
   ExpenseBillReconciliationStatus,
   ExpenseBillStatus,
+  GroupResponse,
   PersonalBillResponse
 } from "../../../packages/client-web/src/generated";
 
@@ -47,6 +59,7 @@ function setActiveRoute(id: string) {
 export function App() {
   const [activeId, setActiveId] = useState(() => getInitialActiveId());
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [session, setSession] = useState<SessionBoundaryState>(() =>
     createInitialSessionBoundaryState()
   );
@@ -59,11 +72,22 @@ export function App() {
     status: "auth_required",
     message: "Select a visible bill after sign-in to open the read-only detail."
   });
+  const [groupsReadout, setGroupsReadout] = useState<GroupsReadoutState>({
+    status: "auth_required",
+    message: "Sign in is required before Settleora can show your groups on the web.",
+    groups: []
+  });
+  const [groupDetail, setGroupDetail] = useState<GroupDetailReadoutState>({
+    status: "auth_required",
+    message: "Select a visible group after sign-in to open the read-only detail."
+  });
+  const [friendsReadout] = useState<FriendsReadoutState>(() => createFriendsUnavailableReadout());
   const [billSearch, setBillSearch] = useState("");
   const [billStatusFilter, setBillStatusFilter] = useState<ExpenseBillStatus | "all">("all");
   const [billReconciliationFilter, setBillReconciliationFilter] = useState<
     ExpenseBillReconciliationStatus | "all"
   >("all");
+  const [groupSearch, setGroupSearch] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -152,6 +176,58 @@ export function App() {
     };
   }, [activeId, selectedBillId, session.accessToken]);
 
+  useEffect(() => {
+    if (activeId !== "groups") {
+      return;
+    }
+
+    let isMounted = true;
+    setGroupsReadout({
+      status: "loading",
+      message: "Loading visible groups from Settleora.",
+      groups: []
+    });
+
+    void loadGroupsReadout({ accessToken: session.accessToken }).then((nextState) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setGroupsReadout(nextState);
+      setSelectedGroupId((currentGroupId) => currentGroupId ?? nextState.groups[0]?.id ?? null);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, session.accessToken]);
+
+  useEffect(() => {
+    if (activeId !== "groups" || !selectedGroupId) {
+      setGroupDetail({
+        status: "auth_required",
+        message: "Select a visible group after sign-in to open the read-only detail."
+      });
+      return;
+    }
+
+    let isMounted = true;
+    setGroupDetail({
+      status: "loading",
+      message: "Loading group detail and member readouts."
+    });
+
+    void loadGroupDetailReadout({ accessToken: session.accessToken, groupId: selectedGroupId }).then((nextState) => {
+      if (isMounted) {
+        setGroupDetail(nextState);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, selectedGroupId, session.accessToken]);
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -224,7 +300,13 @@ export function App() {
                 Search after sign-in
               </button>
               <button className="primary-button" type="button" disabled>
-                {activeId === "bills" ? "Add bill unavailable" : activeItem.actionLabel}
+                {activeId === "bills"
+                  ? "Add bill unavailable"
+                  : activeId === "groups"
+                    ? "Create group unavailable"
+                    : activeId === "friends"
+                      ? "Invite unavailable"
+                      : activeItem.actionLabel}
               </button>
             </div>
           </section>
@@ -244,6 +326,17 @@ export function App() {
               reconciliationFilter={billReconciliationFilter}
               onReconciliationFilterChange={setBillReconciliationFilter}
             />
+          ) : activeId === "groups" ? (
+            <GroupsReadoutPanel
+              groupsReadout={groupsReadout}
+              detailReadout={groupDetail}
+              selectedGroupId={selectedGroupId}
+              onSelectGroup={setSelectedGroupId}
+              search={groupSearch}
+              onSearchChange={setGroupSearch}
+            />
+          ) : activeId === "friends" ? (
+            <FriendsReadoutPanel readout={friendsReadout} />
           ) : (
 
           <section className="content-grid" aria-label="Workspace readouts">
@@ -474,6 +567,144 @@ function BillsReadoutPanel({
   );
 }
 
+function GroupsReadoutPanel({
+  groupsReadout,
+  detailReadout,
+  selectedGroupId,
+  onSelectGroup,
+  search,
+  onSearchChange
+}: {
+  groupsReadout: GroupsReadoutState;
+  detailReadout: GroupDetailReadoutState;
+  selectedGroupId: string | null;
+  onSelectGroup: (groupId: string) => void;
+  search: string;
+  onSearchChange: (value: string) => void;
+}) {
+  const visibleGroups = useMemo(
+    () => filterGroupsForPresentation(groupsReadout.groups, search),
+    [groupsReadout.groups, search]
+  );
+  const roleCounts = useMemo(() => summarizeGroupRoles(groupsReadout.groups), [groupsReadout.groups]);
+  const statusCounts = useMemo(() => summarizeGroupStatuses(groupsReadout.groups), [groupsReadout.groups]);
+  const canFilter = groupsReadout.status === "loaded" || groupsReadout.status === "empty";
+
+  return (
+    <section className="bills-workspace" aria-label="Groups readout">
+      <div className="bills-summary-row" aria-label="Groups summary">
+        <ReadoutMetric label="Visible groups" value={String(groupsReadout.groups.length)} detail="API-backed group rows" />
+        <ReadoutMetric
+          label="Your roles"
+          value={roleCounts.length === 0 ? "None" : roleCounts.map((item) => `${item.count} ${labelize(item.label)}`).join(", ")}
+          detail="Returned by Settleora"
+        />
+        <ReadoutMetric
+          label="Membership"
+          value={statusCounts.length === 0 ? "None" : statusCounts.map((item) => `${item.count} ${labelize(item.label)}`).join(", ")}
+          detail="No browser-side authorization"
+        />
+      </div>
+
+      <section className="bills-toolbar groups-toolbar surface-panel" aria-label="Groups filters">
+        <label className="filter-field">
+          <span>Search loaded groups</span>
+          <input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Group name, role, or status"
+            disabled={!canFilter}
+          />
+        </label>
+      </section>
+
+      <section className="bills-split" aria-label="Groups list and detail">
+        <div className="surface-panel bills-list-panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Groups list</p>
+              <h3>Your groups</h3>
+            </div>
+            <span className={`status-chip ${statusClassForReadout(groupsReadout.status)}`}>
+              {labelize(groupsReadout.status)}
+            </span>
+          </div>
+          <StateMessage
+            state={groupsReadout.status}
+            message={groupsReadout.message}
+            emptyTitle="No groups yet"
+            errorTitle="Could not load groups"
+          />
+          {groupsReadout.status === "loaded" && visibleGroups.length === 0 ? (
+            <div className="empty-state" role="status">
+              <h4>No groups match these filters</h4>
+              <p>Clear the local filters to return to the loaded Settleora group list.</p>
+            </div>
+          ) : null}
+          <div className="bill-row-list" aria-label="Loaded groups">
+            {visibleGroups.map((group) => (
+              <GroupListRow
+                key={group.id}
+                group={group}
+                selected={group.id === selectedGroupId}
+                onSelect={() => onSelectGroup(group.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <GroupDetailPanel
+          readout={detailReadout}
+          fallbackGroup={groupsReadout.groups.find((group) => group.id === selectedGroupId)}
+        />
+      </section>
+    </section>
+  );
+}
+
+function FriendsReadoutPanel({ readout }: { readout: FriendsReadoutState }) {
+  return (
+    <section className="content-grid" aria-label="Friends and direct-sharing readout">
+      <div className="dashboard-column">
+        <section className="metric-grid" aria-label="Friends summary">
+          <ReadoutMetric label="Friend records" value="Unavailable" detail="No generated read method" />
+          <ReadoutMetric label="Requests" value="Unavailable" detail="No request read method" />
+          <ReadoutMetric label="Direct sharing" value="Unavailable" detail="No eligibility read method" />
+        </section>
+
+        <section className="surface-panel" aria-labelledby="friends-unavailable-title">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Friends and direct sharing</p>
+              <h3 id="friends-unavailable-title">Unavailable in this build</h3>
+            </div>
+            <span className="status-chip status-warning">{labelize(readout.status)}</span>
+          </div>
+          <div className="empty-state" role="status" aria-live="polite">
+            <h4>Future API coverage required</h4>
+            <p>{readout.message}</p>
+          </div>
+        </section>
+      </div>
+
+      <aside className="right-rail" aria-label="Missing friends coverage">
+        <section className="surface-panel compact-panel">
+          <p className="eyebrow">Missing reads</p>
+          <h3>Follow-up surfaces</h3>
+          <div className="state-list">
+            {readout.missingCoverage.map((item) => (
+              <article className="state-row" key={item}>
+                <strong>Unavailable</strong>
+                <span>{item}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      </aside>
+    </section>
+  );
+}
+
 function ReadoutMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <article className="metric-card">
@@ -484,14 +715,24 @@ function ReadoutMetric({ label, value, detail }: { label: string; value: string;
   );
 }
 
-function StateMessage({ state, message }: { state: BillsReadoutState["status"]; message: string }) {
+function StateMessage({
+  state,
+  message,
+  emptyTitle = "No bills yet",
+  errorTitle = "Could not load bills"
+}: {
+  state: BillsReadoutState["status"];
+  message: string;
+  emptyTitle?: string;
+  errorTitle?: string;
+}) {
   if (state === "loaded") {
     return null;
   }
 
   return (
     <div className="empty-state" role="status" aria-live="polite">
-      <h4>{readoutStateTitle(state)}</h4>
+      <h4>{readoutStateTitle(state, emptyTitle, errorTitle)}</h4>
       <p>{message}</p>
     </div>
   );
@@ -624,6 +865,106 @@ function BillDetailPanel({
   );
 }
 
+function GroupListRow({
+  group,
+  selected,
+  onSelect
+}: {
+  group: GroupResponse;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={selected ? "bill-row active" : "bill-row"}
+      aria-current={selected ? "true" : undefined}
+      onClick={onSelect}
+    >
+      <span>
+        <strong>{group.name}</strong>
+        <small>Updated {formatDate(group.updatedAtUtc)}</small>
+      </span>
+      <span>
+        <strong>{labelize(group.currentUserRole)}</strong>
+        <small>{labelize(group.currentUserStatus)}</small>
+      </span>
+    </button>
+  );
+}
+
+function GroupDetailPanel({
+  readout,
+  fallbackGroup
+}: {
+  readout: GroupDetailReadoutState;
+  fallbackGroup?: GroupResponse;
+}) {
+  const group = readout.group ?? fallbackGroup;
+
+  return (
+    <aside className="surface-panel bills-detail-panel" aria-label="Group detail readout">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Group detail</p>
+          <h3>{group?.name ?? "Select a group"}</h3>
+        </div>
+        <span className={`status-chip ${statusClassForReadout(readout.status)}`}>{labelize(readout.status)}</span>
+      </div>
+      {group ? (
+        <>
+          <dl className="readout-list detail-readouts">
+            <div>
+              <dt>Your role</dt>
+              <dd>{labelize(group.currentUserRole)}</dd>
+            </div>
+            <div>
+              <dt>Membership</dt>
+              <dd>{labelize(group.currentUserStatus)}</dd>
+            </div>
+            <div>
+              <dt>Created</dt>
+              <dd>{formatDate(group.createdAtUtc)}</dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{formatDate(group.updatedAtUtc)}</dd>
+            </div>
+          </dl>
+
+          <ReadoutSection title="Member readout">
+            {readout.status === "loading" ? (
+              <p className="muted-copy">Loading visible members.</p>
+            ) : readout.members?.members.length ? (
+              readout.members.members.map((member) => (
+                <DataRow
+                  key={member.userProfileId}
+                  label={member.displayName}
+                  value={`${labelize(member.role)} · ${labelize(member.status)}`}
+                />
+              ))
+            ) : (
+              <p className="muted-copy">No member rows were returned.</p>
+            )}
+          </ReadoutSection>
+
+          <ReadoutSection title="Group bills">
+            <p className="muted-copy">
+              Open bill rows for this group will appear in a later group workspace slice. This panel shows group summary
+              and visible members only.
+            </p>
+          </ReadoutSection>
+        </>
+      ) : (
+        <div className="empty-state" role="status">
+          <h4>{readoutStateTitle(readout.status, "No group selected", "Could not load group")}</h4>
+          <p>{readout.message}</p>
+        </div>
+      )}
+    </aside>
+  );
+}
+
 function ReadoutSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="detail-section" aria-label={title}>
@@ -655,20 +996,20 @@ function uniqueValues<T extends string>(values: T[]): T[] {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
 }
 
-function readoutStateTitle(state: BillsReadoutState["status"]): string {
+function readoutStateTitle(state: BillsReadoutState["status"], emptyTitle = "No bills yet", errorTitle = "Could not load bills"): string {
   switch (state) {
     case "auth_required":
       return "Sign in required";
     case "loading":
       return "Loading";
     case "empty":
-      return "No bills yet";
+      return emptyTitle;
     case "session_expired":
       return "Session expired";
     case "unavailable":
       return "Unavailable";
     case "error":
-      return "Could not load bills";
+      return errorTitle;
     case "loaded":
       return "Loaded";
   }

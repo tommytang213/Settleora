@@ -29,7 +29,7 @@ export const navItems: NavItem[] = [
   {
     id: "groups",
     label: "Groups",
-    description: "Group workspaces, members, open bills, balances, and activity.",
+    description: "Group workspaces, member readouts, and read-only group context.",
     actionLabel: "Create group",
     section: "primary",
     status: "requiresSession"
@@ -37,7 +37,7 @@ export const navItems: NavItem[] = [
   {
     id: "friends",
     label: "Friends",
-    description: "Exact-match people search, invite links, and direct sharing readiness.",
+    description: "Friends, requests, and direct sharing readiness.",
     actionLabel: "Invite friend",
     section: "more",
     status: "placeholder"
