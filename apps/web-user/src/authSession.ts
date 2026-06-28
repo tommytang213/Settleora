@@ -17,6 +17,7 @@ export interface SessionBoundaryState {
   status: SessionBoundaryStatus;
   currentUser?: CurrentUserResponse;
   sessions?: SessionListResponse;
+  accessToken?: string;
   message: string;
 }
 
@@ -54,6 +55,7 @@ export async function loadSessionBoundaryState(
       status: "authenticated",
       currentUser,
       sessions,
+      accessToken,
       message: "Session verified by Settleora."
     };
   } catch (error) {
