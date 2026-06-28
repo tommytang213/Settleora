@@ -574,6 +574,10 @@ h1 {
   gap: 14px;
 }
 
+.groups-toolbar {
+  grid-template-columns: minmax(220px, 420px);
+}
+
 .filter-field {
   display: grid;
   gap: 8px;
