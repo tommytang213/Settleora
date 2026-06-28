@@ -2147,6 +2147,9 @@ class InAppNotificationResponse {
     required this.settlementPaymentId,
     required this.recurringBillTemplateId,
     required this.recurringBillOccurrenceId,
+    required this.receiptOcrReviewId,
+    required this.receiptAttachmentFileId,
+    required this.syncOperationId,
     required this.createdAtUtc,
     required this.readAtUtc,
     required this.archivedAtUtc,
@@ -2172,6 +2175,12 @@ class InAppNotificationResponse {
   final String? settlementPaymentId;
   final String? recurringBillTemplateId;
   final String? recurringBillOccurrenceId;
+  /// Optional safe OCR review target ID. Opening the review must still use authorized OCR review APIs.
+  final String? receiptOcrReviewId;
+  /// Optional safe receipt attachment file ID. It is not a storage object key, path, filename, URL, or file content authority.
+  final String? receiptAttachmentFileId;
+  /// Optional safe sync operation target ID. Opening sync state must still use authorized sync APIs.
+  final String? syncOperationId;
   final DateTime createdAtUtc;
   final DateTime? readAtUtc;
   final DateTime? archivedAtUtc;
@@ -2194,6 +2203,9 @@ class InAppNotificationResponse {
       settlementPaymentId: json["settlementPaymentId"] == null ? null : json["settlementPaymentId"] as String,
       recurringBillTemplateId: json["recurringBillTemplateId"] == null ? null : json["recurringBillTemplateId"] as String,
       recurringBillOccurrenceId: json["recurringBillOccurrenceId"] == null ? null : json["recurringBillOccurrenceId"] as String,
+      receiptOcrReviewId: json["receiptOcrReviewId"] == null ? null : json["receiptOcrReviewId"] as String,
+      receiptAttachmentFileId: json["receiptAttachmentFileId"] == null ? null : json["receiptAttachmentFileId"] as String,
+      syncOperationId: json["syncOperationId"] == null ? null : json["syncOperationId"] as String,
       createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
       readAtUtc: json["readAtUtc"] == null ? null : DateTime.parse(json["readAtUtc"] as String),
       archivedAtUtc: json["archivedAtUtc"] == null ? null : DateTime.parse(json["archivedAtUtc"] as String),
@@ -2210,6 +2222,9 @@ class InAppNotificationResponse {
     final settlementPaymentIdJsonValue = settlementPaymentId;
     final recurringBillTemplateIdJsonValue = recurringBillTemplateId;
     final recurringBillOccurrenceIdJsonValue = recurringBillOccurrenceId;
+    final receiptOcrReviewIdJsonValue = receiptOcrReviewId;
+    final receiptAttachmentFileIdJsonValue = receiptAttachmentFileId;
+    final syncOperationIdJsonValue = syncOperationId;
     final readAtUtcJsonValue = readAtUtc;
     final archivedAtUtcJsonValue = archivedAtUtc;
 
@@ -2230,6 +2245,9 @@ class InAppNotificationResponse {
       "settlementPaymentId": settlementPaymentIdJsonValue,
       "recurringBillTemplateId": recurringBillTemplateIdJsonValue,
       "recurringBillOccurrenceId": recurringBillOccurrenceIdJsonValue,
+      "receiptOcrReviewId": receiptOcrReviewIdJsonValue,
+      "receiptAttachmentFileId": receiptAttachmentFileIdJsonValue,
+      "syncOperationId": syncOperationIdJsonValue,
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "readAtUtc": readAtUtcJsonValue == null ? null : readAtUtcJsonValue.toUtc().toIso8601String(),
       "archivedAtUtc": archivedAtUtcJsonValue == null ? null : archivedAtUtcJsonValue.toUtc().toIso8601String(),

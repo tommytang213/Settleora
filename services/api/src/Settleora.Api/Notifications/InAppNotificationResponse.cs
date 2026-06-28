@@ -19,6 +19,9 @@ internal sealed record InAppNotificationResponse(
     Guid? SettlementPaymentId,
     Guid? RecurringBillTemplateId,
     Guid? RecurringBillOccurrenceId,
+    Guid? ReceiptOcrReviewId,
+    Guid? ReceiptAttachmentFileId,
+    Guid? SyncOperationId,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? ReadAtUtc,
     DateTimeOffset? ArchivedAtUtc)
@@ -42,6 +45,9 @@ internal sealed record InAppNotificationResponse(
             notification.SettlementPaymentId,
             notification.RecurringBillTemplateId,
             notification.RecurringBillOccurrenceId,
+            notification.ReceiptOcrReviewId,
+            notification.ReceiptAttachmentFileId,
+            notification.SyncOperationId,
             notification.CreatedAtUtc,
             notification.ReadAtUtc,
             notification.ArchivedAtUtc);

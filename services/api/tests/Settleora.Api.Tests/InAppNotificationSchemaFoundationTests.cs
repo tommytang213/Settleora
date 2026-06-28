@@ -4,9 +4,11 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Settleora.Api.Domain.Expenses;
+using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.RecurringBills;
 using Settleora.Api.Domain.Settlements;
+using Settleora.Api.Domain.Sync;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 using Settleora.Api.Persistence.Migrations;
@@ -54,6 +56,8 @@ public sealed class InAppNotificationSchemaFoundationTests
             eventType => Assert.True(InAppNotificationEventTypes.IsSupported(eventType), eventType));
         Assert.False(InAppNotificationEventTypes.IsSupported("email.delivery_requested"));
         Assert.False(InAppNotificationEventTypes.IsSupported("raw_ocr_text"));
+        Assert.False(InAppNotificationEventTypes.IsSupported("receipt_ocr_review.needs_review"));
+        Assert.False(InAppNotificationEventTypes.IsSupported("sync.operation_conflict"));
 
         Assert.True(InAppNotificationStatuses.IsSupported(InAppNotificationStatuses.Unread));
         Assert.True(InAppNotificationStatuses.IsSupported(InAppNotificationStatuses.Read));
@@ -91,6 +95,9 @@ public sealed class InAppNotificationSchemaFoundationTests
         AssertColumn(entity, storeObject, "MessageKey", "message_key", isNullable: false, InAppNotificationConstraints.TemplateKeyMaxLength);
         AssertColumn(entity, storeObject, "SafeSummary", "safe_summary", isNullable: true, InAppNotificationConstraints.SafeSummaryMaxLength);
         AssertColumn(entity, storeObject, "ActionUrl", "action_url", isNullable: true, InAppNotificationConstraints.ActionUrlMaxLength);
+        AssertColumn(entity, storeObject, "ReceiptOcrReviewId", "receipt_ocr_review_id", isNullable: true);
+        AssertColumn(entity, storeObject, "ReceiptAttachmentFileId", "receipt_attachment_file_id", isNullable: true);
+        AssertColumn(entity, storeObject, "SyncOperationId", "sync_operation_id", isNullable: true);
         AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
         AssertColumn(entity, storeObject, "ReadAtUtc", "read_at_utc", isNullable: true);
         AssertColumn(entity, storeObject, "ArchivedAtUtc", "archived_at_utc", isNullable: true);
@@ -98,6 +105,9 @@ public sealed class InAppNotificationSchemaFoundationTests
         AssertIndex(entity, "ix_user_notifications_recipient_status_created", ["RecipientUserProfileId", "Status", "CreatedAtUtc"], isUnique: false);
         AssertIndex(entity, "ix_user_notifications_settlement_request_id", ["SettlementRequestId"], isUnique: false);
         AssertIndex(entity, "ix_user_notifications_recurring_bill_occurrence_id", ["RecurringBillOccurrenceId"], isUnique: false);
+        AssertIndex(entity, "ix_user_notifications_receipt_ocr_review_id", ["ReceiptOcrReviewId"], isUnique: false);
+        AssertIndex(entity, "ix_user_notifications_receipt_attachment_file_id", ["ReceiptAttachmentFileId"], isUnique: false);
+        AssertIndex(entity, "ix_user_notifications_sync_operation_id", ["SyncOperationId"], isUnique: false);
 
         AssertForeignKey(entity, typeof(UserProfile), ["RecipientUserProfileId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(UserProfile), ["ActorUserProfileId"], DeleteBehavior.Restrict);
@@ -108,6 +118,9 @@ public sealed class InAppNotificationSchemaFoundationTests
         AssertForeignKey(entity, typeof(SettlementPayment), ["SettlementPaymentId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(RecurringBillTemplate), ["RecurringBillTemplateId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(RecurringBillOccurrence), ["RecurringBillOccurrenceId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(ReceiptOcrReview), ["ReceiptOcrReviewId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(FileObject), ["ReceiptAttachmentFileId"], DeleteBehavior.Restrict);
+        AssertForeignKey(entity, typeof(SyncOperation), ["SyncOperationId"], DeleteBehavior.Restrict);
 
         AssertCheckConstraint(entity, "ck_user_notifications_event_type", UserNotificationEventTypeConstraintSql);
         AssertCheckConstraint(entity, "ck_user_notifications_status", "status IN ('unread', 'read', 'archived')");
@@ -120,8 +133,12 @@ public sealed class InAppNotificationSchemaFoundationTests
         Assert.DoesNotContain(columnNames, name => name.Contains("token", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(columnNames, name => name.Contains("password", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(columnNames, name => name.Contains("object_key", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("path", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("filename", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("payload", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(columnNames, name => name.Contains("payment_handle", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(columnNames, name => name.Contains("ocr", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("receipt_ocr_review_id", columnNames);
+        Assert.DoesNotContain(columnNames, name => name.Contains("ocr_text", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -288,6 +305,81 @@ public sealed class InAppNotificationSchemaFoundationTests
             createTable.CheckConstraints,
             constraint => constraint.Name == "ck_user_notification_preferences_sync_security_required"
                 && constraint.Sql == "sync_security_enabled = TRUE");
+    }
+
+    [Fact]
+    public void NotificationOcrSyncTargetReferenceMigrationAddsOnlyNullableTargetColumnsIndexesAndForeignKeys()
+    {
+        using var dbContext = CreateDbContext();
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddNotificationOcrSyncTargetReferences", StringComparison.Ordinal));
+
+        var migration = new AddNotificationOcrSyncTargetReferences();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropForeignKeyOperation
+                or DropIndexOperation
+                or AlterColumnOperation
+                or SqlOperation
+                or AddCheckConstraintOperation
+                or DropCheckConstraintOperation);
+
+        Assert.Equal(
+            [
+                "receipt_attachment_file_id",
+                "receipt_ocr_review_id",
+                "sync_operation_id"
+            ],
+            migration.UpOperations
+                .OfType<AddColumnOperation>()
+                .Select(operation =>
+                {
+                    Assert.Equal("user_notifications", operation.Table);
+                    Assert.True(operation.IsNullable);
+                    Assert.Equal("uuid", operation.ColumnType);
+                    return operation.Name;
+                })
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+
+        Assert.Equal(
+            [
+                "ix_user_notifications_receipt_attachment_file_id",
+                "ix_user_notifications_receipt_ocr_review_id",
+                "ix_user_notifications_sync_operation_id"
+            ],
+            migration.UpOperations
+                .OfType<CreateIndexOperation>()
+                .Select(operation =>
+                {
+                    Assert.Equal("user_notifications", operation.Table);
+                    Assert.False(operation.IsUnique);
+                    return operation.Name;
+                })
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+
+        Assert.Contains(
+            migration.UpOperations.OfType<AddForeignKeyOperation>(),
+            operation => operation.Name == "fk_user_notifications_receipt_ocr_reviews_review_id"
+                && operation.Table == "user_notifications"
+                && operation.PrincipalTable == "receipt_ocr_reviews"
+                && operation.OnDelete == ReferentialAction.Restrict);
+        Assert.Contains(
+            migration.UpOperations.OfType<AddForeignKeyOperation>(),
+            operation => operation.Name == "fk_user_notifications_file_objects_receipt_attachment_file_id"
+                && operation.Table == "user_notifications"
+                && operation.PrincipalTable == "file_objects"
+                && operation.OnDelete == ReferentialAction.Restrict);
+        Assert.Contains(
+            migration.UpOperations.OfType<AddForeignKeyOperation>(),
+            operation => operation.Name == "fk_user_notifications_sync_operations_operation_id"
+                && operation.Table == "user_notifications"
+                && operation.PrincipalTable == "sync_operations"
+                && operation.OnDelete == ReferentialAction.Restrict);
     }
 
     private static SettleoraDbContext CreateDbContext()

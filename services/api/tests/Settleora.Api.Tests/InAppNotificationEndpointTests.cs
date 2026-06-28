@@ -134,6 +134,9 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
         Assert.All(notifications, AssertNotificationResponseShape);
         Assert.Equal(InAppNotificationEventTypes.SettlementPaymentConfirmed, notifications[0].GetProperty("eventType").GetString());
         Assert.Equal(InAppNotificationStatuses.Read, notifications[0].GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, notifications[0].GetProperty("receiptOcrReviewId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, notifications[0].GetProperty("receiptAttachmentFileId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, notifications[0].GetProperty("syncOperationId").ValueKind);
         Assert.Equal(InAppNotificationEventTypes.BillSubmitted, notifications[1].GetProperty("eventType").GetString());
         Assert.Equal("bounded attention summary", notifications[1].GetProperty("safeSummary").GetString());
 
@@ -1060,6 +1063,8 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
                 "messageKey",
                 "priority",
                 "readAtUtc",
+                "receiptAttachmentFileId",
+                "receiptOcrReviewId",
                 "recurringBillOccurrenceId",
                 "recurringBillTemplateId",
                 "safeSummary",
@@ -1067,6 +1072,7 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
                 "settlementRequestId",
                 "status",
                 "subjectType",
+                "syncOperationId",
                 "titleKey"
             ],
             response.EnumerateObject()
@@ -1138,7 +1144,9 @@ public sealed class InAppNotificationEndpointTests : IClassFixture<WebApplicatio
         Assert.DoesNotContain("storage", lowerContent);
         Assert.DoesNotContain("paymenthandle", lowerContent);
         Assert.DoesNotContain("paymentnote", lowerContent);
-        Assert.DoesNotContain("ocr", lowerContent);
+        Assert.DoesNotContain("rawocr", lowerContent);
+        Assert.DoesNotContain("ocrtext", lowerContent);
+        Assert.DoesNotContain("ocrline", lowerContent);
     }
 
     private sealed record FactoryTestContext(

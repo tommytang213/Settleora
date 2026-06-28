@@ -788,6 +788,18 @@ export interface InAppNotificationResponse {
   settlementPaymentId: string | null;
   recurringBillTemplateId: string | null;
   recurringBillOccurrenceId: string | null;
+  /**
+   * Optional safe OCR review target ID. Opening the review must still use authorized OCR review APIs.
+   */
+  receiptOcrReviewId: string | null;
+  /**
+   * Optional safe receipt attachment file ID. It is not a storage object key, path, filename, URL, or file content authority.
+   */
+  receiptAttachmentFileId: string | null;
+  /**
+   * Optional safe sync operation target ID. Opening sync state must still use authorized sync APIs.
+   */
+  syncOperationId: string | null;
   createdAtUtc: string;
   readAtUtc: string | null;
   archivedAtUtc: string | null;

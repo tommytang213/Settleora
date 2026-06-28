@@ -10535,6 +10535,9 @@ components:
         - settlementPaymentId
         - recurringBillTemplateId
         - recurringBillOccurrenceId
+        - receiptOcrReviewId
+        - receiptAttachmentFileId
+        - syncOperationId
         - createdAtUtc
         - readAtUtc
         - archivedAtUtc
@@ -10610,6 +10613,24 @@ components:
             - type: string
               format: uuid
             - type: "null"
+        receiptOcrReviewId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional safe OCR review target ID. Opening the review must still use authorized OCR review APIs.
+        receiptAttachmentFileId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional safe receipt attachment file ID. It is not a storage object key, path, filename, URL, or file content authority.
+        syncOperationId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional safe sync operation target ID. Opening sync state must still use authorized sync APIs.
         createdAtUtc:
           type: string
           format: date-time

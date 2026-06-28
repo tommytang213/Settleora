@@ -45,12 +45,22 @@ The supported subject types are currently:
 - `settlement_payment`
 - `recurring_bill_occurrence`
 
-The current OpenAPI `InAppNotificationResponse` and generated web/Dart models
-expose only those safe notification fields and nullable reference IDs. They do
-not expose recipient or actor profile IDs. They also do not expose OCR review
-IDs, attachment file IDs as notification targets, sync operation IDs, auth audit
-event IDs, auth session IDs, item claim IDs, provider delivery IDs, digest IDs,
-device-token IDs, or admin policy IDs.
+Before #568, the OpenAPI `InAppNotificationResponse` and generated web/Dart
+models exposed only those safe notification fields and nullable reference IDs.
+They did not expose recipient or actor profile IDs. They also did not expose
+OCR review IDs, attachment file IDs as notification targets, sync operation
+IDs, auth audit event IDs, auth session IDs, item claim IDs, provider delivery
+IDs, digest IDs, device-token IDs, or admin policy IDs.
+
+Issue #568 adds the first narrow target-reference implementation slice for OCR
+and sync handoffs only. Notification rows and `InAppNotificationResponse` now
+carry nullable `receiptOcrReviewId`, `receiptAttachmentFileId`, and
+`syncOperationId` fields as safe first-class target IDs. These fields are not
+event constants, writers, deep links, OCR worker behavior, sync conflict
+resolution behavior, or authorization grants. The receipt attachment reference
+is the stable file ID already used by authorized bill attachment/OCR review
+response shapes; it is not a storage object key, path, filename, signed URL,
+provider name, or file content reference.
 
 The persistence check constraints and OpenAPI enum currently allow only the
 implemented bill workflow/revision, settlement request/payment/proof, and
@@ -96,8 +106,8 @@ provider internals, payment details, storage data, or hidden bill facts.
 
 | Event family | Required conclusion | Current target/reference fit | Gate |
 | --- | --- | --- | --- |
-| OCR review/needs-review/failure/completed handoffs | `requires-target-reference-schema-first` | Current OCR review runtime stores bill-scoped `ReceiptOcrReview` rows for existing receipt attachments and exposes authorized list/read/apply-preview/apply routes. Current notification rows can reference the bill and group, but they cannot carry `receiptOcrReviewId` or attachment `fileObjectId` as first-class notification targets. Server OCR worker completion/failure runtime is also absent. | Add a reviewed notification target-reference schema/OpenAPI slice for OCR review/file references before adding OCR notification constants or writers. Server-OCR completed/failed events also require source runtime first. |
-| Sync/offline conflict/failure handoffs | `requires-target-reference-schema-first` | A narrow sync foundation now exists for bill archive/restore operations with `SyncOperation` rows and `accepted`, `rejected`, and `conflict` outcomes. Current notification rows cannot carry `syncOperationId`, and broad sync/offline conflict/failure UI/runtime is still limited. | Add a reviewed sync notification target (`syncOperationId` or conflict record reference) before sync event constants/writers. Broader sync conflict/failure notifications require source runtime first. |
+| OCR review/needs-review/failure/completed handoffs | `requires-target-reference-schema-first` | Current OCR review runtime stores bill-scoped `ReceiptOcrReview` rows for existing receipt attachments and exposes authorized list/read/apply-preview/apply routes. #568 adds nullable first-class `receiptOcrReviewId` and `receiptAttachmentFileId` notification targets. Server OCR worker completion/failure runtime is still absent. | Review/merge the target-reference slice before adding OCR notification constants or writers. Server-OCR completed/failed events also require source runtime first. |
+| Sync/offline conflict/failure handoffs | `requires-target-reference-schema-first` | A narrow sync foundation now exists for bill archive/restore operations with `SyncOperation` rows and `accepted`, `rejected`, and `conflict` outcomes. #568 adds a nullable first-class `syncOperationId` notification target, while broad sync/offline conflict/failure UI/runtime is still limited. | Review/merge the sync notification target before sync event constants/writers. Broader sync conflict/failure notifications require source runtime first. |
 | Auth/session/security-impactful handoffs | `requires-manual-auth-security-policy-first` | Auth sessions, auth audit events, passkey/MFA foundations, and security policy readouts exist, but notification rows cannot carry `authSessionId`, `authAuditEventId`, challenge/factor/passkey IDs, or security policy event references. Security notification recipient rules, bypass/suppression, external snippets, and audit separation remain policy-sensitive. | Run a manual auth/security policy review first. Any later implementation also needs a reviewed safe target-reference schema/OpenAPI slice before event constants/writers. |
 | Item claim/split/creator-review handoffs | `requires-source-runtime-first` | Current bill/OCR rows contain quantities, but there is no implemented item-claim domain model, claim ID, claim state runtime, creator-review command model, or notification target. Current bill IDs alone are insufficient for a claim-specific handoff. | Implement/review claim source runtime and stable claim/item target model first. #371/Figma remains required for UI/deep-link behavior. |
 | Future settlement mismatch/residual/review states | `requires-source-runtime-first` | Current notification model already supports settlement request/payment IDs, and existing residual rows are tied to settlement/payment runtime. However, future mismatch/review event semantics, recipient rules, safe summaries, and target routes are not yet defined as notification source events. | For events that can safely target existing settlement request/payment IDs, no new target columns may be needed, but exact source runtime and event policy must come first. Add schema only if a future event needs a residual/review-specific target ID. |
@@ -107,11 +117,10 @@ provider internals, payment details, storage data, or hidden bill facts.
 
 Recommended next issue split:
 
-1. Notification target-reference schema/OpenAPI design for OCR and sync targets:
-   add reviewed target fields such as `receiptOcrReviewId`,
-   `receiptAttachmentFileId`, and `syncOperationId` only if the API/domain
-   authorization model and OpenAPI response shape are approved. Regenerate
-   clients only from OpenAPI after review.
+1. Review and merge the #568 notification target-reference schema/OpenAPI
+   implementation for OCR and sync targets. It adds nullable
+   `receiptOcrReviewId`, `receiptAttachmentFileId`, and `syncOperationId`
+   fields only, with generated clients refreshed from OpenAPI.
 2. OCR notification runtime after the OCR target fields exist: start with
    review-needed/failure handoffs for existing authorized OCR review routes.
    Server-OCR completed/failed handoffs remain blocked until server OCR worker
