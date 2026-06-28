@@ -2,8 +2,8 @@
 
 Status: `READY_FOR_REVIEW`
 
-Start HKT: `2026-06-29 01:26:00 HKT`  
-End HKT: `2026-06-29 01:28:08 HKT`  
+Start HKT: `2026-06-29 01:26:00 HKT`
+End HKT: `2026-06-29 01:28:08 HKT`
 Elapsed: approximately 2 minutes
 
 ## Branches And SHAs
