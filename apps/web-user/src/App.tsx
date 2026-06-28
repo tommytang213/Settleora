@@ -47,12 +47,23 @@ import {
   summarizePaymentConfiguration,
   type ProfilePaymentReadoutState
 } from "./profileReadout";
+import {
+  collectNotificationTargetFields,
+  filterNotificationsForPresentation,
+  loadNotificationsReadout,
+  summarizeNotificationPriorities,
+  summarizeNotificationStatuses,
+  type NotificationPresentationFilter,
+  type NotificationPresentationSort,
+  type NotificationsReadoutState
+} from "./notificationsReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
   ExpenseBillReconciliationStatus,
   ExpenseBillStatus,
   GroupBillResponse,
   GroupResponse,
+  InAppNotificationResponse,
   PersonalBillResponse,
   SelfPaymentDetailsQrFileResponse,
   SettlementBalanceProjectionResponse,
@@ -67,7 +78,7 @@ const mobileNav = [
   { item: navItems.find((item) => item.id === "bills") ?? navItems[0], label: "Bills" },
   { item: navItems.find((item) => item.id === "groups") ?? navItems[0], label: "Groups" },
   { item: navItems.find((item) => item.id === "settlements") ?? navItems[0], label: "Settle" },
-  { item: navItems.find((item) => item.id === "settings") ?? navItems[0], label: "More" }
+  { item: navItems.find((item) => item.id === "notifications") ?? navItems[0], label: "Alerts" }
 ];
 
 export function normalizeRouteId(routeId: string): string {
@@ -132,6 +143,13 @@ export function App() {
     message: "Sign in is required before Settleora can show profile and payment details on the web.",
     unavailableSections: []
   });
+  const [notificationsReadout, setNotificationsReadout] = useState<NotificationsReadoutState>({
+    status: "auth_required",
+    message: "Sign in is required before Settleora can show notifications on the web.",
+    notifications: [],
+    missingMethods: [],
+    unsupportedSections: []
+  });
   const [billSearch, setBillSearch] = useState("");
   const [billStatusFilter, setBillStatusFilter] = useState<ExpenseBillStatus | "all">("all");
   const [billReconciliationFilter, setBillReconciliationFilter] = useState<
@@ -139,6 +157,9 @@ export function App() {
   >("all");
   const [groupSearch, setGroupSearch] = useState("");
   const [settlementFilter, setSettlementFilter] = useState<SettlementPresentationFilter>("all");
+  const [notificationSearch, setNotificationSearch] = useState("");
+  const [notificationFilter, setNotificationFilter] = useState<NotificationPresentationFilter>("inbox");
+  const [notificationSort, setNotificationSort] = useState<NotificationPresentationSort>("newest");
 
   useEffect(() => {
     let isMounted = true;
@@ -393,6 +414,31 @@ export function App() {
     };
   }, [activeId, session.accessToken]);
 
+  useEffect(() => {
+    if (activeId !== "notifications") {
+      return;
+    }
+
+    let isMounted = true;
+    setNotificationsReadout({
+      status: "loading",
+      message: "Loading visible notifications from Settleora.",
+      notifications: [],
+      missingMethods: [],
+      unsupportedSections: []
+    });
+
+    void loadNotificationsReadout({ accessToken: session.accessToken }).then((nextState) => {
+      if (isMounted) {
+        setNotificationsReadout(nextState);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, session.accessToken]);
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -430,7 +476,12 @@ export function App() {
           <div className="topbar-actions" aria-label="Workspace status">
             <span className="status-chip status-sync">Server mode</span>
             <span className="status-chip status-warning">Sign-in needed</span>
-            <button className="notification-button" type="button" aria-label="Open notifications">
+            <button
+              className="notification-button"
+              type="button"
+              aria-label="Open notifications"
+              onClick={() => setActiveRoute("notifications")}
+            >
               <span className="notification-dot" aria-hidden="true" />
               <span>Notifications</span>
             </button>
@@ -518,6 +569,16 @@ export function App() {
               onSelectSettlement={setSelectedSettlementId}
               filter={settlementFilter}
               onFilterChange={setSettlementFilter}
+            />
+          ) : activeId === "notifications" ? (
+            <NotificationsReadoutPanel
+              readout={notificationsReadout}
+              search={notificationSearch}
+              onSearchChange={setNotificationSearch}
+              filter={notificationFilter}
+              onFilterChange={setNotificationFilter}
+              sort={notificationSort}
+              onSortChange={setNotificationSort}
             />
           ) : activeId === "profile" ? (
             <ProfilePaymentReadoutPanel readout={profileReadout} />
@@ -708,6 +769,225 @@ function ProfilePaymentReadoutPanel({ readout }: { readout: ProfilePaymentReadou
         </section>
       </aside>
     </section>
+  );
+}
+
+function NotificationsReadoutPanel({
+  readout,
+  search,
+  onSearchChange,
+  filter,
+  onFilterChange,
+  sort,
+  onSortChange
+}: {
+  readout: NotificationsReadoutState;
+  search: string;
+  onSearchChange: (value: string) => void;
+  filter: NotificationPresentationFilter;
+  onFilterChange: (value: NotificationPresentationFilter) => void;
+  sort: NotificationPresentationSort;
+  onSortChange: (value: NotificationPresentationSort) => void;
+}) {
+  const visibleNotifications = useMemo(
+    () => filterNotificationsForPresentation(readout.notifications, { search, status: filter, sort }),
+    [filter, readout.notifications, search, sort]
+  );
+  const statusCounts = useMemo(
+    () => summarizeNotificationStatuses(readout.notifications),
+    [readout.notifications]
+  );
+  const priorityCounts = useMemo(
+    () => summarizeNotificationPriorities(readout.notifications),
+    [readout.notifications]
+  );
+  const canFilter = readout.status === "loaded" || readout.status === "empty";
+
+  return (
+    <section className="bills-workspace" aria-label="Notifications readout">
+      <div className="bills-summary-row" aria-label="Notifications summary">
+        <ReadoutMetric
+          label="Unread"
+          value={String(readout.summary?.unreadCount ?? 0)}
+          detail="Server summary"
+        />
+        <ReadoutMetric
+          label="Attention"
+          value={String(readout.summary?.attentionCount ?? 0)}
+          detail={`${readout.summary?.urgentCount ?? 0} urgent`}
+        />
+        <ReadoutMetric
+          label="Loaded rows"
+          value={String(readout.notifications.length)}
+          detail="Current-user list"
+        />
+      </div>
+
+      <section className="bills-toolbar notifications-toolbar surface-panel" aria-label="Notification filters">
+        <label className="filter-field">
+          <span>Search loaded notifications</span>
+          <input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Event, subject, or summary"
+            disabled={!canFilter}
+          />
+        </label>
+        <label className="filter-field">
+          <span>View</span>
+          <select
+            value={filter}
+            onChange={(event) => onFilterChange(event.target.value as NotificationPresentationFilter)}
+            disabled={!canFilter}
+          >
+            <option value="inbox">Inbox</option>
+            <option value="unread">Unread</option>
+            <option value="attention">Attention</option>
+            <option value="archived">Archived</option>
+            <option value="all">All loaded</option>
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Sort</span>
+          <select
+            value={sort}
+            onChange={(event) => onSortChange(event.target.value as NotificationPresentationSort)}
+            disabled={!canFilter}
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="priority">Priority first</option>
+          </select>
+        </label>
+      </section>
+
+      <section className="bills-split" aria-label="Notification list and boundaries">
+        <div className="surface-panel bills-list-panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Notifications list</p>
+              <h3>Current-user alerts</h3>
+            </div>
+            <span className={`status-chip ${statusClassForReadout(readout.status)}`}>
+              {labelize(readout.status)}
+            </span>
+          </div>
+          <NotificationStateMessage state={readout.status} message={readout.message} />
+          {readout.status === "loaded" && visibleNotifications.length === 0 ? (
+            <div className="empty-state" role="status">
+              <h4>No notifications match this view</h4>
+              <p>Change the local filters to return to the loaded Settleora notification list.</p>
+            </div>
+          ) : null}
+          <div className="bill-row-list" aria-label="Loaded notifications">
+            {visibleNotifications.map((notification) => (
+              <NotificationReadoutRow key={notification.id} notification={notification} />
+            ))}
+          </div>
+        </div>
+
+        <aside className="surface-panel bills-detail-panel" aria-label="Notification readout boundaries">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Read-only scope</p>
+              <h3>Notification metadata</h3>
+            </div>
+            <span className="status-chip status-warning">Display only</span>
+          </div>
+
+          <ReadoutSection title="Returned row summary">
+            {statusCounts.length === 0 ? (
+              <p className="muted-copy">No notification status rows were returned.</p>
+            ) : (
+              statusCounts.map((item) => (
+                <StatusPill key={item.label} label={labelize(item.label)} value={String(item.count)} />
+              ))
+            )}
+            {priorityCounts.map((item) => (
+              <StatusPill key={item.label} label={labelize(item.label)} value={String(item.count)} />
+            ))}
+          </ReadoutSection>
+
+          <ReadoutSection title="Unsupported actions">
+            {readout.unsupportedSections.map((item) => (
+              <p className="muted-copy" key={item}>
+                {item}
+              </p>
+            ))}
+            {readout.missingMethods.length > 0 ? (
+              <StatusPill label="Missing client reads" value={readout.missingMethods.join(", ")} />
+            ) : null}
+          </ReadoutSection>
+        </aside>
+      </section>
+    </section>
+  );
+}
+
+function NotificationReadoutRow({ notification }: { notification: InAppNotificationResponse }) {
+  const targets = collectNotificationTargetFields(notification);
+
+  return (
+    <article className="notification-row">
+      <div className="notification-row-header">
+        <div>
+          <strong>{formatNotificationEvent(notification.eventType)}</strong>
+          <small>{notification.safeSummary ?? notification.messageKey}</small>
+        </div>
+        <span className={`status-chip ${notificationPriorityClass(notification.priority)}`}>
+          {labelize(notification.priority)}
+        </span>
+      </div>
+      <dl className="readout-list detail-readouts">
+        <div>
+          <dt>Status</dt>
+          <dd>{labelize(notification.status)}</dd>
+        </div>
+        <div>
+          <dt>Subject</dt>
+          <dd>{labelize(notification.subjectType)}</dd>
+        </div>
+        <div>
+          <dt>Created</dt>
+          <dd>{formatDate(notification.createdAtUtc)}</dd>
+        </div>
+        <div>
+          <dt>Read</dt>
+          <dd>{formatDate(notification.readAtUtc)}</dd>
+        </div>
+      </dl>
+      <ReadoutSection title="Display keys">
+        <StatusPill label="Title key" value={notification.titleKey} />
+        <StatusPill label="Message key" value={notification.messageKey} />
+        <StatusPill label="Action path" value={notification.actionUrl ?? "Not returned"} />
+      </ReadoutSection>
+      <ReadoutSection title="Related IDs">
+        {targets.length === 0 ? (
+          <p className="muted-copy">No related target IDs were returned.</p>
+        ) : (
+          targets.map((target) => <StatusPill key={target.label} label={target.label} value={target.value} />)
+        )}
+      </ReadoutSection>
+    </article>
+  );
+}
+
+function NotificationStateMessage({
+  state,
+  message
+}: {
+  state: NotificationsReadoutState["status"];
+  message: string;
+}) {
+  if (state === "loaded") {
+    return null;
+  }
+
+  return (
+    <div className="empty-state" role="status" aria-live="polite">
+      <h4>{readoutStateTitle(state, "No notifications yet", "Could not load notifications")}</h4>
+      <p>{message}</p>
+    </div>
   );
 }
 
@@ -1662,7 +1942,9 @@ function uniqueValues<T extends string>(values: T[]): T[] {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
 }
 
-function readoutStateTitle(state: BillsReadoutState["status"], emptyTitle = "No bills yet", errorTitle = "Could not load bills"): string {
+type ReadoutStateName = BillsReadoutState["status"] | NotificationsReadoutState["status"];
+
+function readoutStateTitle(state: ReadoutStateName, emptyTitle = "No bills yet", errorTitle = "Could not load bills"): string {
   switch (state) {
     case "auth_required":
       return "Sign in required";
@@ -1674,6 +1956,8 @@ function readoutStateTitle(state: BillsReadoutState["status"], emptyTitle = "No 
       return "Session expired";
     case "unavailable":
       return "Unavailable";
+    case "unsupported":
+      return "Unsupported";
     case "error":
       return errorTitle;
     case "loaded":
@@ -1681,7 +1965,7 @@ function readoutStateTitle(state: BillsReadoutState["status"], emptyTitle = "No 
   }
 }
 
-function statusClassForReadout(state: BillsReadoutState["status"]): string {
+function statusClassForReadout(state: ReadoutStateName): string {
   if (state === "loaded") {
     return "status-sync";
   }
@@ -1691,6 +1975,22 @@ function statusClassForReadout(state: BillsReadoutState["status"]): string {
   }
 
   return "status-warning";
+}
+
+function formatNotificationEvent(eventType: string): string {
+  return labelize(eventType.replace(/[.]/g, "_"));
+}
+
+function notificationPriorityClass(priority: string): string {
+  if (priority === "urgent") {
+    return "status-danger";
+  }
+
+  if (priority === "attention") {
+    return "status-warning";
+  }
+
+  return "status-sync";
 }
 
 function NavButton({
