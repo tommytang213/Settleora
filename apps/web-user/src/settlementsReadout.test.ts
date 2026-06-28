@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   filterSettlementsForPresentation,
+  getSettlementCounterpartyUserProfileId,
   loadSettlementDetailReadout,
   loadSettlementsReadout,
+  summarizeCounterpartyPaymentDetails,
   summarizeBalanceDirections,
   summarizeSettlementStatuses,
   type SettlementsReadoutOptions
 } from "./settlementsReadout";
-import { SettleoraApiError, type SettlementRequestResponse } from "../../../packages/client-web/src/generated";
+import {
+  SettleoraApiError,
+  type SettlementCounterpartyPaymentDetailsResponse,
+  type SettlementRequestResponse
+} from "../../../packages/client-web/src/generated";
 
 const visibleSettlement: SettlementRequestResponse = {
   id: "settlement-1",
@@ -42,6 +48,21 @@ const confirmedSettlement: SettlementRequestResponse = {
   ...visibleSettlement,
   id: "settlement-2",
   status: "confirmed"
+};
+
+const counterpartyPaymentDetails: SettlementCounterpartyPaymentDetailsResponse = {
+  userProfileId: "creditor-1",
+  isConfigured: true,
+  preferredMethodLabel: "FPS",
+  paymentHandle: "creditor@example.test",
+  paymentNote: "Use the settlement reference",
+  visibilityApplied: "settlement_counterparties_only",
+  qrFile: {
+    id: "qr-file-1",
+    contentType: "image/png",
+    sizeBytes: 2048,
+    updatedAtUtc: "2026-06-28T10:20:00Z"
+  }
 };
 
 describe("settlements readout adapter", () => {
@@ -101,19 +122,27 @@ describe("settlements readout adapter", () => {
   it("loads selected settlement detail and payments through generated client read methods", async () => {
     const client = {
       getSettlementRequest: vi.fn().mockResolvedValue(visibleSettlement),
-      listSettlementPayments: vi.fn().mockResolvedValue({ payments: [] })
+      listSettlementPayments: vi.fn().mockResolvedValue({ payments: [] }),
+      getSettlementCounterpartyPaymentDetails: vi.fn().mockResolvedValue(counterpartyPaymentDetails),
+      getSettlementCounterpartyPaymentDetailsQrContent: vi.fn()
     };
 
     await expect(
       loadSettlementDetailReadout({
         accessToken: "session-token",
+        currentUserProfileId: "debtor-1",
         settlementId: visibleSettlement.id,
         client: client as unknown as SettlementsReadoutOptions["client"]
       })
     ).resolves.toMatchObject({
       status: "loaded",
       settlement: visibleSettlement,
-      payments: { payments: [] }
+      payments: { payments: [] },
+      counterpartyPaymentDetails: {
+        status: "loaded",
+        counterpartyUserProfileId: "creditor-1",
+        details: counterpartyPaymentDetails
+      }
     });
     expect(client.getSettlementRequest).toHaveBeenCalledWith(visibleSettlement.id, {
       accessToken: "session-token"
@@ -121,6 +150,35 @@ describe("settlements readout adapter", () => {
     expect(client.listSettlementPayments).toHaveBeenCalledWith(visibleSettlement.id, {
       accessToken: "session-token"
     });
+    expect(client.getSettlementCounterpartyPaymentDetails).toHaveBeenCalledWith(
+      visibleSettlement.id,
+      "creditor-1",
+      { accessToken: "session-token" }
+    );
+    expect(client.getSettlementCounterpartyPaymentDetailsQrContent).not.toHaveBeenCalled();
+  });
+
+  it("does not call counterparty payment detail reads without a matching settlement-scoped context", async () => {
+    const client = {
+      getSettlementRequest: vi.fn().mockResolvedValue(visibleSettlement),
+      listSettlementPayments: vi.fn().mockResolvedValue({ payments: [] }),
+      getSettlementCounterpartyPaymentDetails: vi.fn()
+    };
+
+    await expect(
+      loadSettlementDetailReadout({
+        accessToken: "session-token",
+        currentUserProfileId: "unrelated-profile",
+        settlementId: visibleSettlement.id,
+        client: client as unknown as SettlementsReadoutOptions["client"]
+      })
+    ).resolves.toMatchObject({
+      status: "loaded",
+      counterpartyPaymentDetails: {
+        status: "unavailable"
+      }
+    });
+    expect(client.getSettlementCounterpartyPaymentDetails).not.toHaveBeenCalled();
   });
 
   it("filters and summarizes only returned presentation rows", () => {
@@ -155,6 +213,14 @@ describe("settlements readout adapter", () => {
         ]
       })
     ).toEqual([{ label: "Incoming", count: 1 }]);
+    expect(getSettlementCounterpartyUserProfileId(visibleSettlement, "debtor-1")).toBe("creditor-1");
+    expect(getSettlementCounterpartyUserProfileId(visibleSettlement, "creditor-1")).toBe("debtor-1");
+    expect(getSettlementCounterpartyUserProfileId(visibleSettlement, "other")).toBeNull();
+    expect(summarizeCounterpartyPaymentDetails(counterpartyPaymentDetails)).toEqual([
+      { label: "Payment details", value: "Configured" },
+      { label: "QR metadata", value: "Linked metadata" },
+      { label: "Visibility", value: "Settlement Counterparties Only" }
+    ]);
   });
 
   it("reports unavailable and error states without fake settlement data", async () => {
@@ -182,6 +248,26 @@ describe("settlements readout adapter", () => {
       })
     ).resolves.toMatchObject({
       status: "error"
+    });
+
+    await expect(
+      loadSettlementDetailReadout({
+        accessToken: "session-token",
+        currentUserProfileId: "debtor-1",
+        settlementId: visibleSettlement.id,
+        client: {
+          getSettlementRequest: vi.fn().mockResolvedValue(visibleSettlement),
+          listSettlementPayments: vi.fn().mockResolvedValue({ payments: [] }),
+          getSettlementCounterpartyPaymentDetails: vi
+            .fn()
+            .mockRejectedValue(new SettleoraApiError(404, "Not found", {}))
+        } as unknown as SettlementsReadoutOptions["client"]
+      })
+    ).resolves.toMatchObject({
+      status: "loaded",
+      counterpartyPaymentDetails: {
+        status: "unavailable"
+      }
     });
   });
 });
