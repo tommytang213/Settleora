@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createFriendsUnavailableReadout,
   filterGroupsForPresentation,
+  groupBillsListQuery,
+  loadGroupBillDetailReadout,
   loadGroupDetailReadout,
   loadGroupsReadout,
   summarizeGroupRoles,
   type GroupsReadoutOptions
 } from "./groupsFriendsReadout";
-import type { GroupMemberResponse, GroupResponse } from "../../../packages/client-web/src/generated";
+import { SettleoraApiError, type GroupBillResponse, type GroupMemberResponse, type GroupResponse } from "../../../packages/client-web/src/generated";
 
 const visibleGroup: GroupResponse = {
   id: "group-1",
@@ -25,6 +27,33 @@ const visibleMember: GroupMemberResponse = {
   status: "active",
   joinedAtUtc: "2026-06-28T10:00:00Z",
   updatedAtUtc: "2026-06-28T10:00:00Z"
+};
+
+const visibleGroupBill: GroupBillResponse = {
+  id: "group-bill-1",
+  groupId: visibleGroup.id,
+  merchantName: "Harbour Market",
+  billDate: "2026-06-28",
+  status: "confirmed",
+  reconciliation: {
+    status: "unreconciled",
+    updatedAtUtc: null,
+    updatedByUserProfileId: null,
+    reconciledAtUtc: null,
+    note: null
+  },
+  revisionCreationActions: {
+    canCreateRevision: false
+  },
+  totalAmount: "128.50",
+  totalCurrency: "HKD",
+  createdAtUtc: "2026-06-28T10:00:00Z",
+  updatedAtUtc: "2026-06-28T10:00:00Z",
+  items: [],
+  participants: [],
+  payers: [],
+  adjustments: [],
+  calculatedAdjustmentAllocations: []
 };
 
 describe("groups and friends readout adapter", () => {
@@ -56,10 +85,11 @@ describe("groups and friends readout adapter", () => {
     expect(client.listGroups).toHaveBeenCalledWith({ accessToken: "session-token" });
   });
 
-  it("loads group detail and members through generated client read methods", async () => {
+  it("loads group detail, members, and group bills through generated client read methods", async () => {
     const client = {
       getGroup: vi.fn().mockResolvedValue(visibleGroup),
-      listGroupMembers: vi.fn().mockResolvedValue({ members: [visibleMember] })
+      listGroupMembers: vi.fn().mockResolvedValue({ members: [visibleMember] }),
+      listGroupBills: vi.fn().mockResolvedValue({ bills: [visibleGroupBill] })
     };
 
     await expect(
@@ -71,10 +101,98 @@ describe("groups and friends readout adapter", () => {
     ).resolves.toMatchObject({
       status: "loaded",
       group: visibleGroup,
-      members: { members: [visibleMember] }
+      members: { members: [visibleMember] },
+      bills: { bills: [visibleGroupBill] }
     });
     expect(client.getGroup).toHaveBeenCalledWith(visibleGroup.id, { accessToken: "session-token" });
     expect(client.listGroupMembers).toHaveBeenCalledWith(visibleGroup.id, { accessToken: "session-token" });
+    expect(client.listGroupBills).toHaveBeenCalledWith(
+      visibleGroup.id,
+      { accessToken: "session-token" },
+      groupBillsListQuery
+    );
+  });
+
+  it("does not call group bill detail without a verified credential", async () => {
+    const client = {
+      getGroupBill: vi.fn()
+    };
+
+    await expect(
+      loadGroupBillDetailReadout({
+        accessToken: null,
+        groupId: visibleGroup.id,
+        billId: visibleGroupBill.id,
+        client: client as unknown as GroupsReadoutOptions["client"]
+      })
+    ).resolves.toMatchObject({
+      status: "auth_required"
+    });
+    expect(client.getGroupBill).not.toHaveBeenCalled();
+  });
+
+  it("loads group bill detail through the group-scoped generated client read method", async () => {
+    const client = {
+      getGroupBill: vi.fn().mockResolvedValue(visibleGroupBill)
+    };
+
+    await expect(
+      loadGroupBillDetailReadout({
+        accessToken: "session-token",
+        groupId: visibleGroup.id,
+        billId: visibleGroupBill.id,
+        client: client as unknown as GroupsReadoutOptions["client"]
+      })
+    ).resolves.toMatchObject({
+      status: "loaded",
+      bill: visibleGroupBill
+    });
+    expect(client.getGroupBill).toHaveBeenCalledWith(visibleGroup.id, visibleGroupBill.id, {
+      accessToken: "session-token"
+    });
+  });
+
+  it("reports empty, unavailable, and error states without fake group bill data", async () => {
+    await expect(
+      loadGroupDetailReadout({
+        accessToken: "session-token",
+        groupId: visibleGroup.id,
+        client: {
+          getGroup: vi.fn().mockResolvedValue(visibleGroup),
+          listGroupMembers: vi.fn().mockResolvedValue({ members: [] }),
+          listGroupBills: vi.fn().mockResolvedValue({ bills: [] })
+        } as unknown as GroupsReadoutOptions["client"]
+      })
+    ).resolves.toMatchObject({
+      status: "loaded",
+      bills: { bills: [] }
+    });
+
+    await expect(
+      loadGroupBillDetailReadout({
+        accessToken: "session-token",
+        groupId: visibleGroup.id,
+        billId: visibleGroupBill.id,
+        client: {
+          getGroupBill: vi.fn().mockRejectedValue(new SettleoraApiError(403, "Forbidden", {}))
+        } as unknown as GroupsReadoutOptions["client"]
+      })
+    ).resolves.toMatchObject({
+      status: "unavailable"
+    });
+
+    await expect(
+      loadGroupBillDetailReadout({
+        accessToken: "session-token",
+        groupId: visibleGroup.id,
+        billId: visibleGroupBill.id,
+        client: {
+          getGroupBill: vi.fn().mockRejectedValue(new Error("network"))
+        } as unknown as GroupsReadoutOptions["client"]
+      })
+    ).resolves.toMatchObject({
+      status: "error"
+    });
   });
 
   it("filters only loaded presentation group rows", () => {

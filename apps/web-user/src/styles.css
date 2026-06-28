@@ -620,6 +620,12 @@ h1 {
   gap: 10px;
 }
 
+.embedded-row-list {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+}
+
 .bill-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
