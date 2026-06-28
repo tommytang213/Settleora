@@ -8,6 +8,13 @@ import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shell
 
 const primaryNav = navItems.filter((item) => item.section === "primary");
 const moreNav = navItems.filter((item) => item.section === "more");
+const mobileNav = [
+  { item: navItems.find((item) => item.id === "home") ?? navItems[0], label: "Home" },
+  { item: navItems.find((item) => item.id === "bills") ?? navItems[0], label: "Bills" },
+  { item: navItems.find((item) => item.id === "groups") ?? navItems[0], label: "Groups" },
+  { item: navItems.find((item) => item.id === "settle") ?? navItems[0], label: "Settle" },
+  { item: navItems.find((item) => item.id === "settings") ?? navItems[0], label: "More" }
+];
 
 export function App() {
   const [activeId, setActiveId] = useState("home");
@@ -50,7 +57,7 @@ export function App() {
           </div>
           <div>
             <p className="eyebrow">Settleora</p>
-            <h1>User workspace</h1>
+            <h1>User web</h1>
           </div>
         </div>
         <nav className="nav-group" aria-label="Day 1 areas">
@@ -70,13 +77,14 @@ export function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Self-hosted workspace</p>
-            <p className="topbar-title">Protected web foundation</p>
+            <p className="topbar-title">Private session required</p>
           </div>
           <div className="topbar-actions" aria-label="Workspace status">
-            <span className="status-chip status-neutral">Server mode</span>
-            <span className="status-chip status-warning">Session required</span>
-            <button className="icon-button" type="button" aria-label="Open notifications">
-              N
+            <span className="status-chip status-sync">Server mode</span>
+            <span className="status-chip status-warning">Sign-in needed</span>
+            <button className="notification-button" type="button" aria-label="Open notifications">
+              <span className="notification-dot" aria-hidden="true" />
+              <span>Notifications</span>
             </button>
             <button className="avatar-button" type="button" aria-label="Open account">
               Account
@@ -85,14 +93,14 @@ export function App() {
         </header>
 
         <nav className="mobile-nav" aria-label="Compact navigation">
-          {primaryNav.map((item) => (
+          {mobileNav.map(({ item, label }) => (
             <button
               key={item.id}
               type="button"
               className={item.id === activeId ? "mobile-nav-item active" : "mobile-nav-item"}
               onClick={() => setActiveId(item.id)}
             >
-              {item.label}
+              {label}
             </button>
           ))}
         </nav>
@@ -105,11 +113,11 @@ export function App() {
               <p>{activeItem.description}</p>
             </div>
             <div className="page-actions" aria-label="Page actions">
-              <button className="secondary-button" type="button">
-                Search
+              <button className="secondary-button" type="button" disabled>
+                Search after sign-in
               </button>
-              <button className="primary-button" type="button" disabled={session.status !== "authenticated"}>
-                New item
+              <button className="primary-button" type="button" disabled>
+                {activeItem.actionLabel}
               </button>
             </div>
           </section>
@@ -132,10 +140,10 @@ export function App() {
                 <div className="panel-header">
                   <div>
                     <p className="eyebrow">Protected area</p>
-                    <h3 id="surface-title">{activeItem.label} foundation</h3>
+                    <h3 id="surface-title">{activeItem.label} stays private</h3>
                   </div>
-                  <span className="status-chip status-neutral">
-                    {activeItem.status === "placeholder" ? "Ready placeholder" : "Session gated"}
+                  <span className="status-chip status-sync">
+                    {activeItem.status === "placeholder" ? "Planned surface" : "Session gated"}
                   </span>
                 </div>
                 <div className="empty-state" role="status" aria-live="polite">
@@ -188,7 +196,7 @@ export function App() {
 
               <section className="surface-panel compact-panel">
                 <p className="eyebrow">More</p>
-                <h3>Next surfaces</h3>
+                <h3>All functions</h3>
                 <div className="quick-list">
                   {moreNav.slice(0, 5).map((item) => (
                     <button key={item.id} type="button" onClick={() => setActiveId(item.id)}>

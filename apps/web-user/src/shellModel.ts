@@ -4,6 +4,7 @@ export interface NavItem {
   id: string;
   label: string;
   description: string;
+  actionLabel: string;
   section: NavSection;
   status: "available" | "placeholder" | "requiresSession";
 }
@@ -13,6 +14,7 @@ export const navItems: NavItem[] = [
     id: "home",
     label: "Home",
     description: "Overview, balances, review queue, and recent activity.",
+    actionLabel: "Customize quick actions",
     section: "primary",
     status: "requiresSession"
   },
@@ -20,6 +22,7 @@ export const navItems: NavItem[] = [
     id: "bills",
     label: "Bills",
     description: "Personal and shared bill lists, filters, receipts, and review handoffs.",
+    actionLabel: "Add bill",
     section: "primary",
     status: "requiresSession"
   },
@@ -27,6 +30,7 @@ export const navItems: NavItem[] = [
     id: "groups",
     label: "Groups",
     description: "Group workspaces, members, open bills, balances, and activity.",
+    actionLabel: "Create group",
     section: "primary",
     status: "requiresSession"
   },
@@ -34,6 +38,7 @@ export const navItems: NavItem[] = [
     id: "friends",
     label: "Friends",
     description: "Exact-match people search, invite links, and direct sharing readiness.",
+    actionLabel: "Invite friend",
     section: "more",
     status: "placeholder"
   },
@@ -41,6 +46,7 @@ export const navItems: NavItem[] = [
     id: "settle",
     label: "Settle",
     description: "Balances, requests, payment detail checks, proof summaries, and activity.",
+    actionLabel: "Request payment",
     section: "primary",
     status: "requiresSession"
   },
@@ -48,6 +54,7 @@ export const navItems: NavItem[] = [
     id: "reports",
     label: "Reports",
     description: "Search, filters, monthly summaries, statement-style rows, and exports.",
+    actionLabel: "Export report",
     section: "primary",
     status: "requiresSession"
   },
@@ -55,6 +62,7 @@ export const navItems: NavItem[] = [
     id: "import-export",
     label: "Import and export",
     description: "Staged import, scoped export, local backup, and restore readiness.",
+    actionLabel: "Start staged import",
     section: "more",
     status: "placeholder"
   },
@@ -62,6 +70,7 @@ export const navItems: NavItem[] = [
     id: "notifications",
     label: "Notifications",
     description: "Unread queue, preferences, read/archive actions, and linked activity.",
+    actionLabel: "Review notifications",
     section: "more",
     status: "requiresSession"
   },
@@ -69,6 +78,7 @@ export const navItems: NavItem[] = [
     id: "profile",
     label: "Profile and payment",
     description: "Profile details, payment previews, visibility, and QR handoffs.",
+    actionLabel: "Update profile",
     section: "more",
     status: "requiresSession"
   },
@@ -76,6 +86,7 @@ export const navItems: NavItem[] = [
     id: "security",
     label: "Account and sessions",
     description: "Session readouts, current device, sign-out actions, and security status.",
+    actionLabel: "Review sessions",
     section: "more",
     status: "requiresSession"
   },
@@ -83,6 +94,7 @@ export const navItems: NavItem[] = [
     id: "settings",
     label: "Settings",
     description: "Appearance, policy readouts, mode choices, and advanced tools.",
+    actionLabel: "Open settings",
     section: "more",
     status: "placeholder"
   }
@@ -91,13 +103,13 @@ export const navItems: NavItem[] = [
 export const dashboardCards = [
   {
     label: "You owe",
-    value: "Sign in required",
-    detail: "Balances come from Settleora after a verified session."
+    value: "Hidden",
+    detail: "Balances appear after Settleora verifies your session."
   },
   {
     label: "Owed to you",
-    value: "Sign in required",
-    detail: "The web app does not calculate settlement truth locally."
+    value: "Hidden",
+    detail: "Settlement readouts stay private until sign-in."
   },
   {
     label: "Needs review",
