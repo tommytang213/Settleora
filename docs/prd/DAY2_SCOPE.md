@@ -12,6 +12,10 @@ Day 2 features should still be production-shaped. They should be implemented thr
 
 ## Day 2 feature list
 
+### 0. Strict Vault planning
+
+Plan Strict Private Vault / zero-knowledge vault direction without treating it as Day 1 implementation. The planning slice should cover recovery tradeoffs, trusted-device or user-held key behavior, recoverable-to-strict migration warnings, older-backup caveats, no-silent-downgrade rules, admin/operator limitations, and manual gates before any future runtime work.
+
 ### 1. Frankfurter currency exchange
 
 Add daily and historical exchange-rate support using Frankfurter as the first provider.

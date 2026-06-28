@@ -14,6 +14,7 @@ This folder records approved mobile UI/UX design reference material for future S
 - [Mobile Privacy Vault reference V1](MOBILE_PRIVACY_VAULT_REFERENCE_V1.md)
 - [Mobile Web Bill Revision Diff reference V1](MOBILE_WEB_BILL_REVISION_DIFF_REFERENCE_V1.md)
 - [OCR tax, discount, fee, and refund UX reference](../../features/expenses-bills/OCR_TAX_DISCOUNT_FEE_REFUND_UX_REFERENCE.md)
+- [Day 1 UX reference decisions](../../planning/DAY1_UX_REFERENCE_DECISIONS.md)
 - [Mobile implementation guardrails V1](MOBILE_IMPLEMENTATION_GUARDRAILS_V1.md)
 - [Mobile shared design system audit V1](MOBILE_SHARED_DESIGN_SYSTEM_AUDIT_V1.md)
 - [Mobile design reference assets](assets/README.md)

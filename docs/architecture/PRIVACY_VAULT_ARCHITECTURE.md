@@ -8,7 +8,7 @@ Settleora must protect sensitive user data without turning the first release int
 
 - Standard Secure Mode for most users.
 - Recoverable Private Vault for selected sensitive data.
-- A future/Day 3+ compatible path to Strict Private Vault.
+- A future Day 2 planning path to Strict Private Vault.
 
 This document does not authorize implementation by itself. It defines architecture, data classification, policy boundaries, recovery behavior, non-goals, and future implementation candidates.
 
@@ -53,7 +53,7 @@ require_recoverable_private_vault_for_sensitive_data
 allow_strict_private_vault_future
 ```
 
-Day 1 should allow users to choose between `standard_secure` and `recoverable_private_vault` when the deployment policy allows recoverable vault use. `strict_private_vault` remains Day 3/future-compatible only unless a later implementation task explicitly approves it.
+Day 1 should allow users to choose between `standard_secure` and `recoverable_private_vault` when the deployment policy allows recoverable vault use. `strict_private_vault` remains Day 2 planning/future-compatible only unless a later implementation task explicitly approves it.
 
 Day 1 must not require users to manually copy encryption keys between devices. Device onboarding should use trusted-device approval, recovery flow, or server-assisted rewrap depending on privacy mode.
 
@@ -63,7 +63,7 @@ Day 1 must not require users to manually copy encryption keys between devices. D
 |---|---:|---:|---:|---|
 | `standard_secure` | Yes | Yes | No | Most users |
 | `recoverable_private_vault` | Yes | Yes | Partial, not strict | Users who want stronger privacy without unrecoverable data loss |
-| `strict_private_vault` | Day 3/future | No unless recovery key/trusted device exists | Stronger | Advanced users who accept key-loss risk |
+| `strict_private_vault` | Day 2 planning/future | No unless recovery key/trusted device exists | Stronger | Advanced users who accept key-loss risk |
 
 ### Standard Secure Mode
 
@@ -92,7 +92,7 @@ Characteristics:
 
 ### Strict Private Vault Future Mode
 
-Strict Private Vault is Day 3/future-only. It is included so Day 1 architecture, data classification, envelope storage, audit categories, and backup warnings do not block a later strict mode, but it is not Day 1 runtime scope.
+Strict Private Vault is Day 2 planning/future-only. It is included so Day 1 architecture, data classification, envelope storage, audit categories, and backup warnings do not block a later strict mode, but it is not Day 1 runtime scope.
 
 Characteristics:
 
