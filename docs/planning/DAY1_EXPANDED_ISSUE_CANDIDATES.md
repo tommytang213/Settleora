@@ -62,7 +62,7 @@ Applied Day 1 decisions:
   where available, encrypted local storage/export/backup where feasible, and
   clear no-collaboration warnings.
 - Standard Secure Mode and Recoverable Private Vault for selected sensitive
-  data are Day 1. Strict Private Vault stays Day 3/future.
+  data are Day 1. Strict Private Vault stays Day 2 planning/future.
 - Traditional Chinese UI, full theme settings, statement upload/matching,
   provider FX/Frankfurter, locks/refunds/deposits, payment-provider integration,
   and AI insights stay out of Day 1 runtime candidates except explicit Day 1

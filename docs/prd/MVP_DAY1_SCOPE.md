@@ -314,7 +314,7 @@ Full dashboard builders, drag-drop widget customization, and complex per-user pr
 - Recoverable Private Vault is the Day 1 user-selectable direction for selected sensitive data such as payment details, QR/payment images, receipt images, OCR raw text where stored, settlement proof files, private notes, and other non-shared sensitive personal or financial data.
 - Data related to money or personal information that is not shared should generally be eligible for vault protection.
 - Users can choose or change privacy mode only within deployment/admin policy, including policies that disable vault features, allow Standard only, allow Recoverable Private Vault, or require Recoverable Private Vault for sensitive data.
-- Strict Private Vault is a future-compatible Day 3/future architecture path, not a Day 1 implementation unless explicitly requested later.
+- Strict Private Vault is a future-compatible Day 2 planning path, not a Day 1 implementation unless explicitly requested later.
 - Users should have a future migration path from Recoverable Private Vault to Strict Private Vault, including key rotation or re-wrapping, removal or disablement of recovery envelopes, audit events, clear warnings about recovery-key loss, and older backup retention caveats.
 - Core financial truth remains API/domain-authoritative: money, currency, split shares, settlement states, authorization, audit, sync state, and shared accounting truth must not move into client authority because of vault protection.
 - Shared sensitive files/fields may be vault-protected only where the design preserves authorized access for intended participants and does not move financial authority to clients.
