@@ -82,9 +82,14 @@ policy.
 
 ## Required Source State
 
-A future source-state/schema issue is required before runtime. The design may be
-implemented as new fields on an OCR review source-state model or as a separate
-assignment table, but it must preserve these concepts:
+Implemented source-state/schema issue #575 adds a separate
+`receipt_ocr_review_assignments` table and route-owned assignment endpoints for
+saved bill-scoped receipt OCR reviews. This satisfies the explicit source-state
+prerequisite for a later `ocr.needs_review` notification runtime, but it does
+not add OCR notification event constants, subject types, writers, delivery, or
+mobile/deep-link behavior.
+
+The implemented design preserves these concepts:
 
 - stable `receiptOcrReviewId`;
 - related `expenseBillId`;
@@ -106,6 +111,15 @@ assignment table, but it must preserve these concepts:
 The source state must be owned by the API/domain boundary. Workers may publish
 results or handoff requests through reviewed contracts, but they must not mutate
 core business tables or decide notification recipients directly.
+
+Current public assignment endpoints accept only `manual_assignment`; reserved
+source categories such as `server_ocr_worker`,
+`server_mode_upload_handoff`, and `system_reassignment` remain future
+API-owned/internal flows. Assignment writes revalidate the assigned recipient's
+access to the bill, receipt attachment metadata, and saved OCR review. Repeated
+assignment to the same active responsible editor is idempotent; retargeting
+supersedes the prior active assignment. Completion and cancellation mutate only
+assignment state.
 
 ## Recipient Policy
 

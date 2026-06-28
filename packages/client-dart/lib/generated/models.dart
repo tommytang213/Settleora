@@ -8408,6 +8408,189 @@ class ReceiptOcrReviewResponse {
   }
 }
 
+/// OCR review assignment/source-state status. needs_review is the only active notification-eligible source state; reviewed, cancelled, and superseded are terminal source-state outcomes and do not create OCR notification runtime in this slice.
+typedef ReceiptOcrReviewAssignmentStatus = String;
+class ReceiptOcrReviewAssignmentStatusValues {
+  const ReceiptOcrReviewAssignmentStatusValues._();
+  static const ReceiptOcrReviewAssignmentStatus needsReview = "needs_review";
+  static const ReceiptOcrReviewAssignmentStatus reviewed = "reviewed";
+  static const ReceiptOcrReviewAssignmentStatus cancelled = "cancelled";
+  static const ReceiptOcrReviewAssignmentStatus superseded = "superseded";
+  static const Set<ReceiptOcrReviewAssignmentStatus> values = {needsReview, reviewed, cancelled, superseded};
+}
+
+/// API-owned source category for the assignment transition. Public assignment endpoints currently accept only manual_assignment; other values are reserved for reviewed API-owned worker/upload/system flows.
+typedef ReceiptOcrReviewAssignmentSource = String;
+class ReceiptOcrReviewAssignmentSourceValues {
+  const ReceiptOcrReviewAssignmentSourceValues._();
+  static const ReceiptOcrReviewAssignmentSource serverOcrWorker = "server_ocr_worker";
+  static const ReceiptOcrReviewAssignmentSource serverModeUploadHandoff = "server_mode_upload_handoff";
+  static const ReceiptOcrReviewAssignmentSource manualAssignment = "manual_assignment";
+  static const ReceiptOcrReviewAssignmentSource systemReassignment = "system_reassignment";
+  static const Set<ReceiptOcrReviewAssignmentSource> values = {serverOcrWorker, serverModeUploadHandoff, manualAssignment, systemReassignment};
+}
+
+/// Explicit OCR review assignment request. The route and authenticated session actor are authoritative. Clients may request only manual_assignment; worker, upload-handoff, and system source categories are reserved for future API-owned internal flows. The server revalidates assigned recipient access before writing.
+class ReceiptOcrReviewAssignmentRequest {
+  static const Object _unsetSourceCorrelationId = Object();
+
+  ReceiptOcrReviewAssignmentRequest({
+    required this.assignedToUserProfileId,
+    required this.assignmentSource,
+    Object? sourceCorrelationId = _unsetSourceCorrelationId,
+  })
+      : sourceCorrelationId = identical(sourceCorrelationId, _unsetSourceCorrelationId) ? null : sourceCorrelationId as String?,
+        _hasSourceCorrelationId = !identical(sourceCorrelationId, _unsetSourceCorrelationId);
+
+  /// Responsible editor profile ID selected by the API-owned assignment flow after recipient authorization revalidation.
+  final String assignedToUserProfileId;
+  /// Public API assignment source. Other assignment source values are reserved for future internal API-owned flows.
+  final String assignmentSource;
+  /// Optional safe caller correlation ID. It must not contain provider internals, storage keys, local paths, debug identifiers, OCR text, filenames, or secrets.
+  final String? sourceCorrelationId;
+  final bool _hasSourceCorrelationId;
+
+  factory ReceiptOcrReviewAssignmentRequest.fromJson(JsonObject json) {
+    return ReceiptOcrReviewAssignmentRequest(
+      assignedToUserProfileId: json["assignedToUserProfileId"] as String,
+      assignmentSource: json["assignmentSource"] as String,
+      sourceCorrelationId: json.containsKey("sourceCorrelationId")
+          ? json["sourceCorrelationId"] == null ? null : json["sourceCorrelationId"] as String
+          : _unsetSourceCorrelationId,
+    );
+  }
+
+  JsonObject toJson() {
+    final sourceCorrelationIdJsonValue = sourceCorrelationId;
+
+    return {
+      "assignedToUserProfileId": assignedToUserProfileId,
+      "assignmentSource": assignmentSource,
+      if (_hasSourceCorrelationId) "sourceCorrelationId": sourceCorrelationIdJsonValue,
+    };
+  }
+}
+
+/// Stale-write guard for completing or cancelling an active OCR review assignment. The server mutates only assignment source-state.
+class ReceiptOcrReviewAssignmentTransitionRequest {
+  const ReceiptOcrReviewAssignmentTransitionRequest({
+    required this.expectedAssignmentUpdatedAtUtc,
+  });
+
+  /// The assignment updatedAtUtc value the user read before requesting completion or cancellation.
+  final DateTime expectedAssignmentUpdatedAtUtc;
+
+  factory ReceiptOcrReviewAssignmentTransitionRequest.fromJson(JsonObject json) {
+    return ReceiptOcrReviewAssignmentTransitionRequest(
+      expectedAssignmentUpdatedAtUtc: DateTime.parse(json["expectedAssignmentUpdatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "expectedAssignmentUpdatedAtUtc": expectedAssignmentUpdatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Safe OCR review assignment/source-state response. It exposes stable review, bill, group, file, assignee, bounded source/status, optional safe correlation ID, and timestamps only. It excludes raw OCR text, receipt text, OCR line dumps, receipt bytes, storage object keys, provider paths, signed URLs, filenames, payment details, private notes, auth/session data, notification rows, worker debug output, and unrelated users.
+class ReceiptOcrReviewAssignmentResponse {
+  const ReceiptOcrReviewAssignmentResponse({
+    required this.id,
+    required this.receiptOcrReviewId,
+    required this.billId,
+    required this.fileId,
+    required this.groupId,
+    required this.assignmentStatus,
+    required this.assignedToUserProfileId,
+    required this.assignedByUserProfileId,
+    required this.assignmentSource,
+    required this.sourceActorUserProfileId,
+    required this.sourceCorrelationId,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.completedAtUtc,
+    required this.cancelledAtUtc,
+    required this.supersededAtUtc,
+  });
+
+  /// Stable OCR review assignment ID.
+  final String id;
+  /// Stable saved receipt OCR review ID.
+  final String receiptOcrReviewId;
+  /// Expense bill ID that owns the receipt OCR review.
+  final String billId;
+  /// Stable receipt attachment file metadata ID.
+  final String fileId;
+  /// Owning group ID for group bills, or null for personal bills.
+  final String? groupId;
+  final ReceiptOcrReviewAssignmentStatus assignmentStatus;
+  /// Responsible editor profile ID after API authorization revalidation.
+  final String assignedToUserProfileId;
+  /// Assigning user profile ID for user-originated assignments, or null for future reviewed system/worker categories.
+  final String? assignedByUserProfileId;
+  final ReceiptOcrReviewAssignmentSource assignmentSource;
+  /// User source actor when the source is user-originated, or null for future reviewed worker/system categories.
+  final String? sourceActorUserProfileId;
+  /// Optional safe correlation ID. It is not a provider internal, storage key, path, debug ID, OCR text, filename, or secret.
+  final String? sourceCorrelationId;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final DateTime? completedAtUtc;
+  final DateTime? cancelledAtUtc;
+  final DateTime? supersededAtUtc;
+
+  factory ReceiptOcrReviewAssignmentResponse.fromJson(JsonObject json) {
+    return ReceiptOcrReviewAssignmentResponse(
+      id: json["id"] as String,
+      receiptOcrReviewId: json["receiptOcrReviewId"] as String,
+      billId: json["billId"] as String,
+      fileId: json["fileId"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      assignmentStatus: json["assignmentStatus"] as String,
+      assignedToUserProfileId: json["assignedToUserProfileId"] as String,
+      assignedByUserProfileId: json["assignedByUserProfileId"] == null ? null : json["assignedByUserProfileId"] as String,
+      assignmentSource: json["assignmentSource"] as String,
+      sourceActorUserProfileId: json["sourceActorUserProfileId"] == null ? null : json["sourceActorUserProfileId"] as String,
+      sourceCorrelationId: json["sourceCorrelationId"] == null ? null : json["sourceCorrelationId"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      completedAtUtc: json["completedAtUtc"] == null ? null : DateTime.parse(json["completedAtUtc"] as String),
+      cancelledAtUtc: json["cancelledAtUtc"] == null ? null : DateTime.parse(json["cancelledAtUtc"] as String),
+      supersededAtUtc: json["supersededAtUtc"] == null ? null : DateTime.parse(json["supersededAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final assignedByUserProfileIdJsonValue = assignedByUserProfileId;
+    final sourceActorUserProfileIdJsonValue = sourceActorUserProfileId;
+    final sourceCorrelationIdJsonValue = sourceCorrelationId;
+    final completedAtUtcJsonValue = completedAtUtc;
+    final cancelledAtUtcJsonValue = cancelledAtUtc;
+    final supersededAtUtcJsonValue = supersededAtUtc;
+
+    return {
+      "id": id,
+      "receiptOcrReviewId": receiptOcrReviewId,
+      "billId": billId,
+      "fileId": fileId,
+      "groupId": groupIdJsonValue,
+      "assignmentStatus": assignmentStatus,
+      "assignedToUserProfileId": assignedToUserProfileId,
+      "assignedByUserProfileId": assignedByUserProfileIdJsonValue,
+      "assignmentSource": assignmentSource,
+      "sourceActorUserProfileId": sourceActorUserProfileIdJsonValue,
+      "sourceCorrelationId": sourceCorrelationIdJsonValue,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "completedAtUtc": completedAtUtcJsonValue == null ? null : completedAtUtcJsonValue.toUtc().toIso8601String(),
+      "cancelledAtUtc": cancelledAtUtcJsonValue == null ? null : cancelledAtUtcJsonValue.toUtc().toIso8601String(),
+      "supersededAtUtc": supersededAtUtcJsonValue == null ? null : supersededAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Bounded receipt OCR apply-preview validation issue code. Codes in blockedReasons make canApply false; codes in warnings may be informational or blocking.
 typedef ReceiptOcrReviewApplyPreviewIssueCode = String;
 class ReceiptOcrReviewApplyPreviewIssueCodeValues {

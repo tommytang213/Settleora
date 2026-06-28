@@ -29,6 +29,22 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         Assert.True(ReceiptOcrReviewSources.IsSupported(ReceiptOcrReviewSources.ManualEntry));
         Assert.True(ReceiptOcrReviewSources.IsSupported(ReceiptOcrReviewSources.ImportedReviewedData));
         Assert.False(ReceiptOcrReviewSources.IsSupported("server_ocr_worker"));
+
+        Assert.True(ReceiptOcrReviewAssignmentStatuses.IsSupported(ReceiptOcrReviewAssignmentStatuses.NeedsReview));
+        Assert.True(ReceiptOcrReviewAssignmentStatuses.IsSupported(ReceiptOcrReviewAssignmentStatuses.Reviewed));
+        Assert.True(ReceiptOcrReviewAssignmentStatuses.IsSupported(ReceiptOcrReviewAssignmentStatuses.Cancelled));
+        Assert.True(ReceiptOcrReviewAssignmentStatuses.IsSupported(ReceiptOcrReviewAssignmentStatuses.Superseded));
+        Assert.False(ReceiptOcrReviewAssignmentStatuses.IsSupported("completed"));
+
+        Assert.True(ReceiptOcrReviewAssignmentSources.IsSupported(ReceiptOcrReviewAssignmentSources.ServerOcrWorker));
+        Assert.True(ReceiptOcrReviewAssignmentSources.IsSupported(ReceiptOcrReviewAssignmentSources.ServerModeUploadHandoff));
+        Assert.True(ReceiptOcrReviewAssignmentSources.IsSupported(ReceiptOcrReviewAssignmentSources.ManualAssignment));
+        Assert.True(ReceiptOcrReviewAssignmentSources.IsSupported(ReceiptOcrReviewAssignmentSources.SystemReassignment));
+        Assert.False(ReceiptOcrReviewAssignmentSources.IsSupported("provider_debug_job"));
+
+        Assert.Equal(24, ReceiptOcrReviewAssignmentConstraints.StatusMaxLength);
+        Assert.Equal(40, ReceiptOcrReviewAssignmentConstraints.SourceMaxLength);
+        Assert.Equal(120, ReceiptOcrReviewAssignmentConstraints.SourceCorrelationIdMaxLength);
     }
 
     [Fact]
@@ -95,6 +111,48 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         AssertForeignKey(lineEntity, typeof(ReceiptOcrReview), ["ReceiptOcrReviewId"], DeleteBehavior.Restrict);
         AssertCheckConstraint(lineEntity, "ck_receipt_ocr_review_lines_text_not_blank", "length(btrim(text)) > 0");
         AssertCheckConstraint(lineEntity, "ck_receipt_ocr_review_lines_quantity_positive", "quantity IS NULL OR quantity > 0");
+
+        var assignmentEntity = FindEntityType<ReceiptOcrReviewAssignment>(dbContext);
+        var assignmentStoreObject = StoreObjectIdentifier.Table("receipt_ocr_review_assignments", null);
+
+        Assert.Equal("receipt_ocr_review_assignments", assignmentEntity.GetTableName());
+        Assert.Equal(["Id"], assignmentEntity.FindPrimaryKey()!.Properties.Select(property => property.Name));
+        AssertColumn(assignmentEntity, assignmentStoreObject, "Id", "id", isNullable: false);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "ReceiptOcrReviewId", "receipt_ocr_review_id", isNullable: false);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "ExpenseBillId", "expense_bill_id", isNullable: false);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "FileObjectId", "file_object_id", isNullable: false);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "GroupId", "group_id", isNullable: true);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "AssignmentStatus", "assignment_status", isNullable: false, maxLength: 24);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "AssignedToUserProfileId", "assigned_to_user_profile_id", isNullable: false);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "AssignedByUserProfileId", "assigned_by_user_profile_id", isNullable: true);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "AssignmentSource", "assignment_source", isNullable: false, maxLength: 40);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "SourceActorUserProfileId", "source_actor_user_profile_id", isNullable: true);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "SourceCorrelationId", "source_correlation_id", isNullable: true, maxLength: 120);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "UpdatedAtUtc", "updated_at_utc", isNullable: false);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "CompletedAtUtc", "completed_at_utc", isNullable: true);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "CancelledAtUtc", "cancelled_at_utc", isNullable: true);
+        AssertColumn(assignmentEntity, assignmentStoreObject, "SupersededAtUtc", "superseded_at_utc", isNullable: true);
+
+        AssertIndex(assignmentEntity, "ux_receipt_ocr_review_assignments_active_review", ["ReceiptOcrReviewId"], isUnique: true);
+        AssertIndex(assignmentEntity, "ux_receipt_ocr_review_assignments_active_review_assignee", ["ReceiptOcrReviewId", "AssignedToUserProfileId"], isUnique: true);
+        AssertIndex(assignmentEntity, "ix_receipt_ocr_review_assignments_bill_file", ["ExpenseBillId", "FileObjectId"], isUnique: false);
+        AssertIndex(assignmentEntity, "ix_receipt_ocr_review_assignments_status", ["AssignmentStatus"], isUnique: false);
+        AssertForeignKey(assignmentEntity, typeof(ReceiptOcrReview), ["ReceiptOcrReviewId"], DeleteBehavior.Restrict);
+        AssertForeignKey(assignmentEntity, typeof(ExpenseBillAttachment), ["ExpenseBillId", "FileObjectId"], DeleteBehavior.Restrict);
+        AssertForeignKey(assignmentEntity, typeof(UserProfile), ["AssignedToUserProfileId"], DeleteBehavior.Restrict);
+        AssertForeignKey(assignmentEntity, typeof(UserProfile), ["AssignedByUserProfileId"], DeleteBehavior.Restrict);
+        AssertForeignKey(assignmentEntity, typeof(UserProfile), ["SourceActorUserProfileId"], DeleteBehavior.Restrict);
+        AssertForeignKey(assignmentEntity, typeof(UserGroup), ["GroupId"], DeleteBehavior.Restrict);
+        AssertCheckConstraint(assignmentEntity, "ck_receipt_ocr_review_assignments_status", "assignment_status IN ('needs_review', 'reviewed', 'cancelled', 'superseded')");
+        AssertCheckConstraint(assignmentEntity, "ck_receipt_ocr_review_assignments_source", "assignment_source IN ('server_ocr_worker', 'server_mode_upload_handoff', 'manual_assignment', 'system_reassignment')");
+        AssertCheckConstraint(assignmentEntity, "ck_receipt_ocr_review_assignments_source_correlation_not_blank", "source_correlation_id IS NULL OR length(btrim(source_correlation_id)) > 0");
+        AssertCheckConstraint(assignmentEntity, "ck_receipt_ocr_review_assignments_manual_source_actor", "(assignment_source <> 'manual_assignment' OR (assigned_by_user_profile_id IS NOT NULL AND source_actor_user_profile_id IS NOT NULL))");
+
+        var assignmentColumnNames = assignmentEntity.GetProperties()
+            .Select(property => property.GetColumnName(assignmentStoreObject) ?? property.Name)
+            .ToArray();
+        Assert.DoesNotContain(assignmentColumnNames, IsStorageOrRawOcrColumnName);
     }
 
     [Fact]
@@ -105,6 +163,9 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
         Assert.Contains(
             dbContext.Database.GetMigrations(),
             migration => migration.EndsWith("_AddReceiptOcrReviewIntakeFoundation", StringComparison.Ordinal));
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddReceiptOcrReviewAssignments", StringComparison.Ordinal));
 
         var migration = new AddReceiptOcrReviewIntakeFoundation();
         Assert.DoesNotContain(
@@ -147,6 +208,46 @@ public sealed class ReceiptOcrReviewSchemaFoundationTests
             && index.Table == "receipt_ocr_review_lines"
             && index.Columns.SequenceEqual(["receipt_ocr_review_id", "sort_order"])
             && index.IsUnique);
+
+        var assignmentMigration = new AddReceiptOcrReviewAssignments();
+        Assert.DoesNotContain(
+            assignmentMigration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropIndexOperation
+                or DropForeignKeyOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        var assignmentCreateTable = Assert.Single(assignmentMigration.UpOperations.OfType<CreateTableOperation>());
+        Assert.Equal("receipt_ocr_review_assignments", assignmentCreateTable.Name);
+        Assert.DoesNotContain(assignmentCreateTable.Columns, column => IsStorageOrRawOcrColumnName(column.Name));
+        Assert.Contains(assignmentCreateTable.Columns, column => column.Name == "receipt_ocr_review_id");
+        Assert.Contains(assignmentCreateTable.Columns, column => column.Name == "expense_bill_id");
+        Assert.Contains(assignmentCreateTable.Columns, column => column.Name == "file_object_id");
+        Assert.Contains(assignmentCreateTable.Columns, column => column.Name == "assigned_to_user_profile_id");
+        Assert.Contains(assignmentCreateTable.Columns, column => column.Name == "assigned_by_user_profile_id");
+        Assert.Contains(assignmentCreateTable.Columns, column => column.Name == "assignment_source");
+        Assert.Contains(assignmentCreateTable.Columns, column => column.Name == "source_actor_user_profile_id");
+        Assert.Contains(assignmentCreateTable.Columns, column => column.Name == "source_correlation_id");
+        Assert.Contains(assignmentCreateTable.ForeignKeys, foreignKey => foreignKey.PrincipalTable == "receipt_ocr_reviews"
+            && foreignKey.Columns.SequenceEqual(["receipt_ocr_review_id"])
+            && foreignKey.OnDelete == ReferentialAction.Restrict);
+        Assert.Contains(assignmentCreateTable.ForeignKeys, foreignKey => foreignKey.PrincipalTable == "expense_bill_attachments"
+            && foreignKey.Columns.SequenceEqual(["expense_bill_id", "file_object_id"])
+            && foreignKey.OnDelete == ReferentialAction.Restrict);
+
+        var assignmentCreateIndexes = assignmentMigration.UpOperations.OfType<CreateIndexOperation>().ToArray();
+        Assert.Contains(assignmentCreateIndexes, index => index.Name == "ux_receipt_ocr_review_assignments_active_review"
+            && index.Table == "receipt_ocr_review_assignments"
+            && index.Columns.SequenceEqual(["receipt_ocr_review_id"])
+            && index.IsUnique
+            && index.Filter == "assignment_status = 'needs_review'");
+        Assert.Contains(assignmentCreateIndexes, index => index.Name == "ux_receipt_ocr_review_assignments_active_review_assignee"
+            && index.Table == "receipt_ocr_review_assignments"
+            && index.Columns.SequenceEqual(["receipt_ocr_review_id", "assigned_to_user_profile_id"])
+            && index.IsUnique
+            && index.Filter == "assignment_status = 'needs_review'");
     }
 
     private static SettleoraDbContext CreateDbContext()

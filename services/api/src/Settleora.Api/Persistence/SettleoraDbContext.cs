@@ -105,6 +105,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillAdjustment>(ConfigureExpenseBillAdjustment);
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
         modelBuilder.Entity<ReceiptOcrReview>(ConfigureReceiptOcrReview);
+        modelBuilder.Entity<ReceiptOcrReviewAssignment>(ConfigureReceiptOcrReviewAssignment);
         modelBuilder.Entity<ReceiptOcrReviewLine>(ConfigureReceiptOcrReviewLine);
         modelBuilder.Entity<ManualFinancialAccount>(ConfigureManualFinancialAccount);
         modelBuilder.Entity<ManualIncomeSource>(ConfigureManualIncomeSource);
@@ -2174,6 +2175,182 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(review => review.GroupId)
             .HasConstraintName("fk_receipt_ocr_reviews_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureReceiptOcrReviewAssignment(EntityTypeBuilder<ReceiptOcrReviewAssignment> entity)
+    {
+        entity.ToTable("receipt_ocr_review_assignments", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_assignments_status",
+                "assignment_status IN ('needs_review', 'reviewed', 'cancelled', 'superseded')");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_assignments_source",
+                "assignment_source IN ('server_ocr_worker', 'server_mode_upload_handoff', 'manual_assignment', 'system_reassignment')");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_assignments_source_correlation_not_blank",
+                "source_correlation_id IS NULL OR length(btrim(source_correlation_id)) > 0");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_assignments_completion_status_pair",
+                "(assignment_status = 'reviewed') = (completed_at_utc IS NOT NULL)");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_assignments_cancel_status_pair",
+                "(assignment_status = 'cancelled') = (cancelled_at_utc IS NOT NULL)");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_assignments_supersede_status_pair",
+                "(assignment_status = 'superseded') = (superseded_at_utc IS NOT NULL)");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_assignments_terminal_timestamps_exclusive",
+                "((completed_at_utc IS NOT NULL)::int + (cancelled_at_utc IS NOT NULL)::int + (superseded_at_utc IS NOT NULL)::int) <= 1");
+            table.HasCheckConstraint(
+                "ck_receipt_ocr_review_assignments_manual_source_actor",
+                "(assignment_source <> 'manual_assignment' OR (assigned_by_user_profile_id IS NOT NULL AND source_actor_user_profile_id IS NOT NULL))");
+        });
+
+        entity.HasKey(assignment => assignment.Id);
+
+        entity.Property(assignment => assignment.Id)
+            .HasColumnName("id");
+
+        entity.Property(assignment => assignment.ReceiptOcrReviewId)
+            .HasColumnName("receipt_ocr_review_id");
+
+        entity.Property(assignment => assignment.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(assignment => assignment.FileObjectId)
+            .HasColumnName("file_object_id");
+
+        entity.Property(assignment => assignment.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(assignment => assignment.AssignmentStatus)
+            .HasColumnName("assignment_status")
+            .HasMaxLength(ReceiptOcrReviewAssignmentConstraints.StatusMaxLength)
+            .IsRequired();
+
+        entity.Property(assignment => assignment.AssignedToUserProfileId)
+            .HasColumnName("assigned_to_user_profile_id");
+
+        entity.Property(assignment => assignment.AssignedByUserProfileId)
+            .HasColumnName("assigned_by_user_profile_id");
+
+        entity.Property(assignment => assignment.AssignmentSource)
+            .HasColumnName("assignment_source")
+            .HasMaxLength(ReceiptOcrReviewAssignmentConstraints.SourceMaxLength)
+            .IsRequired();
+
+        entity.Property(assignment => assignment.SourceActorUserProfileId)
+            .HasColumnName("source_actor_user_profile_id");
+
+        entity.Property(assignment => assignment.SourceCorrelationId)
+            .HasColumnName("source_correlation_id")
+            .HasMaxLength(ReceiptOcrReviewAssignmentConstraints.SourceCorrelationIdMaxLength);
+
+        entity.Property(assignment => assignment.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(assignment => assignment.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(assignment => assignment.CompletedAtUtc)
+            .HasColumnName("completed_at_utc");
+
+        entity.Property(assignment => assignment.CancelledAtUtc)
+            .HasColumnName("cancelled_at_utc");
+
+        entity.Property(assignment => assignment.SupersededAtUtc)
+            .HasColumnName("superseded_at_utc");
+
+        entity.HasIndex(assignment => new
+            {
+                assignment.ReceiptOcrReviewId,
+                assignment.AssignedToUserProfileId
+            })
+            .IsUnique()
+            .HasFilter("assignment_status = 'needs_review'")
+            .HasDatabaseName("ux_receipt_ocr_review_assignments_active_review_assignee");
+
+        entity.HasIndex(assignment => assignment.ReceiptOcrReviewId)
+            .IsUnique()
+            .HasFilter("assignment_status = 'needs_review'")
+            .HasDatabaseName("ux_receipt_ocr_review_assignments_active_review");
+
+        entity.HasIndex(assignment => assignment.ExpenseBillId)
+            .HasDatabaseName("ix_receipt_ocr_review_assignments_bill_id");
+
+        entity.HasIndex(assignment => assignment.FileObjectId)
+            .HasDatabaseName("ix_receipt_ocr_review_assignments_file_object_id");
+
+        entity.HasIndex(assignment => new
+            {
+                assignment.ExpenseBillId,
+                assignment.FileObjectId
+            })
+            .HasDatabaseName("ix_receipt_ocr_review_assignments_bill_file");
+
+        entity.HasIndex(assignment => assignment.GroupId)
+            .HasDatabaseName("ix_receipt_ocr_review_assignments_group_id");
+
+        entity.HasIndex(assignment => assignment.AssignedToUserProfileId)
+            .HasDatabaseName("ix_receipt_ocr_review_assignments_assigned_to");
+
+        entity.HasIndex(assignment => assignment.AssignedByUserProfileId)
+            .HasDatabaseName("ix_receipt_ocr_review_assignments_assigned_by");
+
+        entity.HasIndex(assignment => assignment.SourceActorUserProfileId)
+            .HasDatabaseName("ix_receipt_ocr_review_assignments_source_actor");
+
+        entity.HasIndex(assignment => assignment.AssignmentStatus)
+            .HasDatabaseName("ix_receipt_ocr_review_assignments_status");
+
+        entity.HasOne(assignment => assignment.ReceiptOcrReview)
+            .WithMany(review => review.Assignments)
+            .HasForeignKey(assignment => assignment.ReceiptOcrReviewId)
+            .HasConstraintName("fk_receipt_ocr_review_assignments_reviews_review_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne<ExpenseBill>()
+            .WithMany()
+            .HasForeignKey(assignment => assignment.ExpenseBillId)
+            .HasConstraintName("fk_receipt_ocr_review_assignments_expense_bills_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne<ExpenseBillAttachment>()
+            .WithMany()
+            .HasForeignKey(assignment => new
+            {
+                assignment.ExpenseBillId,
+                assignment.FileObjectId
+            })
+            .HasConstraintName("fk_receipt_ocr_review_assignments_expense_bill_attachments_bill_file")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(assignment => assignment.Group)
+            .WithMany()
+            .HasForeignKey(assignment => assignment.GroupId)
+            .HasConstraintName("fk_receipt_ocr_review_assignments_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(assignment => assignment.AssignedToUserProfile)
+            .WithMany()
+            .HasForeignKey(assignment => assignment.AssignedToUserProfileId)
+            .HasConstraintName("fk_receipt_ocr_review_assignments_user_profiles_assigned_to")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(assignment => assignment.AssignedByUserProfile)
+            .WithMany()
+            .HasForeignKey(assignment => assignment.AssignedByUserProfileId)
+            .HasConstraintName("fk_receipt_ocr_review_assignments_user_profiles_assigned_by")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(assignment => assignment.SourceActorUserProfile)
+            .WithMany()
+            .HasForeignKey(assignment => assignment.SourceActorUserProfileId)
+            .HasConstraintName("fk_receipt_ocr_review_assignments_user_profiles_source_actor")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

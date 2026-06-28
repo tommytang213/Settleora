@@ -47,4 +47,6 @@ public sealed class ReceiptOcrReview
     public DateTimeOffset? RemovedAtUtc { get; set; }
 
     public ICollection<ReceiptOcrReviewLine> Lines { get; } = new List<ReceiptOcrReviewLine>();
+
+    public ICollection<ReceiptOcrReviewAssignment> Assignments { get; } = new List<ReceiptOcrReviewAssignment>();
 }
