@@ -70,6 +70,46 @@ internal sealed record ReceiptOcrReviewResponse(
     }
 }
 
+internal sealed record ReceiptOcrReviewAssignmentResponse(
+    Guid Id,
+    Guid ReceiptOcrReviewId,
+    Guid BillId,
+    Guid FileId,
+    Guid? GroupId,
+    string AssignmentStatus,
+    Guid AssignedToUserProfileId,
+    Guid? AssignedByUserProfileId,
+    string AssignmentSource,
+    Guid? SourceActorUserProfileId,
+    string? SourceCorrelationId,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc,
+    DateTimeOffset? CompletedAtUtc,
+    DateTimeOffset? CancelledAtUtc,
+    DateTimeOffset? SupersededAtUtc)
+{
+    public static ReceiptOcrReviewAssignmentResponse From(ReceiptOcrReviewAssignment assignment)
+    {
+        return new ReceiptOcrReviewAssignmentResponse(
+            assignment.Id,
+            assignment.ReceiptOcrReviewId,
+            assignment.ExpenseBillId,
+            assignment.FileObjectId,
+            assignment.GroupId,
+            assignment.AssignmentStatus,
+            assignment.AssignedToUserProfileId,
+            assignment.AssignedByUserProfileId,
+            assignment.AssignmentSource,
+            assignment.SourceActorUserProfileId,
+            assignment.SourceCorrelationId,
+            assignment.CreatedAtUtc,
+            assignment.UpdatedAtUtc,
+            assignment.CompletedAtUtc,
+            assignment.CancelledAtUtc,
+            assignment.SupersededAtUtc);
+    }
+}
+
 internal sealed record ReceiptOcrReviewLineResponse(
     Guid Id,
     int SortOrder,

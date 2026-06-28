@@ -33,6 +33,10 @@ internal static class ReceiptOcrReviewEndpoints
     private const string InvalidReceiptOcrReviewQueryDetail = "The submitted receipt OCR review query is invalid.";
     private const string InvalidReceiptOcrReviewApplyTitle = "Invalid receipt OCR review apply request";
     private const string InvalidReceiptOcrReviewApplyDetail = "The submitted receipt OCR review apply request is invalid.";
+    private const string InvalidReceiptOcrReviewAssignmentTitle = "Invalid receipt OCR review assignment";
+    private const string InvalidReceiptOcrReviewAssignmentDetail = "The submitted receipt OCR review assignment request is invalid.";
+    private const string ReceiptOcrReviewAssignmentUnavailableTitle = "Receipt OCR review assignment unavailable";
+    private const string ReceiptOcrReviewAssignmentUnavailableDetail = "The requested receipt OCR review assignment is unavailable.";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
     private const string ReviewSavedAction = "bill_attachment.ocr_review_saved";
@@ -111,6 +115,18 @@ internal static class ReceiptOcrReviewEndpoints
         "expectedReviewUpdatedAtUtc"
     ];
 
+    private static readonly HashSet<string> AllowedAssignmentRootProperties =
+    [
+        "assignedToUserProfileId",
+        "assignmentSource",
+        "sourceCorrelationId"
+    ];
+
+    private static readonly HashSet<string> AllowedAssignmentTransitionRootProperties =
+    [
+        "expectedAssignmentUpdatedAtUtc"
+    ];
+
     public static WebApplication MapReceiptOcrReviewEndpoints(this WebApplication app)
     {
         var reviewQueue = app.MapGroup("/api/v1/receipt-ocr-reviews")
@@ -130,6 +146,10 @@ internal static class ReceiptOcrReviewEndpoints
         bills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review", GetPersonalReceiptOcrReviewAsync);
         bills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply-preview", GetPersonalReceiptOcrReviewApplyPreviewAsync);
         bills.MapPost("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply", ApplyPersonalReceiptOcrReviewAsync);
+        bills.MapPut("/{billId:guid}/attachments/{fileId:guid}/ocr-review/assignment", UpsertPersonalReceiptOcrReviewAssignmentAsync);
+        bills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review/assignment", GetPersonalReceiptOcrReviewAssignmentAsync);
+        bills.MapPost("/{billId:guid}/attachments/{fileId:guid}/ocr-review/assignment/complete", CompletePersonalReceiptOcrReviewAssignmentAsync);
+        bills.MapPost("/{billId:guid}/attachments/{fileId:guid}/ocr-review/assignment/cancel", CancelPersonalReceiptOcrReviewAssignmentAsync);
         bills.MapDelete("/{billId:guid}/attachments/{fileId:guid}/ocr-review", RemovePersonalReceiptOcrReviewAsync);
 
         var groupBills = app.MapGroup("/api/v1/groups/{groupId:guid}/bills")
@@ -139,6 +159,10 @@ internal static class ReceiptOcrReviewEndpoints
         groupBills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review", GetGroupReceiptOcrReviewAsync);
         groupBills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply-preview", GetGroupReceiptOcrReviewApplyPreviewAsync);
         groupBills.MapPost("/{billId:guid}/attachments/{fileId:guid}/ocr-review/apply", ApplyGroupReceiptOcrReviewAsync);
+        groupBills.MapPut("/{billId:guid}/attachments/{fileId:guid}/ocr-review/assignment", UpsertGroupReceiptOcrReviewAssignmentAsync);
+        groupBills.MapGet("/{billId:guid}/attachments/{fileId:guid}/ocr-review/assignment", GetGroupReceiptOcrReviewAssignmentAsync);
+        groupBills.MapPost("/{billId:guid}/attachments/{fileId:guid}/ocr-review/assignment/complete", CompleteGroupReceiptOcrReviewAssignmentAsync);
+        groupBills.MapPost("/{billId:guid}/attachments/{fileId:guid}/ocr-review/assignment/cancel", CancelGroupReceiptOcrReviewAssignmentAsync);
         groupBills.MapDelete("/{billId:guid}/attachments/{fileId:guid}/ocr-review", RemoveGroupReceiptOcrReviewAsync);
 
         return app;
@@ -563,6 +587,186 @@ internal static class ReceiptOcrReviewEndpoints
             cancellationToken);
     }
 
+    private static Task<IResult> UpsertPersonalReceiptOcrReviewAssignmentAsync(
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        return UpsertReceiptOcrReviewAssignmentAsync(
+            routeGroupId: null,
+            billId,
+            fileId,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+    }
+
+    private static Task<IResult> UpsertGroupReceiptOcrReviewAssignmentAsync(
+        Guid groupId,
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        return UpsertReceiptOcrReviewAssignmentAsync(
+            groupId,
+            billId,
+            fileId,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+    }
+
+    private static Task<IResult> GetPersonalReceiptOcrReviewAssignmentAsync(
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        return GetReceiptOcrReviewAssignmentAsync(
+            routeGroupId: null,
+            billId,
+            fileId,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            cancellationToken);
+    }
+
+    private static Task<IResult> GetGroupReceiptOcrReviewAssignmentAsync(
+        Guid groupId,
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        return GetReceiptOcrReviewAssignmentAsync(
+            groupId,
+            billId,
+            fileId,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            cancellationToken);
+    }
+
+    private static Task<IResult> CompletePersonalReceiptOcrReviewAssignmentAsync(
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        return TransitionReceiptOcrReviewAssignmentAsync(
+            routeGroupId: null,
+            billId,
+            fileId,
+            ReceiptOcrReviewAssignmentStatuses.Reviewed,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+    }
+
+    private static Task<IResult> CompleteGroupReceiptOcrReviewAssignmentAsync(
+        Guid groupId,
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        return TransitionReceiptOcrReviewAssignmentAsync(
+            groupId,
+            billId,
+            fileId,
+            ReceiptOcrReviewAssignmentStatuses.Reviewed,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+    }
+
+    private static Task<IResult> CancelPersonalReceiptOcrReviewAssignmentAsync(
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        return TransitionReceiptOcrReviewAssignmentAsync(
+            routeGroupId: null,
+            billId,
+            fileId,
+            ReceiptOcrReviewAssignmentStatuses.Cancelled,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+    }
+
+    private static Task<IResult> CancelGroupReceiptOcrReviewAssignmentAsync(
+        Guid groupId,
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        return TransitionReceiptOcrReviewAssignmentAsync(
+            groupId,
+            billId,
+            fileId,
+            ReceiptOcrReviewAssignmentStatuses.Cancelled,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+    }
+
     private static async Task<IResult> GetReceiptOcrReviewAsync(
         Guid? routeGroupId,
         Guid billId,
@@ -885,6 +1089,313 @@ internal static class ReceiptOcrReviewEndpoints
         }
     }
 
+    private static async Task<IResult> UpsertReceiptOcrReviewAssignmentAsync(
+        Guid? routeGroupId,
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var scopeAuthorizationResult = await AuthorizeScopeAsync(
+            businessAuthorizationService,
+            actor.UserProfileId,
+            routeGroupId,
+            cancellationToken);
+        if (!scopeAuthorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
+        if (!queryReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
+        }
+
+        var readResult = await ReadReceiptOcrReviewAssignmentRequestAsync(request, cancellationToken);
+        if (!readResult.Succeeded || readResult.Request is null)
+        {
+            return InvalidReceiptOcrReviewAssignment(readResult.Errors);
+        }
+
+        var assignmentRequest = readResult.Request;
+        var billContext = await LoadVisibleBillContextAsync(
+            dbContext,
+            routeGroupId,
+            billId,
+            actor.UserProfileId,
+            cancellationToken);
+        if (billContext is null)
+        {
+            return BillUnavailable();
+        }
+
+        if (!CanMutateReview(billContext, actor.UserProfileId))
+        {
+            return BillUnavailable();
+        }
+
+        var recipientContext = await LoadVisibleBillContextAsync(
+            dbContext,
+            routeGroupId,
+            billId,
+            assignmentRequest.AssignedToUserProfileId,
+            cancellationToken);
+        if (recipientContext is null || recipientContext != billContext)
+        {
+            return BillUnavailable();
+        }
+
+        var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (attachment is null)
+        {
+            return BillUnavailable();
+        }
+
+        var review = await LoadReadableReceiptOcrReviewQuery(dbContext, billContext, attachment.FileObjectId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (review is null)
+        {
+            return ReceiptOcrReviewUnavailable();
+        }
+
+        if (!await RecipientCanReadReviewAsync(dbContext, routeGroupId, billId, fileId, assignmentRequest.AssignedToUserProfileId, cancellationToken))
+        {
+            return BillUnavailable();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var activeAssignments = await dbContext.Set<ReceiptOcrReviewAssignment>()
+            .Where(assignment => assignment.ReceiptOcrReviewId == review.Id
+                && assignment.AssignmentStatus == ReceiptOcrReviewAssignmentStatuses.NeedsReview)
+            .OrderBy(assignment => assignment.CreatedAtUtc)
+            .ToArrayAsync(cancellationToken);
+        var existing = activeAssignments.SingleOrDefault(assignment =>
+            assignment.AssignedToUserProfileId == assignmentRequest.AssignedToUserProfileId);
+        if (existing is not null)
+        {
+            return Results.Ok(ReceiptOcrReviewAssignmentResponse.From(existing));
+        }
+
+        foreach (var assignment in activeAssignments)
+        {
+            assignment.AssignmentStatus = ReceiptOcrReviewAssignmentStatuses.Superseded;
+            assignment.SupersededAtUtc = now;
+            assignment.UpdatedAtUtc = now;
+        }
+
+        var createdAssignment = new ReceiptOcrReviewAssignment
+        {
+            Id = Guid.NewGuid(),
+            ReceiptOcrReviewId = review.Id,
+            ExpenseBillId = billContext.BillId,
+            FileObjectId = attachment.FileObjectId,
+            GroupId = billContext.GroupId,
+            AssignmentStatus = ReceiptOcrReviewAssignmentStatuses.NeedsReview,
+            AssignedToUserProfileId = assignmentRequest.AssignedToUserProfileId,
+            AssignedByUserProfileId = actor.UserProfileId,
+            AssignmentSource = assignmentRequest.AssignmentSource,
+            SourceActorUserProfileId = actor.UserProfileId,
+            SourceCorrelationId = assignmentRequest.SourceCorrelationId,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        dbContext.Set<ReceiptOcrReviewAssignment>().Add(createdAssignment);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return ReceiptOcrReviewSaveFailed();
+        }
+
+        return Results.Created(
+            CreateReceiptOcrReviewAssignmentPath(billContext, attachment.FileObjectId),
+            ReceiptOcrReviewAssignmentResponse.From(createdAssignment));
+    }
+
+    private static async Task<IResult> GetReceiptOcrReviewAssignmentAsync(
+        Guid? routeGroupId,
+        Guid billId,
+        Guid fileId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        var envelopeReadResult = ReadNoReceiptOcrReviewGetReadEnvelopeRequest(request);
+        if (!envelopeReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(envelopeReadResult.Errors);
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var scopeAuthorizationResult = await AuthorizeScopeAsync(
+            businessAuthorizationService,
+            actor.UserProfileId,
+            routeGroupId,
+            cancellationToken);
+        if (!scopeAuthorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var billContext = await LoadVisibleBillContextAsync(
+            dbContext,
+            routeGroupId,
+            billId,
+            actor.UserProfileId,
+            cancellationToken);
+        if (billContext is null)
+        {
+            return BillUnavailable();
+        }
+
+        var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (attachment is null)
+        {
+            return BillUnavailable();
+        }
+
+        var review = await LoadReadableReceiptOcrReviewQuery(dbContext, billContext, attachment.FileObjectId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (review is null)
+        {
+            return ReceiptOcrReviewUnavailable();
+        }
+
+        var assignment = await LoadActiveReceiptOcrReviewAssignmentQuery(dbContext, review.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        return assignment is null
+            ? ReceiptOcrReviewAssignmentUnavailable()
+            : Results.Ok(ReceiptOcrReviewAssignmentResponse.From(assignment));
+    }
+
+    private static async Task<IResult> TransitionReceiptOcrReviewAssignmentAsync(
+        Guid? routeGroupId,
+        Guid billId,
+        Guid fileId,
+        string terminalStatus,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var scopeAuthorizationResult = await AuthorizeScopeAsync(
+            businessAuthorizationService,
+            actor.UserProfileId,
+            routeGroupId,
+            cancellationToken);
+        if (!scopeAuthorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(scopeAuthorizationResult);
+        }
+
+        var queryReadResult = ReadNoReceiptOcrReviewRouteQueryRequest(request);
+        if (!queryReadResult.Succeeded)
+        {
+            return InvalidReceiptOcrReviewQuery(queryReadResult.Errors);
+        }
+
+        var readResult = await ReadReceiptOcrReviewAssignmentTransitionRequestAsync(request, cancellationToken);
+        if (!readResult.Succeeded || readResult.Request is null)
+        {
+            return InvalidReceiptOcrReviewAssignment(readResult.Errors);
+        }
+
+        var billContext = await LoadVisibleBillContextAsync(
+            dbContext,
+            routeGroupId,
+            billId,
+            actor.UserProfileId,
+            cancellationToken);
+        if (billContext is null)
+        {
+            return BillUnavailable();
+        }
+
+        if (!CanMutateReview(billContext, actor.UserProfileId))
+        {
+            return BillUnavailable();
+        }
+
+        var attachment = await LoadReadableReceiptAttachmentQuery(dbContext, billContext, fileId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (attachment is null)
+        {
+            return BillUnavailable();
+        }
+
+        var review = await LoadReadableReceiptOcrReviewQuery(dbContext, billContext, attachment.FileObjectId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (review is null)
+        {
+            return ReceiptOcrReviewUnavailable();
+        }
+
+        var assignment = await LoadActiveReceiptOcrReviewAssignmentQuery(dbContext, review.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (assignment is null)
+        {
+            return ReceiptOcrReviewAssignmentUnavailable();
+        }
+
+        if (assignment.UpdatedAtUtc != readResult.Request.ExpectedAssignmentUpdatedAtUtc)
+        {
+            return ReceiptOcrReviewConflict();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        assignment.AssignmentStatus = terminalStatus;
+        assignment.UpdatedAtUtc = now;
+        if (terminalStatus == ReceiptOcrReviewAssignmentStatuses.Reviewed)
+        {
+            assignment.CompletedAtUtc = now;
+        }
+        else if (terminalStatus == ReceiptOcrReviewAssignmentStatuses.Cancelled)
+        {
+            assignment.CancelledAtUtc = now;
+        }
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return ReceiptOcrReviewSaveFailed();
+        }
+
+        return Results.Ok(ReceiptOcrReviewAssignmentResponse.From(assignment));
+    }
+
     private static Task<IResult> RemovePersonalReceiptOcrReviewAsync(
         Guid billId,
         Guid fileId,
@@ -1184,6 +1695,124 @@ internal static class ReceiptOcrReviewEndpoints
         }
     }
 
+    private static async Task<ReceiptOcrReviewAssignmentReadResult> ReadReceiptOcrReviewAssignmentRequestAsync(
+        HttpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (request.Body is null || request.ContentLength == 0)
+        {
+            AddError(errors, "body", "A non-empty JSON receipt OCR review assignment payload is required.");
+            return ReceiptOcrReviewAssignmentReadResult.Invalid(ToErrorDictionary(errors));
+        }
+
+        JsonDocument document;
+        try
+        {
+            document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
+        }
+        catch (JsonException)
+        {
+            AddError(errors, "body", "A valid JSON object is required.");
+            return ReceiptOcrReviewAssignmentReadResult.Invalid(ToErrorDictionary(errors));
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            if (root.ValueKind is not JsonValueKind.Object)
+            {
+                AddError(errors, "body", "A JSON object is required.");
+                return ReceiptOcrReviewAssignmentReadResult.Invalid(ToErrorDictionary(errors));
+            }
+
+            foreach (var property in root.EnumerateObject())
+            {
+                if (!AllowedAssignmentRootProperties.Contains(property.Name))
+                {
+                    AddError(errors, property.Name, "Field is not supported for receipt OCR review assignment.");
+                }
+            }
+
+            var assignedToUserProfileId = ReadRequiredGuid(
+                root,
+                "assignedToUserProfileId",
+                "Assigned user profile ID is required.",
+                errors);
+            var assignmentSource = ReadRequiredSupportedString(
+                root,
+                "assignmentSource",
+                value => value == ReceiptOcrReviewAssignmentSources.ManualAssignment,
+                "Receipt OCR review assignment source is not supported for this API path.",
+                errors);
+            var sourceCorrelationId = ReadOptionalBoundedString(
+                root,
+                "sourceCorrelationId",
+                ReceiptOcrReviewAssignmentConstraints.SourceCorrelationIdMaxLength,
+                "Source correlation ID must be a non-empty bounded string when supplied.",
+                errors);
+
+            return errors.Count > 0 || !assignedToUserProfileId.HasValue || assignmentSource is null
+                ? ReceiptOcrReviewAssignmentReadResult.Invalid(ToErrorDictionary(errors))
+                : ReceiptOcrReviewAssignmentReadResult.Valid(new ReceiptOcrReviewAssignmentRequest(
+                    assignedToUserProfileId.Value,
+                    assignmentSource,
+                    sourceCorrelationId));
+        }
+    }
+
+    private static async Task<ReceiptOcrReviewAssignmentTransitionReadResult> ReadReceiptOcrReviewAssignmentTransitionRequestAsync(
+        HttpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (request.Body is null || request.ContentLength == 0)
+        {
+            AddError(errors, "body", "A non-empty JSON receipt OCR review assignment transition payload is required.");
+            return ReceiptOcrReviewAssignmentTransitionReadResult.Invalid(ToErrorDictionary(errors));
+        }
+
+        JsonDocument document;
+        try
+        {
+            document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
+        }
+        catch (JsonException)
+        {
+            AddError(errors, "body", "A valid JSON object is required.");
+            return ReceiptOcrReviewAssignmentTransitionReadResult.Invalid(ToErrorDictionary(errors));
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            if (root.ValueKind is not JsonValueKind.Object)
+            {
+                AddError(errors, "body", "A JSON object is required.");
+                return ReceiptOcrReviewAssignmentTransitionReadResult.Invalid(ToErrorDictionary(errors));
+            }
+
+            foreach (var property in root.EnumerateObject())
+            {
+                if (!AllowedAssignmentTransitionRootProperties.Contains(property.Name))
+                {
+                    AddError(errors, property.Name, "Field is not supported for receipt OCR review assignment transition.");
+                }
+            }
+
+            var expectedAssignmentUpdatedAtUtc = ReadRequiredDateTimeOffset(
+                root,
+                "expectedAssignmentUpdatedAtUtc",
+                "Expected assignment update timestamp is required.",
+                errors);
+
+            return errors.Count > 0 || !expectedAssignmentUpdatedAtUtc.HasValue
+                ? ReceiptOcrReviewAssignmentTransitionReadResult.Invalid(ToErrorDictionary(errors))
+                : ReceiptOcrReviewAssignmentTransitionReadResult.Valid(new ReceiptOcrReviewAssignmentTransitionRequest(
+                    expectedAssignmentUpdatedAtUtc.Value));
+        }
+    }
+
     private static async Task<ReceiptOcrReviewReadResult> ReadReceiptOcrReviewRequestAsync(
         HttpRequest request,
         CancellationToken cancellationToken)
@@ -1308,6 +1937,24 @@ internal static class ReceiptOcrReviewEndpoints
         }
 
         return text;
+    }
+
+    private static Guid? ReadRequiredGuid(
+        JsonElement root,
+        string propertyName,
+        string errorMessage,
+        Dictionary<string, List<string>> errors)
+    {
+        if (!root.TryGetProperty(propertyName, out var value)
+            || value.ValueKind is not JsonValueKind.String
+            || !Guid.TryParse(value.GetString(), out var parsed)
+            || parsed == Guid.Empty)
+        {
+            AddError(errors, propertyName, errorMessage);
+            return null;
+        }
+
+        return parsed;
     }
 
     private static string? ReadOptionalBoundedString(
@@ -1759,6 +2406,45 @@ internal static class ReceiptOcrReviewEndpoints
         return trackChanges ? query : query.AsNoTracking();
     }
 
+    private static IQueryable<ReceiptOcrReviewAssignment> LoadActiveReceiptOcrReviewAssignmentQuery(
+        SettleoraDbContext dbContext,
+        Guid reviewId)
+    {
+        return dbContext.Set<ReceiptOcrReviewAssignment>()
+            .Where(assignment => assignment.ReceiptOcrReviewId == reviewId
+                && assignment.AssignmentStatus == ReceiptOcrReviewAssignmentStatuses.NeedsReview);
+    }
+
+    private static async Task<bool> RecipientCanReadReviewAsync(
+        SettleoraDbContext dbContext,
+        Guid? routeGroupId,
+        Guid billId,
+        Guid fileId,
+        Guid recipientUserProfileId,
+        CancellationToken cancellationToken)
+    {
+        var recipientContext = await LoadVisibleBillContextAsync(
+            dbContext,
+            routeGroupId,
+            billId,
+            recipientUserProfileId,
+            cancellationToken);
+        if (recipientContext is null)
+        {
+            return false;
+        }
+
+        var hasAttachment = await LoadReadableReceiptAttachmentQuery(dbContext, recipientContext, fileId)
+            .AnyAsync(cancellationToken);
+        if (!hasAttachment)
+        {
+            return false;
+        }
+
+        return await LoadReadableReceiptOcrReviewQuery(dbContext, recipientContext, fileId)
+            .AnyAsync(cancellationToken);
+    }
+
     private static async Task<ReceiptOcrReviewContext?> LoadVisibleBillContextAsync(
         SettleoraDbContext dbContext,
         Guid? routeGroupId,
@@ -2114,6 +2800,13 @@ internal static class ReceiptOcrReviewEndpoints
             : $"/api/v1/bills/{billContext.BillId:D}/attachments/{fileId:D}/ocr-review";
     }
 
+    private static string CreateReceiptOcrReviewAssignmentPath(
+        ReceiptOcrReviewContext billContext,
+        Guid fileId)
+    {
+        return $"{CreateReceiptOcrReviewPath(billContext, fileId)}/assignment";
+    }
+
     private static Dictionary<string, string[]> ToErrorDictionary(Dictionary<string, List<string>> errors)
     {
         return errors.ToDictionary(
@@ -2192,6 +2885,23 @@ internal static class ReceiptOcrReviewEndpoints
             title: InvalidReceiptOcrReviewApplyTitle,
             detail: InvalidReceiptOcrReviewApplyDetail,
             statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static IResult InvalidReceiptOcrReviewAssignment(IDictionary<string, string[]> errors)
+    {
+        return Results.ValidationProblem(
+            errors,
+            title: InvalidReceiptOcrReviewAssignmentTitle,
+            detail: InvalidReceiptOcrReviewAssignmentDetail,
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    private static IResult ReceiptOcrReviewAssignmentUnavailable()
+    {
+        return Results.Problem(
+            title: ReceiptOcrReviewAssignmentUnavailableTitle,
+            detail: ReceiptOcrReviewAssignmentUnavailableDetail,
+            statusCode: StatusCodes.Status404NotFound);
     }
 
     private static IResult ReceiptOcrReviewConflict()
@@ -2335,6 +3045,72 @@ internal static class ReceiptOcrReviewEndpoints
     private sealed record ReceiptOcrReviewApplyRequest(
         string ApplyMode,
         DateTimeOffset ExpectedReviewUpdatedAtUtc);
+
+    private sealed class ReceiptOcrReviewAssignmentReadResult
+    {
+        private ReceiptOcrReviewAssignmentReadResult(
+            ReceiptOcrReviewAssignmentRequest? request,
+            IDictionary<string, string[]> errors)
+        {
+            Request = request;
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public ReceiptOcrReviewAssignmentRequest? Request { get; }
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static ReceiptOcrReviewAssignmentReadResult Valid(ReceiptOcrReviewAssignmentRequest request)
+        {
+            return new ReceiptOcrReviewAssignmentReadResult(
+                request,
+                new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static ReceiptOcrReviewAssignmentReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new ReceiptOcrReviewAssignmentReadResult(null, errors);
+        }
+    }
+
+    private sealed class ReceiptOcrReviewAssignmentTransitionReadResult
+    {
+        private ReceiptOcrReviewAssignmentTransitionReadResult(
+            ReceiptOcrReviewAssignmentTransitionRequest? request,
+            IDictionary<string, string[]> errors)
+        {
+            Request = request;
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public ReceiptOcrReviewAssignmentTransitionRequest? Request { get; }
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static ReceiptOcrReviewAssignmentTransitionReadResult Valid(ReceiptOcrReviewAssignmentTransitionRequest request)
+        {
+            return new ReceiptOcrReviewAssignmentTransitionReadResult(
+                request,
+                new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static ReceiptOcrReviewAssignmentTransitionReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new ReceiptOcrReviewAssignmentTransitionReadResult(null, errors);
+        }
+    }
+
+    private sealed record ReceiptOcrReviewAssignmentRequest(
+        Guid AssignedToUserProfileId,
+        string AssignmentSource,
+        string? SourceCorrelationId);
+
+    private sealed record ReceiptOcrReviewAssignmentTransitionRequest(
+        DateTimeOffset ExpectedAssignmentUpdatedAtUtc);
 
     private sealed record SubmittedReceiptOcrReview(
         string Status,

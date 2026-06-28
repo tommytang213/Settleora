@@ -2785,6 +2785,93 @@ export interface ReceiptOcrReviewResponse {
 }
 
 /**
+ * OCR review assignment/source-state status. needs_review is the only active notification-eligible source state; reviewed, cancelled, and superseded are terminal source-state outcomes and do not create OCR notification runtime in this slice.
+ */
+export type ReceiptOcrReviewAssignmentStatus = "needs_review" | "reviewed" | "cancelled" | "superseded";
+
+/**
+ * API-owned source category for the assignment transition. Public assignment endpoints currently accept only manual_assignment; other values are reserved for reviewed API-owned worker/upload/system flows.
+ */
+export type ReceiptOcrReviewAssignmentSource = "server_ocr_worker" | "server_mode_upload_handoff" | "manual_assignment" | "system_reassignment";
+
+/**
+ * Explicit OCR review assignment request. The route and authenticated session actor are authoritative. Clients may request only manual_assignment; worker, upload-handoff, and system source categories are reserved for future API-owned internal flows. The server revalidates assigned recipient access before writing.
+ */
+export interface ReceiptOcrReviewAssignmentRequest {
+  /**
+   * Responsible editor profile ID selected by the API-owned assignment flow after recipient authorization revalidation.
+   */
+  assignedToUserProfileId: string;
+  /**
+   * Public API assignment source. Other assignment source values are reserved for future internal API-owned flows.
+   */
+  assignmentSource: "manual_assignment";
+  /**
+   * Optional safe caller correlation ID. It must not contain provider internals, storage keys, local paths, debug identifiers, OCR text, filenames, or secrets.
+   */
+  sourceCorrelationId?: string | null;
+}
+
+/**
+ * Stale-write guard for completing or cancelling an active OCR review assignment. The server mutates only assignment source-state.
+ */
+export interface ReceiptOcrReviewAssignmentTransitionRequest {
+  /**
+   * The assignment updatedAtUtc value the user read before requesting completion or cancellation.
+   */
+  expectedAssignmentUpdatedAtUtc: string;
+}
+
+/**
+ * Safe OCR review assignment/source-state response. It exposes stable review, bill, group, file, assignee, bounded source/status, optional safe correlation ID, and timestamps only. It excludes raw OCR text, receipt text, OCR line dumps, receipt bytes, storage object keys, provider paths, signed URLs, filenames, payment details, private notes, auth/session data, notification rows, worker debug output, and unrelated users.
+ */
+export interface ReceiptOcrReviewAssignmentResponse {
+  /**
+   * Stable OCR review assignment ID.
+   */
+  id: string;
+  /**
+   * Stable saved receipt OCR review ID.
+   */
+  receiptOcrReviewId: string;
+  /**
+   * Expense bill ID that owns the receipt OCR review.
+   */
+  billId: string;
+  /**
+   * Stable receipt attachment file metadata ID.
+   */
+  fileId: string;
+  /**
+   * Owning group ID for group bills, or null for personal bills.
+   */
+  groupId: string | null;
+  assignmentStatus: ReceiptOcrReviewAssignmentStatus;
+  /**
+   * Responsible editor profile ID after API authorization revalidation.
+   */
+  assignedToUserProfileId: string;
+  /**
+   * Assigning user profile ID for user-originated assignments, or null for future reviewed system/worker categories.
+   */
+  assignedByUserProfileId: string | null;
+  assignmentSource: ReceiptOcrReviewAssignmentSource;
+  /**
+   * User source actor when the source is user-originated, or null for future reviewed worker/system categories.
+   */
+  sourceActorUserProfileId: string | null;
+  /**
+   * Optional safe correlation ID. It is not a provider internal, storage key, path, debug ID, OCR text, filename, or secret.
+   */
+  sourceCorrelationId: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  completedAtUtc: string | null;
+  cancelledAtUtc: string | null;
+  supersededAtUtc: string | null;
+}
+
+/**
  * Bounded receipt OCR apply-preview validation issue code. Codes in blockedReasons make canApply false; codes in warnings may be informational or blocking.
  */
 export type ReceiptOcrReviewApplyPreviewIssueCode = "unsupported_review_status" | "unsupported_review_source" | "missing_currency" | "unsupported_currency" | "currency_mismatch" | "missing_grand_total" | "empty_line_set" | "line_total_missing" | "unsupported_line_state" | "line_total_mismatch" | "line_sum_mismatch" | "header_total_mismatch";

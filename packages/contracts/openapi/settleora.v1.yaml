@@ -2876,6 +2876,247 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment:
+    put:
+      summary: Upsert personal bill receipt OCR review assignment
+      description: Creates an explicit API-owned needs-review assignment for one saved personal bill receipt OCR review, or returns the existing active assignment when the same responsible editor is already assigned. The authenticated actor must be the bill creator or owner/responsible editor. The API revalidates the assigned recipient's access to the bill, receipt attachment metadata, and saved OCR review before persisting assignment state. This source-state path does not create notifications, mutate bill money, apply OCR, read receipt bytes, run OCR workers, or expose raw OCR text, storage internals, filenames, signed URLs, provider data, payment details, auth/session data, or unrelated users.
+      operationId: upsertPersonalBillAttachmentOcrReviewAssignment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          description: Personal bill ID that owns the receipt attachment.
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          description: Stable receipt file object ID for the bill attachment.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewAssignmentRequest"
+      responses:
+        "200":
+          description: Existing active needs-review assignment for this review and responsible editor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "201":
+          description: New active needs-review assignment created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "400":
+          description: The assignment payload is malformed or uses an unsupported client source.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill, receipt attachment, OCR review, or assigned recipient access is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review assignment could not be saved.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: Get personal bill receipt OCR review assignment
+      description: Returns the active needs-review assignment for one saved personal bill receipt OCR review when the authenticated actor can still access the bill, receipt attachment metadata, and OCR review. Notification visibility is not authorization proof; consumers must re-fetch through this authorized path.
+      operationId: getPersonalBillAttachmentOcrReviewAssignment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Active needs-review assignment visible through the authorized OCR review path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill, receipt attachment, OCR review, or active assignment is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment/complete:
+    post:
+      summary: Complete personal bill receipt OCR review assignment
+      description: Marks the active needs-review assignment for one personal bill receipt OCR review as reviewed after checking the expected assignment timestamp. This mutates assignment source state only; it does not mark the OCR review reviewed, apply OCR, mutate bill money, settlement, payment, storage, sync, notification read/archive, or audit truth outside this scoped assignment state.
+      operationId: completePersonalBillAttachmentOcrReviewAssignment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewAssignmentTransitionRequest"
+      responses:
+        "200":
+          description: Assignment marked reviewed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "400":
+          description: The transition payload is malformed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill, receipt attachment, OCR review, or active assignment is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The expected assignment timestamp is stale.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment/cancel:
+    post:
+      summary: Cancel personal bill receipt OCR review assignment
+      description: Cancels the active needs-review assignment for one personal bill receipt OCR review after checking the expected assignment timestamp. This mutates assignment source state only and creates no notification runtime.
+      operationId: cancelPersonalBillAttachmentOcrReviewAssignment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: billId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewAssignmentTransitionRequest"
+      responses:
+        "200":
+          description: Assignment cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "400":
+          description: The transition payload is malformed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Bill, receipt attachment, OCR review, or active assignment is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The expected assignment timestamp is stale.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/receipt-ocr-reviews:
     get:
       summary: List receipt OCR review queue
@@ -5234,6 +5475,269 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Receipt OCR review apply could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment:
+    put:
+      summary: Upsert group bill receipt OCR review assignment
+      description: Creates an explicit API-owned needs-review assignment for one saved group bill receipt OCR review, or returns the existing active assignment when the same responsible editor is already assigned. The authenticated actor must have active route-group access and be the bill creator or owner/responsible editor. The API revalidates the assigned recipient's route-group access plus access to the bill, receipt attachment metadata, and saved OCR review before persisting assignment state. This source-state path does not create notifications, mutate bill money, apply OCR, read receipt bytes, run OCR workers, or expose raw OCR text, storage internals, filenames, signed URLs, provider data, payment details, auth/session data, or unrelated users.
+      operationId: upsertGroupBillAttachmentOcrReviewAssignment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewAssignmentRequest"
+      responses:
+        "200":
+          description: Existing active needs-review assignment for this review and responsible editor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "201":
+          description: New active needs-review assignment created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "400":
+          description: The assignment payload is malformed or uses an unsupported client source.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, receipt attachment, OCR review, or assigned recipient access is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Receipt OCR review assignment could not be saved.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: Get group bill receipt OCR review assignment
+      description: Returns the active needs-review assignment for one saved group bill receipt OCR review when the authenticated actor can still access the route group, bill, receipt attachment metadata, and OCR review.
+      operationId: getGroupBillAttachmentOcrReviewAssignment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Active needs-review assignment visible through the authorized OCR review path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, receipt attachment, OCR review, or active assignment is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment/complete:
+    post:
+      summary: Complete group bill receipt OCR review assignment
+      description: Marks the active needs-review assignment for one group bill receipt OCR review as reviewed after checking the expected assignment timestamp. This mutates assignment source state only; it does not mark the OCR review reviewed, apply OCR, mutate bill money, settlement, payment, storage, sync, notification read/archive, or audit truth outside this scoped assignment state.
+      operationId: completeGroupBillAttachmentOcrReviewAssignment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewAssignmentTransitionRequest"
+      responses:
+        "200":
+          description: Assignment marked reviewed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "400":
+          description: The transition payload is malformed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, receipt attachment, OCR review, or active assignment is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The expected assignment timestamp is stale.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment/cancel:
+    post:
+      summary: Cancel group bill receipt OCR review assignment
+      description: Cancels the active needs-review assignment for one group bill receipt OCR review after checking the expected assignment timestamp. This mutates assignment source state only and creates no notification runtime.
+      operationId: cancelGroupBillAttachmentOcrReviewAssignment
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: billId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReceiptOcrReviewAssignmentTransitionRequest"
+      responses:
+        "200":
+          description: Assignment cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceiptOcrReviewAssignmentResponse"
+        "400":
+          description: The transition payload is malformed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, bill, receipt attachment, OCR review, or active assignment is unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The expected assignment timestamp is stale.
           content:
             application/problem+json:
               schema:
@@ -14689,6 +15193,147 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    ReceiptOcrReviewAssignmentStatus:
+      type: string
+      description: OCR review assignment/source-state status. needs_review is the only active notification-eligible source state; reviewed, cancelled, and superseded are terminal source-state outcomes and do not create OCR notification runtime in this slice.
+      enum:
+        - needs_review
+        - reviewed
+        - cancelled
+        - superseded
+    ReceiptOcrReviewAssignmentSource:
+      type: string
+      description: API-owned source category for the assignment transition. Public assignment endpoints currently accept only manual_assignment; other values are reserved for reviewed API-owned worker/upload/system flows.
+      enum:
+        - server_ocr_worker
+        - server_mode_upload_handoff
+        - manual_assignment
+        - system_reassignment
+    ReceiptOcrReviewAssignmentRequest:
+      type: object
+      description: Explicit OCR review assignment request. The route and authenticated session actor are authoritative. Clients may request only manual_assignment; worker, upload-handoff, and system source categories are reserved for future API-owned internal flows. The server revalidates assigned recipient access before writing.
+      additionalProperties: false
+      required:
+        - assignedToUserProfileId
+        - assignmentSource
+      properties:
+        assignedToUserProfileId:
+          type: string
+          format: uuid
+          description: Responsible editor profile ID selected by the API-owned assignment flow after recipient authorization revalidation.
+        assignmentSource:
+          type: string
+          enum:
+            - manual_assignment
+          description: Public API assignment source. Other assignment source values are reserved for future internal API-owned flows.
+        sourceCorrelationId:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: Optional safe caller correlation ID. It must not contain provider internals, storage keys, local paths, debug identifiers, OCR text, filenames, or secrets.
+    ReceiptOcrReviewAssignmentTransitionRequest:
+      type: object
+      description: Stale-write guard for completing or cancelling an active OCR review assignment. The server mutates only assignment source-state.
+      additionalProperties: false
+      required:
+        - expectedAssignmentUpdatedAtUtc
+      properties:
+        expectedAssignmentUpdatedAtUtc:
+          type: string
+          format: date-time
+          description: The assignment updatedAtUtc value the user read before requesting completion or cancellation.
+    ReceiptOcrReviewAssignmentResponse:
+      type: object
+      description: Safe OCR review assignment/source-state response. It exposes stable review, bill, group, file, assignee, bounded source/status, optional safe correlation ID, and timestamps only. It excludes raw OCR text, receipt text, OCR line dumps, receipt bytes, storage object keys, provider paths, signed URLs, filenames, payment details, private notes, auth/session data, notification rows, worker debug output, and unrelated users.
+      required:
+        - id
+        - receiptOcrReviewId
+        - billId
+        - fileId
+        - groupId
+        - assignmentStatus
+        - assignedToUserProfileId
+        - assignedByUserProfileId
+        - assignmentSource
+        - sourceActorUserProfileId
+        - sourceCorrelationId
+        - createdAtUtc
+        - updatedAtUtc
+        - completedAtUtc
+        - cancelledAtUtc
+        - supersededAtUtc
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable OCR review assignment ID.
+        receiptOcrReviewId:
+          type: string
+          format: uuid
+          description: Stable saved receipt OCR review ID.
+        billId:
+          type: string
+          format: uuid
+          description: Expense bill ID that owns the receipt OCR review.
+        fileId:
+          type: string
+          format: uuid
+          description: Stable receipt attachment file metadata ID.
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Owning group ID for group bills, or null for personal bills.
+        assignmentStatus:
+          $ref: "#/components/schemas/ReceiptOcrReviewAssignmentStatus"
+        assignedToUserProfileId:
+          type: string
+          format: uuid
+          description: Responsible editor profile ID after API authorization revalidation.
+        assignedByUserProfileId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Assigning user profile ID for user-originated assignments, or null for future reviewed system/worker categories.
+        assignmentSource:
+          $ref: "#/components/schemas/ReceiptOcrReviewAssignmentSource"
+        sourceActorUserProfileId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: User source actor when the source is user-originated, or null for future reviewed worker/system categories.
+        sourceCorrelationId:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Optional safe correlation ID. It is not a provider internal, storage key, path, debug ID, OCR text, filename, or secret.
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        completedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        cancelledAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        supersededAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     ReceiptOcrReviewApplyPreviewIssueCode:
       type: string
       description: Bounded receipt OCR apply-preview validation issue code. Codes in blockedReasons make canApply false; codes in warnings may be informational or blocking.

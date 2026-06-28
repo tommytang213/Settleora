@@ -13,6 +13,7 @@ using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
+using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 using Settleora.Api.Storage;
@@ -264,6 +265,313 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         AssertSafeReviewJson(getContent);
         Assert.Equal(savedPayload.Id, ReadReviewPayload(getContent).Id);
+    }
+
+    [Fact]
+    public async Task PersonalReceiptOcrReviewAssignmentCreatesIdempotentRetargetsCompletesAndCancelsWithoutNotificationOrBusinessMutation()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Assignment OCR Owner");
+        var firstRecipient = await SeedAccountAsync(testFactory, "Assignment OCR First Recipient", InitialTimestamp.AddMinutes(1));
+        var secondRecipient = await SeedAccountAsync(testFactory, "Assignment OCR Second Recipient", InitialTimestamp.AddMinutes(2));
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId, firstRecipient.UserProfileId, secondRecipient.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(3));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        var reviewId = await SeedReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            fileId,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ReceiptOcrReviewStatuses.Provisional,
+            ReceiptOcrReviewSources.OnDevice,
+            "Assignment Cafe",
+            "USD",
+            InitialTimestamp.AddMinutes(4),
+            lineCount: 1);
+        var billItemsBefore = await CountBillItemsAsync(testFactory, billId);
+        var settlementRequestsBefore = await ReadSettlementRequestsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var createRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewAssignmentPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentRequestJson(firstRecipient.UserProfileId, "safe-assignment-correlation-1"));
+        using var createResponse = await client.SendAsync(createRequest);
+        var createContent = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        Assert.Equal(PersonalOcrReviewAssignmentPath(billId, fileId), createResponse.Headers.Location?.OriginalString);
+        AssertSafeReviewJson(createContent);
+        var createdPayload = ReadAssignmentPayload(createContent);
+        Assert.Equal(reviewId, createdPayload.ReceiptOcrReviewId);
+        Assert.Equal(billId, createdPayload.BillId);
+        Assert.Equal(fileId, createdPayload.FileId);
+        Assert.Null(createdPayload.GroupId);
+        Assert.Equal(ReceiptOcrReviewAssignmentStatuses.NeedsReview, createdPayload.AssignmentStatus);
+        Assert.Equal(firstRecipient.UserProfileId, createdPayload.AssignedToUserProfileId);
+        Assert.Equal(ownerSession.UserProfileId, createdPayload.AssignedByUserProfileId);
+        Assert.Equal(ReceiptOcrReviewAssignmentSources.ManualAssignment, createdPayload.AssignmentSource);
+        Assert.Equal(ownerSession.UserProfileId, createdPayload.SourceActorUserProfileId);
+        Assert.Equal("safe-assignment-correlation-1", createdPayload.SourceCorrelationId);
+        Assert.Equal(WriteTimestamp, createdPayload.CreatedAtUtc);
+        Assert.Equal(WriteTimestamp, createdPayload.UpdatedAtUtc);
+        Assert.Null(createdPayload.CompletedAtUtc);
+        Assert.Null(createdPayload.CancelledAtUtc);
+        Assert.Null(createdPayload.SupersededAtUtc);
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(1));
+        using (var duplicateRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewAssignmentPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentRequestJson(firstRecipient.UserProfileId, "safe-assignment-correlation-2")))
+        using (var duplicateResponse = await client.SendAsync(duplicateRequest))
+        {
+            var duplicateContent = await duplicateResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, duplicateResponse.StatusCode);
+            var duplicatePayload = ReadAssignmentPayload(duplicateContent);
+            Assert.Equal(createdPayload.Id, duplicatePayload.Id);
+            Assert.Equal(createdPayload.UpdatedAtUtc, duplicatePayload.UpdatedAtUtc);
+            Assert.Equal("safe-assignment-correlation-1", duplicatePayload.SourceCorrelationId);
+        }
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(2));
+        using var retargetRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewAssignmentPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentRequestJson(secondRecipient.UserProfileId, null));
+        using var retargetResponse = await client.SendAsync(retargetRequest);
+        var retargetContent = await retargetResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, retargetResponse.StatusCode);
+        var retargetPayload = ReadAssignmentPayload(retargetContent);
+        Assert.NotEqual(createdPayload.Id, retargetPayload.Id);
+        Assert.Equal(secondRecipient.UserProfileId, retargetPayload.AssignedToUserProfileId);
+        Assert.Null(retargetPayload.SourceCorrelationId);
+
+        var assignmentsAfterRetarget = await ReadReceiptOcrReviewAssignmentsAsync(testFactory);
+        Assert.Equal(2, assignmentsAfterRetarget.Count);
+        var superseded = Assert.Single(assignmentsAfterRetarget, assignment => assignment.Id == createdPayload.Id);
+        Assert.Equal(ReceiptOcrReviewAssignmentStatuses.Superseded, superseded.AssignmentStatus);
+        Assert.Equal(WriteTimestamp.AddMinutes(2), superseded.SupersededAtUtc);
+        Assert.Single(assignmentsAfterRetarget, assignment => assignment.AssignmentStatus == ReceiptOcrReviewAssignmentStatuses.NeedsReview);
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(3));
+        using var completeRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            PersonalOcrReviewAssignmentCompletePath(billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentTransitionRequestJson(retargetPayload.UpdatedAtUtc));
+        using var completeResponse = await client.SendAsync(completeRequest);
+        var completeContent = await completeResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, completeResponse.StatusCode);
+        var completePayload = ReadAssignmentPayload(completeContent);
+        Assert.Equal(ReceiptOcrReviewAssignmentStatuses.Reviewed, completePayload.AssignmentStatus);
+        Assert.Equal(WriteTimestamp.AddMinutes(3), completePayload.CompletedAtUtc);
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(4));
+        using var recreateRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewAssignmentPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentRequestJson(firstRecipient.UserProfileId, null));
+        using var recreateResponse = await client.SendAsync(recreateRequest);
+        var recreatePayload = ReadAssignmentPayload(await recreateResponse.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Created, recreateResponse.StatusCode);
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(5));
+        using var cancelRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            PersonalOcrReviewAssignmentCancelPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentTransitionRequestJson(recreatePayload.UpdatedAtUtc));
+        using var cancelResponse = await client.SendAsync(cancelRequest);
+        var cancelContent = await cancelResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+        var cancelPayload = ReadAssignmentPayload(cancelContent);
+        Assert.Equal(ReceiptOcrReviewAssignmentStatuses.Cancelled, cancelPayload.AssignmentStatus);
+        Assert.Equal(WriteTimestamp.AddMinutes(5), cancelPayload.CancelledAtUtc);
+
+        Assert.Equal(billItemsBefore, await CountBillItemsAsync(testFactory, billId));
+        Assert.Equal(settlementRequestsBefore.Count, (await ReadSettlementRequestsAsync(testFactory)).Count);
+        Assert.Empty(await ReadSettlementPaymentsAsync(testFactory));
+        Assert.Empty(await ReadSettlementPaymentAllocationsAsync(testFactory));
+        Assert.Empty(await ReadSettlementResidualsAsync(testFactory));
+        Assert.Empty(await ReadInAppNotificationsAsync(testFactory));
+        Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, fileId)).Status);
+        Assert.Null((await ReadBillAttachmentAsync(testFactory, billId, fileId)).RemovedAtUtc);
+    }
+
+    [Fact]
+    public async Task GroupReceiptOcrReviewAssignmentRevalidatesAssignedRecipientAuthorization()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group Assignment OCR Owner");
+        var participant = await SeedAccountAsync(testFactory, "Group Assignment OCR Participant", InitialTimestamp.AddMinutes(1));
+        var groupMemberOnly = await SeedAccountAsync(testFactory, "Group Assignment Member Only", InitialTimestamp.AddMinutes(2));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            "Group Assignment OCR Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(ownerSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active),
+            new MembershipSeed(participant.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active),
+            new MembershipSeed(groupMemberOnly.UserProfileId, GroupMembershipRoles.Member, GroupMembershipStatuses.Active));
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId, participant.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(3));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        await SeedReceiptOcrReviewAsync(
+            testFactory,
+            billId,
+            fileId,
+            ownerSession.UserProfileId,
+            groupId,
+            ReceiptOcrReviewStatuses.Provisional,
+            ReceiptOcrReviewSources.OnDevice,
+            "Group Assignment Cafe",
+            "USD",
+            InitialTimestamp.AddMinutes(4),
+            lineCount: 1);
+        using var client = testFactory.CreateClient();
+
+        using (var memberOnlyRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            GroupOcrReviewAssignmentPath(groupId, billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentRequestJson(groupMemberOnly.UserProfileId, null)))
+        using (var memberOnlyResponse = await client.SendAsync(memberOnlyRequest))
+        {
+            await AssertBillUnavailableProblemAsync(memberOnlyResponse);
+        }
+
+        await UpdateMembershipStatusAsync(testFactory, groupId, participant.UserProfileId, GroupMembershipStatuses.Removed);
+        using (var removedParticipantRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            GroupOcrReviewAssignmentPath(groupId, billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentRequestJson(participant.UserProfileId, null)))
+        using (var removedParticipantResponse = await client.SendAsync(removedParticipantRequest))
+        {
+            await AssertBillUnavailableProblemAsync(removedParticipantResponse);
+        }
+
+        await UpdateMembershipStatusAsync(testFactory, groupId, participant.UserProfileId, GroupMembershipStatuses.Active);
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        using var validRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            GroupOcrReviewAssignmentPath(groupId, billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentRequestJson(participant.UserProfileId, null));
+        using var validResponse = await client.SendAsync(validRequest);
+        var validContent = await validResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, validResponse.StatusCode);
+        var assignment = ReadAssignmentPayload(validContent);
+        Assert.Equal(groupId, assignment.GroupId);
+        Assert.Equal(participant.UserProfileId, assignment.AssignedToUserProfileId);
+        Assert.Empty(await ReadInAppNotificationsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task PlainReceiptOcrReviewOperationsDoNotCreateAssignmentsOrNotifications()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var ownerSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "No Notification OCR Owner");
+        var participant = await SeedAccountAsync(testFactory, "No Notification OCR Participant", InitialTimestamp.AddMinutes(1));
+        var participantSession = await SeedSessionForAccountAsync(testFactory, testContext.TimeProvider, participant);
+        var billId = await SeedBillAsync(
+            testFactory,
+            ownerSession.UserProfileId,
+            groupId: null,
+            ExpenseBillStatuses.Confirmed,
+            archivedAtUtc: null,
+            [ownerSession.UserProfileId, participant.UserProfileId],
+            [ownerSession.UserProfileId],
+            InitialTimestamp.AddMinutes(2));
+        var fileId = await SeedBillAttachmentAsync(
+            testFactory,
+            billId,
+            ownerSession.UserProfileId,
+            ExpenseBillAttachmentPurposes.Receipt,
+            FileObjectPurposes.ReceiptImage,
+            FileObjectStatuses.Active,
+            removedAtUtc: null);
+        using var client = testFactory.CreateClient();
+
+        using (var putRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            ApplyPreviewReadyReviewJson()))
+        using (var putResponse = await client.SendAsync(putRequest))
+        {
+            Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        }
+
+        using (var getRequest = CreateBearerRequest(HttpMethod.Get, PersonalOcrReviewPath(billId, fileId), participantSession.RawSessionToken))
+        using (var getResponse = await client.SendAsync(getRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        }
+
+        using (var queueRequest = CreateBearerRequest(HttpMethod.Get, ReceiptOcrReviewQueuePath("limit=10"), ownerSession.RawSessionToken))
+        using (var queueResponse = await client.SendAsync(queueRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, queueResponse.StatusCode);
+        }
+
+        using (var previewRequest = CreateBearerRequest(HttpMethod.Get, PersonalOcrReviewApplyPreviewPath(billId, fileId), participantSession.RawSessionToken))
+        using (var previewResponse = await client.SendAsync(previewRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        }
+
+        using (var deleteRequest = CreateBearerRequest(HttpMethod.Delete, PersonalOcrReviewPath(billId, fileId), ownerSession.RawSessionToken))
+        using (var deleteResponse = await client.SendAsync(deleteRequest))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+        }
+
+        Assert.Empty(await ReadReceiptOcrReviewAssignmentsAsync(testFactory));
+        Assert.Empty(await ReadInAppNotificationsAsync(testFactory));
     }
 
     [Fact]
@@ -1886,10 +2194,16 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var personalBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review:");
         var personalApplyPreviewBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview:");
         var personalApplyBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply:");
+        var personalAssignmentBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment:");
+        var personalAssignmentCompleteBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment/complete:");
+        var personalAssignmentCancelBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment/cancel:");
         var groupQueueBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/receipt-ocr-reviews:");
         var groupBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review:");
         var groupApplyPreviewBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview:");
         var groupApplyBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply:");
+        var groupAssignmentBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment:");
+        var groupAssignmentCompleteBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment/complete:");
+        var groupAssignmentCancelBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment/cancel:");
         var requestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewUpsertRequest:");
         var lineRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewLineRequest:");
         var listResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewListResponse:");
@@ -1902,6 +2216,11 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var applyModeSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewApplyMode:");
         var applyRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewApplyRequest:");
         var applyResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewApplyResponse:");
+        var assignmentStatusSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAssignmentStatus:");
+        var assignmentSourceSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAssignmentSource:");
+        var assignmentRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAssignmentRequest:");
+        var assignmentTransitionRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAssignmentTransitionRequest:");
+        var assignmentResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAssignmentResponse:");
         const string positiveQuantityPattern = @"^(?=.*[1-9])(?:0|[0-9]+)(?:\.[0-9]{1,4})?$";
         var positiveQuantityContract = new Regex(positiveQuantityPattern, RegexOptions.CultureInvariant);
 
@@ -1914,12 +2233,20 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("operationId: removePersonalBillAttachmentOcrReview", personalBlock);
         Assert.Contains("operationId: getPersonalBillAttachmentOcrReviewApplyPreview", personalApplyPreviewBlock);
         Assert.Contains("operationId: applyPersonalBillAttachmentOcrReview", personalApplyBlock);
+        Assert.Contains("operationId: upsertPersonalBillAttachmentOcrReviewAssignment", personalAssignmentBlock);
+        Assert.Contains("operationId: getPersonalBillAttachmentOcrReviewAssignment", personalAssignmentBlock);
+        Assert.Contains("operationId: completePersonalBillAttachmentOcrReviewAssignment", personalAssignmentCompleteBlock);
+        Assert.Contains("operationId: cancelPersonalBillAttachmentOcrReviewAssignment", personalAssignmentCancelBlock);
         Assert.Contains("operationId: listGroupReceiptOcrReviews", groupQueueBlock);
         Assert.Contains("operationId: upsertGroupBillAttachmentOcrReview", groupBlock);
         Assert.Contains("operationId: getGroupBillAttachmentOcrReview", groupBlock);
         Assert.Contains("operationId: removeGroupBillAttachmentOcrReview", groupBlock);
         Assert.Contains("operationId: getGroupBillAttachmentOcrReviewApplyPreview", groupApplyPreviewBlock);
         Assert.Contains("operationId: applyGroupBillAttachmentOcrReview", groupApplyBlock);
+        Assert.Contains("operationId: upsertGroupBillAttachmentOcrReviewAssignment", groupAssignmentBlock);
+        Assert.Contains("operationId: getGroupBillAttachmentOcrReviewAssignment", groupAssignmentBlock);
+        Assert.Contains("operationId: completeGroupBillAttachmentOcrReviewAssignment", groupAssignmentCompleteBlock);
+        Assert.Contains("operationId: cancelGroupBillAttachmentOcrReviewAssignment", groupAssignmentCancelBlock);
         Assert.Contains("provisional", openApi);
         Assert.Contains("reviewed", openApi);
         Assert.Contains("on_device", openApi);
@@ -1948,6 +2275,16 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("expectedReviewUpdatedAtUtc", applyRequestSchema);
         Assert.Contains("appliedItemCount", applyResponseSchema);
         Assert.Contains("blockedReasons", applyResponseSchema);
+        Assert.Contains("needs_review", assignmentStatusSchema);
+        Assert.Contains("superseded", assignmentStatusSchema);
+        Assert.Contains("server_ocr_worker", assignmentSourceSchema);
+        Assert.Contains("manual_assignment", assignmentSourceSchema);
+        Assert.Contains("assignedToUserProfileId", assignmentRequestSchema);
+        Assert.Contains("manual_assignment", assignmentRequestSchema);
+        Assert.Contains("expectedAssignmentUpdatedAtUtc", assignmentTransitionRequestSchema);
+        Assert.Contains("receiptOcrReviewId", assignmentResponseSchema);
+        Assert.Contains("assignmentStatus", assignmentResponseSchema);
+        Assert.Contains("sourceCorrelationId", assignmentResponseSchema);
         var safeSchemas = requestSchema
             + listResponseSchema
             + summaryResponseSchema
@@ -1958,7 +2295,12 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             + applyPreviewResponseSchema
             + applyModeSchema
             + applyRequestSchema
-            + applyResponseSchema;
+            + applyResponseSchema
+            + assignmentStatusSchema
+            + assignmentSourceSchema
+            + assignmentRequestSchema
+            + assignmentTransitionRequestSchema
+            + assignmentResponseSchema;
         Assert.DoesNotContain("rawText", safeSchemas, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("storageObjectKey", safeSchemas, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("providerPath", safeSchemas, StringComparison.OrdinalIgnoreCase);
@@ -1976,12 +2318,18 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("getPersonalBillAttachmentOcrReview", webClient);
         Assert.Contains("getPersonalBillAttachmentOcrReviewApplyPreview", webClient);
         Assert.Contains("applyPersonalBillAttachmentOcrReview", webClient);
+        Assert.Contains("upsertPersonalBillAttachmentOcrReviewAssignment", webClient);
+        Assert.Contains("completePersonalBillAttachmentOcrReviewAssignment", webClient);
+        Assert.Contains("cancelPersonalBillAttachmentOcrReviewAssignment", webClient);
         Assert.Contains("removePersonalBillAttachmentOcrReview", webClient);
         Assert.Contains("listGroupReceiptOcrReviews", dartClient);
         Assert.Contains("upsertGroupBillAttachmentOcrReview", dartClient);
         Assert.Contains("getGroupBillAttachmentOcrReview", dartClient);
         Assert.Contains("getGroupBillAttachmentOcrReviewApplyPreview", dartClient);
         Assert.Contains("applyGroupBillAttachmentOcrReview", dartClient);
+        Assert.Contains("upsertGroupBillAttachmentOcrReviewAssignment", dartClient);
+        Assert.Contains("completeGroupBillAttachmentOcrReviewAssignment", dartClient);
+        Assert.Contains("cancelGroupBillAttachmentOcrReviewAssignment", dartClient);
         Assert.Contains("removeGroupBillAttachmentOcrReview", dartClient);
         Assert.Contains("ReceiptOcrReviewListResponse", webModels);
         Assert.Contains("class ReceiptOcrReviewSummaryResponse", dartModels);
@@ -1989,9 +2337,13 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("ReceiptOcrReviewApplyPreviewResponse", webModels);
         Assert.Contains("ReceiptOcrReviewApplyRequest", webModels);
         Assert.Contains("ReceiptOcrReviewApplyResponse", webModels);
+        Assert.Contains("ReceiptOcrReviewAssignmentRequest", webModels);
+        Assert.Contains("ReceiptOcrReviewAssignmentResponse", webModels);
         Assert.Contains("class ReceiptOcrReviewApplyPreviewResponse", dartModels);
         Assert.Contains("class ReceiptOcrReviewApplyRequest", dartModels);
         Assert.Contains("class ReceiptOcrReviewApplyResponse", dartModels);
+        Assert.Contains("class ReceiptOcrReviewAssignmentRequest", dartModels);
+        Assert.Contains("class ReceiptOcrReviewAssignmentResponse", dartModels);
         Assert.Contains("ReceiptOcrReviewUpsertRequest", webModels);
         Assert.Contains("class ReceiptOcrReviewResponse", dartModels);
         Assert.Contains("class ReceiptOcrReviewUpsertRequest", dartModels);
@@ -2118,6 +2470,24 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         {
             applyMode = ReceiptOcrReviewApplyModes.ReplaceDraftOcrItems,
             expectedReviewUpdatedAtUtc
+        });
+    }
+
+    private static string AssignmentRequestJson(Guid assignedToUserProfileId, string? sourceCorrelationId)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            assignedToUserProfileId,
+            assignmentSource = ReceiptOcrReviewAssignmentSources.ManualAssignment,
+            sourceCorrelationId
+        });
+    }
+
+    private static string AssignmentTransitionRequestJson(DateTimeOffset expectedAssignmentUpdatedAtUtc)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            expectedAssignmentUpdatedAtUtc
         });
     }
 
@@ -2601,6 +2971,30 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             .ToArrayAsync();
     }
 
+    private static async Task<IReadOnlyList<ReceiptOcrReviewAssignment>> ReadReceiptOcrReviewAssignmentsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<ReceiptOcrReviewAssignment>()
+            .AsNoTracking()
+            .OrderBy(assignment => assignment.CreatedAtUtc)
+            .ToArrayAsync();
+    }
+
+    private static async Task<IReadOnlyList<InAppNotification>> ReadInAppNotificationsAsync(
+        WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+
+        return await dbContext.Set<InAppNotification>()
+            .AsNoTracking()
+            .OrderBy(notification => notification.CreatedAtUtc)
+            .ToArrayAsync();
+    }
+
     private static async Task<ExpenseBillAttachment> ReadBillAttachmentAsync(
         WebApplicationFactory<Program> testFactory,
         Guid billId,
@@ -2811,6 +3205,62 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
                     line.GetProperty("sortOrder").GetInt32(),
                     line.GetProperty("text").GetString()!))
                 .ToArray());
+    }
+
+    private static ReceiptOcrReviewAssignmentPayload ReadAssignmentPayload(string content)
+    {
+        using var document = JsonDocument.Parse(content);
+        var root = document.RootElement;
+        Assert.Equal(
+            [
+                "assignedByUserProfileId",
+                "assignedToUserProfileId",
+                "assignmentSource",
+                "assignmentStatus",
+                "billId",
+                "cancelledAtUtc",
+                "completedAtUtc",
+                "createdAtUtc",
+                "fileId",
+                "groupId",
+                "id",
+                "receiptOcrReviewId",
+                "sourceActorUserProfileId",
+                "sourceCorrelationId",
+                "supersededAtUtc",
+                "updatedAtUtc"
+            ],
+            root.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal).ToArray());
+
+        return new ReceiptOcrReviewAssignmentPayload(
+            root.GetProperty("id").GetGuid(),
+            root.GetProperty("receiptOcrReviewId").GetGuid(),
+            root.GetProperty("billId").GetGuid(),
+            root.GetProperty("fileId").GetGuid(),
+            root.GetProperty("groupId").ValueKind is JsonValueKind.Null
+                ? null
+                : root.GetProperty("groupId").GetGuid(),
+            root.GetProperty("assignmentStatus").GetString()!,
+            root.GetProperty("assignedToUserProfileId").GetGuid(),
+            root.GetProperty("assignedByUserProfileId").ValueKind is JsonValueKind.Null
+                ? null
+                : root.GetProperty("assignedByUserProfileId").GetGuid(),
+            root.GetProperty("assignmentSource").GetString()!,
+            root.GetProperty("sourceActorUserProfileId").ValueKind is JsonValueKind.Null
+                ? null
+                : root.GetProperty("sourceActorUserProfileId").GetGuid(),
+            root.GetProperty("sourceCorrelationId").GetString(),
+            root.GetProperty("createdAtUtc").GetDateTimeOffset(),
+            root.GetProperty("updatedAtUtc").GetDateTimeOffset(),
+            root.GetProperty("completedAtUtc").ValueKind is JsonValueKind.Null
+                ? null
+                : root.GetProperty("completedAtUtc").GetDateTimeOffset(),
+            root.GetProperty("cancelledAtUtc").ValueKind is JsonValueKind.Null
+                ? null
+                : root.GetProperty("cancelledAtUtc").GetDateTimeOffset(),
+            root.GetProperty("supersededAtUtc").ValueKind is JsonValueKind.Null
+                ? null
+                : root.GetProperty("supersededAtUtc").GetDateTimeOffset());
     }
 
     private static ReceiptOcrReviewQueuePayload ReadReviewQueuePayload(string content)
@@ -3204,6 +3654,21 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         return $"/api/v1/bills/{billId:D}/attachments/{fileId:D}/ocr-review/apply";
     }
 
+    private static string PersonalOcrReviewAssignmentPath(Guid billId, Guid fileId)
+    {
+        return $"/api/v1/bills/{billId:D}/attachments/{fileId:D}/ocr-review/assignment";
+    }
+
+    private static string PersonalOcrReviewAssignmentCompletePath(Guid billId, Guid fileId)
+    {
+        return $"/api/v1/bills/{billId:D}/attachments/{fileId:D}/ocr-review/assignment/complete";
+    }
+
+    private static string PersonalOcrReviewAssignmentCancelPath(Guid billId, Guid fileId)
+    {
+        return $"/api/v1/bills/{billId:D}/attachments/{fileId:D}/ocr-review/assignment/cancel";
+    }
+
     private static string GroupOcrReviewPath(Guid groupId, Guid billId, Guid fileId)
     {
         return $"/api/v1/groups/{groupId:D}/bills/{billId:D}/attachments/{fileId:D}/ocr-review";
@@ -3217,6 +3682,11 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     private static string GroupOcrReviewApplyPath(Guid groupId, Guid billId, Guid fileId)
     {
         return $"/api/v1/groups/{groupId:D}/bills/{billId:D}/attachments/{fileId:D}/ocr-review/apply";
+    }
+
+    private static string GroupOcrReviewAssignmentPath(Guid groupId, Guid billId, Guid fileId)
+    {
+        return $"/api/v1/groups/{groupId:D}/bills/{billId:D}/attachments/{fileId:D}/ocr-review/assignment";
     }
 
     private static string ReceiptOcrReviewQueuePath(string? query = null)
@@ -3316,6 +3786,24 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         string? Currency,
         string? GrandTotalAmount,
         IReadOnlyList<ReceiptOcrReviewLinePayload> Lines);
+
+    private sealed record ReceiptOcrReviewAssignmentPayload(
+        Guid Id,
+        Guid ReceiptOcrReviewId,
+        Guid BillId,
+        Guid FileId,
+        Guid? GroupId,
+        string AssignmentStatus,
+        Guid AssignedToUserProfileId,
+        Guid? AssignedByUserProfileId,
+        string AssignmentSource,
+        Guid? SourceActorUserProfileId,
+        string? SourceCorrelationId,
+        DateTimeOffset CreatedAtUtc,
+        DateTimeOffset UpdatedAtUtc,
+        DateTimeOffset? CompletedAtUtc,
+        DateTimeOffset? CancelledAtUtc,
+        DateTimeOffset? SupersededAtUtc);
 
     private sealed record ReceiptOcrReviewLinePayload(
         Guid Id,

@@ -16,16 +16,26 @@ The API now has a narrow bill-scoped receipt OCR review intake, apply-preview, a
 - `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview`
 - `POST /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/apply`
+- `PUT /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment`
+- `GET /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment`
+- `POST /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment/complete`
+- `POST /api/v1/bills/{billId}/attachments/{fileId}/ocr-review/assignment/cancel`
 - `DELETE /api/v1/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/receipt-ocr-reviews`
 - `PUT /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply-preview`
 - `POST /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/apply`
+- `PUT /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment`
+- `GET /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment`
+- `POST /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment/complete`
+- `POST /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review/assignment/cancel`
 - `DELETE /api/v1/groups/{groupId}/bills/{billId}/attachments/{fileId}/ocr-review`
 - `GET /api/v1/groups/{groupId}/receipt-ocr-reviews`
 
 These endpoints store bounded user-reviewed or client/on-device OCR-derived candidate fields and lines in PostgreSQL, linked to an existing active bill receipt attachment. The review remains provisional/review-state data unless an authorized actor explicitly applies it through the draft-only apply endpoint. Intake, queue/list visibility, apply-preview success, OCR completion, and generated client availability do not automatically mutate or finalize bill data.
+
+The assignment endpoints persist explicit API-owned needs-review assignment/source state for a saved review. The API revalidates actor mutation rights, assigned-recipient access to the bill, receipt attachment metadata, and saved review before writing. Assignment creation is idempotent for the same active review/responsible editor, retargeting supersedes the prior active assignment, and completion/cancellation mutate assignment state only. They do not create OCR notifications, apply OCR, change review data, or mutate bill, item, split, settlement, payment, balance, file, storage, sync, notification read/archive, OCR job, or worker state.
 
 The apply-preview endpoints are read-only validation previews for visible bill actors. They do not require creator/owner mutation rights, do not emit OCR review read-audit events, and do not create or change bill, item, split, settlement, payment, balance, file, storage, OCR job, or worker state.
 
