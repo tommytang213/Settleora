@@ -4,7 +4,8 @@ import {
   type InAppNotificationPriority,
   type InAppNotificationResponse,
   type InAppNotificationStatus,
-  type InAppNotificationSummaryResponse
+  type InAppNotificationSummaryResponse,
+  type NotificationPreferenceResponse
 } from "../../../packages/client-web/src/generated";
 
 export type NotificationsReadoutStatus =
@@ -24,6 +25,7 @@ export interface NotificationsReadoutState {
   status: NotificationsReadoutStatus;
   message: string;
   notifications: InAppNotificationResponse[];
+  preferences?: NotificationPreferenceResponse;
   summary?: InAppNotificationSummaryResponse;
   missingMethods: string[];
   unsupportedSections: string[];
@@ -32,7 +34,9 @@ export interface NotificationsReadoutState {
 export interface NotificationsReadoutOptions {
   accessToken?: string | null;
   baseUrl?: string;
-  client?: Partial<Pick<SettleoraApiClient, "listNotifications" | "getNotificationSummary">>;
+  client?: Partial<
+    Pick<SettleoraApiClient, "listNotifications" | "getNotificationSummary" | "getNotificationPreferences">
+  >;
 }
 
 export const notificationsListQuery = {
@@ -43,6 +47,12 @@ export const notificationUnsupportedSections = [
   "Read, archive, dismiss, and mark-all actions are not available in this web readout.",
   "Email, push, browser permission prompts, subscriptions, quiet-hours delivery, and provider status are outside this slice.",
   "Notification links are shown as server-returned text only; opening any related record must re-check authorization through that record's API."
+];
+
+export const notificationPreferenceUnsupportedSections = [
+  "Preference controls are read-only here; updating preferences is outside this web slice.",
+  "Quiet hours and digest are server-returned preference readouts only and do not prove delivery scheduling.",
+  "Email, push, provider readiness, browser permissions, group mute, and admin policy are not exposed by this generated response."
 ];
 
 export async function loadNotificationsReadout(
@@ -56,7 +66,7 @@ export async function loadNotificationsReadout(
       message: "Sign in is required before Settleora can show notifications on the web.",
       notifications: [],
       missingMethods: [],
-      unsupportedSections: notificationUnsupportedSections
+      unsupportedSections: [...notificationUnsupportedSections, ...notificationPreferenceUnsupportedSections]
     };
   }
 
@@ -69,18 +79,19 @@ export async function loadNotificationsReadout(
       message: "Notification read support is not available in this web client build yet.",
       notifications: [],
       missingMethods,
-      unsupportedSections: notificationUnsupportedSections
+      unsupportedSections: [...notificationUnsupportedSections, ...notificationPreferenceUnsupportedSections]
     };
   }
   const notificationReadClient = client as Pick<
     SettleoraApiClient,
-    "listNotifications" | "getNotificationSummary"
+    "listNotifications" | "getNotificationSummary" | "getNotificationPreferences"
   >;
 
   try {
-    const [list, summary] = await Promise.all([
+    const [list, summary, preferences] = await Promise.all([
       notificationReadClient.listNotifications({ accessToken }, notificationsListQuery),
-      notificationReadClient.getNotificationSummary({ accessToken })
+      notificationReadClient.getNotificationSummary({ accessToken }),
+      notificationReadClient.getNotificationPreferences({ accessToken })
     ]);
 
     if (list.notifications.length === 0) {
@@ -88,9 +99,10 @@ export async function loadNotificationsReadout(
         status: "empty",
         message: "No visible notifications are available for this account yet.",
         notifications: [],
+        preferences,
         summary,
         missingMethods: [],
-        unsupportedSections: notificationUnsupportedSections
+        unsupportedSections: [...notificationUnsupportedSections, ...notificationPreferenceUnsupportedSections]
       };
     }
 
@@ -98,9 +110,10 @@ export async function loadNotificationsReadout(
       status: "loaded",
       message: `${list.notifications.length} notification${list.notifications.length === 1 ? "" : "s"} loaded from Settleora.`,
       notifications: list.notifications,
+      preferences,
       summary,
       missingMethods: [],
-      unsupportedSections: notificationUnsupportedSections
+      unsupportedSections: [...notificationUnsupportedSections, ...notificationPreferenceUnsupportedSections]
     };
   } catch (error) {
     return toNotificationsReadoutFailure(
@@ -111,7 +124,7 @@ export async function loadNotificationsReadout(
 }
 
 export function getMissingNotificationReadMethods(client: object): string[] {
-  return ["listNotifications", "getNotificationSummary"].filter((method) => {
+  return ["listNotifications", "getNotificationSummary", "getNotificationPreferences"].filter((method) => {
     return typeof (client as Record<string, unknown>)[method] !== "function";
   });
 }
@@ -177,6 +190,55 @@ export function collectNotificationTargetFields(
   ]
     .filter(([, value]) => value)
     .map(([label, value]) => ({ label: label as string, value: value as string }));
+}
+
+export function summarizeNotificationPreferences(
+  preferences?: NotificationPreferenceResponse
+): Array<{ label: string; value: string }> {
+  if (!preferences) {
+    return [];
+  }
+
+  return [
+    {
+      label: "In-app",
+      value: preferences.inAppEnabled ? "Enabled" : "Disabled"
+    },
+    {
+      label: "Delivery timing",
+      value: preferences.deliveryTiming === "digest_readout" ? "Digest readout" : "Immediate"
+    },
+    {
+      label: "Quiet hours",
+      value: preferences.quietHours.enabled
+        ? `${formatPreferenceHour(preferences.quietHours.startHour)} to ${formatPreferenceHour(
+            preferences.quietHours.endHour
+          )}`
+        : "Off"
+    },
+    {
+      label: "Bills",
+      value: preferences.categories.bills ? "Enabled" : "Disabled"
+    },
+    {
+      label: "Settlements",
+      value: preferences.categories.settlements ? "Enabled" : "Disabled"
+    },
+    {
+      label: "Recurring",
+      value: preferences.categories.recurring ? "Enabled" : "Disabled"
+    },
+    {
+      label: "Sync and security",
+      value: preferences.categories.syncSecurity ? "Required" : "Unavailable"
+    }
+  ];
+}
+
+function formatPreferenceHour(hour: number): string {
+  const normalizedHour = Number.isFinite(hour) ? Math.max(0, Math.min(23, Math.trunc(hour))) : 0;
+
+  return `${String(normalizedHour).padStart(2, "0")}:00`;
 }
 
 function matchesNotificationFilter(
@@ -248,7 +310,7 @@ function toNotificationsReadoutFailure(error: unknown, fallback: string): Notifi
     message: detail.message,
     notifications: [],
     missingMethods: [],
-    unsupportedSections: notificationUnsupportedSections
+    unsupportedSections: [...notificationUnsupportedSections, ...notificationPreferenceUnsupportedSections]
   };
 }
 
