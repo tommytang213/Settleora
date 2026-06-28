@@ -9494,7 +9494,8 @@ class InAppNotificationEventTypeValues {
   static const InAppNotificationEventType settlementProofAttached = "settlement.proof_attached";
   static const InAppNotificationEventType recurringBillDueSoon = "recurring_bill.due_soon";
   static const InAppNotificationEventType recurringBillDraftGenerated = "recurring_bill.draft_generated";
-  static const Set<InAppNotificationEventType> values = {billSubmitted, billParticipantAccepted, billParticipantRejected, billConfirmed, billRevisionProposed, billRevisionResubmitted, billRevisionSubmitted, billRevisionWithdrawn, billRevisionApproved, billRevisionRejected, billRevisionPayerConfirmed, billRevisionApplied, settlementRequestCreated, settlementPaymentMarkedPaid, settlementPaymentPartiallyPaid, settlementPaymentConfirmed, settlementRequestDisputed, settlementPaymentDisputed, settlementRequestCancelled, settlementPaymentCancelled, settlementProofAttached, recurringBillDueSoon, recurringBillDraftGenerated};
+  static const InAppNotificationEventType syncConflictDetected = "sync.conflict_detected";
+  static const Set<InAppNotificationEventType> values = {billSubmitted, billParticipantAccepted, billParticipantRejected, billConfirmed, billRevisionProposed, billRevisionResubmitted, billRevisionSubmitted, billRevisionWithdrawn, billRevisionApproved, billRevisionRejected, billRevisionPayerConfirmed, billRevisionApplied, settlementRequestCreated, settlementPaymentMarkedPaid, settlementPaymentPartiallyPaid, settlementPaymentConfirmed, settlementRequestDisputed, settlementPaymentDisputed, settlementRequestCancelled, settlementPaymentCancelled, settlementProofAttached, recurringBillDueSoon, recurringBillDraftGenerated, syncConflictDetected};
 }
 
 /// Current lifecycle state for an in-app notification.
@@ -9525,7 +9526,8 @@ class InAppNotificationSubjectTypeValues {
   static const InAppNotificationSubjectType settlementRequest = "settlement_request";
   static const InAppNotificationSubjectType settlementPayment = "settlement_payment";
   static const InAppNotificationSubjectType recurringBillOccurrence = "recurring_bill_occurrence";
-  static const Set<InAppNotificationSubjectType> values = {expenseBill, settlementRequest, settlementPayment, recurringBillOccurrence};
+  static const InAppNotificationSubjectType syncOperation = "sync_operation";
+  static const Set<InAppNotificationSubjectType> values = {expenseBill, settlementRequest, settlementPayment, recurringBillOccurrence, syncOperation};
 }
 
 /// Bounded archive visibility filter or lifecycle state for expense bills.
