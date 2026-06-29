@@ -11199,6 +11199,207 @@ class RoundingModeValues {
   static const Set<RoundingMode> values = {up, down, nearest, bankers};
 }
 
+/// Stable local backup package readiness code. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupPackageReadinessCode = String;
+class LocalBackupPackageReadinessCodeValues {
+  const LocalBackupPackageReadinessCodeValues._();
+  static const LocalBackupPackageReadinessCode backupPackageReady = "backup_package_ready";
+  static const LocalBackupPackageReadinessCode backupPackageUnsupported = "backup_package_unsupported";
+  static const LocalBackupPackageReadinessCode browserLocalPersistenceUnsupported = "browser_local_persistence_unsupported";
+  static const LocalBackupPackageReadinessCode packageGenerationUnsupported = "package_generation_unsupported";
+  static const LocalBackupPackageReadinessCode packageDownloadUnsupported = "package_download_unsupported";
+  static const LocalBackupPackageReadinessCode restorePreviewUnsupported = "restore_preview_unsupported";
+  static const LocalBackupPackageReadinessCode restoreConfirmationUnsupported = "restore_confirmation_unsupported";
+  static const LocalBackupPackageReadinessCode localModeAuthorityUnsupported = "local_mode_authority_unsupported";
+  static const LocalBackupPackageReadinessCode policyDisabled = "policy_disabled";
+  static const LocalBackupPackageReadinessCode temporarilyUnavailable = "temporarily_unavailable";
+  static const Set<LocalBackupPackageReadinessCode> values = {backupPackageReady, backupPackageUnsupported, browserLocalPersistenceUnsupported, packageGenerationUnsupported, packageDownloadUnsupported, restorePreviewUnsupported, restoreConfirmationUnsupported, localModeAuthorityUnsupported, policyDisabled, temporarilyUnavailable};
+}
+
+/// Server/local authority posture for this readiness response.
+typedef LocalBackupPackageServerModePosture = String;
+class LocalBackupPackageServerModePostureValues {
+  const LocalBackupPackageServerModePostureValues._();
+  static const LocalBackupPackageServerModePosture serverAuthoritative = "server_authoritative";
+  static const LocalBackupPackageServerModePosture localModeUnsupported = "local_mode_unsupported";
+  static const LocalBackupPackageServerModePosture unknown = "unknown";
+  static const Set<LocalBackupPackageServerModePosture> values = {serverAuthoritative, localModeUnsupported, unknown};
+}
+
+/// Availability state for one local backup package feature family.
+typedef LocalBackupPackageFeatureState = String;
+class LocalBackupPackageFeatureStateValues {
+  const LocalBackupPackageFeatureStateValues._();
+  static const LocalBackupPackageFeatureState available = "available";
+  static const LocalBackupPackageFeatureState unavailable = "unavailable";
+  static const LocalBackupPackageFeatureState unsupported = "unsupported";
+  static const LocalBackupPackageFeatureState policyDisabled = "policy_disabled";
+  static const Set<LocalBackupPackageFeatureState> values = {available, unavailable, unsupported, policyDisabled};
+}
+
+/// Feature families explicitly unsupported by the current local backup package readiness contract.
+typedef LocalBackupPackageUnsupportedFeature = String;
+class LocalBackupPackageUnsupportedFeatureValues {
+  const LocalBackupPackageUnsupportedFeatureValues._();
+  static const LocalBackupPackageUnsupportedFeature browserLocalPersistence = "browser_local_persistence";
+  static const LocalBackupPackageUnsupportedFeature packageGeneration = "package_generation";
+  static const LocalBackupPackageUnsupportedFeature packageDownload = "package_download";
+  static const LocalBackupPackageUnsupportedFeature restorePreview = "restore_preview";
+  static const LocalBackupPackageUnsupportedFeature restoreConfirmation = "restore_confirmation";
+  static const LocalBackupPackageUnsupportedFeature localModeAuthority = "local_mode_authority";
+  static const Set<LocalBackupPackageUnsupportedFeature> values = {browserLocalPersistence, packageGeneration, packageDownload, restorePreview, restoreConfirmation, localModeAuthority};
+}
+
+/// Safe package concept metadata labels exposed without package creation or parsing.
+typedef LocalBackupPackageConcept = String;
+class LocalBackupPackageConceptValues {
+  const LocalBackupPackageConceptValues._();
+  static const LocalBackupPackageConcept packageManifest = "package_manifest";
+  static const LocalBackupPackageConcept encryptedFileSections = "encrypted_file_sections";
+  static const LocalBackupPackageConcept restorePreview = "restore_preview";
+  static const Set<LocalBackupPackageConcept> values = {packageManifest, encryptedFileSections, restorePreview};
+}
+
+/// Safe status for one local backup package feature family.
+class LocalBackupPackageFeatureStatusResponse {
+  const LocalBackupPackageFeatureStatusResponse({
+    required this.state,
+    required this.stableCode,
+    required this.safeMessage,
+  });
+
+  final LocalBackupPackageFeatureState state;
+  final LocalBackupPackageReadinessCode stableCode;
+  /// User-safe message without hidden records, storage details, auth tokens, file bytes, package bytes, or private data.
+  final String safeMessage;
+
+  factory LocalBackupPackageFeatureStatusResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageFeatureStatusResponse(
+      state: json["state"] as String,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "state": state,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+    };
+  }
+}
+
+/// Safe package concept metadata. It does not include package manifests, file bytes, storage references, hidden records, or restore payloads.
+class LocalBackupPackageConceptResponse {
+  const LocalBackupPackageConceptResponse({
+    required this.concept,
+    required this.safeDescription,
+  });
+
+  final LocalBackupPackageConcept concept;
+  final String safeDescription;
+
+  factory LocalBackupPackageConceptResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageConceptResponse(
+      concept: json["concept"] as String,
+      safeDescription: json["safeDescription"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "concept": concept,
+      "safeDescription": safeDescription,
+    };
+  }
+}
+
+/// Metadata-only local backup package readiness for the current authenticated actor. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, or hidden records.
+class LocalBackupPackageReadinessResponse {
+  const LocalBackupPackageReadinessResponse({
+    required this.available,
+    required this.stableCode,
+    required this.safeMessage,
+    required this.serverModePosture,
+    required this.browserLocalPersistence,
+    required this.packageGeneration,
+    required this.packageDownload,
+    required this.restorePreview,
+    required this.restoreConfirmation,
+    required this.localModeAuthority,
+    required this.knownPackageConcepts,
+    required this.unsupportedFeatures,
+    required this.privacyBoundary,
+    required this.dataEgressBoundary,
+    required this.generatedAtUtc,
+    required this.expiresAtUtc,
+  });
+
+  /// False for this slice because backup package generation/download and restore behavior are not implemented.
+  final bool available;
+  final LocalBackupPackageReadinessCode stableCode;
+  final String safeMessage;
+  final LocalBackupPackageServerModePosture serverModePosture;
+  final LocalBackupPackageFeatureStatusResponse browserLocalPersistence;
+  final LocalBackupPackageFeatureStatusResponse packageGeneration;
+  final LocalBackupPackageFeatureStatusResponse packageDownload;
+  final LocalBackupPackageFeatureStatusResponse restorePreview;
+  final LocalBackupPackageFeatureStatusResponse restoreConfirmation;
+  final LocalBackupPackageFeatureStatusResponse localModeAuthority;
+  final List<LocalBackupPackageConceptResponse> knownPackageConcepts;
+  final List<LocalBackupPackageUnsupportedFeature> unsupportedFeatures;
+  /// Safe privacy boundary summary for display and logging review.
+  final String privacyBoundary;
+  /// Safe data-egress boundary summary. This readiness response performs no package export/download/restore action.
+  final String dataEgressBoundary;
+  final DateTime generatedAtUtc;
+  /// Freshness expiry for display; clients should reload rather than treating stale status as authority.
+  final DateTime expiresAtUtc;
+
+  factory LocalBackupPackageReadinessResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageReadinessResponse(
+      available: json["available"] as bool,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+      serverModePosture: json["serverModePosture"] as String,
+      browserLocalPersistence: LocalBackupPackageFeatureStatusResponse.fromJson(JsonObject.from(json["browserLocalPersistence"] as Map)),
+      packageGeneration: LocalBackupPackageFeatureStatusResponse.fromJson(JsonObject.from(json["packageGeneration"] as Map)),
+      packageDownload: LocalBackupPackageFeatureStatusResponse.fromJson(JsonObject.from(json["packageDownload"] as Map)),
+      restorePreview: LocalBackupPackageFeatureStatusResponse.fromJson(JsonObject.from(json["restorePreview"] as Map)),
+      restoreConfirmation: LocalBackupPackageFeatureStatusResponse.fromJson(JsonObject.from(json["restoreConfirmation"] as Map)),
+      localModeAuthority: LocalBackupPackageFeatureStatusResponse.fromJson(JsonObject.from(json["localModeAuthority"] as Map)),
+      knownPackageConcepts: (json["knownPackageConcepts"] as List<dynamic>).map((item) => LocalBackupPackageConceptResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      unsupportedFeatures: (json["unsupportedFeatures"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      privacyBoundary: json["privacyBoundary"] as String,
+      dataEgressBoundary: json["dataEgressBoundary"] as String,
+      generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "available": available,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+      "serverModePosture": serverModePosture,
+      "browserLocalPersistence": browserLocalPersistence.toJson(),
+      "packageGeneration": packageGeneration.toJson(),
+      "packageDownload": packageDownload.toJson(),
+      "restorePreview": restorePreview.toJson(),
+      "restoreConfirmation": restoreConfirmation.toJson(),
+      "localModeAuthority": localModeAuthority.toJson(),
+      "knownPackageConcepts": knownPackageConcepts.map((item) => item.toJson()).toList(growable: false),
+      "unsupportedFeatures": unsupportedFeatures,
+      "privacyBoundary": privacyBoundary,
+      "dataEgressBoundary": dataEgressBoundary,
+      "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Server-derived sync/local mode for the authenticated status readout.
 typedef SyncLocalStatusMode = String;
 class SyncLocalStatusModeValues {

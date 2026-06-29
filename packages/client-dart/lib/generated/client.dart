@@ -1414,6 +1414,17 @@ class SettleoraApiClient {
     return ReceiptOcrReviewListResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<LocalBackupPackageReadinessResponse> getLocalBackupPackageReadiness({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/local-backup/package-readiness",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupPackageReadinessResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<ManualFinanceSummaryResponse> getManualFinanceSummary({String? windowStartDate, String? windowEndDate, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

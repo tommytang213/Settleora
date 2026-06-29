@@ -142,6 +142,15 @@ Recommended endpoint categories:
 - package verification;
 - package metadata readback.
 
+Implementation update on 2026-06-29: the first readiness contract slice chose
+`GET /api/v1/local-backup/package-readiness` with operation ID
+`getLocalBackupPackageReadiness` for the metadata-only readiness/eligibility
+read. The endpoint is authenticated and reports package generation/download,
+restore preview/confirmation, browser local persistence, and local-mode
+authority as unsupported. It does not create packages, return package bytes,
+download files, parse restore data, write local/server records, or create
+browser state.
+
 Readiness should answer whether the current actor, profile mode, scope,
 policy, package size, file section, encryption state, and server/local mode are
 eligible for package creation. It should not create package bytes, download
