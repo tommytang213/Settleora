@@ -1,17 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  formatProofSize,
   filterSettlementsForPresentation,
   getSettlementCounterpartyUserProfileId,
   loadSettlementDetailReadout,
+  loadSettlementProofMetadataReadout,
   loadSettlementsReadout,
   summarizeCounterpartyPaymentDetails,
   summarizeBalanceDirections,
+  summarizeSettlementProofMetadata,
   summarizeSettlementStatuses,
   type SettlementsReadoutOptions
 } from "./settlementsReadout";
 import {
   SettleoraApiError,
   type SettlementCounterpartyPaymentDetailsResponse,
+  type SettlementPaymentListResponse,
   type SettlementRequestResponse
 } from "../../../packages/client-web/src/generated";
 
@@ -63,6 +67,27 @@ const counterpartyPaymentDetails: SettlementCounterpartyPaymentDetailsResponse =
     sizeBytes: 2048,
     updatedAtUtc: "2026-06-28T10:20:00Z"
   }
+};
+
+const visiblePayments: SettlementPaymentListResponse = {
+  payments: [
+    {
+      paymentId: "payment-1",
+      settlementRequestId: visibleSettlement.id,
+      paidByUserProfileId: "debtor-1",
+      receivedByUserProfileId: "creditor-1",
+      amount: "128.50",
+      currency: "HKD",
+      status: "marked_paid",
+      paymentDate: "2026-06-28",
+      claimedAtUtc: "2026-06-28T10:30:00Z",
+      createdAtUtc: "2026-06-28T10:30:00Z",
+      updatedAtUtc: "2026-06-28T10:30:00Z",
+      allocations: [],
+      residuals: [],
+      settlementRequestStatus: "marked_paid"
+    }
+  ]
 };
 
 describe("settlements readout adapter", () => {
@@ -122,9 +147,24 @@ describe("settlements readout adapter", () => {
   it("loads selected settlement detail and payments through generated client read methods", async () => {
     const client = {
       getSettlementRequest: vi.fn().mockResolvedValue(visibleSettlement),
-      listSettlementPayments: vi.fn().mockResolvedValue({ payments: [] }),
+      listSettlementPayments: vi.fn().mockResolvedValue(visiblePayments),
       getSettlementCounterpartyPaymentDetails: vi.fn().mockResolvedValue(counterpartyPaymentDetails),
-      getSettlementCounterpartyPaymentDetailsQrContent: vi.fn()
+      getSettlementCounterpartyPaymentDetailsQrContent: vi.fn(),
+      listSettlementPaymentProofs: vi.fn().mockResolvedValue({
+        proofs: [
+          {
+            fileId: "proof-file-1",
+            settlementPaymentId: "payment-1",
+            contentType: "image/png",
+            sizeBytes: 4096,
+            uploadedAtUtc: "2026-06-28T10:35:00Z",
+            updatedAtUtc: "2026-06-28T10:35:00Z"
+          }
+        ]
+      }),
+      attachSettlementPaymentProof: vi.fn(),
+      removeSettlementPaymentProof: vi.fn(),
+      getSettlementPaymentProofContent: vi.fn()
     };
 
     await expect(
@@ -137,11 +177,24 @@ describe("settlements readout adapter", () => {
     ).resolves.toMatchObject({
       status: "loaded",
       settlement: visibleSettlement,
-      payments: { payments: [] },
+      payments: visiblePayments,
       counterpartyPaymentDetails: {
         status: "loaded",
         counterpartyUserProfileId: "creditor-1",
         details: counterpartyPaymentDetails
+      },
+      proofMetadata: {
+        status: "loaded",
+        paymentProofs: [
+          {
+            paymentId: "payment-1",
+            proofs: [
+              {
+                fileId: "proof-file-1"
+              }
+            ]
+          }
+        ]
       }
     });
     expect(client.getSettlementRequest).toHaveBeenCalledWith(visibleSettlement.id, {
@@ -155,7 +208,107 @@ describe("settlements readout adapter", () => {
       "creditor-1",
       { accessToken: "session-token" }
     );
+    expect(client.listSettlementPaymentProofs).toHaveBeenCalledWith("payment-1", {
+      accessToken: "session-token"
+    });
     expect(client.getSettlementCounterpartyPaymentDetailsQrContent).not.toHaveBeenCalled();
+    expect(client.attachSettlementPaymentProof).not.toHaveBeenCalled();
+    expect(client.removeSettlementPaymentProof).not.toHaveBeenCalled();
+    expect(client.getSettlementPaymentProofContent).not.toHaveBeenCalled();
+  });
+
+  it("loads proof metadata only after auth and visible payment context exist", async () => {
+    const client = {
+      listSettlementPaymentProofs: vi.fn()
+    };
+
+    await expect(
+      loadSettlementProofMetadataReadout({
+        accessToken: null,
+        client,
+        payments: visiblePayments
+      })
+    ).resolves.toMatchObject({
+      status: "auth_required",
+      paymentProofs: []
+    });
+    await expect(
+      loadSettlementProofMetadataReadout({
+        accessToken: "session-token",
+        client,
+        payments: { payments: [] }
+      })
+    ).resolves.toMatchObject({
+      status: "unavailable",
+      paymentProofs: []
+    });
+    expect(client.listSettlementPaymentProofs).not.toHaveBeenCalled();
+  });
+
+  it("reports proof metadata unavailable when the generated client lacks a safe list method", async () => {
+    const client = {
+      getSettlementPaymentProofContent: vi.fn(),
+      attachSettlementPaymentProof: vi.fn(),
+      removeSettlementPaymentProof: vi.fn()
+    };
+
+    await expect(
+      loadSettlementProofMetadataReadout({
+        accessToken: "session-token",
+        client: client as unknown as Parameters<typeof loadSettlementProofMetadataReadout>[0]["client"],
+        payments: visiblePayments
+      })
+    ).resolves.toMatchObject({
+      status: "unavailable",
+      missingMethods: ["listSettlementPaymentProofs"]
+    });
+    expect(client.getSettlementPaymentProofContent).not.toHaveBeenCalled();
+    expect(client.attachSettlementPaymentProof).not.toHaveBeenCalled();
+    expect(client.removeSettlementPaymentProof).not.toHaveBeenCalled();
+  });
+
+  it("handles empty, denied, and formatted proof metadata states", async () => {
+    await expect(
+      loadSettlementProofMetadataReadout({
+        accessToken: "session-token",
+        client: {
+          listSettlementPaymentProofs: vi.fn().mockResolvedValue({ proofs: [] })
+        },
+        payments: visiblePayments
+      })
+    ).resolves.toMatchObject({
+      status: "empty",
+      paymentProofs: [{ paymentId: "payment-1", proofs: [] }]
+    });
+
+    await expect(
+      loadSettlementProofMetadataReadout({
+        accessToken: "session-token",
+        client: {
+          listSettlementPaymentProofs: vi
+            .fn()
+            .mockRejectedValue(new SettleoraApiError(403, "Forbidden", {}))
+        },
+        payments: visiblePayments
+      })
+    ).resolves.toMatchObject({
+      status: "unavailable",
+      paymentProofs: []
+    });
+
+    expect(
+      summarizeSettlementProofMetadata({
+        status: "loaded",
+        message: "Loaded",
+        paymentProofs: [{ paymentId: "payment-1", proofs: [{ fileId: "proof-file-1" } as never] }],
+        missingMethods: []
+      })
+    ).toEqual([
+      { label: "Proof metadata", value: "Loaded" },
+      { label: "Proof files", value: "1" }
+    ]);
+    expect(formatProofSize(512)).toBe("512 B");
+    expect(formatProofSize(4096)).toBe("4.0 KiB");
   });
 
   it("does not call counterparty payment detail reads without a matching settlement-scoped context", async () => {

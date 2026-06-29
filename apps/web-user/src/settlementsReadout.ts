@@ -4,6 +4,7 @@ import {
   type SettlementBalanceProjectionListResponse,
   type SettlementCounterpartyPaymentDetailsResponse,
   type SettlementPaymentListResponse,
+  type SettlementPaymentProofResponse,
   type SettlementRequestListResponse,
   type SettlementRequestResponse,
   type SettlementRequestStatus
@@ -38,6 +39,7 @@ export interface SettlementDetailReadoutState {
   settlement?: SettlementRequestResponse;
   payments?: SettlementPaymentListResponse;
   counterpartyPaymentDetails?: CounterpartyPaymentDetailsReadoutState;
+  proofMetadata?: SettlementProofMetadataReadoutState;
 }
 
 export interface CounterpartyPaymentDetailsReadoutState {
@@ -45,6 +47,18 @@ export interface CounterpartyPaymentDetailsReadoutState {
   message: string;
   counterpartyUserProfileId?: string;
   details?: SettlementCounterpartyPaymentDetailsResponse;
+}
+
+export interface SettlementPaymentProofMetadata {
+  paymentId: string;
+  proofs: SettlementPaymentProofResponse[];
+}
+
+export interface SettlementProofMetadataReadoutState {
+  status: SettlementsReadoutStatus;
+  message: string;
+  paymentProofs: SettlementPaymentProofMetadata[];
+  missingMethods: string[];
 }
 
 export interface SettlementsReadoutOptions {
@@ -58,7 +72,8 @@ export interface SettlementsReadoutOptions {
     | "getSettlementRequest"
     | "listSettlementPayments"
     | "getSettlementCounterpartyPaymentDetails"
-  >;
+  > &
+    Partial<Pick<SettleoraApiClient, "listSettlementPaymentProofs">>;
 }
 
 export async function loadSettlementsReadout(
@@ -130,13 +145,19 @@ export async function loadSettlementDetailReadout(
       currentUserProfileId: options.currentUserProfileId,
       settlement
     });
+    const proofMetadata = await loadSettlementProofMetadataReadout({
+      accessToken,
+      client,
+      payments
+    });
 
     return {
       status: "loaded",
       message: "Settlement detail loaded from Settleora.",
       settlement,
       payments,
-      counterpartyPaymentDetails
+      counterpartyPaymentDetails,
+      proofMetadata
     };
   } catch (error) {
     return toSettlementsDetailFailure(
@@ -189,6 +210,112 @@ export async function loadCounterpartyPaymentDetailsReadout({
   } catch (error) {
     return toCounterpartyPaymentDetailsFailure(error, counterpartyUserProfileId);
   }
+}
+
+export async function loadSettlementProofMetadataReadout({
+  accessToken,
+  client,
+  payments
+}: {
+  accessToken?: string | null;
+  client: Partial<Pick<SettleoraApiClient, "listSettlementPaymentProofs">>;
+  payments?: SettlementPaymentListResponse | null;
+}): Promise<SettlementProofMetadataReadoutState> {
+  const verifiedAccessToken = accessToken?.trim();
+
+  if (!verifiedAccessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can show settlement proof metadata.",
+      paymentProofs: [],
+      missingMethods: []
+    };
+  }
+
+  if (!payments || payments.payments.length === 0) {
+    return {
+      status: "unavailable",
+      message: "Proof metadata needs a selected settlement with visible payment rows.",
+      paymentProofs: [],
+      missingMethods: []
+    };
+  }
+
+  if (typeof client.listSettlementPaymentProofs !== "function") {
+    return {
+      status: "unavailable",
+      message:
+        "Settlement proof metadata is unavailable because the generated web client has no safe metadata list method.",
+      paymentProofs: [],
+      missingMethods: ["listSettlementPaymentProofs"]
+    };
+  }
+
+  try {
+    const paymentProofs = await Promise.all(
+      payments.payments.map(async (payment) => {
+        const proofList = await client.listSettlementPaymentProofs!(payment.paymentId, {
+          accessToken: verifiedAccessToken
+        });
+
+        return {
+          paymentId: payment.paymentId,
+          proofs: proofList.proofs
+        };
+      })
+    );
+    const proofCount = paymentProofs.reduce((total, item) => total + item.proofs.length, 0);
+
+    return {
+      status: proofCount > 0 ? "loaded" : "empty",
+      message:
+        proofCount > 0
+          ? `${proofCount} settlement proof metadata row${proofCount === 1 ? "" : "s"} loaded from Settleora.`
+          : "No settlement proof metadata rows were returned for visible payments.",
+      paymentProofs,
+      missingMethods: []
+    };
+  } catch (error) {
+    return toSettlementProofMetadataFailure(error);
+  }
+}
+
+export function summarizeSettlementProofMetadata(
+  readout: SettlementProofMetadataReadoutState | undefined
+): Array<{ label: string; value: string }> {
+  if (!readout) {
+    return [
+      { label: "Proof metadata", value: "Unavailable" },
+      { label: "Proof files", value: "0" }
+    ];
+  }
+
+  const proofCount = readout.paymentProofs.reduce((total, item) => total + item.proofs.length, 0);
+
+  return [
+    { label: "Proof metadata", value: labelize(readout.status) },
+    { label: "Proof files", value: String(proofCount) }
+  ];
+}
+
+export function formatProofSize(sizeBytes: number): string {
+  if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+    return "Unknown size";
+  }
+
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  const kib = sizeBytes / 1024;
+
+  if (kib < 1024) {
+    return `${kib.toFixed(kib >= 10 ? 0 : 1)} KiB`;
+  }
+
+  const mib = kib / 1024;
+
+  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
 }
 
 export function getSettlementCounterpartyUserProfileId(
@@ -322,6 +449,20 @@ function toCounterpartyPaymentDetailsFailure(
     status: detail.status,
     message: detail.message,
     counterpartyUserProfileId
+  };
+}
+
+function toSettlementProofMetadataFailure(error: unknown): SettlementProofMetadataReadoutState {
+  const detail = classifyApiFailure(
+    error,
+    "Settleora could not load settlement proof metadata. No proof bytes were fetched."
+  );
+
+  return {
+    status: detail.status,
+    message: detail.message,
+    paymentProofs: [],
+    missingMethods: []
   };
 }
 
