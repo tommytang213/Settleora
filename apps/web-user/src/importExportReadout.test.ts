@@ -7,6 +7,7 @@ import {
   createImportConfirmRequestFromSession,
   discardBillCsvImportSessionRuntime,
   downloadBillExport,
+  evaluateSyncLocalStatusResponse,
   evaluateBillImportSessionConfirmable,
   evaluateBillImportPreflightScope,
   evaluateBillExportReadiness,
@@ -14,10 +15,12 @@ import {
   getPresentImportExportMethods,
   labelImportExportStatus,
   loadImportExportReadout,
+  loadSyncLocalStatus,
   preflightBillCsvImport,
   type BillImportSessionRuntimeClient,
   type BillImportPreflightRuntimeClient,
-  type BillExportRuntimeClient
+  type BillExportRuntimeClient,
+  type SyncLocalStatusRuntimeClient
 } from "./importExportReadout";
 import { loadGroupsReadout } from "./groupsFriendsReadout";
 import { SettleoraApiError } from "../../../packages/client-web/src/generated";
@@ -26,7 +29,8 @@ import type {
   BillCsvImportPreflightResponse,
   BillCsvImportSessionResponse,
   ExpenseBillExportReadinessResponse,
-  GroupResponse
+  GroupResponse,
+  SyncLocalStatusResponse
 } from "../../../packages/client-web/src/generated";
 
 function createOperationClient() {
@@ -45,6 +49,7 @@ function createOperationClient() {
     confirmBillCsvImportSession: vi.fn(),
     discardBillCsvImportSession: vi.fn(),
     listGroups: vi.fn(),
+    getSyncLocalStatus: vi.fn(),
     importPersonalBillsCsv: vi.fn(),
     importGroupBillsCsv: vi.fn(),
     listSyncChanges: vi.fn(),
@@ -74,6 +79,7 @@ describe("import/export availability readout", () => {
       "confirmBillCsvImportSession",
       "discardBillCsvImportSession",
       "listGroups",
+      "getSyncLocalStatus",
       "importPersonalBillsCsv",
       "importGroupBillsCsv",
       "listSyncChanges",
@@ -122,7 +128,7 @@ describe("import/export availability readout", () => {
         expect.objectContaining({
           id: "sync-status",
           status: "readout_only",
-          methodsPresent: ["listSyncChanges", "getSyncOperation", "submitSyncOperation"]
+          methodsPresent: ["getSyncLocalStatus"]
         })
       ])
     );
@@ -150,6 +156,7 @@ describe("import/export availability readout", () => {
       "confirmBillCsvImportSession",
       "discardBillCsvImportSession",
       "listGroups",
+      "getSyncLocalStatus",
       "importGroupBillsCsv",
       "listSyncChanges",
       "submitSyncOperation",
@@ -218,6 +225,146 @@ describe("import/export availability readout", () => {
     expect(copy).toContain("Sync/local status");
     expect(copy).toContain("Report/export history");
     expect(copy).not.toMatch(/fake session|fake data|storage path|object key|file bytes|download started|upload started/i);
+  });
+});
+
+describe("sync/local status runtime", () => {
+  it("auth-gates before the generated sync/local status method is called", async () => {
+    const client = createSyncLocalStatusClient();
+
+    const result = await loadSyncLocalStatus({
+      accessToken: " ",
+      client
+    });
+
+    expect(result).toEqual({
+      status: "auth_required",
+      message: "Sign in is required before Settleora can show sync and local status."
+    });
+    expect(client.getSyncLocalStatus).not.toHaveBeenCalled();
+  });
+
+  it("calls only getSyncLocalStatus with the authenticated request shape", async () => {
+    const forbidden = createForbiddenSyncLocalMethods();
+    const client = { ...createSyncLocalStatusClient(), ...forbidden };
+
+    const result = await loadSyncLocalStatus({
+      accessToken: " token ",
+      client
+    });
+
+    expect(result.status).toBe("loaded");
+    expect(result.response?.stableCode).toBe("server_mode_active");
+    expect(client.getSyncLocalStatus).toHaveBeenCalledWith({ accessToken: "token" });
+    expectForbiddenSyncLocalMethodsNotCalled(forbidden);
+  });
+
+  it("maps server-returned sync/local status fields without inventing local data", async () => {
+    const response = createSyncLocalStatusResponse({
+      safeMessage: "Server mode is active for this account.",
+      lastAcceptedServerVersion: 42,
+      failedOperationSummary: {
+        state: "available",
+        count: 2,
+        stableCode: "sync_failed_present",
+        safeMessage: "Two server-known sync operations failed."
+      },
+      conflictSummary: {
+        state: "available",
+        count: 1,
+        stableCode: "sync_conflict_present",
+        safeMessage: "One server-known conflict is visible."
+      }
+    });
+    const result = await loadSyncLocalStatus({
+      accessToken: "token",
+      client: createSyncLocalStatusClient({ response })
+    });
+
+    expect(result).toEqual({
+      status: "loaded",
+      message: "Server mode is active for this account.",
+      response
+    });
+    expect(JSON.stringify(result)).toContain("sync_conflict_present");
+    expect(JSON.stringify(result)).toContain("local_backup_restore");
+    expect(JSON.stringify(result)).not.toMatch(/localStorage|sessionStorage|indexedDB|fake local|object key|storage path/i);
+  });
+
+  it("maps unavailable, empty, expired, denied, and server unavailable states fail-closed", async () => {
+    expect(
+      evaluateSyncLocalStatusResponse(
+        createSyncLocalStatusResponse({ expiresAtUtc: "2026-06-29T00:00:00.000Z" }),
+        new Date("2026-06-29T00:00:01.000Z")
+      ).status
+    ).toBe("stale");
+
+    expect(
+      evaluateSyncLocalStatusResponse(
+        createSyncLocalStatusResponse({ lastAcceptedServerVersion: null })
+      ).status
+    ).toBe("empty");
+
+    expect(
+      evaluateSyncLocalStatusResponse(
+        createSyncLocalStatusResponse({
+          available: false,
+          stableCode: "sync_status_unavailable",
+          safeMessage: "Status is temporarily unavailable."
+        })
+      )
+    ).toEqual(
+      expect.objectContaining({
+        status: "unavailable",
+        message: "Status is temporarily unavailable."
+      })
+    );
+
+    expect(
+      evaluateSyncLocalStatusResponse(
+        createSyncLocalStatusResponse({
+          sessionState: "session_expired",
+          stableCode: "session_expired",
+          safeMessage: "Session expired."
+        })
+      ).status
+    ).toBe("session_expired");
+
+    expect(
+      evaluateSyncLocalStatusResponse(
+        createSyncLocalStatusResponse({
+          serverReachability: "server_unavailable",
+          stableCode: "server_unreachable",
+          safeMessage: "Server unavailable."
+        })
+      ).status
+    ).toBe("server_unavailable");
+  });
+
+  it("reports missing method and API failures without calling forbidden sync or storage APIs", async () => {
+    const forbidden = createForbiddenSyncLocalMethods();
+    const missing = await loadSyncLocalStatus({
+      accessToken: "token",
+      client: { ...forbidden, getSyncLocalStatus: undefined }
+    });
+    const expired = await loadSyncLocalStatus({
+      accessToken: "token",
+      client: createThrowingSyncLocalStatusClient(new SettleoraApiError(401, "Unauthorized", {}))
+    });
+    const denied = await loadSyncLocalStatus({
+      accessToken: "token",
+      client: createThrowingSyncLocalStatusClient(new SettleoraApiError(403, "Forbidden", {}))
+    });
+    const unavailable = await loadSyncLocalStatus({
+      accessToken: "token",
+      client: createThrowingSyncLocalStatusClient(new SettleoraApiError(503, "Unavailable", {}))
+    });
+
+    expect(missing.status).toBe("unavailable");
+    expect(expired.status).toBe("session_expired");
+    expect(denied.status).toBe("denied");
+    expect(unavailable.status).toBe("server_unavailable");
+    expectForbiddenSyncLocalMethodsNotCalled(forbidden);
   });
 });
 
@@ -1207,6 +1354,126 @@ function createReadiness(
     expiresAtUtc: "2999-01-01T00:00:00.000Z",
     ...overrides
   };
+}
+
+function createSyncLocalStatusResponse(
+  overrides: Partial<SyncLocalStatusResponse> = {}
+): SyncLocalStatusResponse {
+  return {
+    mode: "server_mode",
+    available: true,
+    stableCode: "server_mode_active",
+    safeMessage: "Server mode sync status is active.",
+    sessionState: "authenticated",
+    serverReachability: "reachable",
+    generatedAtUtc: "2026-06-29T14:20:00.000Z",
+    expiresAtUtc: "2999-01-01T00:00:00.000Z",
+    serverMode: {
+      state: "available",
+      stableCode: "server_mode_active",
+      safeMessage: "Server mode is active."
+    },
+    localModeSupport: {
+      state: "unsupported",
+      stableCode: "local_mode_unsupported",
+      safeMessage: "Browser local mode is not supported in this web build."
+    },
+    backupRestoreSupport: {
+      state: "unsupported",
+      stableCode: "backup_restore_unsupported",
+      safeMessage: "Browser backup and restore are not supported in this web build."
+    },
+    syncMutationSupport: {
+      state: "unsupported",
+      stableCode: "sync_mutation_unsupported",
+      safeMessage: "Sync mutation is not available from this readout."
+    },
+    lastAcceptedServerVersion: 7,
+    pendingOperationSummary: {
+      state: "unavailable",
+      count: null,
+      stableCode: "sync_status_unavailable",
+      safeMessage: "Pending operation count is not available."
+    },
+    failedOperationSummary: {
+      state: "available",
+      count: 0,
+      stableCode: "sync_status_ready",
+      safeMessage: "No failed sync operations were returned."
+    },
+    conflictSummary: {
+      state: "available",
+      count: 0,
+      stableCode: "sync_status_ready",
+      safeMessage: "No conflicts were returned."
+    },
+    unsupportedFeatures: [
+      {
+        feature: "browser_local_mode",
+        stableCode: "local_mode_unsupported",
+        safeMessage: "Browser local mode is unsupported."
+      },
+      {
+        feature: "browser_local_persistence",
+        stableCode: "local_persistence_unsupported",
+        safeMessage: "Browser persistence is unsupported."
+      },
+      {
+        feature: "local_backup_restore",
+        stableCode: "backup_restore_unsupported",
+        safeMessage: "Local backup and restore are unsupported."
+      },
+      {
+        feature: "sync_mutation",
+        stableCode: "sync_mutation_unsupported",
+        safeMessage: "Sync mutation is unsupported."
+      },
+      {
+        feature: "conflict_resolution",
+        stableCode: "sync_conflict_present",
+        safeMessage: "Conflict resolution is unsupported from this screen."
+      }
+    ],
+    privacyBoundary: "No file bytes, storage internals, raw payloads, tokens, or hidden records are returned.",
+    ...overrides
+  };
+}
+
+function createSyncLocalStatusClient({
+  response = createSyncLocalStatusResponse()
+}: {
+  response?: SyncLocalStatusResponse;
+} = {}): Required<SyncLocalStatusRuntimeClient> {
+  return {
+    getSyncLocalStatus: vi.fn(async () => response)
+  };
+}
+
+function createThrowingSyncLocalStatusClient(error: unknown): SyncLocalStatusRuntimeClient {
+  return {
+    getSyncLocalStatus: vi.fn(async () => {
+      throw error;
+    })
+  };
+}
+
+function createForbiddenSyncLocalMethods() {
+  return {
+    listSyncChanges: vi.fn(),
+    submitSyncOperation: vi.fn(),
+    getSyncOperation: vi.fn(),
+    importPersonalBillsCsv: vi.fn(),
+    importGroupBillsCsv: vi.fn(),
+    localStorage: vi.fn(),
+    sessionStorage: vi.fn(),
+    indexedDB: vi.fn()
+  };
+}
+
+function expectForbiddenSyncLocalMethodsNotCalled(forbidden: ReturnType<typeof createForbiddenSyncLocalMethods>) {
+  for (const method of Object.values(forbidden)) {
+    expect(method).not.toHaveBeenCalled();
+  }
 }
 
 function createExportRuntimeClient({
