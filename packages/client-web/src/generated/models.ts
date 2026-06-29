@@ -2165,6 +2165,109 @@ export interface BillCsvImportedBillSummaryResponse {
 }
 
 /**
+ * Non-mutating CSV import preflight/review metadata for personal or group bill imports. It never contains raw CSV contents, raw user-entered merchant/item/note values, file bytes, storage references, auth/session data, payment details, OCR text, or hidden records.
+ */
+export interface BillCsvImportPreflightResponse {
+  scope: ExpenseBillExportScopeType;
+  /**
+   * Route group ID for group preflight, or null for personal preflight.
+   */
+  groupId: string | null;
+  /**
+   * True only when the submitted CSV is eligible for review with no row rejections. This does not authorize mutation or confirmation.
+   */
+  available: boolean;
+  /**
+   * Stable preflight status code.
+   */
+  statusCode: "ready_for_review" | "needs_correction";
+  /**
+   * Bounded safe user-facing message with no raw CSV cell values.
+   */
+  safeMessage: string;
+  /**
+   * Number of non-header CSV data rows considered by preflight.
+   */
+  rowCount: number;
+  /**
+   * Number of rows accepted for review metadata. This response is still non-mutating.
+   */
+  acceptedRowCount: number;
+  /**
+   * Number of rows with warning-only review state.
+   */
+  warningRowCount: number;
+  /**
+   * Number of CSV data rows rejected by validation.
+   */
+  rejectedRowCount: number;
+  acceptedFields: string[];
+  defaultedFields: string[];
+  rejectedFields: string[];
+  reviewItems: BillCsvImportReviewItemResponse[];
+  auditPreview: BillCsvImportAuditPreviewResponse;
+  confirmation: BillCsvImportConfirmationPreviewResponse;
+  /**
+   * Safe wording for stateless/temporary preflight readiness.
+   */
+  readiness: string;
+}
+
+/**
+ * Row-level CSV import preflight review item with stable codes and safe normalized metadata only.
+ */
+export interface BillCsvImportReviewItemResponse {
+  /**
+   * One-based CSV row number. Header-level review items use row 1.
+   */
+  rowNumber: number;
+  state: "accepted" | "warning" | "rejected" | "duplicate_candidate" | "defaulted";
+  severity: "info" | "warning" | "error";
+  codes: string[];
+  /**
+   * Safe review message with no raw submitted cell values.
+   */
+  safeMessage: string;
+  normalizedCandidate: BillCsvImportNormalizedCandidateResponse | null;
+  fields: string[];
+}
+
+/**
+ * Safe normalized row candidate fields derived by server parsing. It excludes merchant names, item names, notes, profile IDs, payment details, storage references, and hidden record data.
+ */
+export interface BillCsvImportNormalizedCandidateResponse {
+  billDate: string;
+  currency: CurrencyCode;
+  /**
+   * Decimal-safe normalized item amount represented as a string.
+   */
+  itemAmount: string;
+  splitMethod: string;
+  /**
+   * Decimal-safe normalized split basis value when applicable.
+   */
+  splitBasisValue: string | null;
+}
+
+/**
+ * Safe audit preview wording for the non-mutating preflight step. This slice does not write import audit records.
+ */
+export interface BillCsvImportAuditPreviewResponse {
+  action: string;
+  scope: ExpenseBillExportScopeType;
+  safeMessage: string;
+}
+
+/**
+ * Safe confirmation copy metadata for future import confirmation UI. This response does not perform confirmation.
+ */
+export interface BillCsvImportConfirmationPreviewResponse {
+  reviewLabel: string;
+  confirmLabel: string;
+  safeMessage: string;
+}
+
+/**
  * Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.
  */
 export interface ExpenseBillLifecycleResponse {

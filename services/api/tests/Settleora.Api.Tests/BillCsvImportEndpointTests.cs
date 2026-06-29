@@ -18,6 +18,7 @@ namespace Settleora.Api.Tests;
 public sealed class BillCsvImportEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string PersonalImportPath = "/api/v1/bills/import.csv";
+    private const string PersonalImportPreflightPath = "/api/v1/bills/import-preflight.csv";
     private const string BillCsvImportedAction = "bill.csv_imported";
     private const string WrongRawToken = "visible-wrong-bill-csv-import-session-token";
 
@@ -145,6 +146,65 @@ public sealed class BillCsvImportEndpointTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
+    public async Task PersonalCsvPreflightReturnsReviewWithoutCreatingBillsOrEchoingRawCsvText()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Personal CSV Preflight Actor");
+        using var client = testFactory.CreateClient();
+        var csv = $$"""
+            clientBillKey,merchantName,billDate,currency,itemName,itemAmount,itemNote,payerUserProfileId,splitUserProfileId,splitMethod,splitBasisValue
+            personal-preview,Private Merchant,2026-05-17,USD,Secret Lunch,10.00,private note,,,,
+            personal-preview,Private Merchant,2026-05-17,USD,Secret Tea,2.50,,{{actorSession.UserProfileId:D}},{{actorSession.UserProfileId:D}},exact_amount,2.50
+            """;
+        using var request = CreateCsvRequest(
+            HttpMethod.Post,
+            PersonalImportPreflightPath,
+            actorSession.RawSessionToken,
+            csv);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("Private Merchant", content);
+        Assert.DoesNotContain("Secret Lunch", content);
+        Assert.DoesNotContain("Secret Tea", content);
+        Assert.DoesNotContain("private note", content);
+        Assert.DoesNotContain(actorSession.RawSessionToken, content);
+
+        using var payload = JsonDocument.Parse(content);
+        var root = payload.RootElement;
+        Assert.Equal("personal", root.GetProperty("scope").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("groupId").ValueKind);
+        Assert.True(root.GetProperty("available").GetBoolean());
+        Assert.Equal("ready_for_review", root.GetProperty("statusCode").GetString());
+        Assert.Equal(2, root.GetProperty("rowCount").GetInt32());
+        Assert.Equal(2, root.GetProperty("acceptedRowCount").GetInt32());
+        Assert.Equal(0, root.GetProperty("warningRowCount").GetInt32());
+        Assert.Equal(0, root.GetProperty("rejectedRowCount").GetInt32());
+        Assert.Equal("Review import", root.GetProperty("confirmation").GetProperty("reviewLabel").GetString());
+        Assert.Equal("Import bills", root.GetProperty("confirmation").GetProperty("confirmLabel").GetString());
+
+        var reviewItems = root.GetProperty("reviewItems").EnumerateArray().ToArray();
+        Assert.Equal(2, reviewItems.Length);
+        Assert.All(reviewItems, item =>
+        {
+            Assert.Equal("accepted", item.GetProperty("state").GetString());
+            Assert.Equal("info", item.GetProperty("severity").GetString());
+            Assert.Contains(
+                item.GetProperty("codes").EnumerateArray(),
+                code => code.GetString() == "row_accepted");
+            Assert.NotEqual(JsonValueKind.Null, item.GetProperty("normalizedCandidate").ValueKind);
+            Assert.Equal("USD", item.GetProperty("normalizedCandidate").GetProperty("currency").GetString());
+        });
+
+        await AssertNoBillsCreatedByAsync(testFactory, actorSession.UserProfileId);
+        Assert.Empty(await ReadImportAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task GroupCsvImportCreatesDraftBillForActiveMembers()
     {
         var testContext = CreateFactory();
@@ -261,6 +321,132 @@ public sealed class BillCsvImportEndpointTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
+    public async Task GroupCsvPreflightRejectsUnavailableMembersWithoutCreatingBillsOrEchoingHiddenData()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group CSV Preflight Owner");
+        var outside = await SeedAccountAsync(testFactory, "Outside CSV Preflight User", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            "Preflight CSV Group",
+            new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        using var client = testFactory.CreateClient();
+        var csv = $$"""
+            clientBillKey,billDate,currency,itemName,itemAmount,payerUserProfileId,splitUserProfileId,splitMethod,splitBasisValue
+            group-preview,2026-05-17,USD,Visible Item,5.00,{{actorSession.UserProfileId:D}},{{actorSession.UserProfileId:D}},exact_amount,5.00
+            group-preview,2026-05-17,USD,Hidden Item,5.00,{{actorSession.UserProfileId:D}},{{outside.UserProfileId:D}},exact_amount,5.00
+            """;
+        using var request = CreateCsvRequest(
+            HttpMethod.Post,
+            GroupImportPreflightPath(groupId),
+            actorSession.RawSessionToken,
+            csv);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(outside.UserProfileId.ToString("D"), content);
+        Assert.DoesNotContain("Hidden Item", content);
+        using var payload = JsonDocument.Parse(content);
+        var root = payload.RootElement;
+        Assert.Equal("group", root.GetProperty("scope").GetString());
+        Assert.Equal(groupId, root.GetProperty("groupId").GetGuid());
+        Assert.False(root.GetProperty("available").GetBoolean());
+        Assert.Equal("needs_correction", root.GetProperty("statusCode").GetString());
+        Assert.Equal(2, root.GetProperty("rowCount").GetInt32());
+        Assert.Equal(0, root.GetProperty("acceptedRowCount").GetInt32());
+        Assert.Equal(1, root.GetProperty("rejectedRowCount").GetInt32());
+
+        var reviewItem = Assert.Single(root.GetProperty("reviewItems").EnumerateArray());
+        Assert.Equal(3, reviewItem.GetProperty("rowNumber").GetInt32());
+        Assert.Equal("rejected", reviewItem.GetProperty("state").GetString());
+        Assert.Equal("error", reviewItem.GetProperty("severity").GetString());
+        Assert.Contains(
+            reviewItem.GetProperty("codes").EnumerateArray(),
+            code => code.GetString() == "group_member_unavailable");
+        Assert.Equal(JsonValueKind.Null, reviewItem.GetProperty("normalizedCandidate").ValueKind);
+
+        await AssertNoBillsCreatedByAsync(testFactory, actorSession.UserProfileId);
+        Assert.Empty(await ReadImportAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task GroupCsvPreflightRequiresServerSideGroupAuthorization()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Group CSV Unauthorized Actor");
+        var groupOwner = await SeedAccountAsync(testFactory, "Hidden Group Owner", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            groupOwner.UserProfileId,
+            "Hidden CSV Group",
+            new MembershipSeed(groupOwner.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        using var client = testFactory.CreateClient();
+        using var request = CreateCsvRequest(
+            HttpMethod.Post,
+            GroupImportPreflightPath(groupId),
+            actorSession.RawSessionToken,
+            "clientBillKey,billDate,currency,itemName,itemAmount\nhidden,2026-05-17,USD,Secret,10.00");
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("Hidden CSV Group", content);
+        Assert.DoesNotContain(groupOwner.UserProfileId.ToString("D"), content);
+        Assert.DoesNotContain("Secret", content);
+        await AssertNoBillsCreatedByAsync(testFactory, actorSession.UserProfileId);
+        Assert.Empty(await ReadImportAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task PersonalCsvPreflightRejectsInvalidOversizedAndTooManyRowsSafely()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "CSV Preflight Invalid Actor");
+        using var client = testFactory.CreateClient();
+
+        using var invalidContentTypeRequest = new HttpRequestMessage(HttpMethod.Post, PersonalImportPreflightPath);
+        invalidContentTypeRequest.Headers.TryAddWithoutValidation("Authorization", $"Bearer {actorSession.RawSessionToken}");
+        invalidContentTypeRequest.Content = new StringContent("{\"secret\":\"raw\"}", Encoding.UTF8, "application/json");
+        using var invalidContentTypeResponse = await client.SendAsync(invalidContentTypeRequest);
+        var invalidContentTypeBody = await invalidContentTypeResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, invalidContentTypeResponse.StatusCode);
+        Assert.DoesNotContain("raw", invalidContentTypeBody);
+
+        using var oversizedRequest = CreateCsvRequest(
+            HttpMethod.Post,
+            PersonalImportPreflightPath,
+            actorSession.RawSessionToken,
+            new string('x', 65537));
+        using var oversizedResponse = await client.SendAsync(oversizedRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, oversizedResponse.StatusCode);
+
+        var rows = Enumerable
+            .Range(0, 101)
+            .Select(index => $"row-{index},2026-05-17,USD,Item,1.00");
+        var tooManyRowsCsv = "clientBillKey,billDate,currency,itemName,itemAmount\n" + string.Join("\n", rows);
+        using var tooManyRowsRequest = CreateCsvRequest(
+            HttpMethod.Post,
+            PersonalImportPreflightPath,
+            actorSession.RawSessionToken,
+            tooManyRowsCsv);
+        using var tooManyRowsResponse = await client.SendAsync(tooManyRowsRequest);
+        var tooManyRowsContent = await tooManyRowsResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, tooManyRowsResponse.StatusCode);
+        Assert.DoesNotContain("row-100", tooManyRowsContent);
+
+        await AssertNoBillsCreatedByAsync(testFactory, actorSession.UserProfileId);
+        Assert.Empty(await ReadImportAuditEventsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task MissingOrInvalidSessionReturnsUniformUnauthenticatedProblem()
     {
         var testContext = CreateFactory();
@@ -282,6 +468,14 @@ public sealed class BillCsvImportEndpointTests : IClassFixture<WebApplicationFac
             "clientBillKey,billDate,currency,itemName,itemAmount");
         using var invalidResponse = await client.SendAsync(invalidRequest);
         await AssertUnauthenticatedProblemAsync(invalidResponse, WrongRawToken);
+
+        using var preflightRequest = CreateCsvRequest(
+            HttpMethod.Post,
+            PersonalImportPreflightPath,
+            WrongRawToken,
+            "clientBillKey,billDate,currency,itemName,itemAmount");
+        using var preflightResponse = await client.SendAsync(preflightRequest);
+        await AssertUnauthenticatedProblemAsync(preflightResponse, WrongRawToken);
     }
 
     private FactoryTestContext CreateFactory()
@@ -510,6 +704,11 @@ public sealed class BillCsvImportEndpointTests : IClassFixture<WebApplicationFac
     private static string GroupImportPath(Guid groupId)
     {
         return $"/api/v1/groups/{groupId:D}/bills/import.csv";
+    }
+
+    private static string GroupImportPreflightPath(Guid groupId)
+    {
+        return $"/api/v1/groups/{groupId:D}/bills/import-preflight.csv";
     }
 
     private static async Task AssertUnauthenticatedProblemAsync(

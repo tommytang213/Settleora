@@ -1829,6 +1829,52 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/import-preflight.csv:
+    post:
+      summary: Preflight personal bill CSV import for review
+      description: Parses and validates a bounded UTF-8 text/csv body for a future personal bill import review without creating bills, writing audit records, storing CSV bytes, creating storage objects, or mutating business state. The authenticated actor boundary is server-derived, optional personal payer/split profile IDs must match the authenticated actor, bill totals and splits are calculated server-side for review metadata only, and row review output uses stable safe codes/messages without raw CSV cell echo.
+      operationId: preflightPersonalBillsCsvImport
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              maxLength: 65536
+              description: "UTF-8 CSV body with the same header columns as personal CSV import execution: clientBillKey, merchantName, billDate, currency, itemName, itemAmount, itemNote, payerUserProfileId, splitUserProfileId, splitMethod, and splitBasisValue."
+      responses:
+        "200":
+          description: Non-mutating personal import preflight/review metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportPreflightResponse"
+        "400":
+          description: The CSV body is missing, malformed, too large, not UTF-8 text/csv, or otherwise not readable as a bounded CSV import preflight request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/import.csv:
     post:
       summary: Import personal bill drafts from CSV
@@ -4567,6 +4613,60 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Group is missing, deleted, unrelated, inactive, or unavailable to the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/import-preflight.csv:
+    post:
+      summary: Preflight group bill CSV import for review
+      description: Parses and validates a bounded UTF-8 text/csv body for a future group bill import review without creating bills, writing audit records, storing CSV bytes, creating storage objects, or mutating business state. The route groupId is authoritative for group scope, the authenticated actor must be an active group member, referenced split and payer profile IDs must be active route-group members, and row review output uses stable safe codes/messages without raw CSV cell echo or hidden member data exposure.
+      operationId: preflightGroupBillsCsvImport
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose bill CSV import should be preflighted for review.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              maxLength: 65536
+              description: "UTF-8 CSV body with the same header columns as group CSV import execution: clientBillKey, merchantName, billDate, currency, itemName, itemAmount, itemNote, payerUserProfileId, splitUserProfileId, splitMethod, and splitBasisValue."
+      responses:
+        "200":
+          description: Non-mutating group import preflight/review metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportPreflightResponse"
+        "400":
+          description: The CSV body is missing, malformed, too large, not UTF-8 text/csv, or otherwise not readable as a bounded CSV import preflight request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, profile, membership, or submitted member identity is missing, deleted, unrelated, inactive, or unavailable.
           content:
             application/problem+json:
               schema:
@@ -14315,6 +14415,210 @@ components:
           type: integer
           minimum: 1
           maximum: 100
+    BillCsvImportPreflightResponse:
+      type: object
+      description: Non-mutating CSV import preflight/review metadata for personal or group bill imports. It never contains raw CSV contents, raw user-entered merchant/item/note values, file bytes, storage references, auth/session data, payment details, OCR text, or hidden records.
+      required:
+        - scope
+        - groupId
+        - available
+        - statusCode
+        - safeMessage
+        - rowCount
+        - acceptedRowCount
+        - warningRowCount
+        - rejectedRowCount
+        - acceptedFields
+        - defaultedFields
+        - rejectedFields
+        - reviewItems
+        - auditPreview
+        - confirmation
+        - readiness
+      properties:
+        scope:
+          $ref: "#/components/schemas/ExpenseBillExportScopeType"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Route group ID for group preflight, or null for personal preflight.
+        available:
+          type: boolean
+          description: True only when the submitted CSV is eligible for review with no row rejections. This does not authorize mutation or confirmation.
+        statusCode:
+          type: string
+          enum:
+            - ready_for_review
+            - needs_correction
+          description: Stable preflight status code.
+        safeMessage:
+          type: string
+          maxLength: 240
+          description: Bounded safe user-facing message with no raw CSV cell values.
+        rowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Number of non-header CSV data rows considered by preflight.
+        acceptedRowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Number of rows accepted for review metadata. This response is still non-mutating.
+        warningRowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Number of rows with warning-only review state.
+        rejectedRowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Number of CSV data rows rejected by validation.
+        acceptedFields:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            maxLength: 64
+        defaultedFields:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            maxLength: 64
+        rejectedFields:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            maxLength: 64
+        reviewItems:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/BillCsvImportReviewItemResponse"
+        auditPreview:
+          $ref: "#/components/schemas/BillCsvImportAuditPreviewResponse"
+        confirmation:
+          $ref: "#/components/schemas/BillCsvImportConfirmationPreviewResponse"
+        readiness:
+          type: string
+          maxLength: 240
+          description: Safe wording for stateless/temporary preflight readiness.
+    BillCsvImportReviewItemResponse:
+      type: object
+      description: Row-level CSV import preflight review item with stable codes and safe normalized metadata only.
+      required:
+        - rowNumber
+        - state
+        - severity
+        - codes
+        - safeMessage
+        - normalizedCandidate
+        - fields
+      properties:
+        rowNumber:
+          type: integer
+          minimum: 1
+          description: One-based CSV row number. Header-level review items use row 1.
+        state:
+          type: string
+          enum:
+            - accepted
+            - warning
+            - rejected
+            - duplicate_candidate
+            - defaulted
+        severity:
+          type: string
+          enum:
+            - info
+            - warning
+            - error
+        codes:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 80
+        safeMessage:
+          type: string
+          maxLength: 240
+          description: Safe review message with no raw submitted cell values.
+        normalizedCandidate:
+          oneOf:
+            - $ref: "#/components/schemas/BillCsvImportNormalizedCandidateResponse"
+            - type: "null"
+        fields:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            maxLength: 64
+    BillCsvImportNormalizedCandidateResponse:
+      type: object
+      description: Safe normalized row candidate fields derived by server parsing. It excludes merchant names, item names, notes, profile IDs, payment details, storage references, and hidden record data.
+      required:
+        - billDate
+        - currency
+        - itemAmount
+        - splitMethod
+        - splitBasisValue
+      properties:
+        billDate:
+          type: string
+          format: date
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+        itemAmount:
+          type: string
+          description: Decimal-safe normalized item amount represented as a string.
+        splitMethod:
+          type: string
+          maxLength: 64
+        splitBasisValue:
+          oneOf:
+            - type: string
+              maxLength: 64
+            - type: "null"
+          description: Decimal-safe normalized split basis value when applicable.
+    BillCsvImportAuditPreviewResponse:
+      type: object
+      description: Safe audit preview wording for the non-mutating preflight step. This slice does not write import audit records.
+      required:
+        - action
+        - scope
+        - safeMessage
+      properties:
+        action:
+          type: string
+          maxLength: 120
+        scope:
+          $ref: "#/components/schemas/ExpenseBillExportScopeType"
+        safeMessage:
+          type: string
+          maxLength: 240
+    BillCsvImportConfirmationPreviewResponse:
+      type: object
+      description: Safe confirmation copy metadata for future import confirmation UI. This response does not perform confirmation.
+      required:
+        - reviewLabel
+        - confirmLabel
+        - safeMessage
+      properties:
+        reviewLabel:
+          type: string
+          maxLength: 80
+        confirmLabel:
+          type: string
+          maxLength: 80
+        safeMessage:
+          type: string
+          maxLength: 240
     ExpenseBillLifecycleResponse:
       type: object
       description: Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.

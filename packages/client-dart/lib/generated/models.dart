@@ -6794,6 +6794,246 @@ class BillCsvImportedBillSummaryResponse {
   }
 }
 
+/// Non-mutating CSV import preflight/review metadata for personal or group bill imports. It never contains raw CSV contents, raw user-entered merchant/item/note values, file bytes, storage references, auth/session data, payment details, OCR text, or hidden records.
+class BillCsvImportPreflightResponse {
+  const BillCsvImportPreflightResponse({
+    required this.scope,
+    required this.groupId,
+    required this.available,
+    required this.statusCode,
+    required this.safeMessage,
+    required this.rowCount,
+    required this.acceptedRowCount,
+    required this.warningRowCount,
+    required this.rejectedRowCount,
+    required this.acceptedFields,
+    required this.defaultedFields,
+    required this.rejectedFields,
+    required this.reviewItems,
+    required this.auditPreview,
+    required this.confirmation,
+    required this.readiness,
+  });
+
+  final ExpenseBillExportScopeType scope;
+  /// Route group ID for group preflight, or null for personal preflight.
+  final String? groupId;
+  /// True only when the submitted CSV is eligible for review with no row rejections. This does not authorize mutation or confirmation.
+  final bool available;
+  /// Stable preflight status code.
+  final String statusCode;
+  /// Bounded safe user-facing message with no raw CSV cell values.
+  final String safeMessage;
+  /// Number of non-header CSV data rows considered by preflight.
+  final int rowCount;
+  /// Number of rows accepted for review metadata. This response is still non-mutating.
+  final int acceptedRowCount;
+  /// Number of rows with warning-only review state.
+  final int warningRowCount;
+  /// Number of CSV data rows rejected by validation.
+  final int rejectedRowCount;
+  final List<String> acceptedFields;
+  final List<String> defaultedFields;
+  final List<String> rejectedFields;
+  final List<BillCsvImportReviewItemResponse> reviewItems;
+  final BillCsvImportAuditPreviewResponse auditPreview;
+  final BillCsvImportConfirmationPreviewResponse confirmation;
+  /// Safe wording for stateless/temporary preflight readiness.
+  final String readiness;
+
+  factory BillCsvImportPreflightResponse.fromJson(JsonObject json) {
+    return BillCsvImportPreflightResponse(
+      scope: json["scope"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      available: json["available"] as bool,
+      statusCode: json["statusCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+      rowCount: (json["rowCount"] as num).toInt(),
+      acceptedRowCount: (json["acceptedRowCount"] as num).toInt(),
+      warningRowCount: (json["warningRowCount"] as num).toInt(),
+      rejectedRowCount: (json["rejectedRowCount"] as num).toInt(),
+      acceptedFields: (json["acceptedFields"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      defaultedFields: (json["defaultedFields"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      rejectedFields: (json["rejectedFields"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      reviewItems: (json["reviewItems"] as List<dynamic>).map((item) => BillCsvImportReviewItemResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      auditPreview: BillCsvImportAuditPreviewResponse.fromJson(JsonObject.from(json["auditPreview"] as Map)),
+      confirmation: BillCsvImportConfirmationPreviewResponse.fromJson(JsonObject.from(json["confirmation"] as Map)),
+      readiness: json["readiness"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "scope": scope,
+      "groupId": groupIdJsonValue,
+      "available": available,
+      "statusCode": statusCode,
+      "safeMessage": safeMessage,
+      "rowCount": rowCount,
+      "acceptedRowCount": acceptedRowCount,
+      "warningRowCount": warningRowCount,
+      "rejectedRowCount": rejectedRowCount,
+      "acceptedFields": acceptedFields,
+      "defaultedFields": defaultedFields,
+      "rejectedFields": rejectedFields,
+      "reviewItems": reviewItems.map((item) => item.toJson()).toList(growable: false),
+      "auditPreview": auditPreview.toJson(),
+      "confirmation": confirmation.toJson(),
+      "readiness": readiness,
+    };
+  }
+}
+
+/// Row-level CSV import preflight review item with stable codes and safe normalized metadata only.
+class BillCsvImportReviewItemResponse {
+  const BillCsvImportReviewItemResponse({
+    required this.rowNumber,
+    required this.state,
+    required this.severity,
+    required this.codes,
+    required this.safeMessage,
+    required this.normalizedCandidate,
+    required this.fields,
+  });
+
+  /// One-based CSV row number. Header-level review items use row 1.
+  final int rowNumber;
+  final String state;
+  final String severity;
+  final List<String> codes;
+  /// Safe review message with no raw submitted cell values.
+  final String safeMessage;
+  final BillCsvImportNormalizedCandidateResponse? normalizedCandidate;
+  final List<String> fields;
+
+  factory BillCsvImportReviewItemResponse.fromJson(JsonObject json) {
+    return BillCsvImportReviewItemResponse(
+      rowNumber: (json["rowNumber"] as num).toInt(),
+      state: json["state"] as String,
+      severity: json["severity"] as String,
+      codes: (json["codes"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      safeMessage: json["safeMessage"] as String,
+      normalizedCandidate: json["normalizedCandidate"] == null ? null : BillCsvImportNormalizedCandidateResponse.fromJson(JsonObject.from(json["normalizedCandidate"] as Map)),
+      fields: (json["fields"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final normalizedCandidateJsonValue = normalizedCandidate;
+
+    return {
+      "rowNumber": rowNumber,
+      "state": state,
+      "severity": severity,
+      "codes": codes,
+      "safeMessage": safeMessage,
+      "normalizedCandidate": normalizedCandidateJsonValue == null ? null : normalizedCandidateJsonValue.toJson(),
+      "fields": fields,
+    };
+  }
+}
+
+/// Safe normalized row candidate fields derived by server parsing. It excludes merchant names, item names, notes, profile IDs, payment details, storage references, and hidden record data.
+class BillCsvImportNormalizedCandidateResponse {
+  const BillCsvImportNormalizedCandidateResponse({
+    required this.billDate,
+    required this.currency,
+    required this.itemAmount,
+    required this.splitMethod,
+    required this.splitBasisValue,
+  });
+
+  final String billDate;
+  final CurrencyCode currency;
+  /// Decimal-safe normalized item amount represented as a string.
+  final String itemAmount;
+  final String splitMethod;
+  /// Decimal-safe normalized split basis value when applicable.
+  final String? splitBasisValue;
+
+  factory BillCsvImportNormalizedCandidateResponse.fromJson(JsonObject json) {
+    return BillCsvImportNormalizedCandidateResponse(
+      billDate: json["billDate"] as String,
+      currency: json["currency"] as String,
+      itemAmount: json["itemAmount"] as String,
+      splitMethod: json["splitMethod"] as String,
+      splitBasisValue: json["splitBasisValue"] == null ? null : json["splitBasisValue"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final splitBasisValueJsonValue = splitBasisValue;
+
+    return {
+      "billDate": billDate,
+      "currency": currency,
+      "itemAmount": itemAmount,
+      "splitMethod": splitMethod,
+      "splitBasisValue": splitBasisValueJsonValue,
+    };
+  }
+}
+
+/// Safe audit preview wording for the non-mutating preflight step. This slice does not write import audit records.
+class BillCsvImportAuditPreviewResponse {
+  const BillCsvImportAuditPreviewResponse({
+    required this.action,
+    required this.scope,
+    required this.safeMessage,
+  });
+
+  final String action;
+  final ExpenseBillExportScopeType scope;
+  final String safeMessage;
+
+  factory BillCsvImportAuditPreviewResponse.fromJson(JsonObject json) {
+    return BillCsvImportAuditPreviewResponse(
+      action: json["action"] as String,
+      scope: json["scope"] as String,
+      safeMessage: json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "action": action,
+      "scope": scope,
+      "safeMessage": safeMessage,
+    };
+  }
+}
+
+/// Safe confirmation copy metadata for future import confirmation UI. This response does not perform confirmation.
+class BillCsvImportConfirmationPreviewResponse {
+  const BillCsvImportConfirmationPreviewResponse({
+    required this.reviewLabel,
+    required this.confirmLabel,
+    required this.safeMessage,
+  });
+
+  final String reviewLabel;
+  final String confirmLabel;
+  final String safeMessage;
+
+  factory BillCsvImportConfirmationPreviewResponse.fromJson(JsonObject json) {
+    return BillCsvImportConfirmationPreviewResponse(
+      reviewLabel: json["reviewLabel"] as String,
+      confirmLabel: json["confirmLabel"] as String,
+      safeMessage: json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "reviewLabel": reviewLabel,
+      "confirmLabel": confirmLabel,
+      "safeMessage": safeMessage,
+    };
+  }
+}
+
 /// Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.
 class ExpenseBillLifecycleResponse {
   const ExpenseBillLifecycleResponse({

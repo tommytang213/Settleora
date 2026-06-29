@@ -41,6 +41,14 @@ bounded search query for server-backed bill search rows. The slice renders only
 server-returned report/search fields and keeps report totals, reconciliation
 counts, settlement counts, and search eligibility API/domain-authoritative.
 
+Implementation update on 2026-06-29: the first import contract/API slice added
+non-mutating CSV preflight/review methods
+`preflightPersonalBillsCsvImport` and `preflightGroupBillsCsvImport`. These
+methods parse and validate bounded CSV for review metadata only; they do not
+confirm imports, create bills, store CSV bytes, or authorize user-web upload
+buttons. Direct import mutation and user-web import runtime remain separate
+gated follow-ups.
+
 PR #591 intentionally did not start CSV/JSON/PDF download generation, file
 download actions, CSV import/upload/restore, local backup, sync mutations,
 storage/file-byte reads, receipt/proof/QR/statement content reads, client-side
