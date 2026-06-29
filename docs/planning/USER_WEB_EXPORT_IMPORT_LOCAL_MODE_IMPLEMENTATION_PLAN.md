@@ -21,6 +21,7 @@ Use this file with:
 - [User web bills, groups, friends, and direct-sharing implementation plan](USER_WEB_BILLS_GROUPS_FRIENDS_IMPLEMENTATION_PLAN.md)
 - [User web export readiness contract plan](USER_WEB_EXPORT_READINESS_CONTRACT_PLAN.md)
 - [User web import preflight and review plan](USER_WEB_IMPORT_PREFLIGHT_REVIEW_PLAN.md)
+- [User web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
 - [Local-only and server-mode authority boundary audit](../architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md)
 - [CSV export and import privacy authority](../architecture/CSV_EXPORT_IMPORT_PRIVACY_AUTHORITY.md)
@@ -194,10 +195,11 @@ The next safest contract task is slice 2 if reviewers decide existing
 directly.
 
 After the user-web export runtime slice, import remains a separate mutation
-gate. The next safe import step is the staged
-[user web import preflight and review plan](USER_WEB_IMPORT_PREFLIGHT_REVIEW_PLAN.md),
-not a runtime upload button or direct call to `importPersonalBillsCsv` or
-`importGroupBillsCsv`.
+gate. The staged
+[user web import preflight and review plan](USER_WEB_IMPORT_PREFLIGHT_REVIEW_PLAN.md)
+covers non-mutating review only. The next confirmation gate is the
+[user web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md),
+not a direct call to `importPersonalBillsCsv` or `importGroupBillsCsv`.
 
 ## UI/UX Notes
 
