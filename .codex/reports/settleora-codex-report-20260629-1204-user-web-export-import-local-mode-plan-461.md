@@ -14,7 +14,8 @@ Elapsed: approximately 1 minute
 - Integration branch: `ai/integration`
 - Integration SHA: not used by this direct `main`-based docs task
 - Planning commit SHA: `432f83689370185b99a298fa8b1c70963d4cb45f`
-- Branch pushed: pending at report creation
+- Report artifact commit SHA: `7f517fee60081c1e3a43f64a045807b6de04948b`
+- Branch pushed: yes
 - PR URL: not created
 
 ## Files Changed
@@ -34,8 +35,8 @@ Elapsed: approximately 1 minute
 
 ## Validation Commands And Results
 
-- `cd /workspace/repos/Settleora; git status --short` - passed; output before the planning commit showed only `?? docs/planning/USER_WEB_EXPORT_IMPORT_LOCAL_MODE_IMPLEMENTATION_PLAN.md`.
-- `cd /workspace/repos/Settleora; git diff --name-only` - passed with no output because the new planning doc was untracked at that moment.
+- `cd /workspace/repos/Settleora; git status --short` - passed; final post-commit validation had no output.
+- `cd /workspace/repos/Settleora; git diff --name-only` - passed with no output.
 - `cd /workspace/repos/Settleora; git diff --check` - passed with no output.
 - `cd /workspace/repos/Settleora; npm run validate:docs` - passed. Output: `Documentation validation passed.`
 
