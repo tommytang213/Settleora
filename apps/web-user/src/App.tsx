@@ -60,6 +60,12 @@ import {
   type NotificationPresentationSort,
   type NotificationsReadoutState
 } from "./notificationsReadout";
+import {
+  loadReportsReadout,
+  summarizeReportCounts,
+  summarizeReportTotals,
+  type ReportsReadoutState
+} from "./reportsReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
   ExpenseBillReconciliationStatus,
@@ -67,6 +73,7 @@ import type {
   GroupBillResponse,
   GroupResponse,
   InAppNotificationResponse,
+  MonthlyReportResponse,
   PersonalBillResponse,
   SelfPaymentDetailsQrFileResponse,
   SettlementBalanceProjectionResponse,
@@ -154,6 +161,14 @@ export function App() {
     missingMethods: [],
     unsupportedSections: []
   });
+  const [reportsReadout, setReportsReadout] = useState<ReportsReadoutState>({
+    status: "auth_required",
+    message: "Sign in is required before Settleora can show reports and search results on the web.",
+    month: new Date().toISOString().slice(0, 7),
+    searchRows: [],
+    missingMethods: [],
+    unsupportedSections: []
+  });
   const [billSearch, setBillSearch] = useState("");
   const [billStatusFilter, setBillStatusFilter] = useState<ExpenseBillStatus | "all">("all");
   const [billReconciliationFilter, setBillReconciliationFilter] = useState<
@@ -164,6 +179,8 @@ export function App() {
   const [notificationSearch, setNotificationSearch] = useState("");
   const [notificationFilter, setNotificationFilter] = useState<NotificationPresentationFilter>("inbox");
   const [notificationSort, setNotificationSort] = useState<NotificationPresentationSort>("newest");
+  const [reportMonth, setReportMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [reportSearch, setReportSearch] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -443,6 +460,36 @@ export function App() {
     };
   }, [activeId, session.accessToken]);
 
+  useEffect(() => {
+    if (activeId !== "reports") {
+      return;
+    }
+
+    let isMounted = true;
+    setReportsReadout({
+      status: "loading",
+      message: "Loading monthly report and search rows from Settleora.",
+      month: reportMonth,
+      searchRows: [],
+      missingMethods: [],
+      unsupportedSections: []
+    });
+
+    void loadReportsReadout({
+      accessToken: session.accessToken,
+      month: reportMonth,
+      search: reportSearch
+    }).then((nextState) => {
+      if (isMounted) {
+        setReportsReadout(nextState);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, reportMonth, reportSearch, session.accessToken]);
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -528,6 +575,8 @@ export function App() {
                       ? "Invite unavailable"
                       : activeId === "settlements"
                         ? "Settlement actions unavailable"
+                        : activeId === "reports"
+                          ? "Report actions unavailable"
                       : activeItem.actionLabel}
               </button>
             </div>
@@ -573,6 +622,14 @@ export function App() {
               onSelectSettlement={setSelectedSettlementId}
               filter={settlementFilter}
               onFilterChange={setSettlementFilter}
+            />
+          ) : activeId === "reports" ? (
+            <ReportsReadoutPanel
+              readout={reportsReadout}
+              month={reportMonth}
+              onMonthChange={setReportMonth}
+              search={reportSearch}
+              onSearchChange={setReportSearch}
             />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
@@ -676,6 +733,202 @@ export function App() {
         </main>
       </div>
     </div>
+  );
+}
+
+function ReportsReadoutPanel({
+  readout,
+  month,
+  onMonthChange,
+  search,
+  onSearchChange
+}: {
+  readout: ReportsReadoutState;
+  month: string;
+  onMonthChange: (value: string) => void;
+  search: string;
+  onSearchChange: (value: string) => void;
+}) {
+  const report = readout.report;
+  const totalSummary = useMemo(() => summarizeReportTotals(report?.totalByCurrency ?? []), [report?.totalByCurrency]);
+  const actorShareSummary = useMemo(
+    () => summarizeReportTotals(report?.actorShareByCurrency ?? []),
+    [report?.actorShareByCurrency]
+  );
+  const actorPaidSummary = useMemo(
+    () => summarizeReportTotals(report?.actorPaidByCurrency ?? []),
+    [report?.actorPaidByCurrency]
+  );
+  const canSearch = readout.status === "loaded" || readout.status === "empty";
+
+  return (
+    <section className="bills-workspace" aria-label="Reports and search readout">
+      <div className="bills-summary-row" aria-label="Reports summary">
+        <ReadoutMetric
+          label="Month"
+          value={report?.month ?? readout.month}
+          detail={report ? `Generated ${formatDate(report.generatedAtUtc)}` : "Session-gated report"}
+        />
+        <ReadoutMetric
+          label="Bills in report"
+          value={String(report?.billCount ?? 0)}
+          detail="Server-returned count"
+        />
+        <ReadoutMetric
+          label="Search rows"
+          value={String(readout.searchRows.length)}
+          detail="Server bill-list search"
+        />
+      </div>
+
+      <section className="bills-toolbar reports-toolbar surface-panel" aria-label="Report search controls">
+        <label className="filter-field">
+          <span>Report month</span>
+          <input value={month} onChange={(event) => onMonthChange(event.target.value)} type="month" />
+        </label>
+        <label className="filter-field">
+          <span>Search visible bills</span>
+          <input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Merchant, category, date, or server-supported text"
+            disabled={!canSearch}
+          />
+        </label>
+      </section>
+
+      <section className="bills-split" aria-label="Monthly report and search rows">
+        <div className="surface-panel bills-list-panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Monthly report</p>
+              <h3>{report?.month ?? "Reports stay private"}</h3>
+            </div>
+            <span className={`status-chip ${statusClassForReadout(readout.status)}`}>
+              {labelize(readout.status)}
+            </span>
+          </div>
+
+          <StateMessage
+            state={readout.status}
+            message={readout.message}
+            emptyTitle="No report rows yet"
+            errorTitle="Could not load reports"
+          />
+
+          {report ? (
+            <>
+              <ReadoutSection title="Currency totals">
+                <ReportSummaryPills totals={totalSummary} empty="No currency totals were returned." />
+              </ReadoutSection>
+              <ReadoutSection title="Your report position">
+                <ReportSummaryPills totals={actorShareSummary} empty="No actor share totals were returned." />
+                <ReportSummaryPills totals={actorPaidSummary} empty="No actor payer totals were returned." />
+              </ReadoutSection>
+              <ReportCountSection title="Reconciliation" counts={report.reconciliationCounts} />
+              <ReportCountSection title="Settlement requests" counts={report.settlementRequestCounts} />
+              <ReportCountSection title="Settlement payments" counts={report.settlementPaymentCounts} />
+            </>
+          ) : null}
+        </div>
+
+        <aside className="surface-panel bills-detail-panel" aria-label="Search and export readiness">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Search</p>
+              <h3>Returned bill rows</h3>
+            </div>
+            <span className="status-chip status-warning">Read-only</span>
+          </div>
+
+          {readout.status === "loaded" && readout.searchRows.length === 0 ? (
+            <div className="empty-state" role="status">
+              <h4>No bills match this search</h4>
+              <p>Change the search text to ask Settleora for a different visible bill list.</p>
+            </div>
+          ) : null}
+
+          <div className="bill-row-list" aria-label="Report search results">
+            {readout.searchRows.map((bill) => (
+              <ReportBillRow key={bill.id} bill={bill} />
+            ))}
+          </div>
+
+          <ReadoutSection title="Export, import, and local backup">
+            {readout.unsupportedSections.map((item) => (
+              <p className="muted-copy" key={item}>
+                {item}
+              </p>
+            ))}
+            {readout.missingMethods.length > 0 ? (
+              <StatusPill label="Missing client reads" value={readout.missingMethods.join(", ")} />
+            ) : null}
+          </ReadoutSection>
+        </aside>
+      </section>
+    </section>
+  );
+}
+
+function ReportSummaryPills({ totals, empty }: { totals: Array<{ label: string; value: string }>; empty: string }) {
+  if (totals.length === 0) {
+    return <p className="muted-copy">{empty}</p>;
+  }
+
+  return (
+    <>
+      {totals.map((item) => (
+        <StatusPill key={`${item.label}:${item.value}`} label={item.label} value={item.value} />
+      ))}
+    </>
+  );
+}
+
+function ReportCountSection({
+  title,
+  counts
+}: {
+  title: string;
+  counts: MonthlyReportResponse["reconciliationCounts"];
+}) {
+  const summary = summarizeReportCounts(counts);
+
+  return (
+    <ReadoutSection title={title}>
+      {summary.length === 0 ? (
+        <p className="muted-copy">No {title.toLowerCase()} counts were returned.</p>
+      ) : (
+        summary.map((item) => <StatusPill key={`${title}:${item.label}`} label={labelize(item.label)} value={item.value} />)
+      )}
+    </ReadoutSection>
+  );
+}
+
+function ReportBillRow({ bill }: { bill: PersonalBillResponse }) {
+  return (
+    <article className="notification-row">
+      <div className="notification-row-header">
+        <div>
+          <strong>{bill.merchantName ?? "Untitled bill"}</strong>
+          <small>{formatDate(bill.billDate)}</small>
+        </div>
+        <span className={`status-chip ${statusClassForReadout("loaded")}`}>{labelize(bill.status)}</span>
+      </div>
+      <dl className="readout-list detail-readouts">
+        <div>
+          <dt>Total</dt>
+          <dd>{formatMoney(bill.totalAmount, bill.totalCurrency)}</dd>
+        </div>
+        <div>
+          <dt>Reconciliation</dt>
+          <dd>{labelize(bill.reconciliation.status)}</dd>
+        </div>
+        <div>
+          <dt>Updated</dt>
+          <dd>{formatDate(bill.updatedAtUtc)}</dd>
+        </div>
+      </dl>
+    </article>
   );
 }
 

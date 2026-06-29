@@ -583,6 +583,10 @@ h1 {
   grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px) minmax(150px, 190px);
 }
 
+.reports-toolbar {
+  grid-template-columns: minmax(160px, 220px) minmax(260px, 1fr);
+}
+
 .filter-field {
   display: grid;
   gap: 8px;
