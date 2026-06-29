@@ -296,6 +296,15 @@ export async function checkBillExportReadiness(
         ? await callPersonalReadiness(client, accessToken, options.format, filters)
         : await callGroupReadiness(client, accessToken, options.groupId, options.format, filters);
 
+    const scopeGuard = evaluateBillExportScope(readiness, options.scope, options.groupId);
+    if (!scopeGuard.allowed) {
+      return {
+        status: "blocked",
+        message: scopeGuard.message,
+        readiness
+      };
+    }
+
     const guard = evaluateBillExportReadiness(readiness, options.format, options.now);
 
     return {
@@ -331,6 +340,15 @@ export async function downloadBillExport(
       options.scope === "personal"
         ? await callPersonalReadiness(client, accessToken, options.format, filters)
         : await callGroupReadiness(client, accessToken, options.groupId, options.format, filters);
+    const scopeGuard = evaluateBillExportScope(readiness, options.scope, options.groupId);
+    if (!scopeGuard.allowed) {
+      return {
+        status: "blocked",
+        message: scopeGuard.message,
+        readiness
+      };
+    }
+
     const guard = evaluateBillExportReadiness(readiness, options.format, options.now);
 
     if (!guard.allowed) {
@@ -360,6 +378,38 @@ export async function downloadBillExport(
   }
 }
 
+function evaluateBillExportScope(
+  readiness: ExpenseBillExportReadinessResponse,
+  scope: BillExportScope,
+  groupId: string | null | undefined
+): { allowed: boolean; message: string } {
+  if (readiness.scopeType !== scope) {
+    return {
+      allowed: false,
+      message: "Settleora returned readiness for a different export scope."
+    };
+  }
+
+  if (scope === "group" && readiness.groupId !== groupId?.trim()) {
+    return {
+      allowed: false,
+      message: "Settleora returned readiness for a different group. Select the group again before exporting."
+    };
+  }
+
+  if (scope === "personal" && readiness.groupId !== null) {
+    return {
+      allowed: false,
+      message: "Settleora returned group metadata for a personal export request."
+    };
+  }
+
+  return {
+    allowed: true,
+    message: readiness.message
+  };
+}
+
 export function evaluateBillExportReadiness(
   readiness: ExpenseBillExportReadinessResponse,
   format: ExpenseBillExportFormat,
@@ -383,6 +433,13 @@ export function evaluateBillExportReadiness(
     return {
       allowed: false,
       message: "Settleora rejected one or more export filters. Refresh readiness before downloading."
+    };
+  }
+
+  if (readiness.includesFileBytes) {
+    return {
+      allowed: false,
+      message: "This export would include file bytes. File-byte export needs a separate reviewed flow."
     };
   }
 
@@ -514,7 +571,9 @@ async function callGroupReadiness(
   format: ExpenseBillExportFormat,
   filters: BillExportFilters
 ): Promise<ExpenseBillExportReadinessResponse> {
-  if (!groupId) {
+  const normalizedGroupId = groupId?.trim();
+
+  if (!normalizedGroupId) {
     throw new MissingExportMethodError("Select a group before checking group export readiness.");
   }
 
@@ -522,7 +581,7 @@ async function callGroupReadiness(
     throw new MissingExportMethodError("Group export readiness is not available in this web client build.");
   }
 
-  return client.getGroupBillExportReadiness(groupId, { accessToken }, { ...filters, format });
+  return client.getGroupBillExportReadiness(normalizedGroupId, { accessToken }, { ...filters, format });
 }
 
 async function callCsvExport(

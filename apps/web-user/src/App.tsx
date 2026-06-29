@@ -203,6 +203,16 @@ export function App() {
       message: "Check JSON readiness before downloading personal bills."
     }
   });
+  const [groupExportStates, setGroupExportStates] = useState<Record<ExpenseBillExportFormat, BillExportRuntimeState>>({
+    csv: {
+      status: "idle",
+      message: "Select a server-returned group before checking CSV readiness."
+    },
+    json: {
+      status: "idle",
+      message: "Select a server-returned group before checking JSON readiness."
+    }
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -293,7 +303,7 @@ export function App() {
   }, [activeId, selectedBillId, session.accessToken]);
 
   useEffect(() => {
-    if (activeId !== "groups") {
+    if (activeId !== "groups" && activeId !== "import-export") {
       return;
     }
 
@@ -310,7 +320,11 @@ export function App() {
       }
 
       setGroupsReadout(nextState);
-      setSelectedGroupId((currentGroupId) => currentGroupId ?? nextState.groups[0]?.id ?? null);
+      setSelectedGroupId((currentGroupId) =>
+        currentGroupId && nextState.groups.some((group) => group.id === currentGroupId)
+          ? currentGroupId
+          : nextState.groups[0]?.id ?? null
+      );
     });
 
     return () => {
@@ -523,6 +537,16 @@ export function App() {
     }));
   };
 
+  const updateGroupExportState = (
+    format: ExpenseBillExportFormat,
+    nextState: BillExportRuntimeState
+  ) => {
+    setGroupExportStates((current) => ({
+      ...current,
+      [format]: nextState
+    }));
+  };
+
   const handleCheckPersonalExportReadiness = async (format: ExpenseBillExportFormat) => {
     updatePersonalExportState(format, {
       status: "checking",
@@ -551,6 +575,42 @@ export function App() {
       await downloadBillExport({
         accessToken: session.accessToken,
         scope: "personal",
+        format,
+        filters: defaultBillExportFilters
+      })
+    );
+  };
+
+  const handleCheckGroupExportReadiness = async (format: ExpenseBillExportFormat) => {
+    updateGroupExportState(format, {
+      status: "checking",
+      message: `Checking group ${format.toUpperCase()} export readiness with Settleora.`
+    });
+
+    updateGroupExportState(
+      format,
+      await checkBillExportReadiness({
+        accessToken: session.accessToken,
+        scope: "group",
+        groupId: selectedGroupId,
+        format,
+        filters: defaultBillExportFilters
+      })
+    );
+  };
+
+  const handleDownloadGroupExport = async (format: ExpenseBillExportFormat) => {
+    updateGroupExportState(format, {
+      status: "downloading",
+      message: `Refreshing group readiness before ${format.toUpperCase()} export.`
+    });
+
+    updateGroupExportState(
+      format,
+      await downloadBillExport({
+        accessToken: session.accessToken,
+        scope: "group",
+        groupId: selectedGroupId,
         format,
         filters: defaultBillExportFilters
       })
@@ -645,7 +705,7 @@ export function App() {
                         : activeId === "reports"
                           ? "Report actions unavailable"
                           : activeId === "import-export"
-                            ? "Availability readout only"
+                            ? "Readiness-gated export"
                       : activeItem.actionLabel}
               </button>
             </div>
@@ -705,8 +765,14 @@ export function App() {
               readout={importExportReadout}
               session={session}
               personalExportStates={personalExportStates}
+              groupExportStates={groupExportStates}
+              groupsReadout={groupsReadout}
+              selectedGroupId={selectedGroupId}
+              onSelectGroup={setSelectedGroupId}
               onCheckPersonalExportReadiness={handleCheckPersonalExportReadiness}
               onDownloadPersonalExport={handleDownloadPersonalExport}
+              onCheckGroupExportReadiness={handleCheckGroupExportReadiness}
+              onDownloadGroupExport={handleDownloadGroupExport}
             />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
@@ -1013,18 +1079,36 @@ function ImportExportReadoutPanel({
   readout,
   session,
   personalExportStates,
+  groupExportStates,
+  groupsReadout,
+  selectedGroupId,
+  onSelectGroup,
   onCheckPersonalExportReadiness,
-  onDownloadPersonalExport
+  onDownloadPersonalExport,
+  onCheckGroupExportReadiness,
+  onDownloadGroupExport
 }: {
   readout: ImportExportReadoutState;
   session: SessionBoundaryState;
   personalExportStates: Record<ExpenseBillExportFormat, BillExportRuntimeState>;
+  groupExportStates: Record<ExpenseBillExportFormat, BillExportRuntimeState>;
+  groupsReadout: GroupsReadoutState;
+  selectedGroupId: string | null;
+  onSelectGroup: (groupId: string | null) => void;
   onCheckPersonalExportReadiness: (format: ExpenseBillExportFormat) => void;
   onDownloadPersonalExport: (format: ExpenseBillExportFormat) => void;
+  onCheckGroupExportReadiness: (format: ExpenseBillExportFormat) => void;
+  onDownloadGroupExport: (format: ExpenseBillExportFormat) => void;
 }) {
   const unavailableCount = readout.capabilities.filter(
     (capability) => capability.status === "not_available_yet" || capability.status === "needs_readiness_endpoint"
   ).length;
+  const downloadedExports = [
+    personalExportStates.csv,
+    personalExportStates.json,
+    groupExportStates.csv,
+    groupExportStates.json
+  ].filter((state) => state.status === "downloaded").length;
 
   return (
     <section className="bills-workspace" aria-label="Import and export availability readout">
@@ -1036,8 +1120,8 @@ function ImportExportReadoutPanel({
         />
         <ReadoutMetric
           label="Actions started"
-          value={personalExportStates.csv.status === "downloaded" || personalExportStates.json.status === "downloaded" ? "1+" : "0"}
-          detail="Only readiness-gated personal export can start"
+          value={String(downloadedExports)}
+          detail="Readiness-gated CSV/JSON downloads"
         />
         <ReadoutMetric
           label="Follow-up areas"
@@ -1067,21 +1151,15 @@ function ImportExportReadoutPanel({
           onCheck={onCheckPersonalExportReadiness}
           onDownload={onDownloadPersonalExport}
         />
-        <aside className="right-rail" aria-label="Group export availability">
-          <section className="surface-panel compact-panel">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">Group export</p>
-                <h3>Group selection needed</h3>
-              </div>
-              <span className="status-chip status-warning">Unavailable here</span>
-            </div>
-            <p>
-              Group CSV and JSON export methods exist, but this route does not yet provide a safe server-backed group
-              selector. No group readiness or group export call starts from this screen.
-            </p>
-          </section>
-        </aside>
+        <GroupBillExportRuntimeCard
+          session={session}
+          groupsReadout={groupsReadout}
+          selectedGroupId={selectedGroupId}
+          states={groupExportStates}
+          onSelectGroup={onSelectGroup}
+          onCheck={onCheckGroupExportReadiness}
+          onDownload={onDownloadGroupExport}
+        />
       </section>
 
       <section className="capability-grid" aria-label="Capability availability">
@@ -1137,6 +1215,91 @@ function ImportExportReadoutPanel({
   );
 }
 
+function GroupBillExportRuntimeCard({
+  session,
+  groupsReadout,
+  selectedGroupId,
+  states,
+  onSelectGroup,
+  onCheck,
+  onDownload
+}: {
+  session: SessionBoundaryState;
+  groupsReadout: GroupsReadoutState;
+  selectedGroupId: string | null;
+  states: Record<ExpenseBillExportFormat, BillExportRuntimeState>;
+  onSelectGroup: (groupId: string | null) => void;
+  onCheck: (format: ExpenseBillExportFormat) => void;
+  onDownload: (format: ExpenseBillExportFormat) => void;
+}) {
+  const isAuthenticated = session.status === "authenticated" && Boolean(session.accessToken);
+  const selectedGroup = groupsReadout.groups.find((group) => group.id === selectedGroupId);
+  const canStart = isAuthenticated && groupsReadout.status === "loaded" && Boolean(selectedGroup);
+  const groupStatusLabel =
+    groupsReadout.status === "loaded" && selectedGroup
+      ? "Group selected"
+      : groupsReadout.status === "empty"
+        ? "No groups"
+        : isAuthenticated
+          ? labelize(groupsReadout.status)
+          : "Sign-in required";
+
+  return (
+    <section className="surface-panel" aria-labelledby="group-export-title">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Group export</p>
+          <h3 id="group-export-title">Group bill CSV / JSON</h3>
+        </div>
+        <span className={`status-chip ${canStart ? "status-sync" : "status-warning"}`}>
+          {groupStatusLabel}
+        </span>
+      </div>
+
+      <p className="muted-copy">
+        Group downloads require a group returned by Settleora for this session. Manual group IDs are not accepted here.
+      </p>
+
+      <label className="field-label" htmlFor="group-export-selector">
+        Server group
+      </label>
+      <select
+        id="group-export-selector"
+        className="filter-input"
+        value={selectedGroup?.id ?? ""}
+        disabled={!isAuthenticated || groupsReadout.status !== "loaded" || groupsReadout.groups.length === 0}
+        onChange={(event) => onSelectGroup(event.target.value || null)}
+      >
+        {groupsReadout.groups.length === 0 ? (
+          <option value="">No server-returned groups</option>
+        ) : (
+          groupsReadout.groups.map((group) => (
+            <option key={group.id} value={group.id}>
+              {group.name}
+            </option>
+          ))
+        )}
+      </select>
+
+      <p className="muted-copy">{groupsReadout.message}</p>
+
+      <div className="export-action-grid">
+        {(["csv", "json"] as ExpenseBillExportFormat[]).map((format) => (
+          <ExportFormatRuntimeRow
+            key={format}
+            format={format}
+            state={states[format]}
+            canStart={canStart}
+            scopeLabel="group"
+            onCheck={() => onCheck(format)}
+            onDownload={() => onDownload(format)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function PersonalBillExportRuntimeCard({
   session,
   states,
@@ -1173,6 +1336,7 @@ function PersonalBillExportRuntimeCard({
             format={format}
             state={states[format]}
             canStart={isAuthenticated}
+            scopeLabel="personal"
             onCheck={() => onCheck(format)}
             onDownload={() => onDownload(format)}
           />
@@ -1186,12 +1350,14 @@ function ExportFormatRuntimeRow({
   format,
   state,
   canStart,
+  scopeLabel,
   onCheck,
   onDownload
 }: {
   format: ExpenseBillExportFormat;
   state: BillExportRuntimeState;
   canStart: boolean;
+  scopeLabel: "personal" | "group";
   onCheck: () => void;
   onDownload: () => void;
 }) {
@@ -1211,10 +1377,10 @@ function ExportFormatRuntimeRow({
       </div>
       <div className="action-row">
         <button className="secondary-button" type="button" disabled={!canStart || isBusy} onClick={onCheck}>
-          Check export readiness
+          Check {scopeLabel} {format.toUpperCase()} readiness
         </button>
         <button className="primary-button" type="button" disabled={!canDownload || isBusy} onClick={onDownload}>
-          Download {format.toUpperCase()}
+          Download {scopeLabel} {format.toUpperCase()}
         </button>
       </div>
       {state.filename ? <StatusPill label="Downloaded file" value={state.filename} /> : null}
