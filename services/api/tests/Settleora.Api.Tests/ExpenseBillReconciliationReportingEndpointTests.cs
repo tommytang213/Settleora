@@ -908,6 +908,160 @@ public sealed class ExpenseBillReconciliationReportingEndpointTests : IClassFixt
     }
 
     [Fact]
+    public async Task BillExportReadinessReturnsSafeMetadataWithoutRowsOrFileBytes()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Readiness Actor");
+        var other = await SeedAccountAsync(testFactory, "Readiness Other", InitialTimestamp.AddMinutes(1));
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            "Readiness Group",
+            InitialTimestamp,
+            deletedAtUtc: null,
+            new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        var visibleBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 11m)],
+            [new PayerSeed(actorSession.UserProfileId, 11m)],
+            "Readiness Visible",
+            new DateOnly(2026, 5, 15),
+            11m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp.AddMinutes(2),
+            itemName: "Hidden readiness item",
+            itemNote: "Private readiness note",
+            adjustmentReasonNote: "Private readiness adjustment");
+        await SeedBillAsync(
+            testFactory,
+            other.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(other.UserProfileId, 99m)],
+            [new PayerSeed(other.UserProfileId, 99m)],
+            "Readiness Hidden",
+            new DateOnly(2026, 5, 15),
+            99m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(3));
+        await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId,
+            [new ParticipantSeed(actorSession.UserProfileId, 21m)],
+            [new PayerSeed(actorSession.UserProfileId, 21m)],
+            "Group Readiness Visible",
+            new DateOnly(2026, 5, 16),
+            21m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Reconciled,
+            InitialTimestamp.AddMinutes(4));
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp);
+        var beforeSideEffectCounts = await ReadExportSideEffectCountsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        using (var personalRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/bills/export-readiness?fromDate=2026-05-01&toDate=2026-05-31&format=json",
+            actorSession.RawSessionToken))
+        using (var personalResponse = await client.SendAsync(personalRequest))
+        {
+            var content = await personalResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, personalResponse.StatusCode);
+            Assert.DoesNotContain(visibleBillId.ToString("D"), content);
+            Assert.DoesNotContain("Readiness Visible", content);
+            Assert.DoesNotContain("Readiness Hidden", content);
+            Assert.DoesNotContain("Hidden readiness item", content);
+            Assert.DoesNotContain("Private readiness note", content);
+            Assert.DoesNotContain("Private readiness adjustment", content);
+            using var payload = JsonDocument.Parse(content);
+            var root = payload.RootElement;
+            Assert.Equal("personal", root.GetProperty("scopeType").GetString());
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("groupId").ValueKind);
+            Assert.Equal("json", root.GetProperty("requestedFormat").GetString());
+            Assert.True(root.GetProperty("available").GetBoolean());
+            Assert.Equal("ready", root.GetProperty("code").GetString());
+            Assert.False(root.GetProperty("includesFileBytes").GetBoolean());
+            Assert.Equal(1, root.GetProperty("estimatedRows").GetInt32());
+            Assert.Equal(200, root.GetProperty("rowLimit").GetInt32());
+            Assert.Equal("json", root.GetProperty("auditPreview").GetProperty("format").GetString());
+            Assert.False(root.GetProperty("auditPreview").GetProperty("writesAuditOnReadiness").GetBoolean());
+            Assert.True(root.GetProperty("auditPreview").GetProperty("writesAuditOnExport").GetBoolean());
+            Assert.Equal("Export JSON", root.GetProperty("confirmation").GetProperty("confirmLabel").GetString());
+            Assert.False(root.TryGetProperty("rows", out _));
+        }
+
+        using (var groupRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/groups/{groupId:D}/bills/export-readiness?search=readiness&limit=10",
+            actorSession.RawSessionToken))
+        using (var groupResponse = await client.SendAsync(groupRequest))
+        {
+            var content = await groupResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, groupResponse.StatusCode);
+            using var payload = JsonDocument.Parse(content);
+            var root = payload.RootElement;
+            Assert.Equal("group", root.GetProperty("scopeType").GetString());
+            Assert.Equal(groupId, root.GetProperty("groupId").GetGuid());
+            Assert.Equal("csv", root.GetProperty("requestedFormat").GetString());
+            Assert.True(root.GetProperty("available").GetBoolean());
+            Assert.Equal(1, root.GetProperty("estimatedRows").GetInt32());
+            Assert.Equal(10, root.GetProperty("acceptedFilters").GetProperty("limit").GetInt32());
+            Assert.False(root.GetProperty("includesFileBytes").GetBoolean());
+            Assert.False(root.TryGetProperty("rows", out _));
+        }
+
+        Assert.Equal(beforeSideEffectCounts, await ReadExportSideEffectCountsAsync(testFactory));
+    }
+
+    [Fact]
+    public async Task BillExportReadinessReportsUnsupportedFormatsWithoutStartingExport()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Readiness Format Actor");
+        await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(actorSession.UserProfileId, 12m)],
+            [new PayerSeed(actorSession.UserProfileId, 12m)],
+            "Readiness Format Visible",
+            new DateOnly(2026, 5, 15),
+            12m,
+            "USD",
+            ExpenseBillReconciliationStatuses.Unreconciled,
+            InitialTimestamp.AddMinutes(2));
+        var beforeSideEffectCounts = await ReadExportSideEffectCountsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        using var request = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/bills/export-readiness?format=pdf",
+            actorSession.RawSessionToken);
+        using var response = await client.SendAsync(request);
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("Readiness Format Visible", content);
+        using var payload = JsonDocument.Parse(content);
+        var root = payload.RootElement;
+        Assert.False(root.GetProperty("available").GetBoolean());
+        Assert.Equal("unsupported_format", root.GetProperty("code").GetString());
+        Assert.Equal("pdf", root.GetProperty("requestedFormat").GetString());
+        var rejection = Assert.Single(root.GetProperty("rejectedFilters").EnumerateArray());
+        Assert.Equal("format", rejection.GetProperty("field").GetString());
+        Assert.Equal("unsupported_format", rejection.GetProperty("code").GetString());
+        Assert.False(root.GetProperty("includesFileBytes").GetBoolean());
+        Assert.False(root.TryGetProperty("rows", out _));
+        Assert.Equal(beforeSideEffectCounts, await ReadExportSideEffectCountsAsync(testFactory));
+    }
+
+    [Fact]
     public async Task BillExportsRejectSmuggledEnvelopesBeforeHiddenReadsWithoutMutationOrRawEcho()
     {
         var testContext = CreateFactory();

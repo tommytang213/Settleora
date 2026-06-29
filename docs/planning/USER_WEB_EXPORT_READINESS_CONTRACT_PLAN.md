@@ -6,11 +6,22 @@ Planning/control gate for issue #461 after the merged user-web reports and
 import/export availability readouts. This plan defines the contract shape that
 should exist before user-web starts bill export downloads.
 
-This is not a runtime implementation, OpenAPI change, generated-client refresh,
-backend/API behavior change, schema/migration, auth/session/security runtime
-change, storage/file-byte behavior change, user-web runtime source change,
-mobile/admin change, Docker/deployment/CI/environment change, sync mutation,
-import/upload flow, local backup/restore flow, or local-mode persistence design.
+Implementation update on 2026-06-29: the additive contract/API slice added
+`GET /api/v1/bills/export-readiness` (`getPersonalBillExportReadiness`) and
+`GET /api/v1/groups/{groupId}/bills/export-readiness`
+(`getGroupBillExportReadiness`). Both endpoints return
+`ExpenseBillExportReadinessResponse` metadata only, use the same bounded filter
+surface as the existing CSV/JSON export methods plus an optional `format`
+readiness query, and do not return export rows, file bytes, storage references,
+or import/sync/local-backup behavior.
+
+The original planning gate did not implement runtime behavior. After the
+2026-06-29 contract/API slice above, this document still does not authorize
+user-web export runtime, export/download execution changes, schema/migration,
+auth/session/security runtime changes, storage/file-byte behavior changes,
+mobile/admin changes, Docker/deployment/CI/environment changes, sync mutation,
+import/upload flows, local backup/restore flows, or local-mode persistence
+design.
 
 Use this file with:
 

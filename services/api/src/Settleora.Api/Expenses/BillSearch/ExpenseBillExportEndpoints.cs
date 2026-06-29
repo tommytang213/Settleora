@@ -17,6 +17,14 @@ internal static class ExpenseBillExportEndpoints
     private const string InvalidBillExportRequestDetail = "The submitted bill export request is invalid.";
     private const string PersonalBillExportBodyMessage = "Bill export requests do not accept a body.";
     private const string GroupBillExportBodyMessage = "Group bill export requests do not accept a body.";
+    private const string PersonalScopeType = "personal";
+    private const string GroupScopeType = "group";
+    private const string CsvFormat = "csv";
+    private const string JsonFormat = "json";
+    private const long BillExportSizeLimitBytes = 1_048_576;
+    private static readonly TimeSpan ReadinessFreshness = TimeSpan.FromMinutes(5);
+
+    private static readonly string[] SupportedFormats = [CsvFormat, JsonFormat];
 
     private static readonly HashSet<string> SupportedBillExportQueryFields = new(StringComparer.Ordinal)
     {
@@ -30,6 +38,10 @@ internal static class ExpenseBillExportEndpoints
         "archiveState",
         "limit"
     };
+
+    private static readonly HashSet<string> SupportedBillExportReadinessQueryFields = new(
+        SupportedBillExportQueryFields.Concat(["format"]),
+        StringComparer.Ordinal);
 
     private static readonly string[] CsvHeaders =
     [
@@ -52,15 +64,57 @@ internal static class ExpenseBillExportEndpoints
     {
         var personalBills = app.MapGroup("/api/v1/bills")
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        personalBills.MapGet("/export-readiness", GetPersonalBillExportReadinessAsync);
         personalBills.MapGet("/export.json", ExportPersonalBillsJsonAsync);
         personalBills.MapGet("/export.csv", ExportPersonalBillsCsvAsync);
 
         var groupBills = app.MapGroup("/api/v1/groups/{groupId:guid}/bills")
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        groupBills.MapGet("/export-readiness", GetGroupBillExportReadinessAsync);
         groupBills.MapGet("/export.json", ExportGroupBillsJsonAsync);
         groupBills.MapGet("/export.csv", ExportGroupBillsCsvAsync);
 
         return app;
+    }
+
+    private static async Task<IResult> GetPersonalBillExportReadinessAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        var result = await BuildPersonalExportReadinessResponseAsync(
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+
+        return result.Error ?? Results.Json(result.Response);
+    }
+
+    private static async Task<IResult> GetGroupBillExportReadinessAsync(
+        Guid groupId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        var result = await BuildGroupExportReadinessResponseAsync(
+            groupId,
+            request,
+            currentActorAccessor,
+            businessAuthorizationService,
+            dbContext,
+            timeProvider,
+            cancellationToken);
+
+        return result.Error ?? Results.Json(result.Response);
     }
 
     private static async Task<IResult> ExportPersonalBillsJsonAsync(
@@ -151,7 +205,7 @@ internal static class ExpenseBillExportEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        var filterReadResult = ReadExportFilter(request, PersonalBillExportBodyMessage);
+        var filterReadResult = ReadExportFilter(request, PersonalBillExportBodyMessage, allowFormat: false);
         if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
         {
             return ExpenseBillExportBuildResult.Failed(InvalidBillExportRequest(filterReadResult.Errors));
@@ -187,7 +241,7 @@ internal static class ExpenseBillExportEndpoints
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        var filterReadResult = ReadExportFilter(request, GroupBillExportBodyMessage);
+        var filterReadResult = ReadExportFilter(request, GroupBillExportBodyMessage, allowFormat: false);
         if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
         {
             return ExpenseBillExportBuildResult.Failed(InvalidBillExportRequest(filterReadResult.Errors));
@@ -214,13 +268,97 @@ internal static class ExpenseBillExportEndpoints
         return ExpenseBillExportBuildResult.Succeeded(BuildResponse(filterReadResult.Filter, rows, timeProvider));
     }
 
+    private static async Task<ExpenseBillExportReadinessBuildResult> BuildPersonalExportReadinessResponseAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        var filterReadResult = ReadExportFilter(request, PersonalBillExportBodyMessage, allowFormat: true);
+        if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
+        {
+            return ExpenseBillExportReadinessBuildResult.Failed(InvalidBillExportRequest(filterReadResult.Errors));
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return ExpenseBillExportReadinessBuildResult.Failed(Unauthenticated());
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return ExpenseBillExportReadinessBuildResult.Failed(MapAuthorizationFailure(authorizationResult));
+        }
+
+        var rowCount = await CountRowsAsync(
+            ExpenseBillSearchQueries.VisiblePersonalBillsIncludingArchived(dbContext, actor.UserProfileId),
+            filterReadResult.Filter,
+            cancellationToken);
+
+        return ExpenseBillExportReadinessBuildResult.Succeeded(BuildReadinessResponse(
+            PersonalScopeType,
+            groupId: null,
+            filterReadResult.Filter,
+            ReadRequestedFormat(request),
+            rowCount,
+            timeProvider));
+    }
+
+    private static async Task<ExpenseBillExportReadinessBuildResult> BuildGroupExportReadinessResponseAsync(
+        Guid groupId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        var filterReadResult = ReadExportFilter(request, GroupBillExportBodyMessage, allowFormat: true);
+        if (!filterReadResult.Succeeded || filterReadResult.Filter is null)
+        {
+            return ExpenseBillExportReadinessBuildResult.Failed(InvalidBillExportRequest(filterReadResult.Errors));
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out _))
+        {
+            return ExpenseBillExportReadinessBuildResult.Failed(Unauthenticated());
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessGroupAsync(
+            groupId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return ExpenseBillExportReadinessBuildResult.Failed(MapAuthorizationFailure(authorizationResult));
+        }
+
+        var rowCount = await CountRowsAsync(
+            ExpenseBillSearchQueries.VisibleGroupBillsIncludingArchived(dbContext, groupId),
+            filterReadResult.Filter,
+            cancellationToken);
+
+        return ExpenseBillExportReadinessBuildResult.Succeeded(BuildReadinessResponse(
+            GroupScopeType,
+            groupId,
+            filterReadResult.Filter,
+            ReadRequestedFormat(request),
+            rowCount,
+            timeProvider));
+    }
+
     private static BillExportFilterReadResult ReadExportFilter(
         HttpRequest request,
-        string bodyMessage)
+        string bodyMessage,
+        bool allowFormat)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         RejectExportRequestBody(request, bodyMessage, errors);
-        RejectUnsupportedExportQueryFields(request, errors);
+        RejectUnsupportedExportQueryFields(request, allowFormat, errors);
 
         var fromDate = ReadOptionalQueryString(request, "fromDate", errors);
         var toDate = ReadOptionalQueryString(request, "toDate", errors);
@@ -274,11 +412,16 @@ internal static class ExpenseBillExportEndpoints
 
     private static void RejectUnsupportedExportQueryFields(
         HttpRequest request,
+        bool allowFormat,
         Dictionary<string, List<string>> errors)
     {
+        var supportedFields = allowFormat
+            ? SupportedBillExportReadinessQueryFields
+            : SupportedBillExportQueryFields;
+
         foreach (var field in request.Query.Keys)
         {
-            if (!SupportedBillExportQueryFields.Contains(field))
+            if (!supportedFields.Contains(field))
             {
                 AddError(errors, "query", "Unsupported query fields are not allowed.");
                 return;
@@ -330,6 +473,16 @@ internal static class ExpenseBillExportEndpoints
             .ToArray();
     }
 
+    private static Task<int> CountRowsAsync(
+        IQueryable<ExpenseBill> visibleBillsQuery,
+        ExpenseBillSearchFilter filter,
+        CancellationToken cancellationToken)
+    {
+        return visibleBillsQuery
+            .ApplySearchFilter(filter)
+            .CountAsync(cancellationToken);
+    }
+
     private static ExpenseBillExportResponse BuildResponse(
         ExpenseBillSearchFilter filter,
         IReadOnlyList<ExpenseBillExportRowResponse> rows,
@@ -349,6 +502,131 @@ internal static class ExpenseBillExportEndpoints
                 filter.Limit),
             rows.Count,
             rows);
+    }
+
+    private static ExpenseBillExportReadinessResponse BuildReadinessResponse(
+        string scopeType,
+        Guid? groupId,
+        ExpenseBillSearchFilter filter,
+        string requestedFormat,
+        int matchingRowCount,
+        TimeProvider timeProvider)
+    {
+        var normalizedFormat = requestedFormat.Trim().ToLowerInvariant();
+        var rejectedFilters = new List<ExpenseBillExportFilterRejectionResponse>();
+        var supportedFormat = SupportedFormats.Contains(normalizedFormat, StringComparer.Ordinal);
+        var estimatedRows = Math.Min(matchingRowCount, filter.Limit);
+        var available = supportedFormat && estimatedRows > 0;
+        var code = available
+            ? "ready"
+            : supportedFormat
+                ? "no_exportable_records"
+                : "unsupported_format";
+        var message = code switch
+        {
+            "ready" => "This export is ready for the selected scope and filters.",
+            "no_exportable_records" => "No exportable bills match the selected scope and filters.",
+            _ => "The requested export format is not supported."
+        };
+
+        if (!supportedFormat)
+        {
+            rejectedFilters.Add(new ExpenseBillExportFilterRejectionResponse(
+                "format",
+                "unsupported_format",
+                "Format must be csv or json."));
+        }
+
+        var exportLabel = normalizedFormat == JsonFormat ? "Export JSON" : "Export CSV";
+        return new ExpenseBillExportReadinessResponse(
+            scopeType,
+            groupId,
+            normalizedFormat,
+            SupportedFormats,
+            available,
+            code,
+            message,
+            new ExpenseBillExportFilterResponse(
+                filter.FromDate,
+                filter.ToDate,
+                filter.Status,
+                filter.ReconciliationStatus,
+                filter.Currency,
+                filter.Merchant,
+                filter.Search,
+                filter.ArchiveState,
+                filter.Limit),
+            BuildDefaultedFilters(filter),
+            rejectedFilters,
+            ExpenseBillSearchFilter.MaxLimit,
+            estimatedRows,
+            BillExportSizeLimitBytes,
+            null,
+            false,
+            BuildRedactions(),
+            new ExpenseBillExportAuditPreviewResponse(
+                "bill_export.execute",
+                scopeType,
+                groupId,
+                normalizedFormat,
+                WritesAuditOnReadiness: false,
+                WritesAuditOnExport: true),
+            new ExpenseBillExportConfirmationResponse(
+                scopeType == GroupScopeType ? "Export group bills" : "Export personal bills",
+                "Export a bounded bill-level file for the selected scope and filters. Receipt files, proof files, QR images, storage references, raw OCR text, private notes, secrets, and unrelated records are not included.",
+                exportLabel),
+            timeProvider.GetUtcNow().Add(ReadinessFreshness));
+    }
+
+    private static IReadOnlyList<ExpenseBillExportFilterDefaultResponse> BuildDefaultedFilters(
+        ExpenseBillSearchFilter filter)
+    {
+        var defaults = new List<ExpenseBillExportFilterDefaultResponse>();
+        if (filter.ArchiveState == ExpenseBillArchiveStates.Active)
+        {
+            defaults.Add(new ExpenseBillExportFilterDefaultResponse(
+                "archiveState",
+                ExpenseBillArchiveStates.Active,
+                "Active bills are exported by default."));
+        }
+
+        if (filter.Limit == ExpenseBillSearchFilter.DefaultLimit)
+        {
+            defaults.Add(new ExpenseBillExportFilterDefaultResponse(
+                "limit",
+                ExpenseBillSearchFilter.DefaultLimit.ToString(CultureInfo.InvariantCulture),
+                "Default row limit applied."));
+        }
+
+        return defaults;
+    }
+
+    private static IReadOnlyList<ExpenseBillExportRedactionResponse> BuildRedactions()
+    {
+        return
+        [
+            new ExpenseBillExportRedactionResponse(
+                "file_bytes",
+                "excluded",
+                "Receipt files, proof files, QR images, and other storage bytes are not included."),
+            new ExpenseBillExportRedactionResponse(
+                "storage_internals",
+                "excluded",
+                "Storage provider paths, object keys, signed URLs, and filesystem paths are not included."),
+            new ExpenseBillExportRedactionResponse(
+                "sensitive_notes",
+                "excluded",
+                "Raw OCR text, private notes, and unrelated user data are not included.")
+        ];
+    }
+
+    private static string ReadRequestedFormat(HttpRequest request)
+    {
+        return ReadOptionalQueryString(
+                request,
+                "format",
+                new Dictionary<string, List<string>>(StringComparer.Ordinal))
+            ?? CsvFormat;
     }
 
     private static ExpenseBillExportRowResponse MapRow(ExpenseBill bill)
@@ -497,6 +775,21 @@ internal static class ExpenseBillExportEndpoints
         public static ExpenseBillExportBuildResult Failed(IResult error)
         {
             return new ExpenseBillExportBuildResult(null, error);
+        }
+    }
+
+    private sealed record ExpenseBillExportReadinessBuildResult(
+        ExpenseBillExportReadinessResponse? Response,
+        IResult? Error)
+    {
+        public static ExpenseBillExportReadinessBuildResult Succeeded(ExpenseBillExportReadinessResponse response)
+        {
+            return new ExpenseBillExportReadinessBuildResult(response, null);
+        }
+
+        public static ExpenseBillExportReadinessBuildResult Failed(IResult error)
+        {
+            return new ExpenseBillExportReadinessBuildResult(null, error);
         }
     }
 
