@@ -2,14 +2,14 @@
 
 - Status: `READY_FOR_REVIEW`
 - Start HKT: 2026-06-29 13:48 HKT
-- End HKT: 2026-06-29 14:14 HKT
-- Elapsed time: ~26 minutes
+- End HKT: 2026-06-29 14:15 HKT
+- Elapsed time: ~27 minutes
 - Branch: `feature/user-web-export-readiness-contract-461`
 - Base/main SHA: `b381cbcd4136c65724e568a687109e64e72a1d0b`
 - Source branch head / implementation commit SHA: `f121f7eb2b0a554a056be5d06f1e38b8739d8629`
 - Integration branch: `ai/integration` (not changed)
 - Task commit SHA(s): `f121f7eb2b0a554a056be5d06f1e38b8739d8629`
-- Branch pushed: pending at report write time
+- Branch pushed: yes
 - PR URL: not created
 
 ## Required Reading Completed
@@ -105,7 +105,7 @@ Actual export/download/import/sync/storage bytes remain out of scope. This slice
 - `git diff --check`
   - Passed with no output.
 - `git status --short --branch`
-  - At report write time: branch ahead of `origin/main` by 1 with only required report artifact pending.
+  - Before push: branch ahead of `origin/main` by implementation/report commits with a clean worktree after report finalization.
 
 ## Scope Guard Result
 
@@ -118,4 +118,4 @@ Scope guard passed by manual diff review. Changed files are limited to OpenAPI, 
 
 ## Final Worktree Status
 
-Pending at report write time: report artifacts to be committed and branch push to origin.
+Clean after report finalization and branch push.
