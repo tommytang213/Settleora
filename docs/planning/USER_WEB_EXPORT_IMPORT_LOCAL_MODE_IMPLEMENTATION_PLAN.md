@@ -19,6 +19,7 @@ Use this file with:
 - [Day 1 UX reference decisions](DAY1_UX_REFERENCE_DECISIONS.md)
 - [Day 1 UX implementation readiness plan](DAY1_UX_IMPLEMENTATION_READINESS_PLAN.md)
 - [User web bills, groups, friends, and direct-sharing implementation plan](USER_WEB_BILLS_GROUPS_FRIENDS_IMPLEMENTATION_PLAN.md)
+- [User web export readiness contract plan](USER_WEB_EXPORT_READINESS_CONTRACT_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
 - [Local-only and server-mode authority boundary audit](../architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md)
 - [CSV export and import privacy authority](../architecture/CSV_EXPORT_IMPORT_PRIVACY_AUTHORITY.md)
