@@ -422,6 +422,39 @@ class SettleoraApiClient {
     return TotpEnrollmentResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<BillCsvImportSessionResponse> getBillCsvImportSession(String importSessionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/bill-import-sessions/${Uri.encodeComponent(importSessionId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportSessionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillCsvImportConfirmationResponse> confirmBillCsvImportSession(String importSessionId, BillCsvImportConfirmRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bill-import-sessions/${Uri.encodeComponent(importSessionId.toString())}/confirm',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportConfirmationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillCsvImportSessionResponse> discardBillCsvImportSession(String importSessionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/bill-import-sessions/${Uri.encodeComponent(importSessionId.toString())}/discard',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportSessionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<PersonalBillListResponse> listPersonalBills({String? fromDate, String? toDate, ExpenseBillStatus? status, ExpenseBillReconciliationStatus? reconciliationStatus, CurrencyCode? currency, String? merchant, String? search, ExpenseBillArchiveState? archiveState, int? limit, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
@@ -485,6 +518,18 @@ class SettleoraApiClient {
       headers: headers,
     );
     return BillCsvImportPreflightResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillCsvImportSessionResponse> createPersonalBillCsvImportSession(String body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendText(
+      "POST",
+      "/api/v1/bills/import-sessions.csv",
+      body: body,
+      contentType: "text/csv",
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportSessionResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<BillCsvImportResponse> importPersonalBillsCsv(String body, {required String accessToken, Map<String, String>? headers}) async {
@@ -1052,6 +1097,18 @@ class SettleoraApiClient {
       headers: headers,
     );
     return BillCsvImportPreflightResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillCsvImportSessionResponse> createGroupBillCsvImportSession(String groupId, String body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendText(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/import-sessions.csv',
+      body: body,
+      contentType: "text/csv",
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportSessionResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<BillCsvImportResponse> importGroupBillsCsv(String groupId, String body, {required String accessToken, Map<String, String>? headers}) async {

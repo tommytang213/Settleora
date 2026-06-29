@@ -7034,6 +7034,218 @@ class BillCsvImportConfirmationPreviewResponse {
   }
 }
 
+/// Server-owned lifecycle status for a short-lived bill CSV import session.
+typedef BillCsvImportSessionStatus = String;
+class BillCsvImportSessionStatusValues {
+  const BillCsvImportSessionStatusValues._();
+  static const BillCsvImportSessionStatus needsCorrection = "needs_correction";
+  static const BillCsvImportSessionStatus readyForConfirmation = "ready_for_confirmation";
+  static const BillCsvImportSessionStatus confirmed = "confirmed";
+  static const BillCsvImportSessionStatus discarded = "discarded";
+  static const BillCsvImportSessionStatus expired = "expired";
+  static const Set<BillCsvImportSessionStatus> values = {needsCorrection, readyForConfirmation, confirmed, discarded, expired};
+}
+
+/// Short-lived server-side bill CSV import session response. It is bound to the authenticated actor/session/scope and exposes digest/challenge metadata plus safe review output only. It never returns raw CSV text, raw row values, file bytes, storage references, auth/session tokens, hidden users, or hidden group data.
+class BillCsvImportSessionResponse {
+  const BillCsvImportSessionResponse({
+    required this.importSessionId,
+    required this.scope,
+    required this.groupId,
+    required this.status,
+    required this.expiresAtUtc,
+    required this.payloadDigest,
+    required this.preflightResultVersion,
+    required this.confirmationChallengeId,
+    required this.rowCount,
+    required this.acceptedRowCount,
+    required this.warningRowCount,
+    required this.rejectedRowCount,
+    required this.duplicateCandidateRowCount,
+    required this.confirmation,
+    required this.review,
+  });
+
+  final String importSessionId;
+  final ExpenseBillExportScopeType scope;
+  /// Route group ID for group imports, or null for personal imports.
+  final String? groupId;
+  final BillCsvImportSessionStatus status;
+  final DateTime expiresAtUtc;
+  /// Server-calculated digest over the reviewed CSV payload, formatted as an algorithm-prefixed digest such as sha256:hex.
+  final String payloadDigest;
+  /// Server-created review version that must match during confirmation.
+  final String preflightResultVersion;
+  /// Server-created confirmation challenge identifier that must match during confirmation.
+  final String confirmationChallengeId;
+  final int rowCount;
+  final int acceptedRowCount;
+  final int warningRowCount;
+  final int rejectedRowCount;
+  final int duplicateCandidateRowCount;
+  final BillCsvImportSessionConfirmationResponse confirmation;
+  final BillCsvImportPreflightResponse review;
+
+  factory BillCsvImportSessionResponse.fromJson(JsonObject json) {
+    return BillCsvImportSessionResponse(
+      importSessionId: json["importSessionId"] as String,
+      scope: json["scope"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      status: json["status"] as String,
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      payloadDigest: json["payloadDigest"] as String,
+      preflightResultVersion: json["preflightResultVersion"] as String,
+      confirmationChallengeId: json["confirmationChallengeId"] as String,
+      rowCount: (json["rowCount"] as num).toInt(),
+      acceptedRowCount: (json["acceptedRowCount"] as num).toInt(),
+      warningRowCount: (json["warningRowCount"] as num).toInt(),
+      rejectedRowCount: (json["rejectedRowCount"] as num).toInt(),
+      duplicateCandidateRowCount: (json["duplicateCandidateRowCount"] as num).toInt(),
+      confirmation: BillCsvImportSessionConfirmationResponse.fromJson(JsonObject.from(json["confirmation"] as Map)),
+      review: BillCsvImportPreflightResponse.fromJson(JsonObject.from(json["review"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "importSessionId": importSessionId,
+      "scope": scope,
+      "groupId": groupIdJsonValue,
+      "status": status,
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "payloadDigest": payloadDigest,
+      "preflightResultVersion": preflightResultVersion,
+      "confirmationChallengeId": confirmationChallengeId,
+      "rowCount": rowCount,
+      "acceptedRowCount": acceptedRowCount,
+      "warningRowCount": warningRowCount,
+      "rejectedRowCount": rejectedRowCount,
+      "duplicateCandidateRowCount": duplicateCandidateRowCount,
+      "confirmation": confirmation.toJson(),
+      "review": review.toJson(),
+    };
+  }
+}
+
+/// Safe confirmation metadata for a bill CSV import session.
+class BillCsvImportSessionConfirmationResponse {
+  const BillCsvImportSessionConfirmationResponse({
+    required this.confirmLabel,
+    required this.discardLabel,
+    required this.confirmable,
+    required this.safeMessage,
+  });
+
+  final String confirmLabel;
+  final String discardLabel;
+  /// True only when the session is currently ready for confirmation. Confirmation still revalidates server state.
+  final bool confirmable;
+  final String safeMessage;
+
+  factory BillCsvImportSessionConfirmationResponse.fromJson(JsonObject json) {
+    return BillCsvImportSessionConfirmationResponse(
+      confirmLabel: json["confirmLabel"] as String,
+      discardLabel: json["discardLabel"] as String,
+      confirmable: json["confirmable"] as bool,
+      safeMessage: json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "confirmLabel": confirmLabel,
+      "discardLabel": discardLabel,
+      "confirmable": confirmable,
+      "safeMessage": safeMessage,
+    };
+  }
+}
+
+/// Confirmation request for a server-created bill CSV import session. The client echoes the reviewed scope, digest, preflight version, and challenge; the server remains authoritative and revalidates current actor/session/scope/group access before writing.
+class BillCsvImportConfirmRequest {
+  const BillCsvImportConfirmRequest({
+    required this.scope,
+    required this.groupId,
+    required this.payloadDigest,
+    required this.preflightResultVersion,
+    required this.confirmationChallengeId,
+  });
+
+  final ExpenseBillExportScopeType scope;
+  /// Route group ID for group sessions, or null for personal sessions.
+  final String? groupId;
+  final String payloadDigest;
+  final String preflightResultVersion;
+  final String confirmationChallengeId;
+
+  factory BillCsvImportConfirmRequest.fromJson(JsonObject json) {
+    return BillCsvImportConfirmRequest(
+      scope: json["scope"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      payloadDigest: json["payloadDigest"] as String,
+      preflightResultVersion: json["preflightResultVersion"] as String,
+      confirmationChallengeId: json["confirmationChallengeId"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "scope": scope,
+      "groupId": groupIdJsonValue,
+      "payloadDigest": payloadDigest,
+      "preflightResultVersion": preflightResultVersion,
+      "confirmationChallengeId": confirmationChallengeId,
+    };
+  }
+}
+
+/// Final bill CSV import confirmation result. It contains created draft bill summaries only and excludes raw CSV text, raw row values, merchant/item/note text, file bytes, storage references, hidden users, and hidden group data.
+class BillCsvImportConfirmationResponse {
+  const BillCsvImportConfirmationResponse({
+    required this.importSessionId,
+    required this.scope,
+    required this.groupId,
+    required this.status,
+    required this.importedBillCount,
+    required this.bills,
+  });
+
+  final String importSessionId;
+  final ExpenseBillExportScopeType scope;
+  final String? groupId;
+  final BillCsvImportSessionStatus status;
+  final int importedBillCount;
+  final List<BillCsvImportedBillSummaryResponse> bills;
+
+  factory BillCsvImportConfirmationResponse.fromJson(JsonObject json) {
+    return BillCsvImportConfirmationResponse(
+      importSessionId: json["importSessionId"] as String,
+      scope: json["scope"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      status: json["status"] as String,
+      importedBillCount: (json["importedBillCount"] as num).toInt(),
+      bills: (json["bills"] as List<dynamic>).map((item) => BillCsvImportedBillSummaryResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "importSessionId": importSessionId,
+      "scope": scope,
+      "groupId": groupIdJsonValue,
+      "status": status,
+      "importedBillCount": importedBillCount,
+      "bills": bills.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
 /// Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.
 class ExpenseBillLifecycleResponse {
   const ExpenseBillLifecycleResponse({

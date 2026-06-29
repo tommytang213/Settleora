@@ -1875,6 +1875,52 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/import-sessions.csv:
+    post:
+      summary: Create a personal bill CSV import session
+      description: Creates a short-lived server-side personal bill CSV import session for explicit review and later confirmation. The endpoint parses and validates the bounded UTF-8 text/csv body, stores normalized import candidates and safe review metadata without storing raw CSV text or storage/file bytes, binds the session to the current authenticated actor/session/scope, and returns a payload digest, preflight result version, and confirmation challenge that must be echoed to the confirmation endpoint. No bills are created and no final import audit is written by this session-creation step.
+      operationId: createPersonalBillCsvImportSession
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              maxLength: 65536
+              description: UTF-8 CSV body with header columns clientBillKey, merchantName, billDate, currency, itemName, itemAmount, itemNote, payerUserProfileId, splitUserProfileId, splitMethod, and splitBasisValue. Optional personal payer/split profile IDs must match the authenticated actor.
+      responses:
+        "201":
+          description: Short-lived personal bill CSV import session created for review/confirmation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportSessionResponse"
+        "400":
+          description: The CSV body is missing, malformed, too large, not UTF-8 text/csv, or otherwise not readable as a bounded CSV import session request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/import.csv:
     post:
       summary: Import personal bill drafts from CSV
@@ -4677,6 +4723,60 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/import-sessions.csv:
+    post:
+      summary: Create a group bill CSV import session
+      description: Creates a short-lived server-side group bill CSV import session for explicit review and later confirmation. The route groupId is authoritative, the authenticated actor must be an active member, referenced payer/split profile IDs must be active route-group members, normalized import candidates and safe review metadata are stored without raw CSV text or storage/file bytes, and the returned payload digest, preflight result version, and confirmation challenge must be echoed to confirmation. No bills are created and no final import audit is written by this session-creation step.
+      operationId: createGroupBillCsvImportSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose bill CSV import session should be created.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              maxLength: 65536
+              description: UTF-8 CSV body with header columns clientBillKey, merchantName, billDate, currency, itemName, itemAmount, itemNote, payerUserProfileId, splitUserProfileId, splitMethod, and splitBasisValue. Group split profile IDs are required; payer profile IDs default to the authenticated actor when omitted.
+      responses:
+        "201":
+          description: Short-lived group bill CSV import session created for review/confirmation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportSessionResponse"
+        "400":
+          description: The CSV body is missing, malformed, too large, not UTF-8 text/csv, or otherwise not readable as a bounded CSV import session request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group, profile, membership, or submitted member identity is missing, deleted, unrelated, inactive, or unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/groups/{groupId}/bills/import.csv:
     post:
       summary: Import group bill drafts from CSV
@@ -4727,6 +4827,150 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Group bill CSV import could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bill-import-sessions/{importSessionId}:
+    get:
+      summary: Read a bill CSV import session
+      description: Reads a short-lived bill CSV import session bound to the current authenticated actor and auth session. Expired sessions are returned as expired and are not confirmable. The response contains safe review metadata, payload digest, preflight result version, and confirmation challenge only; it does not return raw CSV text, raw row values, storage references, file bytes, hidden users, or hidden group data.
+      operationId: getBillCsvImportSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: importSessionId
+          in: path
+          required: true
+          description: Opaque server-created bill CSV import session ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current import session review and confirmation metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportSessionResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Import session is missing, expired outside the actor/session boundary, discarded, confirmed, wrong actor, wrong auth session, wrong scope, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bill-import-sessions/{importSessionId}/confirm:
+    post:
+      summary: Confirm a bill CSV import session
+      description: Confirms a ready bill CSV import session and creates draft bills only after revalidating the current actor, auth session, scope, group access/membership where applicable, session status, expiry, payload digest, preflight result version, and confirmation challenge. Confirmation writes final import audit only for created bills. It rejects expired, already-confirmed, discarded, wrong-scope, wrong-group, stale, or mismatched challenge sessions with safe problem details and never returns raw CSV, raw row values, storage references, file bytes, hidden users, or hidden group data.
+      operationId: confirmBillCsvImportSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: importSessionId
+          in: path
+          required: true
+          description: Opaque server-created bill CSV import session ID.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillCsvImportConfirmRequest"
+      responses:
+        "200":
+          description: Import confirmation result with created draft bill summaries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportConfirmationResponse"
+        "400":
+          description: The confirmation request body is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Import session or group scope is unavailable to the authenticated actor/session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Import session is expired, discarded, already confirmed, wrong-scope, stale, or has a mismatched digest/challenge.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Bill CSV import confirmation could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bill-import-sessions/{importSessionId}/discard:
+    post:
+      summary: Discard a bill CSV import session
+      description: Discards a pending bill CSV import session bound to the current authenticated actor/session. Discarded, expired, or already-confirmed sessions are not confirmable. No bills are created, no final import audit is written, and raw CSV text is not returned.
+      operationId: discardBillCsvImportSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: importSessionId
+          in: path
+          required: true
+          description: Opaque server-created bill CSV import session ID.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Import session after discard/expiry lifecycle handling.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillCsvImportSessionResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Import session is missing, wrong actor, wrong auth session, or otherwise unavailable.
           content:
             application/problem+json:
               schema:
@@ -14619,6 +14863,167 @@ components:
         safeMessage:
           type: string
           maxLength: 240
+    BillCsvImportSessionStatus:
+      type: string
+      enum:
+        - needs_correction
+        - ready_for_confirmation
+        - confirmed
+        - discarded
+        - expired
+      description: Server-owned lifecycle status for a short-lived bill CSV import session.
+    BillCsvImportSessionResponse:
+      type: object
+      description: Short-lived server-side bill CSV import session response. It is bound to the authenticated actor/session/scope and exposes digest/challenge metadata plus safe review output only. It never returns raw CSV text, raw row values, file bytes, storage references, auth/session tokens, hidden users, or hidden group data.
+      required:
+        - importSessionId
+        - scope
+        - groupId
+        - status
+        - expiresAtUtc
+        - payloadDigest
+        - preflightResultVersion
+        - confirmationChallengeId
+        - rowCount
+        - acceptedRowCount
+        - warningRowCount
+        - rejectedRowCount
+        - duplicateCandidateRowCount
+        - confirmation
+        - review
+      properties:
+        importSessionId:
+          type: string
+          format: uuid
+        scope:
+          $ref: "#/components/schemas/ExpenseBillExportScopeType"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Route group ID for group imports, or null for personal imports.
+        status:
+          $ref: "#/components/schemas/BillCsvImportSessionStatus"
+        expiresAtUtc:
+          type: string
+          format: date-time
+        payloadDigest:
+          type: string
+          maxLength: 96
+          description: Server-calculated digest over the reviewed CSV payload, formatted as an algorithm-prefixed digest such as sha256:hex.
+        preflightResultVersion:
+          type: string
+          maxLength: 64
+          description: Server-created review version that must match during confirmation.
+        confirmationChallengeId:
+          type: string
+          maxLength: 64
+          description: Server-created confirmation challenge identifier that must match during confirmation.
+        rowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        acceptedRowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        warningRowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        rejectedRowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        duplicateCandidateRowCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confirmation:
+          $ref: "#/components/schemas/BillCsvImportSessionConfirmationResponse"
+        review:
+          $ref: "#/components/schemas/BillCsvImportPreflightResponse"
+    BillCsvImportSessionConfirmationResponse:
+      type: object
+      description: Safe confirmation metadata for a bill CSV import session.
+      required:
+        - confirmLabel
+        - discardLabel
+        - confirmable
+        - safeMessage
+      properties:
+        confirmLabel:
+          type: string
+          maxLength: 80
+        discardLabel:
+          type: string
+          maxLength: 80
+        confirmable:
+          type: boolean
+          description: True only when the session is currently ready for confirmation. Confirmation still revalidates server state.
+        safeMessage:
+          type: string
+          maxLength: 240
+    BillCsvImportConfirmRequest:
+      type: object
+      description: Confirmation request for a server-created bill CSV import session. The client echoes the reviewed scope, digest, preflight version, and challenge; the server remains authoritative and revalidates current actor/session/scope/group access before writing.
+      required:
+        - scope
+        - groupId
+        - payloadDigest
+        - preflightResultVersion
+        - confirmationChallengeId
+      properties:
+        scope:
+          $ref: "#/components/schemas/ExpenseBillExportScopeType"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Route group ID for group sessions, or null for personal sessions.
+        payloadDigest:
+          type: string
+          maxLength: 96
+        preflightResultVersion:
+          type: string
+          maxLength: 64
+        confirmationChallengeId:
+          type: string
+          maxLength: 64
+    BillCsvImportConfirmationResponse:
+      type: object
+      description: Final bill CSV import confirmation result. It contains created draft bill summaries only and excludes raw CSV text, raw row values, merchant/item/note text, file bytes, storage references, hidden users, and hidden group data.
+      required:
+        - importSessionId
+        - scope
+        - groupId
+        - status
+        - importedBillCount
+        - bills
+      properties:
+        importSessionId:
+          type: string
+          format: uuid
+        scope:
+          $ref: "#/components/schemas/ExpenseBillExportScopeType"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/BillCsvImportSessionStatus"
+        importedBillCount:
+          type: integer
+          minimum: 0
+          maximum: 100
+        bills:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/BillCsvImportedBillSummaryResponse"
     ExpenseBillLifecycleResponse:
       type: object
       description: Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.

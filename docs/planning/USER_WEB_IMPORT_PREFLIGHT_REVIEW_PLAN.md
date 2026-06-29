@@ -24,6 +24,15 @@ only. They do not create bills, edit bills, write import audit rows, store CSV
 bytes, create storage objects, expose raw CSV cell values, or wire any user-web
 runtime upload buttons.
 
+Implementation update on 2026-06-29: the follow-up confirmation contract/API
+slice added stateful import-session creation, read, confirm, and discard
+endpoints. The session creation endpoints preserve the preflight review
+boundary while making the reviewed payload durable through normalized candidate
+JSON plus a server-calculated payload digest, preflight result version, and
+confirmation challenge. Confirmation remains API/domain-authoritative and
+revalidates actor/session/scope/group access before creating draft bills.
+User-web confirmation buttons are still not wired by this document.
+
 This document still does not authorize runtime UI upload/import buttons,
 import confirmation that creates records, schema/migrations, auth/session/
 security behavior changes, storage/file-byte persistence, sync mutation, local

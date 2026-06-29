@@ -7,6 +7,30 @@ preflight/review runtime slice. This document defines the next safe contract
 boundary before user web may call data-changing CSV import confirmation
 behavior.
 
+Implementation update on 2026-06-29: the first confirmation contract/API slice
+added short-lived server-side CSV import sessions and confirmation endpoints:
+
+- `POST /api/v1/bills/import-sessions.csv`
+  (`createPersonalBillCsvImportSession`)
+- `POST /api/v1/groups/{groupId}/bills/import-sessions.csv`
+  (`createGroupBillCsvImportSession`)
+- `GET /api/v1/bill-import-sessions/{importSessionId}`
+  (`getBillCsvImportSession`)
+- `POST /api/v1/bill-import-sessions/{importSessionId}/confirm`
+  (`confirmBillCsvImportSession`)
+- `POST /api/v1/bill-import-sessions/{importSessionId}/discard`
+  (`discardBillCsvImportSession`)
+
+The implementation persists normalized import-session candidates and safe
+review metadata in `bill_csv_import_sessions`, binds sessions to the current
+auth account, auth session, actor profile, scope, and route group where
+applicable, and returns `payloadDigest`, `preflightResultVersion`, and
+`confirmationChallengeId` values that confirmation must echo. Confirmation
+revalidates current actor/session/scope/group membership and session lifecycle
+before writing draft bills and final import audit. Raw CSV text is not stored,
+returned, or logged; storage/file bytes are not involved. User-web confirmation
+runtime remains a separate future-gated task.
+
 PR #600 intentionally left user-web CSV import non-mutating:
 
 - personal and group flows call only `preflightPersonalBillsCsvImport` and

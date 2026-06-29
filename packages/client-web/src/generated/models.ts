@@ -2268,6 +2268,83 @@ export interface BillCsvImportConfirmationPreviewResponse {
 }
 
 /**
+ * Server-owned lifecycle status for a short-lived bill CSV import session.
+ */
+export type BillCsvImportSessionStatus = "needs_correction" | "ready_for_confirmation" | "confirmed" | "discarded" | "expired";
+
+/**
+ * Short-lived server-side bill CSV import session response. It is bound to the authenticated actor/session/scope and exposes digest/challenge metadata plus safe review output only. It never returns raw CSV text, raw row values, file bytes, storage references, auth/session tokens, hidden users, or hidden group data.
+ */
+export interface BillCsvImportSessionResponse {
+  importSessionId: string;
+  scope: ExpenseBillExportScopeType;
+  /**
+   * Route group ID for group imports, or null for personal imports.
+   */
+  groupId: string | null;
+  status: BillCsvImportSessionStatus;
+  expiresAtUtc: string;
+  /**
+   * Server-calculated digest over the reviewed CSV payload, formatted as an algorithm-prefixed digest such as sha256:hex.
+   */
+  payloadDigest: string;
+  /**
+   * Server-created review version that must match during confirmation.
+   */
+  preflightResultVersion: string;
+  /**
+   * Server-created confirmation challenge identifier that must match during confirmation.
+   */
+  confirmationChallengeId: string;
+  rowCount: number;
+  acceptedRowCount: number;
+  warningRowCount: number;
+  rejectedRowCount: number;
+  duplicateCandidateRowCount: number;
+  confirmation: BillCsvImportSessionConfirmationResponse;
+  review: BillCsvImportPreflightResponse;
+}
+
+/**
+ * Safe confirmation metadata for a bill CSV import session.
+ */
+export interface BillCsvImportSessionConfirmationResponse {
+  confirmLabel: string;
+  discardLabel: string;
+  /**
+   * True only when the session is currently ready for confirmation. Confirmation still revalidates server state.
+   */
+  confirmable: boolean;
+  safeMessage: string;
+}
+
+/**
+ * Confirmation request for a server-created bill CSV import session. The client echoes the reviewed scope, digest, preflight version, and challenge; the server remains authoritative and revalidates current actor/session/scope/group access before writing.
+ */
+export interface BillCsvImportConfirmRequest {
+  scope: ExpenseBillExportScopeType;
+  /**
+   * Route group ID for group sessions, or null for personal sessions.
+   */
+  groupId: string | null;
+  payloadDigest: string;
+  preflightResultVersion: string;
+  confirmationChallengeId: string;
+}
+
+/**
+ * Final bill CSV import confirmation result. It contains created draft bill summaries only and excludes raw CSV text, raw row values, merchant/item/note text, file bytes, storage references, hidden users, and hidden group data.
+ */
+export interface BillCsvImportConfirmationResponse {
+  importSessionId: string;
+  scope: ExpenseBillExportScopeType;
+  groupId: string | null;
+  status: BillCsvImportSessionStatus;
+  importedBillCount: number;
+  bills: BillCsvImportedBillSummaryResponse[];
+}
+
+/**
  * Safe bill archive/restore lifecycle response. It exposes only stable lifecycle fields and excludes merchant text, item names, notes, participant names, payment details, storage internals, file contents, OCR text, raw audit metadata, settlement internals, auth/session data, and unrelated user data.
  */
 export interface ExpenseBillLifecycleResponse {
