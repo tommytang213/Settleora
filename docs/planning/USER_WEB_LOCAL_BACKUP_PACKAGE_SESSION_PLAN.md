@@ -110,6 +110,25 @@ Names in this section are planning labels only. A later OpenAPI/API task must
 choose exact paths, operation IDs, schemas, status codes, problem types,
 authorization policy, generated-client names, and retention behavior.
 
+Implementation update on 2026-06-30: the metadata-only package-session
+contract/API slice chose these authenticated endpoints:
+
+- `POST /api/v1/local-backup/package-sessions` with operation ID
+  `createLocalBackupPackageSession`
+- `GET /api/v1/local-backup/package-sessions/{packageSessionId}` with
+  operation ID `getLocalBackupPackageSession`
+- `POST /api/v1/local-backup/package-sessions/{packageSessionId}/discard`
+  with operation ID `discardLocalBackupPackageSession`
+
+The slice creates and reads only short-lived package-session metadata for the
+current actor and current auth session. It reports manifest concepts,
+readiness, expiry, discard state, confirmation copy, stable codes, and
+unsupported feature families. It does not create package artifacts, package
+bytes, package manifests, downloads, storage objects, storage paths, file-byte
+reads or writes, restore previews, restore confirmations, browser-local
+persistence, user-web runtime controls, or server/local business-record
+mutations.
+
 A future package-session contract should be staged:
 
 1. Create: start a bounded package session for the authenticated current actor,

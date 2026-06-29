@@ -1425,6 +1425,39 @@ class SettleoraApiClient {
     return LocalBackupPackageReadinessResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<LocalBackupPackageSessionResponse> createLocalBackupPackageSession({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/local-backup/package-sessions",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupPackageSessionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<LocalBackupPackageSessionResponse> getLocalBackupPackageSession(String packageSessionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/local-backup/package-sessions/${Uri.encodeComponent(packageSessionId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupPackageSessionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<LocalBackupPackageSessionResponse> discardLocalBackupPackageSession(String packageSessionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/local-backup/package-sessions/${Uri.encodeComponent(packageSessionId.toString())}/discard',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupPackageSessionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<ManualFinanceSummaryResponse> getManualFinanceSummary({String? windowStartDate, String? windowEndDate, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

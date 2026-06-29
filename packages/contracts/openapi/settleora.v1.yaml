@@ -2450,6 +2450,128 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-sessions:
+    post:
+      summary: Create local backup package session metadata
+      description: Creates a short-lived authenticated metadata-only local backup package session for the current actor. This operation creates no package artifact, package bytes, download URL, storage object, file-byte read, restore preview, restore confirmation, browser-local persistence, or server/local record mutation. The session can be inspected or discarded and reports package generation/download/restore/browser-local concepts as unsupported until separate reviewed contracts exist.
+      operationId: createLocalBackupPackageSession
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "201":
+          description: Metadata-only local backup package session created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupPackageSessionResponse"
+        "400":
+          description: Local backup package session request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to create a local backup package session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-sessions/{packageSessionId}:
+    get:
+      summary: Get local backup package session metadata
+      description: Returns one short-lived metadata-only local backup package session for the authenticated actor and current auth session. The response contains no package artifact, package bytes, download URL, storage object, file-byte content, restore payload, hidden records, browser-local persistence, or server/local mutation result.
+      operationId: getLocalBackupPackageSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: packageSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor local backup package session metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupPackageSessionResponse"
+        "400":
+          description: Local backup package session request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to read a local backup package session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Package session is missing, expired outside the actor/session boundary, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-sessions/{packageSessionId}/discard:
+    post:
+      summary: Discard local backup package session metadata
+      description: Discards one metadata-only local backup package session for the authenticated actor and current auth session. This operation does not delete package bytes, storage objects, files, downloads, restore previews, browser-local persistence, source records, or server/local business data because this slice creates no such artifacts.
+      operationId: discardLocalBackupPackageSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: packageSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor local backup package session metadata after discard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupPackageSessionResponse"
+        "400":
+          description: Local backup package session discard request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to discard a local backup package session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Package session is missing, expired outside the actor/session boundary, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/sync/local-status:
     get:
       summary: Get sync and browser-local status
@@ -17937,6 +18059,146 @@ components:
         safeDescription:
           type: string
           maxLength: 320
+    LocalBackupPackageSessionStatus:
+      type: string
+      description: Metadata-only local backup package session status. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - created
+        - expired
+        - discarded
+    LocalBackupPackageSessionStableCode:
+      type: string
+      description: Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - package_session_created
+        - package_session_expired
+        - package_session_discarded
+        - package_generation_unsupported
+        - package_manifest_metadata_only
+    LocalBackupPackageSessionScope:
+      type: string
+      description: Metadata-only local backup package session scope.
+      enum:
+        - server_mode_copy_metadata_only
+    LocalBackupPackageSessionReadinessResponse:
+      type: object
+      description: Safe package-session readiness metadata. It does not prepare, generate, download, parse, preview, confirm, or restore a package.
+      additionalProperties: false
+      required:
+        - canPreparePackage
+        - canDownloadPackage
+        - canRestorePackage
+        - stableCode
+        - safeMessage
+      properties:
+        canPreparePackage:
+          type: boolean
+          description: False for this slice because package preparation/generation is not implemented.
+        canDownloadPackage:
+          type: boolean
+          description: False for this slice because package download is not implemented.
+        canRestorePackage:
+          type: boolean
+          description: False for this slice because restore preview/confirmation is not implemented.
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupPackageSessionStableCode"
+        safeMessage:
+          type: string
+          maxLength: 320
+          description: User-safe message without package bytes, file bytes, storage details, hidden records, raw payloads, or credentials.
+    LocalBackupPackageSessionManifestPreviewResponse:
+      type: object
+      description: Safe manifest concept metadata. It does not include a manifest file, package-local blob inventory, hashes, storage references, file bytes, hidden records, or restore payloads.
+      additionalProperties: false
+      required:
+        - manifestAvailable
+        - manifestStableCode
+        - safeDescription
+      properties:
+        manifestAvailable:
+          type: boolean
+          description: False for this slice because no backup package manifest is created.
+        manifestStableCode:
+          $ref: "#/components/schemas/LocalBackupPackageSessionStableCode"
+        safeDescription:
+          type: string
+          maxLength: 420
+    LocalBackupPackageSessionResponse:
+      type: object
+      description: Metadata-only local backup package session for the authenticated actor and current auth session. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, package manifests, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, hidden records, or browser-local persistence state.
+      additionalProperties: false
+      required:
+        - packageSessionId
+        - status
+        - stableCode
+        - scope
+        - serverModePosture
+        - availableForPackageGeneration
+        - safeMessage
+        - readiness
+        - manifestPreview
+        - confirmationCopy
+        - unsupportedFeatures
+        - privacyBoundary
+        - dataEgressBoundary
+        - createdAtUtc
+        - expiresAtUtc
+        - generatedAtUtc
+      properties:
+        packageSessionId:
+          type: string
+          format: uuid
+          description: Opaque package-session metadata ID. It is not a storage object, package artifact, download token, or restore authority.
+        status:
+          $ref: "#/components/schemas/LocalBackupPackageSessionStatus"
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupPackageSessionStableCode"
+        scope:
+          $ref: "#/components/schemas/LocalBackupPackageSessionScope"
+        serverModePosture:
+          $ref: "#/components/schemas/LocalBackupPackageServerModePosture"
+        availableForPackageGeneration:
+          type: boolean
+          description: False for this slice because package generation is not implemented.
+        safeMessage:
+          type: string
+          maxLength: 360
+        readiness:
+          $ref: "#/components/schemas/LocalBackupPackageSessionReadinessResponse"
+        manifestPreview:
+          $ref: "#/components/schemas/LocalBackupPackageSessionManifestPreviewResponse"
+        confirmationCopy:
+          type: string
+          maxLength: 520
+          description: Safe confirmation copy for future data-egress review. It does not authorize package generation or download.
+        unsupportedFeatures:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageUnsupportedFeature"
+        privacyBoundary:
+          type: string
+          maxLength: 640
+          description: Safe privacy boundary summary for display and logging review.
+        dataEgressBoundary:
+          type: string
+          maxLength: 520
+          description: Safe data-egress boundary summary. This package session performs no package export/download/restore action.
+        createdAtUtc:
+          type: string
+          format: date-time
+        expiresAtUtc:
+          type: string
+          format: date-time
+          description: Session expiry; clients should create a new session rather than treating stale metadata as authority.
+        discardedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        generatedAtUtc:
+          type: string
+          format: date-time
     LocalBackupPackageReadinessResponse:
       type: object
       description: Metadata-only local backup package readiness for the current authenticated actor. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, or hidden records.

@@ -11315,6 +11315,207 @@ class LocalBackupPackageConceptResponse {
   }
 }
 
+/// Metadata-only local backup package session status. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupPackageSessionStatus = String;
+class LocalBackupPackageSessionStatusValues {
+  const LocalBackupPackageSessionStatusValues._();
+  static const LocalBackupPackageSessionStatus created = "created";
+  static const LocalBackupPackageSessionStatus expired = "expired";
+  static const LocalBackupPackageSessionStatus discarded = "discarded";
+  static const Set<LocalBackupPackageSessionStatus> values = {created, expired, discarded};
+}
+
+/// Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupPackageSessionStableCode = String;
+class LocalBackupPackageSessionStableCodeValues {
+  const LocalBackupPackageSessionStableCodeValues._();
+  static const LocalBackupPackageSessionStableCode packageSessionCreated = "package_session_created";
+  static const LocalBackupPackageSessionStableCode packageSessionExpired = "package_session_expired";
+  static const LocalBackupPackageSessionStableCode packageSessionDiscarded = "package_session_discarded";
+  static const LocalBackupPackageSessionStableCode packageGenerationUnsupported = "package_generation_unsupported";
+  static const LocalBackupPackageSessionStableCode packageManifestMetadataOnly = "package_manifest_metadata_only";
+  static const Set<LocalBackupPackageSessionStableCode> values = {packageSessionCreated, packageSessionExpired, packageSessionDiscarded, packageGenerationUnsupported, packageManifestMetadataOnly};
+}
+
+/// Metadata-only local backup package session scope.
+typedef LocalBackupPackageSessionScope = String;
+class LocalBackupPackageSessionScopeValues {
+  const LocalBackupPackageSessionScopeValues._();
+  static const LocalBackupPackageSessionScope serverModeCopyMetadataOnly = "server_mode_copy_metadata_only";
+  static const Set<LocalBackupPackageSessionScope> values = {serverModeCopyMetadataOnly};
+}
+
+/// Safe package-session readiness metadata. It does not prepare, generate, download, parse, preview, confirm, or restore a package.
+class LocalBackupPackageSessionReadinessResponse {
+  const LocalBackupPackageSessionReadinessResponse({
+    required this.canPreparePackage,
+    required this.canDownloadPackage,
+    required this.canRestorePackage,
+    required this.stableCode,
+    required this.safeMessage,
+  });
+
+  /// False for this slice because package preparation/generation is not implemented.
+  final bool canPreparePackage;
+  /// False for this slice because package download is not implemented.
+  final bool canDownloadPackage;
+  /// False for this slice because restore preview/confirmation is not implemented.
+  final bool canRestorePackage;
+  final LocalBackupPackageSessionStableCode stableCode;
+  /// User-safe message without package bytes, file bytes, storage details, hidden records, raw payloads, or credentials.
+  final String safeMessage;
+
+  factory LocalBackupPackageSessionReadinessResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageSessionReadinessResponse(
+      canPreparePackage: json["canPreparePackage"] as bool,
+      canDownloadPackage: json["canDownloadPackage"] as bool,
+      canRestorePackage: json["canRestorePackage"] as bool,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "canPreparePackage": canPreparePackage,
+      "canDownloadPackage": canDownloadPackage,
+      "canRestorePackage": canRestorePackage,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+    };
+  }
+}
+
+/// Safe manifest concept metadata. It does not include a manifest file, package-local blob inventory, hashes, storage references, file bytes, hidden records, or restore payloads.
+class LocalBackupPackageSessionManifestPreviewResponse {
+  const LocalBackupPackageSessionManifestPreviewResponse({
+    required this.manifestAvailable,
+    required this.manifestStableCode,
+    required this.safeDescription,
+  });
+
+  /// False for this slice because no backup package manifest is created.
+  final bool manifestAvailable;
+  final LocalBackupPackageSessionStableCode manifestStableCode;
+  final String safeDescription;
+
+  factory LocalBackupPackageSessionManifestPreviewResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageSessionManifestPreviewResponse(
+      manifestAvailable: json["manifestAvailable"] as bool,
+      manifestStableCode: json["manifestStableCode"] as String,
+      safeDescription: json["safeDescription"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "manifestAvailable": manifestAvailable,
+      "manifestStableCode": manifestStableCode,
+      "safeDescription": safeDescription,
+    };
+  }
+}
+
+/// Metadata-only local backup package session for the authenticated actor and current auth session. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, package manifests, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, hidden records, or browser-local persistence state.
+class LocalBackupPackageSessionResponse {
+  static const Object _unsetDiscardedAtUtc = Object();
+
+  LocalBackupPackageSessionResponse({
+    required this.packageSessionId,
+    required this.status,
+    required this.stableCode,
+    required this.scope,
+    required this.serverModePosture,
+    required this.availableForPackageGeneration,
+    required this.safeMessage,
+    required this.readiness,
+    required this.manifestPreview,
+    required this.confirmationCopy,
+    required this.unsupportedFeatures,
+    required this.privacyBoundary,
+    required this.dataEgressBoundary,
+    required this.createdAtUtc,
+    required this.expiresAtUtc,
+    Object? discardedAtUtc = _unsetDiscardedAtUtc,
+    required this.generatedAtUtc,
+  })
+      : discardedAtUtc = identical(discardedAtUtc, _unsetDiscardedAtUtc) ? null : discardedAtUtc as DateTime?,
+        _hasDiscardedAtUtc = !identical(discardedAtUtc, _unsetDiscardedAtUtc);
+
+  /// Opaque package-session metadata ID. It is not a storage object, package artifact, download token, or restore authority.
+  final String packageSessionId;
+  final LocalBackupPackageSessionStatus status;
+  final LocalBackupPackageSessionStableCode stableCode;
+  final LocalBackupPackageSessionScope scope;
+  final LocalBackupPackageServerModePosture serverModePosture;
+  /// False for this slice because package generation is not implemented.
+  final bool availableForPackageGeneration;
+  final String safeMessage;
+  final LocalBackupPackageSessionReadinessResponse readiness;
+  final LocalBackupPackageSessionManifestPreviewResponse manifestPreview;
+  /// Safe confirmation copy for future data-egress review. It does not authorize package generation or download.
+  final String confirmationCopy;
+  final List<LocalBackupPackageUnsupportedFeature> unsupportedFeatures;
+  /// Safe privacy boundary summary for display and logging review.
+  final String privacyBoundary;
+  /// Safe data-egress boundary summary. This package session performs no package export/download/restore action.
+  final String dataEgressBoundary;
+  final DateTime createdAtUtc;
+  /// Session expiry; clients should create a new session rather than treating stale metadata as authority.
+  final DateTime expiresAtUtc;
+  final DateTime? discardedAtUtc;
+  final bool _hasDiscardedAtUtc;
+  final DateTime generatedAtUtc;
+
+  factory LocalBackupPackageSessionResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageSessionResponse(
+      packageSessionId: json["packageSessionId"] as String,
+      status: json["status"] as String,
+      stableCode: json["stableCode"] as String,
+      scope: json["scope"] as String,
+      serverModePosture: json["serverModePosture"] as String,
+      availableForPackageGeneration: json["availableForPackageGeneration"] as bool,
+      safeMessage: json["safeMessage"] as String,
+      readiness: LocalBackupPackageSessionReadinessResponse.fromJson(JsonObject.from(json["readiness"] as Map)),
+      manifestPreview: LocalBackupPackageSessionManifestPreviewResponse.fromJson(JsonObject.from(json["manifestPreview"] as Map)),
+      confirmationCopy: json["confirmationCopy"] as String,
+      unsupportedFeatures: (json["unsupportedFeatures"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      privacyBoundary: json["privacyBoundary"] as String,
+      dataEgressBoundary: json["dataEgressBoundary"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      discardedAtUtc: json.containsKey("discardedAtUtc")
+          ? json["discardedAtUtc"] == null ? null : DateTime.parse(json["discardedAtUtc"] as String)
+          : _unsetDiscardedAtUtc,
+      generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final discardedAtUtcJsonValue = discardedAtUtc;
+
+    return {
+      "packageSessionId": packageSessionId,
+      "status": status,
+      "stableCode": stableCode,
+      "scope": scope,
+      "serverModePosture": serverModePosture,
+      "availableForPackageGeneration": availableForPackageGeneration,
+      "safeMessage": safeMessage,
+      "readiness": readiness.toJson(),
+      "manifestPreview": manifestPreview.toJson(),
+      "confirmationCopy": confirmationCopy,
+      "unsupportedFeatures": unsupportedFeatures,
+      "privacyBoundary": privacyBoundary,
+      "dataEgressBoundary": dataEgressBoundary,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      if (_hasDiscardedAtUtc) "discardedAtUtc": discardedAtUtcJsonValue == null ? null : discardedAtUtcJsonValue.toUtc().toIso8601String(),
+      "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Metadata-only local backup package readiness for the current authenticated actor. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, or hidden records.
 class LocalBackupPackageReadinessResponse {
   const LocalBackupPackageReadinessResponse({

@@ -3865,6 +3865,97 @@ export interface LocalBackupPackageConceptResponse {
 }
 
 /**
+ * Metadata-only local backup package session status. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupPackageSessionStatus = "created" | "expired" | "discarded";
+
+/**
+ * Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupPackageSessionStableCode = "package_session_created" | "package_session_expired" | "package_session_discarded" | "package_generation_unsupported" | "package_manifest_metadata_only";
+
+/**
+ * Metadata-only local backup package session scope.
+ */
+export type LocalBackupPackageSessionScope = "server_mode_copy_metadata_only";
+
+/**
+ * Safe package-session readiness metadata. It does not prepare, generate, download, parse, preview, confirm, or restore a package.
+ */
+export interface LocalBackupPackageSessionReadinessResponse {
+  /**
+   * False for this slice because package preparation/generation is not implemented.
+   */
+  canPreparePackage: boolean;
+  /**
+   * False for this slice because package download is not implemented.
+   */
+  canDownloadPackage: boolean;
+  /**
+   * False for this slice because restore preview/confirmation is not implemented.
+   */
+  canRestorePackage: boolean;
+  stableCode: LocalBackupPackageSessionStableCode;
+  /**
+   * User-safe message without package bytes, file bytes, storage details, hidden records, raw payloads, or credentials.
+   */
+  safeMessage: string;
+}
+
+/**
+ * Safe manifest concept metadata. It does not include a manifest file, package-local blob inventory, hashes, storage references, file bytes, hidden records, or restore payloads.
+ */
+export interface LocalBackupPackageSessionManifestPreviewResponse {
+  /**
+   * False for this slice because no backup package manifest is created.
+   */
+  manifestAvailable: boolean;
+  manifestStableCode: LocalBackupPackageSessionStableCode;
+  safeDescription: string;
+}
+
+/**
+ * Metadata-only local backup package session for the authenticated actor and current auth session. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, package manifests, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, hidden records, or browser-local persistence state.
+ */
+export interface LocalBackupPackageSessionResponse {
+  /**
+   * Opaque package-session metadata ID. It is not a storage object, package artifact, download token, or restore authority.
+   */
+  packageSessionId: string;
+  status: LocalBackupPackageSessionStatus;
+  stableCode: LocalBackupPackageSessionStableCode;
+  scope: LocalBackupPackageSessionScope;
+  serverModePosture: LocalBackupPackageServerModePosture;
+  /**
+   * False for this slice because package generation is not implemented.
+   */
+  availableForPackageGeneration: boolean;
+  safeMessage: string;
+  readiness: LocalBackupPackageSessionReadinessResponse;
+  manifestPreview: LocalBackupPackageSessionManifestPreviewResponse;
+  /**
+   * Safe confirmation copy for future data-egress review. It does not authorize package generation or download.
+   */
+  confirmationCopy: string;
+  unsupportedFeatures: LocalBackupPackageUnsupportedFeature[];
+  /**
+   * Safe privacy boundary summary for display and logging review.
+   */
+  privacyBoundary: string;
+  /**
+   * Safe data-egress boundary summary. This package session performs no package export/download/restore action.
+   */
+  dataEgressBoundary: string;
+  createdAtUtc: string;
+  /**
+   * Session expiry; clients should create a new session rather than treating stale metadata as authority.
+   */
+  expiresAtUtc: string;
+  discardedAtUtc?: string | null;
+  generatedAtUtc: string;
+}
+
+/**
  * Metadata-only local backup package readiness for the current authenticated actor. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, or hidden records.
  */
 export interface LocalBackupPackageReadinessResponse {
