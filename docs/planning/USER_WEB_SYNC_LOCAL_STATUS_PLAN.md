@@ -23,6 +23,7 @@ Use this file with:
 - [User web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
 - [User web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md)
 - [User web local backup package contract plan](USER_WEB_LOCAL_BACKUP_PACKAGE_CONTRACT_PLAN.md)
+- [User web local backup package manifest and session plan](USER_WEB_LOCAL_BACKUP_PACKAGE_SESSION_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
 - [Local-only and server-mode authority boundary audit](../architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md)
 - [Offline queue persistence and sync state model](../architecture/OFFLINE_QUEUE_SYNC_STATE_MODEL.md)
@@ -241,7 +242,11 @@ defines the broader backup/restore direction. The follow-up
 narrows the next contract gate for package readiness, manifest creation,
 generation/download, verification, metadata readback, encryption/key handling,
 file privacy, retention, audit, and browser-safety boundaries before any
-package runtime.
+package runtime. The later
+[user web local backup package manifest and session plan](USER_WEB_LOCAL_BACKUP_PACKAGE_SESSION_PLAN.md)
+narrows package-session lifecycle, data-egress consent, download eligibility,
+expiry, retry, cancellation, discard, and stale-session behavior before any
+OpenAPI/backend package-session contract is implemented.
 
 ## Browser Local-Mode Persistence Direction
 
