@@ -1,5 +1,8 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualBasic.FileIO;
 using Settleora.Api.Auth.Authorization;
@@ -27,10 +30,19 @@ internal static class BillCsvImportEndpoints
     private const string BillImportWriteFailedTitle = "Bill import write failed";
     private const string BillImportWriteFailedDetail = "Unable to complete bill CSV import.";
     private const string BillCsvImportedAction = "bill.csv_imported";
+    private const string PersonalSessionCreatedAction = "bill.import_session_created.personal";
+    private const string GroupSessionCreatedAction = "bill.import_session_created.group";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
     private const string PreflightReadyCode = "ready_for_review";
     private const string PreflightNeedsCorrectionCode = "needs_correction";
+    private const string SessionReadyStatusCode = "ready_for_confirmation";
+    private const string SessionExpiresIn = "PT30M";
+    private static readonly TimeSpan ImportSessionLifetime = TimeSpan.FromMinutes(30);
+    private static readonly JsonSerializerOptions ImportSessionJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     private static readonly string[] SupportedHeaders =
     [
@@ -64,14 +76,338 @@ internal static class BillCsvImportEndpoints
         var personalBills = app.MapGroup("/api/v1/bills")
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
         personalBills.MapPost("/import-preflight.csv", PreflightPersonalBillsCsvAsync);
+        personalBills.MapPost("/import-sessions.csv", CreatePersonalBillImportSessionAsync);
         personalBills.MapPost("/import.csv", ImportPersonalBillsCsvAsync);
 
         var groupBills = app.MapGroup("/api/v1/groups/{groupId:guid}/bills")
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
         groupBills.MapPost("/import-preflight.csv", PreflightGroupBillsCsvAsync);
+        groupBills.MapPost("/import-sessions.csv", CreateGroupBillImportSessionAsync);
         groupBills.MapPost("/import.csv", ImportGroupBillsCsvAsync);
 
+        var billImports = app.MapGroup("/api/v1/bill-import-sessions")
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        billImports.MapGet("/{importSessionId:guid}", GetBillImportSessionAsync);
+        billImports.MapPost("/{importSessionId:guid}/confirm", ConfirmBillImportSessionAsync);
+        billImports.MapPost("/{importSessionId:guid}/discard", DiscardBillImportSessionAsync);
+
         return app;
+    }
+
+    private static async Task<IResult> CreatePersonalBillImportSessionAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillCalculationService calculationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
+        }
+
+        var csvReadResult = await ReadCsvBodyAsync(request, cancellationToken);
+        if (!csvReadResult.Succeeded)
+        {
+            return InvalidBillImportRequest(csvReadResult.Errors);
+        }
+
+        var planResult = BuildImportPlan(
+            csvReadResult.CsvText!,
+            ImportScope.Personal,
+            actor.UserProfileId,
+            null,
+            null,
+            calculationService,
+            timeProvider);
+        if (planResult.ErrorResult is not null)
+        {
+            return planResult.ErrorResult;
+        }
+
+        var session = CreateImportSession(
+            actor,
+            ImportScope.Personal,
+            null,
+            csvReadResult.CsvText!,
+            planResult,
+            timeProvider.GetUtcNow());
+        dbContext.Set<BillCsvImportSession>().Add(session);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return Results.Created(
+            $"/api/v1/bill-import-sessions/{session.Id:D}",
+            MapImportSessionResponse(session));
+    }
+
+    private static async Task<IResult> CreateGroupBillImportSessionAsync(
+        Guid groupId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillCalculationService calculationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessGroupAsync(
+            groupId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
+        }
+
+        var activeGroupMemberIds = await LoadActiveGroupMemberIdsAsync(
+            dbContext,
+            groupId,
+            cancellationToken);
+        if (!activeGroupMemberIds.Contains(actor.UserProfileId))
+        {
+            return BillImportUnavailable();
+        }
+
+        var csvReadResult = await ReadCsvBodyAsync(request, cancellationToken);
+        if (!csvReadResult.Succeeded)
+        {
+            return InvalidBillImportRequest(csvReadResult.Errors);
+        }
+
+        var planResult = BuildImportPlan(
+            csvReadResult.CsvText!,
+            ImportScope.Group,
+            actor.UserProfileId,
+            groupId,
+            activeGroupMemberIds,
+            calculationService,
+            timeProvider);
+        if (planResult.ErrorResult is not null)
+        {
+            return planResult.ErrorResult;
+        }
+
+        var session = CreateImportSession(
+            actor,
+            ImportScope.Group,
+            groupId,
+            csvReadResult.CsvText!,
+            planResult,
+            timeProvider.GetUtcNow());
+        dbContext.Set<BillCsvImportSession>().Add(session);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return Results.Created(
+            $"/api/v1/bill-import-sessions/{session.Id:D}",
+            MapImportSessionResponse(session));
+    }
+
+    private static async Task<IResult> GetBillImportSessionAsync(
+        Guid importSessionId,
+        ICurrentActorAccessor currentActorAccessor,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var session = await LoadActorSessionAsync(dbContext, importSessionId, actor, cancellationToken);
+        if (session is null)
+        {
+            return BillImportUnavailable();
+        }
+
+        ExpireSessionIfNeeded(session, timeProvider.GetUtcNow());
+        if (dbContext.ChangeTracker.HasChanges())
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return Results.Ok(MapImportSessionResponse(session));
+    }
+
+    private static async Task<IResult> DiscardBillImportSessionAsync(
+        Guid importSessionId,
+        ICurrentActorAccessor currentActorAccessor,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var session = await LoadActorSessionAsync(dbContext, importSessionId, actor, cancellationToken);
+        if (session is null)
+        {
+            return BillImportUnavailable();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpireSessionIfNeeded(session, now);
+        if (session.Status is BillCsvImportSessionStatuses.ReadyForConfirmation
+            or BillCsvImportSessionStatuses.NeedsCorrection)
+        {
+            session.Status = BillCsvImportSessionStatuses.Discarded;
+            session.DiscardedAtUtc = now;
+            session.UpdatedAtUtc = now;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Results.Ok(MapImportSessionResponse(session));
+    }
+
+    private static async Task<IResult> ConfirmBillImportSessionAsync(
+        Guid importSessionId,
+        BillCsvImportConfirmRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        IPersonalBillAuditWriter personalAuditWriter,
+        IGroupBillAuditWriter groupAuditWriter,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var session = await LoadActorSessionAsync(dbContext, importSessionId, actor, cancellationToken);
+        if (session is null)
+        {
+            return BillImportUnavailable();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpireSessionIfNeeded(session, now);
+        if (session.Status is not BillCsvImportSessionStatuses.ReadyForConfirmation)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return ImportSessionProblem("import_session_not_confirmable", "Import session is not confirmable.", StatusCodes.Status409Conflict);
+        }
+
+        if (!string.Equals(request.Scope, session.Scope, StringComparison.Ordinal)
+            || request.GroupId != session.GroupId)
+        {
+            return ImportSessionProblem("wrong_scope", "Import session scope does not match the confirmation request.", StatusCodes.Status409Conflict);
+        }
+
+        if (!string.Equals(request.PayloadDigest, session.PayloadDigest, StringComparison.Ordinal)
+            || !string.Equals(request.PreflightResultVersion, session.PreflightResultVersion, StringComparison.Ordinal)
+            || !string.Equals(request.ConfirmationChallengeId, session.ConfirmationChallengeId, StringComparison.Ordinal))
+        {
+            return ImportSessionProblem("confirmation_challenge_mismatch", "Import confirmation challenge does not match the reviewed session.", StatusCodes.Status409Conflict);
+        }
+
+        var authorizationResult = session.Scope is BillCsvImportSessionScopes.Personal
+            ? await businessAuthorizationService.CanAccessProfileAsync(actor.UserProfileId, cancellationToken)
+            : await businessAuthorizationService.CanAccessGroupAsync(session.GroupId!.Value, cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
+        }
+
+        if (session.Scope is BillCsvImportSessionScopes.Group)
+        {
+            var activeGroupMemberIds = await LoadActiveGroupMemberIdsAsync(
+                dbContext,
+                session.GroupId!.Value,
+                cancellationToken);
+            if (!activeGroupMemberIds.Contains(actor.UserProfileId))
+            {
+                return BillImportUnavailable();
+            }
+        }
+
+        var bills = DeserializeCandidateBills(session.CandidateJson);
+        if (bills.Count == 0)
+        {
+            return ImportSessionProblem("confirmation_revalidation_failed", "Import session has no confirmable candidates.", StatusCodes.Status409Conflict);
+        }
+
+        foreach (var bill in bills)
+        {
+            dbContext.Set<ExpenseBill>().Add(bill);
+            if (session.Scope is BillCsvImportSessionScopes.Personal)
+            {
+                await personalAuditWriter.WriteAsync(
+                    new PersonalBillAuditEvent(
+                        BillCsvImportedAction,
+                        actor.AuthAccountId,
+                        actor.AuthAccountId,
+                        bill.Id,
+                        PersonalGroupMode,
+                        bill.Status,
+                        bill.Items.Count,
+                        bill.Adjustments.Count,
+                        bill.Participants.Count,
+                        bill.TotalCurrency,
+                        bill.TotalAmount,
+                        now),
+                    cancellationToken);
+            }
+            else
+            {
+                await groupAuditWriter.WriteAsync(
+                    new GroupBillAuditEvent(
+                        BillCsvImportedAction,
+                        actor.AuthAccountId,
+                        actor.AuthAccountId,
+                        bill.Id,
+                        session.GroupId!.Value,
+                        GroupMode,
+                        bill.Status,
+                        bill.Items.Count,
+                        bill.Adjustments.Count,
+                        bill.Participants.Count,
+                        bill.Payers.Count,
+                        bill.TotalCurrency,
+                        bill.TotalAmount,
+                        now),
+                    cancellationToken);
+            }
+        }
+
+        session.Status = BillCsvImportSessionStatuses.Confirmed;
+        session.ConfirmedAtUtc = now;
+        session.UpdatedAtUtc = now;
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return BillImportWriteFailed();
+        }
+
+        return Results.Ok(new BillCsvImportConfirmationResponse(
+            session.Id,
+            session.Scope,
+            session.GroupId,
+            BillCsvImportSessionStatuses.Confirmed,
+            bills.Count,
+            bills.Select(MapSummary).ToArray()));
     }
 
     private static async Task<IResult> PreflightPersonalBillsCsvAsync(
@@ -1048,6 +1384,132 @@ internal static class BillCsvImportEndpoints
             Readiness: "This preflight response is stateless and temporary. Upload the CSV again for future confirmation.");
     }
 
+    private static BillCsvImportSession CreateImportSession(
+        AuthenticatedActor actor,
+        ImportScope scope,
+        Guid? groupId,
+        string csvText,
+        BillCsvImportPlanResult planResult,
+        DateTimeOffset now)
+    {
+        var response = CreatePreflightResponse(scope, groupId, planResult);
+        var hasErrors = response.RejectedRowCount > 0 || planResult.Response!.Errors.Count > 0;
+        var status = hasErrors
+            ? BillCsvImportSessionStatuses.NeedsCorrection
+            : BillCsvImportSessionStatuses.ReadyForConfirmation;
+
+        return new BillCsvImportSession
+        {
+            Id = Guid.NewGuid(),
+            AuthAccountId = actor.AuthAccountId,
+            AuthSessionId = actor.AuthSessionId,
+            ActorUserProfileId = actor.UserProfileId,
+            Scope = scope is ImportScope.Personal
+                ? BillCsvImportSessionScopes.Personal
+                : BillCsvImportSessionScopes.Group,
+            GroupId = groupId,
+            Status = status,
+            PayloadDigest = ComputePayloadDigest(csvText),
+            PreflightResultVersion = Guid.NewGuid().ToString("N"),
+            ConfirmationChallengeId = Guid.NewGuid().ToString("N"),
+            ReviewJson = JsonSerializer.Serialize(response, ImportSessionJsonOptions),
+            CandidateJson = hasErrors
+                ? "[]"
+                : JsonSerializer.Serialize(planResult.Bills, ImportSessionJsonOptions),
+            RowCount = response.RowCount,
+            AcceptedRowCount = response.AcceptedRowCount,
+            WarningRowCount = response.WarningRowCount,
+            RejectedRowCount = response.RejectedRowCount,
+            DuplicateCandidateRowCount = 0,
+            ExpiresAtUtc = now.Add(ImportSessionLifetime),
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+    }
+
+    private static BillCsvImportSessionResponse MapImportSessionResponse(BillCsvImportSession session)
+    {
+        var review = JsonSerializer.Deserialize<BillCsvImportPreflightResponse>(
+            session.ReviewJson,
+            ImportSessionJsonOptions) ?? throw new InvalidOperationException("Bill CSV import session review JSON is invalid.");
+
+        var confirmLabel = session.Scope is BillCsvImportSessionScopes.Group
+            ? "Confirm group bill import"
+            : "Confirm personal bill import";
+
+        return new BillCsvImportSessionResponse(
+            session.Id,
+            session.Scope,
+            session.GroupId,
+            session.Status,
+            session.ExpiresAtUtc,
+            session.PayloadDigest,
+            session.PreflightResultVersion,
+            session.ConfirmationChallengeId,
+            session.RowCount,
+            session.AcceptedRowCount,
+            session.WarningRowCount,
+            session.RejectedRowCount,
+            session.DuplicateCandidateRowCount,
+            new BillCsvImportSessionConfirmationResponse(
+                confirmLabel,
+                "Discard import",
+                session.Status is BillCsvImportSessionStatuses.ReadyForConfirmation,
+                "Confirmation revalidates the current actor, scope, session, group access, payload digest, and challenge before creating draft bills."),
+            review);
+    }
+
+    private static async Task<BillCsvImportSession?> LoadActorSessionAsync(
+        SettleoraDbContext dbContext,
+        Guid importSessionId,
+        AuthenticatedActor actor,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.Set<BillCsvImportSession>()
+            .SingleOrDefaultAsync(
+                session => session.Id == importSessionId
+                    && session.AuthAccountId == actor.AuthAccountId
+                    && session.AuthSessionId == actor.AuthSessionId
+                    && session.ActorUserProfileId == actor.UserProfileId,
+                cancellationToken);
+    }
+
+    private static void ExpireSessionIfNeeded(BillCsvImportSession session, DateTimeOffset now)
+    {
+        if (session.Status is BillCsvImportSessionStatuses.ReadyForConfirmation
+                or BillCsvImportSessionStatuses.NeedsCorrection
+            && session.ExpiresAtUtc <= now)
+        {
+            session.Status = BillCsvImportSessionStatuses.Expired;
+            session.UpdatedAtUtc = now;
+        }
+    }
+
+    private static IReadOnlyList<ExpenseBill> DeserializeCandidateBills(string candidateJson)
+    {
+        return JsonSerializer.Deserialize<IReadOnlyList<ExpenseBill>>(
+            candidateJson,
+            ImportSessionJsonOptions) ?? [];
+    }
+
+    private static string ComputePayloadDigest(string csvText)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(csvText));
+        return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static IResult ImportSessionProblem(string code, string detail, int statusCode)
+    {
+        return Results.Problem(
+            title: "Bill import session unavailable",
+            detail: detail,
+            statusCode: statusCode,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = code
+            });
+    }
+
     private static IReadOnlyList<BillCsvImportReviewItemResponse> CreateAcceptedReviewItems(
         IReadOnlyList<BillCsvImportRow> rows)
     {
@@ -1646,6 +2108,44 @@ internal sealed record BillCsvImportConfirmationPreviewResponse(
     string ReviewLabel,
     string ConfirmLabel,
     string SafeMessage);
+
+internal sealed record BillCsvImportSessionResponse(
+    Guid ImportSessionId,
+    string Scope,
+    Guid? GroupId,
+    string Status,
+    DateTimeOffset ExpiresAtUtc,
+    string PayloadDigest,
+    string PreflightResultVersion,
+    string ConfirmationChallengeId,
+    int RowCount,
+    int AcceptedRowCount,
+    int WarningRowCount,
+    int RejectedRowCount,
+    int DuplicateCandidateRowCount,
+    BillCsvImportSessionConfirmationResponse Confirmation,
+    BillCsvImportPreflightResponse Review);
+
+internal sealed record BillCsvImportSessionConfirmationResponse(
+    string ConfirmLabel,
+    string DiscardLabel,
+    bool Confirmable,
+    string SafeMessage);
+
+internal sealed record BillCsvImportConfirmRequest(
+    string Scope,
+    Guid? GroupId,
+    string PayloadDigest,
+    string PreflightResultVersion,
+    string ConfirmationChallengeId);
+
+internal sealed record BillCsvImportConfirmationResponse(
+    Guid ImportSessionId,
+    string Scope,
+    Guid? GroupId,
+    string Status,
+    int ImportedBillCount,
+    IReadOnlyList<BillCsvImportedBillSummaryResponse> Bills);
 
 internal sealed record BillCsvImportResponse(
     int RowCount,

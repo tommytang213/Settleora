@@ -83,6 +83,10 @@ public sealed class SettleoraDbContext : DbContext
     private const int AuthSecurityPolicySupportModeMaxLength = 32;
     private const int AuthSecurityPolicyEnforcementModeMaxLength = 32;
     private const int AuthSecurityPolicyChangeReasonCategoryMaxLength = 120;
+    private const int BillCsvImportSessionScopeMaxLength = 16;
+    private const int BillCsvImportSessionStatusMaxLength = 32;
+    private const int BillCsvImportSessionPayloadDigestMaxLength = 96;
+    private const int BillCsvImportSessionTokenMaxLength = 64;
 
     public SettleoraDbContext(DbContextOptions<SettleoraDbContext> options)
         : base(options)
@@ -103,6 +107,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<ExpenseBillParticipant>(ConfigureExpenseBillParticipant);
         modelBuilder.Entity<ExpenseBillPayer>(ConfigureExpenseBillPayer);
         modelBuilder.Entity<ExpenseBillAdjustment>(ConfigureExpenseBillAdjustment);
+        modelBuilder.Entity<BillCsvImportSession>(ConfigureBillCsvImportSession);
         modelBuilder.Entity<ExpenseBillAttachment>(ConfigureExpenseBillAttachment);
         modelBuilder.Entity<ReceiptOcrReview>(ConfigureReceiptOcrReview);
         modelBuilder.Entity<ReceiptOcrReviewAssignment>(ConfigureReceiptOcrReviewAssignment);
@@ -140,6 +145,154 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<UserNotificationPreference>(ConfigureUserNotificationPreference);
         modelBuilder.Entity<SyncOperation>(ConfigureSyncOperation);
         modelBuilder.Entity<SyncResourceVersion>(ConfigureSyncResourceVersion);
+    }
+
+    private static void ConfigureBillCsvImportSession(EntityTypeBuilder<BillCsvImportSession> entity)
+    {
+        entity.ToTable("bill_csv_import_sessions", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_bill_csv_import_sessions_scope",
+                "scope IN ('personal', 'group')");
+            table.HasCheckConstraint(
+                "ck_bill_csv_import_sessions_status",
+                "status IN ('needs_correction', 'ready_for_confirmation', 'confirmed', 'discarded', 'expired')");
+            table.HasCheckConstraint(
+                "ck_bill_csv_import_sessions_group_scope",
+                "(scope = 'group') = (group_id IS NOT NULL)");
+            table.HasCheckConstraint(
+                "ck_bill_csv_import_sessions_row_counts",
+                "row_count >= 0 AND accepted_row_count >= 0 AND warning_row_count >= 0 AND rejected_row_count >= 0 AND duplicate_candidate_row_count >= 0");
+        });
+
+        entity.HasKey(session => session.Id);
+
+        entity.Property(session => session.Id)
+            .HasColumnName("id");
+
+        entity.Property(session => session.AuthAccountId)
+            .HasColumnName("auth_account_id")
+            .IsRequired();
+
+        entity.Property(session => session.AuthSessionId)
+            .HasColumnName("auth_session_id")
+            .IsRequired();
+
+        entity.Property(session => session.ActorUserProfileId)
+            .HasColumnName("actor_user_profile_id")
+            .IsRequired();
+
+        entity.Property(session => session.Scope)
+            .HasColumnName("scope")
+            .HasMaxLength(BillCsvImportSessionScopeMaxLength)
+            .IsRequired();
+
+        entity.Property(session => session.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(session => session.Status)
+            .HasColumnName("status")
+            .HasMaxLength(BillCsvImportSessionStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(session => session.PayloadDigest)
+            .HasColumnName("payload_digest")
+            .HasMaxLength(BillCsvImportSessionPayloadDigestMaxLength)
+            .IsRequired();
+
+        entity.Property(session => session.PreflightResultVersion)
+            .HasColumnName("preflight_result_version")
+            .HasMaxLength(BillCsvImportSessionTokenMaxLength)
+            .IsRequired();
+
+        entity.Property(session => session.ConfirmationChallengeId)
+            .HasColumnName("confirmation_challenge_id")
+            .HasMaxLength(BillCsvImportSessionTokenMaxLength)
+            .IsRequired();
+
+        entity.Property(session => session.ReviewJson)
+            .HasColumnName("review_json")
+            .HasColumnType("jsonb")
+            .IsRequired();
+
+        entity.Property(session => session.CandidateJson)
+            .HasColumnName("candidate_json")
+            .HasColumnType("jsonb")
+            .IsRequired();
+
+        entity.Property(session => session.RowCount)
+            .HasColumnName("row_count")
+            .IsRequired();
+
+        entity.Property(session => session.AcceptedRowCount)
+            .HasColumnName("accepted_row_count")
+            .IsRequired();
+
+        entity.Property(session => session.WarningRowCount)
+            .HasColumnName("warning_row_count")
+            .IsRequired();
+
+        entity.Property(session => session.RejectedRowCount)
+            .HasColumnName("rejected_row_count")
+            .IsRequired();
+
+        entity.Property(session => session.DuplicateCandidateRowCount)
+            .HasColumnName("duplicate_candidate_row_count")
+            .IsRequired();
+
+        entity.Property(session => session.ExpiresAtUtc)
+            .HasColumnName("expires_at_utc")
+            .IsRequired();
+
+        entity.Property(session => session.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(session => session.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(session => session.ConfirmedAtUtc)
+            .HasColumnName("confirmed_at_utc");
+
+        entity.Property(session => session.DiscardedAtUtc)
+            .HasColumnName("discarded_at_utc");
+
+        entity.HasIndex(session => session.ActorUserProfileId)
+            .HasDatabaseName("ix_bill_csv_import_sessions_actor_user_profile_id");
+
+        entity.HasIndex(session => session.AuthSessionId)
+            .HasDatabaseName("ix_bill_csv_import_sessions_auth_session_id");
+
+        entity.HasIndex(session => session.GroupId)
+            .HasDatabaseName("ix_bill_csv_import_sessions_group_id");
+
+        entity.HasIndex(session => new { session.ActorUserProfileId, session.Status, session.ExpiresAtUtc })
+            .HasDatabaseName("ix_bill_csv_import_sessions_actor_status_expires");
+
+        entity.HasOne(session => session.AuthAccount)
+            .WithMany()
+            .HasForeignKey(session => session.AuthAccountId)
+            .HasConstraintName("fk_bill_csv_import_sessions_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(session => session.AuthSession)
+            .WithMany()
+            .HasForeignKey(session => session.AuthSessionId)
+            .HasConstraintName("fk_bill_csv_import_sessions_auth_sessions")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(session => session.ActorUserProfile)
+            .WithMany()
+            .HasForeignKey(session => session.ActorUserProfileId)
+            .HasConstraintName("fk_bill_csv_import_sessions_actor_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(session => session.Group)
+            .WithMany()
+            .HasForeignKey(session => session.GroupId)
+            .HasConstraintName("fk_bill_csv_import_sessions_user_groups")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private static void ConfigureUserNotificationPreference(EntityTypeBuilder<UserNotificationPreference> entity)

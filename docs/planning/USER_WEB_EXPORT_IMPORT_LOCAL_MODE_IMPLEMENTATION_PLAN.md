@@ -50,6 +50,16 @@ confirm imports, create bills, store CSV bytes, or authorize user-web upload
 buttons. Direct import mutation and user-web import runtime remain separate
 gated follow-ups.
 
+Implementation update on 2026-06-29: the import confirmation contract/API
+slice added `createPersonalBillCsvImportSession`,
+`createGroupBillCsvImportSession`, `getBillCsvImportSession`,
+`confirmBillCsvImportSession`, and `discardBillCsvImportSession`. These methods
+create short-lived server-side import sessions with payload digest and
+confirmation challenge, then require confirmation-time revalidation before draft
+bills are written. They do not wire user-web confirmation runtime, sync
+mutation, storage/file bytes, local backup/restore, or browser local-mode
+persistence.
+
 PR #591 intentionally did not start CSV/JSON/PDF download generation, file
 download actions, CSV import/upload/restore, local backup, sync mutations,
 storage/file-byte reads, receipt/proof/QR/statement content reads, client-side
