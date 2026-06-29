@@ -707,6 +707,7 @@ h1 {
 }
 
 .preflight-row-list,
+.sync-summary-grid,
 .status-pill-list {
   display: grid;
   gap: 10px;

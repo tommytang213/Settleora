@@ -75,13 +75,15 @@ import {
   downloadBillExport,
   labelImportExportStatus,
   loadImportExportReadout,
+  loadSyncLocalStatus,
   preflightBillCsvImport,
   type BillImportPreflightRuntimeState,
   type BillImportSessionRuntimeState,
   type BillImportPreflightScope,
   type BillExportRuntimeState,
   type ImportExportCapability,
-  type ImportExportReadoutState
+  type ImportExportReadoutState,
+  type SyncLocalStatusRuntimeState
 } from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
@@ -100,7 +102,8 @@ import type {
   SettlementBalanceProjectionResponse,
   SettlementPaymentResponse,
   SettlementPaymentProofResponse,
-  SettlementRequestResponse
+  SettlementRequestResponse,
+  SyncLocalStatusResponse
 } from "../../../packages/client-web/src/generated";
 
 const primaryNav = navItems.filter((item) => item.section === "primary");
@@ -234,6 +237,10 @@ export function App() {
   const [importSessionState, setImportSessionState] = useState<BillImportSessionRuntimeState>({
     status: "idle",
     message: "Choose a CSV file after sign-in to create a reviewed import session."
+  });
+  const [syncLocalStatus, setSyncLocalStatus] = useState<SyncLocalStatusRuntimeState>({
+    status: "auth_required",
+    message: "Sign in is required before Settleora can show sync and local status."
   });
 
   useEffect(() => {
@@ -548,6 +555,28 @@ export function App() {
       isMounted = false;
     };
   }, [activeId, reportMonth, reportSearch, session.accessToken]);
+
+  useEffect(() => {
+    if (activeId !== "import-export") {
+      return;
+    }
+
+    let isMounted = true;
+    setSyncLocalStatus({
+      status: "loading",
+      message: "Loading sync and local status from Settleora."
+    });
+
+    void loadSyncLocalStatus({ accessToken: session.accessToken }).then((nextState) => {
+      if (isMounted) {
+        setSyncLocalStatus(nextState);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeId, session.accessToken]);
 
   const updatePersonalExportState = (
     format: ExpenseBillExportFormat,
@@ -919,6 +948,7 @@ export function App() {
               importFileSize={importFileSize}
               importPreflightState={importPreflightState}
               importSessionState={importSessionState}
+              syncLocalStatus={syncLocalStatus}
               hasImportCsvText={importCsvText.length > 0}
               onImportFileChange={handleImportFileChange}
               onPreflightCsvImport={handlePreflightCsvImport}
@@ -1245,6 +1275,7 @@ function ImportExportReadoutPanel({
   importFileSize,
   importPreflightState,
   importSessionState,
+  syncLocalStatus,
   hasImportCsvText,
   onImportFileChange,
   onPreflightCsvImport,
@@ -1269,6 +1300,7 @@ function ImportExportReadoutPanel({
   importFileSize: number | null;
   importPreflightState: BillImportPreflightRuntimeState;
   importSessionState: BillImportSessionRuntimeState;
+  syncLocalStatus: SyncLocalStatusRuntimeState;
   hasImportCsvText: boolean;
   onImportFileChange: (file: File | null) => void;
   onPreflightCsvImport: () => void;
@@ -1357,6 +1389,8 @@ function ImportExportReadoutPanel({
         onDiscardImportSession={onDiscardImportSession}
       />
 
+      <SyncLocalStatusCard state={syncLocalStatus} />
+
       <section className="capability-grid" aria-label="Capability availability">
         {readout.capabilities.map((capability) => (
           <ImportExportCapabilityCard key={capability.id} capability={capability} />
@@ -1406,6 +1440,107 @@ function ImportExportReadoutPanel({
           </section>
         </aside>
       </section>
+    </section>
+  );
+}
+
+function SyncLocalStatusCard({ state }: { state: SyncLocalStatusRuntimeState }) {
+  const response = state.response;
+  const operationSummaries = response
+    ? [
+        { label: "Pending operations", summary: response.pendingOperationSummary },
+        { label: "Failed operations", summary: response.failedOperationSummary },
+        { label: "Conflicts", summary: response.conflictSummary }
+      ]
+    : [];
+  const featureStatuses = response
+    ? [
+        { label: "Server mode", feature: response.serverMode },
+        { label: "Browser local mode", feature: response.localModeSupport },
+        { label: "Backup / restore", feature: response.backupRestoreSupport },
+        { label: "Sync mutation", feature: response.syncMutationSupport }
+      ]
+    : [];
+
+  return (
+    <section className="surface-panel" aria-labelledby="sync-local-status-title">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Sync / Local status</p>
+          <h3 id="sync-local-status-title">Server-derived readout</h3>
+        </div>
+        <span className={`status-chip ${syncLocalStatusClass(state.status)}`}>
+          {labelize(state.status)}
+        </span>
+      </div>
+
+      <StateMessage
+        state={mapSyncLocalStateForMessage(state.status)}
+        message={state.message}
+        emptyTitle="No visible server watermark"
+        errorTitle="Could not load sync status"
+      />
+
+      {response ? (
+        <>
+          <ReadoutSection title="Status">
+            <StatusPill label="Mode" value={labelize(response.mode)} />
+            <StatusPill label="Session" value={labelize(response.sessionState)} />
+            <StatusPill label="Reachability" value={labelize(response.serverReachability)} />
+            <StatusPill label="Status code" value={response.stableCode} />
+            <StatusPill label="Generated" value={formatDate(response.generatedAtUtc)} />
+            <StatusPill label="Expires" value={formatDate(response.expiresAtUtc)} />
+            <StatusPill
+              label="Visible version"
+              value={response.lastAcceptedServerVersion === null ? "Not returned" : String(response.lastAcceptedServerVersion)}
+            />
+            <p className="muted-copy">{response.safeMessage}</p>
+          </ReadoutSection>
+
+          <ReadoutSection title="Operation summaries">
+            <div className="sync-summary-grid">
+              {operationSummaries.map(({ label, summary }) => (
+                <article className="notification-row sync-summary-row" key={label}>
+                  <div className="notification-row-header">
+                    <div>
+                      <strong>{label}</strong>
+                      <small>{summary.safeMessage}</small>
+                    </div>
+                    <span className={`status-chip ${syncSummaryStatusClass(summary.state, summary.count)}`}>
+                      {summary.count === null ? labelize(summary.state) : String(summary.count)}
+                    </span>
+                  </div>
+                  <StatusPill label="Code" value={summary.stableCode} />
+                </article>
+              ))}
+            </div>
+          </ReadoutSection>
+
+          <ReadoutSection title="Feature availability">
+            <div className="status-pill-list">
+              {featureStatuses.map(({ label, feature }) => (
+                <StatusPill key={label} label={label} value={`${labelize(feature.state)} - ${feature.stableCode}`} />
+              ))}
+            </div>
+            {featureStatuses.map(({ label, feature }) => (
+              <p className="muted-copy" key={`${label}:message`}>
+                {feature.safeMessage}
+              </p>
+            ))}
+          </ReadoutSection>
+
+          <ReadoutSection title="Unsupported in this web build">
+            {response.unsupportedFeatures.map((feature) => (
+              <StatusPill
+                key={feature.feature}
+                label={labelize(feature.feature)}
+                value={`${feature.stableCode}: ${feature.safeMessage}`}
+              />
+            ))}
+            <p className="muted-copy">{response.privacyBoundary}</p>
+          </ReadoutSection>
+        </>
+      ) : null}
     </section>
   );
 }
@@ -3451,6 +3586,65 @@ function importSessionStatusClass(state: BillImportSessionRuntimeState["status"]
   }
 
   return "status-warning";
+}
+
+function syncLocalStatusClass(state: SyncLocalStatusRuntimeState["status"]): string {
+  if (state === "loaded" || state === "empty") {
+    return "status-sync";
+  }
+
+  if (
+    state === "denied" ||
+    state === "session_expired" ||
+    state === "server_unavailable" ||
+    state === "stale" ||
+    state === "error"
+  ) {
+    return "status-danger";
+  }
+
+  return "status-warning";
+}
+
+function syncSummaryStatusClass(
+  state: SyncLocalStatusResponse["pendingOperationSummary"]["state"],
+  count: number | null
+): string {
+  if (state === "available" && (count ?? 0) === 0) {
+    return "status-sync";
+  }
+
+  if (state === "available" && (count ?? 0) > 0) {
+    return "status-warning";
+  }
+
+  return state === "unsupported" ? "status-danger" : "status-warning";
+}
+
+function mapSyncLocalStateForMessage(
+  state: SyncLocalStatusRuntimeState["status"]
+): BillsReadoutState["status"] {
+  switch (state) {
+    case "idle":
+      return "empty";
+    case "auth_required":
+      return "auth_required";
+    case "loading":
+      return "loading";
+    case "loaded":
+      return "loaded";
+    case "empty":
+      return "empty";
+    case "denied":
+    case "server_unavailable":
+    case "unavailable":
+    case "stale":
+      return "unavailable";
+    case "session_expired":
+      return "session_expired";
+    case "error":
+      return "error";
+  }
 }
 
 function preflightRowStatusClass(severity: BillCsvImportPreflightResponse["reviewItems"][number]["severity"]): string {

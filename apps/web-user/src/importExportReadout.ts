@@ -11,7 +11,8 @@ import {
   type BillCsvImportConfirmationResponse,
   type BillCsvImportConfirmRequest,
   type BillCsvImportPreflightResponse,
-  type BillCsvImportSessionResponse
+  type BillCsvImportSessionResponse,
+  type SyncLocalStatusResponse
 } from "../../../packages/client-web/src/generated";
 
 export type ImportExportCapabilityStatus =
@@ -83,6 +84,18 @@ export type BillImportSessionRuntimeStatus =
   | "unavailable"
   | "conflict"
   | "error";
+export type SyncLocalStatusRuntimeStatus =
+  | "idle"
+  | "auth_required"
+  | "loading"
+  | "loaded"
+  | "empty"
+  | "denied"
+  | "session_expired"
+  | "server_unavailable"
+  | "stale"
+  | "unavailable"
+  | "error";
 
 export interface BillExportFilters {
   fromDate?: string | null;
@@ -127,6 +140,10 @@ export interface BillImportSessionRuntimeClient {
   listGroups?: SettleoraApiClient["listGroups"];
 }
 
+export interface SyncLocalStatusRuntimeClient {
+  getSyncLocalStatus?: SettleoraApiClient["getSyncLocalStatus"];
+}
+
 export interface BrowserDownloadAdapter {
   saveBlob(blob: Blob, filename: string): void;
 }
@@ -154,6 +171,12 @@ export interface BillImportSessionRuntimeState {
   message: string;
   session?: BillCsvImportSessionResponse;
   confirmationResult?: BillCsvImportConfirmationResponse;
+}
+
+export interface SyncLocalStatusRuntimeState {
+  status: SyncLocalStatusRuntimeStatus;
+  message: string;
+  response?: SyncLocalStatusResponse;
 }
 
 export interface BillImportPreflightRuntimeOptions {
@@ -202,6 +225,7 @@ const operationMethods = [
   "confirmBillCsvImportSession",
   "discardBillCsvImportSession",
   "listGroups",
+  "getSyncLocalStatus",
   "importPersonalBillsCsv",
   "importGroupBillsCsv",
   "listSyncChanges",
@@ -324,13 +348,13 @@ const capabilityDefinitions: Array<{
     id: "sync-status",
     title: "Sync operation visibility/status",
     summaryWhenPresent:
-      "Sync read and operation methods are present, but this screen shows availability text only.",
+      "Dedicated sync/local status readout is present; sync operation methods stay out of this runtime surface.",
     summaryWhenMissing:
       "Safe user-web sync/local status is not available in this web client build.",
-    methods: ["listSyncChanges", "getSyncOperation", "submitSyncOperation"],
+    methods: ["getSyncLocalStatus"],
     followUps: [
-      "Needs a safe sync/local status readout before queue visibility can be shown in user web.",
-      "Sync submission remains a future reviewed mutation slice."
+      "Status uses the server-derived read-only response and does not hydrate operation history.",
+      "Sync submission, local persistence, backup/restore, and conflict resolution remain future reviewed slices."
     ]
   }
 ];
@@ -341,7 +365,7 @@ export const importExportUnsupportedSections = [
   "Import confirmation uses staged server sessions only; direct CSV import remains unavailable.",
   "Browser local backup and restore are not supported in this web slice.",
   "User-web local-mode persistence is not implemented.",
-  "Sync/local status is availability copy only; no sync queue or operation is submitted.",
+  "Sync/local status is read-only; no sync queue or operation is submitted.",
   "Report/export history is not available when the server does not expose a safe history read."
 ];
 
@@ -680,6 +704,113 @@ export async function discardBillCsvImportSessionRuntime(
   } catch (error) {
     return classifyBillImportSessionFailure(error, "Settleora could not discard the import session.");
   }
+}
+
+export async function loadSyncLocalStatus(
+  options: {
+    accessToken?: string | null;
+    baseUrl?: string;
+    client?: SyncLocalStatusRuntimeClient;
+    now?: Date;
+  } = {}
+): Promise<SyncLocalStatusRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can show sync and local status."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  if (typeof client.getSyncLocalStatus !== "function") {
+    return {
+      status: "unavailable",
+      message: "Sync and local status is not available in this web client build."
+    };
+  }
+
+  try {
+    const response = await client.getSyncLocalStatus({ accessToken });
+
+    return evaluateSyncLocalStatusResponse(response, options.now);
+  } catch (error) {
+    return classifySyncLocalStatusFailure(error);
+  }
+}
+
+export function evaluateSyncLocalStatusResponse(
+  response: SyncLocalStatusResponse,
+  now: Date = new Date()
+): SyncLocalStatusRuntimeState {
+  if (new Date(response.expiresAtUtc).getTime() <= now.getTime()) {
+    return {
+      status: "stale",
+      message: "Sync and local status expired. Reload status before using it as a display readout.",
+      response
+    };
+  }
+
+  if (response.sessionState === "session_expired") {
+    return {
+      status: "session_expired",
+      message: response.safeMessage || "Your session expired. Sign in again before reading sync status.",
+      response
+    };
+  }
+
+  if (response.sessionState === "unauthenticated" || response.sessionState === "no_session") {
+    return {
+      status: "auth_required",
+      message: response.safeMessage || "Sign in is required before Settleora can show sync and local status.",
+      response
+    };
+  }
+
+  if (response.serverReachability === "server_unavailable" || response.serverReachability === "offline") {
+    return {
+      status: "server_unavailable",
+      message: response.safeMessage || "Settleora is not reachable. This web build will not switch into local mode.",
+      response
+    };
+  }
+
+  if (!response.available) {
+    return {
+      status: "unavailable",
+      message: response.safeMessage || "Sync and local status is not available for this account.",
+      response
+    };
+  }
+
+  if (response.lastAcceptedServerVersion === null) {
+    return {
+      status: "empty",
+      message: response.safeMessage || "Settleora returned sync status with no visible resource version yet.",
+      response
+    };
+  }
+
+  if (
+    response.stableCode === "sync_status_unavailable" ||
+    response.stableCode === "sync_unavailable" ||
+    response.stableCode === "temporarily_unavailable" ||
+    response.stableCode === "policy_disabled"
+  ) {
+    return {
+      status: "unavailable",
+      message: response.safeMessage || "Sync and local status is currently unavailable.",
+      response
+    };
+  }
+
+  return {
+    status: "loaded",
+    message: response.safeMessage || "Sync and local status loaded from Settleora.",
+    response
+  };
 }
 
 export function evaluateBillImportPreflightScope(
@@ -1218,6 +1349,41 @@ function classifyBillExportFailure(error: unknown, fallback: string): BillExport
 }
 
 class MissingExportMethodError extends Error {}
+
+function classifySyncLocalStatusFailure(error: unknown): SyncLocalStatusRuntimeState {
+  if (error instanceof SettleoraApiError && error.status === 401) {
+    return {
+      status: "session_expired",
+      message: "Your session could not be verified. Sign in again before reading sync and local status."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 403) {
+    return {
+      status: "denied",
+      message: "This account cannot read sync and local status."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 404) {
+    return {
+      status: "unavailable",
+      message: "Sync and local status is not available from this Settleora server."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status >= 500) {
+    return {
+      status: "server_unavailable",
+      message: "Settleora could not return sync and local status right now."
+    };
+  }
+
+  return {
+    status: "error",
+    message: "Settleora could not load sync and local status. No local mode or sync queue was created."
+  };
+}
 
 function classifyBillImportPreflightFailure(error: unknown): BillImportPreflightRuntimeState {
   if (error instanceof MissingImportPreflightMethodError) {
