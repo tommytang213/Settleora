@@ -21,6 +21,7 @@ Use this file with:
 - [User web export readiness contract plan](USER_WEB_EXPORT_READINESS_CONTRACT_PLAN.md)
 - [User web import preflight and review plan](USER_WEB_IMPORT_PREFLIGHT_REVIEW_PLAN.md)
 - [User web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
+- [User web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
 - [Local-only and server-mode authority boundary audit](../architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md)
 - [Offline queue persistence and sync state model](../architecture/OFFLINE_QUEUE_SYNC_STATE_MODEL.md)
@@ -232,7 +233,11 @@ participate:
 Until those gates exist, user web may only show backup/restore unsupported
 states. It must not create browser backup packages, upload restore files, parse
 backup manifests, preview restore contents, write restored records, or use
-browser storage as a hidden backup.
+browser storage as a hidden backup. The dedicated
+[user web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md)
+defines the next planning gate for package format, encryption/key handling,
+file privacy, restore preview, restore confirmation, conflict/duplicate
+handling, retention, audit, and browser-safety boundaries.
 
 ## Browser Local-Mode Persistence Direction
 
