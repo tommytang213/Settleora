@@ -3820,6 +3820,85 @@ export interface Money {
 export type RoundingMode = "up" | "down" | "nearest" | "bankers";
 
 /**
+ * Stable local backup package readiness code. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupPackageReadinessCode = "backup_package_ready" | "backup_package_unsupported" | "browser_local_persistence_unsupported" | "package_generation_unsupported" | "package_download_unsupported" | "restore_preview_unsupported" | "restore_confirmation_unsupported" | "local_mode_authority_unsupported" | "policy_disabled" | "temporarily_unavailable";
+
+/**
+ * Server/local authority posture for this readiness response.
+ */
+export type LocalBackupPackageServerModePosture = "server_authoritative" | "local_mode_unsupported" | "unknown";
+
+/**
+ * Availability state for one local backup package feature family.
+ */
+export type LocalBackupPackageFeatureState = "available" | "unavailable" | "unsupported" | "policy_disabled";
+
+/**
+ * Feature families explicitly unsupported by the current local backup package readiness contract.
+ */
+export type LocalBackupPackageUnsupportedFeature = "browser_local_persistence" | "package_generation" | "package_download" | "restore_preview" | "restore_confirmation" | "local_mode_authority";
+
+/**
+ * Safe package concept metadata labels exposed without package creation or parsing.
+ */
+export type LocalBackupPackageConcept = "package_manifest" | "encrypted_file_sections" | "restore_preview";
+
+/**
+ * Safe status for one local backup package feature family.
+ */
+export interface LocalBackupPackageFeatureStatusResponse {
+  state: LocalBackupPackageFeatureState;
+  stableCode: LocalBackupPackageReadinessCode;
+  /**
+   * User-safe message without hidden records, storage details, auth tokens, file bytes, package bytes, or private data.
+   */
+  safeMessage: string;
+}
+
+/**
+ * Safe package concept metadata. It does not include package manifests, file bytes, storage references, hidden records, or restore payloads.
+ */
+export interface LocalBackupPackageConceptResponse {
+  concept: LocalBackupPackageConcept;
+  safeDescription: string;
+}
+
+/**
+ * Metadata-only local backup package readiness for the current authenticated actor. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, or hidden records.
+ */
+export interface LocalBackupPackageReadinessResponse {
+  /**
+   * False for this slice because backup package generation/download and restore behavior are not implemented.
+   */
+  available: boolean;
+  stableCode: LocalBackupPackageReadinessCode;
+  safeMessage: string;
+  serverModePosture: LocalBackupPackageServerModePosture;
+  browserLocalPersistence: LocalBackupPackageFeatureStatusResponse;
+  packageGeneration: LocalBackupPackageFeatureStatusResponse;
+  packageDownload: LocalBackupPackageFeatureStatusResponse;
+  restorePreview: LocalBackupPackageFeatureStatusResponse;
+  restoreConfirmation: LocalBackupPackageFeatureStatusResponse;
+  localModeAuthority: LocalBackupPackageFeatureStatusResponse;
+  knownPackageConcepts: LocalBackupPackageConceptResponse[];
+  unsupportedFeatures: LocalBackupPackageUnsupportedFeature[];
+  /**
+   * Safe privacy boundary summary for display and logging review.
+   */
+  privacyBoundary: string;
+  /**
+   * Safe data-egress boundary summary. This readiness response performs no package export/download/restore action.
+   */
+  dataEgressBoundary: string;
+  generatedAtUtc: string;
+  /**
+   * Freshness expiry for display; clients should reload rather than treating stale status as authority.
+   */
+  expiresAtUtc: string;
+}
+
+/**
  * Server-derived sync/local mode for the authenticated status readout.
  */
 export type SyncLocalStatusMode = "server_mode" | "local_mode_unsupported" | "unknown";

@@ -2418,6 +2418,38 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-readiness:
+    get:
+      summary: Get local backup package readiness
+      description: Returns authenticated metadata-only local backup package readiness for the current actor. This read-only response does not create package bytes, generate or download packages, parse restore uploads, create restore previews, confirm restores, create browser-local state, read storage/file bytes, expose storage internals, or mutate server/local records. Browser local persistence, package generation/download, restore preview/confirmation, and local-mode authority are explicitly unsupported until separate reviewed contracts exist.
+      operationId: getLocalBackupPackageReadiness
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe current-actor local backup package readiness metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupPackageReadinessResponse"
+        "400":
+          description: Local backup package readiness request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to read local backup package readiness.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/sync/local-status:
     get:
       summary: Get sync and browser-local status
@@ -17829,6 +17861,151 @@ components:
         - down
         - nearest
         - bankers
+    LocalBackupPackageReadinessCode:
+      type: string
+      description: Stable local backup package readiness code. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - backup_package_ready
+        - backup_package_unsupported
+        - browser_local_persistence_unsupported
+        - package_generation_unsupported
+        - package_download_unsupported
+        - restore_preview_unsupported
+        - restore_confirmation_unsupported
+        - local_mode_authority_unsupported
+        - policy_disabled
+        - temporarily_unavailable
+    LocalBackupPackageServerModePosture:
+      type: string
+      description: Server/local authority posture for this readiness response.
+      enum:
+        - server_authoritative
+        - local_mode_unsupported
+        - unknown
+    LocalBackupPackageFeatureState:
+      type: string
+      description: Availability state for one local backup package feature family.
+      enum:
+        - available
+        - unavailable
+        - unsupported
+        - policy_disabled
+    LocalBackupPackageUnsupportedFeature:
+      type: string
+      description: Feature families explicitly unsupported by the current local backup package readiness contract.
+      enum:
+        - browser_local_persistence
+        - package_generation
+        - package_download
+        - restore_preview
+        - restore_confirmation
+        - local_mode_authority
+    LocalBackupPackageConcept:
+      type: string
+      description: Safe package concept metadata labels exposed without package creation or parsing.
+      enum:
+        - package_manifest
+        - encrypted_file_sections
+        - restore_preview
+    LocalBackupPackageFeatureStatusResponse:
+      type: object
+      description: Safe status for one local backup package feature family.
+      additionalProperties: false
+      required:
+        - state
+        - stableCode
+        - safeMessage
+      properties:
+        state:
+          $ref: "#/components/schemas/LocalBackupPackageFeatureState"
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupPackageReadinessCode"
+        safeMessage:
+          type: string
+          maxLength: 240
+          description: User-safe message without hidden records, storage details, auth tokens, file bytes, package bytes, or private data.
+    LocalBackupPackageConceptResponse:
+      type: object
+      description: Safe package concept metadata. It does not include package manifests, file bytes, storage references, hidden records, or restore payloads.
+      additionalProperties: false
+      required:
+        - concept
+        - safeDescription
+      properties:
+        concept:
+          $ref: "#/components/schemas/LocalBackupPackageConcept"
+        safeDescription:
+          type: string
+          maxLength: 320
+    LocalBackupPackageReadinessResponse:
+      type: object
+      description: Metadata-only local backup package readiness for the current authenticated actor. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, or hidden records.
+      additionalProperties: false
+      required:
+        - available
+        - stableCode
+        - safeMessage
+        - serverModePosture
+        - browserLocalPersistence
+        - packageGeneration
+        - packageDownload
+        - restorePreview
+        - restoreConfirmation
+        - localModeAuthority
+        - knownPackageConcepts
+        - unsupportedFeatures
+        - privacyBoundary
+        - dataEgressBoundary
+        - generatedAtUtc
+        - expiresAtUtc
+      properties:
+        available:
+          type: boolean
+          description: False for this slice because backup package generation/download and restore behavior are not implemented.
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupPackageReadinessCode"
+        safeMessage:
+          type: string
+          maxLength: 320
+        serverModePosture:
+          $ref: "#/components/schemas/LocalBackupPackageServerModePosture"
+        browserLocalPersistence:
+          $ref: "#/components/schemas/LocalBackupPackageFeatureStatusResponse"
+        packageGeneration:
+          $ref: "#/components/schemas/LocalBackupPackageFeatureStatusResponse"
+        packageDownload:
+          $ref: "#/components/schemas/LocalBackupPackageFeatureStatusResponse"
+        restorePreview:
+          $ref: "#/components/schemas/LocalBackupPackageFeatureStatusResponse"
+        restoreConfirmation:
+          $ref: "#/components/schemas/LocalBackupPackageFeatureStatusResponse"
+        localModeAuthority:
+          $ref: "#/components/schemas/LocalBackupPackageFeatureStatusResponse"
+        knownPackageConcepts:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageConceptResponse"
+        unsupportedFeatures:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageUnsupportedFeature"
+        privacyBoundary:
+          type: string
+          maxLength: 600
+          description: Safe privacy boundary summary for display and logging review.
+        dataEgressBoundary:
+          type: string
+          maxLength: 480
+          description: Safe data-egress boundary summary. This readiness response performs no package export/download/restore action.
+        generatedAtUtc:
+          type: string
+          format: date-time
+        expiresAtUtc:
+          type: string
+          format: date-time
+          description: Freshness expiry for display; clients should reload rather than treating stale status as authority.
     SyncLocalStatusMode:
       type: string
       description: Server-derived sync/local mode for the authenticated status readout.

@@ -62,6 +62,12 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         {
             await AssertUnauthenticatedProblemAsync(statusResponse);
         }
+
+        using (var backupReadinessRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/local-backup/package-readiness"))
+        using (var backupReadinessResponse = await client.SendAsync(backupReadinessRequest))
+        {
+            await AssertUnauthenticatedProblemAsync(backupReadinessResponse);
+        }
     }
 
     [Fact]
@@ -886,10 +892,158 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
     }
 
     [Fact]
+    public async Task LocalBackupPackageReadinessReturnsMetadataOnlyUnsupportedStatesWithoutSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Backup Readiness Actor");
+        var otherSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Backup Readiness Hidden Actor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Backup Readiness Visible Merchant",
+            InitialTimestamp,
+            includeSensitiveRows: true);
+        await SeedBillAsync(
+            testFactory,
+            otherSession.UserProfileId,
+            groupId: null,
+            [otherSession.UserProfileId],
+            "Backup Readiness Hidden Merchant",
+            InitialTimestamp.AddMinutes(1),
+            includeSensitiveRows: true);
+        var syncOperationCountBeforeReadiness = await CountSyncOperationsAsync(testFactory);
+        var syncResourceVersionCountBeforeReadiness = await CountSyncResourceVersionsAsync(testFactory);
+        var notificationCountBeforeReadiness = await CountInAppNotificationsAsync(testFactory);
+        var archivedAtBeforeReadiness = await ReadArchivedAtAsync(testFactory, billId);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(6));
+        using var request = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/local-backup/package-readiness",
+            actorSession.RawSessionToken);
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("Backup Readiness Visible Merchant", content);
+        Assert.DoesNotContain("Backup Readiness Hidden Merchant", content);
+        Assert.DoesNotContain("Seeded Sync Item", content);
+        Assert.DoesNotContain("Sensitive sync item note", content);
+        Assert.DoesNotContain("payment label secret", content);
+        Assert.DoesNotContain("storage/object/key", content);
+        Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        Assert.DoesNotContain(billId.ToString("D"), content);
+        Assert.DoesNotContain("packageBytes", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storageObjectKey", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("signedUrl", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("directStorageUrl", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("filesystemPath", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("localDevicePath", content, StringComparison.OrdinalIgnoreCase);
+
+        using var payload = JsonDocument.Parse(content);
+        var root = payload.RootElement;
+        Assert.False(root.GetProperty("available").GetBoolean());
+        Assert.Equal("backup_package_unsupported", root.GetProperty("stableCode").GetString());
+        Assert.Equal("server_authoritative", root.GetProperty("serverModePosture").GetString());
+        Assert.Equal(ArchiveTimestamp.AddMinutes(6), root.GetProperty("generatedAtUtc").GetDateTimeOffset());
+        Assert.Equal(ArchiveTimestamp.AddMinutes(11), root.GetProperty("expiresAtUtc").GetDateTimeOffset());
+        AssertFeatureStatus(root.GetProperty("browserLocalPersistence"), "unsupported", "browser_local_persistence_unsupported");
+        AssertFeatureStatus(root.GetProperty("packageGeneration"), "unsupported", "package_generation_unsupported");
+        AssertFeatureStatus(root.GetProperty("packageDownload"), "unsupported", "package_download_unsupported");
+        AssertFeatureStatus(root.GetProperty("restorePreview"), "unsupported", "restore_preview_unsupported");
+        AssertFeatureStatus(root.GetProperty("restoreConfirmation"), "unsupported", "restore_confirmation_unsupported");
+        AssertFeatureStatus(root.GetProperty("localModeAuthority"), "unsupported", "local_mode_authority_unsupported");
+        AssertUnsupportedFeatureValues(
+            root.GetProperty("unsupportedFeatures"),
+            "browser_local_persistence",
+            "package_generation",
+            "package_download",
+            "restore_preview",
+            "restore_confirmation",
+            "local_mode_authority");
+        Assert.Contains("metadata only", root.GetProperty("privacyBoundary").GetString(), StringComparison.Ordinal);
+        Assert.Contains("No backup package is created", root.GetProperty("dataEgressBoundary").GetString(), StringComparison.Ordinal);
+        Assert.Equal(3, root.GetProperty("knownPackageConcepts").GetArrayLength());
+        Assert.False(root.TryGetProperty("package", out _));
+        Assert.False(root.TryGetProperty("downloadUrl", out _));
+        Assert.False(root.TryGetProperty("restorePreviewRows", out _));
+
+        Assert.Equal(syncOperationCountBeforeReadiness, await CountSyncOperationsAsync(testFactory));
+        Assert.Equal(syncResourceVersionCountBeforeReadiness, await CountSyncResourceVersionsAsync(testFactory));
+        Assert.Equal(notificationCountBeforeReadiness, await CountInAppNotificationsAsync(testFactory));
+        Assert.Equal(archivedAtBeforeReadiness, await ReadArchivedAtAsync(testFactory, billId));
+    }
+
+    [Fact]
+    public async Task LocalBackupPackageReadinessRejectsQueryAndBodyBeforeReadsOrSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Backup Readiness Guard Actor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Backup Readiness Guard Merchant",
+            InitialTimestamp,
+            includeSensitiveRows: true);
+        var syncOperationCountBeforeReadiness = await CountSyncOperationsAsync(testFactory);
+        var syncResourceVersionCountBeforeReadiness = await CountSyncResourceVersionsAsync(testFactory);
+        var notificationCountBeforeReadiness = await CountInAppNotificationsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        using (var queryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/local-backup/package-readiness?includePackageBytes=true&storageObjectKey=visible-storage-key",
+            actorSession.RawSessionToken))
+        using (var queryResponse = await client.SendAsync(queryRequest))
+        {
+            var content = await queryResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, queryResponse.StatusCode);
+            Assert.Contains("Unsupported query fields are not allowed.", content);
+            Assert.DoesNotContain("includePackageBytes", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("visible-storage-key", content);
+            Assert.DoesNotContain("Backup Readiness Guard Merchant", content);
+            Assert.DoesNotContain(billId.ToString("D"), content);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        }
+
+        using (var bodyRequest = CreateJsonBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/local-backup/package-readiness",
+            actorSession.RawSessionToken,
+            """{"downloadUrl":"https://storage.example.invalid/signed","localDevicePath":"/tmp/backup.settleora"}"""))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await bodyResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, bodyResponse.StatusCode);
+            Assert.Contains("Local backup package readiness requests do not accept a body.", content);
+            Assert.DoesNotContain("downloadUrl", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("storage.example.invalid", content);
+            Assert.DoesNotContain("/tmp/backup.settleora", content);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        }
+
+        Assert.Equal(syncOperationCountBeforeReadiness, await CountSyncOperationsAsync(testFactory));
+        Assert.Equal(syncResourceVersionCountBeforeReadiness, await CountSyncResourceVersionsAsync(testFactory));
+        Assert.Equal(notificationCountBeforeReadiness, await CountInAppNotificationsAsync(testFactory));
+        Assert.Null(await ReadArchivedAtAsync(testFactory, billId));
+    }
+
+    [Fact]
     public void OpenApiAndGeneratedClientsExposeSyncOperations()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var localStatusBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/local-status:");
+        var backupReadinessBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/package-readiness:");
+        var backupReadinessSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupPackageReadinessResponse:");
+        var backupReadinessStableCodeSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupPackageReadinessCode:");
         var operationsBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/operations:");
         var operationReadBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/operations/{syncOperationId}:");
         var changesBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/changes:");
@@ -911,6 +1065,17 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("local_mode_unsupported", localStatusStableCodeSchema);
         Assert.Contains("backup_restore_unsupported", localStatusStableCodeSchema);
         Assert.Contains("sync_mutation_unsupported", localStatusStableCodeSchema);
+        Assert.Contains("operationId: getLocalBackupPackageReadiness", backupReadinessBlock);
+        Assert.Contains("LocalBackupPackageReadinessResponse", backupReadinessBlock);
+        Assert.Contains("packageGeneration", backupReadinessSchema);
+        Assert.Contains("packageDownload", backupReadinessSchema);
+        Assert.Contains("restorePreview", backupReadinessSchema);
+        Assert.Contains("restoreConfirmation", backupReadinessSchema);
+        Assert.Contains("localModeAuthority", backupReadinessSchema);
+        Assert.Contains("unsupportedFeatures", backupReadinessSchema);
+        Assert.Contains("backup_package_unsupported", backupReadinessStableCodeSchema);
+        Assert.Contains("package_generation_unsupported", backupReadinessStableCodeSchema);
+        Assert.Contains("restore_confirmation_unsupported", backupReadinessStableCodeSchema);
         Assert.Contains("operationId: submitSyncOperation", operationsBlock);
         Assert.Contains("operationId: getSyncOperation", operationReadBlock);
         Assert.Contains("operationId: listSyncChanges", changesBlock);
@@ -934,14 +1099,18 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("getSyncOperation", webClient);
         Assert.Contains("listSyncChanges", webClient);
         Assert.Contains("getSyncLocalStatus", webClient);
+        Assert.Contains("getLocalBackupPackageReadiness", webClient);
         Assert.Contains("submitSyncOperation", dartClient);
         Assert.Contains("getSyncOperation", dartClient);
         Assert.Contains("listSyncChanges", dartClient);
         Assert.Contains("getSyncLocalStatus", dartClient);
+        Assert.Contains("getLocalBackupPackageReadiness", dartClient);
         Assert.Contains("SyncOperationRequest", webModels);
         Assert.Contains("SyncLocalStatusResponse", webModels);
+        Assert.Contains("LocalBackupPackageReadinessResponse", webModels);
         Assert.Contains("class SyncOperationRequest", dartModels);
         Assert.Contains("class SyncLocalStatusResponse", dartModels);
+        Assert.Contains("class LocalBackupPackageReadinessResponse", dartModels);
     }
 
     [Fact]
@@ -1494,6 +1663,14 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
             Assert.NotEqual(JsonValueKind.Null, feature.GetProperty("stableCode").ValueKind);
             Assert.NotEqual(JsonValueKind.Null, feature.GetProperty("safeMessage").ValueKind);
         }
+    }
+
+    private static void AssertUnsupportedFeatureValues(JsonElement features, params string[] expectedFeatures)
+    {
+        var actualFeatures = features.EnumerateArray()
+            .Select(feature => feature.GetString())
+            .ToArray();
+        Assert.Equal(expectedFeatures, actualFeatures);
     }
 
     private static HttpRequestMessage CreateBearerRequest(
