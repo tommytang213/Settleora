@@ -699,6 +699,29 @@ h1 {
   margin-top: 16px;
 }
 
+.field-label {
+  display: block;
+  margin: 16px 0 7px;
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.filter-input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: rgba(5, 10, 19, 0.44);
+  color: var(--color-ink);
+  padding: 10px 12px;
+}
+
+.filter-input:disabled {
+  color: var(--color-subtle);
+  opacity: 0.78;
+}
+
 .export-runtime-row {
   align-content: start;
 }

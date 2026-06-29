@@ -70,6 +70,14 @@ export async function loadGroupsReadout(options: GroupsReadoutOptions): Promise<
 
   const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
 
+  if (typeof client.listGroups !== "function") {
+    return {
+      status: "unavailable",
+      message: "Group selection is not available in this web client build.",
+      groups: []
+    };
+  }
+
   try {
     const response: GroupListResponse = await client.listGroups({ accessToken });
 
