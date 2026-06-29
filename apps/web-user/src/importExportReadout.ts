@@ -7,7 +7,8 @@ import {
   type ExpenseBillExportReadinessResponse,
   type ExpenseBillExportResponse,
   type ExpenseBillReconciliationStatus,
-  type ExpenseBillStatus
+  type ExpenseBillStatus,
+  type BillCsvImportPreflightResponse
 } from "../../../packages/client-web/src/generated";
 
 export type ImportExportCapabilityStatus =
@@ -43,6 +44,7 @@ export interface ImportExportReadoutOptions {
 }
 
 export type BillExportScope = "personal" | "group";
+export type BillImportPreflightScope = "personal" | "group";
 export type BillExportRuntimeStatus =
   | "idle"
   | "auth_required"
@@ -51,6 +53,16 @@ export type BillExportRuntimeStatus =
   | "blocked"
   | "downloading"
   | "downloaded"
+  | "session_expired"
+  | "unavailable"
+  | "error";
+
+export type BillImportPreflightRuntimeStatus =
+  | "idle"
+  | "auth_required"
+  | "checking"
+  | "ready"
+  | "needs_correction"
   | "session_expired"
   | "unavailable"
   | "error";
@@ -83,6 +95,12 @@ export interface BillExportRuntimeClient {
   exportGroupBillsJson?: SettleoraApiClient["exportGroupBillsJson"];
 }
 
+export interface BillImportPreflightRuntimeClient {
+  preflightPersonalBillsCsvImport?: SettleoraApiClient["preflightPersonalBillsCsvImport"];
+  preflightGroupBillsCsvImport?: SettleoraApiClient["preflightGroupBillsCsvImport"];
+  listGroups?: SettleoraApiClient["listGroups"];
+}
+
 export interface BrowserDownloadAdapter {
   saveBlob(blob: Blob, filename: string): void;
 }
@@ -99,6 +117,21 @@ export interface BillExportRuntimeOptions {
   downloadAdapter?: BrowserDownloadAdapter;
 }
 
+export interface BillImportPreflightRuntimeState {
+  status: BillImportPreflightRuntimeStatus;
+  message: string;
+  response?: BillCsvImportPreflightResponse;
+}
+
+export interface BillImportPreflightRuntimeOptions {
+  accessToken?: string | null;
+  scope: BillImportPreflightScope;
+  groupId?: string | null;
+  csvText?: string | null;
+  baseUrl?: string;
+  client?: BillImportPreflightRuntimeClient;
+}
+
 export const defaultBillExportFilters: BillExportFilters = {
   archiveState: "all",
   limit: 100
@@ -111,6 +144,9 @@ const operationMethods = [
   "getGroupBillExportReadiness",
   "exportGroupBillsCsv",
   "exportGroupBillsJson",
+  "preflightPersonalBillsCsvImport",
+  "preflightGroupBillsCsvImport",
+  "listGroups",
   "importPersonalBillsCsv",
   "importGroupBillsCsv",
   "listSyncChanges",
@@ -119,6 +155,14 @@ const operationMethods = [
 ] as const;
 
 type OperationMethod = (typeof operationMethods)[number];
+
+const intentionallyNotCalledMethods: OperationMethod[] = [
+  "importPersonalBillsCsv",
+  "importGroupBillsCsv",
+  "listSyncChanges",
+  "submitSyncOperation",
+  "getSyncOperation"
+];
 
 const capabilityDefinitions: Array<{
   id: string;
@@ -158,26 +202,26 @@ const capabilityDefinitions: Array<{
     id: "personal-bill-import",
     title: "Personal bill CSV import",
     summaryWhenPresent:
-      "A CSV import method is present, but import is a mutation path and remains unavailable from this readout.",
+      "A non-mutating CSV preflight method is present for personal bill review; final import remains unavailable.",
     summaryWhenMissing:
       "Personal bill CSV import is not available in this web client build.",
-    methods: ["importPersonalBillsCsv"],
+    methods: ["preflightPersonalBillsCsvImport", "importPersonalBillsCsv"],
     followUps: [
-      "Needs import preflight, session, and review readouts before any upload or import acceptance flow.",
-      "Future import runtime must keep validation, money truth, conflict handling, and audit server-owned."
+      "Preflight sends CSV text to Settleora for review metadata only and does not call the direct import mutation.",
+      "Future confirmation must keep validation, money truth, conflict handling, and audit server-owned."
     ]
   },
   {
     id: "group-bill-import",
     title: "Group bill CSV import",
     summaryWhenPresent:
-      "A group CSV import method is present, but no upload, review, or group mutation is started here.",
+      "A non-mutating group CSV preflight method is present and uses server-returned group selection.",
     summaryWhenMissing:
       "Group bill CSV import is not available in this web client build.",
-    methods: ["importGroupBillsCsv"],
+    methods: ["preflightGroupBillsCsvImport", "listGroups", "importGroupBillsCsv"],
     followUps: [
-      "Needs group-scoped import preflight, session, and row-problem readouts before runtime controls.",
-      "Future group import must make group authorization and conflict handling explicit before acceptance."
+      "Group preflight fails closed unless the selected group is still present in the latest server-returned group rows.",
+      "Future group import confirmation must make group authorization and conflict handling explicit before acceptance."
     ]
   },
   {
@@ -224,7 +268,7 @@ const capabilityDefinitions: Array<{
 export const importExportUnsupportedSections = [
   "Personal CSV/JSON export is available only after sign-in and a positive server readiness check.",
   "Group CSV/JSON export needs a safe group selector on this route before it can start.",
-  "Import preflight, session, and review readouts are not available yet.",
+  "Import preflight is review-only in this slice; final import confirmation remains unavailable.",
   "Browser local backup and restore are not supported in this web slice.",
   "User-web local-mode persistence is not implemented.",
   "Sync/local status is availability copy only; no sync queue or operation is submitted.",
@@ -247,7 +291,7 @@ export function loadImportExportReadout(
     ),
     methodsFound,
     missingMethods,
-    intentionallyNotCalled: [...operationMethods],
+    intentionallyNotCalled: intentionallyNotCalledMethods,
     unsupportedSections: importExportUnsupportedSections
   };
 }
@@ -376,6 +420,85 @@ export async function downloadBillExport(
   } catch (error) {
     return classifyBillExportFailure(error, "Settleora could not complete the export. No fallback file was created.");
   }
+}
+
+export async function preflightBillCsvImport(
+  options: BillImportPreflightRuntimeOptions
+): Promise<BillImportPreflightRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can read or review a CSV import."
+    };
+  }
+
+  const csvText = options.csvText ?? "";
+  if (csvText.trim().length === 0) {
+    return {
+      status: "unavailable",
+      message: "Choose a non-empty CSV file before requesting import review."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    const response =
+      options.scope === "personal"
+        ? await callPersonalImportPreflight(client, accessToken, csvText)
+        : await callGroupImportPreflight(client, accessToken, options.groupId, csvText);
+    const scopeGuard = evaluateBillImportPreflightScope(response, options.scope, options.groupId);
+
+    if (!scopeGuard.allowed) {
+      return {
+        status: "unavailable",
+        message: scopeGuard.message,
+        response
+      };
+    }
+
+    return {
+      status: response.available ? "ready" : "needs_correction",
+      message: response.safeMessage || response.readiness,
+      response
+    };
+  } catch (error) {
+    return classifyBillImportPreflightFailure(error);
+  }
+}
+
+export function evaluateBillImportPreflightScope(
+  response: BillCsvImportPreflightResponse,
+  scope: BillImportPreflightScope,
+  groupId: string | null | undefined
+): { allowed: boolean; message: string } {
+  if (response.scope !== scope) {
+    return {
+      allowed: false,
+      message: "Settleora returned import review metadata for a different scope."
+    };
+  }
+
+  if (scope === "personal" && response.groupId !== null) {
+    return {
+      allowed: false,
+      message: "Settleora returned group metadata for a personal import review."
+    };
+  }
+
+  if (scope === "group" && response.groupId !== groupId?.trim()) {
+    return {
+      allowed: false,
+      message: "Settleora returned import review metadata for a different group. Select the group again."
+    };
+  }
+
+  return {
+    allowed: true,
+    message: response.safeMessage
+  };
 }
 
 function evaluateBillExportScope(
@@ -626,6 +749,46 @@ async function callJsonExport(
   return client.exportPersonalBillsJson({ accessToken }, filters);
 }
 
+async function callPersonalImportPreflight(
+  client: BillImportPreflightRuntimeClient,
+  accessToken: string,
+  csvText: string
+): Promise<BillCsvImportPreflightResponse> {
+  if (typeof client.preflightPersonalBillsCsvImport !== "function") {
+    throw new MissingImportPreflightMethodError("Personal CSV import review is not available in this web client build.");
+  }
+
+  return client.preflightPersonalBillsCsvImport(csvText, { accessToken });
+}
+
+async function callGroupImportPreflight(
+  client: BillImportPreflightRuntimeClient,
+  accessToken: string,
+  groupId: string | null | undefined,
+  csvText: string
+): Promise<BillCsvImportPreflightResponse> {
+  const normalizedGroupId = groupId?.trim();
+
+  if (!normalizedGroupId) {
+    throw new MissingImportPreflightMethodError("Select a server-returned group before requesting group import review.");
+  }
+
+  if (typeof client.listGroups !== "function") {
+    throw new MissingImportPreflightMethodError("Group selection is not available in this web client build.");
+  }
+
+  const groups = await client.listGroups({ accessToken });
+  if (!groups.groups.some((group) => group.id === normalizedGroupId)) {
+    throw new MissingImportPreflightMethodError("The selected group is no longer available. Refresh groups and select again.");
+  }
+
+  if (typeof client.preflightGroupBillsCsvImport !== "function") {
+    throw new MissingImportPreflightMethodError("Group CSV import review is not available in this web client build.");
+  }
+
+  return client.preflightGroupBillsCsvImport(normalizedGroupId, csvText, { accessToken });
+}
+
 function createJsonExportBlob(exportResponse: ExpenseBillExportResponse): Blob {
   return new Blob([JSON.stringify(exportResponse, null, 2)], {
     type: "application/json"
@@ -668,6 +831,43 @@ function classifyBillExportFailure(error: unknown, fallback: string): BillExport
 }
 
 class MissingExportMethodError extends Error {}
+
+function classifyBillImportPreflightFailure(error: unknown): BillImportPreflightRuntimeState {
+  if (error instanceof MissingImportPreflightMethodError) {
+    return {
+      status: "unavailable",
+      message: error.message
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 401) {
+    return {
+      status: "session_expired",
+      message: "Your session could not be verified. Sign in again before reviewing a CSV import."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 403) {
+    return {
+      status: "unavailable",
+      message: "This account cannot review CSV import for the requested bill scope."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 404) {
+    return {
+      status: "unavailable",
+      message: "The requested import scope is not available from this Settleora server."
+    };
+  }
+
+  return {
+    status: "error",
+    message: "Settleora could not review the CSV import. No import was confirmed."
+  };
+}
+
+class MissingImportPreflightMethodError extends Error {}
 
 const browserDownloadAdapter: BrowserDownloadAdapter = {
   saveBlob(blob, filename) {

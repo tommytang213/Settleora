@@ -72,12 +72,16 @@ import {
   downloadBillExport,
   labelImportExportStatus,
   loadImportExportReadout,
+  preflightBillCsvImport,
+  type BillImportPreflightRuntimeState,
+  type BillImportPreflightScope,
   type BillExportRuntimeState,
   type ImportExportCapability,
   type ImportExportReadoutState
 } from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
+  BillCsvImportPreflightResponse,
   ExpenseBillExportFormat,
   ExpenseBillReconciliationStatus,
   ExpenseBillStatus,
@@ -212,6 +216,14 @@ export function App() {
       status: "idle",
       message: "Select a server-returned group before checking JSON readiness."
     }
+  });
+  const [importScope, setImportScope] = useState<BillImportPreflightScope>("personal");
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importFileSize, setImportFileSize] = useState<number | null>(null);
+  const [importCsvText, setImportCsvText] = useState("");
+  const [importPreflightState, setImportPreflightState] = useState<BillImportPreflightRuntimeState>({
+    status: "idle",
+    message: "Choose a CSV file after sign-in to start a non-mutating import review."
   });
 
   useEffect(() => {
@@ -617,6 +629,61 @@ export function App() {
     );
   };
 
+  const handleImportFileChange = async (file: File | null) => {
+    setImportPreflightState({
+      status: "idle",
+      message: "Choose a CSV file after sign-in to start a non-mutating import review."
+    });
+    setImportCsvText("");
+    setImportFileName(null);
+    setImportFileSize(null);
+
+    if (!file) {
+      return;
+    }
+
+    if (session.status !== "authenticated" || !session.accessToken) {
+      setImportPreflightState({
+        status: "auth_required",
+        message: "Sign in is required before Settleora can read a CSV file for import review."
+      });
+      return;
+    }
+
+    setImportFileName(file.name.split(/[\\/]/).pop() ?? "Selected CSV");
+    setImportFileSize(file.size);
+    setImportPreflightState({
+      status: "idle",
+      message: "CSV file is selected. Raw contents are not shown."
+    });
+
+    try {
+      setImportCsvText(await file.text());
+    } catch {
+      setImportPreflightState({
+        status: "error",
+        message: "The browser could not read this CSV file. No preflight request was sent."
+      });
+    }
+  };
+
+  const handlePreflightCsvImport = async () => {
+    setImportPreflightState({
+      status: "checking",
+      message: "Sending CSV text to Settleora for non-mutating import review."
+    });
+
+    const nextState = await preflightBillCsvImport({
+      accessToken: session.accessToken,
+      scope: importScope,
+      groupId: selectedGroupId,
+      csvText: importCsvText
+    });
+
+    setImportPreflightState(nextState);
+    setImportCsvText("");
+  };
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -773,6 +840,14 @@ export function App() {
               onDownloadPersonalExport={handleDownloadPersonalExport}
               onCheckGroupExportReadiness={handleCheckGroupExportReadiness}
               onDownloadGroupExport={handleDownloadGroupExport}
+              importScope={importScope}
+              onImportScopeChange={setImportScope}
+              importFileName={importFileName}
+              importFileSize={importFileSize}
+              importPreflightState={importPreflightState}
+              hasImportCsvText={importCsvText.length > 0}
+              onImportFileChange={handleImportFileChange}
+              onPreflightCsvImport={handlePreflightCsvImport}
             />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
@@ -1086,7 +1161,15 @@ function ImportExportReadoutPanel({
   onCheckPersonalExportReadiness,
   onDownloadPersonalExport,
   onCheckGroupExportReadiness,
-  onDownloadGroupExport
+  onDownloadGroupExport,
+  importScope,
+  onImportScopeChange,
+  importFileName,
+  importFileSize,
+  importPreflightState,
+  hasImportCsvText,
+  onImportFileChange,
+  onPreflightCsvImport
 }: {
   readout: ImportExportReadoutState;
   session: SessionBoundaryState;
@@ -1099,6 +1182,14 @@ function ImportExportReadoutPanel({
   onDownloadPersonalExport: (format: ExpenseBillExportFormat) => void;
   onCheckGroupExportReadiness: (format: ExpenseBillExportFormat) => void;
   onDownloadGroupExport: (format: ExpenseBillExportFormat) => void;
+  importScope: BillImportPreflightScope;
+  onImportScopeChange: (scope: BillImportPreflightScope) => void;
+  importFileName: string | null;
+  importFileSize: number | null;
+  importPreflightState: BillImportPreflightRuntimeState;
+  hasImportCsvText: boolean;
+  onImportFileChange: (file: File | null) => void;
+  onPreflightCsvImport: () => void;
 }) {
   const unavailableCount = readout.capabilities.filter(
     (capability) => capability.status === "not_available_yet" || capability.status === "needs_readiness_endpoint"
@@ -1161,6 +1252,21 @@ function ImportExportReadoutPanel({
           onDownload={onDownloadGroupExport}
         />
       </section>
+
+      <ImportPreflightRuntimeCard
+        session={session}
+        groupsReadout={groupsReadout}
+        selectedGroupId={selectedGroupId}
+        onSelectGroup={onSelectGroup}
+        scope={importScope}
+        onScopeChange={onImportScopeChange}
+        fileName={importFileName}
+        fileSize={importFileSize}
+        state={importPreflightState}
+        hasCsvText={hasImportCsvText}
+        onFileChange={onImportFileChange}
+        onPreflight={onPreflightCsvImport}
+      />
 
       <section className="capability-grid" aria-label="Capability availability">
         {readout.capabilities.map((capability) => (
@@ -1298,6 +1404,220 @@ function GroupBillExportRuntimeCard({
       </div>
     </section>
   );
+}
+
+function ImportPreflightRuntimeCard({
+  session,
+  groupsReadout,
+  selectedGroupId,
+  onSelectGroup,
+  scope,
+  onScopeChange,
+  fileName,
+  fileSize,
+  state,
+  hasCsvText,
+  onFileChange,
+  onPreflight
+}: {
+  session: SessionBoundaryState;
+  groupsReadout: GroupsReadoutState;
+  selectedGroupId: string | null;
+  onSelectGroup: (groupId: string | null) => void;
+  scope: BillImportPreflightScope;
+  onScopeChange: (scope: BillImportPreflightScope) => void;
+  fileName: string | null;
+  fileSize: number | null;
+  state: BillImportPreflightRuntimeState;
+  hasCsvText: boolean;
+  onFileChange: (file: File | null) => void;
+  onPreflight: () => void;
+}) {
+  const isAuthenticated = session.status === "authenticated" && Boolean(session.accessToken);
+  const selectedGroup = groupsReadout.groups.find((group) => group.id === selectedGroupId);
+  const groupReady = groupsReadout.status === "loaded" && Boolean(selectedGroup);
+  const canUseScope = scope === "personal" || groupReady;
+  const isBusy = state.status === "checking";
+  const canPreflight = isAuthenticated && canUseScope && hasCsvText && !isBusy;
+
+  return (
+    <section className="surface-panel" aria-labelledby="import-preflight-title">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Import review</p>
+          <h3 id="import-preflight-title">CSV import preflight</h3>
+        </div>
+        <span className={`status-chip ${importPreflightStatusClass(state.status)}`}>
+          {labelize(state.status)}
+        </span>
+      </div>
+
+      <p className="muted-copy">
+        Preflight reviews CSV text with Settleora and returns safe row metadata only. Final import confirmation is not available in this slice.
+      </p>
+
+      <div className="import-preflight-grid">
+        <label className="filter-field">
+          <span>Import scope</span>
+          <select
+            value={scope}
+            disabled={!isAuthenticated || isBusy}
+            onChange={(event) => onScopeChange(event.target.value as BillImportPreflightScope)}
+          >
+            <option value="personal">Personal bills</option>
+            <option value="group">Group bills</option>
+          </select>
+        </label>
+
+        {scope === "group" ? (
+          <label className="filter-field">
+            <span>Server group</span>
+            <select
+              value={selectedGroup?.id ?? ""}
+              disabled={!isAuthenticated || groupsReadout.status !== "loaded" || groupsReadout.groups.length === 0 || isBusy}
+              onChange={(event) => onSelectGroup(event.target.value || null)}
+            >
+              {groupsReadout.groups.length === 0 ? (
+                <option value="">No server-returned groups</option>
+              ) : (
+                groupsReadout.groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+        ) : null}
+
+        <label className="filter-field">
+          <span>CSV file</span>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            disabled={!isAuthenticated || isBusy}
+            onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+          />
+        </label>
+      </div>
+
+      {scope === "group" ? <p className="muted-copy">{groupsReadout.message}</p> : null}
+
+      <div className="action-row">
+        <button className="primary-button" type="button" disabled={!canPreflight} onClick={onPreflight}>
+          Review CSV import
+        </button>
+        <button className="secondary-button" type="button" disabled>
+          Import confirmation unavailable
+        </button>
+      </div>
+
+      <ReadoutSection title="Selected file">
+        <StatusPill label="Name" value={fileName ?? "No CSV selected"} />
+        <StatusPill label="Size" value={fileSize === null ? "Not read" : `${fileSize} bytes`} />
+        <StatusPill label="Raw CSV display" value="Hidden by default" />
+      </ReadoutSection>
+
+      <StateMessage
+        state={mapImportPreflightStateForMessage(state.status)}
+        message={state.message}
+        emptyTitle="No preflight result yet"
+        errorTitle="Could not review import"
+      />
+
+      {state.response ? <ImportPreflightResponseReadout response={state.response} /> : null}
+    </section>
+  );
+}
+
+function ImportPreflightResponseReadout({ response }: { response: BillCsvImportPreflightResponse }) {
+  return (
+    <>
+      <ReadoutSection title="Review summary">
+        <StatusPill label="Scope" value={response.scope} />
+        <StatusPill label="Group" value={response.groupId ?? "Personal"} />
+        <StatusPill label="Status" value={response.statusCode} />
+        <StatusPill label="Rows" value={String(response.rowCount)} />
+        <StatusPill label="Accepted" value={String(response.acceptedRowCount)} />
+        <StatusPill label="Warnings" value={String(response.warningRowCount)} />
+        <StatusPill label="Rejected" value={String(response.rejectedRowCount)} />
+      </ReadoutSection>
+
+      <ReadoutSection title="Fields and defaults">
+        {renderFieldPills("Accepted", response.acceptedFields)}
+        {renderFieldPills("Defaulted", response.defaultedFields)}
+        {renderFieldPills("Rejected", response.rejectedFields)}
+      </ReadoutSection>
+
+      <ReadoutSection title="Row review">
+        <div className="preflight-row-list">
+          {response.reviewItems.length === 0 ? (
+            <p className="muted-copy">No row-level review items were returned.</p>
+          ) : (
+            response.reviewItems.slice(0, 24).map((item) => (
+              <article className="notification-row preflight-row" key={`${item.rowNumber}:${item.state}:${item.codes.join(",")}`}>
+                <div className="notification-row-header">
+                  <div>
+                    <strong>Row {item.rowNumber}</strong>
+                    <small>{item.safeMessage}</small>
+                  </div>
+                  <span className={`status-chip ${preflightRowStatusClass(item.severity)}`}>
+                    {labelize(item.state)}
+                  </span>
+                </div>
+                <div className="status-pill-list">
+                  {item.codes.map((code) => (
+                    <StatusPill key={code} label="Code" value={code} />
+                  ))}
+                  {item.fields.map((field) => (
+                    <StatusPill key={field} label="Field" value={field} />
+                  ))}
+                </div>
+                {item.normalizedCandidate ? (
+                  <dl className="readout-list detail-readouts">
+                    <div>
+                      <dt>Date</dt>
+                      <dd>{item.normalizedCandidate.billDate}</dd>
+                    </div>
+                    <div>
+                      <dt>Amount</dt>
+                      <dd>{item.normalizedCandidate.itemAmount} {item.normalizedCandidate.currency}</dd>
+                    </div>
+                    <div>
+                      <dt>Split</dt>
+                      <dd>{item.normalizedCandidate.splitMethod}</dd>
+                    </div>
+                    <div>
+                      <dt>Basis</dt>
+                      <dd>{item.normalizedCandidate.splitBasisValue ?? "Not set"}</dd>
+                    </div>
+                  </dl>
+                ) : null}
+              </article>
+            ))
+          )}
+        </div>
+      </ReadoutSection>
+
+      <ReadoutSection title="Audit and confirmation preview">
+        <StatusPill label="Audit action" value={response.auditPreview.action} />
+        <StatusPill label="Audit scope" value={response.auditPreview.scope} />
+        <p className="muted-copy">{response.auditPreview.safeMessage}</p>
+        <StatusPill label="Review label" value={response.confirmation.reviewLabel} />
+        <StatusPill label="Future confirm label" value={response.confirmation.confirmLabel} />
+        <p className="muted-copy">{response.confirmation.safeMessage}</p>
+        <p className="muted-copy">{response.readiness}</p>
+      </ReadoutSection>
+    </>
+  );
+}
+
+function renderFieldPills(label: string, fields: string[]) {
+  if (fields.length === 0) {
+    return <StatusPill label={label} value="None returned" />;
+  }
+
+  return fields.map((field) => <StatusPill key={`${label}:${field}`} label={label} value={field} />);
 }
 
 function PersonalBillExportRuntimeCard({
@@ -2876,6 +3196,52 @@ function exportRuntimeStatusClass(state: BillExportRuntimeState["status"]): stri
   }
 
   return "status-warning";
+}
+
+function importPreflightStatusClass(state: BillImportPreflightRuntimeState["status"]): string {
+  if (state === "ready") {
+    return "status-sync";
+  }
+
+  if (state === "needs_correction" || state === "session_expired" || state === "error") {
+    return "status-danger";
+  }
+
+  return "status-warning";
+}
+
+function preflightRowStatusClass(severity: BillCsvImportPreflightResponse["reviewItems"][number]["severity"]): string {
+  if (severity === "error") {
+    return "status-danger";
+  }
+
+  if (severity === "warning") {
+    return "status-warning";
+  }
+
+  return "status-sync";
+}
+
+function mapImportPreflightStateForMessage(
+  state: BillImportPreflightRuntimeState["status"]
+): BillsReadoutState["status"] {
+  switch (state) {
+    case "ready":
+    case "needs_correction":
+      return "loaded";
+    case "checking":
+      return "loading";
+    case "auth_required":
+      return "auth_required";
+    case "session_expired":
+      return "session_expired";
+    case "unavailable":
+      return "unavailable";
+    case "error":
+      return "error";
+    case "idle":
+      return "empty";
+  }
 }
 
 function formatNotificationEvent(eventType: string): string {
