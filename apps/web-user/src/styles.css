@@ -693,6 +693,27 @@ h1 {
   padding: 15px;
 }
 
+.export-action-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.export-runtime-row {
+  align-content: start;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.action-row .primary-button,
+.action-row .secondary-button {
+  min-width: 168px;
+}
+
 .notification-row-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -914,6 +935,7 @@ h1 {
 
   .state-row,
   .readout-list div,
+  .action-row,
   .bill-row,
   .notification-row-header,
   .data-row {
@@ -922,7 +944,10 @@ h1 {
   }
 
   .bill-row span:last-child,
+  .action-row .primary-button,
+  .action-row .secondary-button,
   .data-row strong {
+    width: 100%;
     justify-items: start;
     text-align: left;
   }

@@ -67,13 +67,18 @@ import {
   type ReportsReadoutState
 } from "./reportsReadout";
 import {
+  checkBillExportReadiness,
+  defaultBillExportFilters,
+  downloadBillExport,
   labelImportExportStatus,
   loadImportExportReadout,
+  type BillExportRuntimeState,
   type ImportExportCapability,
   type ImportExportReadoutState
 } from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
+  ExpenseBillExportFormat,
   ExpenseBillReconciliationStatus,
   ExpenseBillStatus,
   GroupBillResponse,
@@ -188,6 +193,16 @@ export function App() {
   const [notificationSort, setNotificationSort] = useState<NotificationPresentationSort>("newest");
   const [reportMonth, setReportMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [reportSearch, setReportSearch] = useState("");
+  const [personalExportStates, setPersonalExportStates] = useState<Record<ExpenseBillExportFormat, BillExportRuntimeState>>({
+    csv: {
+      status: "idle",
+      message: "Check CSV readiness before downloading personal bills."
+    },
+    json: {
+      status: "idle",
+      message: "Check JSON readiness before downloading personal bills."
+    }
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -498,6 +513,50 @@ export function App() {
     };
   }, [activeId, reportMonth, reportSearch, session.accessToken]);
 
+  const updatePersonalExportState = (
+    format: ExpenseBillExportFormat,
+    nextState: BillExportRuntimeState
+  ) => {
+    setPersonalExportStates((current) => ({
+      ...current,
+      [format]: nextState
+    }));
+  };
+
+  const handleCheckPersonalExportReadiness = async (format: ExpenseBillExportFormat) => {
+    updatePersonalExportState(format, {
+      status: "checking",
+      message: `Checking ${format.toUpperCase()} export readiness with Settleora.`
+    });
+
+    updatePersonalExportState(
+      format,
+      await checkBillExportReadiness({
+        accessToken: session.accessToken,
+        scope: "personal",
+        format,
+        filters: defaultBillExportFilters
+      })
+    );
+  };
+
+  const handleDownloadPersonalExport = async (format: ExpenseBillExportFormat) => {
+    updatePersonalExportState(format, {
+      status: "downloading",
+      message: `Refreshing readiness before ${format.toUpperCase()} export.`
+    });
+
+    updatePersonalExportState(
+      format,
+      await downloadBillExport({
+        accessToken: session.accessToken,
+        scope: "personal",
+        format,
+        filters: defaultBillExportFilters
+      })
+    );
+  };
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -642,7 +701,13 @@ export function App() {
               onSearchChange={setReportSearch}
             />
           ) : activeId === "import-export" ? (
-            <ImportExportReadoutPanel readout={importExportReadout} />
+            <ImportExportReadoutPanel
+              readout={importExportReadout}
+              session={session}
+              personalExportStates={personalExportStates}
+              onCheckPersonalExportReadiness={handleCheckPersonalExportReadiness}
+              onDownloadPersonalExport={handleDownloadPersonalExport}
+            />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
               readout={notificationsReadout}
@@ -944,7 +1009,19 @@ function ReportBillRow({ bill }: { bill: PersonalBillResponse }) {
   );
 }
 
-function ImportExportReadoutPanel({ readout }: { readout: ImportExportReadoutState }) {
+function ImportExportReadoutPanel({
+  readout,
+  session,
+  personalExportStates,
+  onCheckPersonalExportReadiness,
+  onDownloadPersonalExport
+}: {
+  readout: ImportExportReadoutState;
+  session: SessionBoundaryState;
+  personalExportStates: Record<ExpenseBillExportFormat, BillExportRuntimeState>;
+  onCheckPersonalExportReadiness: (format: ExpenseBillExportFormat) => void;
+  onDownloadPersonalExport: (format: ExpenseBillExportFormat) => void;
+}) {
   const unavailableCount = readout.capabilities.filter(
     (capability) => capability.status === "not_available_yet" || capability.status === "needs_readiness_endpoint"
   ).length;
@@ -959,8 +1036,8 @@ function ImportExportReadoutPanel({ readout }: { readout: ImportExportReadoutSta
         />
         <ReadoutMetric
           label="Actions started"
-          value="0"
-          detail="No downloads, uploads, imports, restores, or sync submissions"
+          value={personalExportStates.csv.status === "downloaded" || personalExportStates.json.status === "downloaded" ? "1+" : "0"}
+          detail="Only readiness-gated personal export can start"
         />
         <ReadoutMetric
           label="Follow-up areas"
@@ -978,9 +1055,33 @@ function ImportExportReadoutPanel({ readout }: { readout: ImportExportReadoutSta
           <span className="status-chip status-warning">Readout only</span>
         </div>
         <div className="empty-state" role="status" aria-live="polite">
-          <h4>Actions are not available from this screen</h4>
+          <h4>Personal export is readiness gated</h4>
           <p>{readout.message}</p>
         </div>
+      </section>
+
+      <section className="content-grid" aria-label="Bill export runtime">
+        <PersonalBillExportRuntimeCard
+          session={session}
+          states={personalExportStates}
+          onCheck={onCheckPersonalExportReadiness}
+          onDownload={onDownloadPersonalExport}
+        />
+        <aside className="right-rail" aria-label="Group export availability">
+          <section className="surface-panel compact-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Group export</p>
+                <h3>Group selection needed</h3>
+              </div>
+              <span className="status-chip status-warning">Unavailable here</span>
+            </div>
+            <p>
+              Group CSV and JSON export methods exist, but this route does not yet provide a safe server-backed group
+              selector. No group readiness or group export call starts from this screen.
+            </p>
+          </section>
+        </aside>
       </section>
 
       <section className="capability-grid" aria-label="Capability availability">
@@ -1033,6 +1134,145 @@ function ImportExportReadoutPanel({ readout }: { readout: ImportExportReadoutSta
         </aside>
       </section>
     </section>
+  );
+}
+
+function PersonalBillExportRuntimeCard({
+  session,
+  states,
+  onCheck,
+  onDownload
+}: {
+  session: SessionBoundaryState;
+  states: Record<ExpenseBillExportFormat, BillExportRuntimeState>;
+  onCheck: (format: ExpenseBillExportFormat) => void;
+  onDownload: (format: ExpenseBillExportFormat) => void;
+}) {
+  const isAuthenticated = session.status === "authenticated" && Boolean(session.accessToken);
+
+  return (
+    <section className="surface-panel" aria-labelledby="personal-export-title">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Personal export</p>
+          <h3 id="personal-export-title">Personal bill CSV / JSON</h3>
+        </div>
+        <span className={`status-chip ${isAuthenticated ? "status-sync" : "status-warning"}`}>
+          {isAuthenticated ? "Session verified" : "Sign-in required"}
+        </span>
+      </div>
+
+      <p className="muted-copy">
+        Downloads use server readiness for the selected format and default filters before browser download starts.
+      </p>
+
+      <div className="export-action-grid">
+        {(["csv", "json"] as ExpenseBillExportFormat[]).map((format) => (
+          <ExportFormatRuntimeRow
+            key={format}
+            format={format}
+            state={states[format]}
+            canStart={isAuthenticated}
+            onCheck={() => onCheck(format)}
+            onDownload={() => onDownload(format)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ExportFormatRuntimeRow({
+  format,
+  state,
+  canStart,
+  onCheck,
+  onDownload
+}: {
+  format: ExpenseBillExportFormat;
+  state: BillExportRuntimeState;
+  canStart: boolean;
+  onCheck: () => void;
+  onDownload: () => void;
+}) {
+  const canDownload = canStart && state.status === "ready";
+  const isBusy = state.status === "checking" || state.status === "downloading";
+
+  return (
+    <article className="notification-row export-runtime-row">
+      <div className="notification-row-header">
+        <div>
+          <strong>{format.toUpperCase()} export</strong>
+          <small>{state.message}</small>
+        </div>
+        <span className={`status-chip ${exportRuntimeStatusClass(state.status)}`}>
+          {labelize(state.status)}
+        </span>
+      </div>
+      <div className="action-row">
+        <button className="secondary-button" type="button" disabled={!canStart || isBusy} onClick={onCheck}>
+          Check export readiness
+        </button>
+        <button className="primary-button" type="button" disabled={!canDownload || isBusy} onClick={onDownload}>
+          Download {format.toUpperCase()}
+        </button>
+      </div>
+      {state.filename ? <StatusPill label="Downloaded file" value={state.filename} /> : null}
+      {state.readiness ? <ExportReadinessMetadata readiness={state.readiness} /> : null}
+    </article>
+  );
+}
+
+function ExportReadinessMetadata({ readiness }: { readiness: NonNullable<BillExportRuntimeState["readiness"]> }) {
+  return (
+    <>
+      <ReadoutSection title="Readiness metadata">
+        <StatusPill label="Code" value={readiness.code} />
+        <StatusPill label="Supported formats" value={readiness.supportedFormats.join(", ")} />
+        <StatusPill label="Requested format" value={readiness.requestedFormat} />
+        <StatusPill label="Rows" value={readiness.estimatedRows === null ? "Not estimated" : String(readiness.estimatedRows)} />
+        <StatusPill label="Row limit" value={String(readiness.rowLimit)} />
+        <StatusPill
+          label="Estimated bytes"
+          value={readiness.estimatedSizeBytes === null ? "Not estimated" : String(readiness.estimatedSizeBytes)}
+        />
+        <StatusPill
+          label="Byte limit"
+          value={readiness.sizeLimitBytes === null ? "Not returned" : String(readiness.sizeLimitBytes)}
+        />
+        <StatusPill label="File bytes" value={readiness.includesFileBytes ? "Included" : "Excluded"} />
+        <StatusPill label="Expires" value={formatDate(readiness.expiresAtUtc)} />
+      </ReadoutSection>
+      <ReadoutSection title="Filters and defaults">
+        {Object.entries(readiness.acceptedFilters).map(([field, value]) => (
+          <StatusPill key={field} label={labelize(field)} value={String(value ?? "Not set")} />
+        ))}
+        {readiness.defaultedFilters.length === 0 ? (
+          <p className="muted-copy">No defaulted filters were returned.</p>
+        ) : (
+          readiness.defaultedFilters.map((item) => (
+            <StatusPill key={`${item.field}:${item.value}`} label={`Default ${item.field}`} value={`${item.value} - ${item.reason}`} />
+          ))
+        )}
+        {readiness.rejectedFilters.length === 0 ? (
+          <p className="muted-copy">No rejected filters were returned.</p>
+        ) : (
+          readiness.rejectedFilters.map((item) => (
+            <StatusPill key={`${item.field}:${item.code}`} label={`Rejected ${item.field}`} value={item.message} />
+          ))
+        )}
+      </ReadoutSection>
+      <ReadoutSection title="Privacy, audit, and confirmation">
+        {readiness.redactions.map((item) => (
+          <StatusPill key={`${item.category}:${item.handling}`} label={labelize(item.category)} value={`${item.handling}: ${item.message}`} />
+        ))}
+        <StatusPill label="Audit action" value={readiness.auditPreview.action} />
+        <StatusPill label="Audit on export" value={readiness.auditPreview.writesAuditOnExport ? "Yes" : "No"} />
+        <StatusPill label="Confirmation" value={readiness.confirmation.confirmLabel} />
+        <p className="muted-copy">{readiness.confirmation.title}</p>
+        <p className="muted-copy">{readiness.confirmation.body}</p>
+      </ReadoutSection>
+    </>
   );
 }
 
@@ -2454,6 +2694,18 @@ function importExportStatusClass(state: ImportExportCapability["status"]): strin
   }
 
   if (state === "not_available_yet") {
+    return "status-danger";
+  }
+
+  return "status-warning";
+}
+
+function exportRuntimeStatusClass(state: BillExportRuntimeState["status"]): string {
+  if (state === "ready" || state === "downloaded") {
+    return "status-sync";
+  }
+
+  if (state === "blocked" || state === "session_expired" || state === "error") {
     return "status-danger";
   }
 
