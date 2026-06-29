@@ -25,6 +25,7 @@ Use this file with:
 - [User web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
 - [User web sync and local status plan](USER_WEB_SYNC_LOCAL_STATUS_PLAN.md)
 - [User web sync and local status contract plan](USER_WEB_SYNC_LOCAL_STATUS_CONTRACT_PLAN.md)
+- [User web local backup package contract plan](USER_WEB_LOCAL_BACKUP_PACKAGE_CONTRACT_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
 - [Local backup and restore package security](../architecture/LOCAL_BACKUP_RESTORE_PACKAGE_SECURITY.md)
 - [CSV export and import privacy authority](../architecture/CSV_EXPORT_IMPORT_PRIVACY_AUTHORITY.md)
@@ -400,12 +401,13 @@ Keep local backup/restore work split across reviewable gates:
 
 | Order | Slice | Suggested branch | Gates |
 | ---: | --- | --- | --- |
-| 1 | Local backup/restore contract plan refinement if needed | `docs/user-web-local-backup-restore-contract-plan-461` | Docs/control gate for exact contract scope, package sections, encryption posture, preview/session lifecycle, and privacy review. |
-| 2 | OpenAPI/API read/preflight contract | `feature/user-web-local-backup-restore-preflight-contract-461` | Manual OpenAPI/generated-client, auth/session, storage/privacy, encryption, audit, and safe problem-code gate. No restore confirmation mutation. |
+| 1 | Backup package contract plan | `docs/user-web-local-backup-package-contract-plan-461` | Docs/control gate for readiness, manifest, package generation/download, verification, metadata readback, file/privacy, encryption, audit, retention, and stable code families; see [User web local backup package contract plan](USER_WEB_LOCAL_BACKUP_PACKAGE_CONTRACT_PLAN.md). |
+| 2 | OpenAPI/API backup package read/generation contract | `feature/user-web-local-backup-package-contract-461` | Manual OpenAPI/generated-client, auth/session, storage/privacy, encryption, audit, package artifact retention, and safe problem-code gate. No restore preview or confirmation mutation. |
 | 3 | Generated-client refresh | same contract branch or a dedicated generated-client branch per review direction | Run `npm run generate:clients` and `npm run validate:clients`; generated clients must not be hand-edited. |
-| 4 | User-web restore-preview runtime | `feature/user-web-restore-preview-runtime-461` | Runtime reads only approved preview/session methods; no confirmation mutation, sync mutation, browser-local persistence, or file-byte storage outside approved contract. |
-| 5 | Restore-confirmation mutation gate | `feature/user-web-restore-confirmation-461` | Manual mutation, storage/file, money/bill/settlement, conflict/idempotency, audit, privacy, and browser safety gate. |
-| 6 | Browser local-mode persistence/security design | `docs/user-web-browser-local-mode-persistence-security-461` | Manual product/security/privacy/storage gate covering browser storage APIs, encryption, key handling, retention, device loss, sign-out/session behavior, migration, and backup/restore integration before any browser-local authority runtime. |
+| 4 | User-web backup package runtime | `feature/user-web-local-backup-package-runtime-461` | Runtime calls only approved readiness/package methods; no restore preview, restore confirmation, sync mutation, browser-local persistence, or unapproved file-byte behavior. |
+| 5 | Restore-preview contract/API | `feature/user-web-restore-preview-contract-461` | Manual OpenAPI/generated-client, package parsing, storage/file, encryption/key access, privacy, conflict/duplicate, and audit gate. No restore confirmation mutation. |
+| 6 | Restore-confirmation contract/API | `feature/user-web-restore-confirmation-contract-461` | Manual mutation, storage/file, money/bill/settlement, conflict/idempotency, audit, privacy, and browser safety gate. |
+| 7 | Browser local-mode persistence/security design | `docs/user-web-browser-local-mode-persistence-security-461` | Manual product/security/privacy/storage gate covering browser storage APIs, encryption, key handling, retention, device loss, sign-out/session behavior, migration, and backup/restore integration before any browser-local authority runtime. |
 
 ## Non-Goals And Explicit Prohibitions
 
