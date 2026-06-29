@@ -1,15 +1,24 @@
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.RequestValidation;
+using System.Collections.Concurrent;
 
 namespace Settleora.Api.LocalBackup;
 
 internal static class LocalBackupPackageReadinessEndpoints
 {
     private static readonly TimeSpan ReadinessFreshnessWindow = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan PackageSessionLifetime = TimeSpan.FromMinutes(15);
+    private static readonly ConcurrentDictionary<Guid, LocalBackupPackageSessionMetadata> PackageSessions = new();
 
     public static WebApplication MapLocalBackupPackageReadinessEndpoints(this WebApplication app)
     {
         app.MapGet("/api/v1/local-backup/package-readiness", GetPackageReadinessAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapPost("/api/v1/local-backup/package-sessions", CreatePackageSessionAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapGet("/api/v1/local-backup/package-sessions/{packageSessionId:guid}", GetPackageSessionAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapPost("/api/v1/local-backup/package-sessions/{packageSessionId:guid}/discard", DiscardPackageSessionAsync)
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
@@ -77,12 +86,209 @@ internal static class LocalBackupPackageReadinessEndpoints
             ExpiresAtUtc: generatedAtUtc.Add(ReadinessFreshnessWindow)));
     }
 
+    private static IResult CreatePackageSessionAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+                request,
+                "Invalid local backup package session request",
+                "The submitted local backup package session request is invalid.",
+                "Local backup package session creation does not accept a body in this metadata-only slice.",
+                out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var session = new LocalBackupPackageSessionMetadata(
+            Guid.NewGuid(),
+            actor.UserProfileId,
+            actor.AuthSessionId,
+            "created",
+            now,
+            now.Add(PackageSessionLifetime),
+            null);
+        PackageSessions[session.PackageSessionId] = session;
+
+        return Results.Created(
+            $"/api/v1/local-backup/package-sessions/{session.PackageSessionId:D}",
+            MapPackageSessionResponse(session, now));
+    }
+
+    private static IResult GetPackageSessionAsync(
+        HttpRequest request,
+        Guid packageSessionId,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+                request,
+                "Invalid local backup package session request",
+                "The submitted local backup package session request is invalid.",
+                "Local backup package session reads do not accept a body.",
+                out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (!TryLoadActorPackageSession(packageSessionId, actor, out var session))
+        {
+            return PackageSessionUnavailableProblem();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpirePackageSessionIfNeeded(session, now);
+        return Results.Ok(MapPackageSessionResponse(session, now));
+    }
+
+    private static IResult DiscardPackageSessionAsync(
+        HttpRequest request,
+        Guid packageSessionId,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+                request,
+                "Invalid local backup package session request",
+                "The submitted local backup package session request is invalid.",
+                "Local backup package session discard requests do not accept a body.",
+                out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (!TryLoadActorPackageSession(packageSessionId, actor, out var session))
+        {
+            return PackageSessionUnavailableProblem();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpirePackageSessionIfNeeded(session, now);
+        if (session.Status is "created")
+        {
+            session.Status = "discarded";
+            session.DiscardedAtUtc = now;
+        }
+
+        return Results.Ok(MapPackageSessionResponse(session, now));
+    }
+
     private static LocalBackupPackageFeatureStatusResponse Feature(
         string state,
         string stableCode,
         string safeMessage)
     {
         return new LocalBackupPackageFeatureStatusResponse(state, stableCode, safeMessage);
+    }
+
+    private static bool TryLoadActorPackageSession(
+        Guid packageSessionId,
+        AuthenticatedActor actor,
+        out LocalBackupPackageSessionMetadata session)
+    {
+        if (PackageSessions.TryGetValue(packageSessionId, out session!)
+            && session.ActorUserProfileId == actor.UserProfileId
+            && session.AuthSessionId == actor.AuthSessionId)
+        {
+            return true;
+        }
+
+        session = null!;
+        return false;
+    }
+
+    private static IResult PackageSessionUnavailableProblem()
+    {
+        return Results.Problem(
+            title: "Local backup package session unavailable",
+            detail: "The local backup package session is unavailable for this authenticated actor.",
+            statusCode: StatusCodes.Status404NotFound);
+    }
+
+    private static void ExpirePackageSessionIfNeeded(LocalBackupPackageSessionMetadata session, DateTimeOffset now)
+    {
+        if (session.Status is "created" && now >= session.ExpiresAtUtc)
+        {
+            session.Status = "expired";
+        }
+    }
+
+    private static LocalBackupPackageSessionResponse MapPackageSessionResponse(
+        LocalBackupPackageSessionMetadata session,
+        DateTimeOffset now)
+    {
+        var stableCode = session.Status switch
+        {
+            "discarded" => "package_session_discarded",
+            "expired" => "package_session_expired",
+            _ => "package_session_created"
+        };
+
+        return new LocalBackupPackageSessionResponse(
+            session.PackageSessionId,
+            session.Status,
+            stableCode,
+            "server_mode_copy_metadata_only",
+            "server_authoritative",
+            AvailableForPackageGeneration: false,
+            SafeMessage: session.Status switch
+            {
+                "discarded" => "This metadata-only package session was discarded. No package bytes were created or deleted.",
+                "expired" => "This metadata-only package session expired. Create a new session before any future package generation flow.",
+                _ => "This metadata-only package session can be inspected or discarded. Backup package generation and download are not implemented."
+            },
+            Readiness: new LocalBackupPackageSessionReadinessResponse(
+                CanPreparePackage: false,
+                CanDownloadPackage: false,
+                CanRestorePackage: false,
+                StableCode: "package_generation_unsupported",
+                SafeMessage: "Package preparation, download, restore preview, restore confirmation, and browser-local persistence remain unsupported."),
+            ManifestPreview: new LocalBackupPackageSessionManifestPreviewResponse(
+                ManifestAvailable: false,
+                ManifestStableCode: "package_manifest_metadata_only",
+                SafeDescription: "Manifest concepts are exposed as metadata only. No manifest file, package archive, package-local blob inventory, hashes, or payload sections are created."),
+            ConfirmationCopy: "Creating this session does not create, download, upload, parse, or restore a backup package. Future package generation remains a separate reviewed data-egress action.",
+            UnsupportedFeatures:
+            [
+                "package_generation",
+                "package_download",
+                "restore_preview",
+                "restore_confirmation",
+                "browser_local_persistence",
+                "local_mode_authority"
+            ],
+            PrivacyBoundary: "Package session metadata excludes package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, raw OCR text, private notes, payment details, hidden records, auth tokens, and credential material.",
+            DataEgressBoundary: "No backup package artifact is created, queued, stored, downloaded, parsed, uploaded, or restored by this package session metadata slice.",
+            CreatedAtUtc: session.CreatedAtUtc,
+            ExpiresAtUtc: session.ExpiresAtUtc,
+            DiscardedAtUtc: session.DiscardedAtUtc,
+            GeneratedAtUtc: now);
     }
 }
 
@@ -111,4 +317,53 @@ internal sealed record LocalBackupPackageFeatureStatusResponse(
 
 internal sealed record LocalBackupPackageConceptResponse(
     string Concept,
+    string SafeDescription);
+
+internal sealed class LocalBackupPackageSessionMetadata(
+    Guid packageSessionId,
+    Guid actorUserProfileId,
+    Guid authSessionId,
+    string status,
+    DateTimeOffset createdAtUtc,
+    DateTimeOffset expiresAtUtc,
+    DateTimeOffset? discardedAtUtc)
+{
+    public Guid PackageSessionId { get; } = packageSessionId;
+    public Guid ActorUserProfileId { get; } = actorUserProfileId;
+    public Guid AuthSessionId { get; } = authSessionId;
+    public string Status { get; set; } = status;
+    public DateTimeOffset CreatedAtUtc { get; } = createdAtUtc;
+    public DateTimeOffset ExpiresAtUtc { get; } = expiresAtUtc;
+    public DateTimeOffset? DiscardedAtUtc { get; set; } = discardedAtUtc;
+}
+
+internal sealed record LocalBackupPackageSessionResponse(
+    Guid PackageSessionId,
+    string Status,
+    string StableCode,
+    string Scope,
+    string ServerModePosture,
+    bool AvailableForPackageGeneration,
+    string SafeMessage,
+    LocalBackupPackageSessionReadinessResponse Readiness,
+    LocalBackupPackageSessionManifestPreviewResponse ManifestPreview,
+    string ConfirmationCopy,
+    IReadOnlyList<string> UnsupportedFeatures,
+    string PrivacyBoundary,
+    string DataEgressBoundary,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset ExpiresAtUtc,
+    DateTimeOffset? DiscardedAtUtc,
+    DateTimeOffset GeneratedAtUtc);
+
+internal sealed record LocalBackupPackageSessionReadinessResponse(
+    bool CanPreparePackage,
+    bool CanDownloadPackage,
+    bool CanRestorePackage,
+    string StableCode,
+    string SafeMessage);
+
+internal sealed record LocalBackupPackageSessionManifestPreviewResponse(
+    bool ManifestAvailable,
+    string ManifestStableCode,
     string SafeDescription);
