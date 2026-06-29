@@ -376,6 +376,16 @@ h1 {
   gap: 20px;
 }
 
+.capability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.capability-card {
+  min-width: 0;
+}
+
 .dashboard-column {
   display: grid;
   gap: 20px;
@@ -797,6 +807,7 @@ h1 {
     grid-template-columns: 1fr;
   }
 
+  .capability-grid,
   .bills-summary-row,
   .bills-toolbar,
   .bills-split {
@@ -839,7 +850,7 @@ h1 {
     top: 0;
     z-index: 12;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 5px;
     border: 1px solid var(--color-border);
     border-radius: 28px;
@@ -861,7 +872,7 @@ h1 {
     border-radius: 22px;
     background: transparent;
     color: var(--color-muted);
-    font-size: 0.76rem;
+    font-size: 0.72rem;
     font-weight: 800;
   }
 

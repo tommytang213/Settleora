@@ -66,6 +66,12 @@ import {
   summarizeReportTotals,
   type ReportsReadoutState
 } from "./reportsReadout";
+import {
+  labelImportExportStatus,
+  loadImportExportReadout,
+  type ImportExportCapability,
+  type ImportExportReadoutState
+} from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
   ExpenseBillReconciliationStatus,
@@ -89,6 +95,7 @@ const mobileNav = [
   { item: navItems.find((item) => item.id === "bills") ?? navItems[0], label: "Bills" },
   { item: navItems.find((item) => item.id === "groups") ?? navItems[0], label: "Groups" },
   { item: navItems.find((item) => item.id === "settlements") ?? navItems[0], label: "Settle" },
+  { item: navItems.find((item) => item.id === "import-export") ?? navItems[0], label: "Import" },
   { item: navItems.find((item) => item.id === "notifications") ?? navItems[0], label: "Alerts" }
 ];
 
@@ -216,6 +223,7 @@ export function App() {
     () => navItems.find((item) => item.id === activeId) ?? navItems[0],
     [activeId]
   );
+  const importExportReadout = useMemo(() => loadImportExportReadout(), []);
 
   useEffect(() => {
     if (activeId !== "bills") {
@@ -577,6 +585,8 @@ export function App() {
                         ? "Settlement actions unavailable"
                         : activeId === "reports"
                           ? "Report actions unavailable"
+                          : activeId === "import-export"
+                            ? "Availability readout only"
                       : activeItem.actionLabel}
               </button>
             </div>
@@ -631,6 +641,8 @@ export function App() {
               search={reportSearch}
               onSearchChange={setReportSearch}
             />
+          ) : activeId === "import-export" ? (
+            <ImportExportReadoutPanel readout={importExportReadout} />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
               readout={notificationsReadout}
@@ -928,6 +940,134 @@ function ReportBillRow({ bill }: { bill: PersonalBillResponse }) {
           <dd>{formatDate(bill.updatedAtUtc)}</dd>
         </div>
       </dl>
+    </article>
+  );
+}
+
+function ImportExportReadoutPanel({ readout }: { readout: ImportExportReadoutState }) {
+  const unavailableCount = readout.capabilities.filter(
+    (capability) => capability.status === "not_available_yet" || capability.status === "needs_readiness_endpoint"
+  ).length;
+
+  return (
+    <section className="bills-workspace" aria-label="Import and export availability readout">
+      <div className="bills-summary-row" aria-label="Import and export summary">
+        <ReadoutMetric
+          label="Operation methods"
+          value={String(readout.methodsFound.length)}
+          detail="Presence checked without runtime calls"
+        />
+        <ReadoutMetric
+          label="Actions started"
+          value="0"
+          detail="No downloads, uploads, imports, restores, or sync submissions"
+        />
+        <ReadoutMetric
+          label="Follow-up areas"
+          value={String(unavailableCount)}
+          detail="Need readiness, local design, or future review"
+        />
+      </div>
+
+      <section className="surface-panel" aria-labelledby="import-export-title">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Availability</p>
+            <h3 id="import-export-title">Import / Export control center</h3>
+          </div>
+          <span className="status-chip status-warning">Readout only</span>
+        </div>
+        <div className="empty-state" role="status" aria-live="polite">
+          <h4>Actions are not available from this screen</h4>
+          <p>{readout.message}</p>
+        </div>
+      </section>
+
+      <section className="capability-grid" aria-label="Capability availability">
+        {readout.capabilities.map((capability) => (
+          <ImportExportCapabilityCard key={capability.id} capability={capability} />
+        ))}
+      </section>
+
+      <section className="content-grid" aria-label="Import and export boundaries">
+        <section className="surface-panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Unsupported now</p>
+              <h3>Follow-up coverage</h3>
+            </div>
+            <span className="status-chip status-warning">Future reviewed slice</span>
+          </div>
+          <div className="state-list">
+            {readout.unsupportedSections.map((item) => (
+              <article className="state-row" key={item}>
+                <strong>Unavailable</strong>
+                <span>{item}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <aside className="right-rail" aria-label="Generated method readout">
+          <section className="surface-panel compact-panel">
+            <p className="eyebrow">Generated client</p>
+            <h3>Methods found</h3>
+            <ReadoutSection title="Present">
+              {readout.methodsFound.map((method) => (
+                <StatusPill key={method} label="Found" value={method} />
+              ))}
+            </ReadoutSection>
+            <ReadoutSection title="Intentionally not called">
+              {readout.intentionallyNotCalled.map((method) => (
+                <StatusPill key={method} label="No runtime call" value={method} />
+              ))}
+            </ReadoutSection>
+            {readout.missingMethods.length > 0 ? (
+              <ReadoutSection title="Missing">
+                {readout.missingMethods.map((method) => (
+                  <StatusPill key={method} label="Missing" value={method} />
+                ))}
+              </ReadoutSection>
+            ) : null}
+          </section>
+        </aside>
+      </section>
+    </section>
+  );
+}
+
+function ImportExportCapabilityCard({ capability }: { capability: ImportExportCapability }) {
+  return (
+    <article className="surface-panel capability-card">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Capability</p>
+          <h3>{capability.title}</h3>
+        </div>
+        <span className={`status-chip ${importExportStatusClass(capability.status)}`}>
+          {labelImportExportStatus(capability.status)}
+        </span>
+      </div>
+      <p className="muted-copy">{capability.summary}</p>
+      <ReadoutSection title="Status">
+        {capability.chips.map((chip) => (
+          <StatusPill key={chip} label={chip} value="Current readout" />
+        ))}
+      </ReadoutSection>
+      <ReadoutSection title="Follow-up">
+        {capability.followUps.map((item) => (
+          <p className="muted-copy" key={item}>
+            {item}
+          </p>
+        ))}
+      </ReadoutSection>
+      {capability.missingMethods.length > 0 ? (
+        <ReadoutSection title="Missing methods">
+          {capability.missingMethods.map((method) => (
+            <StatusPill key={method} label="Missing" value={method} />
+          ))}
+        </ReadoutSection>
+      ) : null}
     </article>
   );
 }
@@ -2302,6 +2442,18 @@ function statusClassForReadout(state: ReadoutStateName): string {
   }
 
   if (state === "error" || state === "session_expired") {
+    return "status-danger";
+  }
+
+  return "status-warning";
+}
+
+function importExportStatusClass(state: ImportExportCapability["status"]): string {
+  if (state === "operation_method_exists" || state === "readout_only") {
+    return "status-sync";
+  }
+
+  if (state === "not_available_yet") {
     return "status-danger";
   }
 

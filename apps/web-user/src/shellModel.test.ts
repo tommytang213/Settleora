@@ -11,7 +11,7 @@ describe("user web shell model", () => {
         "Friends",
         "Settlements",
         "Reports",
-        "Import and export",
+        "Import / Export",
         "Notifications",
         "Profile and payment",
         "Account and sessions",
@@ -29,7 +29,13 @@ describe("user web shell model", () => {
 
   it("uses context-specific page action labels instead of generic placeholders", () => {
     expect(navItems.map((item) => item.actionLabel)).toEqual(
-      expect.arrayContaining(["Add bill", "Request payment", "Review notifications", "Update profile"])
+      expect.arrayContaining([
+        "Add bill",
+        "Request payment",
+        "Review availability",
+        "Review notifications",
+        "Update profile"
+      ])
     );
 
     expect(navItems.map((item) => item.actionLabel).join(" ")).not.toMatch(/new item/i);

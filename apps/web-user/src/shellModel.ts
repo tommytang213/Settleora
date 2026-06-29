@@ -60,9 +60,9 @@ export const navItems: NavItem[] = [
   },
   {
     id: "import-export",
-    label: "Import and export",
-    description: "Staged import, scoped export, local backup, and restore readiness.",
-    actionLabel: "Start staged import",
+    label: "Import / Export",
+    description: "Data portability availability, local backup readiness, and sync status notes.",
+    actionLabel: "Review availability",
     section: "more",
     status: "placeholder"
   },
