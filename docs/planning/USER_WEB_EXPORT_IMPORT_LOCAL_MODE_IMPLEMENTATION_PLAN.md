@@ -24,6 +24,7 @@ Use this file with:
 - [User web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
 - [User web sync and local status plan](USER_WEB_SYNC_LOCAL_STATUS_PLAN.md)
 - [User web sync and local status contract plan](USER_WEB_SYNC_LOCAL_STATUS_CONTRACT_PLAN.md)
+- [User web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
 - [Local-only and server-mode authority boundary audit](../architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md)
 - [CSV export and import privacy authority](../architecture/CSV_EXPORT_IMPORT_PRIVACY_AUTHORITY.md)
@@ -198,7 +199,8 @@ import mutation, sync, and local persistence in one PR.
 | 4 | Import/upload/restore planning or contract slice before any user-web upload/mutation UI | `feature/import-restore-contract-plan-461` | OpenAPI/generated-client, storage/file privacy, money/bill authority, audit, conflict/idempotency gates. |
 | 5 | User-web import upload/review runtime only after staged import contracts are approved | `feature/user-web-import-review-runtime-461` | Mutation manual gate; file upload gate; money/bill validation gate; conflict/audit validation; visual evidence for row errors and explicit `Import bills` confirmation. |
 | 6 | Sync/local-mode status readout slice only if safe read methods exist or after contract work | `feature/user-web-sync-local-status-461` | Sync authority gate; auth/session gate; no `submitSyncOperation` unless a separate mutation task approves it. |
-| 7 | User-web local-mode/browser persistence design gate, only if product wants browser-local authority | `docs/user-web-browser-local-mode-design-461` | Manual product/security/privacy/storage gate; must define encryption, retention, backup, restore, conflict, no-silent-server-migration, and browser storage limits before runtime. |
+| 7 | User-web local backup/restore planning and contract gates before package preview or restore mutation | `docs/user-web-local-backup-restore-plan-461` | Package manifest, encryption/key handling, file/privacy, restore preview, restore confirmation, conflict, retention, audit, and browser safety gate; see [User web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md). |
+| 8 | User-web local-mode/browser persistence design gate, only if product wants browser-local authority | `docs/user-web-browser-local-mode-design-461` | Manual product/security/privacy/storage gate; must define encryption, retention, backup, restore, conflict, no-silent-server-migration, and browser storage limits before runtime. |
 
 The next safest runtime task is slice 1: a display-only availability surface.
 The next safest contract task is slice 2 if reviewers decide existing
