@@ -11199,6 +11199,291 @@ class RoundingModeValues {
   static const Set<RoundingMode> values = {up, down, nearest, bankers};
 }
 
+/// Server-derived sync/local mode for the authenticated status readout.
+typedef SyncLocalStatusMode = String;
+class SyncLocalStatusModeValues {
+  const SyncLocalStatusModeValues._();
+  static const SyncLocalStatusMode serverMode = "server_mode";
+  static const SyncLocalStatusMode localModeUnsupported = "local_mode_unsupported";
+  static const SyncLocalStatusMode unknown = "unknown";
+  static const Set<SyncLocalStatusMode> values = {serverMode, localModeUnsupported, unknown};
+}
+
+/// Stable product-facing sync/local status code. Unknown future values must be handled as unavailable by clients.
+typedef SyncLocalStatusStableCode = String;
+class SyncLocalStatusStableCodeValues {
+  const SyncLocalStatusStableCodeValues._();
+  static const SyncLocalStatusStableCode serverModeActive = "server_mode_active";
+  static const SyncLocalStatusStableCode authRequired = "auth_required";
+  static const SyncLocalStatusStableCode noServerSession = "no_server_session";
+  static const SyncLocalStatusStableCode sessionExpired = "session_expired";
+  static const SyncLocalStatusStableCode serverUnreachable = "server_unreachable";
+  static const SyncLocalStatusStableCode offline = "offline";
+  static const SyncLocalStatusStableCode syncStatusReady = "sync_status_ready";
+  static const SyncLocalStatusStableCode syncStatusUnavailable = "sync_status_unavailable";
+  static const SyncLocalStatusStableCode syncUnavailable = "sync_unavailable";
+  static const SyncLocalStatusStableCode syncFailedPresent = "sync_failed_present";
+  static const SyncLocalStatusStableCode syncConflictPresent = "sync_conflict_present";
+  static const SyncLocalStatusStableCode staleLocalData = "stale_local_data";
+  static const SyncLocalStatusStableCode localModeUnsupported = "local_mode_unsupported";
+  static const SyncLocalStatusStableCode localPersistenceUnsupported = "local_persistence_unsupported";
+  static const SyncLocalStatusStableCode backupRestoreUnsupported = "backup_restore_unsupported";
+  static const SyncLocalStatusStableCode backupRestorePolicyDisabled = "backup_restore_policy_disabled";
+  static const SyncLocalStatusStableCode syncMutationUnsupported = "sync_mutation_unsupported";
+  static const SyncLocalStatusStableCode localToServerMigrationRequired = "local_to_server_migration_required";
+  static const SyncLocalStatusStableCode unsupportedResourceType = "unsupported_resource_type";
+  static const SyncLocalStatusStableCode unsupportedOperationType = "unsupported_operation_type";
+  static const SyncLocalStatusStableCode policyDisabled = "policy_disabled";
+  static const SyncLocalStatusStableCode temporarilyUnavailable = "temporarily_unavailable";
+  static const Set<SyncLocalStatusStableCode> values = {serverModeActive, authRequired, noServerSession, sessionExpired, serverUnreachable, offline, syncStatusReady, syncStatusUnavailable, syncUnavailable, syncFailedPresent, syncConflictPresent, staleLocalData, localModeUnsupported, localPersistenceUnsupported, backupRestoreUnsupported, backupRestorePolicyDisabled, syncMutationUnsupported, localToServerMigrationRequired, unsupportedResourceType, unsupportedOperationType, policyDisabled, temporarilyUnavailable};
+}
+
+/// Current authenticated session state for this server-derived status response.
+typedef SyncLocalStatusSessionState = String;
+class SyncLocalStatusSessionStateValues {
+  const SyncLocalStatusSessionStateValues._();
+  static const SyncLocalStatusSessionState authenticated = "authenticated";
+  static const SyncLocalStatusSessionState unauthenticated = "unauthenticated";
+  static const SyncLocalStatusSessionState noSession = "no_session";
+  static const SyncLocalStatusSessionState sessionExpired = "session_expired";
+  static const Set<SyncLocalStatusSessionState> values = {authenticated, unauthenticated, noSession, sessionExpired};
+}
+
+/// Server-derived reachability/readiness state for this response. Browser network heuristics are not sync authority.
+typedef SyncLocalStatusReachability = String;
+class SyncLocalStatusReachabilityValues {
+  const SyncLocalStatusReachabilityValues._();
+  static const SyncLocalStatusReachability reachable = "reachable";
+  static const SyncLocalStatusReachability serverUnavailable = "server_unavailable";
+  static const SyncLocalStatusReachability offline = "offline";
+  static const SyncLocalStatusReachability unknown = "unknown";
+  static const Set<SyncLocalStatusReachability> values = {reachable, serverUnavailable, offline, unknown};
+}
+
+/// Availability state for one sync/local feature family in this read-only status surface.
+typedef SyncLocalFeatureState = String;
+class SyncLocalFeatureStateValues {
+  const SyncLocalFeatureStateValues._();
+  static const SyncLocalFeatureState available = "available";
+  static const SyncLocalFeatureState unavailable = "unavailable";
+  static const SyncLocalFeatureState unsupported = "unsupported";
+  static const SyncLocalFeatureState policyDisabled = "policy_disabled";
+  static const Set<SyncLocalFeatureState> values = {available, unavailable, unsupported, policyDisabled};
+}
+
+/// Whether an operation summary count is safely available for the current actor.
+typedef SyncLocalOperationSummaryState = String;
+class SyncLocalOperationSummaryStateValues {
+  const SyncLocalOperationSummaryStateValues._();
+  static const SyncLocalOperationSummaryState available = "available";
+  static const SyncLocalOperationSummaryState unavailable = "unavailable";
+  static const SyncLocalOperationSummaryState unsupported = "unsupported";
+  static const Set<SyncLocalOperationSummaryState> values = {available, unavailable, unsupported};
+}
+
+/// Feature families explicitly unsupported by the current user-web sync/local status contract.
+typedef SyncLocalUnsupportedFeature = String;
+class SyncLocalUnsupportedFeatureValues {
+  const SyncLocalUnsupportedFeatureValues._();
+  static const SyncLocalUnsupportedFeature browserLocalMode = "browser_local_mode";
+  static const SyncLocalUnsupportedFeature browserLocalPersistence = "browser_local_persistence";
+  static const SyncLocalUnsupportedFeature localBackupRestore = "local_backup_restore";
+  static const SyncLocalUnsupportedFeature syncMutation = "sync_mutation";
+  static const SyncLocalUnsupportedFeature conflictResolution = "conflict_resolution";
+  static const Set<SyncLocalUnsupportedFeature> values = {browserLocalMode, browserLocalPersistence, localBackupRestore, syncMutation, conflictResolution};
+}
+
+/// Safe status for one sync/local feature family.
+class SyncLocalFeatureStatusResponse {
+  const SyncLocalFeatureStatusResponse({
+    required this.state,
+    required this.stableCode,
+    required this.safeMessage,
+  });
+
+  final SyncLocalFeatureState state;
+  final SyncLocalStatusStableCode stableCode;
+  /// User-safe message without hidden records, operation payloads, storage details, auth tokens, or private data.
+  final String safeMessage;
+
+  factory SyncLocalFeatureStatusResponse.fromJson(JsonObject json) {
+    return SyncLocalFeatureStatusResponse(
+      state: json["state"] as String,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "state": state,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+    };
+  }
+}
+
+/// Bounded current-actor sync operation summary. Counts are null when no safe authoritative count exists.
+class SyncLocalOperationSummaryResponse {
+  const SyncLocalOperationSummaryResponse({
+    required this.state,
+    required this.count,
+    required this.stableCode,
+    required this.safeMessage,
+  });
+
+  final SyncLocalOperationSummaryState state;
+  /// Current-actor scoped count, or null when unavailable.
+  final int? count;
+  final SyncLocalStatusStableCode stableCode;
+  /// User-safe message without raw payloads, idempotency keys, hidden record details, or storage internals.
+  final String safeMessage;
+
+  factory SyncLocalOperationSummaryResponse.fromJson(JsonObject json) {
+    return SyncLocalOperationSummaryResponse(
+      state: json["state"] as String,
+      count: json["count"] == null ? null : (json["count"] as num).toInt(),
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final countJsonValue = count;
+
+    return {
+      "state": state,
+      "count": countJsonValue,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+    };
+  }
+}
+
+/// Explicit unsupported feature code and safe user-facing message.
+class SyncLocalUnsupportedFeatureResponse {
+  const SyncLocalUnsupportedFeatureResponse({
+    required this.feature,
+    required this.stableCode,
+    required this.safeMessage,
+  });
+
+  final SyncLocalUnsupportedFeature feature;
+  final SyncLocalStatusStableCode stableCode;
+  final String safeMessage;
+
+  factory SyncLocalUnsupportedFeatureResponse.fromJson(JsonObject json) {
+    return SyncLocalUnsupportedFeatureResponse(
+      feature: json["feature"] as String,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "feature": feature,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+    };
+  }
+}
+
+/// Bounded read-only sync/local status metadata for the current authenticated actor. It contains no business record payloads, raw sync payloads, idempotency keys, file bytes, storage paths, object keys, auth tokens, private notes, import/export data, or hidden records.
+class SyncLocalStatusResponse {
+  const SyncLocalStatusResponse({
+    required this.mode,
+    required this.available,
+    required this.stableCode,
+    required this.safeMessage,
+    required this.sessionState,
+    required this.serverReachability,
+    required this.generatedAtUtc,
+    required this.expiresAtUtc,
+    required this.serverMode,
+    required this.localModeSupport,
+    required this.backupRestoreSupport,
+    required this.syncMutationSupport,
+    required this.lastAcceptedServerVersion,
+    required this.pendingOperationSummary,
+    required this.failedOperationSummary,
+    required this.conflictSummary,
+    required this.unsupportedFeatures,
+    required this.privacyBoundary,
+  });
+
+  final SyncLocalStatusMode mode;
+  /// True when authenticated server-derived status metadata is available for the current actor.
+  final bool available;
+  final SyncLocalStatusStableCode stableCode;
+  final String safeMessage;
+  final SyncLocalStatusSessionState sessionState;
+  final SyncLocalStatusReachability serverReachability;
+  final DateTime generatedAtUtc;
+  /// Freshness expiry for display; clients should reload rather than treating stale status as authority.
+  final DateTime expiresAtUtc;
+  final SyncLocalFeatureStatusResponse serverMode;
+  final SyncLocalFeatureStatusResponse localModeSupport;
+  final SyncLocalFeatureStatusResponse backupRestoreSupport;
+  final SyncLocalFeatureStatusResponse syncMutationSupport;
+  /// Maximum visible server resource version for the current actor, or null when no visible server version exists.
+  final int? lastAcceptedServerVersion;
+  final SyncLocalOperationSummaryResponse pendingOperationSummary;
+  final SyncLocalOperationSummaryResponse failedOperationSummary;
+  final SyncLocalOperationSummaryResponse conflictSummary;
+  final List<SyncLocalUnsupportedFeatureResponse> unsupportedFeatures;
+  /// Safe disclosure boundary summary for display and logging review.
+  final String privacyBoundary;
+
+  factory SyncLocalStatusResponse.fromJson(JsonObject json) {
+    return SyncLocalStatusResponse(
+      mode: json["mode"] as String,
+      available: json["available"] as bool,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+      sessionState: json["sessionState"] as String,
+      serverReachability: json["serverReachability"] as String,
+      generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      serverMode: SyncLocalFeatureStatusResponse.fromJson(JsonObject.from(json["serverMode"] as Map)),
+      localModeSupport: SyncLocalFeatureStatusResponse.fromJson(JsonObject.from(json["localModeSupport"] as Map)),
+      backupRestoreSupport: SyncLocalFeatureStatusResponse.fromJson(JsonObject.from(json["backupRestoreSupport"] as Map)),
+      syncMutationSupport: SyncLocalFeatureStatusResponse.fromJson(JsonObject.from(json["syncMutationSupport"] as Map)),
+      lastAcceptedServerVersion: json["lastAcceptedServerVersion"] == null ? null : (json["lastAcceptedServerVersion"] as num).toInt(),
+      pendingOperationSummary: SyncLocalOperationSummaryResponse.fromJson(JsonObject.from(json["pendingOperationSummary"] as Map)),
+      failedOperationSummary: SyncLocalOperationSummaryResponse.fromJson(JsonObject.from(json["failedOperationSummary"] as Map)),
+      conflictSummary: SyncLocalOperationSummaryResponse.fromJson(JsonObject.from(json["conflictSummary"] as Map)),
+      unsupportedFeatures: (json["unsupportedFeatures"] as List<dynamic>).map((item) => SyncLocalUnsupportedFeatureResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      privacyBoundary: json["privacyBoundary"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final lastAcceptedServerVersionJsonValue = lastAcceptedServerVersion;
+
+    return {
+      "mode": mode,
+      "available": available,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+      "sessionState": sessionState,
+      "serverReachability": serverReachability,
+      "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "serverMode": serverMode.toJson(),
+      "localModeSupport": localModeSupport.toJson(),
+      "backupRestoreSupport": backupRestoreSupport.toJson(),
+      "syncMutationSupport": syncMutationSupport.toJson(),
+      "lastAcceptedServerVersion": lastAcceptedServerVersionJsonValue,
+      "pendingOperationSummary": pendingOperationSummary.toJson(),
+      "failedOperationSummary": failedOperationSummary.toJson(),
+      "conflictSummary": conflictSummary.toJson(),
+      "unsupportedFeatures": unsupportedFeatures.map((item) => item.toJson()).toList(growable: false),
+      "privacyBoundary": privacyBoundary,
+    };
+  }
+}
+
 /// Day 1 sync operation types accepted by the server sync foundation.
 typedef SyncOperationType = String;
 class SyncOperationTypeValues {

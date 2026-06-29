@@ -27,6 +27,7 @@ internal sealed class SyncOperationService
     private const string StaleBaseVersionCode = "stale_base_version";
     private const string ResourceStateConflictCode = "resource_state_conflict";
     private const string IdempotencyKeyConflictCode = "idempotency_key_conflict";
+    private static readonly TimeSpan LocalStatusFreshnessWindow = TimeSpan.FromMinutes(5);
 
     private static readonly JsonSerializerOptions HashJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -263,6 +264,90 @@ internal sealed class SyncOperationService
             changes));
     }
 
+    public async Task<SyncLocalStatusResponse> GetLocalStatusAsync(
+        AuthenticatedActor actor,
+        CancellationToken cancellationToken)
+    {
+        var generatedAtUtc = timeProvider.GetUtcNow();
+        var failedOperationCount = await CountActorOperationsAsync(
+            actor.UserProfileId,
+            SyncOperationStatuses.Rejected,
+            cancellationToken);
+        var conflictCount = await CountActorOperationsAsync(
+            actor.UserProfileId,
+            SyncOperationStatuses.Conflict,
+            cancellationToken);
+        var lastAcceptedServerVersion = await VisibleResourceVersionsQuery(actor)
+            .Select(version => (long?)version.Version)
+            .MaxAsync(cancellationToken);
+
+        return new SyncLocalStatusResponse(
+            Mode: "server_mode",
+            Available: true,
+            StableCode: "server_mode_active",
+            SafeMessage: "Server mode is active. Browser local mode, local backup/restore, and user-web sync mutation are not supported in this status surface.",
+            SessionState: "authenticated",
+            ServerReachability: "reachable",
+            GeneratedAtUtc: generatedAtUtc,
+            ExpiresAtUtc: generatedAtUtc.Add(LocalStatusFreshnessWindow),
+            ServerMode: new SyncLocalFeatureStatusResponse(
+                State: "available",
+                StableCode: "server_mode_active",
+                SafeMessage: "The API is authoritative for this authenticated server session."),
+            LocalModeSupport: new SyncLocalFeatureStatusResponse(
+                State: "unsupported",
+                StableCode: "local_mode_unsupported",
+                SafeMessage: "Browser local mode is not supported in this web build."),
+            BackupRestoreSupport: new SyncLocalFeatureStatusResponse(
+                State: "unsupported",
+                StableCode: "backup_restore_unsupported",
+                SafeMessage: "Browser local backup and restore are not supported in this web build."),
+            SyncMutationSupport: new SyncLocalFeatureStatusResponse(
+                State: "unsupported",
+                StableCode: "sync_mutation_unsupported",
+                SafeMessage: "This status surface is read-only and does not submit sync operations or resolve conflicts."),
+            LastAcceptedServerVersion: lastAcceptedServerVersion,
+            PendingOperationSummary: SyncLocalOperationSummaryResponse.Unavailable(
+                "sync_status_unavailable",
+                "No authoritative browser-local pending queue exists for this status readout."),
+            FailedOperationSummary: SyncLocalOperationSummaryResponse.Available(
+                failedOperationCount,
+                failedOperationCount > 0 ? "sync_failed_present" : "sync_status_ready",
+                failedOperationCount > 0
+                    ? "One or more server-known sync operations could not be accepted."
+                    : "No server-known failed sync operations are visible for this actor."),
+            ConflictSummary: SyncLocalOperationSummaryResponse.Available(
+                conflictCount,
+                conflictCount > 0 ? "sync_conflict_present" : "sync_status_ready",
+                conflictCount > 0
+                    ? "One or more server-known sync conflicts need attention."
+                    : "No server-known sync conflicts are visible for this actor."),
+            UnsupportedFeatures:
+            [
+                new SyncLocalUnsupportedFeatureResponse(
+                    "browser_local_mode",
+                    "local_mode_unsupported",
+                    "Browser local mode is not available from this web build."),
+                new SyncLocalUnsupportedFeatureResponse(
+                    "browser_local_persistence",
+                    "local_persistence_unsupported",
+                    "Browser persistence is not approved for Settleora financial truth in this web build."),
+                new SyncLocalUnsupportedFeatureResponse(
+                    "local_backup_restore",
+                    "backup_restore_unsupported",
+                    "Browser local backup and restore are not available from this status surface."),
+                new SyncLocalUnsupportedFeatureResponse(
+                    "sync_mutation",
+                    "sync_mutation_unsupported",
+                    "Sync operation submission is outside this read-only status surface."),
+                new SyncLocalUnsupportedFeatureResponse(
+                    "conflict_resolution",
+                    "unsupported_operation_type",
+                    "Conflict resolution is not supported by this status surface.")
+            ],
+            PrivacyBoundary: "Status metadata is scoped to the current authenticated actor and excludes record payloads, operation payloads, idempotency keys, storage details, file bytes, auth tokens, and hidden records.");
+    }
+
     public async Task<SyncOperationReadResult> GetOperationAsync(
         Guid syncOperationId,
         AuthenticatedActor actor,
@@ -285,6 +370,40 @@ internal sealed class SyncOperationService
         }
 
         return SyncOperationReadResult.Ok(MapOperation(operation));
+    }
+
+    private async Task<int> CountActorOperationsAsync(
+        Guid actorUserProfileId,
+        string status,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.Set<SyncOperation>()
+            .AsNoTracking()
+            .Where(operation => operation.ActorUserProfileId == actorUserProfileId
+                && operation.Status == status)
+            .CountAsync(cancellationToken);
+    }
+
+    private IQueryable<SyncResourceVersion> VisibleResourceVersionsQuery(AuthenticatedActor actor)
+    {
+        var activeActorGroupIds = dbContext.Set<GroupMembership>()
+            .AsNoTracking()
+            .Where(membership => membership.UserProfileId == actor.UserProfileId
+                && membership.Status == GroupMembershipStatuses.Active)
+            .Select(membership => membership.GroupId);
+
+        return dbContext.Set<SyncResourceVersion>()
+            .AsNoTracking()
+            .Where(version => version.ResourceType == SyncResourceTypes.ExpenseBill
+                && dbContext.Set<ExpenseBill>().Any(bill => bill.Id == version.ResourceId
+                    && bill.CreatedByUserProfile.DeletedAtUtc == null
+                    && ((bill.GroupId == null
+                            && (bill.CreatedByUserProfileId == actor.UserProfileId
+                                || bill.Participants.Any(participant => participant.UserProfileId == actor.UserProfileId)))
+                        || (bill.GroupId != null
+                            && bill.Group != null
+                            && bill.Group.DeletedAtUtc == null
+                            && activeActorGroupIds.Contains(bill.GroupId.Value)))));
     }
 
     private async Task<SyncOperationProcessResult> PersistTerminalOperationAsync(
@@ -748,6 +867,66 @@ internal sealed record SyncChangeResponse(
     DateTimeOffset ChangedAtUtc,
     string ChangeKind,
     Guid? GroupId);
+
+internal sealed record SyncLocalStatusResponse(
+    string Mode,
+    bool Available,
+    string StableCode,
+    string SafeMessage,
+    string SessionState,
+    string ServerReachability,
+    DateTimeOffset GeneratedAtUtc,
+    DateTimeOffset ExpiresAtUtc,
+    SyncLocalFeatureStatusResponse ServerMode,
+    SyncLocalFeatureStatusResponse LocalModeSupport,
+    SyncLocalFeatureStatusResponse BackupRestoreSupport,
+    SyncLocalFeatureStatusResponse SyncMutationSupport,
+    long? LastAcceptedServerVersion,
+    SyncLocalOperationSummaryResponse PendingOperationSummary,
+    SyncLocalOperationSummaryResponse FailedOperationSummary,
+    SyncLocalOperationSummaryResponse ConflictSummary,
+    IReadOnlyList<SyncLocalUnsupportedFeatureResponse> UnsupportedFeatures,
+    string PrivacyBoundary);
+
+internal sealed record SyncLocalFeatureStatusResponse(
+    string State,
+    string StableCode,
+    string SafeMessage);
+
+internal sealed record SyncLocalOperationSummaryResponse(
+    string State,
+    int? Count,
+    string StableCode,
+    string SafeMessage)
+{
+    public static SyncLocalOperationSummaryResponse Available(
+        int count,
+        string stableCode,
+        string safeMessage)
+    {
+        return new SyncLocalOperationSummaryResponse(
+            "available",
+            count,
+            stableCode,
+            safeMessage);
+    }
+
+    public static SyncLocalOperationSummaryResponse Unavailable(
+        string stableCode,
+        string safeMessage)
+    {
+        return new SyncLocalOperationSummaryResponse(
+            "unavailable",
+            Count: null,
+            stableCode,
+            safeMessage);
+    }
+}
+
+internal sealed record SyncLocalUnsupportedFeatureResponse(
+    string Feature,
+    string StableCode,
+    string SafeMessage);
 
 internal enum SyncOperationProcessResultKind
 {

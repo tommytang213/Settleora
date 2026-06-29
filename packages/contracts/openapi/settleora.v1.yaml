@@ -2418,6 +2418,38 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/sync/local-status:
+    get:
+      summary: Get sync and browser-local status
+      description: Returns a bounded read-only sync/local status summary for the authenticated actor. The response is server-derived and does not submit sync operations, resolve conflicts, create browser-local state, create backup packages, parse restore data, return file bytes, expose operation payloads, expose idempotency keys, or hydrate hidden business records. Browser local mode, browser persistence, local backup/restore, and user-web sync mutation are explicitly reported as unsupported until separate reviewed contracts exist.
+      operationId: getSyncLocalStatus
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe current-actor sync/local status metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncLocalStatusResponse"
+        "400":
+          description: Sync local status request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to read sync/local status.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/sync/operations:
     post:
       summary: Submit server-mode sync operation
@@ -17797,6 +17829,211 @@ components:
         - down
         - nearest
         - bankers
+    SyncLocalStatusMode:
+      type: string
+      description: Server-derived sync/local mode for the authenticated status readout.
+      enum:
+        - server_mode
+        - local_mode_unsupported
+        - unknown
+    SyncLocalStatusStableCode:
+      type: string
+      description: Stable product-facing sync/local status code. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - server_mode_active
+        - auth_required
+        - no_server_session
+        - session_expired
+        - server_unreachable
+        - offline
+        - sync_status_ready
+        - sync_status_unavailable
+        - sync_unavailable
+        - sync_failed_present
+        - sync_conflict_present
+        - stale_local_data
+        - local_mode_unsupported
+        - local_persistence_unsupported
+        - backup_restore_unsupported
+        - backup_restore_policy_disabled
+        - sync_mutation_unsupported
+        - local_to_server_migration_required
+        - unsupported_resource_type
+        - unsupported_operation_type
+        - policy_disabled
+        - temporarily_unavailable
+    SyncLocalStatusSessionState:
+      type: string
+      description: Current authenticated session state for this server-derived status response.
+      enum:
+        - authenticated
+        - unauthenticated
+        - no_session
+        - session_expired
+    SyncLocalStatusReachability:
+      type: string
+      description: Server-derived reachability/readiness state for this response. Browser network heuristics are not sync authority.
+      enum:
+        - reachable
+        - server_unavailable
+        - offline
+        - unknown
+    SyncLocalFeatureState:
+      type: string
+      description: Availability state for one sync/local feature family in this read-only status surface.
+      enum:
+        - available
+        - unavailable
+        - unsupported
+        - policy_disabled
+    SyncLocalOperationSummaryState:
+      type: string
+      description: Whether an operation summary count is safely available for the current actor.
+      enum:
+        - available
+        - unavailable
+        - unsupported
+    SyncLocalUnsupportedFeature:
+      type: string
+      description: Feature families explicitly unsupported by the current user-web sync/local status contract.
+      enum:
+        - browser_local_mode
+        - browser_local_persistence
+        - local_backup_restore
+        - sync_mutation
+        - conflict_resolution
+    SyncLocalFeatureStatusResponse:
+      type: object
+      description: Safe status for one sync/local feature family.
+      additionalProperties: false
+      required:
+        - state
+        - stableCode
+        - safeMessage
+      properties:
+        state:
+          $ref: "#/components/schemas/SyncLocalFeatureState"
+        stableCode:
+          $ref: "#/components/schemas/SyncLocalStatusStableCode"
+        safeMessage:
+          type: string
+          maxLength: 240
+          description: User-safe message without hidden records, operation payloads, storage details, auth tokens, or private data.
+    SyncLocalOperationSummaryResponse:
+      type: object
+      description: Bounded current-actor sync operation summary. Counts are null when no safe authoritative count exists.
+      additionalProperties: false
+      required:
+        - state
+        - count
+        - stableCode
+        - safeMessage
+      properties:
+        state:
+          $ref: "#/components/schemas/SyncLocalOperationSummaryState"
+        count:
+          oneOf:
+            - type: integer
+              minimum: 0
+            - type: "null"
+          description: Current-actor scoped count, or null when unavailable.
+        stableCode:
+          $ref: "#/components/schemas/SyncLocalStatusStableCode"
+        safeMessage:
+          type: string
+          maxLength: 240
+          description: User-safe message without raw payloads, idempotency keys, hidden record details, or storage internals.
+    SyncLocalUnsupportedFeatureResponse:
+      type: object
+      description: Explicit unsupported feature code and safe user-facing message.
+      additionalProperties: false
+      required:
+        - feature
+        - stableCode
+        - safeMessage
+      properties:
+        feature:
+          $ref: "#/components/schemas/SyncLocalUnsupportedFeature"
+        stableCode:
+          $ref: "#/components/schemas/SyncLocalStatusStableCode"
+        safeMessage:
+          type: string
+          maxLength: 240
+    SyncLocalStatusResponse:
+      type: object
+      description: Bounded read-only sync/local status metadata for the current authenticated actor. It contains no business record payloads, raw sync payloads, idempotency keys, file bytes, storage paths, object keys, auth tokens, private notes, import/export data, or hidden records.
+      additionalProperties: false
+      required:
+        - mode
+        - available
+        - stableCode
+        - safeMessage
+        - sessionState
+        - serverReachability
+        - generatedAtUtc
+        - expiresAtUtc
+        - serverMode
+        - localModeSupport
+        - backupRestoreSupport
+        - syncMutationSupport
+        - lastAcceptedServerVersion
+        - pendingOperationSummary
+        - failedOperationSummary
+        - conflictSummary
+        - unsupportedFeatures
+        - privacyBoundary
+      properties:
+        mode:
+          $ref: "#/components/schemas/SyncLocalStatusMode"
+        available:
+          type: boolean
+          description: True when authenticated server-derived status metadata is available for the current actor.
+        stableCode:
+          $ref: "#/components/schemas/SyncLocalStatusStableCode"
+        safeMessage:
+          type: string
+          maxLength: 240
+        sessionState:
+          $ref: "#/components/schemas/SyncLocalStatusSessionState"
+        serverReachability:
+          $ref: "#/components/schemas/SyncLocalStatusReachability"
+        generatedAtUtc:
+          type: string
+          format: date-time
+        expiresAtUtc:
+          type: string
+          format: date-time
+          description: Freshness expiry for display; clients should reload rather than treating stale status as authority.
+        serverMode:
+          $ref: "#/components/schemas/SyncLocalFeatureStatusResponse"
+        localModeSupport:
+          $ref: "#/components/schemas/SyncLocalFeatureStatusResponse"
+        backupRestoreSupport:
+          $ref: "#/components/schemas/SyncLocalFeatureStatusResponse"
+        syncMutationSupport:
+          $ref: "#/components/schemas/SyncLocalFeatureStatusResponse"
+        lastAcceptedServerVersion:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 1
+            - type: "null"
+          description: Maximum visible server resource version for the current actor, or null when no visible server version exists.
+        pendingOperationSummary:
+          $ref: "#/components/schemas/SyncLocalOperationSummaryResponse"
+        failedOperationSummary:
+          $ref: "#/components/schemas/SyncLocalOperationSummaryResponse"
+        conflictSummary:
+          $ref: "#/components/schemas/SyncLocalOperationSummaryResponse"
+        unsupportedFeatures:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/SyncLocalUnsupportedFeatureResponse"
+        privacyBoundary:
+          type: string
+          maxLength: 320
+          description: Safe disclosure boundary summary for display and logging review.
     SyncOperationType:
       type: string
       description: Day 1 sync operation types accepted by the server sync foundation.

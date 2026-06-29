@@ -56,6 +56,12 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         {
             await AssertUnauthenticatedProblemAsync(changesResponse);
         }
+
+        using (var statusRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/sync/local-status"))
+        using (var statusResponse = await client.SendAsync(statusRequest))
+        {
+            await AssertUnauthenticatedProblemAsync(statusResponse);
+        }
     }
 
     [Fact]
@@ -687,18 +693,224 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
     }
 
     [Fact]
+    public async Task LocalStatusReturnsServerDerivedReadOnlyStatusAndUnsupportedBrowserStates()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Local Status Actor");
+        var otherSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Local Status Other");
+        var actorBillId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Local Status Hidden Merchant",
+            InitialTimestamp,
+            includeSensitiveRows: true);
+        var otherBillId = await SeedBillAsync(
+            testFactory,
+            otherSession.UserProfileId,
+            groupId: null,
+            [otherSession.UserProfileId],
+            "Other Hidden Status Merchant",
+            InitialTimestamp.AddMinutes(1),
+            includeSensitiveRows: true);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp);
+        await SubmitAcceptedArchiveAsync(client, actorSession.RawSessionToken, "status-accepted", actorBillId);
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(1));
+        using (var rejectedRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            "/api/v1/sync/operations",
+            actorSession.RawSessionToken,
+            ArchiveOperationJson("status-rejected", actorBillId, 1, "\"unsupported\":\"value\"")))
+        using (var rejectedResponse = await client.SendAsync(rejectedRequest))
+        {
+            await AssertSyncOperationResponseAsync(
+                rejectedResponse,
+                "rejected",
+                actorBillId,
+                expectedVersion: null,
+                "unsupported_payload");
+        }
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(2));
+        using (var conflictRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            "/api/v1/sync/operations",
+            actorSession.RawSessionToken,
+            RestoreOperationJson("status-conflict", actorBillId, 0)))
+        using (var conflictResponse = await client.SendAsync(conflictRequest))
+        {
+            await AssertSyncOperationResponseAsync(
+                conflictResponse,
+                "conflict",
+                actorBillId,
+                expectedVersion: 1,
+                "stale_base_version");
+        }
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(3));
+        using (var otherRejectedRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            "/api/v1/sync/operations",
+            otherSession.RawSessionToken,
+            ArchiveOperationJson("other-status-rejected", otherBillId, null, "\"unsupported\":\"value\"")))
+        using (var otherRejectedResponse = await client.SendAsync(otherRejectedRequest))
+        {
+            await AssertSyncOperationResponseAsync(
+                otherRejectedResponse,
+                "rejected",
+                otherBillId,
+                expectedVersion: null,
+                "unsupported_payload");
+        }
+
+        var syncOperationCountBeforeStatusRead = await CountSyncOperationsAsync(testFactory);
+        var syncResourceVersionCountBeforeStatusRead = await CountSyncResourceVersionsAsync(testFactory);
+        var notificationCountBeforeStatusRead = await CountInAppNotificationsAsync(testFactory);
+        var archivedAtBeforeStatusRead = await ReadArchivedAtAsync(testFactory, actorBillId);
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(4));
+        using var statusRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/sync/local-status",
+            actorSession.RawSessionToken);
+        using var statusResponse = await client.SendAsync(statusRequest);
+        var content = await statusResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
+        Assert.Equal("application/json", statusResponse.Content.Headers.ContentType?.MediaType);
+        Assert.DoesNotContain("Local Status Hidden Merchant", content);
+        Assert.DoesNotContain("Other Hidden Status Merchant", content);
+        Assert.DoesNotContain("Seeded Sync Item", content);
+        Assert.DoesNotContain("Sensitive sync item note", content);
+        Assert.DoesNotContain("payment label secret", content);
+        Assert.DoesNotContain("storage/object/key", content);
+        Assert.DoesNotContain("Seeded OCR Merchant", content);
+        Assert.DoesNotContain("status-accepted", content);
+        Assert.DoesNotContain("status-rejected", content);
+        Assert.DoesNotContain("status-conflict", content);
+        Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        Assert.DoesNotContain("requestPayloadHash", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("authAccountId", content, StringComparison.OrdinalIgnoreCase);
+
+        using var payload = JsonDocument.Parse(content);
+        var root = payload.RootElement;
+        Assert.Equal("server_mode", root.GetProperty("mode").GetString());
+        Assert.True(root.GetProperty("available").GetBoolean());
+        Assert.Equal("server_mode_active", root.GetProperty("stableCode").GetString());
+        Assert.Equal("authenticated", root.GetProperty("sessionState").GetString());
+        Assert.Equal("reachable", root.GetProperty("serverReachability").GetString());
+        Assert.Equal(ArchiveTimestamp.AddMinutes(4), root.GetProperty("generatedAtUtc").GetDateTimeOffset());
+        Assert.Equal(ArchiveTimestamp.AddMinutes(9), root.GetProperty("expiresAtUtc").GetDateTimeOffset());
+        Assert.Equal(1, root.GetProperty("lastAcceptedServerVersion").GetInt64());
+        AssertFeatureStatus(root.GetProperty("serverMode"), "available", "server_mode_active");
+        AssertFeatureStatus(root.GetProperty("localModeSupport"), "unsupported", "local_mode_unsupported");
+        AssertFeatureStatus(root.GetProperty("backupRestoreSupport"), "unsupported", "backup_restore_unsupported");
+        AssertFeatureStatus(root.GetProperty("syncMutationSupport"), "unsupported", "sync_mutation_unsupported");
+        AssertOperationSummary(root.GetProperty("pendingOperationSummary"), "unavailable", null, "sync_status_unavailable");
+        AssertOperationSummary(root.GetProperty("failedOperationSummary"), "available", 1, "sync_failed_present");
+        AssertOperationSummary(root.GetProperty("conflictSummary"), "available", 1, "sync_conflict_present");
+        AssertUnsupportedFeatureCodes(
+            root.GetProperty("unsupportedFeatures"),
+            "browser_local_mode",
+            "browser_local_persistence",
+            "local_backup_restore",
+            "sync_mutation",
+            "conflict_resolution");
+        Assert.Contains("excludes record payloads", root.GetProperty("privacyBoundary").GetString(), StringComparison.Ordinal);
+
+        Assert.Equal(syncOperationCountBeforeStatusRead, await CountSyncOperationsAsync(testFactory));
+        Assert.Equal(syncResourceVersionCountBeforeStatusRead, await CountSyncResourceVersionsAsync(testFactory));
+        Assert.Equal(notificationCountBeforeStatusRead, await CountInAppNotificationsAsync(testFactory));
+        Assert.Equal(archivedAtBeforeStatusRead, await ReadArchivedAtAsync(testFactory, actorBillId));
+    }
+
+    [Fact]
+    public async Task LocalStatusRejectsQueryAndBodyBeforeSyncReadsOrSideEffects()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Local Status Guard Actor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Local Status Guard Merchant",
+            InitialTimestamp,
+            includeSensitiveRows: true);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp);
+        await SubmitAcceptedArchiveAsync(client, actorSession.RawSessionToken, "status-guard-accepted", billId);
+        var syncOperationCountBeforeStatusRead = await CountSyncOperationsAsync(testFactory);
+        var syncResourceVersionCountBeforeStatusRead = await CountSyncResourceVersionsAsync(testFactory);
+        var notificationCountBeforeStatusRead = await CountInAppNotificationsAsync(testFactory);
+
+        using (var queryRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/sync/local-status?actorUserProfileId=00000000-0000-0000-0000-000000000001&includeHidden=true",
+            actorSession.RawSessionToken))
+        using (var queryResponse = await client.SendAsync(queryRequest))
+        {
+            var content = await AssertInvalidSyncRequestProblemAsync(queryResponse);
+            Assert.Contains("Sync local status requests do not accept query fields.", content);
+            Assert.DoesNotContain("00000000-0000-0000-0000-000000000001", content);
+            Assert.DoesNotContain("includeHidden", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Local Status Guard Merchant", content);
+            Assert.DoesNotContain(billId.ToString("D"), content);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        }
+
+        using (var bodyRequest = CreateJsonBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/sync/local-status",
+            actorSession.RawSessionToken,
+            """{"submitSyncOperation":true,"resourceId":"00000000-0000-0000-0000-000000000001"}"""))
+        using (var bodyResponse = await client.SendAsync(bodyRequest))
+        {
+            var content = await AssertInvalidSyncRequestProblemAsync(bodyResponse);
+            Assert.Contains("Sync local status requests do not accept a body.", content);
+            Assert.DoesNotContain("submitSyncOperation", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("resourceId", content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        }
+
+        Assert.Equal(syncOperationCountBeforeStatusRead, await CountSyncOperationsAsync(testFactory));
+        Assert.Equal(syncResourceVersionCountBeforeStatusRead, await CountSyncResourceVersionsAsync(testFactory));
+        Assert.Equal(notificationCountBeforeStatusRead, await CountInAppNotificationsAsync(testFactory));
+        Assert.Equal(ArchiveTimestamp, await ReadArchivedAtAsync(testFactory, billId));
+    }
+
+    [Fact]
     public void OpenApiAndGeneratedClientsExposeSyncOperations()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
+        var localStatusBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/local-status:");
         var operationsBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/operations:");
         var operationReadBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/operations/{syncOperationId}:");
         var changesBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/changes:");
+        var localStatusSchema = ExtractOpenApiSchemaBlock(openApi, "SyncLocalStatusResponse:");
+        var localStatusStableCodeSchema = ExtractOpenApiSchemaBlock(openApi, "SyncLocalStatusStableCode:");
         var requestSchema = ExtractOpenApiSchemaBlock(openApi, "SyncOperationRequest:");
         var operationTypeSchema = ExtractOpenApiSchemaBlock(openApi, "SyncOperationType:");
         var operationStatusSchema = ExtractOpenApiSchemaBlock(openApi, "SyncOperationStatus:");
         var responseSchema = ExtractOpenApiSchemaBlock(openApi, "SyncOperationResponse:");
         var changesSchema = ExtractOpenApiSchemaBlock(openApi, "SyncChangesResponse:");
 
+        Assert.Contains("operationId: getSyncLocalStatus", localStatusBlock);
+        Assert.Contains("SyncLocalStatusResponse", localStatusBlock);
+        Assert.Contains("serverMode", localStatusSchema);
+        Assert.Contains("localModeSupport", localStatusSchema);
+        Assert.Contains("backupRestoreSupport", localStatusSchema);
+        Assert.Contains("syncMutationSupport", localStatusSchema);
+        Assert.Contains("unsupportedFeatures", localStatusSchema);
+        Assert.Contains("local_mode_unsupported", localStatusStableCodeSchema);
+        Assert.Contains("backup_restore_unsupported", localStatusStableCodeSchema);
+        Assert.Contains("sync_mutation_unsupported", localStatusStableCodeSchema);
         Assert.Contains("operationId: submitSyncOperation", operationsBlock);
         Assert.Contains("operationId: getSyncOperation", operationReadBlock);
         Assert.Contains("operationId: listSyncChanges", changesBlock);
@@ -721,11 +933,15 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("submitSyncOperation", webClient);
         Assert.Contains("getSyncOperation", webClient);
         Assert.Contains("listSyncChanges", webClient);
+        Assert.Contains("getSyncLocalStatus", webClient);
         Assert.Contains("submitSyncOperation", dartClient);
         Assert.Contains("getSyncOperation", dartClient);
         Assert.Contains("listSyncChanges", dartClient);
+        Assert.Contains("getSyncLocalStatus", dartClient);
         Assert.Contains("SyncOperationRequest", webModels);
+        Assert.Contains("SyncLocalStatusResponse", webModels);
         Assert.Contains("class SyncOperationRequest", dartModels);
+        Assert.Contains("class SyncLocalStatusResponse", dartModels);
     }
 
     [Fact]
@@ -1234,6 +1450,50 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Equal("The submitted sync request is invalid.", payload.RootElement.GetProperty("detail").GetString());
         Assert.True(payload.RootElement.TryGetProperty("errors", out _));
         return content;
+    }
+
+    private static void AssertFeatureStatus(
+        JsonElement feature,
+        string expectedState,
+        string expectedStableCode)
+    {
+        Assert.Equal(expectedState, feature.GetProperty("state").GetString());
+        Assert.Equal(expectedStableCode, feature.GetProperty("stableCode").GetString());
+        Assert.NotEqual(JsonValueKind.Null, feature.GetProperty("safeMessage").ValueKind);
+    }
+
+    private static void AssertOperationSummary(
+        JsonElement summary,
+        string expectedState,
+        int? expectedCount,
+        string expectedStableCode)
+    {
+        Assert.Equal(expectedState, summary.GetProperty("state").GetString());
+        if (expectedCount is null)
+        {
+            Assert.Equal(JsonValueKind.Null, summary.GetProperty("count").ValueKind);
+        }
+        else
+        {
+            Assert.Equal(expectedCount.Value, summary.GetProperty("count").GetInt32());
+        }
+
+        Assert.Equal(expectedStableCode, summary.GetProperty("stableCode").GetString());
+        Assert.NotEqual(JsonValueKind.Null, summary.GetProperty("safeMessage").ValueKind);
+    }
+
+    private static void AssertUnsupportedFeatureCodes(JsonElement features, params string[] expectedFeatures)
+    {
+        var actualFeatures = features.EnumerateArray()
+            .Select(feature => feature.GetProperty("feature").GetString())
+            .ToArray();
+        Assert.Equal(expectedFeatures, actualFeatures);
+
+        foreach (var feature in features.EnumerateArray())
+        {
+            Assert.NotEqual(JsonValueKind.Null, feature.GetProperty("stableCode").ValueKind);
+            Assert.NotEqual(JsonValueKind.Null, feature.GetProperty("safeMessage").ValueKind);
+        }
     }
 
     private static HttpRequestMessage CreateBearerRequest(

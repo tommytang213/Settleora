@@ -10,6 +10,7 @@ internal static class SyncEndpoints
     private const string InvalidSyncRequestTitle = "Invalid sync request";
     private const string InvalidSyncRequestDetail = "The submitted sync request is invalid.";
     private const string InvalidChangeFeedBodyMessage = "Sync change feed requests do not accept a body.";
+    private const string InvalidLocalStatusBodyMessage = "Sync local status requests do not accept a body.";
     private const string SyncOperationUnavailableTitle = "Sync operation unavailable";
     private const string SyncOperationUnavailableDetail = "The requested sync operation is unavailable.";
     private const string SyncWriteFailedTitle = "Sync write failed";
@@ -24,6 +25,7 @@ internal static class SyncEndpoints
         sync.MapPost("/operations", PostOperationAsync);
         sync.MapGet("/operations/{syncOperationId:guid}", GetOperationAsync);
         sync.MapGet("/changes", GetChangesAsync);
+        sync.MapGet("/local-status", GetLocalStatusAsync);
 
         return app;
     }
@@ -109,6 +111,26 @@ internal static class SyncEndpoints
             : InvalidSyncRequest(result.Error!);
     }
 
+    private static async Task<IResult> GetLocalStatusAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        SyncOperationService syncOperationService,
+        CancellationToken cancellationToken)
+    {
+        var readResult = ReadLocalStatusRequest(request);
+        if (!readResult.Succeeded)
+        {
+            return InvalidSyncRequest(readResult.Errors);
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        return Results.Ok(await syncOperationService.GetLocalStatusAsync(actor, cancellationToken));
+    }
+
     private static ChangeFeedRequestReadResult ReadChangeFeedRequest(HttpRequest request)
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -137,6 +159,24 @@ internal static class SyncEndpoints
         return errors.Count == 0
             ? ChangeFeedRequestReadResult.Valid(new ChangeFeedRequest(sinceVersion, limit, resourceType))
             : ChangeFeedRequestReadResult.Invalid(ToErrorDictionary(errors));
+    }
+
+    private static LocalStatusRequestReadResult ReadLocalStatusRequest(HttpRequest request)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (request.Query.Count > 0)
+        {
+            AddError(errors, "query", "Sync local status requests do not accept query fields.");
+        }
+
+        if (UnsupportedRequestFieldGuards.RequestHasBody(request))
+        {
+            AddError(errors, "body", InvalidLocalStatusBodyMessage);
+        }
+
+        return errors.Count == 0
+            ? LocalStatusRequestReadResult.Valid()
+            : LocalStatusRequestReadResult.Invalid(ToErrorDictionary(errors));
     }
 
     private static void RejectUnsupportedChangeFeedQueryFields(
@@ -303,6 +343,29 @@ internal static class SyncEndpoints
         long? SinceVersion,
         int? Limit,
         string? ResourceType);
+
+    private sealed class LocalStatusRequestReadResult
+    {
+        private LocalStatusRequestReadResult(IDictionary<string, string[]> errors)
+        {
+            Errors = errors;
+        }
+
+        public bool Succeeded => Errors.Count == 0;
+
+        public IDictionary<string, string[]> Errors { get; }
+
+        public static LocalStatusRequestReadResult Valid()
+        {
+            return new LocalStatusRequestReadResult(
+                new Dictionary<string, string[]>(StringComparer.Ordinal));
+        }
+
+        public static LocalStatusRequestReadResult Invalid(IDictionary<string, string[]> errors)
+        {
+            return new LocalStatusRequestReadResult(errors);
+        }
+    }
 
     private sealed class ChangeFeedRequestReadResult
     {
