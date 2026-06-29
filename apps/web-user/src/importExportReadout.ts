@@ -8,7 +8,10 @@ import {
   type ExpenseBillExportResponse,
   type ExpenseBillReconciliationStatus,
   type ExpenseBillStatus,
-  type BillCsvImportPreflightResponse
+  type BillCsvImportConfirmationResponse,
+  type BillCsvImportConfirmRequest,
+  type BillCsvImportPreflightResponse,
+  type BillCsvImportSessionResponse
 } from "../../../packages/client-web/src/generated";
 
 export type ImportExportCapabilityStatus =
@@ -66,6 +69,20 @@ export type BillImportPreflightRuntimeStatus =
   | "session_expired"
   | "unavailable"
   | "error";
+export type BillImportSessionRuntimeStatus =
+  | "idle"
+  | "auth_required"
+  | "creating"
+  | "ready"
+  | "needs_correction"
+  | "confirming"
+  | "confirmed"
+  | "discarding"
+  | "discarded"
+  | "session_expired"
+  | "unavailable"
+  | "conflict"
+  | "error";
 
 export interface BillExportFilters {
   fromDate?: string | null;
@@ -101,6 +118,15 @@ export interface BillImportPreflightRuntimeClient {
   listGroups?: SettleoraApiClient["listGroups"];
 }
 
+export interface BillImportSessionRuntimeClient {
+  createPersonalBillCsvImportSession?: SettleoraApiClient["createPersonalBillCsvImportSession"];
+  createGroupBillCsvImportSession?: SettleoraApiClient["createGroupBillCsvImportSession"];
+  getBillCsvImportSession?: SettleoraApiClient["getBillCsvImportSession"];
+  confirmBillCsvImportSession?: SettleoraApiClient["confirmBillCsvImportSession"];
+  discardBillCsvImportSession?: SettleoraApiClient["discardBillCsvImportSession"];
+  listGroups?: SettleoraApiClient["listGroups"];
+}
+
 export interface BrowserDownloadAdapter {
   saveBlob(blob: Blob, filename: string): void;
 }
@@ -123,6 +149,13 @@ export interface BillImportPreflightRuntimeState {
   response?: BillCsvImportPreflightResponse;
 }
 
+export interface BillImportSessionRuntimeState {
+  status: BillImportSessionRuntimeStatus;
+  message: string;
+  session?: BillCsvImportSessionResponse;
+  confirmationResult?: BillCsvImportConfirmationResponse;
+}
+
 export interface BillImportPreflightRuntimeOptions {
   accessToken?: string | null;
   scope: BillImportPreflightScope;
@@ -130,6 +163,23 @@ export interface BillImportPreflightRuntimeOptions {
   csvText?: string | null;
   baseUrl?: string;
   client?: BillImportPreflightRuntimeClient;
+}
+
+export interface BillImportSessionRuntimeOptions {
+  accessToken?: string | null;
+  scope: BillImportPreflightScope;
+  groupId?: string | null;
+  csvText?: string | null;
+  baseUrl?: string;
+  client?: BillImportSessionRuntimeClient;
+}
+
+export interface BillImportSessionActionOptions {
+  accessToken?: string | null;
+  session?: BillCsvImportSessionResponse | null;
+  baseUrl?: string;
+  client?: BillImportSessionRuntimeClient;
+  now?: Date;
 }
 
 export const defaultBillExportFilters: BillExportFilters = {
@@ -146,6 +196,11 @@ const operationMethods = [
   "exportGroupBillsJson",
   "preflightPersonalBillsCsvImport",
   "preflightGroupBillsCsvImport",
+  "createPersonalBillCsvImportSession",
+  "createGroupBillCsvImportSession",
+  "getBillCsvImportSession",
+  "confirmBillCsvImportSession",
+  "discardBillCsvImportSession",
   "listGroups",
   "importPersonalBillsCsv",
   "importGroupBillsCsv",
@@ -202,26 +257,41 @@ const capabilityDefinitions: Array<{
     id: "personal-bill-import",
     title: "Personal bill CSV import",
     summaryWhenPresent:
-      "A non-mutating CSV preflight method is present for personal bill review; final import remains unavailable.",
+      "Staged personal CSV import-session methods are present for review, confirmation, and discard.",
     summaryWhenMissing:
       "Personal bill CSV import is not available in this web client build.",
-    methods: ["preflightPersonalBillsCsvImport", "importPersonalBillsCsv"],
+    methods: [
+      "preflightPersonalBillsCsvImport",
+      "createPersonalBillCsvImportSession",
+      "getBillCsvImportSession",
+      "confirmBillCsvImportSession",
+      "discardBillCsvImportSession",
+      "importPersonalBillsCsv"
+    ],
     followUps: [
       "Preflight sends CSV text to Settleora for review metadata only and does not call the direct import mutation.",
-      "Future confirmation must keep validation, money truth, conflict handling, and audit server-owned."
+      "Confirmation echoes only server-returned session challenge fields and never calls the direct import mutation."
     ]
   },
   {
     id: "group-bill-import",
     title: "Group bill CSV import",
     summaryWhenPresent:
-      "A non-mutating group CSV preflight method is present and uses server-returned group selection.",
+      "Staged group CSV import-session methods are present and use fresh server-returned group selection.",
     summaryWhenMissing:
       "Group bill CSV import is not available in this web client build.",
-    methods: ["preflightGroupBillsCsvImport", "listGroups", "importGroupBillsCsv"],
+    methods: [
+      "preflightGroupBillsCsvImport",
+      "createGroupBillCsvImportSession",
+      "getBillCsvImportSession",
+      "confirmBillCsvImportSession",
+      "discardBillCsvImportSession",
+      "listGroups",
+      "importGroupBillsCsv"
+    ],
     followUps: [
       "Group preflight fails closed unless the selected group is still present in the latest server-returned group rows.",
-      "Future group import confirmation must make group authorization and conflict handling explicit before acceptance."
+      "Group import session creation reloads Settleora groups and fails closed when the selected group is missing."
     ]
   },
   {
@@ -268,7 +338,7 @@ const capabilityDefinitions: Array<{
 export const importExportUnsupportedSections = [
   "Personal CSV/JSON export is available only after sign-in and a positive server readiness check.",
   "Group CSV/JSON export needs a safe group selector on this route before it can start.",
-  "Import preflight is review-only in this slice; final import confirmation remains unavailable.",
+  "Import confirmation uses staged server sessions only; direct CSV import remains unavailable.",
   "Browser local backup and restore are not supported in this web slice.",
   "User-web local-mode persistence is not implemented.",
   "Sync/local status is availability copy only; no sync queue or operation is submitted.",
@@ -469,6 +539,149 @@ export async function preflightBillCsvImport(
   }
 }
 
+export async function createBillCsvImportSession(
+  options: BillImportSessionRuntimeOptions
+): Promise<BillImportSessionRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can create a CSV import session."
+    };
+  }
+
+  const csvText = options.csvText ?? "";
+  if (csvText.trim().length === 0) {
+    return {
+      status: "unavailable",
+      message: "Choose a non-empty CSV file before creating an import session."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    const session =
+      options.scope === "personal"
+        ? await callPersonalImportSessionCreate(client, accessToken, csvText)
+        : await callGroupImportSessionCreate(client, accessToken, options.groupId, csvText);
+    const scopeGuard = evaluateBillImportSessionScope(session, options.scope, options.groupId);
+
+    if (!scopeGuard.allowed) {
+      return {
+        status: "unavailable",
+        message: scopeGuard.message,
+        session
+      };
+    }
+
+    return mapImportSessionResponse(session);
+  } catch (error) {
+    return classifyBillImportSessionFailure(error, "Settleora could not create the import session. No import was confirmed.");
+  }
+}
+
+export async function confirmBillCsvImportSessionRuntime(
+  options: BillImportSessionActionOptions
+): Promise<BillImportSessionRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can confirm a CSV import session."
+    };
+  }
+
+  const session = options.session;
+  if (!session) {
+    return {
+      status: "unavailable",
+      message: "Create a server import session before importing reviewed bills."
+    };
+  }
+
+  const guard = evaluateBillImportSessionConfirmable(session, options.now);
+  if (!guard.allowed) {
+    return {
+      status: guard.status,
+      message: guard.message,
+      session
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    await ensureGroupStillServerReturned(client, accessToken, session);
+
+    if (typeof client.confirmBillCsvImportSession !== "function") {
+      throw new MissingImportSessionMethodError("Import session confirmation is not available in this web client build.");
+    }
+
+    const confirmationResult = await client.confirmBillCsvImportSession(
+      session.importSessionId,
+      createImportConfirmRequestFromSession(session),
+      { accessToken }
+    );
+
+    return {
+      status: confirmationResult.status === "confirmed" ? "confirmed" : "conflict",
+      message:
+        confirmationResult.status === "confirmed"
+          ? `Settleora imported ${confirmationResult.importedBillCount} reviewed bill${confirmationResult.importedBillCount === 1 ? "" : "s"}.`
+          : "Settleora returned a non-confirmed import result. Review the returned status before retrying.",
+      confirmationResult
+    };
+  } catch (error) {
+    return classifyBillImportSessionFailure(error, "Settleora could not confirm the import session. No fallback import was attempted.");
+  }
+}
+
+export async function discardBillCsvImportSessionRuntime(
+  options: BillImportSessionActionOptions
+): Promise<BillImportSessionRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can discard a CSV import session."
+    };
+  }
+
+  const session = options.session;
+  if (!session) {
+    return {
+      status: "unavailable",
+      message: "Create a server import session before discarding it."
+    };
+  }
+
+  if (session.status !== "ready_for_confirmation" && session.status !== "needs_correction") {
+    return {
+      status: session.status === "expired" ? "session_expired" : "unavailable",
+      message: "Only pending import sessions can be discarded from this screen.",
+      session
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    if (typeof client.discardBillCsvImportSession !== "function") {
+      throw new MissingImportSessionMethodError("Import session discard is not available in this web client build.");
+    }
+
+    return mapImportSessionResponse(
+      await client.discardBillCsvImportSession(session.importSessionId, { accessToken })
+    );
+  } catch (error) {
+    return classifyBillImportSessionFailure(error, "Settleora could not discard the import session.");
+  }
+}
+
 export function evaluateBillImportPreflightScope(
   response: BillCsvImportPreflightResponse,
   scope: BillImportPreflightScope,
@@ -498,6 +711,77 @@ export function evaluateBillImportPreflightScope(
   return {
     allowed: true,
     message: response.safeMessage
+  };
+}
+
+export function evaluateBillImportSessionScope(
+  response: BillCsvImportSessionResponse,
+  scope: BillImportPreflightScope,
+  groupId: string | null | undefined
+): { allowed: boolean; message: string } {
+  if (response.scope !== scope) {
+    return {
+      allowed: false,
+      message: "Settleora returned import session metadata for a different scope."
+    };
+  }
+
+  if (scope === "personal" && response.groupId !== null) {
+    return {
+      allowed: false,
+      message: "Settleora returned group metadata for a personal import session."
+    };
+  }
+
+  if (scope === "group" && response.groupId !== groupId?.trim()) {
+    return {
+      allowed: false,
+      message: "Settleora returned import session metadata for a different group. Select the group again."
+    };
+  }
+
+  return {
+    allowed: true,
+    message: response.confirmation.safeMessage
+  };
+}
+
+export function evaluateBillImportSessionConfirmable(
+  session: BillCsvImportSessionResponse,
+  now: Date = new Date()
+): { allowed: boolean; status: BillImportSessionRuntimeStatus; message: string } {
+  if (session.status === "expired" || new Date(session.expiresAtUtc).getTime() <= now.getTime()) {
+    return {
+      allowed: false,
+      status: "session_expired",
+      message: "This import session expired. Create a new import session before importing bills."
+    };
+  }
+
+  if (session.status !== "ready_for_confirmation" || !session.confirmation.confirmable) {
+    return {
+      allowed: false,
+      status: session.status === "needs_correction" ? "needs_correction" : "unavailable",
+      message: session.confirmation.safeMessage || "This import session is not ready for confirmation."
+    };
+  }
+
+  return {
+    allowed: true,
+    status: "ready",
+    message: session.confirmation.safeMessage
+  };
+}
+
+export function createImportConfirmRequestFromSession(
+  session: BillCsvImportSessionResponse
+): BillCsvImportConfirmRequest {
+  return {
+    scope: session.scope,
+    groupId: session.groupId,
+    payloadDigest: session.payloadDigest,
+    preflightResultVersion: session.preflightResultVersion,
+    confirmationChallengeId: session.confirmationChallengeId
   };
 }
 
@@ -789,6 +1073,109 @@ async function callGroupImportPreflight(
   return client.preflightGroupBillsCsvImport(normalizedGroupId, csvText, { accessToken });
 }
 
+async function callPersonalImportSessionCreate(
+  client: BillImportSessionRuntimeClient,
+  accessToken: string,
+  csvText: string
+): Promise<BillCsvImportSessionResponse> {
+  if (typeof client.createPersonalBillCsvImportSession !== "function") {
+    throw new MissingImportSessionMethodError("Personal CSV import sessions are not available in this web client build.");
+  }
+
+  return client.createPersonalBillCsvImportSession(csvText, { accessToken });
+}
+
+async function callGroupImportSessionCreate(
+  client: BillImportSessionRuntimeClient,
+  accessToken: string,
+  groupId: string | null | undefined,
+  csvText: string
+): Promise<BillCsvImportSessionResponse> {
+  const normalizedGroupId = groupId?.trim();
+
+  if (!normalizedGroupId) {
+    throw new MissingImportSessionMethodError("Select a server-returned group before creating a group import session.");
+  }
+
+  if (typeof client.listGroups !== "function") {
+    throw new MissingImportSessionMethodError("Group selection is not available in this web client build.");
+  }
+
+  const groups = await client.listGroups({ accessToken });
+  if (!groups.groups.some((group) => group.id === normalizedGroupId)) {
+    throw new MissingImportSessionMethodError("The selected group is no longer available. Refresh groups and select again.");
+  }
+
+  if (typeof client.createGroupBillCsvImportSession !== "function") {
+    throw new MissingImportSessionMethodError("Group CSV import sessions are not available in this web client build.");
+  }
+
+  return client.createGroupBillCsvImportSession(normalizedGroupId, csvText, { accessToken });
+}
+
+async function ensureGroupStillServerReturned(
+  client: BillImportSessionRuntimeClient,
+  accessToken: string,
+  session: BillCsvImportSessionResponse
+) {
+  if (session.scope !== "group") {
+    return;
+  }
+
+  if (!session.groupId) {
+    throw new MissingImportSessionMethodError("Settleora returned a group import session without group metadata.");
+  }
+
+  if (typeof client.listGroups !== "function") {
+    throw new MissingImportSessionMethodError("Group selection is not available in this web client build.");
+  }
+
+  const groups = await client.listGroups({ accessToken });
+  if (!groups.groups.some((group) => group.id === session.groupId)) {
+    throw new MissingImportSessionMethodError("The import session group is no longer available. Refresh groups and create a new session.");
+  }
+}
+
+function mapImportSessionResponse(session: BillCsvImportSessionResponse): BillImportSessionRuntimeState {
+  if (session.status === "expired") {
+    return {
+      status: "session_expired",
+      message: "This import session expired. Create a new import session before importing bills.",
+      session
+    };
+  }
+
+  if (session.status === "discarded") {
+    return {
+      status: "discarded",
+      message: "The import session was discarded. No bills were imported.",
+      session
+    };
+  }
+
+  if (session.status === "confirmed") {
+    return {
+      status: "confirmed",
+      message: "Settleora reports this import session is already confirmed.",
+      session
+    };
+  }
+
+  if (session.status === "needs_correction") {
+    return {
+      status: "needs_correction",
+      message: session.confirmation.safeMessage || "Correct rejected import rows before importing bills.",
+      session
+    };
+  }
+
+  return {
+    status: session.confirmation.confirmable ? "ready" : "needs_correction",
+    message: session.confirmation.safeMessage || "Review the server-returned import session before importing bills.",
+    session
+  };
+}
+
 function createJsonExportBlob(exportResponse: ExpenseBillExportResponse): Blob {
   return new Blob([JSON.stringify(exportResponse, null, 2)], {
     type: "application/json"
@@ -868,6 +1255,64 @@ function classifyBillImportPreflightFailure(error: unknown): BillImportPreflight
 }
 
 class MissingImportPreflightMethodError extends Error {}
+
+function classifyBillImportSessionFailure(error: unknown, fallback: string): BillImportSessionRuntimeState {
+  if (error instanceof MissingImportSessionMethodError) {
+    return {
+      status: "unavailable",
+      message: error.message
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 401) {
+    return {
+      status: "session_expired",
+      message: "Your session could not be verified. Sign in again before using CSV import sessions."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 403) {
+    return {
+      status: "unavailable",
+      message: "This account cannot use CSV import sessions for the requested bill scope."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 404) {
+    return {
+      status: "unavailable",
+      message: "The requested import session or scope is not available from this Settleora server."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 409) {
+    return {
+      status: "conflict",
+      message: "Settleora could not confirm this import session because the review state changed. Create a new session before retrying."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 410) {
+    return {
+      status: "session_expired",
+      message: "This import session expired. Create a new import session before importing bills."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 422) {
+    return {
+      status: "needs_correction",
+      message: "Settleora rejected the import session confirmation. Review the latest session details before retrying."
+    };
+  }
+
+  return {
+    status: "error",
+    message: fallback
+  };
+}
+
+class MissingImportSessionMethodError extends Error {}
 
 const browserDownloadAdapter: BrowserDownloadAdapter = {
   saveBlob(blob, filename) {

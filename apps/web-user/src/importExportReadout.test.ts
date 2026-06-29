@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   checkBillExportReadiness,
+  confirmBillCsvImportSessionRuntime,
   createBillExportFilename,
+  createBillCsvImportSession,
+  createImportConfirmRequestFromSession,
+  discardBillCsvImportSessionRuntime,
   downloadBillExport,
+  evaluateBillImportSessionConfirmable,
   evaluateBillImportPreflightScope,
   evaluateBillExportReadiness,
   getMissingImportExportMethods,
@@ -10,12 +15,19 @@ import {
   labelImportExportStatus,
   loadImportExportReadout,
   preflightBillCsvImport,
+  type BillImportSessionRuntimeClient,
   type BillImportPreflightRuntimeClient,
   type BillExportRuntimeClient
 } from "./importExportReadout";
 import { loadGroupsReadout } from "./groupsFriendsReadout";
 import { SettleoraApiError } from "../../../packages/client-web/src/generated";
-import type { BillCsvImportPreflightResponse, ExpenseBillExportReadinessResponse, GroupResponse } from "../../../packages/client-web/src/generated";
+import type {
+  BillCsvImportConfirmationResponse,
+  BillCsvImportPreflightResponse,
+  BillCsvImportSessionResponse,
+  ExpenseBillExportReadinessResponse,
+  GroupResponse
+} from "../../../packages/client-web/src/generated";
 
 function createOperationClient() {
   return {
@@ -27,6 +39,11 @@ function createOperationClient() {
     exportGroupBillsJson: vi.fn(),
     preflightPersonalBillsCsvImport: vi.fn(),
     preflightGroupBillsCsvImport: vi.fn(),
+    createPersonalBillCsvImportSession: vi.fn(),
+    createGroupBillCsvImportSession: vi.fn(),
+    getBillCsvImportSession: vi.fn(),
+    confirmBillCsvImportSession: vi.fn(),
+    discardBillCsvImportSession: vi.fn(),
     listGroups: vi.fn(),
     importPersonalBillsCsv: vi.fn(),
     importGroupBillsCsv: vi.fn(),
@@ -51,6 +68,11 @@ describe("import/export availability readout", () => {
       "exportGroupBillsJson",
       "preflightPersonalBillsCsvImport",
       "preflightGroupBillsCsvImport",
+      "createPersonalBillCsvImportSession",
+      "createGroupBillCsvImportSession",
+      "getBillCsvImportSession",
+      "confirmBillCsvImportSession",
+      "discardBillCsvImportSession",
       "listGroups",
       "importPersonalBillsCsv",
       "importGroupBillsCsv",
@@ -75,12 +97,27 @@ describe("import/export availability readout", () => {
         expect.objectContaining({
           id: "personal-bill-import",
           status: "operation_method_exists",
-          methodsPresent: ["preflightPersonalBillsCsvImport", "importPersonalBillsCsv"]
+          methodsPresent: [
+            "preflightPersonalBillsCsvImport",
+            "createPersonalBillCsvImportSession",
+            "getBillCsvImportSession",
+            "confirmBillCsvImportSession",
+            "discardBillCsvImportSession",
+            "importPersonalBillsCsv"
+          ]
         }),
         expect.objectContaining({
           id: "group-bill-import",
           status: "operation_method_exists",
-          methodsPresent: ["preflightGroupBillsCsvImport", "listGroups", "importGroupBillsCsv"]
+          methodsPresent: [
+            "preflightGroupBillsCsvImport",
+            "createGroupBillCsvImportSession",
+            "getBillCsvImportSession",
+            "confirmBillCsvImportSession",
+            "discardBillCsvImportSession",
+            "listGroups",
+            "importGroupBillsCsv"
+          ]
         }),
         expect.objectContaining({
           id: "sync-status",
@@ -107,6 +144,11 @@ describe("import/export availability readout", () => {
       "exportGroupBillsJson",
       "preflightPersonalBillsCsvImport",
       "preflightGroupBillsCsvImport",
+      "createPersonalBillCsvImportSession",
+      "createGroupBillCsvImportSession",
+      "getBillCsvImportSession",
+      "confirmBillCsvImportSession",
+      "discardBillCsvImportSession",
       "listGroups",
       "importGroupBillsCsv",
       "listSyncChanges",
@@ -170,7 +212,7 @@ describe("import/export availability readout", () => {
     expect(copy).toContain("export readiness");
     expect(copy).toContain("Personal CSV/JSON export");
     expect(copy).toContain("Group CSV/JSON export");
-    expect(copy).toContain("Import preflight");
+    expect(copy).toContain("Import");
     expect(copy).toContain("Browser local backup");
     expect(copy).toContain("User-web local-mode persistence");
     expect(copy).toContain("Sync/local status");
@@ -849,6 +891,276 @@ describe("CSV import preflight runtime", () => {
   });
 });
 
+describe("CSV import session runtime", () => {
+  it("auth-gates before session create, confirm, or discard calls", async () => {
+    const client = createImportSessionClient();
+
+    const created = await createBillCsvImportSession({
+      accessToken: " ",
+      scope: "personal",
+      csvText: "clientBillKey\nrow-1\n",
+      client
+    });
+    const confirmed = await confirmBillCsvImportSessionRuntime({
+      accessToken: null,
+      session: createImportSessionResponse(),
+      client
+    });
+    const discarded = await discardBillCsvImportSessionRuntime({
+      accessToken: "",
+      session: createImportSessionResponse(),
+      client
+    });
+
+    expect(created.status).toBe("auth_required");
+    expect(confirmed.status).toBe("auth_required");
+    expect(discarded.status).toBe("auth_required");
+    expect(client.createPersonalBillCsvImportSession).not.toHaveBeenCalled();
+    expect(client.createGroupBillCsvImportSession).not.toHaveBeenCalled();
+    expect(client.confirmBillCsvImportSession).not.toHaveBeenCalled();
+    expect(client.discardBillCsvImportSession).not.toHaveBeenCalled();
+  });
+
+  it("creates a personal import session and never calls direct import methods", async () => {
+    const forbidden = {
+      importPersonalBillsCsv: vi.fn(),
+      importGroupBillsCsv: vi.fn()
+    };
+    const client = { ...createImportSessionClient(), ...forbidden };
+    const csvText = "clientBillKey,billDate,currency,itemName,itemAmount\npersonal-1,2026-05-17,USD,Lunch,10.00\n";
+
+    const result = await createBillCsvImportSession({
+      accessToken: "token",
+      scope: "personal",
+      csvText,
+      client
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.session?.status).toBe("ready_for_confirmation");
+    expect(client.createPersonalBillCsvImportSession).toHaveBeenCalledWith(csvText, { accessToken: "token" });
+    expect(client.createGroupBillCsvImportSession).not.toHaveBeenCalled();
+    expect(forbidden.importPersonalBillsCsv).not.toHaveBeenCalled();
+    expect(forbidden.importGroupBillsCsv).not.toHaveBeenCalled();
+  });
+
+  it("group import session creation reloads groups and uses only server-returned selected group ids", async () => {
+    const session = createImportSessionResponse({ scope: "group", groupId: "group-1" });
+    const client = createImportSessionClient({ session });
+    const csvText = "clientBillKey,billDate,currency,itemName,itemAmount\ngroup-1,2026-05-17,USD,Dinner,12.00\n";
+
+    const result = await createBillCsvImportSession({
+      accessToken: "token",
+      scope: "group",
+      groupId: "group-1",
+      csvText,
+      client
+    });
+
+    expect(result.status).toBe("ready");
+    expect(
+      vi.mocked(client.listGroups).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(client.createGroupBillCsvImportSession).mock.invocationCallOrder[0]);
+    expect(client.createGroupBillCsvImportSession).toHaveBeenCalledWith("group-1", csvText, { accessToken: "token" });
+  });
+
+  it("stale or missing group selection fails closed and makes no group session call", async () => {
+    const client = createImportSessionClient({ groups: [createGroup({ id: "group-2" })] });
+
+    const result = await createBillCsvImportSession({
+      accessToken: "token",
+      scope: "group",
+      groupId: "group-1",
+      csvText: "clientBillKey\nrow-1\n",
+      client
+    });
+
+    expect(result).toEqual({
+      status: "unavailable",
+      message: "The selected group is no longer available. Refresh groups and select again."
+    });
+    expect(client.listGroups).toHaveBeenCalledWith({ accessToken: "token" });
+    expect(client.createGroupBillCsvImportSession).not.toHaveBeenCalled();
+  });
+
+  it("maps session response data for review, audit, confirmation, and normalized candidates", async () => {
+    const session = createImportSessionResponse({
+      expiresAtUtc: "2026-06-29T13:00:00.000Z",
+      review: createImportPreflightResponse({
+        reviewItems: [
+          {
+            rowNumber: 2,
+            state: "defaulted",
+            severity: "warning",
+            codes: ["split_defaulted", "row_warning"],
+            safeMessage: "Split method defaulted.",
+            normalizedCandidate: {
+              billDate: "2026-05-17",
+              currency: "USD",
+              itemAmount: "10.00",
+              splitMethod: "exact_amount",
+              splitBasisValue: "10.00"
+            },
+            fields: ["billDate", "currency", "itemAmount", "splitMethod"]
+          }
+        ],
+        auditPreview: {
+          action: "bill.csv_import_preflight",
+          scope: "personal",
+          safeMessage: "Final audit is written only when confirmation imports bills."
+        },
+        confirmation: {
+          reviewLabel: "Review import",
+          confirmLabel: "Import reviewed bills",
+          safeMessage: "Confirm only after reviewing defaults."
+        }
+      }),
+      confirmation: {
+        confirmLabel: "Import reviewed bills",
+        discardLabel: "Discard import session",
+        confirmable: true,
+        safeMessage: "One accepted row is ready for confirmation."
+      }
+    });
+    const client = createImportSessionClient({ session });
+
+    const result = await createBillCsvImportSession({
+      accessToken: "token",
+      scope: "personal",
+      csvText: "csv text that must not be rendered by helpers",
+      client
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.session).toEqual(
+      expect.objectContaining({
+        status: "ready_for_confirmation",
+        expiresAtUtc: "2026-06-29T13:00:00.000Z",
+        rowCount: 1,
+        acceptedRowCount: 1,
+        duplicateCandidateRowCount: 0
+      })
+    );
+    expect(result.session?.review.reviewItems[0]).toEqual(
+      expect.objectContaining({
+        state: "defaulted",
+        codes: ["split_defaulted", "row_warning"],
+        normalizedCandidate: expect.objectContaining({
+          billDate: "2026-05-17",
+          currency: "USD",
+          itemAmount: "10.00",
+          splitMethod: "exact_amount"
+        })
+      })
+    );
+    expect(JSON.stringify(result)).toContain("Final audit is written only when confirmation imports bills.");
+    expect(JSON.stringify(result)).toContain("Import reviewed bills");
+    expect(JSON.stringify(result)).not.toContain("csv text that must not be rendered by helpers");
+  });
+
+  it("confirmation calls the generated request shape and does not call direct import methods", async () => {
+    const forbidden = {
+      importPersonalBillsCsv: vi.fn(),
+      importGroupBillsCsv: vi.fn()
+    };
+    const session = createImportSessionResponse();
+    const client = { ...createImportSessionClient({ session }), ...forbidden };
+
+    const result = await confirmBillCsvImportSessionRuntime({
+      accessToken: "token",
+      session,
+      client
+    });
+
+    expect(result.status).toBe("confirmed");
+    expect(client.confirmBillCsvImportSession).toHaveBeenCalledWith(
+      session.importSessionId,
+      createImportConfirmRequestFromSession(session),
+      { accessToken: "token" }
+    );
+    expect(forbidden.importPersonalBillsCsv).not.toHaveBeenCalled();
+    expect(forbidden.importGroupBillsCsv).not.toHaveBeenCalled();
+  });
+
+  it("discard calls the generated discard method and updates state from returned session", async () => {
+    const discardedSession = createImportSessionResponse({
+      status: "discarded",
+      confirmation: {
+        confirmLabel: "Import reviewed bills",
+        discardLabel: "Discard import session",
+        confirmable: false,
+        safeMessage: "The session was discarded."
+      }
+    });
+    const client = createImportSessionClient({ discardedSession });
+    const session = createImportSessionResponse();
+
+    const result = await discardBillCsvImportSessionRuntime({
+      accessToken: "token",
+      session,
+      client
+    });
+
+    expect(result.status).toBe("discarded");
+    expect(result.session?.status).toBe("discarded");
+    expect(client.discardBillCsvImportSession).toHaveBeenCalledWith(session.importSessionId, { accessToken: "token" });
+  });
+
+  it("expired, denied, not-found, conflict, and validation states fail closed", async () => {
+    expect(
+      evaluateBillImportSessionConfirmable(
+        createImportSessionResponse({ expiresAtUtc: "2026-06-29T00:00:00.000Z" }),
+        new Date("2026-06-29T00:00:01.000Z")
+      )
+    ).toEqual({
+      allowed: false,
+      status: "session_expired",
+      message: "This import session expired. Create a new import session before importing bills."
+    });
+
+    const denied = await createBillCsvImportSession({
+      accessToken: "token",
+      scope: "personal",
+      csvText: "clientBillKey\nrow-1\n",
+      client: createThrowingImportSessionClient(new SettleoraApiError(403, "Forbidden", {}))
+    });
+    const notFound = await confirmBillCsvImportSessionRuntime({
+      accessToken: "token",
+      session: createImportSessionResponse(),
+      client: createThrowingImportSessionClient(new SettleoraApiError(404, "Not Found", {}))
+    });
+    const conflict = await confirmBillCsvImportSessionRuntime({
+      accessToken: "token",
+      session: createImportSessionResponse(),
+      client: createThrowingImportSessionClient(new SettleoraApiError(409, "Conflict", {}))
+    });
+    const validation = await confirmBillCsvImportSessionRuntime({
+      accessToken: "token",
+      session: createImportSessionResponse(),
+      client: createThrowingImportSessionClient(new SettleoraApiError(422, "Unprocessable", {}))
+    });
+
+    expect(denied.status).toBe("unavailable");
+    expect(notFound.status).toBe("unavailable");
+    expect(conflict.status).toBe("conflict");
+    expect(validation.status).toBe("needs_correction");
+  });
+
+  it("keeps direct import unavailable when staged session methods are missing", async () => {
+    const result = await createBillCsvImportSession({
+      accessToken: "token",
+      scope: "personal",
+      csvText: "clientBillKey\nrow-1\n",
+      client: { importPersonalBillsCsv: vi.fn() } as never
+    });
+
+    expect(result).toEqual({
+      status: "unavailable",
+      message: "Personal CSV import sessions are not available in this web client build."
+    });
+  });
+});
+
 function createReadiness(
   overrides: Partial<ExpenseBillExportReadinessResponse> = {}
 ): ExpenseBillExportReadinessResponse {
@@ -1014,6 +1326,96 @@ function createThrowingImportPreflightClient(error: unknown): BillImportPrefligh
     preflightPersonalBillsCsvImport: vi.fn(async () => {
       throw error;
     })
+  };
+}
+
+function createImportSessionResponse(
+  overrides: Partial<BillCsvImportSessionResponse> = {}
+): BillCsvImportSessionResponse {
+  return {
+    importSessionId: "00000000-0000-4000-8000-000000000461",
+    scope: "personal",
+    groupId: null,
+    status: "ready_for_confirmation",
+    expiresAtUtc: "2999-01-01T00:00:00.000Z",
+    payloadDigest: "sha256:session-digest",
+    preflightResultVersion: "preflight-v1",
+    confirmationChallengeId: "challenge-v1",
+    rowCount: 1,
+    acceptedRowCount: 1,
+    warningRowCount: 0,
+    rejectedRowCount: 0,
+    duplicateCandidateRowCount: 0,
+    confirmation: {
+      confirmLabel: "Import reviewed bills",
+      discardLabel: "Discard import session",
+      confirmable: true,
+      safeMessage: "One row is ready for confirmation."
+    },
+    review: createImportPreflightResponse(),
+    ...overrides
+  };
+}
+
+function createImportConfirmationResponse(
+  overrides: Partial<BillCsvImportConfirmationResponse> = {}
+): BillCsvImportConfirmationResponse {
+  return {
+    importSessionId: "00000000-0000-4000-8000-000000000461",
+    scope: "personal",
+    groupId: null,
+    status: "confirmed",
+    importedBillCount: 1,
+    bills: [
+      {
+        billId: "00000000-0000-4000-8000-000000000777",
+        groupId: null,
+        billDate: "2026-05-17",
+        status: "draft",
+        totalAmount: "10.00",
+        totalCurrency: "USD",
+        itemCount: 1,
+        participantCount: 1,
+        payerCount: 1
+      }
+    ],
+    ...overrides
+  };
+}
+
+function createImportSessionClient({
+  session = createImportSessionResponse(),
+  confirmation = createImportConfirmationResponse(),
+  discardedSession = createImportSessionResponse({ status: "discarded" }),
+  groups = [createGroup()]
+}: {
+  session?: BillCsvImportSessionResponse;
+  confirmation?: BillCsvImportConfirmationResponse;
+  discardedSession?: BillCsvImportSessionResponse;
+  groups?: GroupResponse[];
+} = {}): Required<BillImportSessionRuntimeClient> {
+  return {
+    createPersonalBillCsvImportSession: vi.fn(async () => session),
+    createGroupBillCsvImportSession: vi.fn(async () => session),
+    getBillCsvImportSession: vi.fn(async () => session),
+    confirmBillCsvImportSession: vi.fn(async () => confirmation),
+    discardBillCsvImportSession: vi.fn(async () => discardedSession),
+    listGroups: vi.fn(async () => ({ groups }))
+  };
+}
+
+function createThrowingImportSessionClient(error: unknown): BillImportSessionRuntimeClient {
+  return {
+    createPersonalBillCsvImportSession: vi.fn(async () => {
+      throw error;
+    }),
+    confirmBillCsvImportSession: vi.fn(async () => {
+      throw error;
+    }),
+    discardBillCsvImportSession: vi.fn(async () => {
+      throw error;
+    }),
+    listGroups: vi.fn(async () => ({ groups: [createGroup()] }))
   };
 }
 
