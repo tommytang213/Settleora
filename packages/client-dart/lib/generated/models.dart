@@ -6203,6 +6203,296 @@ class ExpenseBillReconciliationResponse {
   }
 }
 
+typedef ExpenseBillExportScopeType = String;
+class ExpenseBillExportScopeTypeValues {
+  const ExpenseBillExportScopeTypeValues._();
+  static const ExpenseBillExportScopeType personal = "personal";
+  static const ExpenseBillExportScopeType group = "group";
+  static const Set<ExpenseBillExportScopeType> values = {personal, group};
+}
+
+typedef ExpenseBillExportFormat = String;
+class ExpenseBillExportFormatValues {
+  const ExpenseBillExportFormatValues._();
+  static const ExpenseBillExportFormat csv = "csv";
+  static const ExpenseBillExportFormat json = "json";
+  static const Set<ExpenseBillExportFormat> values = {csv, json};
+}
+
+typedef ExpenseBillExportReadinessCode = String;
+class ExpenseBillExportReadinessCodeValues {
+  const ExpenseBillExportReadinessCodeValues._();
+  static const ExpenseBillExportReadinessCode ready = "ready";
+  static const ExpenseBillExportReadinessCode authenticationRequired = "authentication_required";
+  static const ExpenseBillExportReadinessCode authorizationDenied = "authorization_denied";
+  static const ExpenseBillExportReadinessCode unsupportedFormat = "unsupported_format";
+  static const ExpenseBillExportReadinessCode unsupportedFilter = "unsupported_filter";
+  static const ExpenseBillExportReadinessCode noExportableRecords = "no_exportable_records";
+  static const ExpenseBillExportReadinessCode limitExceeded = "limit_exceeded";
+  static const ExpenseBillExportReadinessCode policyDisabled = "policy_disabled";
+  static const ExpenseBillExportReadinessCode notImplemented = "not_implemented";
+  static const ExpenseBillExportReadinessCode temporarilyUnavailable = "temporarily_unavailable";
+  static const Set<ExpenseBillExportReadinessCode> values = {ready, authenticationRequired, authorizationDenied, unsupportedFormat, unsupportedFilter, noExportableRecords, limitExceeded, policyDisabled, notImplemented, temporarilyUnavailable};
+}
+
+/// Safe pre-download bill export readiness metadata. It does not contain exported rows or file bytes and must not expose storage paths, object keys, signed URLs, provider internals, raw OCR text, secrets, private notes, or unrelated records.
+class ExpenseBillExportReadinessResponse {
+  const ExpenseBillExportReadinessResponse({
+    required this.scopeType,
+    required this.groupId,
+    required this.requestedFormat,
+    required this.supportedFormats,
+    required this.available,
+    required this.code,
+    required this.message,
+    required this.acceptedFilters,
+    required this.defaultedFilters,
+    required this.rejectedFilters,
+    required this.rowLimit,
+    required this.estimatedRows,
+    required this.sizeLimitBytes,
+    required this.estimatedSizeBytes,
+    required this.includesFileBytes,
+    required this.redactions,
+    required this.auditPreview,
+    required this.confirmation,
+    required this.expiresAtUtc,
+  });
+
+  final ExpenseBillExportScopeType scopeType;
+  /// Present only for group export readiness; null for personal export readiness.
+  final String? groupId;
+  /// Server-normalized requested format. Unsupported requested values may be echoed only as a bounded format token, never as raw request bodies or storage details.
+  final String requestedFormat;
+  final List<ExpenseBillExportFormat> supportedFormats;
+  final bool available;
+  final ExpenseBillExportReadinessCode code;
+  /// Safe product-facing readiness message.
+  final String message;
+  final ExpenseBillExportFilterResponse acceptedFilters;
+  final List<ExpenseBillExportFilterDefaultResponse> defaultedFilters;
+  final List<ExpenseBillExportFilterRejectionResponse> rejectedFilters;
+  final int rowLimit;
+  /// Bounded estimate of rows that would be returned by the current synchronous export request.
+  final int? estimatedRows;
+  final int? sizeLimitBytes;
+  /// Null when not safely computable before export generation.
+  final int? estimatedSizeBytes;
+  /// Always false for this readiness slice.
+  final bool includesFileBytes;
+  final List<ExpenseBillExportRedactionResponse> redactions;
+  final ExpenseBillExportAuditPreviewResponse auditPreview;
+  final ExpenseBillExportConfirmationResponse confirmation;
+  final DateTime expiresAtUtc;
+
+  factory ExpenseBillExportReadinessResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportReadinessResponse(
+      scopeType: json["scopeType"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      requestedFormat: json["requestedFormat"] as String,
+      supportedFormats: (json["supportedFormats"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      available: json["available"] as bool,
+      code: json["code"] as String,
+      message: json["message"] as String,
+      acceptedFilters: ExpenseBillExportFilterResponse.fromJson(JsonObject.from(json["acceptedFilters"] as Map)),
+      defaultedFilters: (json["defaultedFilters"] as List<dynamic>).map((item) => ExpenseBillExportFilterDefaultResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      rejectedFilters: (json["rejectedFilters"] as List<dynamic>).map((item) => ExpenseBillExportFilterRejectionResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      rowLimit: (json["rowLimit"] as num).toInt(),
+      estimatedRows: json["estimatedRows"] == null ? null : (json["estimatedRows"] as num).toInt(),
+      sizeLimitBytes: json["sizeLimitBytes"] == null ? null : (json["sizeLimitBytes"] as num).toInt(),
+      estimatedSizeBytes: json["estimatedSizeBytes"] == null ? null : (json["estimatedSizeBytes"] as num).toInt(),
+      includesFileBytes: json["includesFileBytes"] as bool,
+      redactions: (json["redactions"] as List<dynamic>).map((item) => ExpenseBillExportRedactionResponse.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      auditPreview: ExpenseBillExportAuditPreviewResponse.fromJson(JsonObject.from(json["auditPreview"] as Map)),
+      confirmation: ExpenseBillExportConfirmationResponse.fromJson(JsonObject.from(json["confirmation"] as Map)),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+    final estimatedRowsJsonValue = estimatedRows;
+    final sizeLimitBytesJsonValue = sizeLimitBytes;
+    final estimatedSizeBytesJsonValue = estimatedSizeBytes;
+
+    return {
+      "scopeType": scopeType,
+      "groupId": groupIdJsonValue,
+      "requestedFormat": requestedFormat,
+      "supportedFormats": supportedFormats,
+      "available": available,
+      "code": code,
+      "message": message,
+      "acceptedFilters": acceptedFilters.toJson(),
+      "defaultedFilters": defaultedFilters.map((item) => item.toJson()).toList(growable: false),
+      "rejectedFilters": rejectedFilters.map((item) => item.toJson()).toList(growable: false),
+      "rowLimit": rowLimit,
+      "estimatedRows": estimatedRowsJsonValue,
+      "sizeLimitBytes": sizeLimitBytesJsonValue,
+      "estimatedSizeBytes": estimatedSizeBytesJsonValue,
+      "includesFileBytes": includesFileBytes,
+      "redactions": redactions.map((item) => item.toJson()).toList(growable: false),
+      "auditPreview": auditPreview.toJson(),
+      "confirmation": confirmation.toJson(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+class ExpenseBillExportFilterDefaultResponse {
+  const ExpenseBillExportFilterDefaultResponse({
+    required this.field,
+    required this.value,
+    required this.reason,
+  });
+
+  final String field;
+  final String value;
+  final String reason;
+
+  factory ExpenseBillExportFilterDefaultResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportFilterDefaultResponse(
+      field: json["field"] as String,
+      value: json["value"] as String,
+      reason: json["reason"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "field": field,
+      "value": value,
+      "reason": reason,
+    };
+  }
+}
+
+class ExpenseBillExportFilterRejectionResponse {
+  const ExpenseBillExportFilterRejectionResponse({
+    required this.field,
+    required this.code,
+    required this.message,
+  });
+
+  final String field;
+  final String code;
+  final String message;
+
+  factory ExpenseBillExportFilterRejectionResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportFilterRejectionResponse(
+      field: json["field"] as String,
+      code: json["code"] as String,
+      message: json["message"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "field": field,
+      "code": code,
+      "message": message,
+    };
+  }
+}
+
+class ExpenseBillExportRedactionResponse {
+  const ExpenseBillExportRedactionResponse({
+    required this.category,
+    required this.handling,
+    required this.message,
+  });
+
+  final String category;
+  final String handling;
+  final String message;
+
+  factory ExpenseBillExportRedactionResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportRedactionResponse(
+      category: json["category"] as String,
+      handling: json["handling"] as String,
+      message: json["message"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "category": category,
+      "handling": handling,
+      "message": message,
+    };
+  }
+}
+
+class ExpenseBillExportAuditPreviewResponse {
+  const ExpenseBillExportAuditPreviewResponse({
+    required this.action,
+    required this.scopeType,
+    required this.groupId,
+    required this.format,
+    required this.writesAuditOnReadiness,
+    required this.writesAuditOnExport,
+  });
+
+  final String action;
+  final ExpenseBillExportScopeType scopeType;
+  final String? groupId;
+  final String format;
+  final bool writesAuditOnReadiness;
+  final bool writesAuditOnExport;
+
+  factory ExpenseBillExportAuditPreviewResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportAuditPreviewResponse(
+      action: json["action"] as String,
+      scopeType: json["scopeType"] as String,
+      groupId: json["groupId"] == null ? null : json["groupId"] as String,
+      format: json["format"] as String,
+      writesAuditOnReadiness: json["writesAuditOnReadiness"] as bool,
+      writesAuditOnExport: json["writesAuditOnExport"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final groupIdJsonValue = groupId;
+
+    return {
+      "action": action,
+      "scopeType": scopeType,
+      "groupId": groupIdJsonValue,
+      "format": format,
+      "writesAuditOnReadiness": writesAuditOnReadiness,
+      "writesAuditOnExport": writesAuditOnExport,
+    };
+  }
+}
+
+class ExpenseBillExportConfirmationResponse {
+  const ExpenseBillExportConfirmationResponse({
+    required this.title,
+    required this.body,
+    required this.confirmLabel,
+  });
+
+  final String title;
+  final String body;
+  final String confirmLabel;
+
+  factory ExpenseBillExportConfirmationResponse.fromJson(JsonObject json) {
+    return ExpenseBillExportConfirmationResponse(
+      title: json["title"] as String,
+      body: json["body"] as String,
+      confirmLabel: json["confirmLabel"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "title": title,
+      "body": body,
+      "confirmLabel": confirmLabel,
+    };
+  }
+}
+
 /// Safe bounded bill export payload derived from authorized visible bills. It contains safe bill-level rows only and excludes auth/session data, payment details, storage/provider internals, raw OCR text, proof bytes, private notes, and unrelated user data.
 class ExpenseBillExportResponse {
   const ExpenseBillExportResponse({

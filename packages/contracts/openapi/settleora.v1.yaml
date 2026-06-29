@@ -1881,6 +1881,112 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/bills/export-readiness:
+    get:
+      summary: Check personal bill export readiness
+      description: Returns server-owned readiness metadata for a future personal bill CSV or JSON export without creating an export, returning rows, returning file bytes, reading storage content, or writing export audit events. The response uses the same bounded filter surface as personal bill export execution and keeps API/domain authorization authoritative.
+      operationId: getPersonalBillExportReadiness
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive bill date lower bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive bill date upper bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Optional expense bill status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillStatus"
+        - name: reconciliationStatus
+          in: query
+          required: false
+          description: Optional manual reconciliation status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        - name: currency
+          in: query
+          required: false
+          description: Optional uppercase supported three-letter currency filter.
+          schema:
+            $ref: "#/components/schemas/CurrencyCode"
+        - name: merchant
+          in: query
+          required: false
+          description: Optional bounded contains-style merchant filter.
+          schema:
+            type: string
+            maxLength: 120
+        - name: search
+          in: query
+          required: false
+          description: Optional bounded search over authorized bill merchant, item name, item note, and adjustment reason note fields.
+          schema:
+            type: string
+            maxLength: 120
+        - name: archiveState
+          in: query
+          required: false
+          description: Optional archive visibility filter. Defaults to active, which excludes archived bills from ordinary export readiness.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillArchiveState"
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: format
+          in: query
+          required: false
+          description: Requested export format for readiness. Defaults to csv.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillExportFormat"
+      responses:
+        "200":
+          description: Safe readiness metadata for the selected personal bill export request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillExportReadinessResponse"
+        "400":
+          description: The submitted bill export readiness filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: The current profile is unavailable or not allowed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills/export.json:
     get:
       summary: Export personal bills as JSON
@@ -4521,6 +4627,119 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Group bill CSV import could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/groups/{groupId}/bills/export-readiness:
+    get:
+      summary: Check group bill export readiness
+      description: Returns server-owned readiness metadata for a future group bill CSV or JSON export without creating an export, returning rows, returning file bytes, reading storage content, or writing export audit events. The response requires route-group authorization and uses the same bounded filter surface as group bill export execution.
+      operationId: getGroupBillExportReadiness
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID whose bill export readiness should be checked.
+          schema:
+            type: string
+            format: uuid
+        - name: fromDate
+          in: query
+          required: false
+          description: Optional inclusive bill date lower bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          required: false
+          description: Optional inclusive bill date upper bound as yyyy-MM-dd.
+          schema:
+            type: string
+            format: date
+        - name: status
+          in: query
+          required: false
+          description: Optional expense bill status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillStatus"
+        - name: reconciliationStatus
+          in: query
+          required: false
+          description: Optional manual reconciliation status filter.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillReconciliationStatus"
+        - name: currency
+          in: query
+          required: false
+          description: Optional uppercase supported three-letter currency filter.
+          schema:
+            $ref: "#/components/schemas/CurrencyCode"
+        - name: merchant
+          in: query
+          required: false
+          description: Optional bounded contains-style merchant filter.
+          schema:
+            type: string
+            maxLength: 120
+        - name: search
+          in: query
+          required: false
+          description: Optional bounded search over authorized bill merchant, item name, item note, and adjustment reason note fields.
+          schema:
+            type: string
+            maxLength: 120
+        - name: archiveState
+          in: query
+          required: false
+          description: Optional archive visibility filter. Defaults to active, which excludes archived bills from ordinary export readiness.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillArchiveState"
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: format
+          in: query
+          required: false
+          description: Requested export format for readiness. Defaults to csv.
+          schema:
+            $ref: "#/components/schemas/ExpenseBillExportFormat"
+      responses:
+        "200":
+          description: Safe readiness metadata for the selected group bill export request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpenseBillExportReadinessResponse"
+        "400":
+          description: The submitted group bill export readiness filter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Group is missing, deleted, unrelated, inactive, or unavailable to the authenticated actor.
           content:
             application/problem+json:
               schema:
@@ -13639,6 +13858,225 @@ components:
             - type: string
               maxLength: 120
             - type: "null"
+    ExpenseBillExportScopeType:
+      type: string
+      enum:
+        - personal
+        - group
+    ExpenseBillExportFormat:
+      type: string
+      enum:
+        - csv
+        - json
+    ExpenseBillExportReadinessCode:
+      type: string
+      enum:
+        - ready
+        - authentication_required
+        - authorization_denied
+        - unsupported_format
+        - unsupported_filter
+        - no_exportable_records
+        - limit_exceeded
+        - policy_disabled
+        - not_implemented
+        - temporarily_unavailable
+    ExpenseBillExportReadinessResponse:
+      type: object
+      description: Safe pre-download bill export readiness metadata. It does not contain exported rows or file bytes and must not expose storage paths, object keys, signed URLs, provider internals, raw OCR text, secrets, private notes, or unrelated records.
+      required:
+        - scopeType
+        - groupId
+        - requestedFormat
+        - supportedFormats
+        - available
+        - code
+        - message
+        - acceptedFilters
+        - defaultedFilters
+        - rejectedFilters
+        - rowLimit
+        - estimatedRows
+        - sizeLimitBytes
+        - estimatedSizeBytes
+        - includesFileBytes
+        - redactions
+        - auditPreview
+        - confirmation
+        - expiresAtUtc
+      properties:
+        scopeType:
+          $ref: "#/components/schemas/ExpenseBillExportScopeType"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Present only for group export readiness; null for personal export readiness.
+        requestedFormat:
+          type: string
+          description: Server-normalized requested format. Unsupported requested values may be echoed only as a bounded format token, never as raw request bodies or storage details.
+          maxLength: 20
+        supportedFormats:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/ExpenseBillExportFormat"
+        available:
+          type: boolean
+        code:
+          $ref: "#/components/schemas/ExpenseBillExportReadinessCode"
+        message:
+          type: string
+          maxLength: 240
+          description: Safe product-facing readiness message.
+        acceptedFilters:
+          $ref: "#/components/schemas/ExpenseBillExportFilterResponse"
+        defaultedFilters:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/ExpenseBillExportFilterDefaultResponse"
+        rejectedFilters:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/ExpenseBillExportFilterRejectionResponse"
+        rowLimit:
+          type: integer
+          minimum: 1
+          maximum: 200
+        estimatedRows:
+          oneOf:
+            - type: integer
+              minimum: 0
+              maximum: 200
+            - type: "null"
+          description: Bounded estimate of rows that would be returned by the current synchronous export request.
+        sizeLimitBytes:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 1
+            - type: "null"
+        estimatedSizeBytes:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 0
+            - type: "null"
+          description: Null when not safely computable before export generation.
+        includesFileBytes:
+          type: boolean
+          description: Always false for this readiness slice.
+        redactions:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ExpenseBillExportRedactionResponse"
+        auditPreview:
+          $ref: "#/components/schemas/ExpenseBillExportAuditPreviewResponse"
+        confirmation:
+          $ref: "#/components/schemas/ExpenseBillExportConfirmationResponse"
+        expiresAtUtc:
+          type: string
+          format: date-time
+    ExpenseBillExportFilterDefaultResponse:
+      type: object
+      required:
+        - field
+        - value
+        - reason
+      properties:
+        field:
+          type: string
+          maxLength: 80
+        value:
+          type: string
+          maxLength: 120
+        reason:
+          type: string
+          maxLength: 240
+    ExpenseBillExportFilterRejectionResponse:
+      type: object
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          maxLength: 80
+        code:
+          type: string
+          maxLength: 80
+        message:
+          type: string
+          maxLength: 240
+    ExpenseBillExportRedactionResponse:
+      type: object
+      required:
+        - category
+        - handling
+        - message
+      properties:
+        category:
+          type: string
+          maxLength: 80
+        handling:
+          type: string
+          enum:
+            - excluded
+            - redacted
+            - included
+            - unsupported
+        message:
+          type: string
+          maxLength: 240
+    ExpenseBillExportAuditPreviewResponse:
+      type: object
+      required:
+        - action
+        - scopeType
+        - groupId
+        - format
+        - writesAuditOnReadiness
+        - writesAuditOnExport
+      properties:
+        action:
+          type: string
+          maxLength: 120
+        scopeType:
+          $ref: "#/components/schemas/ExpenseBillExportScopeType"
+        groupId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+        format:
+          type: string
+          maxLength: 20
+        writesAuditOnReadiness:
+          type: boolean
+        writesAuditOnExport:
+          type: boolean
+    ExpenseBillExportConfirmationResponse:
+      type: object
+      required:
+        - title
+        - body
+        - confirmLabel
+      properties:
+        title:
+          type: string
+          maxLength: 120
+        body:
+          type: string
+          maxLength: 500
+        confirmLabel:
+          type: string
+          maxLength: 80
     ExpenseBillExportResponse:
       type: object
       description: Safe bounded bill export payload derived from authorized visible bills. It contains safe bill-level rows only and excludes auth/session data, payment details, storage/provider internals, raw OCR text, proof bytes, private notes, and unrelated user data.

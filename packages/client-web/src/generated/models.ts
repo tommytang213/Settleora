@@ -1972,6 +1972,88 @@ export interface ExpenseBillReconciliationResponse {
   note: string | null;
 }
 
+export type ExpenseBillExportScopeType = "personal" | "group";
+
+export type ExpenseBillExportFormat = "csv" | "json";
+
+export type ExpenseBillExportReadinessCode = "ready" | "authentication_required" | "authorization_denied" | "unsupported_format" | "unsupported_filter" | "no_exportable_records" | "limit_exceeded" | "policy_disabled" | "not_implemented" | "temporarily_unavailable";
+
+/**
+ * Safe pre-download bill export readiness metadata. It does not contain exported rows or file bytes and must not expose storage paths, object keys, signed URLs, provider internals, raw OCR text, secrets, private notes, or unrelated records.
+ */
+export interface ExpenseBillExportReadinessResponse {
+  scopeType: ExpenseBillExportScopeType;
+  /**
+   * Present only for group export readiness; null for personal export readiness.
+   */
+  groupId: string | null;
+  /**
+   * Server-normalized requested format. Unsupported requested values may be echoed only as a bounded format token, never as raw request bodies or storage details.
+   */
+  requestedFormat: string;
+  supportedFormats: ExpenseBillExportFormat[];
+  available: boolean;
+  code: ExpenseBillExportReadinessCode;
+  /**
+   * Safe product-facing readiness message.
+   */
+  message: string;
+  acceptedFilters: ExpenseBillExportFilterResponse;
+  defaultedFilters: ExpenseBillExportFilterDefaultResponse[];
+  rejectedFilters: ExpenseBillExportFilterRejectionResponse[];
+  rowLimit: number;
+  /**
+   * Bounded estimate of rows that would be returned by the current synchronous export request.
+   */
+  estimatedRows: number | null;
+  sizeLimitBytes: number | null;
+  /**
+   * Null when not safely computable before export generation.
+   */
+  estimatedSizeBytes: number | null;
+  /**
+   * Always false for this readiness slice.
+   */
+  includesFileBytes: boolean;
+  redactions: ExpenseBillExportRedactionResponse[];
+  auditPreview: ExpenseBillExportAuditPreviewResponse;
+  confirmation: ExpenseBillExportConfirmationResponse;
+  expiresAtUtc: string;
+}
+
+export interface ExpenseBillExportFilterDefaultResponse {
+  field: string;
+  value: string;
+  reason: string;
+}
+
+export interface ExpenseBillExportFilterRejectionResponse {
+  field: string;
+  code: string;
+  message: string;
+}
+
+export interface ExpenseBillExportRedactionResponse {
+  category: string;
+  handling: "excluded" | "redacted" | "included" | "unsupported";
+  message: string;
+}
+
+export interface ExpenseBillExportAuditPreviewResponse {
+  action: string;
+  scopeType: ExpenseBillExportScopeType;
+  groupId: string | null;
+  format: string;
+  writesAuditOnReadiness: boolean;
+  writesAuditOnExport: boolean;
+}
+
+export interface ExpenseBillExportConfirmationResponse {
+  title: string;
+  body: string;
+  confirmLabel: string;
+}
+
 /**
  * Safe bounded bill export payload derived from authorized visible bills. It contains safe bill-level rows only and excludes auth/session data, payment details, storage/provider internals, raw OCR text, proof bytes, private notes, and unrelated user data.
  */
