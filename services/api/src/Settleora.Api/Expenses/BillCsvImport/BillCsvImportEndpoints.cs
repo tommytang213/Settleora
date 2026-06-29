@@ -29,6 +29,8 @@ internal static class BillCsvImportEndpoints
     private const string BillCsvImportedAction = "bill.csv_imported";
     private const string PersonalGroupMode = "personal";
     private const string GroupMode = "group";
+    private const string PreflightReadyCode = "ready_for_review";
+    private const string PreflightNeedsCorrectionCode = "needs_correction";
 
     private static readonly string[] SupportedHeaders =
     [
@@ -61,13 +63,108 @@ internal static class BillCsvImportEndpoints
     {
         var personalBills = app.MapGroup("/api/v1/bills")
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        personalBills.MapPost("/import-preflight.csv", PreflightPersonalBillsCsvAsync);
         personalBills.MapPost("/import.csv", ImportPersonalBillsCsvAsync);
 
         var groupBills = app.MapGroup("/api/v1/groups/{groupId:guid}/bills")
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        groupBills.MapPost("/import-preflight.csv", PreflightGroupBillsCsvAsync);
         groupBills.MapPost("/import.csv", ImportGroupBillsCsvAsync);
 
         return app;
+    }
+
+    private static async Task<IResult> PreflightPersonalBillsCsvAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillCalculationService calculationService,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessProfileAsync(
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
+        }
+
+        var csvReadResult = await ReadCsvBodyAsync(request, cancellationToken);
+        if (!csvReadResult.Succeeded)
+        {
+            return InvalidBillImportRequest(csvReadResult.Errors);
+        }
+
+        var planResult = BuildImportPlan(
+            csvReadResult.CsvText!,
+            ImportScope.Personal,
+            actor.UserProfileId,
+            null,
+            null,
+            calculationService,
+            timeProvider);
+
+        return planResult.ErrorResult is not null
+            ? planResult.ErrorResult
+            : Results.Ok(CreatePreflightResponse(ImportScope.Personal, null, planResult));
+    }
+
+    private static async Task<IResult> PreflightGroupBillsCsvAsync(
+        Guid groupId,
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
+        ExpenseBillCalculationService calculationService,
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Unauthenticated();
+        }
+
+        var authorizationResult = await businessAuthorizationService.CanAccessGroupAsync(
+            groupId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
+        }
+
+        var activeGroupMemberIds = await LoadActiveGroupMemberIdsAsync(
+            dbContext,
+            groupId,
+            cancellationToken);
+        if (!activeGroupMemberIds.Contains(actor.UserProfileId))
+        {
+            return BillImportUnavailable();
+        }
+
+        var csvReadResult = await ReadCsvBodyAsync(request, cancellationToken);
+        if (!csvReadResult.Succeeded)
+        {
+            return InvalidBillImportRequest(csvReadResult.Errors);
+        }
+
+        var planResult = BuildImportPlan(
+            csvReadResult.CsvText!,
+            ImportScope.Group,
+            actor.UserProfileId,
+            groupId,
+            activeGroupMemberIds,
+            calculationService,
+            timeProvider);
+
+        return planResult.ErrorResult is not null
+            ? planResult.ErrorResult
+            : Results.Ok(CreatePreflightResponse(ImportScope.Group, groupId, planResult));
     }
 
     private static async Task<IResult> ImportPersonalBillsCsvAsync(
@@ -431,7 +528,7 @@ internal static class BillCsvImportEndpoints
             RejectedRowCount: 0,
             Errors: [],
             Bills: summaries);
-        return BillCsvImportPlanResult.Success(response, bills);
+        return BillCsvImportPlanResult.Success(response, bills, CreateAcceptedReviewItems(rows));
     }
 
     private static CsvParseResult ParseCsv(string csvText)
@@ -906,6 +1003,94 @@ internal static class BillCsvImportEndpoints
             rejectedRowCount,
             orderedErrors,
             Bills: []);
+    }
+
+    private static BillCsvImportPreflightResponse CreatePreflightResponse(
+        ImportScope scope,
+        Guid? groupId,
+        BillCsvImportPlanResult planResult)
+    {
+        var response = planResult.Response!;
+        var hasErrors = response.Errors.Count > 0;
+        var reviewItems = hasErrors
+            ? CreateRejectedReviewItems(response.Errors)
+            : planResult.ReviewItems;
+        var statusCode = hasErrors ? PreflightNeedsCorrectionCode : PreflightReadyCode;
+
+        return new BillCsvImportPreflightResponse(
+            Scope: scope is ImportScope.Personal ? PersonalGroupMode : GroupMode,
+            GroupId: groupId,
+            Available: !hasErrors,
+            StatusCode: statusCode,
+            SafeMessage: hasErrors
+                ? "CSV import preflight found rows that need correction before confirmation."
+                : "CSV import preflight is ready for review. No bills were created.",
+            RowCount: response.RowCount,
+            AcceptedRowCount: hasErrors ? 0 : response.RowCount,
+            WarningRowCount: 0,
+            RejectedRowCount: response.RejectedRowCount,
+            AcceptedFields: SupportedHeaders,
+            DefaultedFields: ["splitMethod", "splitBasisValue", "payerUserProfileId"],
+            RejectedFields: response.Errors
+                .Select(error => error.Field)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray(),
+            ReviewItems: reviewItems,
+            AuditPreview: new BillCsvImportAuditPreviewResponse(
+                scope is ImportScope.Personal ? "bill.import_preflight.personal" : "bill.import_preflight.group",
+                scope is ImportScope.Personal ? PersonalGroupMode : GroupMode,
+                "Preflight does not write audit records or business records in this slice."),
+            Confirmation: new BillCsvImportConfirmationPreviewResponse(
+                "Review import",
+                "Import bills",
+                "A later confirmation step must revalidate this CSV before creating draft bills."),
+            Readiness: "This preflight response is stateless and temporary. Upload the CSV again for future confirmation.");
+    }
+
+    private static IReadOnlyList<BillCsvImportReviewItemResponse> CreateAcceptedReviewItems(
+        IReadOnlyList<BillCsvImportRow> rows)
+    {
+        return rows
+            .OrderBy(row => row.RowNumber)
+            .Select(row => new BillCsvImportReviewItemResponse(
+                RowNumber: row.RowNumber,
+                State: "accepted",
+                Severity: "info",
+                Codes: ["row_accepted"],
+                SafeMessage: "CSV row is eligible for review.",
+                NormalizedCandidate: new BillCsvImportNormalizedCandidateResponse(
+                    row.BillDate,
+                    row.Currency,
+                    FormatAmount(row.ItemAmount),
+                    row.SplitMethod,
+                    row.SplitBasisValue is null ? null : FormatAmount(row.SplitBasisValue.Value)),
+                Fields: ["billDate", "currency", "itemAmount", "splitMethod", "splitBasisValue"]))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<BillCsvImportReviewItemResponse> CreateRejectedReviewItems(
+        IReadOnlyList<BillCsvImportRowErrorResponse> errors)
+    {
+        return errors
+            .GroupBy(error => error.RowNumber)
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var orderedErrors = group
+                    .OrderBy(error => error.Field, StringComparer.Ordinal)
+                    .ThenBy(error => error.Code, StringComparer.Ordinal)
+                    .ToArray();
+                return new BillCsvImportReviewItemResponse(
+                    RowNumber: group.Key,
+                    State: "rejected",
+                    Severity: "error",
+                    Codes: orderedErrors.Select(error => error.Code).Distinct(StringComparer.Ordinal).ToArray(),
+                    SafeMessage: orderedErrors[0].Message,
+                    NormalizedCandidate: null,
+                    Fields: orderedErrors.Select(error => error.Field).Distinct(StringComparer.Ordinal).ToArray());
+            })
+            .ToArray();
     }
 
     private static string Cell(
@@ -1393,28 +1578,74 @@ internal static class BillCsvImportEndpoints
     private sealed record BillCsvImportPlanResult(
         BillCsvImportResponse? Response,
         IReadOnlyList<ExpenseBill> Bills,
+        IReadOnlyList<BillCsvImportReviewItemResponse> ReviewItems,
         IResult? ErrorResult)
     {
         public bool Succeeded => ErrorResult is null && Response is not null && Response.Errors.Count == 0;
 
         public static BillCsvImportPlanResult Success(
             BillCsvImportResponse response,
-            IReadOnlyList<ExpenseBill> bills)
+            IReadOnlyList<ExpenseBill> bills,
+            IReadOnlyList<BillCsvImportReviewItemResponse> reviewItems)
         {
-            return new BillCsvImportPlanResult(response, bills, null);
+            return new BillCsvImportPlanResult(response, bills, reviewItems, null);
         }
 
         public static BillCsvImportPlanResult Failed(BillCsvImportResponse response)
         {
-            return new BillCsvImportPlanResult(response, [], null);
+            return new BillCsvImportPlanResult(response, [], [], null);
         }
 
         public static BillCsvImportPlanResult Failed(IResult errorResult)
         {
-            return new BillCsvImportPlanResult(null, [], errorResult);
+            return new BillCsvImportPlanResult(null, [], [], errorResult);
         }
     }
 }
+
+internal sealed record BillCsvImportPreflightResponse(
+    string Scope,
+    Guid? GroupId,
+    bool Available,
+    string StatusCode,
+    string SafeMessage,
+    int RowCount,
+    int AcceptedRowCount,
+    int WarningRowCount,
+    int RejectedRowCount,
+    IReadOnlyList<string> AcceptedFields,
+    IReadOnlyList<string> DefaultedFields,
+    IReadOnlyList<string> RejectedFields,
+    IReadOnlyList<BillCsvImportReviewItemResponse> ReviewItems,
+    BillCsvImportAuditPreviewResponse AuditPreview,
+    BillCsvImportConfirmationPreviewResponse Confirmation,
+    string Readiness);
+
+internal sealed record BillCsvImportReviewItemResponse(
+    int RowNumber,
+    string State,
+    string Severity,
+    IReadOnlyList<string> Codes,
+    string SafeMessage,
+    BillCsvImportNormalizedCandidateResponse? NormalizedCandidate,
+    IReadOnlyList<string> Fields);
+
+internal sealed record BillCsvImportNormalizedCandidateResponse(
+    DateOnly BillDate,
+    string Currency,
+    string ItemAmount,
+    string SplitMethod,
+    string? SplitBasisValue);
+
+internal sealed record BillCsvImportAuditPreviewResponse(
+    string Action,
+    string Scope,
+    string SafeMessage);
+
+internal sealed record BillCsvImportConfirmationPreviewResponse(
+    string ReviewLabel,
+    string ConfirmLabel,
+    string SafeMessage);
 
 internal sealed record BillCsvImportResponse(
     int RowCount,

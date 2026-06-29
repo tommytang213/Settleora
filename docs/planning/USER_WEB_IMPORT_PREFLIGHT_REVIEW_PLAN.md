@@ -8,12 +8,27 @@ ingress and can create or change financial records, so user-web import runtime
 must not call direct import operation methods until a reviewed preflight,
 review, and confirmation contract exists.
 
-This document is a planning recommendation only. It does not implement runtime
-UI, API behavior, OpenAPI contracts, generated clients, schema/migrations,
-auth/session/security behavior, storage/file-byte behavior, actual CSV upload,
-CSV parsing, import confirmation runtime, sync mutation, local backup/restore,
-browser local-mode persistence, Docker, deployment, CI, environment
-configuration, mobile/admin UI, or secrets.
+Implementation update on 2026-06-29: the first additive contract/API slice
+added non-mutating CSV import preflight endpoints for personal and group bill
+imports:
+
+- `POST /api/v1/bills/import-preflight.csv`
+  (`preflightPersonalBillsCsvImport`)
+- `POST /api/v1/groups/{groupId}/bills/import-preflight.csv`
+  (`preflightGroupBillsCsvImport`)
+
+Both endpoints use the same bounded `text/csv` body shape as the existing
+direct import endpoints, reuse the server-side CSV parser/validation/calculation
+planning path, and return `BillCsvImportPreflightResponse` review metadata
+only. They do not create bills, edit bills, write import audit rows, store CSV
+bytes, create storage objects, expose raw CSV cell values, or wire any user-web
+runtime upload buttons.
+
+This document still does not authorize runtime UI upload/import buttons,
+import confirmation that creates records, schema/migrations, auth/session/
+security behavior changes, storage/file-byte persistence, sync mutation, local
+backup/restore, browser local-mode persistence, Docker, deployment, CI,
+environment configuration, mobile/admin UI, or secrets.
 
 Use this file with:
 
@@ -37,7 +52,9 @@ import operation methods:
 
 | Scope | Existing method | Current posture for user web |
 | --- | --- | --- |
+| Personal bills | `preflightPersonalBillsCsvImport` | Non-mutating review method exists at `POST /api/v1/bills/import-preflight.csv`. It is available for future user-web review UI wiring after a separate runtime UX/storage/privacy gate; it does not confirm or create bills. |
 | Personal bills | `importPersonalBillsCsv` | Mutation method exists at `POST /api/v1/bills/import.csv`. It is not an approved user-web upload button because success can create draft bills. |
+| Group bills | `preflightGroupBillsCsvImport` | Non-mutating review method exists at `POST /api/v1/groups/{groupId}/bills/import-preflight.csv`. It uses route-group authorization and does not confirm or create bills. |
 | Group bills | `importGroupBillsCsv` | Mutation method exists at `POST /api/v1/groups/{groupId}/bills/import.csv`. It is not an approved user-web group upload button because success can create group-scoped draft bills. |
 
 The existing contract describes bounded CSV import, server-side bill

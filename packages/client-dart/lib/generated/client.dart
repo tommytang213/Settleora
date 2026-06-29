@@ -475,6 +475,18 @@ class SettleoraApiClient {
     return ExpenseBillExportResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<BillCsvImportPreflightResponse> preflightPersonalBillsCsvImport(String body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendText(
+      "POST",
+      "/api/v1/bills/import-preflight.csv",
+      body: body,
+      contentType: "text/csv",
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportPreflightResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<BillCsvImportResponse> importPersonalBillsCsv(String body, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _sendText(
       "POST",
@@ -1028,6 +1040,18 @@ class SettleoraApiClient {
       headers: headers,
     );
     return ExpenseBillExportResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<BillCsvImportPreflightResponse> preflightGroupBillsCsvImport(String groupId, String body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _sendText(
+      "POST",
+      '/api/v1/groups/${Uri.encodeComponent(groupId.toString())}/bills/import-preflight.csv',
+      body: body,
+      contentType: "text/csv",
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return BillCsvImportPreflightResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<BillCsvImportResponse> importGroupBillsCsv(String groupId, String body, {required String accessToken, Map<String, String>? headers}) async {
