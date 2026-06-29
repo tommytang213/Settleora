@@ -3,16 +3,19 @@ import {
   checkBillExportReadiness,
   createBillExportFilename,
   downloadBillExport,
+  evaluateBillImportPreflightScope,
   evaluateBillExportReadiness,
   getMissingImportExportMethods,
   getPresentImportExportMethods,
   labelImportExportStatus,
   loadImportExportReadout,
+  preflightBillCsvImport,
+  type BillImportPreflightRuntimeClient,
   type BillExportRuntimeClient
 } from "./importExportReadout";
 import { loadGroupsReadout } from "./groupsFriendsReadout";
 import { SettleoraApiError } from "../../../packages/client-web/src/generated";
-import type { ExpenseBillExportReadinessResponse, GroupResponse } from "../../../packages/client-web/src/generated";
+import type { BillCsvImportPreflightResponse, ExpenseBillExportReadinessResponse, GroupResponse } from "../../../packages/client-web/src/generated";
 
 function createOperationClient() {
   return {
@@ -22,6 +25,9 @@ function createOperationClient() {
     getGroupBillExportReadiness: vi.fn(),
     exportGroupBillsCsv: vi.fn(),
     exportGroupBillsJson: vi.fn(),
+    preflightPersonalBillsCsvImport: vi.fn(),
+    preflightGroupBillsCsvImport: vi.fn(),
+    listGroups: vi.fn(),
     importPersonalBillsCsv: vi.fn(),
     importGroupBillsCsv: vi.fn(),
     listSyncChanges: vi.fn(),
@@ -43,6 +49,9 @@ describe("import/export availability readout", () => {
       "getGroupBillExportReadiness",
       "exportGroupBillsCsv",
       "exportGroupBillsJson",
+      "preflightPersonalBillsCsvImport",
+      "preflightGroupBillsCsvImport",
+      "listGroups",
       "importPersonalBillsCsv",
       "importGroupBillsCsv",
       "listSyncChanges",
@@ -66,12 +75,12 @@ describe("import/export availability readout", () => {
         expect.objectContaining({
           id: "personal-bill-import",
           status: "operation_method_exists",
-          methodsPresent: ["importPersonalBillsCsv"]
+          methodsPresent: ["preflightPersonalBillsCsvImport", "importPersonalBillsCsv"]
         }),
         expect.objectContaining({
           id: "group-bill-import",
           status: "operation_method_exists",
-          methodsPresent: ["importGroupBillsCsv"]
+          methodsPresent: ["preflightGroupBillsCsvImport", "listGroups", "importGroupBillsCsv"]
         }),
         expect.objectContaining({
           id: "sync-status",
@@ -96,6 +105,9 @@ describe("import/export availability readout", () => {
       "getGroupBillExportReadiness",
       "exportGroupBillsCsv",
       "exportGroupBillsJson",
+      "preflightPersonalBillsCsvImport",
+      "preflightGroupBillsCsvImport",
+      "listGroups",
       "importGroupBillsCsv",
       "listSyncChanges",
       "submitSyncOperation",
@@ -130,12 +142,6 @@ describe("import/export availability readout", () => {
     const readout = loadImportExportReadout({ client });
 
     expect(readout.intentionallyNotCalled).toEqual([
-      "getPersonalBillExportReadiness",
-      "exportPersonalBillsCsv",
-      "exportPersonalBillsJson",
-      "getGroupBillExportReadiness",
-      "exportGroupBillsCsv",
-      "exportGroupBillsJson",
       "importPersonalBillsCsv",
       "importGroupBillsCsv",
       "listSyncChanges",
@@ -643,6 +649,206 @@ describe("readiness-driven bill export runtime", () => {
   });
 });
 
+describe("CSV import preflight runtime", () => {
+  it("auth-gates before CSV text is submitted to generated preflight methods", async () => {
+    const client = createImportPreflightClient();
+
+    const result = await preflightBillCsvImport({
+      accessToken: " ",
+      scope: "personal",
+      csvText: "clientBillKey\nrow-1\n",
+      client
+    });
+
+    expect(result).toEqual({
+      status: "auth_required",
+      message: "Sign in is required before Settleora can read or review a CSV import."
+    });
+    expect(client.preflightPersonalBillsCsvImport).not.toHaveBeenCalled();
+    expect(client.preflightGroupBillsCsvImport).not.toHaveBeenCalled();
+    expect(client.listGroups).not.toHaveBeenCalled();
+  });
+
+  it("submits personal CSV text only to the non-mutating personal preflight method", async () => {
+    const client = createImportPreflightClient();
+    const csvText = "clientBillKey,billDate,currency,itemName,itemAmount\npersonal-1,2026-05-17,USD,Lunch,10.00\n";
+
+    const result = await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "personal",
+      csvText,
+      client
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.response?.scope).toBe("personal");
+    expect(client.preflightPersonalBillsCsvImport).toHaveBeenCalledWith(csvText, { accessToken: "token" });
+    expect(client.listGroups).not.toHaveBeenCalled();
+    expect(client.preflightGroupBillsCsvImport).not.toHaveBeenCalled();
+  });
+
+  it("returns needs-correction review state with row-level safe metadata", async () => {
+    const response = createImportPreflightResponse({
+      available: false,
+      statusCode: "needs_correction",
+      safeMessage: "Correct rejected rows before import can continue.",
+      rejectedRowCount: 1,
+      rejectedFields: ["currency"],
+      reviewItems: [
+        {
+          rowNumber: 2,
+          state: "rejected",
+          severity: "error",
+          codes: ["currency_invalid"],
+          safeMessage: "Currency is not supported.",
+          normalizedCandidate: null,
+          fields: ["currency"]
+        }
+      ]
+    });
+    const client = createImportPreflightClient({ response });
+
+    const result = await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "personal",
+      csvText: "bad csv",
+      client
+    });
+
+    expect(result.status).toBe("needs_correction");
+    expect(result.response?.rejectedFields).toEqual(["currency"]);
+    expect(result.response?.reviewItems[0]).toEqual(expect.objectContaining({
+      state: "rejected",
+      safeMessage: "Currency is not supported."
+    }));
+  });
+
+  it("loads groups and fails closed before group preflight when selected group is not server-returned", async () => {
+    const client = createImportPreflightClient({
+      groups: [createGroup({ id: "group-2" })]
+    });
+
+    const result = await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "group",
+      groupId: "group-1",
+      csvText: "clientBillKey\nrow-1\n",
+      client
+    });
+
+    expect(result).toEqual({
+      status: "unavailable",
+      message: "The selected group is no longer available. Refresh groups and select again."
+    });
+    expect(client.listGroups).toHaveBeenCalledWith({ accessToken: "token" });
+    expect(client.preflightGroupBillsCsvImport).not.toHaveBeenCalled();
+  });
+
+  it("uses only a latest server-returned group id for group CSV preflight", async () => {
+    const response = createImportPreflightResponse({ scope: "group", groupId: "group-1" });
+    const client = createImportPreflightClient({ response });
+    const csvText = "clientBillKey,billDate,currency,itemName,itemAmount\ngroup-1,2026-05-17,USD,Dinner,12.00\n";
+
+    const result = await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "group",
+      groupId: "group-1",
+      csvText,
+      client
+    });
+
+    expect(result.status).toBe("ready");
+    expect(
+      vi.mocked(client.listGroups).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(client.preflightGroupBillsCsvImport).mock.invocationCallOrder[0]);
+    expect(client.preflightGroupBillsCsvImport).toHaveBeenCalledWith("group-1", csvText, { accessToken: "token" });
+  });
+
+  it("blocks mismatched returned preflight scope metadata", () => {
+    expect(
+      evaluateBillImportPreflightScope(
+        createImportPreflightResponse({ scope: "group", groupId: "group-1" }),
+        "personal",
+        null
+      )
+    ).toEqual({
+      allowed: false,
+      message: "Settleora returned import review metadata for a different scope."
+    });
+
+    expect(
+      evaluateBillImportPreflightScope(
+        createImportPreflightResponse({ scope: "group", groupId: "group-2" }),
+        "group",
+        "group-1"
+      )
+    ).toEqual({
+      allowed: false,
+      message: "Settleora returned import review metadata for a different group. Select the group again."
+    });
+  });
+
+  it("does not call direct import or sync methods during preflight runtime", async () => {
+    const forbidden = {
+      importPersonalBillsCsv: vi.fn(),
+      importGroupBillsCsv: vi.fn(),
+      listSyncChanges: vi.fn(),
+      submitSyncOperation: vi.fn(),
+      getSyncOperation: vi.fn()
+    };
+    const client = { ...createImportPreflightClient(), ...forbidden };
+
+    await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "personal",
+      csvText: "clientBillKey\nrow-1\n",
+      client
+    });
+
+    for (const method of Object.values(forbidden)) {
+      expect(method).not.toHaveBeenCalled();
+    }
+  });
+
+  it("maps denied, expired, missing method, and empty CSV states without fallback import", async () => {
+    const denied = await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "personal",
+      csvText: "clientBillKey\nrow-1\n",
+      client: createThrowingImportPreflightClient(new SettleoraApiError(403, "Forbidden", {}))
+    });
+    const expired = await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "personal",
+      csvText: "clientBillKey\nrow-1\n",
+      client: createThrowingImportPreflightClient(new SettleoraApiError(401, "Unauthorized", {}))
+    });
+    const missing = await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "personal",
+      csvText: "clientBillKey\nrow-1\n",
+      client: {}
+    });
+    const empty = await preflightBillCsvImport({
+      accessToken: "token",
+      scope: "personal",
+      csvText: " ",
+      client: createImportPreflightClient()
+    });
+
+    expect(denied.status).toBe("unavailable");
+    expect(expired.status).toBe("session_expired");
+    expect(missing).toEqual({
+      status: "unavailable",
+      message: "Personal CSV import review is not available in this web client build."
+    });
+    expect(empty).toEqual({
+      status: "unavailable",
+      message: "Choose a non-empty CSV file before requesting import review."
+    });
+  });
+});
+
 function createReadiness(
   overrides: Partial<ExpenseBillExportReadinessResponse> = {}
 ): ExpenseBillExportReadinessResponse {
@@ -738,6 +944,76 @@ function createGroup(overrides: Partial<GroupResponse> = {}): GroupResponse {
     createdAtUtc: "2026-06-29T00:00:00.000Z",
     updatedAtUtc: "2026-06-29T00:00:00.000Z",
     ...overrides
+  };
+}
+
+function createImportPreflightResponse(
+  overrides: Partial<BillCsvImportPreflightResponse> = {}
+): BillCsvImportPreflightResponse {
+  return {
+    scope: "personal",
+    groupId: null,
+    available: true,
+    statusCode: "ready_for_review",
+    safeMessage: "CSV import is ready for review.",
+    rowCount: 1,
+    acceptedRowCount: 1,
+    warningRowCount: 0,
+    rejectedRowCount: 0,
+    acceptedFields: ["billDate", "currency", "itemAmount"],
+    defaultedFields: ["splitMethod"],
+    rejectedFields: [],
+    reviewItems: [
+      {
+        rowNumber: 2,
+        state: "accepted",
+        severity: "info",
+        codes: ["row_accepted"],
+        safeMessage: "Row can be reviewed before import confirmation.",
+        normalizedCandidate: {
+          billDate: "2026-05-17",
+          currency: "USD",
+          itemAmount: "10.00",
+          splitMethod: "exact_amount",
+          splitBasisValue: "10.00"
+        },
+        fields: ["billDate", "currency", "itemAmount", "splitMethod"]
+      }
+    ],
+    auditPreview: {
+      action: "bill.csv_import_preflight",
+      scope: "personal",
+      safeMessage: "Preflight review does not write import audit records."
+    },
+    confirmation: {
+      reviewLabel: "Review import",
+      confirmLabel: "Import bills",
+      safeMessage: "Import confirmation is unavailable in this web slice."
+    },
+    readiness: "Review is temporary and must be repeated before future confirmation.",
+    ...overrides
+  };
+}
+
+function createImportPreflightClient({
+  response = createImportPreflightResponse(),
+  groups = [createGroup()]
+}: {
+  response?: BillCsvImportPreflightResponse;
+  groups?: GroupResponse[];
+} = {}): Required<BillImportPreflightRuntimeClient> {
+  return {
+    preflightPersonalBillsCsvImport: vi.fn(async () => response),
+    preflightGroupBillsCsvImport: vi.fn(async () => response),
+    listGroups: vi.fn(async () => ({ groups }))
+  };
+}
+
+function createThrowingImportPreflightClient(error: unknown): BillImportPreflightRuntimeClient {
+  return {
+    preflightPersonalBillsCsvImport: vi.fn(async () => {
+      throw error;
+    })
   };
 }
 
