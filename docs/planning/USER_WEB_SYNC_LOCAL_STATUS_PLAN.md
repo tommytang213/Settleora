@@ -17,6 +17,7 @@ Use this file with:
 - [MVP Day 1 scope](../prd/MVP_DAY1_SCOPE.md)
 - [Product requirements draft V5](../prd/PRODUCT_REQUIREMENTS_DRAFT_V5.md)
 - [User web export, import, and local-mode implementation plan](USER_WEB_EXPORT_IMPORT_LOCAL_MODE_IMPLEMENTATION_PLAN.md)
+- [User web sync and local status contract plan](USER_WEB_SYNC_LOCAL_STATUS_CONTRACT_PLAN.md)
 - [User web export readiness contract plan](USER_WEB_EXPORT_READINESS_CONTRACT_PLAN.md)
 - [User web import preflight and review plan](USER_WEB_IMPORT_PREFLIGHT_REVIEW_PLAN.md)
 - [User web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
@@ -287,7 +288,7 @@ This branch does not authorize:
 
 | Order | Slice | Suggested branch | Gate |
 | ---: | --- | --- | --- |
-| 1 | Sync/local status contract plan | `docs/user-web-sync-local-status-contract-plan-461` | Docs-only sync/auth/privacy gate. |
+| 1 | Sync/local status contract plan | `docs/user-web-sync-local-status-contract-plan-461` | Docs-only sync/auth/privacy gate; see [User web sync and local status contract plan](USER_WEB_SYNC_LOCAL_STATUS_CONTRACT_PLAN.md). |
 | 2 | Sync/local status OpenAPI/API read contract | `feature/user-web-sync-local-status-contract-461` | OpenAPI/generated-client, auth/session, sync authority, privacy/audit gate. |
 | 3 | User-web read-only sync/local status runtime | `feature/user-web-sync-local-status-readout-461` | Runtime UI reads only the new status contract; no sync submission or browser persistence. |
 | 4 | Sync operation history/conflict review plan | `docs/user-web-sync-conflict-review-plan-461` | Separate mutation/conflict design before any resolution UI. |
