@@ -22,6 +22,7 @@ Use this file with:
 - [User web import preflight and review plan](USER_WEB_IMPORT_PREFLIGHT_REVIEW_PLAN.md)
 - [User web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
 - [User web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md)
+- [User web local backup package contract plan](USER_WEB_LOCAL_BACKUP_PACKAGE_CONTRACT_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
 - [Local-only and server-mode authority boundary audit](../architecture/LOCAL_SERVER_MODE_AUTHORITY_BOUNDARY_AUDIT.md)
 - [Offline queue persistence and sync state model](../architecture/OFFLINE_QUEUE_SYNC_STATE_MODEL.md)
@@ -235,9 +236,12 @@ states. It must not create browser backup packages, upload restore files, parse
 backup manifests, preview restore contents, write restored records, or use
 browser storage as a hidden backup. The dedicated
 [user web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md)
-defines the next planning gate for package format, encryption/key handling,
-file privacy, restore preview, restore confirmation, conflict/duplicate
-handling, retention, audit, and browser-safety boundaries.
+defines the broader backup/restore direction. The follow-up
+[user web local backup package contract plan](USER_WEB_LOCAL_BACKUP_PACKAGE_CONTRACT_PLAN.md)
+narrows the next contract gate for package readiness, manifest creation,
+generation/download, verification, metadata readback, encryption/key handling,
+file privacy, retention, audit, and browser-safety boundaries before any
+package runtime.
 
 ## Browser Local-Mode Persistence Direction
 
@@ -299,7 +303,7 @@ This branch does not authorize:
 | 4 | Sync operation history/conflict review plan | `docs/user-web-sync-conflict-review-plan-461` | Separate mutation/conflict design before any resolution UI. |
 | 5 | Local backup/restore package contract plan | `docs/user-web-local-backup-restore-plan-461` | Storage/file privacy, encryption, migration, destructive restore, and audit gates. |
 | 6 | Browser local-mode persistence design | `docs/user-web-browser-local-mode-design-461` | Product/security/privacy/storage/manual gate before any browser persistence. |
-| 7 | Optional local backup/restore runtime | `feature/user-web-local-backup-restore-runtime-461` | Only after package, encryption, file handling, restore preview, and confirmation contracts exist. |
+| 7 | Optional local backup package runtime | `feature/user-web-local-backup-package-runtime-461` | Only after the package readiness/manifest/generation contract, generated-client refresh, encryption, file handling, retention, and audit gates exist. Restore preview and confirmation remain separate later contracts. |
 
 The next safest runtime task is a read-only sync/local status readout only
 after a dedicated server-derived status contract exists. Until then, the
