@@ -108,4 +108,5 @@ No forbidden backend/API runtime behavior, OpenAPI contract, generated-client, s
 ## Final Worktree Status
 
 - Implementation commit created: `47e135b24b59c518015a3aab12651368af5f5e18`.
-- Report artifact to be committed separately with message `Add user web group export runtime report`.
+- Initial report commit created: `8af04752f8481b2f58040a9a7f6eecaec49fb3c8`.
+- Final branch status after the initial report commit: `## feature/user-web-group-export-runtime-461...origin/main [ahead 2]`.
