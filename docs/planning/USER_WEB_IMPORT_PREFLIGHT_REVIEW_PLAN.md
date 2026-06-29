@@ -37,6 +37,7 @@ Use this file with:
 - [Product requirements draft V5](../prd/PRODUCT_REQUIREMENTS_DRAFT_V5.md)
 - [User web export, import, and local-mode implementation plan](USER_WEB_EXPORT_IMPORT_LOCAL_MODE_IMPLEMENTATION_PLAN.md)
 - [User web export readiness contract plan](USER_WEB_EXPORT_READINESS_CONTRACT_PLAN.md)
+- [User web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
 - [CSV export and import privacy authority](../architecture/CSV_EXPORT_IMPORT_PRIVACY_AUTHORITY.md)
 - [Import validation, conflict, and migration policy](../architecture/IMPORT_VALIDATION_CONFLICT_MIGRATION_POLICY.md)
@@ -421,6 +422,11 @@ or audit truth.
 
 - The plan makes clear that preflight/review is not final import.
 - Confirmation is the data-changing step.
+- The follow-up
+  [user web import confirmation contract plan](USER_WEB_IMPORT_CONFIRMATION_CONTRACT_PLAN.md)
+  defines the recommended stateful import session, payload digest/challenge,
+  server-side revalidation, audit, failure/expiry, and user-web runtime
+  boundary before any data-changing confirmation is wired.
 - API/domain validation remains authoritative.
 - Personal and group authorization boundaries are separate.
 - File bytes and storage internals remain private.
