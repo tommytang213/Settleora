@@ -68,12 +68,16 @@ import {
 } from "./reportsReadout";
 import {
   checkBillExportReadiness,
+  confirmBillCsvImportSessionRuntime,
+  createBillCsvImportSession,
   defaultBillExportFilters,
+  discardBillCsvImportSessionRuntime,
   downloadBillExport,
   labelImportExportStatus,
   loadImportExportReadout,
   preflightBillCsvImport,
   type BillImportPreflightRuntimeState,
+  type BillImportSessionRuntimeState,
   type BillImportPreflightScope,
   type BillExportRuntimeState,
   type ImportExportCapability,
@@ -81,7 +85,9 @@ import {
 } from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
 import type {
+  BillCsvImportConfirmationResponse,
   BillCsvImportPreflightResponse,
+  BillCsvImportSessionResponse,
   ExpenseBillExportFormat,
   ExpenseBillReconciliationStatus,
   ExpenseBillStatus,
@@ -224,6 +230,10 @@ export function App() {
   const [importPreflightState, setImportPreflightState] = useState<BillImportPreflightRuntimeState>({
     status: "idle",
     message: "Choose a CSV file after sign-in to start a non-mutating import review."
+  });
+  const [importSessionState, setImportSessionState] = useState<BillImportSessionRuntimeState>({
+    status: "idle",
+    message: "Choose a CSV file after sign-in to create a reviewed import session."
   });
 
   useEffect(() => {
@@ -634,6 +644,10 @@ export function App() {
       status: "idle",
       message: "Choose a CSV file after sign-in to start a non-mutating import review."
     });
+    setImportSessionState({
+      status: "idle",
+      message: "Choose a CSV file after sign-in to create a reviewed import session."
+    });
     setImportCsvText("");
     setImportFileName(null);
     setImportFileSize(null);
@@ -647,6 +661,10 @@ export function App() {
         status: "auth_required",
         message: "Sign in is required before Settleora can read a CSV file for import review."
       });
+      setImportSessionState({
+        status: "auth_required",
+        message: "Sign in is required before Settleora can create an import session."
+      });
       return;
     }
 
@@ -656,6 +674,10 @@ export function App() {
       status: "idle",
       message: "CSV file is selected. Raw contents are not shown."
     });
+    setImportSessionState({
+      status: "idle",
+      message: "CSV file is selected. Create a server import session when ready."
+    });
 
     try {
       setImportCsvText(await file.text());
@@ -663,6 +685,10 @@ export function App() {
       setImportPreflightState({
         status: "error",
         message: "The browser could not read this CSV file. No preflight request was sent."
+      });
+      setImportSessionState({
+        status: "error",
+        message: "The browser could not read this CSV file. No import session was created."
       });
     }
   };
@@ -682,6 +708,53 @@ export function App() {
 
     setImportPreflightState(nextState);
     setImportCsvText("");
+  };
+
+  const handleCreateImportSession = async () => {
+    setImportSessionState({
+      status: "creating",
+      message: "Creating a server import session from the selected CSV."
+    });
+
+    const nextState = await createBillCsvImportSession({
+      accessToken: session.accessToken,
+      scope: importScope,
+      groupId: selectedGroupId,
+      csvText: importCsvText
+    });
+
+    setImportSessionState(nextState);
+    setImportCsvText("");
+  };
+
+  const handleConfirmImportSession = async () => {
+    setImportSessionState((current) => ({
+      ...current,
+      status: "confirming",
+      message: "Asking Settleora to import the reviewed bills from this session."
+    }));
+
+    setImportSessionState(
+      await confirmBillCsvImportSessionRuntime({
+        accessToken: session.accessToken,
+        session: importSessionState.session
+      })
+    );
+  };
+
+  const handleDiscardImportSession = async () => {
+    setImportSessionState((current) => ({
+      ...current,
+      status: "discarding",
+      message: "Discarding the pending server import session."
+    }));
+
+    setImportSessionState(
+      await discardBillCsvImportSessionRuntime({
+        accessToken: session.accessToken,
+        session: importSessionState.session
+      })
+    );
   };
 
   return (
@@ -845,9 +918,13 @@ export function App() {
               importFileName={importFileName}
               importFileSize={importFileSize}
               importPreflightState={importPreflightState}
+              importSessionState={importSessionState}
               hasImportCsvText={importCsvText.length > 0}
               onImportFileChange={handleImportFileChange}
               onPreflightCsvImport={handlePreflightCsvImport}
+              onCreateImportSession={handleCreateImportSession}
+              onConfirmImportSession={handleConfirmImportSession}
+              onDiscardImportSession={handleDiscardImportSession}
             />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
@@ -1167,9 +1244,13 @@ function ImportExportReadoutPanel({
   importFileName,
   importFileSize,
   importPreflightState,
+  importSessionState,
   hasImportCsvText,
   onImportFileChange,
-  onPreflightCsvImport
+  onPreflightCsvImport,
+  onCreateImportSession,
+  onConfirmImportSession,
+  onDiscardImportSession
 }: {
   readout: ImportExportReadoutState;
   session: SessionBoundaryState;
@@ -1187,9 +1268,13 @@ function ImportExportReadoutPanel({
   importFileName: string | null;
   importFileSize: number | null;
   importPreflightState: BillImportPreflightRuntimeState;
+  importSessionState: BillImportSessionRuntimeState;
   hasImportCsvText: boolean;
   onImportFileChange: (file: File | null) => void;
   onPreflightCsvImport: () => void;
+  onCreateImportSession: () => void;
+  onConfirmImportSession: () => void;
+  onDiscardImportSession: () => void;
 }) {
   const unavailableCount = readout.capabilities.filter(
     (capability) => capability.status === "not_available_yet" || capability.status === "needs_readiness_endpoint"
@@ -1263,9 +1348,13 @@ function ImportExportReadoutPanel({
         fileName={importFileName}
         fileSize={importFileSize}
         state={importPreflightState}
+        importSessionState={importSessionState}
         hasCsvText={hasImportCsvText}
         onFileChange={onImportFileChange}
         onPreflight={onPreflightCsvImport}
+        onCreateImportSession={onCreateImportSession}
+        onConfirmImportSession={onConfirmImportSession}
+        onDiscardImportSession={onDiscardImportSession}
       />
 
       <section className="capability-grid" aria-label="Capability availability">
@@ -1416,9 +1505,13 @@ function ImportPreflightRuntimeCard({
   fileName,
   fileSize,
   state,
+  importSessionState,
   hasCsvText,
   onFileChange,
-  onPreflight
+  onPreflight,
+  onCreateImportSession,
+  onConfirmImportSession,
+  onDiscardImportSession
 }: {
   session: SessionBoundaryState;
   groupsReadout: GroupsReadoutState;
@@ -1429,16 +1522,36 @@ function ImportPreflightRuntimeCard({
   fileName: string | null;
   fileSize: number | null;
   state: BillImportPreflightRuntimeState;
+  importSessionState: BillImportSessionRuntimeState;
   hasCsvText: boolean;
   onFileChange: (file: File | null) => void;
   onPreflight: () => void;
+  onCreateImportSession: () => void;
+  onConfirmImportSession: () => void;
+  onDiscardImportSession: () => void;
 }) {
   const isAuthenticated = session.status === "authenticated" && Boolean(session.accessToken);
   const selectedGroup = groupsReadout.groups.find((group) => group.id === selectedGroupId);
   const groupReady = groupsReadout.status === "loaded" && Boolean(selectedGroup);
   const canUseScope = scope === "personal" || groupReady;
   const isBusy = state.status === "checking";
-  const canPreflight = isAuthenticated && canUseScope && hasCsvText && !isBusy;
+  const sessionBusy =
+    importSessionState.status === "creating" ||
+    importSessionState.status === "confirming" ||
+    importSessionState.status === "discarding";
+  const canPreflight = isAuthenticated && canUseScope && hasCsvText && !isBusy && !sessionBusy;
+  const canCreateSession = canPreflight;
+  const canConfirmSession =
+    isAuthenticated &&
+    importSessionState.session?.status === "ready_for_confirmation" &&
+    importSessionState.session.confirmation.confirmable &&
+    !sessionBusy;
+  const canDiscardSession =
+    isAuthenticated &&
+    Boolean(importSessionState.session) &&
+    (importSessionState.session?.status === "ready_for_confirmation" ||
+      importSessionState.session?.status === "needs_correction") &&
+    !sessionBusy;
 
   return (
     <section className="surface-panel" aria-labelledby="import-preflight-title">
@@ -1453,7 +1566,7 @@ function ImportPreflightRuntimeCard({
       </div>
 
       <p className="muted-copy">
-        Preflight reviews CSV text with Settleora and returns safe row metadata only. Final import confirmation is not available in this slice.
+        Preflight reviews CSV text with Settleora and returns safe row metadata. Importing bills uses a separate server import session and confirmation challenge.
       </p>
 
       <div className="import-preflight-grid">
@@ -1507,8 +1620,14 @@ function ImportPreflightRuntimeCard({
         <button className="primary-button" type="button" disabled={!canPreflight} onClick={onPreflight}>
           Review CSV import
         </button>
-        <button className="secondary-button" type="button" disabled>
-          Import confirmation unavailable
+        <button className="secondary-button" type="button" disabled={!canCreateSession} onClick={onCreateImportSession}>
+          Create import session
+        </button>
+        <button className="primary-button" type="button" disabled={!canConfirmSession} onClick={onConfirmImportSession}>
+          Import reviewed bills
+        </button>
+        <button className="secondary-button" type="button" disabled={!canDiscardSession} onClick={onDiscardImportSession}>
+          Discard import session
         </button>
       </div>
 
@@ -1526,6 +1645,7 @@ function ImportPreflightRuntimeCard({
       />
 
       {state.response ? <ImportPreflightResponseReadout response={state.response} /> : null}
+      <ImportSessionRuntimeReadout state={importSessionState} />
     </section>
   );
 }
@@ -1609,6 +1729,111 @@ function ImportPreflightResponseReadout({ response }: { response: BillCsvImportP
         <p className="muted-copy">{response.readiness}</p>
       </ReadoutSection>
     </>
+  );
+}
+
+function ImportSessionRuntimeReadout({ state }: { state: BillImportSessionRuntimeState }) {
+  const session = state.session;
+  const confirmationResult = state.confirmationResult;
+
+  return (
+    <ReadoutSection title="Import session">
+      <div className="notification-row import-session-row">
+        <div className="notification-row-header">
+          <div>
+            <strong>{session ? `Session ${session.importSessionId}` : "No server import session"}</strong>
+            <small>{state.message}</small>
+          </div>
+          <span className={`status-chip ${importSessionStatusClass(state.status)}`}>
+            {labelize(state.status)}
+          </span>
+        </div>
+
+        {session ? (
+          <>
+            <ReadoutSection title="Session metadata">
+              <StatusPill label="Status" value={session.status} />
+              <StatusPill label="Scope" value={session.scope} />
+              <StatusPill label="Group" value={session.groupId ?? "Personal"} />
+              <StatusPill label="Expires" value={formatDate(session.expiresAtUtc)} />
+              <StatusPill label="Rows" value={String(session.rowCount)} />
+              <StatusPill label="Accepted" value={String(session.acceptedRowCount)} />
+              <StatusPill label="Warnings" value={String(session.warningRowCount)} />
+              <StatusPill label="Rejected" value={String(session.rejectedRowCount)} />
+              <StatusPill label="Duplicate candidates" value={String(session.duplicateCandidateRowCount)} />
+            </ReadoutSection>
+            <ReadoutSection title="Confirmation challenge">
+              <StatusPill label="Confirmable" value={session.confirmation.confirmable ? "Yes" : "No"} />
+              <StatusPill label="Confirm action" value={session.confirmation.confirmLabel} />
+              <StatusPill label="Discard action" value={session.confirmation.discardLabel} />
+              <StatusPill label="Payload digest" value={session.payloadDigest} />
+              <StatusPill label="Review version" value={session.preflightResultVersion} />
+              <StatusPill label="Challenge" value={session.confirmationChallengeId} />
+              <p className="muted-copy">{session.confirmation.safeMessage}</p>
+            </ReadoutSection>
+            <ImportPreflightResponseReadout response={session.review} />
+          </>
+        ) : (
+          <p className="muted-copy">Create import session sends selected CSV text to Settleora and clears browser-held CSV text when the request finishes.</p>
+        )}
+
+        {confirmationResult ? <ImportConfirmationResultReadout result={confirmationResult} /> : null}
+      </div>
+    </ReadoutSection>
+  );
+}
+
+function ImportConfirmationResultReadout({ result }: { result: BillCsvImportConfirmationResponse }) {
+  return (
+    <ReadoutSection title="Confirmation result">
+      <StatusPill label="Status" value={result.status} />
+      <StatusPill label="Scope" value={result.scope} />
+      <StatusPill label="Group" value={result.groupId ?? "Personal"} />
+      <StatusPill label="Imported bills" value={String(result.importedBillCount)} />
+      <div className="preflight-row-list">
+        {result.bills.length === 0 ? (
+          <p className="muted-copy">Settleora did not return bill summaries for this confirmation result.</p>
+        ) : (
+          result.bills.map((bill) => (
+            <article className="notification-row preflight-row" key={bill.billId}>
+              <div className="notification-row-header">
+                <div>
+                  <strong>Imported bill {bill.billId}</strong>
+                  <small>Server-returned draft summary</small>
+                </div>
+                <span className="status-chip status-sync">{labelize(bill.status)}</span>
+              </div>
+              <dl className="readout-list detail-readouts">
+                <div>
+                  <dt>Group</dt>
+                  <dd>{bill.groupId ?? "Personal"}</dd>
+                </div>
+                <div>
+                  <dt>Date</dt>
+                  <dd>{formatDate(bill.billDate)}</dd>
+                </div>
+                <div>
+                  <dt>Total</dt>
+                  <dd>{bill.totalAmount} {bill.totalCurrency}</dd>
+                </div>
+                <div>
+                  <dt>Items</dt>
+                  <dd>{bill.itemCount}</dd>
+                </div>
+                <div>
+                  <dt>Participants</dt>
+                  <dd>{bill.participantCount}</dd>
+                </div>
+                <div>
+                  <dt>Payers</dt>
+                  <dd>{bill.payerCount}</dd>
+                </div>
+              </dl>
+            </article>
+          ))
+        )}
+      </div>
+    </ReadoutSection>
   );
 }
 
@@ -3204,6 +3429,24 @@ function importPreflightStatusClass(state: BillImportPreflightRuntimeState["stat
   }
 
   if (state === "needs_correction" || state === "session_expired" || state === "error") {
+    return "status-danger";
+  }
+
+  return "status-warning";
+}
+
+function importSessionStatusClass(state: BillImportSessionRuntimeState["status"]): string {
+  if (state === "ready" || state === "confirmed" || state === "discarded") {
+    return "status-sync";
+  }
+
+  if (
+    state === "needs_correction" ||
+    state === "session_expired" ||
+    state === "unavailable" ||
+    state === "conflict" ||
+    state === "error"
+  ) {
     return "status-danger";
   }
 
