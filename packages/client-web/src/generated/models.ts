@@ -3820,6 +3820,114 @@ export interface Money {
 export type RoundingMode = "up" | "down" | "nearest" | "bankers";
 
 /**
+ * Server-derived sync/local mode for the authenticated status readout.
+ */
+export type SyncLocalStatusMode = "server_mode" | "local_mode_unsupported" | "unknown";
+
+/**
+ * Stable product-facing sync/local status code. Unknown future values must be handled as unavailable by clients.
+ */
+export type SyncLocalStatusStableCode = "server_mode_active" | "auth_required" | "no_server_session" | "session_expired" | "server_unreachable" | "offline" | "sync_status_ready" | "sync_status_unavailable" | "sync_unavailable" | "sync_failed_present" | "sync_conflict_present" | "stale_local_data" | "local_mode_unsupported" | "local_persistence_unsupported" | "backup_restore_unsupported" | "backup_restore_policy_disabled" | "sync_mutation_unsupported" | "local_to_server_migration_required" | "unsupported_resource_type" | "unsupported_operation_type" | "policy_disabled" | "temporarily_unavailable";
+
+/**
+ * Current authenticated session state for this server-derived status response.
+ */
+export type SyncLocalStatusSessionState = "authenticated" | "unauthenticated" | "no_session" | "session_expired";
+
+/**
+ * Server-derived reachability/readiness state for this response. Browser network heuristics are not sync authority.
+ */
+export type SyncLocalStatusReachability = "reachable" | "server_unavailable" | "offline" | "unknown";
+
+/**
+ * Availability state for one sync/local feature family in this read-only status surface.
+ */
+export type SyncLocalFeatureState = "available" | "unavailable" | "unsupported" | "policy_disabled";
+
+/**
+ * Whether an operation summary count is safely available for the current actor.
+ */
+export type SyncLocalOperationSummaryState = "available" | "unavailable" | "unsupported";
+
+/**
+ * Feature families explicitly unsupported by the current user-web sync/local status contract.
+ */
+export type SyncLocalUnsupportedFeature = "browser_local_mode" | "browser_local_persistence" | "local_backup_restore" | "sync_mutation" | "conflict_resolution";
+
+/**
+ * Safe status for one sync/local feature family.
+ */
+export interface SyncLocalFeatureStatusResponse {
+  state: SyncLocalFeatureState;
+  stableCode: SyncLocalStatusStableCode;
+  /**
+   * User-safe message without hidden records, operation payloads, storage details, auth tokens, or private data.
+   */
+  safeMessage: string;
+}
+
+/**
+ * Bounded current-actor sync operation summary. Counts are null when no safe authoritative count exists.
+ */
+export interface SyncLocalOperationSummaryResponse {
+  state: SyncLocalOperationSummaryState;
+  /**
+   * Current-actor scoped count, or null when unavailable.
+   */
+  count: number | null;
+  stableCode: SyncLocalStatusStableCode;
+  /**
+   * User-safe message without raw payloads, idempotency keys, hidden record details, or storage internals.
+   */
+  safeMessage: string;
+}
+
+/**
+ * Explicit unsupported feature code and safe user-facing message.
+ */
+export interface SyncLocalUnsupportedFeatureResponse {
+  feature: SyncLocalUnsupportedFeature;
+  stableCode: SyncLocalStatusStableCode;
+  safeMessage: string;
+}
+
+/**
+ * Bounded read-only sync/local status metadata for the current authenticated actor. It contains no business record payloads, raw sync payloads, idempotency keys, file bytes, storage paths, object keys, auth tokens, private notes, import/export data, or hidden records.
+ */
+export interface SyncLocalStatusResponse {
+  mode: SyncLocalStatusMode;
+  /**
+   * True when authenticated server-derived status metadata is available for the current actor.
+   */
+  available: boolean;
+  stableCode: SyncLocalStatusStableCode;
+  safeMessage: string;
+  sessionState: SyncLocalStatusSessionState;
+  serverReachability: SyncLocalStatusReachability;
+  generatedAtUtc: string;
+  /**
+   * Freshness expiry for display; clients should reload rather than treating stale status as authority.
+   */
+  expiresAtUtc: string;
+  serverMode: SyncLocalFeatureStatusResponse;
+  localModeSupport: SyncLocalFeatureStatusResponse;
+  backupRestoreSupport: SyncLocalFeatureStatusResponse;
+  syncMutationSupport: SyncLocalFeatureStatusResponse;
+  /**
+   * Maximum visible server resource version for the current actor, or null when no visible server version exists.
+   */
+  lastAcceptedServerVersion: number | null;
+  pendingOperationSummary: SyncLocalOperationSummaryResponse;
+  failedOperationSummary: SyncLocalOperationSummaryResponse;
+  conflictSummary: SyncLocalOperationSummaryResponse;
+  unsupportedFeatures: SyncLocalUnsupportedFeatureResponse[];
+  /**
+   * Safe disclosure boundary summary for display and logging review.
+   */
+  privacyBoundary: string;
+}
+
+/**
  * Day 1 sync operation types accepted by the server sync foundation.
  */
 export type SyncOperationType = "bill_archive" | "bill_restore";

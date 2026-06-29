@@ -1960,6 +1960,17 @@ class SettleoraApiClient {
     return SyncChangesResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<SyncLocalStatusResponse> getSyncLocalStatus({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/sync/local-status",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return SyncLocalStatusResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<SyncOperationResponse> submitSyncOperation(SyncOperationRequest body, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",
