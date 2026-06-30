@@ -55,6 +55,18 @@ URLs, package manifests, restore previews, restore confirmations,
 browser-local persistence, user-web runtime behavior, or source business-record
 mutations.
 
+Implementation update on 2026-06-30: the data-only package runtime now includes
+an additive `personal_bill_candidates` section in the existing
+`settleora.local-backup.data-only` / `2026-06-30.data-only.v1` package format.
+The section is bounded to current-actor visible personal bills only and uses
+package-local candidate IDs plus safe source provenance digests. It includes
+dates, status, archive state, decimal-string totals with currency,
+current-actor participant/payer readout, and count categories. It omits
+group/shared records, file/blob sections, merchant and item labels, notes,
+payment labels/details, raw OCR text, storage internals, and direct source
+record IDs. Restore preview summarizes this section without writing data;
+restore confirmation remains metadata-only with restore apply unavailable.
+
 The existing readiness and session contracts are useful prerequisites, not
 data-egress approval. Package generation and download are separate gates
 because they may produce a durable copy of sensitive financial, profile,

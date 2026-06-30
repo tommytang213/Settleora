@@ -5,6 +5,7 @@ using Settleora.Api.Expenses.BillSearch;
 using Settleora.Api.Persistence;
 using Settleora.Api.RequestValidation;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -23,6 +24,7 @@ internal static class LocalBackupPackageReadinessEndpoints
     private const int MaxRestorePreviewRequestBytes = 1_100_000;
     private const int MaxRestorePreviewPackageBytes = 1_048_576;
     private const int MaxRestorePreviewSections = 64;
+    private const int MaxPersonalBillCandidateCount = 250;
     private const string PackageContentType = "application/vnd.settleora.local-backup+json";
     private const string PackageFormatName = "settleora.local-backup.data-only";
     private const string PackageVersion = "2026-06-30.data-only.v1";
@@ -252,7 +254,20 @@ internal static class LocalBackupPackageReadinessEndpoints
             return Results.Ok(MapPackageGenerationResponse(session, now));
         }
 
-        var artifact = await BuildPackageArtifactAsync(session, actor, dbContext, now, cancellationToken);
+        LocalBackupPackageArtifactMetadata artifact;
+        try
+        {
+            artifact = await BuildPackageArtifactAsync(session, actor, dbContext, now, cancellationToken);
+        }
+        catch (LocalBackupPackageGenerationValidationException ex)
+        {
+            session.Status = "blocked";
+            session.StableFailureCode = ex.StableCode;
+            session.Artifact = null;
+            session.DownloadActions.Clear();
+            return Results.Ok(MapPackageGenerationResponse(session, now));
+        }
+
         session.Artifact = artifact;
         session.Status = "ready_to_download";
         return Results.Ok(MapPackageGenerationResponse(session, now));
@@ -1410,16 +1425,16 @@ internal static class LocalBackupPackageReadinessEndpoints
     private static IReadOnlyList<LocalBackupRestorePreviewRecordSummary> BuildRestorePreviewRecordSummaries(JsonElement root)
     {
         if (!root.TryGetProperty("data", out var data)
-            || data.ValueKind is not JsonValueKind.Object
-            || !data.TryGetProperty("personalBillSafeSummary", out var billSummary)
-            || billSummary.ValueKind is not JsonValueKind.Object)
+            || data.ValueKind is not JsonValueKind.Object)
         {
             return [];
         }
 
-        return
-        [
-            new(
+        var summaries = new List<LocalBackupRestorePreviewRecordSummary>();
+        if (data.TryGetProperty("personalBillSafeSummary", out var billSummary)
+            && billSummary.ValueKind is JsonValueKind.Object)
+        {
+            summaries.Add(new(
                 "personal_bill_safe_summary",
                 SafeIntOrZero(billSummary, "totalVisiblePersonalBills"),
                 SafeIntOrZero(billSummary, "activeVisiblePersonalBills"),
@@ -1427,8 +1442,71 @@ internal static class LocalBackupPackageReadinessEndpoints
                 SafeIntOrZero(billSummary, "itemCount"),
                 SafeIntOrZero(billSummary, "participantCount"),
                 SafeIntOrZero(billSummary, "payerCount"),
-                SafeIntOrZero(billSummary, "adjustmentCount"))
-        ];
+                SafeIntOrZero(billSummary, "adjustmentCount")));
+        }
+
+        if (data.TryGetProperty("personalBillCandidates", out var billCandidates)
+            && billCandidates.ValueKind is JsonValueKind.Array)
+        {
+            if (billCandidates.GetArrayLength() > MaxPersonalBillCandidateCount)
+            {
+                throw new LocalBackupRestorePreviewValidationException("personal_bill_candidate_limit_exceeded");
+            }
+
+            var activeCount = 0;
+            var archivedCount = 0;
+            var itemCount = 0;
+            var participantCount = 0;
+            var payerCount = 0;
+            var adjustmentCount = 0;
+            foreach (var candidate in billCandidates.EnumerateArray())
+            {
+                if (candidate.ValueKind is not JsonValueKind.Object)
+                {
+                    throw new LocalBackupRestorePreviewValidationException("invalid_personal_bill_candidate_section");
+                }
+
+                var candidateId = RequiredString(candidate, "candidateId", "invalid_personal_bill_candidate_section");
+                if (!candidateId.StartsWith("personal-bill-candidate-", StringComparison.Ordinal)
+                    || candidateId.Length > 64)
+                {
+                    throw new LocalBackupRestorePreviewValidationException("invalid_personal_bill_candidate_section");
+                }
+
+                _ = RequiredString(candidate, "billDate", "invalid_personal_bill_candidate_section");
+                _ = RequiredString(candidate, "status", "invalid_personal_bill_candidate_section");
+                _ = RequiredString(candidate, "currency", "invalid_personal_bill_candidate_section");
+                _ = RequiredString(candidate, "totalAmount", "invalid_personal_bill_candidate_section");
+
+                var archived = candidate.TryGetProperty("archived", out var archivedElement)
+                    && archivedElement.ValueKind is JsonValueKind.True;
+                if (archived)
+                {
+                    archivedCount++;
+                }
+                else
+                {
+                    activeCount++;
+                }
+
+                itemCount += SafeIntOrZero(candidate, "itemCount");
+                participantCount += SafeIntOrZero(candidate, "participantCount");
+                payerCount += SafeIntOrZero(candidate, "payerCount");
+                adjustmentCount += SafeIntOrZero(candidate, "adjustmentCount");
+            }
+
+            summaries.Add(new(
+                "personal_bill_candidates",
+                billCandidates.GetArrayLength(),
+                activeCount,
+                archivedCount,
+                itemCount,
+                participantCount,
+                payerCount,
+                adjustmentCount));
+        }
+
+        return summaries;
     }
 
     private static string RequiredString(JsonElement root, string propertyName, string stableCode)
@@ -1630,6 +1708,18 @@ internal static class LocalBackupPackageReadinessEndpoints
         var visiblePersonalBills = ExpenseBillSearchQueries.VisiblePersonalBillsIncludingArchived(
             dbContext,
             actor.UserProfileId);
+        var personalBills = await visiblePersonalBills
+            .WithBillDetails()
+            .OrderBy(bill => bill.BillDate)
+            .ThenBy(bill => bill.CreatedAtUtc)
+            .ThenBy(bill => bill.Id)
+            .Take(MaxPersonalBillCandidateCount + 1)
+            .ToListAsync(cancellationToken);
+        if (personalBills.Count > MaxPersonalBillCandidateCount)
+        {
+            throw new LocalBackupPackageGenerationValidationException("personal_bill_candidate_limit_exceeded");
+        }
+
         var personalBillSummaryRows = await visiblePersonalBills
             .GroupBy(bill => new
             {
@@ -1669,6 +1759,50 @@ internal static class LocalBackupPackageReadinessEndpoints
         var personalBillAdjustmentCount = await visiblePersonalBills
             .SelectMany(bill => bill.Adjustments)
             .CountAsync(cancellationToken);
+        var personalBillCandidates = personalBills
+            .Select((bill, index) => new LocalBackupPackagePersonalBillCandidate(
+                CandidateId: $"personal-bill-candidate-{index + 1:000000}",
+                SourceProvenance: new LocalBackupPackagePersonalBillCandidateProvenance(
+                    "expense_bill",
+                    "server_authoritative_copy",
+                    "current_actor_personal_bill",
+                    HashJson(new
+                    {
+                        session.PackageSessionId,
+                        bill.Id,
+                        actor.UserProfileId
+                    })),
+                BillDate: bill.BillDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                Status: bill.Status,
+                Archived: bill.ArchivedAtUtc is not null,
+                TotalAmount: FormatAmount(bill.TotalAmount),
+                Currency: bill.TotalCurrency,
+                CreatedAtUtc: bill.CreatedAtUtc,
+                UpdatedAtUtc: bill.UpdatedAtUtc,
+                ArchivedAtUtc: bill.ArchivedAtUtc,
+                ItemCount: bill.Items.Count(item => item.DeletedAtUtc is null),
+                ParticipantCount: bill.Participants.Count,
+                PayerCount: bill.Payers.Count,
+                AdjustmentCount: bill.Adjustments.Count,
+                CreatedByCurrentActor: bill.CreatedByUserProfileId == actor.UserProfileId,
+                BillOwnerIsCurrentActor: bill.BillOwnerUserProfileId == actor.UserProfileId,
+                CurrentActorParticipant: bill.Participants
+                    .Where(participant => participant.UserProfileId == actor.UserProfileId)
+                    .Select(participant => new LocalBackupPackageCurrentActorParticipantCandidate(
+                        participant.Status,
+                        FormatAmount(participant.ResolvedShareAmount),
+                        participant.ResolvedShareCurrency))
+                    .SingleOrDefault(),
+                CurrentActorPayer: bill.Payers
+                    .Where(payer => payer.UserProfileId == actor.UserProfileId)
+                    .OrderBy(payer => payer.CreatedAtUtc)
+                    .ThenBy(payer => payer.Id)
+                    .Select(payer => new LocalBackupPackageCurrentActorPayerCandidate(
+                        FormatAmount(payer.Amount),
+                        payer.Currency,
+                        payer.PayerConfirmationStatus))
+                    .FirstOrDefault()))
+            .ToArray();
 
         var sections = new List<LocalBackupPackageSection>
         {
@@ -1698,6 +1832,12 @@ internal static class LocalBackupPackageReadinessEndpoints
                     personalBillAdjustmentCount,
                     personalBillSummary
                 })),
+            new(
+                "personal_bill_candidates",
+                "included",
+                personalBillCandidates.Length,
+                "Bounded current-actor personal bill restore candidates with package-local IDs, safe source provenance, dates, statuses, decimal-string totals, current-actor participation/payer facts, and count categories only. Group records, notes, item labels, merchant names, payment labels, file references, OCR text, and storage internals are omitted.",
+                HashJson(personalBillCandidates)),
             new(
                 "receipt_and_supporting_files",
                 "unsupported",
@@ -1763,7 +1903,8 @@ internal static class LocalBackupPackageReadinessEndpoints
                     payerCount = personalBillPayerCount,
                     adjustmentCount = personalBillAdjustmentCount,
                     byStatusCurrencyArchive = personalBillSummary
-                }
+                },
+                personalBillCandidates
             },
             omittedAndUnsupported = sections
                 .Where(section => section.State is not "included")
@@ -1807,6 +1948,11 @@ internal static class LocalBackupPackageReadinessEndpoints
     private static string Sha256Hex(byte[] bytes)
     {
         return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    }
+
+    private static string FormatAmount(decimal amount)
+    {
+        return amount.ToString("0.####", CultureInfo.InvariantCulture);
     }
 
     private static DateTimeOffset Min(DateTimeOffset left, DateTimeOffset right)
@@ -1887,6 +2033,42 @@ internal sealed record LocalBackupPackageBillSummaryRow(
     string Currency,
     bool Archived,
     int Count);
+
+internal sealed record LocalBackupPackagePersonalBillCandidate(
+    string CandidateId,
+    LocalBackupPackagePersonalBillCandidateProvenance SourceProvenance,
+    string BillDate,
+    string Status,
+    bool Archived,
+    string TotalAmount,
+    string Currency,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc,
+    DateTimeOffset? ArchivedAtUtc,
+    int ItemCount,
+    int ParticipantCount,
+    int PayerCount,
+    int AdjustmentCount,
+    bool CreatedByCurrentActor,
+    bool BillOwnerIsCurrentActor,
+    LocalBackupPackageCurrentActorParticipantCandidate? CurrentActorParticipant,
+    LocalBackupPackageCurrentActorPayerCandidate? CurrentActorPayer);
+
+internal sealed record LocalBackupPackagePersonalBillCandidateProvenance(
+    string SourceRecordType,
+    string SourceAuthorityBoundary,
+    string SourceScope,
+    string SourceRecordDigest);
+
+internal sealed record LocalBackupPackageCurrentActorParticipantCandidate(
+    string Status,
+    string ResolvedShareAmount,
+    string ResolvedShareCurrency);
+
+internal sealed record LocalBackupPackageCurrentActorPayerCandidate(
+    string Amount,
+    string Currency,
+    string PayerConfirmationStatus);
 
 internal sealed record LocalBackupPackageSection(
     string Name,
@@ -2061,6 +2243,11 @@ internal sealed record LocalBackupRestoreConfirmationSessionResponse(
     DateTimeOffset ResponseGeneratedAtUtc);
 
 internal sealed class LocalBackupRestorePreviewValidationException(string stableCode) : Exception
+{
+    public string StableCode { get; } = stableCode;
+}
+
+internal sealed class LocalBackupPackageGenerationValidationException(string stableCode) : Exception
 {
     public string StableCode { get; } = stableCode;
 }
