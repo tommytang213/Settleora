@@ -19,6 +19,7 @@ internal static class LocalBackupPackageReadinessEndpoints
     private static readonly TimeSpan PackageArtifactLifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan DownloadActionLifetime = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan RestorePreviewLifetime = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan RestoreConfirmationSessionLifetime = TimeSpan.FromMinutes(5);
     private const int MaxRestorePreviewRequestBytes = 1_100_000;
     private const int MaxRestorePreviewPackageBytes = 1_048_576;
     private const int MaxRestorePreviewSections = 64;
@@ -28,6 +29,7 @@ internal static class LocalBackupPackageReadinessEndpoints
     private const string ManifestVersion = "2026-06-30.manifest.v1";
     private static readonly ConcurrentDictionary<Guid, LocalBackupPackageSessionMetadata> PackageSessions = new();
     private static readonly ConcurrentDictionary<Guid, LocalBackupRestorePreviewMetadata> RestorePreviews = new();
+    private static readonly ConcurrentDictionary<Guid, LocalBackupRestoreConfirmationSessionMetadata> RestoreConfirmationSessions = new();
 
     public static WebApplication MapLocalBackupPackageReadinessEndpoints(this WebApplication app)
     {
@@ -54,6 +56,12 @@ internal static class LocalBackupPackageReadinessEndpoints
         app.MapGet("/api/v1/local-backup/restore-previews/{restorePreviewId:guid}", GetRestorePreviewAsync)
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
         app.MapPost("/api/v1/local-backup/restore-previews/{restorePreviewId:guid}/discard", DiscardRestorePreviewAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapPost("/api/v1/local-backup/restore-previews/{restorePreviewId:guid}/confirmation-sessions", CreateRestoreConfirmationSessionAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapGet("/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId:guid}", GetRestoreConfirmationSessionAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapPost("/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId:guid}/discard", DiscardRestoreConfirmationSessionAsync)
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
@@ -671,6 +679,203 @@ internal static class LocalBackupPackageReadinessEndpoints
         return Results.Ok(MapRestorePreviewResponse(preview, now));
     }
 
+    private static IResult CreateRestoreConfirmationSessionAsync(
+        HttpRequest request,
+        Guid restorePreviewId,
+        LocalBackupRestoreConfirmationSessionCreateRequest requestBody,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+                request,
+                "Invalid local backup restore confirmation session request",
+                "The submitted local backup restore confirmation session request is invalid.",
+                out var invalidQueryEnvelope))
+        {
+            return invalidQueryEnvelope;
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (!TryLoadActorRestorePreview(restorePreviewId, actor, out var preview))
+        {
+            return RestorePreviewUnavailableProblem();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpireRestorePreviewIfNeeded(preview, now);
+        if (preview.Status is not "ready")
+        {
+            return RestorePreviewUnavailableProblem();
+        }
+
+        var selectedScope = (requestBody.SelectedRestoreScope ?? string.Empty).Trim();
+        if (selectedScope is not "server_mode_copy_data_only")
+        {
+            return InvalidRestoreConfirmationSessionProblem("restore_scope_unsupported");
+        }
+
+        var confirmationLabel = (requestBody.ConfirmationLabel ?? string.Empty).Trim();
+        if (confirmationLabel is not "Restore selected records")
+        {
+            return InvalidRestoreConfirmationSessionProblem("restore_confirmation_required");
+        }
+
+        if (requestBody.ExpectedRestorePreviewId.HasValue
+            && requestBody.ExpectedRestorePreviewId.Value != restorePreviewId)
+        {
+            return InvalidRestoreConfirmationSessionProblem("restore_preview_stale");
+        }
+
+        if (!string.IsNullOrWhiteSpace(requestBody.ExpectedPreviewStableCode)
+            && requestBody.ExpectedPreviewStableCode.Trim() != preview.StableCode)
+        {
+            return InvalidRestoreConfirmationSessionProblem("restore_preview_stale");
+        }
+
+        if (!string.IsNullOrWhiteSpace(requestBody.ExpectedPackageSha256)
+            && !string.Equals(
+                requestBody.ExpectedPackageSha256.Trim(),
+                preview.PackageSummary.PackageSha256,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return InvalidRestoreConfirmationSessionProblem("restore_package_integrity_failed");
+        }
+
+        var requestDigest = BuildRestoreConfirmationRequestDigest(restorePreviewId, preview, selectedScope, confirmationLabel);
+        if (!string.IsNullOrWhiteSpace(requestBody.ExpectedRequestDigest)
+            && !string.Equals(requestBody.ExpectedRequestDigest.Trim(), requestDigest, StringComparison.OrdinalIgnoreCase))
+        {
+            return InvalidRestoreConfirmationSessionProblem("restore_package_source_mismatch");
+        }
+
+        var idempotencyKey = NormalizeOptional(requestBody.IdempotencyKey);
+        if (idempotencyKey is not null)
+        {
+            foreach (var existing in RestoreConfirmationSessions.Values)
+            {
+                if (existing.ActorUserProfileId != actor.UserProfileId
+                    || existing.AuthSessionId != actor.AuthSessionId
+                    || existing.IdempotencyKey != idempotencyKey)
+                {
+                    continue;
+                }
+
+                ExpireRestoreConfirmationSessionIfNeeded(existing, now);
+                if (existing.RequestDigest != requestDigest
+                    || existing.RestorePreviewId != restorePreviewId
+                    || existing.SelectedRestoreScope != selectedScope)
+                {
+                    return InvalidRestoreConfirmationSessionProblem("restore_confirmation_idempotency_conflict", StatusCodes.Status409Conflict);
+                }
+
+                return Results.Ok(MapRestoreConfirmationSessionResponse(existing, now));
+            }
+        }
+
+        var session = new LocalBackupRestoreConfirmationSessionMetadata(
+            Guid.NewGuid(),
+            restorePreviewId,
+            actor.UserProfileId,
+            actor.AuthSessionId,
+            "metadata_only",
+            "restore_confirmation_metadata_only",
+            selectedScope,
+            confirmationLabel,
+            idempotencyKey,
+            requestDigest,
+            now,
+            Min(now.Add(RestoreConfirmationSessionLifetime), preview.ExpiresAtUtc),
+            null,
+            preview.PackageSummary);
+        RestoreConfirmationSessions[session.RestoreConfirmationSessionId] = session;
+
+        return Results.Created(
+            $"/api/v1/local-backup/restore-confirmation-sessions/{session.RestoreConfirmationSessionId:D}",
+            MapRestoreConfirmationSessionResponse(session, now));
+    }
+
+    private static IResult GetRestoreConfirmationSessionAsync(
+        HttpRequest request,
+        Guid restoreConfirmationSessionId,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+                request,
+                "Invalid local backup restore confirmation session request",
+                "The submitted local backup restore confirmation session request is invalid.",
+                "Local backup restore confirmation session reads do not accept a body.",
+                out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (!TryLoadActorRestoreConfirmationSession(restoreConfirmationSessionId, actor, out var session))
+        {
+            return RestoreConfirmationSessionUnavailableProblem();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpireRestoreConfirmationSessionIfNeeded(session, now);
+        return Results.Ok(MapRestoreConfirmationSessionResponse(session, now));
+    }
+
+    private static IResult DiscardRestoreConfirmationSessionAsync(
+        HttpRequest request,
+        Guid restoreConfirmationSessionId,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+                request,
+                "Invalid local backup restore confirmation session discard request",
+                "The submitted local backup restore confirmation session discard request is invalid.",
+                "Local backup restore confirmation session discard requests do not accept a body.",
+                out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (!TryLoadActorRestoreConfirmationSession(restoreConfirmationSessionId, actor, out var session))
+        {
+            return RestoreConfirmationSessionUnavailableProblem();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpireRestoreConfirmationSessionIfNeeded(session, now);
+        if (session.Status is "metadata_only")
+        {
+            session.Status = "discarded";
+            session.StableCode = "restore_confirmation_discarded";
+            session.DiscardedAtUtc = now;
+        }
+
+        return Results.Ok(MapRestoreConfirmationSessionResponse(session, now));
+    }
+
     private static LocalBackupPackageFeatureStatusResponse Feature(
         string state,
         string stableCode,
@@ -721,6 +926,24 @@ internal static class LocalBackupPackageReadinessEndpoints
                 : StatusCodes.Status400BadRequest);
     }
 
+    private static IResult RestoreConfirmationSessionUnavailableProblem()
+    {
+        return Results.Problem(
+            title: "Local backup restore confirmation session unavailable",
+            detail: "The local backup restore confirmation session is unavailable for this authenticated actor.",
+            statusCode: StatusCodes.Status404NotFound);
+    }
+
+    private static IResult InvalidRestoreConfirmationSessionProblem(
+        string stableCode,
+        int statusCode = StatusCodes.Status400BadRequest)
+    {
+        return Results.Problem(
+            title: "Invalid local backup restore confirmation session",
+            detail: $"The local backup restore confirmation session cannot be created. Stable code: {stableCode}.",
+            statusCode: statusCode);
+    }
+
     private static void ExpirePackageSessionIfNeeded(LocalBackupPackageSessionMetadata session, DateTimeOffset now)
     {
         if ((session.Status is "created" or "ready_to_download") && now >= session.ExpiresAtUtc)
@@ -757,6 +980,17 @@ internal static class LocalBackupPackageReadinessEndpoints
         {
             preview.Status = "expired";
             preview.StableCode = "restore_preview_expired";
+        }
+    }
+
+    private static void ExpireRestoreConfirmationSessionIfNeeded(
+        LocalBackupRestoreConfirmationSessionMetadata session,
+        DateTimeOffset now)
+    {
+        if (session.Status is "metadata_only" && now >= session.ExpiresAtUtc)
+        {
+            session.Status = "expired";
+            session.StableCode = "restore_confirmation_expired";
         }
     }
 
@@ -952,6 +1186,79 @@ internal static class LocalBackupPackageReadinessEndpoints
             },
             PrivacyBoundary: "Restore preview responses return bounded safe metadata only. They exclude raw package payloads, file bytes, storage paths, object keys, signed URLs, filesystem/local/temp paths, provider internals, raw OCR text, private notes, payment details, hidden records, security material, auth material, and local Codex state.",
             ResponseGeneratedAtUtc: now);
+    }
+
+    private static LocalBackupRestoreConfirmationSessionResponse MapRestoreConfirmationSessionResponse(
+        LocalBackupRestoreConfirmationSessionMetadata session,
+        DateTimeOffset now)
+    {
+        var summary = session.PackageSummary;
+        return new LocalBackupRestoreConfirmationSessionResponse(
+            session.RestoreConfirmationSessionId,
+            session.RestorePreviewId,
+            session.Status,
+            session.StableCode,
+            SafeMessage: session.Status switch
+            {
+                "discarded" => "This restore confirmation session metadata was discarded. No records, files, bills, settlements, sync conflicts, or accounts were changed.",
+                "expired" => "This restore confirmation session metadata expired. Create a new restore preview and confirmation session before any future restore gate.",
+                _ => "This restore confirmation session is metadata-only. Restore mutation remains unavailable and requires a separate future gate."
+            },
+            SelectedScope: session.SelectedRestoreScope,
+            SelectedScopeSummary: "Server-mode data-only copy metadata for current-actor safe profile and personal bill count categories. No restore write is available.",
+            CanApplyRestore: false,
+            RestoreConfirmationState: session.Status switch
+            {
+                "discarded" => "discarded",
+                "expired" => "expired",
+                _ => "future_gate_required"
+            },
+            MutationAvailability: "unavailable",
+            SourceAuthorityBoundary: summary.SourceAuthorityBoundary,
+            PackageFormatName: summary.PackageFormatName,
+            PackageVersion: summary.PackageVersion,
+            ManifestVersion: summary.ManifestVersion,
+            PackageId: summary.PackageId,
+            ManifestId: summary.ManifestId,
+            PackageSessionId: summary.PackageSessionId,
+            PackageSha256: summary.PackageSha256,
+            TotalSectionCount: summary.TotalSectionCount,
+            IncludedSectionCategories: summary.IncludedSectionCategories,
+            OmittedSectionCategories: summary.OmittedSectionCategories,
+            UnsupportedSectionCategories: summary.UnsupportedSectionCategories,
+            BlockedSectionCategories: summary.BlockedSectionCategories,
+            RecordSummaries: summary.RecordSummaries,
+            WarningCodes: summary.Warnings,
+            BlockedCodes: MergeBlockedCodes(summary.BlockedReasons),
+            IdempotencyKeyAccepted: session.IdempotencyKey is not null,
+            RequestDigest: session.RequestDigest,
+            NextAllowedActions: session.Status switch
+            {
+                "metadata_only" => ["get_restore_confirmation_session", "discard_restore_confirmation_session"],
+                _ => ["create_restore_preview"]
+            },
+            PrivacyBoundary: "Restore confirmation session responses return bounded safe metadata only. They exclude raw package payloads, file bytes, storage paths, object keys, signed URLs, filesystem/local/temp paths, provider internals, raw OCR text, private notes, payment details, hidden records, security material, auth material, and local Codex state.",
+            DataBoundary: "This metadata-only confirmation session does not apply restored records, import data, mutate money/bills/settlements, write storage/file bytes, create browser-local authority, or change source package/preview data.",
+            CreatedAtUtc: session.CreatedAtUtc,
+            ExpiresAtUtc: session.ExpiresAtUtc,
+            DiscardedAtUtc: session.DiscardedAtUtc,
+            PackageGeneratedAtUtc: summary.GeneratedAtUtc,
+            PackageExpiresAtUtc: summary.PackageExpiresAtUtc,
+            ResponseGeneratedAtUtc: now);
+    }
+
+    private static IReadOnlyList<string> MergeBlockedCodes(IReadOnlyList<string> previewBlockedReasons)
+    {
+        return previewBlockedReasons
+            .Concat(
+            [
+                "restore_confirmation_future_gate_required",
+                "restore_money_policy_blocked",
+                "restore_file_section_blocked",
+                "restore_partial_selection_unsupported"
+            ])
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static LocalBackupRestorePreviewPackageSummary ParseRestorePreviewPackage(
@@ -1184,6 +1491,43 @@ internal static class LocalBackupPackageReadinessEndpoints
 
         preview = null!;
         return false;
+    }
+
+    private static bool TryLoadActorRestoreConfirmationSession(
+        Guid restoreConfirmationSessionId,
+        AuthenticatedActor actor,
+        out LocalBackupRestoreConfirmationSessionMetadata session)
+    {
+        if (RestoreConfirmationSessions.TryGetValue(restoreConfirmationSessionId, out session!)
+            && session.ActorUserProfileId == actor.UserProfileId
+            && session.AuthSessionId == actor.AuthSessionId)
+        {
+            return true;
+        }
+
+        session = null!;
+        return false;
+    }
+
+    private static string BuildRestoreConfirmationRequestDigest(
+        Guid restorePreviewId,
+        LocalBackupRestorePreviewMetadata preview,
+        string selectedScope,
+        string confirmationLabel)
+    {
+        return HashJson(new
+        {
+            restorePreviewId,
+            preview.StableCode,
+            preview.PackageSummary.PackageSha256,
+            selectedScope,
+            confirmationLabel
+        });
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private static string ArtifactStatus(LocalBackupPackageSessionMetadata session)
@@ -1634,6 +1978,86 @@ internal sealed record LocalBackupRestorePreviewResponse(
     string RestoreConfirmationCopy,
     IReadOnlyList<string> NextAllowedActions,
     string PrivacyBoundary,
+    DateTimeOffset ResponseGeneratedAtUtc);
+
+internal sealed record LocalBackupRestoreConfirmationSessionCreateRequest(
+    string ConfirmationLabel,
+    string SelectedRestoreScope,
+    string? IdempotencyKey,
+    Guid? ExpectedRestorePreviewId,
+    string? ExpectedPackageSha256,
+    string? ExpectedRequestDigest,
+    string? ExpectedPreviewStableCode);
+
+internal sealed class LocalBackupRestoreConfirmationSessionMetadata(
+    Guid restoreConfirmationSessionId,
+    Guid restorePreviewId,
+    Guid actorUserProfileId,
+    Guid authSessionId,
+    string status,
+    string stableCode,
+    string selectedRestoreScope,
+    string confirmationLabel,
+    string? idempotencyKey,
+    string requestDigest,
+    DateTimeOffset createdAtUtc,
+    DateTimeOffset expiresAtUtc,
+    DateTimeOffset? discardedAtUtc,
+    LocalBackupRestorePreviewPackageSummary packageSummary)
+{
+    public Guid RestoreConfirmationSessionId { get; } = restoreConfirmationSessionId;
+    public Guid RestorePreviewId { get; } = restorePreviewId;
+    public Guid ActorUserProfileId { get; } = actorUserProfileId;
+    public Guid AuthSessionId { get; } = authSessionId;
+    public string Status { get; set; } = status;
+    public string StableCode { get; set; } = stableCode;
+    public string SelectedRestoreScope { get; } = selectedRestoreScope;
+    public string ConfirmationLabel { get; } = confirmationLabel;
+    public string? IdempotencyKey { get; } = idempotencyKey;
+    public string RequestDigest { get; } = requestDigest;
+    public DateTimeOffset CreatedAtUtc { get; } = createdAtUtc;
+    public DateTimeOffset ExpiresAtUtc { get; } = expiresAtUtc;
+    public DateTimeOffset? DiscardedAtUtc { get; set; } = discardedAtUtc;
+    public LocalBackupRestorePreviewPackageSummary PackageSummary { get; } = packageSummary;
+}
+
+internal sealed record LocalBackupRestoreConfirmationSessionResponse(
+    Guid RestoreConfirmationSessionId,
+    Guid RestorePreviewId,
+    string Status,
+    string StableCode,
+    string SafeMessage,
+    string SelectedScope,
+    string SelectedScopeSummary,
+    bool CanApplyRestore,
+    string RestoreConfirmationState,
+    string MutationAvailability,
+    string SourceAuthorityBoundary,
+    string PackageFormatName,
+    string PackageVersion,
+    string ManifestVersion,
+    Guid PackageId,
+    Guid ManifestId,
+    Guid PackageSessionId,
+    string PackageSha256,
+    int TotalSectionCount,
+    IReadOnlyList<string> IncludedSectionCategories,
+    IReadOnlyList<string> OmittedSectionCategories,
+    IReadOnlyList<string> UnsupportedSectionCategories,
+    IReadOnlyList<string> BlockedSectionCategories,
+    IReadOnlyList<LocalBackupRestorePreviewRecordSummary> RecordSummaries,
+    IReadOnlyList<string> WarningCodes,
+    IReadOnlyList<string> BlockedCodes,
+    bool IdempotencyKeyAccepted,
+    string RequestDigest,
+    IReadOnlyList<string> NextAllowedActions,
+    string PrivacyBoundary,
+    string DataBoundary,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset ExpiresAtUtc,
+    DateTimeOffset? DiscardedAtUtc,
+    DateTimeOffset PackageGeneratedAtUtc,
+    DateTimeOffset PackageExpiresAtUtc,
     DateTimeOffset ResponseGeneratedAtUtc);
 
 internal sealed class LocalBackupRestorePreviewValidationException(string stableCode) : Exception

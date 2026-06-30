@@ -2938,6 +2938,159 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/restore-previews/{restorePreviewId}/confirmation-sessions:
+    post:
+      summary: Create local backup restore confirmation session metadata
+      description: Creates a short-lived authenticated restore-confirmation session metadata object from an existing restore preview owned by the current actor and current auth session. This operation is metadata-only and cannot apply restore records; canApplyRestore remains false and restore mutation remains a separate future gate. The operation fails closed for missing, expired, discarded, stale, wrong-actor, wrong-session, invalid-scope, package-integrity mismatch, source mismatch, or idempotency-conflict conditions, and never echoes raw package content, file bytes, storage internals, OCR text, notes, payment details, secrets, paths, URLs, or hidden records.
+      operationId: createLocalBackupRestoreConfirmationSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: restorePreviewId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalBackupRestoreConfirmationSessionCreateRequest"
+      responses:
+        "201":
+          description: Safe current-actor restore confirmation session metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupRestoreConfirmationSessionResponse"
+        "200":
+          description: Idempotent replay of an existing same-request confirmation session metadata object.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupRestoreConfirmationSessionResponse"
+        "400":
+          description: Restore confirmation session request is invalid, stale, mismatched, unsupported, or unavailable for metadata creation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to create a local backup restore confirmation session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Restore preview is missing, expired, discarded, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The submitted idempotency key conflicts with a different confirmation request digest, preview, package hash, or selected scope.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId}:
+    get:
+      summary: Get local backup restore confirmation session metadata
+      description: Returns one short-lived metadata-only restore confirmation session for the authenticated actor and current auth session. The response is safe readback only; it does not apply restores, import records, mutate money, bills, settlements, sync conflicts, files, storage, accounts, browser-local state, or source preview/package metadata.
+      operationId: getLocalBackupRestoreConfirmationSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: restoreConfirmationSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor restore confirmation session metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupRestoreConfirmationSessionResponse"
+        "400":
+          description: Local backup restore confirmation session read request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to read a local backup restore confirmation session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Restore confirmation session is missing, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId}/discard:
+    post:
+      summary: Discard local backup restore confirmation session metadata
+      description: Discards one short-lived restore confirmation session metadata object for the authenticated actor and current auth session. This operation marks only process-local confirmation-session metadata discarded and does not discard source records, package artifacts, restore previews, files, bills, settlements, sync conflicts, accounts, audit truth, browser-local state, or storage bytes.
+      operationId: discardLocalBackupRestoreConfirmationSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: restoreConfirmationSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor restore confirmation session metadata after discard or expiry readback.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupRestoreConfirmationSessionResponse"
+        "400":
+          description: Local backup restore confirmation session discard request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to discard a local backup restore confirmation session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Restore confirmation session is missing, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/sync/local-status:
     get:
       summary: Get sync and browser-local status
@@ -18993,6 +19146,70 @@ components:
       description: Restore confirmation support state for this preview contract.
       enum:
         - unsupported
+        - unavailable
+        - future_gate_required
+        - blocked
+        - expired
+        - discarded
+        - stale_preview
+        - metadata_only
+    LocalBackupRestoreConfirmationSessionStatus:
+      type: string
+      description: Short-lived metadata-only restore confirmation session status. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - metadata_only
+        - blocked
+        - expired
+        - discarded
+    LocalBackupRestoreConfirmationSessionStableCode:
+      type: string
+      description: Stable local backup restore confirmation session code. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - restore_confirmation_metadata_only
+        - restore_confirmation_unavailable
+        - restore_confirmation_required
+        - restore_confirmation_policy_disabled
+        - restore_confirmation_expired
+        - restore_confirmation_discarded
+        - restore_confirmation_idempotency_conflict
+        - restore_preview_expired
+        - restore_preview_discarded
+        - restore_preview_stale
+        - restore_preview_actor_mismatch
+        - restore_preview_session_mismatch
+        - restore_scope_invalid
+        - restore_scope_unsupported
+        - restore_package_integrity_failed
+        - restore_package_source_mismatch
+        - restore_duplicate_exact
+        - restore_duplicate_possible
+        - restore_current_record_conflict
+        - restore_stale_server_copy
+        - restore_hidden_data_blocked
+        - restore_unsupported_section
+        - restore_package_version_mismatch
+        - restore_privacy_downgrade_blocked
+        - restore_money_policy_blocked
+        - restore_file_section_blocked
+        - restore_partial_selection_unsupported
+        - temporarily_unavailable
+    LocalBackupRestoreConfirmationSelectedScope:
+      type: string
+      description: Selected restore scope intent accepted by the metadata-only confirmation session contract.
+      enum:
+        - server_mode_copy_data_only
+    LocalBackupRestoreConfirmationMutationAvailability:
+      type: string
+      description: Restore mutation availability. This slice always returns unavailable.
+      enum:
+        - unavailable
+    LocalBackupRestoreConfirmationNextAllowedAction:
+      type: string
+      description: Safe next action labels for metadata-only restore confirmation session lifecycle.
+      enum:
+        - get_restore_confirmation_session
+        - discard_restore_confirmation_session
+        - create_restore_preview
     LocalBackupRestorePreviewCreateRequest:
       type: object
       description: Submitted data-only local backup package content for non-mutating restore preview. The package content is sensitive input and is never echoed by normal responses or problem details.
@@ -19205,6 +19422,232 @@ components:
         privacyBoundary:
           type: string
           maxLength: 760
+        responseGeneratedAtUtc:
+          type: string
+          format: date-time
+    LocalBackupRestoreConfirmationSessionCreateRequest:
+      type: object
+      description: Metadata-only restore confirmation session creation intent for an existing restore preview. The API revalidates preview ownership, auth session, expiry, selected scope, package integrity, and optional idempotency/request digest. This request never carries client-computed financial truth, storage object keys, filesystem paths, signed URLs, raw secrets, file bytes, raw package payload echoes, or hidden data.
+      additionalProperties: false
+      required:
+        - confirmationLabel
+        - selectedRestoreScope
+      properties:
+        confirmationLabel:
+          type: string
+          enum:
+            - Restore selected records
+          description: Explicit confirmation label required for metadata session creation. It does not authorize restore mutation in this slice.
+        selectedRestoreScope:
+          $ref: "#/components/schemas/LocalBackupRestoreConfirmationSelectedScope"
+        idempotencyKey:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: Optional caller idempotency key. Reusing the same key with a different digest, selected scope, preview, package hash, actor, or auth session fails closed.
+        expectedRestorePreviewId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Optional expected restore preview ID; when supplied it must match the route restorePreviewId.
+        expectedPackageSha256:
+          oneOf:
+            - type: string
+              minLength: 64
+              maxLength: 64
+            - type: "null"
+          description: Optional expected package SHA-256 copied from restore preview metadata. It is an integrity marker, not a secret.
+        expectedRequestDigest:
+          oneOf:
+            - type: string
+              minLength: 64
+              maxLength: 64
+            - type: "null"
+          description: Optional expected server request digest. Mismatches fail closed.
+        expectedPreviewStableCode:
+          oneOf:
+            - $ref: "#/components/schemas/LocalBackupRestorePreviewStableCode"
+            - type: "null"
+          description: Optional expected preview stable code; mismatches fail closed as stale preview use.
+    LocalBackupRestoreConfirmationSessionResponse:
+      type: object
+      description: Metadata-only restore confirmation session readback for the authenticated actor and current auth session. It contains no raw package payload, raw request body, file bytes, storage paths, object keys, bucket names, signed URLs, direct storage URLs, filesystem/local/temp paths, provider internals, raw OCR text, private notes, payment details, auth tokens, credentials, hidden records, browser-local persistence, or server/local mutation result.
+      additionalProperties: false
+      required:
+        - restoreConfirmationSessionId
+        - restorePreviewId
+        - status
+        - stableCode
+        - safeMessage
+        - selectedScope
+        - selectedScopeSummary
+        - canApplyRestore
+        - restoreConfirmationState
+        - mutationAvailability
+        - sourceAuthorityBoundary
+        - packageFormatName
+        - packageVersion
+        - manifestVersion
+        - packageId
+        - manifestId
+        - packageSessionId
+        - packageSha256
+        - totalSectionCount
+        - includedSectionCategories
+        - omittedSectionCategories
+        - unsupportedSectionCategories
+        - blockedSectionCategories
+        - recordSummaries
+        - warningCodes
+        - blockedCodes
+        - idempotencyKeyAccepted
+        - requestDigest
+        - nextAllowedActions
+        - privacyBoundary
+        - dataBoundary
+        - createdAtUtc
+        - expiresAtUtc
+        - packageGeneratedAtUtc
+        - packageExpiresAtUtc
+        - responseGeneratedAtUtc
+      properties:
+        restoreConfirmationSessionId:
+          type: string
+          format: uuid
+          description: Opaque process-local restore confirmation session ID. It is not restore authority, storage authority, a package token, or a bearer credential.
+        restorePreviewId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/LocalBackupRestoreConfirmationSessionStatus"
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupRestoreConfirmationSessionStableCode"
+        safeMessage:
+          type: string
+          maxLength: 420
+        selectedScope:
+          $ref: "#/components/schemas/LocalBackupRestoreConfirmationSelectedScope"
+        selectedScopeSummary:
+          type: string
+          maxLength: 420
+        canApplyRestore:
+          type: boolean
+          enum:
+            - false
+          description: Always false in this metadata-only slice. Restore mutation remains a separate future gate.
+        restoreConfirmationState:
+          $ref: "#/components/schemas/LocalBackupRestoreConfirmationState"
+        mutationAvailability:
+          $ref: "#/components/schemas/LocalBackupRestoreConfirmationMutationAvailability"
+        sourceAuthorityBoundary:
+          type: string
+          enum:
+            - server_authoritative_copy
+        packageFormatName:
+          type: string
+          enum:
+            - settleora.local-backup.data-only
+        packageVersion:
+          type: string
+          enum:
+            - 2026-06-30.data-only.v1
+        manifestVersion:
+          type: string
+          enum:
+            - 2026-06-30.manifest.v1
+        packageId:
+          type: string
+          format: uuid
+        manifestId:
+          type: string
+          format: uuid
+        packageSessionId:
+          type: string
+          format: uuid
+        packageSha256:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: SHA-256 copied from restore preview metadata. It is an integrity marker, not a secret.
+        totalSectionCount:
+          type: integer
+          minimum: 0
+          maximum: 64
+        includedSectionCategories:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        omittedSectionCategories:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        unsupportedSectionCategories:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        blockedSectionCategories:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        recordSummaries:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewRecordSummary"
+        warningCodes:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewWarning"
+        blockedCodes:
+          type: array
+          maxItems: 24
+          items:
+            type: string
+            maxLength: 120
+          description: Bounded blocked code categories copied from preview blocked sections plus confirmation policy families.
+        idempotencyKeyAccepted:
+          type: boolean
+        requestDigest:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: Server-created request digest for metadata-session idempotency checks. It is not a secret and does not contain raw request content.
+        nextAllowedActions:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/LocalBackupRestoreConfirmationNextAllowedAction"
+        privacyBoundary:
+          type: string
+          maxLength: 840
+        dataBoundary:
+          type: string
+          maxLength: 760
+        createdAtUtc:
+          type: string
+          format: date-time
+        expiresAtUtc:
+          type: string
+          format: date-time
+        discardedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        packageGeneratedAtUtc:
+          type: string
+          format: date-time
+        packageExpiresAtUtc:
+          type: string
+          format: date-time
         responseGeneratedAtUtc:
           type: string
           format: date-time

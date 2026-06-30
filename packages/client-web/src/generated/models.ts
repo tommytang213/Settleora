@@ -4169,7 +4169,32 @@ export type LocalBackupRestorePreviewNextAllowedAction = "get_restore_preview" |
 /**
  * Restore confirmation support state for this preview contract.
  */
-export type LocalBackupRestoreConfirmationState = "unsupported";
+export type LocalBackupRestoreConfirmationState = "unsupported" | "unavailable" | "future_gate_required" | "blocked" | "expired" | "discarded" | "stale_preview" | "metadata_only";
+
+/**
+ * Short-lived metadata-only restore confirmation session status. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupRestoreConfirmationSessionStatus = "metadata_only" | "blocked" | "expired" | "discarded";
+
+/**
+ * Stable local backup restore confirmation session code. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupRestoreConfirmationSessionStableCode = "restore_confirmation_metadata_only" | "restore_confirmation_unavailable" | "restore_confirmation_required" | "restore_confirmation_policy_disabled" | "restore_confirmation_expired" | "restore_confirmation_discarded" | "restore_confirmation_idempotency_conflict" | "restore_preview_expired" | "restore_preview_discarded" | "restore_preview_stale" | "restore_preview_actor_mismatch" | "restore_preview_session_mismatch" | "restore_scope_invalid" | "restore_scope_unsupported" | "restore_package_integrity_failed" | "restore_package_source_mismatch" | "restore_duplicate_exact" | "restore_duplicate_possible" | "restore_current_record_conflict" | "restore_stale_server_copy" | "restore_hidden_data_blocked" | "restore_unsupported_section" | "restore_package_version_mismatch" | "restore_privacy_downgrade_blocked" | "restore_money_policy_blocked" | "restore_file_section_blocked" | "restore_partial_selection_unsupported" | "temporarily_unavailable";
+
+/**
+ * Selected restore scope intent accepted by the metadata-only confirmation session contract.
+ */
+export type LocalBackupRestoreConfirmationSelectedScope = "server_mode_copy_data_only";
+
+/**
+ * Restore mutation availability. This slice always returns unavailable.
+ */
+export type LocalBackupRestoreConfirmationMutationAvailability = "unavailable";
+
+/**
+ * Safe next action labels for metadata-only restore confirmation session lifecycle.
+ */
+export type LocalBackupRestoreConfirmationNextAllowedAction = "get_restore_confirmation_session" | "discard_restore_confirmation_session" | "create_restore_preview";
 
 /**
  * Submitted data-only local backup package content for non-mutating restore preview. The package content is sensitive input and is never echoed by normal responses or problem details.
@@ -4239,6 +4264,95 @@ export interface LocalBackupRestorePreviewResponse {
   restoreConfirmationCopy: string;
   nextAllowedActions: LocalBackupRestorePreviewNextAllowedAction[];
   privacyBoundary: string;
+  responseGeneratedAtUtc: string;
+}
+
+/**
+ * Metadata-only restore confirmation session creation intent for an existing restore preview. The API revalidates preview ownership, auth session, expiry, selected scope, package integrity, and optional idempotency/request digest. This request never carries client-computed financial truth, storage object keys, filesystem paths, signed URLs, raw secrets, file bytes, raw package payload echoes, or hidden data.
+ */
+export interface LocalBackupRestoreConfirmationSessionCreateRequest {
+  /**
+   * Explicit confirmation label required for metadata session creation. It does not authorize restore mutation in this slice.
+   */
+  confirmationLabel: "Restore selected records";
+  selectedRestoreScope: LocalBackupRestoreConfirmationSelectedScope;
+  /**
+   * Optional caller idempotency key. Reusing the same key with a different digest, selected scope, preview, package hash, actor, or auth session fails closed.
+   */
+  idempotencyKey?: string | null;
+  /**
+   * Optional expected restore preview ID; when supplied it must match the route restorePreviewId.
+   */
+  expectedRestorePreviewId?: string | null;
+  /**
+   * Optional expected package SHA-256 copied from restore preview metadata. It is an integrity marker, not a secret.
+   */
+  expectedPackageSha256?: string | null;
+  /**
+   * Optional expected server request digest. Mismatches fail closed.
+   */
+  expectedRequestDigest?: string | null;
+  /**
+   * Optional expected preview stable code; mismatches fail closed as stale preview use.
+   */
+  expectedPreviewStableCode?: LocalBackupRestorePreviewStableCode | null;
+}
+
+/**
+ * Metadata-only restore confirmation session readback for the authenticated actor and current auth session. It contains no raw package payload, raw request body, file bytes, storage paths, object keys, bucket names, signed URLs, direct storage URLs, filesystem/local/temp paths, provider internals, raw OCR text, private notes, payment details, auth tokens, credentials, hidden records, browser-local persistence, or server/local mutation result.
+ */
+export interface LocalBackupRestoreConfirmationSessionResponse {
+  /**
+   * Opaque process-local restore confirmation session ID. It is not restore authority, storage authority, a package token, or a bearer credential.
+   */
+  restoreConfirmationSessionId: string;
+  restorePreviewId: string;
+  status: LocalBackupRestoreConfirmationSessionStatus;
+  stableCode: LocalBackupRestoreConfirmationSessionStableCode;
+  safeMessage: string;
+  selectedScope: LocalBackupRestoreConfirmationSelectedScope;
+  selectedScopeSummary: string;
+  /**
+   * Always false in this metadata-only slice. Restore mutation remains a separate future gate.
+   */
+  canApplyRestore: false;
+  restoreConfirmationState: LocalBackupRestoreConfirmationState;
+  mutationAvailability: LocalBackupRestoreConfirmationMutationAvailability;
+  sourceAuthorityBoundary: "server_authoritative_copy";
+  packageFormatName: "settleora.local-backup.data-only";
+  packageVersion: "2026-06-30.data-only.v1";
+  manifestVersion: "2026-06-30.manifest.v1";
+  packageId: string;
+  manifestId: string;
+  packageSessionId: string;
+  /**
+   * SHA-256 copied from restore preview metadata. It is an integrity marker, not a secret.
+   */
+  packageSha256: string;
+  totalSectionCount: number;
+  includedSectionCategories: LocalBackupRestorePreviewSectionCategory[];
+  omittedSectionCategories: LocalBackupRestorePreviewSectionCategory[];
+  unsupportedSectionCategories: LocalBackupRestorePreviewSectionCategory[];
+  blockedSectionCategories: LocalBackupRestorePreviewSectionCategory[];
+  recordSummaries: LocalBackupRestorePreviewRecordSummary[];
+  warningCodes: LocalBackupRestorePreviewWarning[];
+  /**
+   * Bounded blocked code categories copied from preview blocked sections plus confirmation policy families.
+   */
+  blockedCodes: string[];
+  idempotencyKeyAccepted: boolean;
+  /**
+   * Server-created request digest for metadata-session idempotency checks. It is not a secret and does not contain raw request content.
+   */
+  requestDigest: string;
+  nextAllowedActions: LocalBackupRestoreConfirmationNextAllowedAction[];
+  privacyBoundary: string;
+  dataBoundary: string;
+  createdAtUtc: string;
+  expiresAtUtc: string;
+  discardedAtUtc?: string | null;
+  packageGeneratedAtUtc: string;
+  packageExpiresAtUtc: string;
   responseGeneratedAtUtc: string;
 }
 
