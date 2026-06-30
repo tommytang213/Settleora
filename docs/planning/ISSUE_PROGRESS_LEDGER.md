@@ -138,6 +138,97 @@ remain the source of truth.
   - Issue #369 PR #626 progress comment:
     `https://github.com/tommytang213/Settleora/issues/369#issuecomment-4844221960`
 
+### Issue #403 - Day 1 email, push, provider, preference, delivery-state split
+
+- GitHub state/project status: issue `OPEN`; Project status
+  `Needs Figma / Reference`, `Progress %` `80`, `Man-days Remaining` `1`,
+  `Figma Required` `Yes`, `Manual Gate` `Yes` by GraphQL readback on
+  2026-06-30 before this checkpoint.
+- Last verified at main SHA:
+  `7225496d2da37e98af7788687cbb5109bf3a070c`.
+- Completed docs/control child slices now recorded:
+  - #448 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
+    `Man-days Remaining` `0`, linked PR #493 merged on 2026-06-24. It
+    completed the notification event taxonomy and in-app baseline coverage
+    control slice only.
+  - #449 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
+    `Man-days Remaining` `0`, linked PR #494 merged on 2026-06-24. It
+    completed SMTP email provider policy docs/control only.
+  - #450 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
+    `Man-days Remaining` `0`, linked PR #495 merged on 2026-06-24. It
+    completed mobile push provider abstraction and device-token lifecycle
+    policy docs/control only.
+  - #451 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
+    `Man-days Remaining` `0`, linked PR #496 merged on 2026-06-24. It
+    completed admin/user notification preference resolution model
+    docs/control only.
+  - #452 is `CLOSED`; Project row was stale before this checkpoint and has now
+    been updated to Project status `Merged`, `Progress %` `100`,
+    `Man-days Remaining` `0`, `Actual Done Date` `2026-06-28`, and
+    `Blocking Gate` `None`. The issue comment says it closed the
+    UX/reference gate only through repo-tracked Day 1 UX/reference decisions
+    and existing domain references.
+- Completed adjacent runtime slices that must not be redone:
+  - #570 / PR #626 completed only the narrow `ocr.needs_review` in-app
+    notification runtime for explicit API-owned OCR review assignment
+    creation/retarget transitions.
+  - #571 / PR #572 completed only the narrow persisted
+    `sync.conflict_detected` runtime for newly persisted sync conflict rows.
+  - Earlier #369 child slices completed current bill workflow/revision,
+    settlement request/payment/proof, recurring due-soon, recurring
+    draft-generated, current-user in-app notification APIs, and current-user
+    notification preference persistence boundaries where documented in
+    `DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`.
+- Remaining Day 1 provider/preference/delivery-state work:
+  - SMTP/email runtime is not implemented. A future implementation issue must
+    cover provider configuration/secrets boundary, privacy-safe templates,
+    queue/worker or immediate-send choice, explicit disabled/unconfigured/
+    deferred/queued/sent/failed states, audit/log redaction, and in-app
+    fallback. This is manual-gated for provider/secrets and any schema,
+    OpenAPI/generated-client, worker, deployment/env, or UI changes.
+  - Mobile push runtime is not implemented. A future implementation issue must
+    cover provider-neutral push attempts, authenticated device-token
+    registration/revocation, OS permission states, stale-token cleanup,
+    provider feedback classification, privacy-safe payloads, and multi-device
+    behavior. This is manual-gated for provider/secrets, mobile release
+    configuration, schema, OpenAPI/generated clients, deployment/env, and UI.
+  - Server-side notification preference resolution is not implemented beyond
+    current persisted current-user preference readouts. Future work must
+    implement admin/global caps, user preferences, group/thread mute,
+    quiet-hours/digest behavior, required/security-event bypass policy, channel
+    capability checks, and safe decision envelopes before provider delivery.
+  - Email/push delivery-state persistence and delivery workers are not
+    implemented. Current in-app unread/read/archive state is separate and must
+    not be treated as provider delivery truth.
+  - Admin/global notification policy APIs and admin UI are not implemented.
+  - Notification deep-link/mobile UI implementation remains #371 and is still
+    open/Figma-reference-gated even though #452 closed the UX/reference
+    planning gate.
+- Future gates requiring explicit approval:
+  - Provider/secrets/deployment/env/mobile release gates for SMTP and push.
+  - OpenAPI/generated-client and schema/migration gates for any contract,
+    delivery-state, device-token, admin-policy, or preference-runtime storage
+    changes.
+  - Auth/session/security manual policy gate before security-impactful
+    notification runtime or bypass behavior.
+  - #371 mobile/deep-link implementation and any UI-sensitive work.
+  - Source-state gates for OCR completed/failed, item claim/split,
+    settlement mismatch/residual/review, and remaining sync event families.
+- Close/keep-open recommendation:
+  - Keep #403 open as a parent/split tracker. The original docs/control
+    children #448-#452 are complete, but provider runtime, server-side
+    preference resolution, delivery-state persistence/workers, admin policy,
+    and #371 implementation remain separate work and should be split into
+    focused implementation issues before any runtime starts.
+- Last verified repo/report references:
+  - `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md`
+  - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
+  - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
+  - `docs/architecture/NOTIFICATION_PREFERENCE_RESOLUTION_MODEL.md`
+  - `docs/planning/DAY1_UX_REFERENCE_DECISIONS.md`
+  - Report:
+    `/workspace/logs/settleora-codex-report-20260630-2228-notification-day1-provider-remaining-gates-split-403-369.md`
+
 ### Issue #458 - User web auth/session shell and navigation foundation
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,
