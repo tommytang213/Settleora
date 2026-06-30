@@ -12,6 +12,8 @@ import {
   type LocalBackupPackageDownloadActionResponse,
   type LocalBackupPackageGenerationStatusResponse,
   type LocalBackupPackageSessionResponse,
+  type LocalBackupRestoreConfirmationSessionCreateRequest,
+  type LocalBackupRestoreConfirmationSessionResponse,
   type LocalBackupRestorePreviewCreateRequest,
   type LocalBackupRestorePreviewResponse,
   type BillCsvImportConfirmationResponse,
@@ -129,6 +131,21 @@ export type LocalBackupRestorePreviewRuntimeStatus =
   | "session_expired"
   | "unavailable"
   | "error";
+export type LocalBackupRestoreConfirmationSessionRuntimeStatus =
+  | "idle"
+  | "auth_required"
+  | "creating"
+  | "ready"
+  | "refreshing"
+  | "discarding"
+  | "blocked"
+  | "expired"
+  | "discarded"
+  | "stale_preview"
+  | "session_expired"
+  | "unavailable"
+  | "conflict"
+  | "error";
 
 export interface BillExportFilters {
   fromDate?: string | null;
@@ -193,6 +210,12 @@ export interface LocalBackupRestorePreviewRuntimeClient {
   discardLocalBackupRestorePreview?: SettleoraApiClient["discardLocalBackupRestorePreview"];
 }
 
+export interface LocalBackupRestoreConfirmationSessionRuntimeClient {
+  createLocalBackupRestoreConfirmationSession?: SettleoraApiClient["createLocalBackupRestoreConfirmationSession"];
+  getLocalBackupRestoreConfirmationSession?: SettleoraApiClient["getLocalBackupRestoreConfirmationSession"];
+  discardLocalBackupRestoreConfirmationSession?: SettleoraApiClient["discardLocalBackupRestoreConfirmationSession"];
+}
+
 export interface BrowserDownloadAdapter {
   saveBlob(blob: Blob, filename: string): void;
 }
@@ -251,6 +274,13 @@ export interface LocalBackupRestorePreviewRuntimeState {
   preview?: LocalBackupRestorePreviewResponse;
 }
 
+export interface LocalBackupRestoreConfirmationSessionRuntimeState {
+  status: LocalBackupRestoreConfirmationSessionRuntimeStatus;
+  message: string;
+  preview?: LocalBackupRestorePreviewResponse;
+  confirmationSession?: LocalBackupRestoreConfirmationSessionResponse;
+}
+
 export interface BillImportPreflightRuntimeOptions {
   accessToken?: string | null;
   scope: BillImportPreflightScope;
@@ -296,6 +326,15 @@ export interface LocalBackupRestorePreviewRuntimeOptions {
   now?: Date;
 }
 
+export interface LocalBackupRestoreConfirmationSessionRuntimeOptions {
+  accessToken?: string | null;
+  baseUrl?: string;
+  client?: LocalBackupRestoreConfirmationSessionRuntimeClient;
+  preview?: LocalBackupRestorePreviewResponse | null;
+  state?: LocalBackupRestoreConfirmationSessionRuntimeState | null;
+  now?: Date;
+}
+
 export const defaultBillExportFilters: BillExportFilters = {
   archiveState: "all",
   limit: 100
@@ -327,6 +366,9 @@ const operationMethods = [
   "createLocalBackupRestorePreview",
   "getLocalBackupRestorePreview",
   "discardLocalBackupRestorePreview",
+  "createLocalBackupRestoreConfirmationSession",
+  "getLocalBackupRestoreConfirmationSession",
+  "discardLocalBackupRestoreConfirmationSession",
   "importPersonalBillsCsv",
   "importGroupBillsCsv",
   "listSyncChanges",
@@ -436,12 +478,15 @@ const capabilityDefinitions: Array<{
       "cancelLocalBackupPackageGeneration",
       "createLocalBackupRestorePreview",
       "getLocalBackupRestorePreview",
-      "discardLocalBackupRestorePreview"
+      "discardLocalBackupRestorePreview",
+      "createLocalBackupRestoreConfirmationSession",
+      "getLocalBackupRestoreConfirmationSession",
+      "discardLocalBackupRestoreConfirmationSession"
     ],
     followUps: [
       "This web surface prepares and downloads only the approved short-lived data-only package artifact.",
       "Restore preview sends a selected data-only package to Settleora for safe non-mutating metadata only.",
-      "Restore confirmation, durable encrypted storage, file-byte backup, and browser-local authority remain unavailable."
+      "Restore confirmation sessions show metadata only; restore apply, durable encrypted storage, file-byte backup, and browser-local authority remain unavailable."
     ]
   },
   {
@@ -476,8 +521,8 @@ export const importExportUnsupportedSections = [
   "Personal CSV/JSON export is available only after sign-in and a positive server readiness check.",
   "Group CSV/JSON export needs a safe group selector on this route before it can start.",
   "Import confirmation uses staged server sessions only; direct CSV import remains unavailable.",
-  "Local backup package download is data-only; restore preview is non-mutating and restore confirmation remains unavailable.",
-  "Durable encrypted backup storage, file-byte backup, restore confirmation, and browser-local authority are not implemented.",
+  "Local backup package download is data-only; restore preview and restore confirmation sessions are non-mutating metadata only.",
+  "Durable encrypted backup storage, file-byte backup, restore apply, and browser-local authority are not implemented.",
   "User-web local-mode persistence is not implemented.",
   "Sync/local status is read-only; no sync queue or operation is submitted.",
   "Report/export history is not available when the server does not expose a safe history read."
@@ -1271,6 +1316,176 @@ export async function discardLocalBackupRestorePreviewRuntime(
   }
 }
 
+export async function createLocalBackupRestoreConfirmationSessionRuntime(
+  options: LocalBackupRestoreConfirmationSessionRuntimeOptions
+): Promise<LocalBackupRestoreConfirmationSessionRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can create restore confirmation metadata.",
+      preview: options.preview ?? options.state?.preview
+    };
+  }
+
+  const restorePreview = options.preview ?? options.state?.preview;
+  const previewGuard = evaluateRestorePreviewForConfirmation(restorePreview, options.now);
+  if (!previewGuard.allowed) {
+    return {
+      status: previewGuard.status,
+      message: previewGuard.message,
+      preview: restorePreview ?? undefined,
+      confirmationSession: options.state?.confirmationSession
+    };
+  }
+  if (!restorePreview) {
+    return {
+      status: "unavailable",
+      message: "Create a restore preview before creating restore confirmation metadata.",
+      confirmationSession: options.state?.confirmationSession
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+  if (typeof client.createLocalBackupRestoreConfirmationSession !== "function") {
+    return {
+      status: "unavailable",
+      message: "Restore confirmation metadata sessions are not available in this web client build.",
+      preview: restorePreview
+    };
+  }
+
+  try {
+    const confirmationSession = await client.createLocalBackupRestoreConfirmationSession(
+      restorePreview.restorePreviewId,
+      createLocalBackupRestoreConfirmationRequestFromPreview(restorePreview),
+      { accessToken }
+    );
+
+    return mapLocalBackupRestoreConfirmationSessionResponse(
+      confirmationSession,
+      options.now,
+      restorePreview
+    );
+  } catch (error) {
+    return classifyLocalBackupRestoreConfirmationSessionFailure(
+      error,
+      "Settleora could not create restore confirmation metadata. No records were restored.",
+      restorePreview,
+      options.state?.confirmationSession
+    );
+  }
+}
+
+export async function refreshLocalBackupRestoreConfirmationSessionRuntime(
+  options: LocalBackupRestoreConfirmationSessionRuntimeOptions
+): Promise<LocalBackupRestoreConfirmationSessionRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can refresh restore confirmation metadata.",
+      preview: options.preview ?? options.state?.preview,
+      confirmationSession: options.state?.confirmationSession
+    };
+  }
+
+  const confirmationSessionId = options.state?.confirmationSession?.restoreConfirmationSessionId;
+  if (!confirmationSessionId) {
+    return {
+      status: "unavailable",
+      message: "Create a restore confirmation metadata session before refreshing it.",
+      preview: options.preview ?? options.state?.preview
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+  if (typeof client.getLocalBackupRestoreConfirmationSession !== "function") {
+    return {
+      status: "unavailable",
+      message: "Restore confirmation metadata refresh is not available in this web client build.",
+      preview: options.preview ?? options.state?.preview,
+      confirmationSession: options.state?.confirmationSession
+    };
+  }
+
+  try {
+    const confirmationSession = await client.getLocalBackupRestoreConfirmationSession(
+      confirmationSessionId,
+      { accessToken }
+    );
+
+    return mapLocalBackupRestoreConfirmationSessionResponse(
+      confirmationSession,
+      options.now,
+      options.preview ?? options.state?.preview
+    );
+  } catch (error) {
+    return classifyLocalBackupRestoreConfirmationSessionFailure(
+      error,
+      "Settleora could not refresh restore confirmation metadata.",
+      options.preview ?? options.state?.preview,
+      options.state?.confirmationSession
+    );
+  }
+}
+
+export async function discardLocalBackupRestoreConfirmationSessionRuntime(
+  options: LocalBackupRestoreConfirmationSessionRuntimeOptions
+): Promise<LocalBackupRestoreConfirmationSessionRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can discard restore confirmation metadata.",
+      preview: options.preview ?? options.state?.preview,
+      confirmationSession: options.state?.confirmationSession
+    };
+  }
+
+  const confirmationSessionId = options.state?.confirmationSession?.restoreConfirmationSessionId;
+  if (!confirmationSessionId) {
+    return {
+      status: "unavailable",
+      message: "Create a restore confirmation metadata session before discarding it.",
+      preview: options.preview ?? options.state?.preview
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+  if (typeof client.discardLocalBackupRestoreConfirmationSession !== "function") {
+    return {
+      status: "unavailable",
+      message: "Restore confirmation metadata discard is not available in this web client build.",
+      preview: options.preview ?? options.state?.preview,
+      confirmationSession: options.state?.confirmationSession
+    };
+  }
+
+  try {
+    const confirmationSession = await client.discardLocalBackupRestoreConfirmationSession(
+      confirmationSessionId,
+      { accessToken }
+    );
+
+    return mapLocalBackupRestoreConfirmationSessionResponse(
+      confirmationSession,
+      options.now,
+      options.preview ?? options.state?.preview
+    );
+  } catch (error) {
+    return classifyLocalBackupRestoreConfirmationSessionFailure(
+      error,
+      "Settleora could not discard restore confirmation metadata.",
+      options.preview ?? options.state?.preview,
+      options.state?.confirmationSession
+    );
+  }
+}
+
 export function evaluateLocalBackupPackageDownloadable(
   artifactStatus: LocalBackupPackageRuntimeState["artifactStatus"] | undefined,
   now: Date = new Date()
@@ -2029,7 +2244,15 @@ export function mapLocalBackupRestorePreviewResponse(
     };
   }
 
-  if (!preview.restoreConfirmationAvailable && preview.restoreConfirmationState !== "unsupported") {
+  if (
+    ![
+      "unsupported",
+      "future_gate_required",
+      "metadata_only",
+      "unavailable",
+      "blocked"
+    ].includes(preview.restoreConfirmationState)
+  ) {
     return {
       ...base,
       status: "blocked",
@@ -2064,6 +2287,115 @@ export function mapLocalBackupRestorePreviewResponse(
     ...base,
     status: "blocked",
     message: preview.safeMessage || "Settleora blocked this backup package restore preview."
+  };
+}
+
+export function createLocalBackupRestoreConfirmationRequestFromPreview(
+  preview: LocalBackupRestorePreviewResponse
+): LocalBackupRestoreConfirmationSessionCreateRequest {
+  return {
+    confirmationLabel: "Restore selected records",
+    selectedRestoreScope: "server_mode_copy_data_only",
+    expectedRestorePreviewId: preview.restorePreviewId,
+    expectedPackageSha256: preview.packageSha256,
+    expectedPreviewStableCode: preview.stableCode
+  };
+}
+
+export function mapLocalBackupRestoreConfirmationSessionResponse(
+  confirmationSession: LocalBackupRestoreConfirmationSessionResponse,
+  now: Date = new Date(),
+  preview?: LocalBackupRestorePreviewResponse
+): LocalBackupRestoreConfirmationSessionRuntimeState {
+  const base = {
+    preview,
+    confirmationSession
+  };
+
+  if (
+    new Date(confirmationSession.expiresAtUtc).getTime() <= now.getTime() ||
+    confirmationSession.status === "expired" ||
+    confirmationSession.restoreConfirmationState === "expired"
+  ) {
+    return {
+      ...base,
+      status: "expired",
+      message: confirmationSession.safeMessage || "This restore confirmation metadata session expired. Create a new restore preview before retrying."
+    };
+  }
+
+  if (
+    confirmationSession.status === "discarded" ||
+    confirmationSession.restoreConfirmationState === "discarded"
+  ) {
+    return {
+      ...base,
+      status: "discarded",
+      message: confirmationSession.safeMessage || "This restore confirmation metadata session was discarded. No records were restored."
+    };
+  }
+
+  if (confirmationSession.restoreConfirmationState === "stale_preview") {
+    return {
+      ...base,
+      status: "stale_preview",
+      message: confirmationSession.safeMessage || "The restore preview is stale. Create a new preview before reviewing confirmation metadata."
+    };
+  }
+
+  if (
+    confirmationSession.stableCode === "restore_confirmation_idempotency_conflict" ||
+    confirmationSession.stableCode === "restore_current_record_conflict"
+  ) {
+    return {
+      ...base,
+      status: "conflict",
+      message: confirmationSession.safeMessage || "Settleora reported a restore confirmation metadata conflict. No records were restored."
+    };
+  }
+
+  if (
+    confirmationSession.status === "metadata_only" &&
+    confirmationSession.stableCode === "restore_confirmation_metadata_only" &&
+    confirmationSession.selectedScope === "server_mode_copy_data_only" &&
+    confirmationSession.canApplyRestore === false &&
+    confirmationSession.mutationAvailability === "unavailable" &&
+    confirmationSession.restoreConfirmationState === "future_gate_required"
+  ) {
+    return {
+      ...base,
+      status: "ready",
+      message: confirmationSession.safeMessage || "Restore confirmation metadata loaded. Restore apply is unavailable and no records were restored."
+    };
+  }
+
+  if (
+    confirmationSession.stableCode === "restore_confirmation_unavailable" ||
+    confirmationSession.stableCode === "restore_confirmation_policy_disabled" ||
+    confirmationSession.stableCode === "temporarily_unavailable"
+  ) {
+    return {
+      ...base,
+      status: "unavailable",
+      message: confirmationSession.safeMessage || "Restore confirmation metadata is unavailable for this preview."
+    };
+  }
+
+  if (
+    confirmationSession.status === "blocked" ||
+    confirmationSession.restoreConfirmationState === "blocked"
+  ) {
+    return {
+      ...base,
+      status: "blocked",
+      message: confirmationSession.safeMessage || "Settleora blocked this restore confirmation metadata session. No records were restored."
+    };
+  }
+
+  return {
+    ...base,
+    status: "blocked",
+    message: confirmationSession.safeMessage || "Settleora returned restore confirmation metadata that this web build cannot safely use."
   };
 }
 
@@ -2132,6 +2464,53 @@ function createRestorePreviewRequest(
   return normalizedPackageSha256
     ? { packageContent, packageSha256: normalizedPackageSha256 }
     : { packageContent, packageSha256: null };
+}
+
+function evaluateRestorePreviewForConfirmation(
+  preview: LocalBackupRestorePreviewResponse | null | undefined,
+  now: Date = new Date()
+): {
+  allowed: boolean;
+  status: LocalBackupRestoreConfirmationSessionRuntimeStatus;
+  message: string;
+} {
+  if (!preview?.restorePreviewId) {
+    return {
+      allowed: false,
+      status: "unavailable",
+      message: "Create a restore preview before creating restore confirmation metadata."
+    };
+  }
+
+  if (new Date(preview.expiresAtUtc).getTime() <= now.getTime() || preview.status === "expired") {
+    return {
+      allowed: false,
+      status: "expired",
+      message: "This restore preview expired. Create a new preview before creating restore confirmation metadata."
+    };
+  }
+
+  if (preview.status === "discarded") {
+    return {
+      allowed: false,
+      status: "discarded",
+      message: "This restore preview was discarded. Create a new preview before creating restore confirmation metadata."
+    };
+  }
+
+  if (preview.status !== "ready" || preview.stableCode !== "restore_preview_ready") {
+    return {
+      allowed: false,
+      status: "blocked",
+      message: "Settleora did not return a ready restore preview. Confirmation metadata is blocked."
+    };
+  }
+
+  return {
+    allowed: true,
+    status: "creating",
+    message: "Restore preview is ready for metadata-only confirmation."
+  };
 }
 
 function createJsonExportBlob(exportResponse: ExpenseBillExportResponse): Blob {
@@ -2441,6 +2820,72 @@ function classifyLocalBackupRestorePreviewFailure(
       ...base,
       status: "unavailable",
       message: "Settleora could not create or read the restore preview right now."
+    };
+  }
+
+  return {
+    ...base,
+    status: "error",
+    message: fallback
+  };
+}
+
+function classifyLocalBackupRestoreConfirmationSessionFailure(
+  error: unknown,
+  fallback: string,
+  preview?: LocalBackupRestorePreviewResponse,
+  confirmationSession?: LocalBackupRestoreConfirmationSessionResponse
+): LocalBackupRestoreConfirmationSessionRuntimeState {
+  const base = {
+    preview,
+    confirmationSession
+  };
+
+  if (error instanceof SettleoraApiError && error.status === 401) {
+    return {
+      ...base,
+      status: "session_expired",
+      message: "Your session could not be verified. Sign in again before creating or reading restore confirmation metadata."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 403) {
+    return {
+      ...base,
+      status: "blocked",
+      message: "This account cannot create or read the requested restore confirmation metadata."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 404) {
+    return {
+      ...base,
+      status: "unavailable",
+      message: "Restore confirmation metadata is not available from this Settleora server."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 409) {
+    return {
+      ...base,
+      status: "conflict",
+      message: "Settleora reported the restore preview or confirmation metadata changed. Refresh before retrying."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 410) {
+    return {
+      ...base,
+      status: "expired",
+      message: "This restore confirmation metadata expired. Create a new restore preview before retrying."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status >= 500) {
+    return {
+      ...base,
+      status: "unavailable",
+      message: "Settleora could not create or read restore confirmation metadata right now."
     };
   }
 

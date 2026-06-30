@@ -5,11 +5,14 @@ import {
   createBillExportFilename,
   createLocalBackupPackageFilename,
   createBillCsvImportSession,
+  createLocalBackupRestoreConfirmationRequestFromPreview,
+  createLocalBackupRestoreConfirmationSessionRuntime,
   createImportConfirmRequestFromSession,
   createLocalBackupRestorePreviewRuntime,
   cancelLocalBackupPackage,
   discardBillCsvImportSessionRuntime,
   discardLocalBackupPackage,
+  discardLocalBackupRestoreConfirmationSessionRuntime,
   discardLocalBackupRestorePreviewRuntime,
   downloadBillExport,
   downloadLocalBackupPackage,
@@ -24,7 +27,9 @@ import {
   loadImportExportReadout,
   loadSyncLocalStatus,
   mapLocalBackupRestorePreviewResponse,
+  mapLocalBackupRestoreConfirmationSessionResponse,
   preflightBillCsvImport,
+  refreshLocalBackupRestoreConfirmationSessionRuntime,
   refreshLocalBackupPackageStatus,
   refreshLocalBackupRestorePreviewRuntime,
   startLocalBackupPackage,
@@ -32,6 +37,7 @@ import {
   type BillImportPreflightRuntimeClient,
   type BillExportRuntimeClient,
   type LocalBackupPackageRuntimeClient,
+  type LocalBackupRestoreConfirmationSessionRuntimeClient,
   type LocalBackupRestorePreviewRuntimeClient,
   type SyncLocalStatusRuntimeClient
 } from "./importExportReadout";
@@ -47,6 +53,7 @@ import type {
   LocalBackupPackageDownloadActionResponse,
   LocalBackupPackageGenerationStatusResponse,
   LocalBackupPackageSessionResponse,
+  LocalBackupRestoreConfirmationSessionResponse,
   LocalBackupRestorePreviewResponse,
   SyncLocalStatusResponse
 } from "../../../packages/client-web/src/generated";
@@ -78,6 +85,9 @@ function createOperationClient() {
     createLocalBackupRestorePreview: vi.fn(),
     getLocalBackupRestorePreview: vi.fn(),
     discardLocalBackupRestorePreview: vi.fn(),
+    createLocalBackupRestoreConfirmationSession: vi.fn(),
+    getLocalBackupRestoreConfirmationSession: vi.fn(),
+    discardLocalBackupRestoreConfirmationSession: vi.fn(),
     importPersonalBillsCsv: vi.fn(),
     importGroupBillsCsv: vi.fn(),
     listSyncChanges: vi.fn(),
@@ -118,6 +128,9 @@ describe("import/export availability readout", () => {
       "createLocalBackupRestorePreview",
       "getLocalBackupRestorePreview",
       "discardLocalBackupRestorePreview",
+      "createLocalBackupRestoreConfirmationSession",
+      "getLocalBackupRestoreConfirmationSession",
+      "discardLocalBackupRestoreConfirmationSession",
       "importPersonalBillsCsv",
       "importGroupBillsCsv",
       "listSyncChanges",
@@ -176,7 +189,10 @@ describe("import/export availability readout", () => {
             "cancelLocalBackupPackageGeneration",
             "createLocalBackupRestorePreview",
             "getLocalBackupRestorePreview",
-            "discardLocalBackupRestorePreview"
+            "discardLocalBackupRestorePreview",
+            "createLocalBackupRestoreConfirmationSession",
+            "getLocalBackupRestoreConfirmationSession",
+            "discardLocalBackupRestoreConfirmationSession"
           ]
         }),
         expect.objectContaining({
@@ -221,6 +237,9 @@ describe("import/export availability readout", () => {
       "createLocalBackupRestorePreview",
       "getLocalBackupRestorePreview",
       "discardLocalBackupRestorePreview",
+      "createLocalBackupRestoreConfirmationSession",
+      "getLocalBackupRestoreConfirmationSession",
+      "discardLocalBackupRestoreConfirmationSession",
       "importGroupBillsCsv",
       "listSyncChanges",
       "submitSyncOperation",
@@ -1304,6 +1323,9 @@ describe("local backup restore preview runtime", () => {
   it("does not call restore confirmation, import, sync, or package generation mutations", async () => {
     const forbidden = {
       confirmLocalBackupRestorePreview: vi.fn(),
+      createLocalBackupRestoreConfirmationSession: vi.fn(),
+      getLocalBackupRestoreConfirmationSession: vi.fn(),
+      discardLocalBackupRestoreConfirmationSession: vi.fn(),
       importPersonalBillsCsv: vi.fn(),
       importGroupBillsCsv: vi.fn(),
       submitSyncOperation: vi.fn(),
@@ -1316,6 +1338,252 @@ describe("local backup restore preview runtime", () => {
     await createLocalBackupRestorePreviewRuntime({
       accessToken: "token",
       selectedFile: createRestorePreviewFile("{}"),
+      client
+    });
+
+    for (const method of Object.values(forbidden)) {
+      expect(method).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe("local backup restore confirmation session runtime", () => {
+  it("auth-gates before generated confirmation-session calls", async () => {
+    const preview = createRestorePreviewResponse({
+      restoreConfirmationState: "future_gate_required"
+    });
+    const client = createLocalBackupRestoreConfirmationSessionClient();
+
+    const result = await createLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: " ",
+      preview,
+      client
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "auth_required",
+        preview
+      })
+    );
+    expect(client.createLocalBackupRestoreConfirmationSession).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when methods or restore preview IDs are missing", async () => {
+    const missingPreview = await createLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: "token",
+      client: createLocalBackupRestoreConfirmationSessionClient()
+    });
+    const preview = createRestorePreviewResponse({
+      restoreConfirmationState: "future_gate_required"
+    });
+    const missingMethod = await createLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: "token",
+      preview,
+      client: {}
+    });
+
+    expect(missingPreview).toEqual(
+      expect.objectContaining({
+        status: "unavailable",
+        message: "Create a restore preview before creating restore confirmation metadata."
+      })
+    );
+    expect(missingMethod).toEqual(
+      expect.objectContaining({
+        status: "unavailable",
+        message: "Restore confirmation metadata sessions are not available in this web client build."
+      })
+    );
+  });
+
+  it("creates a confirmation session using generated request metadata only", async () => {
+    const preview = createRestorePreviewResponse({
+      restoreConfirmationState: "future_gate_required"
+    });
+    const confirmationSession = createRestoreConfirmationSessionResponse();
+    const client = createLocalBackupRestoreConfirmationSessionClient({ confirmationSession });
+
+    const request = createLocalBackupRestoreConfirmationRequestFromPreview(preview);
+    const result = await createLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: " token ",
+      preview,
+      client
+    });
+
+    expect(request).toEqual({
+      confirmationLabel: "Restore selected records",
+      selectedRestoreScope: "server_mode_copy_data_only",
+      expectedRestorePreviewId: preview.restorePreviewId,
+      expectedPackageSha256: preview.packageSha256,
+      expectedPreviewStableCode: "restore_preview_ready"
+    });
+    expect(JSON.stringify(request)).not.toMatch(/packageContent|raw|secret|file/i);
+    expect(client.createLocalBackupRestoreConfirmationSession).toHaveBeenCalledWith(
+      preview.restorePreviewId,
+      request,
+      { accessToken: "token" }
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "ready",
+        confirmationSession
+      })
+    );
+    expect(result.message).toContain("No records were restored");
+  });
+
+  it("maps success as non-mutating future-gate metadata", () => {
+    const confirmationSession = createRestoreConfirmationSessionResponse({
+      warningCodes: ["restore_confirmation_separate_gate", "browser_local_persistence_unsupported"],
+      blockedCodes: ["restore_apply_future_gate"],
+      recordSummaries: [
+        {
+          category: "personal_bill_safe_summary",
+          totalCount: 2,
+          activeCount: 2,
+          archivedCount: 0,
+          itemCount: 4,
+          participantCount: 3,
+          payerCount: 1,
+          adjustmentCount: 0
+        }
+      ]
+    });
+
+    const result = mapLocalBackupRestoreConfirmationSessionResponse(confirmationSession);
+
+    expect(result.status).toBe("ready");
+    expect(result.confirmationSession?.canApplyRestore).toBe(false);
+    expect(result.confirmationSession?.mutationAvailability).toBe("unavailable");
+    expect(result.confirmationSession?.restoreConfirmationState).toBe("future_gate_required");
+    expect(JSON.stringify(result)).toContain("restore_apply_future_gate");
+  });
+
+  it("refreshes and discards by existing confirmation session ID", async () => {
+    const confirmationSession = createRestoreConfirmationSessionResponse();
+    const discardedSession = createRestoreConfirmationSessionResponse({
+      status: "discarded",
+      stableCode: "restore_confirmation_discarded",
+      safeMessage: "Restore confirmation metadata was discarded.",
+      restoreConfirmationState: "discarded"
+    });
+    const client = createLocalBackupRestoreConfirmationSessionClient({
+      confirmationSession,
+      discardedSession
+    });
+
+    const missingRefresh = await refreshLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: "token",
+      client,
+      state: { status: "idle", message: "No session." }
+    });
+    const refreshed = await refreshLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: "token",
+      client,
+      state: { status: "ready", message: "Ready.", confirmationSession }
+    });
+    const discarded = await discardLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: "token",
+      client,
+      state: { status: "ready", message: "Ready.", confirmationSession }
+    });
+
+    expect(missingRefresh.status).toBe("unavailable");
+    expect(refreshed.status).toBe("ready");
+    expect(discarded.status).toBe("discarded");
+    expect(client.getLocalBackupRestoreConfirmationSession).toHaveBeenCalledWith(
+      confirmationSession.restoreConfirmationSessionId,
+      { accessToken: "token" }
+    );
+    expect(client.discardLocalBackupRestoreConfirmationSession).toHaveBeenCalledWith(
+      confirmationSession.restoreConfirmationSessionId,
+      { accessToken: "token" }
+    );
+    expect(client.createLocalBackupRestoreConfirmationSession).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for expired, discarded, stale, unavailable, and conflict states", () => {
+    expect(
+      mapLocalBackupRestoreConfirmationSessionResponse(
+        createRestoreConfirmationSessionResponse({ expiresAtUtc: "2026-06-30T00:00:00.000Z" }),
+        new Date("2026-06-30T00:00:01.000Z")
+      ).status
+    ).toBe("expired");
+    expect(
+      mapLocalBackupRestoreConfirmationSessionResponse(
+        createRestoreConfirmationSessionResponse({
+          status: "discarded",
+          stableCode: "restore_confirmation_discarded",
+          restoreConfirmationState: "discarded"
+        })
+      ).status
+    ).toBe("discarded");
+    expect(
+      mapLocalBackupRestoreConfirmationSessionResponse(
+        createRestoreConfirmationSessionResponse({
+          status: "blocked",
+          stableCode: "restore_preview_stale",
+          restoreConfirmationState: "stale_preview"
+        })
+      ).status
+    ).toBe("stale_preview");
+    expect(
+      mapLocalBackupRestoreConfirmationSessionResponse(
+        createRestoreConfirmationSessionResponse({
+          status: "blocked",
+          stableCode: "restore_confirmation_unavailable",
+          restoreConfirmationState: "unavailable"
+        })
+      ).status
+    ).toBe("unavailable");
+    expect(
+      mapLocalBackupRestoreConfirmationSessionResponse(
+        createRestoreConfirmationSessionResponse({
+          status: "blocked",
+          stableCode: "restore_confirmation_idempotency_conflict",
+          restoreConfirmationState: "blocked"
+        })
+      ).status
+    ).toBe("conflict");
+  });
+
+  it("sanitizes errors and does not invent fallback sessions or restore candidates", async () => {
+    const preview = createRestorePreviewResponse({
+      restoreConfirmationState: "future_gate_required"
+    });
+    const result = await createLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: "token",
+      preview,
+      client: createThrowingRestoreConfirmationSessionClient(
+        new SettleoraApiError(409, "raw request body with packageContent and secret", {})
+      )
+    });
+
+    expect(result.status).toBe("conflict");
+    expect(result.confirmationSession).toBeUndefined();
+    expect(JSON.stringify(result)).not.toMatch(/packageContent|secret|raw request body/);
+  });
+
+  it("does not call forbidden restore apply, import, sync, or browser-local authority methods", async () => {
+    const preview = createRestorePreviewResponse({
+      restoreConfirmationState: "future_gate_required"
+    });
+    const forbidden = {
+      applyLocalBackupRestore: vi.fn(),
+      confirmLocalBackupRestore: vi.fn(),
+      importPersonalBillsCsv: vi.fn(),
+      importGroupBillsCsv: vi.fn(),
+      submitSyncOperation: vi.fn(),
+      localStorage: vi.fn(),
+      sessionStorage: vi.fn(),
+      indexedDB: vi.fn()
+    };
+    const client = { ...createLocalBackupRestoreConfirmationSessionClient(), ...forbidden };
+
+    await createLocalBackupRestoreConfirmationSessionRuntime({
+      accessToken: "token",
+      preview,
       client
     });
 
@@ -2345,6 +2613,51 @@ function createRestorePreviewResponse(
   };
 }
 
+function createRestoreConfirmationSessionResponse(
+  overrides: Partial<LocalBackupRestoreConfirmationSessionResponse> = {}
+): LocalBackupRestoreConfirmationSessionResponse {
+  return {
+    restoreConfirmationSessionId: "00000000-0000-4000-8000-000000000622",
+    restorePreviewId: "00000000-0000-4000-8000-000000000619",
+    status: "metadata_only",
+    stableCode: "restore_confirmation_metadata_only",
+    safeMessage: "Restore confirmation metadata is ready. No records were restored.",
+    selectedScope: "server_mode_copy_data_only",
+    selectedScopeSummary: "Server-mode data-only copy metadata can be reviewed, but restore apply is unavailable.",
+    canApplyRestore: false,
+    restoreConfirmationState: "future_gate_required",
+    mutationAvailability: "unavailable",
+    sourceAuthorityBoundary: "server_authoritative_copy",
+    packageFormatName: "settleora.local-backup.data-only",
+    packageVersion: "2026-06-30.data-only.v1",
+    manifestVersion: "2026-06-30.manifest.v1",
+    packageId: "00000000-0000-4000-8000-000000000111",
+    manifestId: "00000000-0000-4000-8000-000000000112",
+    packageSessionId: "00000000-0000-4000-8000-000000000113",
+    packageSha256: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    totalSectionCount: 2,
+    includedSectionCategories: ["current_actor_profile_summary", "personal_bill_safe_summary"],
+    omittedSectionCategories: ["receipt_and_supporting_files"],
+    unsupportedSectionCategories: ["raw_ocr_text", "private_notes_and_payment_details"],
+    blockedSectionCategories: ["restore_preview_and_confirmation"],
+    recordSummaries: [],
+    warningCodes: ["restore_confirmation_separate_gate", "browser_local_persistence_unsupported"],
+    blockedCodes: ["restore_apply_future_gate"],
+    idempotencyKeyAccepted: false,
+    requestDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    nextAllowedActions: ["get_restore_confirmation_session", "discard_restore_confirmation_session", "create_restore_preview"],
+    privacyBoundary: "No raw package content, file bytes, storage internals, tokens, or hidden records are returned.",
+    dataBoundary: "Restore apply is unavailable; no local or server records are mutated.",
+    createdAtUtc: "2026-06-30T07:16:00.000Z",
+    expiresAtUtc: "2999-01-01T00:00:00.000Z",
+    discardedAtUtc: null,
+    packageGeneratedAtUtc: "2026-06-30T07:10:00.000Z",
+    packageExpiresAtUtc: "2999-01-01T00:00:00.000Z",
+    responseGeneratedAtUtc: "2026-06-30T07:16:01.000Z",
+    ...overrides
+  };
+}
+
 function createRestorePreviewFile(content: string, overrides: Partial<{ name: string; size: number }> = {}) {
   return {
     name: overrides.name ?? "settleora-local-backup-data-only.json",
@@ -2369,6 +2682,42 @@ function createLocalBackupRestorePreviewClient({
     createLocalBackupRestorePreview: vi.fn(async () => preview),
     getLocalBackupRestorePreview: vi.fn(async () => preview),
     discardLocalBackupRestorePreview: vi.fn(async () => discardedPreview)
+  };
+}
+
+function createLocalBackupRestoreConfirmationSessionClient({
+  confirmationSession = createRestoreConfirmationSessionResponse(),
+  discardedSession = createRestoreConfirmationSessionResponse({
+    status: "discarded",
+    stableCode: "restore_confirmation_discarded",
+    restoreConfirmationState: "discarded",
+    safeMessage: "Restore confirmation metadata was discarded.",
+    discardedAtUtc: "2026-06-30T07:25:00.000Z"
+  })
+}: {
+  confirmationSession?: LocalBackupRestoreConfirmationSessionResponse;
+  discardedSession?: LocalBackupRestoreConfirmationSessionResponse;
+} = {}): Required<LocalBackupRestoreConfirmationSessionRuntimeClient> {
+  return {
+    createLocalBackupRestoreConfirmationSession: vi.fn(async () => confirmationSession),
+    getLocalBackupRestoreConfirmationSession: vi.fn(async () => confirmationSession),
+    discardLocalBackupRestoreConfirmationSession: vi.fn(async () => discardedSession)
+  };
+}
+
+function createThrowingRestoreConfirmationSessionClient(
+  error: unknown
+): LocalBackupRestoreConfirmationSessionRuntimeClient {
+  return {
+    createLocalBackupRestoreConfirmationSession: vi.fn(async () => {
+      throw error;
+    }),
+    getLocalBackupRestoreConfirmationSession: vi.fn(async () => {
+      throw error;
+    }),
+    discardLocalBackupRestoreConfirmationSession: vi.fn(async () => {
+      throw error;
+    })
   };
 }
 
