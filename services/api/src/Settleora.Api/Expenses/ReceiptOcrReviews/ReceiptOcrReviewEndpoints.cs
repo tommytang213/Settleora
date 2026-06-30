@@ -7,6 +7,7 @@ using Settleora.Api.Domain.Expenses;
 using Settleora.Api.Domain.Files;
 using Settleora.Api.Domain.Settlements;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Notifications;
 using Settleora.Api.Money;
 using Settleora.Api.Persistence;
 using Settleora.Api.RequestValidation;
@@ -593,6 +594,7 @@ internal static class ReceiptOcrReviewEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -604,6 +606,7 @@ internal static class ReceiptOcrReviewEndpoints
             request,
             currentActorAccessor,
             businessAuthorizationService,
+            notificationWriter,
             dbContext,
             timeProvider,
             cancellationToken);
@@ -616,6 +619,7 @@ internal static class ReceiptOcrReviewEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -627,6 +631,7 @@ internal static class ReceiptOcrReviewEndpoints
             request,
             currentActorAccessor,
             businessAuthorizationService,
+            notificationWriter,
             dbContext,
             timeProvider,
             cancellationToken);
@@ -703,6 +708,7 @@ internal static class ReceiptOcrReviewEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -726,6 +732,7 @@ internal static class ReceiptOcrReviewEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -750,6 +757,7 @@ internal static class ReceiptOcrReviewEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -1096,6 +1104,7 @@ internal static class ReceiptOcrReviewEndpoints
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
         IBusinessAuthorizationService businessAuthorizationService,
+        IInAppNotificationWriter notificationWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
@@ -1211,6 +1220,17 @@ internal static class ReceiptOcrReviewEndpoints
             UpdatedAtUtc = now
         };
         dbContext.Set<ReceiptOcrReviewAssignment>().Add(createdAssignment);
+
+        await InAppNotificationEvents.WriteReceiptOcrNeedsReviewNotificationAsync(
+            notificationWriter,
+            billContext.BillId,
+            billContext.GroupId,
+            review.Id,
+            attachment.FileObjectId,
+            createdAssignment.AssignedToUserProfileId,
+            actor.UserProfileId,
+            now,
+            cancellationToken);
 
         try
         {

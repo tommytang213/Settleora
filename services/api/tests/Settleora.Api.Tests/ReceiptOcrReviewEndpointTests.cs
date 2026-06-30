@@ -268,7 +268,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
     }
 
     [Fact]
-    public async Task PersonalReceiptOcrReviewAssignmentCreatesIdempotentRetargetsCompletesAndCancelsWithoutNotificationOrBusinessMutation()
+    public async Task PersonalReceiptOcrReviewAssignmentCreatesIdempotentRetargetsCompletesAndCancelsWithScopedNeedsReviewNotifications()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
@@ -336,6 +336,18 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Null(createdPayload.CompletedAtUtc);
         Assert.Null(createdPayload.CancelledAtUtc);
         Assert.Null(createdPayload.SupersededAtUtc);
+        var notificationsAfterCreate = await ReadInAppNotificationsAsync(testFactory);
+        var createNotification = Assert.Single(notificationsAfterCreate);
+        AssertOcrNeedsReviewNotification(
+            createNotification,
+            firstRecipient.UserProfileId,
+            ownerSession.UserProfileId,
+            billId,
+            expectedGroupId: null,
+            reviewId,
+            fileId,
+            PersonalOcrReviewPath(billId, fileId),
+            WriteTimestamp);
 
         testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(1));
         using (var duplicateRequest = CreateJsonBearerRequest(
@@ -352,6 +364,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             Assert.Equal(createdPayload.UpdatedAtUtc, duplicatePayload.UpdatedAtUtc);
             Assert.Equal("safe-assignment-correlation-1", duplicatePayload.SourceCorrelationId);
         }
+        Assert.Single(await ReadInAppNotificationsAsync(testFactory));
 
         testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(2));
         using var retargetRequest = CreateJsonBearerRequest(
@@ -374,6 +387,18 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Equal(ReceiptOcrReviewAssignmentStatuses.Superseded, superseded.AssignmentStatus);
         Assert.Equal(WriteTimestamp.AddMinutes(2), superseded.SupersededAtUtc);
         Assert.Single(assignmentsAfterRetarget, assignment => assignment.AssignmentStatus == ReceiptOcrReviewAssignmentStatuses.NeedsReview);
+        var notificationsAfterRetarget = await ReadInAppNotificationsAsync(testFactory);
+        Assert.Equal(2, notificationsAfterRetarget.Count);
+        AssertOcrNeedsReviewNotification(
+            notificationsAfterRetarget[1],
+            secondRecipient.UserProfileId,
+            ownerSession.UserProfileId,
+            billId,
+            expectedGroupId: null,
+            reviewId,
+            fileId,
+            PersonalOcrReviewPath(billId, fileId),
+            WriteTimestamp.AddMinutes(2));
 
         testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(3));
         using var completeRequest = CreateJsonBearerRequest(
@@ -388,6 +413,7 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var completePayload = ReadAssignmentPayload(completeContent);
         Assert.Equal(ReceiptOcrReviewAssignmentStatuses.Reviewed, completePayload.AssignmentStatus);
         Assert.Equal(WriteTimestamp.AddMinutes(3), completePayload.CompletedAtUtc);
+        Assert.Equal(2, (await ReadInAppNotificationsAsync(testFactory)).Count);
 
         testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(4));
         using var recreateRequest = CreateJsonBearerRequest(
@@ -398,6 +424,18 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         using var recreateResponse = await client.SendAsync(recreateRequest);
         var recreatePayload = ReadAssignmentPayload(await recreateResponse.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.Created, recreateResponse.StatusCode);
+        var notificationsAfterRecreate = await ReadInAppNotificationsAsync(testFactory);
+        Assert.Equal(3, notificationsAfterRecreate.Count);
+        AssertOcrNeedsReviewNotification(
+            notificationsAfterRecreate[2],
+            firstRecipient.UserProfileId,
+            ownerSession.UserProfileId,
+            billId,
+            expectedGroupId: null,
+            reviewId,
+            fileId,
+            PersonalOcrReviewPath(billId, fileId),
+            WriteTimestamp.AddMinutes(4));
 
         testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(5));
         using var cancelRequest = CreateJsonBearerRequest(
@@ -412,13 +450,23 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var cancelPayload = ReadAssignmentPayload(cancelContent);
         Assert.Equal(ReceiptOcrReviewAssignmentStatuses.Cancelled, cancelPayload.AssignmentStatus);
         Assert.Equal(WriteTimestamp.AddMinutes(5), cancelPayload.CancelledAtUtc);
+        Assert.Equal(3, (await ReadInAppNotificationsAsync(testFactory)).Count);
+
+        testContext.TimeProvider.SetUtcNow(WriteTimestamp.AddMinutes(6));
+        using var selfAssignRequest = CreateJsonBearerRequest(
+            HttpMethod.Put,
+            PersonalOcrReviewAssignmentPath(billId, fileId),
+            ownerSession.RawSessionToken,
+            AssignmentRequestJson(ownerSession.UserProfileId, null));
+        using var selfAssignResponse = await client.SendAsync(selfAssignRequest);
+        Assert.Equal(HttpStatusCode.Created, selfAssignResponse.StatusCode);
+        Assert.Equal(3, (await ReadInAppNotificationsAsync(testFactory)).Count);
 
         Assert.Equal(billItemsBefore, await CountBillItemsAsync(testFactory, billId));
         Assert.Equal(settlementRequestsBefore.Count, (await ReadSettlementRequestsAsync(testFactory)).Count);
         Assert.Empty(await ReadSettlementPaymentsAsync(testFactory));
         Assert.Empty(await ReadSettlementPaymentAllocationsAsync(testFactory));
         Assert.Empty(await ReadSettlementResidualsAsync(testFactory));
-        Assert.Empty(await ReadInAppNotificationsAsync(testFactory));
         Assert.Equal(FileObjectStatuses.Active, (await ReadFileObjectAsync(testFactory, fileId)).Status);
         Assert.Null((await ReadBillAttachmentAsync(testFactory, billId, fileId)).RemovedAtUtc);
     }
@@ -506,7 +554,17 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var assignment = ReadAssignmentPayload(validContent);
         Assert.Equal(groupId, assignment.GroupId);
         Assert.Equal(participant.UserProfileId, assignment.AssignedToUserProfileId);
-        Assert.Empty(await ReadInAppNotificationsAsync(testFactory));
+        var notification = Assert.Single(await ReadInAppNotificationsAsync(testFactory));
+        AssertOcrNeedsReviewNotification(
+            notification,
+            participant.UserProfileId,
+            ownerSession.UserProfileId,
+            billId,
+            groupId,
+            assignment.ReceiptOcrReviewId,
+            fileId,
+            GroupOcrReviewPath(groupId, billId, fileId),
+            WriteTimestamp);
     }
 
     [Fact]
@@ -2221,6 +2279,8 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         var assignmentRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAssignmentRequest:");
         var assignmentTransitionRequestSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAssignmentTransitionRequest:");
         var assignmentResponseSchema = ExtractOpenApiSchemaBlock(openApi, "ReceiptOcrReviewAssignmentResponse:");
+        var notificationEventSchema = ExtractOpenApiSchemaBlock(openApi, "InAppNotificationEventType:");
+        var notificationSubjectSchema = ExtractOpenApiSchemaBlock(openApi, "InAppNotificationSubjectType:");
         const string positiveQuantityPattern = @"^(?=.*[1-9])(?:0|[0-9]+)(?:\.[0-9]{1,4})?$";
         var positiveQuantityContract = new Regex(positiveQuantityPattern, RegexOptions.CultureInvariant);
 
@@ -2285,6 +2345,10 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("receiptOcrReviewId", assignmentResponseSchema);
         Assert.Contains("assignmentStatus", assignmentResponseSchema);
         Assert.Contains("sourceCorrelationId", assignmentResponseSchema);
+        Assert.Contains("ocr.needs_review", notificationEventSchema);
+        Assert.DoesNotContain("ocr.completed", notificationEventSchema);
+        Assert.DoesNotContain("ocr.failed", notificationEventSchema);
+        Assert.Contains("receipt_ocr_review", notificationSubjectSchema);
         var safeSchemas = requestSchema
             + listResponseSchema
             + summaryResponseSchema
@@ -2300,7 +2364,9 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
             + assignmentSourceSchema
             + assignmentRequestSchema
             + assignmentTransitionRequestSchema
-            + assignmentResponseSchema;
+            + assignmentResponseSchema
+            + notificationEventSchema
+            + notificationSubjectSchema;
         Assert.DoesNotContain("rawText", safeSchemas, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("storageObjectKey", safeSchemas, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("providerPath", safeSchemas, StringComparison.OrdinalIgnoreCase);
@@ -2347,6 +2413,12 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.Contains("ReceiptOcrReviewUpsertRequest", webModels);
         Assert.Contains("class ReceiptOcrReviewResponse", dartModels);
         Assert.Contains("class ReceiptOcrReviewUpsertRequest", dartModels);
+        Assert.Contains("ocr.needs_review", webModels);
+        Assert.Contains("receipt_ocr_review", webModels);
+        Assert.Contains("ocrNeedsReview", dartModels);
+        Assert.Contains("receiptOcrReview", dartModels);
+        Assert.DoesNotContain("ocr.completed", webModels);
+        Assert.DoesNotContain("ocr.failed", webModels);
     }
 
     private FactoryTestContext CreateFactory()
@@ -3589,6 +3661,77 @@ public sealed class ReceiptOcrReviewEndpointTests : IClassFixture<WebApplication
         Assert.DoesNotContain("objectkey", lowerContent);
         Assert.DoesNotContain("object_key", lowerContent);
         Assert.DoesNotContain("signedurl", lowerContent);
+        Assert.DoesNotContain("rawtext", lowerContent);
+    }
+
+    private static void AssertOcrNeedsReviewNotification(
+        InAppNotification notification,
+        Guid expectedRecipientUserProfileId,
+        Guid expectedActorUserProfileId,
+        Guid expectedBillId,
+        Guid? expectedGroupId,
+        Guid expectedReceiptOcrReviewId,
+        Guid expectedFileId,
+        string expectedActionUrl,
+        DateTimeOffset expectedCreatedAtUtc)
+    {
+        Assert.Equal(expectedRecipientUserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(expectedActorUserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.OcrNeedsReview, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.ReceiptOcrReview, notification.SubjectType);
+        Assert.Equal("notifications.ocr.needs_review.title", notification.TitleKey);
+        Assert.Equal("notifications.ocr.needs_review.message", notification.MessageKey);
+        Assert.Null(notification.SafeSummary);
+        Assert.Equal(expectedActionUrl, notification.ActionUrl);
+        Assert.Equal(expectedGroupId, notification.GroupId);
+        Assert.Equal(expectedBillId, notification.ExpenseBillId);
+        Assert.Null(notification.ExpenseBillRevisionId);
+        Assert.Null(notification.SettlementRequestId);
+        Assert.Null(notification.SettlementPaymentId);
+        Assert.Null(notification.RecurringBillTemplateId);
+        Assert.Null(notification.RecurringBillOccurrenceId);
+        Assert.Equal(expectedReceiptOcrReviewId, notification.ReceiptOcrReviewId);
+        Assert.Equal(expectedFileId, notification.ReceiptAttachmentFileId);
+        Assert.Null(notification.SyncOperationId);
+        Assert.Equal(expectedCreatedAtUtc, notification.CreatedAtUtc);
+        Assert.Null(notification.ReadAtUtc);
+        Assert.Null(notification.ArchivedAtUtc);
+
+        var notificationText = string.Join(
+            "\n",
+            notification.EventType,
+            notification.SubjectType,
+            notification.TitleKey,
+            notification.MessageKey,
+            notification.SafeSummary ?? string.Empty,
+            notification.ActionUrl ?? string.Empty);
+        AssertSafeNotificationContent(notificationText);
+    }
+
+    private static void AssertSafeNotificationContent(string content)
+    {
+        var lowerContent = content.ToLowerInvariant();
+        Assert.DoesNotContain(HiddenOriginalFilename, content);
+        Assert.DoesNotContain(HiddenStorageObjectKey, content);
+        Assert.DoesNotContain(HiddenRawOcrText, content);
+        Assert.DoesNotContain("cafe central", lowerContent);
+        Assert.DoesNotContain("assignment cafe", lowerContent);
+        Assert.DoesNotContain("group assignment cafe", lowerContent);
+        Assert.DoesNotContain("latte", lowerContent);
+        Assert.DoesNotContain("bagel", lowerContent);
+        Assert.DoesNotContain("payment", lowerContent);
+        Assert.DoesNotContain("qr", lowerContent);
+        Assert.DoesNotContain("token", lowerContent);
+        Assert.DoesNotContain("session", lowerContent);
+        Assert.DoesNotContain("storage", lowerContent);
+        Assert.DoesNotContain("objectkey", lowerContent);
+        Assert.DoesNotContain("object_key", lowerContent);
+        Assert.DoesNotContain("provider", lowerContent);
+        Assert.DoesNotContain("signedurl", lowerContent);
+        Assert.DoesNotContain("filename", lowerContent);
+        Assert.DoesNotContain("private", lowerContent);
         Assert.DoesNotContain("rawtext", lowerContent);
     }
 

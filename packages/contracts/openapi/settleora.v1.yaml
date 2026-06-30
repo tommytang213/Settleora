@@ -17953,6 +17953,7 @@ components:
         - recurring_bill.due_soon
         - recurring_bill.draft_generated
         - sync.conflict_detected
+        - ocr.needs_review
     InAppNotificationStatus:
       type: string
       description: Current lifecycle state for an in-app notification.
@@ -17976,6 +17977,7 @@ components:
         - settlement_payment
         - recurring_bill_occurrence
         - sync_operation
+        - receipt_ocr_review
     ExpenseBillArchiveState:
       type: string
       description: Bounded archive visibility filter or lifecycle state for expense bills.
