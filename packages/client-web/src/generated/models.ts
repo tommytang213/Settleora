@@ -3837,7 +3837,7 @@ export type LocalBackupPackageFeatureState = "available" | "unavailable" | "unsu
 /**
  * Feature families explicitly unsupported by the current local backup package readiness contract.
  */
-export type LocalBackupPackageUnsupportedFeature = "browser_local_persistence" | "package_generation" | "package_download" | "restore_preview" | "restore_confirmation" | "local_mode_authority";
+export type LocalBackupPackageUnsupportedFeature = "browser_local_persistence" | "package_generation" | "package_artifact" | "package_download" | "restore_preview" | "restore_confirmation" | "local_mode_authority";
 
 /**
  * Safe package concept metadata labels exposed without package creation or parsing.
@@ -3867,12 +3867,27 @@ export interface LocalBackupPackageConceptResponse {
 /**
  * Metadata-only local backup package session status. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupPackageSessionStatus = "created" | "expired" | "discarded";
+export type LocalBackupPackageSessionStatus = "created" | "cancelled" | "expired" | "discarded";
 
 /**
  * Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupPackageSessionStableCode = "package_session_created" | "package_session_expired" | "package_session_discarded" | "package_generation_unsupported" | "package_manifest_metadata_only";
+export type LocalBackupPackageSessionStableCode = "package_session_created" | "package_session_cancelled" | "package_session_expired" | "package_session_discarded" | "package_generation_unsupported" | "package_manifest_metadata_only";
+
+/**
+ * Metadata-only local backup package artifact/download status. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupPackageArtifactStatus = "metadata_only_no_artifact" | "generation_unavailable" | "download_unavailable" | "cancelled" | "expired" | "discarded" | "stale_recheck_required";
+
+/**
+ * Stable metadata-only local backup package generation/artifact/download code. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupPackageArtifactStableCode = "metadata_only_no_artifact" | "package_generation_unsupported" | "package_download_unavailable" | "package_generation_cancelled" | "package_session_expired" | "package_session_discarded" | "package_session_stale_recheck_required" | "temporarily_unavailable";
+
+/**
+ * Safe next action labels for metadata-only package-session flows. These are not storage, download, restore, or browser persistence authority.
+ */
+export type LocalBackupPackageNextAllowedAction = "get_artifact_status" | "cancel_package_generation" | "discard_package_session" | "create_new_package_session";
 
 /**
  * Metadata-only local backup package session scope.
@@ -3952,7 +3967,105 @@ export interface LocalBackupPackageSessionResponse {
    */
   expiresAtUtc: string;
   discardedAtUtc?: string | null;
+  cancelledAtUtc?: string | null;
   generatedAtUtc: string;
+}
+
+/**
+ * Metadata-only local backup package preparation/generation status for an authenticated package session. It contains no package artifact ID, storage path, object key, signed URL, direct storage URL, filesystem path, local device path, download token, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth token, credential material, restore payload, or browser-local persistence state.
+ */
+export interface LocalBackupPackageGenerationStatusResponse {
+  /**
+   * Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+   */
+  packageSessionId: string;
+  status: LocalBackupPackageArtifactStatus;
+  stableCode: LocalBackupPackageArtifactStableCode;
+  safeMessage: string;
+  /**
+   * False for this slice because package generation runtime is not implemented.
+   */
+  canPreparePackage: boolean;
+  /**
+   * False for this slice because no package artifact is created.
+   */
+  artifactAvailable: boolean;
+  /**
+   * False for this slice because no artifact can be downloaded.
+   */
+  canDownloadPackage: boolean;
+  /**
+   * False for this slice because package download runtime is not implemented.
+   */
+  downloadAvailable: boolean;
+  /**
+   * Null for this slice because no package artifact is generated.
+   */
+  generatedAtUtc?: string | null;
+  expiresAtUtc: string;
+  privacyBoundary: string;
+  dataEgressBoundary: string;
+  unsupportedFeatures: LocalBackupPackageUnsupportedFeature[];
+  nextAllowedActions: LocalBackupPackageNextAllowedAction[];
+  responseGeneratedAtUtc: string;
+}
+
+/**
+ * Metadata-only local backup package artifact/download eligibility status for an authenticated package session. It contains no package artifact ID, storage path, object key, signed URL, direct storage URL, filesystem path, local device path, download token, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth token, credential material, restore payload, or browser-local persistence state.
+ */
+export interface LocalBackupPackageArtifactStatusResponse {
+  /**
+   * Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+   */
+  packageSessionId: string;
+  status: LocalBackupPackageArtifactStatus;
+  stableCode: LocalBackupPackageArtifactStableCode;
+  safeMessage: string;
+  canPreparePackage: boolean;
+  artifactAvailable: boolean;
+  canDownloadPackage: boolean;
+  downloadAvailable: boolean;
+  /**
+   * Null for this slice because no package artifact is generated.
+   */
+  generatedAtUtc?: string | null;
+  expiresAtUtc: string;
+  privacyBoundary: string;
+  dataEgressBoundary: string;
+  unsupportedFeatures: LocalBackupPackageUnsupportedFeature[];
+  nextAllowedActions: LocalBackupPackageNextAllowedAction[];
+  responseGeneratedAtUtc: string;
+}
+
+/**
+ * Metadata-only local backup package download-action eligibility response for an authenticated package session. It never contains raw bytes, direct storage URLs, signed URLs, object keys, bucket names, filesystem paths, local device paths, provider internals, browser object URLs, bearer tokens, download credentials, content-disposition behavior, package bytes, file bytes, restore payloads, or browser-local persistence state.
+ */
+export interface LocalBackupPackageDownloadActionResponse {
+  /**
+   * Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+   */
+  packageSessionId: string;
+  status: LocalBackupPackageArtifactStatus;
+  stableCode: LocalBackupPackageArtifactStableCode;
+  safeMessage: string;
+  /**
+   * False for this slice because no package artifact exists.
+   */
+  downloadAvailable: boolean;
+  /**
+   * False for this slice because no package artifact exists.
+   */
+  canDownloadPackage: boolean;
+  /**
+   * False for this slice because no package artifact exists.
+   */
+  artifactAvailable: boolean;
+  expiresAtUtc: string;
+  privacyBoundary: string;
+  dataEgressBoundary: string;
+  unsupportedFeatures: LocalBackupPackageUnsupportedFeature[];
+  nextAllowedActions: LocalBackupPackageNextAllowedAction[];
+  responseGeneratedAtUtc: string;
 }
 
 /**

@@ -45,6 +45,16 @@ objects, storage paths, file-byte reads or writes, restore previews, restore
 confirmations, browser-local persistence, user-web runtime controls, or
 server/local business-record mutations.
 
+Implementation update on 2026-06-30: the metadata-only package
+generation/download contract slice added authenticated prepare, artifact-status,
+cancel, and download-action eligibility endpoints under existing package
+sessions. These endpoints expose safe readback metadata for package generation
+and download eligibility only. They still do not create package artifacts,
+package bytes, storage objects, storage references, direct downloads, signed
+URLs, package manifests, restore previews, restore confirmations,
+browser-local persistence, user-web runtime behavior, or source business-record
+mutations.
+
 The existing readiness and session contracts are useful prerequisites, not
 data-egress approval. Package generation and download are separate gates
 because they may produce a durable copy of sensitive financial, profile,

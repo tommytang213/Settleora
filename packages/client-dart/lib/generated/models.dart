@@ -11243,11 +11243,12 @@ class LocalBackupPackageUnsupportedFeatureValues {
   const LocalBackupPackageUnsupportedFeatureValues._();
   static const LocalBackupPackageUnsupportedFeature browserLocalPersistence = "browser_local_persistence";
   static const LocalBackupPackageUnsupportedFeature packageGeneration = "package_generation";
+  static const LocalBackupPackageUnsupportedFeature packageArtifact = "package_artifact";
   static const LocalBackupPackageUnsupportedFeature packageDownload = "package_download";
   static const LocalBackupPackageUnsupportedFeature restorePreview = "restore_preview";
   static const LocalBackupPackageUnsupportedFeature restoreConfirmation = "restore_confirmation";
   static const LocalBackupPackageUnsupportedFeature localModeAuthority = "local_mode_authority";
-  static const Set<LocalBackupPackageUnsupportedFeature> values = {browserLocalPersistence, packageGeneration, packageDownload, restorePreview, restoreConfirmation, localModeAuthority};
+  static const Set<LocalBackupPackageUnsupportedFeature> values = {browserLocalPersistence, packageGeneration, packageArtifact, packageDownload, restorePreview, restoreConfirmation, localModeAuthority};
 }
 
 /// Safe package concept metadata labels exposed without package creation or parsing.
@@ -11320,9 +11321,10 @@ typedef LocalBackupPackageSessionStatus = String;
 class LocalBackupPackageSessionStatusValues {
   const LocalBackupPackageSessionStatusValues._();
   static const LocalBackupPackageSessionStatus created = "created";
+  static const LocalBackupPackageSessionStatus cancelled = "cancelled";
   static const LocalBackupPackageSessionStatus expired = "expired";
   static const LocalBackupPackageSessionStatus discarded = "discarded";
-  static const Set<LocalBackupPackageSessionStatus> values = {created, expired, discarded};
+  static const Set<LocalBackupPackageSessionStatus> values = {created, cancelled, expired, discarded};
 }
 
 /// Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
@@ -11330,11 +11332,52 @@ typedef LocalBackupPackageSessionStableCode = String;
 class LocalBackupPackageSessionStableCodeValues {
   const LocalBackupPackageSessionStableCodeValues._();
   static const LocalBackupPackageSessionStableCode packageSessionCreated = "package_session_created";
+  static const LocalBackupPackageSessionStableCode packageSessionCancelled = "package_session_cancelled";
   static const LocalBackupPackageSessionStableCode packageSessionExpired = "package_session_expired";
   static const LocalBackupPackageSessionStableCode packageSessionDiscarded = "package_session_discarded";
   static const LocalBackupPackageSessionStableCode packageGenerationUnsupported = "package_generation_unsupported";
   static const LocalBackupPackageSessionStableCode packageManifestMetadataOnly = "package_manifest_metadata_only";
-  static const Set<LocalBackupPackageSessionStableCode> values = {packageSessionCreated, packageSessionExpired, packageSessionDiscarded, packageGenerationUnsupported, packageManifestMetadataOnly};
+  static const Set<LocalBackupPackageSessionStableCode> values = {packageSessionCreated, packageSessionCancelled, packageSessionExpired, packageSessionDiscarded, packageGenerationUnsupported, packageManifestMetadataOnly};
+}
+
+/// Metadata-only local backup package artifact/download status. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupPackageArtifactStatus = String;
+class LocalBackupPackageArtifactStatusValues {
+  const LocalBackupPackageArtifactStatusValues._();
+  static const LocalBackupPackageArtifactStatus metadataOnlyNoArtifact = "metadata_only_no_artifact";
+  static const LocalBackupPackageArtifactStatus generationUnavailable = "generation_unavailable";
+  static const LocalBackupPackageArtifactStatus downloadUnavailable = "download_unavailable";
+  static const LocalBackupPackageArtifactStatus cancelled = "cancelled";
+  static const LocalBackupPackageArtifactStatus expired = "expired";
+  static const LocalBackupPackageArtifactStatus discarded = "discarded";
+  static const LocalBackupPackageArtifactStatus staleRecheckRequired = "stale_recheck_required";
+  static const Set<LocalBackupPackageArtifactStatus> values = {metadataOnlyNoArtifact, generationUnavailable, downloadUnavailable, cancelled, expired, discarded, staleRecheckRequired};
+}
+
+/// Stable metadata-only local backup package generation/artifact/download code. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupPackageArtifactStableCode = String;
+class LocalBackupPackageArtifactStableCodeValues {
+  const LocalBackupPackageArtifactStableCodeValues._();
+  static const LocalBackupPackageArtifactStableCode metadataOnlyNoArtifact = "metadata_only_no_artifact";
+  static const LocalBackupPackageArtifactStableCode packageGenerationUnsupported = "package_generation_unsupported";
+  static const LocalBackupPackageArtifactStableCode packageDownloadUnavailable = "package_download_unavailable";
+  static const LocalBackupPackageArtifactStableCode packageGenerationCancelled = "package_generation_cancelled";
+  static const LocalBackupPackageArtifactStableCode packageSessionExpired = "package_session_expired";
+  static const LocalBackupPackageArtifactStableCode packageSessionDiscarded = "package_session_discarded";
+  static const LocalBackupPackageArtifactStableCode packageSessionStaleRecheckRequired = "package_session_stale_recheck_required";
+  static const LocalBackupPackageArtifactStableCode temporarilyUnavailable = "temporarily_unavailable";
+  static const Set<LocalBackupPackageArtifactStableCode> values = {metadataOnlyNoArtifact, packageGenerationUnsupported, packageDownloadUnavailable, packageGenerationCancelled, packageSessionExpired, packageSessionDiscarded, packageSessionStaleRecheckRequired, temporarilyUnavailable};
+}
+
+/// Safe next action labels for metadata-only package-session flows. These are not storage, download, restore, or browser persistence authority.
+typedef LocalBackupPackageNextAllowedAction = String;
+class LocalBackupPackageNextAllowedActionValues {
+  const LocalBackupPackageNextAllowedActionValues._();
+  static const LocalBackupPackageNextAllowedAction getArtifactStatus = "get_artifact_status";
+  static const LocalBackupPackageNextAllowedAction cancelPackageGeneration = "cancel_package_generation";
+  static const LocalBackupPackageNextAllowedAction discardPackageSession = "discard_package_session";
+  static const LocalBackupPackageNextAllowedAction createNewPackageSession = "create_new_package_session";
+  static const Set<LocalBackupPackageNextAllowedAction> values = {getArtifactStatus, cancelPackageGeneration, discardPackageSession, createNewPackageSession};
 }
 
 /// Metadata-only local backup package session scope.
@@ -11419,6 +11462,7 @@ class LocalBackupPackageSessionManifestPreviewResponse {
 /// Metadata-only local backup package session for the authenticated actor and current auth session. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, package manifests, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, hidden records, or browser-local persistence state.
 class LocalBackupPackageSessionResponse {
   static const Object _unsetDiscardedAtUtc = Object();
+  static const Object _unsetCancelledAtUtc = Object();
 
   LocalBackupPackageSessionResponse({
     required this.packageSessionId,
@@ -11437,10 +11481,13 @@ class LocalBackupPackageSessionResponse {
     required this.createdAtUtc,
     required this.expiresAtUtc,
     Object? discardedAtUtc = _unsetDiscardedAtUtc,
+    Object? cancelledAtUtc = _unsetCancelledAtUtc,
     required this.generatedAtUtc,
   })
       : discardedAtUtc = identical(discardedAtUtc, _unsetDiscardedAtUtc) ? null : discardedAtUtc as DateTime?,
-        _hasDiscardedAtUtc = !identical(discardedAtUtc, _unsetDiscardedAtUtc);
+        _hasDiscardedAtUtc = !identical(discardedAtUtc, _unsetDiscardedAtUtc),
+        cancelledAtUtc = identical(cancelledAtUtc, _unsetCancelledAtUtc) ? null : cancelledAtUtc as DateTime?,
+        _hasCancelledAtUtc = !identical(cancelledAtUtc, _unsetCancelledAtUtc);
 
   /// Opaque package-session metadata ID. It is not a storage object, package artifact, download token, or restore authority.
   final String packageSessionId;
@@ -11465,6 +11512,8 @@ class LocalBackupPackageSessionResponse {
   final DateTime expiresAtUtc;
   final DateTime? discardedAtUtc;
   final bool _hasDiscardedAtUtc;
+  final DateTime? cancelledAtUtc;
+  final bool _hasCancelledAtUtc;
   final DateTime generatedAtUtc;
 
   factory LocalBackupPackageSessionResponse.fromJson(JsonObject json) {
@@ -11487,12 +11536,16 @@ class LocalBackupPackageSessionResponse {
       discardedAtUtc: json.containsKey("discardedAtUtc")
           ? json["discardedAtUtc"] == null ? null : DateTime.parse(json["discardedAtUtc"] as String)
           : _unsetDiscardedAtUtc,
+      cancelledAtUtc: json.containsKey("cancelledAtUtc")
+          ? json["cancelledAtUtc"] == null ? null : DateTime.parse(json["cancelledAtUtc"] as String)
+          : _unsetCancelledAtUtc,
       generatedAtUtc: DateTime.parse(json["generatedAtUtc"] as String),
     );
   }
 
   JsonObject toJson() {
     final discardedAtUtcJsonValue = discardedAtUtc;
+    final cancelledAtUtcJsonValue = cancelledAtUtc;
 
     return {
       "packageSessionId": packageSessionId,
@@ -11511,7 +11564,261 @@ class LocalBackupPackageSessionResponse {
       "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
       "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
       if (_hasDiscardedAtUtc) "discardedAtUtc": discardedAtUtcJsonValue == null ? null : discardedAtUtcJsonValue.toUtc().toIso8601String(),
+      if (_hasCancelledAtUtc) "cancelledAtUtc": cancelledAtUtcJsonValue == null ? null : cancelledAtUtcJsonValue.toUtc().toIso8601String(),
       "generatedAtUtc": generatedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Metadata-only local backup package preparation/generation status for an authenticated package session. It contains no package artifact ID, storage path, object key, signed URL, direct storage URL, filesystem path, local device path, download token, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth token, credential material, restore payload, or browser-local persistence state.
+class LocalBackupPackageGenerationStatusResponse {
+  static const Object _unsetGeneratedAtUtc = Object();
+
+  LocalBackupPackageGenerationStatusResponse({
+    required this.packageSessionId,
+    required this.status,
+    required this.stableCode,
+    required this.safeMessage,
+    required this.canPreparePackage,
+    required this.artifactAvailable,
+    required this.canDownloadPackage,
+    required this.downloadAvailable,
+    Object? generatedAtUtc = _unsetGeneratedAtUtc,
+    required this.expiresAtUtc,
+    required this.privacyBoundary,
+    required this.dataEgressBoundary,
+    required this.unsupportedFeatures,
+    required this.nextAllowedActions,
+    required this.responseGeneratedAtUtc,
+  })
+      : generatedAtUtc = identical(generatedAtUtc, _unsetGeneratedAtUtc) ? null : generatedAtUtc as DateTime?,
+        _hasGeneratedAtUtc = !identical(generatedAtUtc, _unsetGeneratedAtUtc);
+
+  /// Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+  final String packageSessionId;
+  final LocalBackupPackageArtifactStatus status;
+  final LocalBackupPackageArtifactStableCode stableCode;
+  final String safeMessage;
+  /// False for this slice because package generation runtime is not implemented.
+  final bool canPreparePackage;
+  /// False for this slice because no package artifact is created.
+  final bool artifactAvailable;
+  /// False for this slice because no artifact can be downloaded.
+  final bool canDownloadPackage;
+  /// False for this slice because package download runtime is not implemented.
+  final bool downloadAvailable;
+  /// Null for this slice because no package artifact is generated.
+  final DateTime? generatedAtUtc;
+  final bool _hasGeneratedAtUtc;
+  final DateTime expiresAtUtc;
+  final String privacyBoundary;
+  final String dataEgressBoundary;
+  final List<LocalBackupPackageUnsupportedFeature> unsupportedFeatures;
+  final List<LocalBackupPackageNextAllowedAction> nextAllowedActions;
+  final DateTime responseGeneratedAtUtc;
+
+  factory LocalBackupPackageGenerationStatusResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageGenerationStatusResponse(
+      packageSessionId: json["packageSessionId"] as String,
+      status: json["status"] as String,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+      canPreparePackage: json["canPreparePackage"] as bool,
+      artifactAvailable: json["artifactAvailable"] as bool,
+      canDownloadPackage: json["canDownloadPackage"] as bool,
+      downloadAvailable: json["downloadAvailable"] as bool,
+      generatedAtUtc: json.containsKey("generatedAtUtc")
+          ? json["generatedAtUtc"] == null ? null : DateTime.parse(json["generatedAtUtc"] as String)
+          : _unsetGeneratedAtUtc,
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      privacyBoundary: json["privacyBoundary"] as String,
+      dataEgressBoundary: json["dataEgressBoundary"] as String,
+      unsupportedFeatures: (json["unsupportedFeatures"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      nextAllowedActions: (json["nextAllowedActions"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      responseGeneratedAtUtc: DateTime.parse(json["responseGeneratedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final generatedAtUtcJsonValue = generatedAtUtc;
+
+    return {
+      "packageSessionId": packageSessionId,
+      "status": status,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+      "canPreparePackage": canPreparePackage,
+      "artifactAvailable": artifactAvailable,
+      "canDownloadPackage": canDownloadPackage,
+      "downloadAvailable": downloadAvailable,
+      if (_hasGeneratedAtUtc) "generatedAtUtc": generatedAtUtcJsonValue == null ? null : generatedAtUtcJsonValue.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "privacyBoundary": privacyBoundary,
+      "dataEgressBoundary": dataEgressBoundary,
+      "unsupportedFeatures": unsupportedFeatures,
+      "nextAllowedActions": nextAllowedActions,
+      "responseGeneratedAtUtc": responseGeneratedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Metadata-only local backup package artifact/download eligibility status for an authenticated package session. It contains no package artifact ID, storage path, object key, signed URL, direct storage URL, filesystem path, local device path, download token, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth token, credential material, restore payload, or browser-local persistence state.
+class LocalBackupPackageArtifactStatusResponse {
+  static const Object _unsetGeneratedAtUtc = Object();
+
+  LocalBackupPackageArtifactStatusResponse({
+    required this.packageSessionId,
+    required this.status,
+    required this.stableCode,
+    required this.safeMessage,
+    required this.canPreparePackage,
+    required this.artifactAvailable,
+    required this.canDownloadPackage,
+    required this.downloadAvailable,
+    Object? generatedAtUtc = _unsetGeneratedAtUtc,
+    required this.expiresAtUtc,
+    required this.privacyBoundary,
+    required this.dataEgressBoundary,
+    required this.unsupportedFeatures,
+    required this.nextAllowedActions,
+    required this.responseGeneratedAtUtc,
+  })
+      : generatedAtUtc = identical(generatedAtUtc, _unsetGeneratedAtUtc) ? null : generatedAtUtc as DateTime?,
+        _hasGeneratedAtUtc = !identical(generatedAtUtc, _unsetGeneratedAtUtc);
+
+  /// Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+  final String packageSessionId;
+  final LocalBackupPackageArtifactStatus status;
+  final LocalBackupPackageArtifactStableCode stableCode;
+  final String safeMessage;
+  final bool canPreparePackage;
+  final bool artifactAvailable;
+  final bool canDownloadPackage;
+  final bool downloadAvailable;
+  /// Null for this slice because no package artifact is generated.
+  final DateTime? generatedAtUtc;
+  final bool _hasGeneratedAtUtc;
+  final DateTime expiresAtUtc;
+  final String privacyBoundary;
+  final String dataEgressBoundary;
+  final List<LocalBackupPackageUnsupportedFeature> unsupportedFeatures;
+  final List<LocalBackupPackageNextAllowedAction> nextAllowedActions;
+  final DateTime responseGeneratedAtUtc;
+
+  factory LocalBackupPackageArtifactStatusResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageArtifactStatusResponse(
+      packageSessionId: json["packageSessionId"] as String,
+      status: json["status"] as String,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+      canPreparePackage: json["canPreparePackage"] as bool,
+      artifactAvailable: json["artifactAvailable"] as bool,
+      canDownloadPackage: json["canDownloadPackage"] as bool,
+      downloadAvailable: json["downloadAvailable"] as bool,
+      generatedAtUtc: json.containsKey("generatedAtUtc")
+          ? json["generatedAtUtc"] == null ? null : DateTime.parse(json["generatedAtUtc"] as String)
+          : _unsetGeneratedAtUtc,
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      privacyBoundary: json["privacyBoundary"] as String,
+      dataEgressBoundary: json["dataEgressBoundary"] as String,
+      unsupportedFeatures: (json["unsupportedFeatures"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      nextAllowedActions: (json["nextAllowedActions"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      responseGeneratedAtUtc: DateTime.parse(json["responseGeneratedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final generatedAtUtcJsonValue = generatedAtUtc;
+
+    return {
+      "packageSessionId": packageSessionId,
+      "status": status,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+      "canPreparePackage": canPreparePackage,
+      "artifactAvailable": artifactAvailable,
+      "canDownloadPackage": canDownloadPackage,
+      "downloadAvailable": downloadAvailable,
+      if (_hasGeneratedAtUtc) "generatedAtUtc": generatedAtUtcJsonValue == null ? null : generatedAtUtcJsonValue.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "privacyBoundary": privacyBoundary,
+      "dataEgressBoundary": dataEgressBoundary,
+      "unsupportedFeatures": unsupportedFeatures,
+      "nextAllowedActions": nextAllowedActions,
+      "responseGeneratedAtUtc": responseGeneratedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Metadata-only local backup package download-action eligibility response for an authenticated package session. It never contains raw bytes, direct storage URLs, signed URLs, object keys, bucket names, filesystem paths, local device paths, provider internals, browser object URLs, bearer tokens, download credentials, content-disposition behavior, package bytes, file bytes, restore payloads, or browser-local persistence state.
+class LocalBackupPackageDownloadActionResponse {
+  const LocalBackupPackageDownloadActionResponse({
+    required this.packageSessionId,
+    required this.status,
+    required this.stableCode,
+    required this.safeMessage,
+    required this.downloadAvailable,
+    required this.canDownloadPackage,
+    required this.artifactAvailable,
+    required this.expiresAtUtc,
+    required this.privacyBoundary,
+    required this.dataEgressBoundary,
+    required this.unsupportedFeatures,
+    required this.nextAllowedActions,
+    required this.responseGeneratedAtUtc,
+  });
+
+  /// Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+  final String packageSessionId;
+  final LocalBackupPackageArtifactStatus status;
+  final LocalBackupPackageArtifactStableCode stableCode;
+  final String safeMessage;
+  /// False for this slice because no package artifact exists.
+  final bool downloadAvailable;
+  /// False for this slice because no package artifact exists.
+  final bool canDownloadPackage;
+  /// False for this slice because no package artifact exists.
+  final bool artifactAvailable;
+  final DateTime expiresAtUtc;
+  final String privacyBoundary;
+  final String dataEgressBoundary;
+  final List<LocalBackupPackageUnsupportedFeature> unsupportedFeatures;
+  final List<LocalBackupPackageNextAllowedAction> nextAllowedActions;
+  final DateTime responseGeneratedAtUtc;
+
+  factory LocalBackupPackageDownloadActionResponse.fromJson(JsonObject json) {
+    return LocalBackupPackageDownloadActionResponse(
+      packageSessionId: json["packageSessionId"] as String,
+      status: json["status"] as String,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+      downloadAvailable: json["downloadAvailable"] as bool,
+      canDownloadPackage: json["canDownloadPackage"] as bool,
+      artifactAvailable: json["artifactAvailable"] as bool,
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      privacyBoundary: json["privacyBoundary"] as String,
+      dataEgressBoundary: json["dataEgressBoundary"] as String,
+      unsupportedFeatures: (json["unsupportedFeatures"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      nextAllowedActions: (json["nextAllowedActions"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      responseGeneratedAtUtc: DateTime.parse(json["responseGeneratedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "packageSessionId": packageSessionId,
+      "status": status,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+      "downloadAvailable": downloadAvailable,
+      "canDownloadPackage": canDownloadPackage,
+      "artifactAvailable": artifactAvailable,
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "privacyBoundary": privacyBoundary,
+      "dataEgressBoundary": dataEgressBoundary,
+      "unsupportedFeatures": unsupportedFeatures,
+      "nextAllowedActions": nextAllowedActions,
+      "responseGeneratedAtUtc": responseGeneratedAtUtc.toUtc().toIso8601String(),
     };
   }
 }
