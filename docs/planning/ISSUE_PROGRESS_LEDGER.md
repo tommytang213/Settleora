@@ -145,18 +145,88 @@ remain the source of truth.
   - Report:
     `/workspace/logs/settleora-codex-report-20260630-2331-notification-decision-envelope-foundation-629-pr-merge.md`
 
+### Issue #633 - Notification delivery-state persistence and worker foundation
+
+- GitHub state/project status: issue `OPEN`; Project status
+  `Needs Architecture Review`, `Initial MD` `2`, `Man-days Remaining` `2`,
+  `Manual Gate` `Yes`, and `Validation Class` `openapi-client` by
+  GitHub/Project readback on 2026-07-01. PR #636 is merged, but it was an
+  architecture/docs review only.
+- Last verified at main SHA:
+  `94f71c96446780966bec7cefc415c0ee6bbdd54e`.
+- Completed PRs/slices:
+  - PR #636, reviewed source head
+    `bed8689325fc76dcf071970256df1da4f7ebe615`, merge SHA
+    `94f71c96446780966bec7cefc415c0ee6bbdd54e`: completed the docs/control
+    architecture review for notification delivery-state persistence and worker
+    foundation.
+- Completed scope:
+  - Added
+    `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`.
+  - Updated README and architecture index references.
+  - Separated in-app unread/read/archive state, #629 decision-envelope
+    eligibility, external delivery attempts, SMTP runtime, push runtime,
+    admin/global policy, and device-token lifecycle.
+  - Recorded API/domain authority boundaries for recipient eligibility, channel
+    eligibility, idempotency, redaction, audit-safe metadata, and delivery
+    attempt acceptance.
+  - Constrained future workers to API/domain-created outbox/queue records or a
+    separately approved service boundary.
+  - Defined provider-neutral state vocabulary, redaction rules, future
+    persistence-model guidance, and implementation split recommendations.
+- Explicitly not complete:
+  - No schema, migration, or database persistence.
+  - No delivery worker, queue, outbox runtime, or delivery attempt service.
+  - No provider runtime, SMTP runtime under #632, push runtime/device-token
+    storage under #634, or admin/global policy API/readout under #635.
+  - No OpenAPI contract or generated-client changes.
+  - No mobile, web, admin UI, deep-link, or #371 work.
+  - No provider secrets, environment, deployment, auth/session/security
+    runtime, or bypass policy changes.
+- Remaining related work:
+  - #403 remains open because #633 completed architecture only and
+    #632/#634/#635 remain separate gated implementation children.
+  - #369 remains open because this was provider/delivery architecture, not
+    event-family runtime acceptance.
+  - #368 remains open as the notification epic.
+  - #371 remains open and Figma/reference-gated.
+  - Future #633 implementation likely needs a new narrowed implementation task
+    or explicit scope decision for additive provider-neutral
+    persistence/service foundation.
+- Close/keep-open recommendation:
+  - Keep #633 open. Do not move it to `Ready for Codex` unless a future
+    implementation slice is explicitly narrowed to additive provider-neutral
+    persistence/service foundation with no provider runtime, secrets, UI, or
+    admin exposure.
+- Last verified repo/report references:
+  - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
+  - PR #636:
+    `https://github.com/tommytang213/Settleora/pull/636`
+  - Issue #633 merge checkpoint comment:
+    `https://github.com/tommytang213/Settleora/issues/633#issuecomment-4846071136`
+  - Reports:
+    `/workspace/logs/settleora-codex-report-20260701-0034-notification-delivery-state-worker-architecture-633.md`
+    and
+    `/workspace/logs/settleora-codex-report-20260701-0107-notification-delivery-state-worker-architecture-633-pr-merge.md`
+
 ### Issue #369 - Complete Day 1 in-app notification event coverage
 
 - GitHub state/project status: issue `OPEN`; Project status
   `Needs Architecture Review`, `Progress %` `60`, `Initial MD` `2`,
   `Man-days Remaining` `2`, `Figma Required` `Yes`, `Manual Gate` `Yes` by
-  GraphQL readback on 2026-06-30.
+  GraphQL readback on 2026-06-30. GitHub issue remains `OPEN` and Project
+  status remains `Needs Architecture Review` by readback on 2026-07-01 after
+  PR #636.
 - Parent epic readback: #368 is `OPEN`; Project status
   `Needs Architecture Review`, `Progress %` `33`, `Figma Required` `Yes`,
-  `Manual Gate` `Yes`.
+  `Manual Gate` `Yes`. GitHub issue #368 remains `OPEN` by readback on
+  2026-07-01.
 - Last verified at main SHA:
-  `34caca01a6a746f08b1892134a9510b9265cb645`.
+  `94f71c96446780966bec7cefc415c0ee6bbdd54e`.
 - Completed child slices now recorded:
+  - PR #636 / #633 completed the delivery-state worker foundation architecture
+    review only. It did not add event-family runtime, provider delivery,
+    source states, OpenAPI event values, schema, UI, or deep links.
   - PR #630 / #629 completed the internal notification decision-envelope
     foundation only. It did not add new Day 1 event-family runtime, provider
     delivery, source states, OpenAPI event values, schema, UI, or deep links.
@@ -202,9 +272,10 @@ remain the source of truth.
 - GitHub state/project status: issue `OPEN`; Project status
   `Needs Figma / Reference`, `Progress %` `80`, `Man-days Remaining` `1`,
   `Figma Required` `Yes`, `Manual Gate` `Yes` by GraphQL readback on
-  2026-06-30 after PR #630.
+  2026-06-30 after PR #630. GitHub issue remains `OPEN` and Project status
+  remains `Needs Figma / Reference` by readback on 2026-07-01 after PR #636.
 - Last verified at main SHA:
-  `34caca01a6a746f08b1892134a9510b9265cb645`.
+  `94f71c96446780966bec7cefc415c0ee6bbdd54e`.
 - Completed docs/control child slices now recorded:
   - #448 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
     `Man-days Remaining` `0`, linked PR #493 merged on 2026-06-24. It
@@ -228,6 +299,12 @@ remain the source of truth.
     UX/reference gate only through repo-tracked Day 1 UX/reference decisions
     and existing domain references.
 - Completed adjacent runtime slices that must not be redone:
+  - #633 / PR #636 completed only the delivery-state persistence and worker
+    foundation architecture review: provider-neutral state vocabulary,
+    redaction rules, API/domain authority boundaries, future persistence model,
+    and future implementation split recommendations. It did not implement
+    schema, migrations, delivery workers, queues, provider runtime, OpenAPI,
+    generated clients, UI, secrets, deployment, or admin exposure.
   - #629 / PR #630 completed only the internal notification
     decision-envelope foundation: provider-free resolver, bounded
     `in_app`/`email`/`mobile_push` channel vocabulary, bounded decision/reason
@@ -263,8 +340,9 @@ remain the source of truth.
     required/security-event bypass policy, and runtime wiring before provider
     delivery.
   - Email/push delivery-state persistence and delivery workers are not
-    implemented. Current in-app unread/read/archive state is separate and must
-    not be treated as provider delivery truth.
+    implemented. PR #636 only documented the safe future architecture. Current
+    in-app unread/read/archive state is separate and must not be treated as
+    provider delivery truth.
   - Admin/global notification policy APIs and admin UI are not implemented.
   - Notification deep-link/mobile UI implementation remains #371 and is still
     open/Figma-reference-gated even though #452 closed the UX/reference
@@ -283,21 +361,25 @@ remain the source of truth.
     settlement mismatch/residual/review, and remaining sync event families.
 - Close/keep-open recommendation:
   - Keep #403 open as a parent/split tracker. The original docs/control
-    children #448-#452 and the internal #629 foundation are complete, but
-    provider runtime, server-side preference resolution beyond the foundation,
-    delivery-state persistence/workers, admin policy, device-token lifecycle,
-    and #371 implementation remain separate work and should be split into
-    focused implementation issues before any runtime starts.
+    children #448-#452, the internal #629 foundation, and the #633 architecture
+    review are complete, but provider runtime, server-side preference
+    resolution beyond the foundation, delivery-state persistence/workers, admin
+    policy, device-token lifecycle, and #371 implementation remain separate
+    work and should be split into focused implementation issues before any
+    runtime starts.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md`
   - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
   - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
   - `docs/architecture/NOTIFICATION_PREFERENCE_RESOLUTION_MODEL.md`
+  - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
   - `docs/planning/DAY1_UX_REFERENCE_DECISIONS.md`
   - Report:
     `/workspace/logs/settleora-codex-report-20260630-2228-notification-day1-provider-remaining-gates-split-403-369.md`
   - Report:
     `/workspace/logs/settleora-codex-report-20260630-2331-notification-decision-envelope-foundation-629-pr-merge.md`
+  - Report:
+    `/workspace/logs/settleora-codex-report-20260701-0107-notification-delivery-state-worker-architecture-633-pr-merge.md`
 
 ### Issue #458 - User web auth/session shell and navigation foundation
 
