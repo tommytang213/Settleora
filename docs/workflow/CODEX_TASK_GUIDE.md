@@ -6,6 +6,8 @@ This guide defines repeatable Settleora Codex task rules so future prompts can s
 
 - [PROGRAM_ARCHITECTURE.md](../../PROGRAM_ARCHITECTURE.md)
 - [README.md](../../README.md)
+- [ISSUE_PROGRESS_LEDGER.md](../planning/ISSUE_PROGRESS_LEDGER.md) when it
+  exists.
 - Relevant service, app, infrastructure, contract, or workflow docs for the requested change.
 - Relevant architecture docs only when the task touches that area.
 - [SETTLEORA_CLOUD_SAAS_READINESS.md](../architecture/SETTLEORA_CLOUD_SAAS_READINESS.md) for cloud, hosted deployment, subscription entitlement, managed provisioning, multi-tenant SaaS, or federation work.
@@ -118,6 +120,30 @@ metadata must be complete enough for planning charts and close decisions:
 - Merge-gate tasks must verify the close rule before closing an issue.
 - Reports must include Project field readback for every issue created or
   updated.
+
+## Issue Progress Hygiene
+
+Open issue state is not proof of unfinished scope, and closed issue state is
+not proof that adjacent Day 1 runtime work is complete. Before planning from a
+GitHub issue, read the issue body, issue comments, linked and recently merged
+PRs, recent `.codex/reports/` files, relevant planning docs, and
+`docs/planning/ISSUE_PROGRESS_LEDGER.md` when it exists.
+
+When a task completes or changes issue/project status, update the ledger if the
+issue could otherwise be misread later. Ledger entries should record:
+
+- Issue number/title and current GitHub issue state.
+- Project status, progress, and remaining MD when available.
+- Merged PRs and merge SHAs where known.
+- Completed slices and remaining Day 1 work.
+- Future gates requiring explicit approval.
+- Blockers/manual decisions.
+- Close/keep-open recommendation.
+- Last verified repo SHA and report references.
+
+Do not invent completion. If a PR, report, project field, or issue state cannot
+be verified, write `unverified` in the ledger and leave ambiguous issue/project
+state unchanged.
 
 ## Architecture Guardrails
 
@@ -232,6 +258,18 @@ Every PR evidence block must include:
 - Mergeability and clean/dirty status.
 - Unresolved review thread or blocking comment status.
 
+After a PR merge, perform issue/project hygiene for linked issues:
+
+- Comment linked issues with a concise checkpoint when helpful and not a
+  duplicate: PR number, merge SHA, completed scope, validation summary,
+  remaining gates, and close/keep-open recommendation.
+- Update Project status, progress, and remaining MD when tooling is available
+  and the result is clearly safe.
+- Update `docs/planning/ISSUE_PROGRESS_LEDGER.md` when it exists and the merge
+  changes issue completion, remaining work, or future gates.
+- Report exactly which issue/project/ledger updates were performed and exactly
+  what could not be updated.
+
 Manual gates must be explicit. Trigger and report a manual gate for CI workflow
 changes, deployment/Docker/release infrastructure, production deploy, public or
 admin exposure, mobile store release, signing, secrets/credentials/tokens,
@@ -260,6 +298,8 @@ Day 1 PR/merge-gate reports must include:
 - Commit hash and PR URL.
 - Issue status and whether the issue was closed, left open, or only completed
   for a docs/reference/checklist slice.
+- Issue/project updates performed, issues left open and why, ledger entries
+  added or changed, and remaining gates/manual decisions.
 - Exact validation commands and results.
 - GitHub CI/check names, conclusions, and SHA checked.
 - Merge result, merge commit, or stop reason.
