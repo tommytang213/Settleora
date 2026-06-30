@@ -580,6 +580,10 @@ export class SettleoraApiClient {
     return this.request<LocalBackupPackageDownloadActionResponse>("POST", `/api/v1/local-backup/package-sessions/${encodeURIComponent(String(packageSessionId))}/download-actions`, undefined, options, options.accessToken);
   }
 
+  async downloadLocalBackupPackageContent(packageSessionId: string, downloadActionId: string, options: SettleoraAuthenticatedRequestOptions): Promise<Blob> {
+    return this.requestBlob("GET", `/api/v1/local-backup/package-sessions/${encodeURIComponent(String(packageSessionId))}/download-actions/${encodeURIComponent(String(downloadActionId))}/content`, options, options.accessToken);
+  }
+
   async prepareLocalBackupPackageSession(packageSessionId: string, options: SettleoraAuthenticatedRequestOptions): Promise<LocalBackupPackageGenerationStatusResponse> {
     return this.request<LocalBackupPackageGenerationStatusResponse>("POST", `/api/v1/local-backup/package-sessions/${encodeURIComponent(String(packageSessionId))}/prepare`, undefined, options, options.accessToken);
   }

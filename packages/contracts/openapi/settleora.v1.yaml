@@ -2709,8 +2709,8 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
   /api/v1/local-backup/package-sessions/{packageSessionId}/download-actions:
     post:
-      summary: Create local backup package download action metadata
-      description: Requests a future short-lived API-mediated download action for an existing authenticated package session. This metadata-only slice reports download as unavailable because no package artifact exists. It never returns raw bytes, content-disposition streams, direct storage URLs, signed URLs, object keys, bucket names, filesystem paths, local device paths, provider internals, browser object URLs, bearer tokens, download credentials, package bytes, file bytes, restore payloads, browser-local state, or source-record mutations.
+      summary: Create local backup package download action
+      description: Creates a short-lived API-mediated download action for a prepared data-only package artifact. The response may include a same-API content path, safe filename, content type, byte length, and package hash, but never returns direct storage URLs, signed URLs, object keys, bucket names, filesystem paths, local device paths, provider internals, browser object URLs, bearer tokens, reusable raw tokens, file bytes, restore payloads, browser-local state, or source-record mutations.
       operationId: createLocalBackupPackageDownloadAction
       security:
         - SessionBearerAuth: []
@@ -2742,6 +2742,58 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "404":
           description: Package session is missing, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-sessions/{packageSessionId}/download-actions/{downloadActionId}/content:
+    get:
+      summary: Download local backup package content
+      description: Streams a prepared short-lived data-only local backup package artifact through the authenticated API. The request is scoped to the same current actor/profile/auth session that created the package session, requires an unexpired artifact and unexpired download action, and never exposes storage URLs, storage paths, object keys, bucket names, provider internals, signed URLs, reusable raw tokens, restore approval, browser-local persistence, file bytes, raw OCR text, private notes, payment details, hidden records, secrets, or credential material.
+      operationId: downloadLocalBackupPackageContent
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: packageSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: downloadActionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Data-only backup package JSON bytes for the current actor/session.
+          content:
+            application/vnd.settleora.local-backup+json:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Local backup package content request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to download local backup package content.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Package session, prepared artifact, or download action is missing, expired, wrong actor, wrong auth session, already consumed, or otherwise unavailable.
           content:
             application/problem+json:
               schema:
@@ -18245,6 +18297,8 @@ components:
       description: Metadata-only local backup package session status. Unknown future values must be handled as unavailable by clients.
       enum:
         - created
+        - ready_to_download
+        - blocked
         - cancelled
         - expired
         - discarded
@@ -18253,16 +18307,22 @@ components:
       description: Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
       enum:
         - package_session_created
+        - package_ready_to_download
         - package_session_cancelled
         - package_session_expired
         - package_session_discarded
         - package_generation_unsupported
         - package_manifest_metadata_only
+        - policy_disabled
+        - temporarily_unavailable
     LocalBackupPackageArtifactStatus:
       type: string
       description: Metadata-only local backup package artifact/download status. Unknown future values must be handled as unavailable by clients.
       enum:
         - metadata_only_no_artifact
+        - ready
+        - download_action_ready
+        - blocked
         - generation_unavailable
         - download_unavailable
         - cancelled
@@ -18274,6 +18334,8 @@ components:
       description: Stable metadata-only local backup package generation/artifact/download code. Unknown future values must be handled as unavailable by clients.
       enum:
         - metadata_only_no_artifact
+        - package_ready_to_download
+        - package_download_action_ready
         - package_generation_unsupported
         - package_download_unavailable
         - package_generation_cancelled
@@ -18286,6 +18348,8 @@ components:
       description: Safe next action labels for metadata-only package-session flows. These are not storage, download, restore, or browser persistence authority.
       enum:
         - get_artifact_status
+        - prepare_package
+        - create_download_action
         - cancel_package_generation
         - discard_package_session
         - create_new_package_session
@@ -18293,7 +18357,7 @@ components:
       type: string
       description: Metadata-only local backup package session scope.
       enum:
-        - server_mode_copy_metadata_only
+        - server_mode_copy_data_only
     LocalBackupPackageSessionReadinessResponse:
       type: object
       description: Safe package-session readiness metadata. It does not prepare, generate, download, parse, preview, confirm, or restore a package.
@@ -18466,7 +18530,39 @@ components:
             - type: string
               format: date-time
             - type: "null"
-          description: Null for this slice because no package artifact is generated.
+          description: Artifact generation timestamp when a data-only package artifact is ready.
+        artifactExpiresAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Short-lived process-local artifact expiry. Clients must reprepare after expiry.
+        safeFilename:
+          oneOf:
+            - type: string
+              maxLength: 160
+            - type: "null"
+          description: Deterministic safe download filename, not a path or storage object key.
+        contentType:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Safe API content type for the package artifact.
+        contentLengthBytes:
+          oneOf:
+            - type: integer
+              minimum: 0
+              maximum: 1048576
+            - type: "null"
+          description: Bounded artifact byte length.
+        packageSha256:
+          oneOf:
+            - type: string
+              minLength: 64
+              maxLength: 64
+            - type: "null"
+          description: SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
         expiresAtUtc:
           type: string
           format: date-time
@@ -18533,7 +18629,39 @@ components:
             - type: string
               format: date-time
             - type: "null"
-          description: Null for this slice because no package artifact is generated.
+          description: Artifact generation timestamp when a data-only package artifact is ready.
+        artifactExpiresAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Short-lived process-local artifact expiry. Clients must reprepare after expiry.
+        safeFilename:
+          oneOf:
+            - type: string
+              maxLength: 160
+            - type: "null"
+          description: Deterministic safe download filename, not a path or storage object key.
+        contentType:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Safe API content type for the package artifact.
+        contentLengthBytes:
+          oneOf:
+            - type: integer
+              minimum: 0
+              maximum: 1048576
+            - type: "null"
+          description: Bounded artifact byte length.
+        packageSha256:
+          oneOf:
+            - type: string
+              minLength: 64
+              maxLength: 64
+            - type: "null"
+          description: SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
         expiresAtUtc:
           type: string
           format: date-time
@@ -18594,10 +18722,54 @@ components:
           description: False for this slice because no package artifact exists.
         artifactAvailable:
           type: boolean
-          description: False for this slice because no package artifact exists.
+          description: Whether a prepared package artifact is available.
         expiresAtUtc:
           type: string
           format: date-time
+        downloadActionId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Opaque same-API download action ID. It is not a bearer token, storage credential, object key, or signed URL.
+        downloadActionExpiresAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Short-lived download-action expiry.
+        contentPath:
+          oneOf:
+            - type: string
+              maxLength: 240
+            - type: "null"
+          description: Relative API content endpoint path for this actor/session action. It is not a direct storage URL or signed URL.
+        safeFilename:
+          oneOf:
+            - type: string
+              maxLength: 160
+            - type: "null"
+          description: Deterministic safe download filename, not a path or storage object key.
+        contentType:
+          oneOf:
+            - type: string
+              maxLength: 120
+            - type: "null"
+          description: Safe API content type for the package artifact.
+        contentLengthBytes:
+          oneOf:
+            - type: integer
+              minimum: 0
+              maximum: 1048576
+            - type: "null"
+          description: Bounded artifact byte length.
+        packageSha256:
+          oneOf:
+            - type: string
+              minLength: 64
+              maxLength: 64
+            - type: "null"
+          description: SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
         privacyBoundary:
           type: string
           maxLength: 760

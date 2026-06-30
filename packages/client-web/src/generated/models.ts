@@ -3867,32 +3867,32 @@ export interface LocalBackupPackageConceptResponse {
 /**
  * Metadata-only local backup package session status. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupPackageSessionStatus = "created" | "cancelled" | "expired" | "discarded";
+export type LocalBackupPackageSessionStatus = "created" | "ready_to_download" | "blocked" | "cancelled" | "expired" | "discarded";
 
 /**
  * Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupPackageSessionStableCode = "package_session_created" | "package_session_cancelled" | "package_session_expired" | "package_session_discarded" | "package_generation_unsupported" | "package_manifest_metadata_only";
+export type LocalBackupPackageSessionStableCode = "package_session_created" | "package_ready_to_download" | "package_session_cancelled" | "package_session_expired" | "package_session_discarded" | "package_generation_unsupported" | "package_manifest_metadata_only" | "policy_disabled" | "temporarily_unavailable";
 
 /**
  * Metadata-only local backup package artifact/download status. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupPackageArtifactStatus = "metadata_only_no_artifact" | "generation_unavailable" | "download_unavailable" | "cancelled" | "expired" | "discarded" | "stale_recheck_required";
+export type LocalBackupPackageArtifactStatus = "metadata_only_no_artifact" | "ready" | "download_action_ready" | "blocked" | "generation_unavailable" | "download_unavailable" | "cancelled" | "expired" | "discarded" | "stale_recheck_required";
 
 /**
  * Stable metadata-only local backup package generation/artifact/download code. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupPackageArtifactStableCode = "metadata_only_no_artifact" | "package_generation_unsupported" | "package_download_unavailable" | "package_generation_cancelled" | "package_session_expired" | "package_session_discarded" | "package_session_stale_recheck_required" | "temporarily_unavailable";
+export type LocalBackupPackageArtifactStableCode = "metadata_only_no_artifact" | "package_ready_to_download" | "package_download_action_ready" | "package_generation_unsupported" | "package_download_unavailable" | "package_generation_cancelled" | "package_session_expired" | "package_session_discarded" | "package_session_stale_recheck_required" | "temporarily_unavailable";
 
 /**
  * Safe next action labels for metadata-only package-session flows. These are not storage, download, restore, or browser persistence authority.
  */
-export type LocalBackupPackageNextAllowedAction = "get_artifact_status" | "cancel_package_generation" | "discard_package_session" | "create_new_package_session";
+export type LocalBackupPackageNextAllowedAction = "get_artifact_status" | "prepare_package" | "create_download_action" | "cancel_package_generation" | "discard_package_session" | "create_new_package_session";
 
 /**
  * Metadata-only local backup package session scope.
  */
-export type LocalBackupPackageSessionScope = "server_mode_copy_metadata_only";
+export type LocalBackupPackageSessionScope = "server_mode_copy_data_only";
 
 /**
  * Safe package-session readiness metadata. It does not prepare, generate, download, parse, preview, confirm, or restore a package.
@@ -3999,9 +3999,29 @@ export interface LocalBackupPackageGenerationStatusResponse {
    */
   downloadAvailable: boolean;
   /**
-   * Null for this slice because no package artifact is generated.
+   * Artifact generation timestamp when a data-only package artifact is ready.
    */
   generatedAtUtc?: string | null;
+  /**
+   * Short-lived process-local artifact expiry. Clients must reprepare after expiry.
+   */
+  artifactExpiresAtUtc?: string | null;
+  /**
+   * Deterministic safe download filename, not a path or storage object key.
+   */
+  safeFilename?: string | null;
+  /**
+   * Safe API content type for the package artifact.
+   */
+  contentType?: string | null;
+  /**
+   * Bounded artifact byte length.
+   */
+  contentLengthBytes?: number | null;
+  /**
+   * SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
+   */
+  packageSha256?: string | null;
   expiresAtUtc: string;
   privacyBoundary: string;
   dataEgressBoundary: string;
@@ -4026,9 +4046,29 @@ export interface LocalBackupPackageArtifactStatusResponse {
   canDownloadPackage: boolean;
   downloadAvailable: boolean;
   /**
-   * Null for this slice because no package artifact is generated.
+   * Artifact generation timestamp when a data-only package artifact is ready.
    */
   generatedAtUtc?: string | null;
+  /**
+   * Short-lived process-local artifact expiry. Clients must reprepare after expiry.
+   */
+  artifactExpiresAtUtc?: string | null;
+  /**
+   * Deterministic safe download filename, not a path or storage object key.
+   */
+  safeFilename?: string | null;
+  /**
+   * Safe API content type for the package artifact.
+   */
+  contentType?: string | null;
+  /**
+   * Bounded artifact byte length.
+   */
+  contentLengthBytes?: number | null;
+  /**
+   * SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
+   */
+  packageSha256?: string | null;
   expiresAtUtc: string;
   privacyBoundary: string;
   dataEgressBoundary: string;
@@ -4057,10 +4097,38 @@ export interface LocalBackupPackageDownloadActionResponse {
    */
   canDownloadPackage: boolean;
   /**
-   * False for this slice because no package artifact exists.
+   * Whether a prepared package artifact is available.
    */
   artifactAvailable: boolean;
   expiresAtUtc: string;
+  /**
+   * Opaque same-API download action ID. It is not a bearer token, storage credential, object key, or signed URL.
+   */
+  downloadActionId?: string | null;
+  /**
+   * Short-lived download-action expiry.
+   */
+  downloadActionExpiresAtUtc?: string | null;
+  /**
+   * Relative API content endpoint path for this actor/session action. It is not a direct storage URL or signed URL.
+   */
+  contentPath?: string | null;
+  /**
+   * Deterministic safe download filename, not a path or storage object key.
+   */
+  safeFilename?: string | null;
+  /**
+   * Safe API content type for the package artifact.
+   */
+  contentType?: string | null;
+  /**
+   * Bounded artifact byte length.
+   */
+  contentLengthBytes?: number | null;
+  /**
+   * SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
+   */
+  packageSha256?: string | null;
   privacyBoundary: string;
   dataEgressBoundary: string;
   unsupportedFeatures: LocalBackupPackageUnsupportedFeature[];
