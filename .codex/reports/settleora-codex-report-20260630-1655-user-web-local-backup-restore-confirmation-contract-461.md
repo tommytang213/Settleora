@@ -174,3 +174,16 @@ Pre-commit status showed the scoped modified files listed above plus this report
 ## Next Recommended Action
 
 Review the pushed branch diff. Do not treat generated-client availability as restore authority; runtime restore confirmation mutation remains a future explicit gate.
+
+## Post-Commit/Push Addendum
+
+- HKT end timestamp: 2026-06-30 17:13 HKT
+- Total elapsed time: about 18 minutes.
+- Final commit SHA: `2c0b12e2f5861686b01a10698c0966d2ff00a5fe`
+- Task branch pushed: yes.
+- Pushed branch: `origin/feature/user-web-local-backup-restore-confirmation-contract-461`
+- Pushed branch SHA: `2c0b12e2f5861686b01a10698c0966d2ff00a5fe`
+- PR URL: not created.
+- Commit message: `feat(api): add local backup restore confirmation session contract`
+- Final post-push status immediately after upstream correction: branch tracked `origin/feature/user-web-local-backup-restore-confirmation-contract-461` with no staged or unstaged source changes before this local post-push addendum was appended.
+- Final report/log copy status: this addendum was appended after push so the local report and `/workspace/logs` copy include final SHA/push evidence.
