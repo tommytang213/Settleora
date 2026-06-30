@@ -7,6 +7,7 @@ public static class InAppNotificationSubjectTypes
     public const string SettlementPayment = "settlement_payment";
     public const string RecurringBillOccurrence = "recurring_bill_occurrence";
     public const string SyncOperation = "sync_operation";
+    public const string ReceiptOcrReview = "receipt_ocr_review";
 
     private static readonly string[] SupportedValues =
     [
@@ -14,7 +15,8 @@ public static class InAppNotificationSubjectTypes
         SettlementRequest,
         SettlementPayment,
         RecurringBillOccurrence,
-        SyncOperation
+        SyncOperation,
+        ReceiptOcrReview
     ];
 
     public static bool IsSupported(string? value)

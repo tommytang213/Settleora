@@ -18,16 +18,22 @@ namespace Settleora.Api.Tests;
 public sealed class InAppNotificationSchemaFoundationTests
 {
     private const string UserNotificationEventTypeConstraintSql =
-        "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.due_soon', 'recurring_bill.draft_generated', 'sync.conflict_detected')";
+        "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.due_soon', 'recurring_bill.draft_generated', 'sync.conflict_detected', 'ocr.needs_review')";
 
     private const string UserNotificationSubjectTypeConstraintSql =
-        "subject_type IN ('expense_bill', 'settlement_request', 'settlement_payment', 'recurring_bill_occurrence', 'sync_operation')";
+        "subject_type IN ('expense_bill', 'settlement_request', 'settlement_payment', 'recurring_bill_occurrence', 'sync_operation', 'receipt_ocr_review')";
 
     private const string BillRevisionNotificationEventTypeConstraintSql =
         "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.draft_generated')";
 
     private const string RecurringDueSoonNotificationEventTypeConstraintSql =
         "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.due_soon', 'recurring_bill.draft_generated')";
+
+    private const string SyncConflictNotificationEventTypeConstraintSql =
+        "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.due_soon', 'recurring_bill.draft_generated', 'sync.conflict_detected')";
+
+    private const string SyncConflictNotificationSubjectTypeConstraintSql =
+        "subject_type IN ('expense_bill', 'settlement_request', 'settlement_payment', 'recurring_bill_occurrence', 'sync_operation')";
 
     private static readonly string[] RequiredBillRevisionNotificationEventTypes =
     [
@@ -58,6 +64,7 @@ public sealed class InAppNotificationSchemaFoundationTests
         Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.RecurringBillDueSoon));
         Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.RecurringBillDraftGenerated));
         Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.SyncConflictDetected));
+        Assert.True(InAppNotificationEventTypes.IsSupported(InAppNotificationEventTypes.OcrNeedsReview));
         Assert.All(
             RequiredBillRevisionNotificationEventTypes,
             eventType => Assert.True(InAppNotificationEventTypes.IsSupported(eventType), eventType));
@@ -68,8 +75,11 @@ public sealed class InAppNotificationSchemaFoundationTests
         Assert.False(InAppNotificationEventTypes.IsSupported("sync.operation_failed"));
         Assert.False(InAppNotificationEventTypes.IsSupported("sync.operation_queued"));
         Assert.False(InAppNotificationEventTypes.IsSupported("sync.conflict_resolved"));
+        Assert.False(InAppNotificationEventTypes.IsSupported("ocr.completed"));
+        Assert.False(InAppNotificationEventTypes.IsSupported("ocr.failed"));
 
         Assert.True(InAppNotificationSubjectTypes.IsSupported(InAppNotificationSubjectTypes.SyncOperation));
+        Assert.True(InAppNotificationSubjectTypes.IsSupported(InAppNotificationSubjectTypes.ReceiptOcrReview));
 
         Assert.True(InAppNotificationStatuses.IsSupported(InAppNotificationStatuses.Unread));
         Assert.True(InAppNotificationStatuses.IsSupported(InAppNotificationStatuses.Read));
@@ -322,10 +332,55 @@ public sealed class InAppNotificationSchemaFoundationTests
             operation => operation.Name == "ck_user_notifications_subject_type"
                 && operation.Table == "user_notifications");
 
-        Assert.Equal(UserNotificationEventTypeConstraintSql, eventConstraint.Sql);
-        Assert.Equal(UserNotificationSubjectTypeConstraintSql, subjectConstraint.Sql);
+        Assert.Equal(SyncConflictNotificationEventTypeConstraintSql, eventConstraint.Sql);
+        Assert.Equal(SyncConflictNotificationSubjectTypeConstraintSql, subjectConstraint.Sql);
         Assert.Contains($"'{InAppNotificationEventTypes.SyncConflictDetected}'", eventConstraint.Sql, StringComparison.Ordinal);
         Assert.Contains($"'{InAppNotificationSubjectTypes.SyncOperation}'", subjectConstraint.Sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OcrNeedsReviewNotificationRuntimeMigrationOnlyWidensNotificationConstraints()
+    {
+        using var dbContext = CreateDbContext();
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddOcrNeedsReviewNotificationRuntime", StringComparison.Ordinal));
+
+        var migration = new AddOcrNeedsReviewNotificationRuntime();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is CreateTableOperation
+                or DropTableOperation
+                or AddColumnOperation
+                or DropColumnOperation
+                or CreateIndexOperation
+                or DropForeignKeyOperation
+                or DropIndexOperation
+                or AlterColumnOperation
+                or SqlOperation);
+
+        Assert.Contains(
+            migration.UpOperations.OfType<DropCheckConstraintOperation>(),
+            operation => operation.Name == "ck_user_notifications_event_type"
+                && operation.Table == "user_notifications");
+        Assert.Contains(
+            migration.UpOperations.OfType<DropCheckConstraintOperation>(),
+            operation => operation.Name == "ck_user_notifications_subject_type"
+                && operation.Table == "user_notifications");
+
+        var eventConstraint = Assert.Single(
+            migration.UpOperations.OfType<AddCheckConstraintOperation>(),
+            operation => operation.Name == "ck_user_notifications_event_type"
+                && operation.Table == "user_notifications");
+        var subjectConstraint = Assert.Single(
+            migration.UpOperations.OfType<AddCheckConstraintOperation>(),
+            operation => operation.Name == "ck_user_notifications_subject_type"
+                && operation.Table == "user_notifications");
+
+        Assert.Equal(UserNotificationEventTypeConstraintSql, eventConstraint.Sql);
+        Assert.Equal(UserNotificationSubjectTypeConstraintSql, subjectConstraint.Sql);
+        Assert.Contains($"'{InAppNotificationEventTypes.OcrNeedsReview}'", eventConstraint.Sql, StringComparison.Ordinal);
+        Assert.Contains($"'{InAppNotificationSubjectTypes.ReceiptOcrReview}'", subjectConstraint.Sql, StringComparison.Ordinal);
     }
 
     [Fact]

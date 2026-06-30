@@ -234,6 +234,35 @@ internal static class InAppNotificationEvents
             cancellationToken);
     }
 
+    public static Task WriteReceiptOcrNeedsReviewNotificationAsync(
+        IInAppNotificationWriter notificationWriter,
+        Guid expenseBillId,
+        Guid? groupId,
+        Guid receiptOcrReviewId,
+        Guid receiptAttachmentFileId,
+        Guid assignedToUserProfileId,
+        Guid actorUserProfileId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        return notificationWriter.WriteAsync(
+            new InAppNotificationWriteRequest(
+                assignedToUserProfileId,
+                actorUserProfileId,
+                InAppNotificationEventTypes.OcrNeedsReview,
+                InAppNotificationPriorities.Attention,
+                InAppNotificationSubjectTypes.ReceiptOcrReview,
+                TitleKey(InAppNotificationEventTypes.OcrNeedsReview),
+                MessageKey(InAppNotificationEventTypes.OcrNeedsReview),
+                now,
+                ActionUrl: ReceiptOcrReviewActionUrl(expenseBillId, groupId, receiptAttachmentFileId),
+                GroupId: groupId,
+                ExpenseBillId: expenseBillId,
+                ReceiptOcrReviewId: receiptOcrReviewId,
+                ReceiptAttachmentFileId: receiptAttachmentFileId),
+            cancellationToken);
+    }
+
     private static Task WriteBillNotificationAsync(
         IInAppNotificationWriter notificationWriter,
         ExpenseBill bill,
@@ -283,6 +312,16 @@ internal static class InAppNotificationEvents
         return bill.GroupId.HasValue
             ? $"/api/v1/groups/{bill.GroupId.Value:D}/bills/{bill.Id:D}"
             : $"/api/v1/bills/{bill.Id:D}";
+    }
+
+    private static string ReceiptOcrReviewActionUrl(
+        Guid expenseBillId,
+        Guid? groupId,
+        Guid receiptAttachmentFileId)
+    {
+        return groupId.HasValue
+            ? $"/api/v1/groups/{groupId.Value:D}/bills/{expenseBillId:D}/attachments/{receiptAttachmentFileId:D}/ocr-review"
+            : $"/api/v1/bills/{expenseBillId:D}/attachments/{receiptAttachmentFileId:D}/ocr-review";
     }
 
     private static string TitleKey(string eventType)
