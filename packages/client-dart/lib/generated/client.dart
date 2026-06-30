@@ -1511,6 +1511,28 @@ class SettleoraApiClient {
     return LocalBackupPackageGenerationStatusResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<LocalBackupRestoreConfirmationSessionResponse> getLocalBackupRestoreConfirmationSession(String restoreConfirmationSessionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/local-backup/restore-confirmation-sessions/${Uri.encodeComponent(restoreConfirmationSessionId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupRestoreConfirmationSessionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<LocalBackupRestoreConfirmationSessionResponse> discardLocalBackupRestoreConfirmationSession(String restoreConfirmationSessionId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/local-backup/restore-confirmation-sessions/${Uri.encodeComponent(restoreConfirmationSessionId.toString())}/discard',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupRestoreConfirmationSessionResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<LocalBackupRestorePreviewResponse> createLocalBackupRestorePreview(LocalBackupRestorePreviewCreateRequest body, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",
@@ -1531,6 +1553,17 @@ class SettleoraApiClient {
       headers: headers,
     );
     return LocalBackupRestorePreviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<LocalBackupRestoreConfirmationSessionResponse> createLocalBackupRestoreConfirmationSession(String restorePreviewId, LocalBackupRestoreConfirmationSessionCreateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/local-backup/restore-previews/${Uri.encodeComponent(restorePreviewId.toString())}/confirmation-sessions',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupRestoreConfirmationSessionResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<LocalBackupRestorePreviewResponse> discardLocalBackupRestorePreview(String restorePreviewId, {required String accessToken, Map<String, String>? headers}) async {

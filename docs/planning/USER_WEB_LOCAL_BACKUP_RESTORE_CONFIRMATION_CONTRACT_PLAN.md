@@ -56,6 +56,25 @@ discard the preview. It maps only safe preview metadata and does not create
 fallback restore candidates, infer restore eligibility client-side, write
 browser-local authority, or call any confirmation mutation.
 
+Implementation update on 2026-06-30: the metadata-only restore-confirmation
+session contract/API slice chose these authenticated process-local endpoints:
+
+- `POST /api/v1/local-backup/restore-previews/{restorePreviewId}/confirmation-sessions`
+  with operation ID `createLocalBackupRestoreConfirmationSession`
+- `GET /api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId}`
+  with operation ID `getLocalBackupRestoreConfirmationSession`
+- `POST /api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId}/discard`
+  with operation ID `discardLocalBackupRestoreConfirmationSession`
+
+The slice adds metadata-only/non-mutating confirmation session creation,
+readback, discard, expiry, selected-scope validation, and same-key idempotency
+replay/conflict behavior for the current authenticated actor/profile/session.
+It keeps `canApplyRestore` false and reports restore mutation as unavailable.
+Restore confirmation mutation remains a separate future gate. User-web
+confirmation runtime remains a separate future gate. Durable/encrypted package
+storage, file-byte sections, package upload/storage, and browser-local
+persistence also remain separate future gates.
+
 ## Why Confirmation Is A Separate Mutation Gate
 
 Restore preview answers "what might be restored and what is blocked" without

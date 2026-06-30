@@ -68,6 +68,27 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         {
             await AssertUnauthenticatedProblemAsync(backupReadinessResponse);
         }
+
+        using (var confirmationCreateRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{Guid.NewGuid():D}/confirmation-sessions",
+            RestoreConfirmationCreateJson(Guid.NewGuid(), null, "server_mode_copy_data_only", "Restore selected records", "auth-gate")))
+        using (var confirmationCreateResponse = await client.SendAsync(confirmationCreateRequest))
+        {
+            await AssertUnauthenticatedProblemAsync(confirmationCreateResponse);
+        }
+
+        using (var confirmationReadRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/local-backup/restore-confirmation-sessions/{Guid.NewGuid():D}"))
+        using (var confirmationReadResponse = await client.SendAsync(confirmationReadRequest))
+        {
+            await AssertUnauthenticatedProblemAsync(confirmationReadResponse);
+        }
+
+        using (var confirmationDiscardRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/local-backup/restore-confirmation-sessions/{Guid.NewGuid():D}/discard"))
+        using (var confirmationDiscardResponse = await client.SendAsync(confirmationDiscardRequest))
+        {
+            await AssertUnauthenticatedProblemAsync(confirmationDiscardResponse);
+        }
     }
 
     [Fact]
@@ -1696,6 +1717,324 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
     }
 
     [Fact]
+    public async Task LocalBackupRestoreConfirmationSessionCreatesSafeMetadataOnlyReadback()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Restore Confirmation Actor");
+        var sameProfileOtherSession = await CreateAdditionalSessionAsync(testFactory, testContext.TimeProvider, actorSession);
+        var otherSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Restore Confirmation Hidden Actor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Restore Confirmation Visible Merchant",
+            InitialTimestamp,
+            includeSensitiveRows: true);
+        await SeedBillAsync(
+            testFactory,
+            otherSession.UserProfileId,
+            groupId: null,
+            [otherSession.UserProfileId],
+            "Restore Confirmation Hidden Merchant",
+            InitialTimestamp.AddMinutes(1),
+            includeSensitiveRows: true);
+        var syncOperationCountBeforeConfirmation = await CountSyncOperationsAsync(testFactory);
+        var syncResourceVersionCountBeforeConfirmation = await CountSyncResourceVersionsAsync(testFactory);
+        var notificationCountBeforeConfirmation = await CountInAppNotificationsAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(9));
+        var package = await DownloadCurrentLocalBackupPackageAsync(client, actorSession.RawSessionToken);
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(10));
+        var restorePreviewId = await CreateRestorePreviewAsync(client, actorSession.RawSessionToken, package);
+
+        using var createConfirmationRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{restorePreviewId:D}/confirmation-sessions",
+            actorSession.RawSessionToken,
+            RestoreConfirmationCreateJson(
+                restorePreviewId,
+                package.Sha256,
+                "server_mode_copy_data_only",
+                "Restore selected records",
+                "restore-confirmation-once"));
+        using var createConfirmationResponse = await client.SendAsync(createConfirmationRequest);
+        var createConfirmationContent = await createConfirmationResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, createConfirmationResponse.StatusCode);
+        AssertLocalBackupRestoreConfirmationContentIsSafe(createConfirmationContent, actorSession.RawSessionToken, billId);
+        using var createConfirmationPayload = JsonDocument.Parse(createConfirmationContent);
+        var createConfirmationRoot = createConfirmationPayload.RootElement;
+        var restoreConfirmationSessionId = createConfirmationRoot.GetProperty("restoreConfirmationSessionId").GetGuid();
+        Assert.NotEqual(Guid.Empty, restoreConfirmationSessionId);
+        Assert.Equal(restorePreviewId, createConfirmationRoot.GetProperty("restorePreviewId").GetGuid());
+        Assert.Equal("metadata_only", createConfirmationRoot.GetProperty("status").GetString());
+        Assert.Equal("restore_confirmation_metadata_only", createConfirmationRoot.GetProperty("stableCode").GetString());
+        Assert.Equal("server_mode_copy_data_only", createConfirmationRoot.GetProperty("selectedScope").GetString());
+        Assert.False(createConfirmationRoot.GetProperty("canApplyRestore").GetBoolean());
+        Assert.Equal("future_gate_required", createConfirmationRoot.GetProperty("restoreConfirmationState").GetString());
+        Assert.Equal("unavailable", createConfirmationRoot.GetProperty("mutationAvailability").GetString());
+        Assert.Equal(package.PackageSessionId, createConfirmationRoot.GetProperty("packageSessionId").GetGuid());
+        Assert.Equal(package.Sha256, createConfirmationRoot.GetProperty("packageSha256").GetString());
+        Assert.True(createConfirmationRoot.GetProperty("idempotencyKeyAccepted").GetBoolean());
+        Assert.Equal(64, createConfirmationRoot.GetProperty("requestDigest").GetString()!.Length);
+        AssertRestorePreviewStringArrayContains(createConfirmationRoot.GetProperty("warningCodes"), "restore_confirmation_separate_gate");
+        AssertRestorePreviewStringArrayContains(createConfirmationRoot.GetProperty("blockedCodes"), "restore_confirmation_future_gate_required");
+        AssertRestorePreviewStringArrayContains(createConfirmationRoot.GetProperty("blockedCodes"), "restore_money_policy_blocked");
+        AssertRestorePreviewStringArrayContains(createConfirmationRoot.GetProperty("nextAllowedActions"), "discard_restore_confirmation_session");
+
+        using (var replayRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{restorePreviewId:D}/confirmation-sessions",
+            actorSession.RawSessionToken,
+            RestoreConfirmationCreateJson(
+                restorePreviewId,
+                package.Sha256,
+                "server_mode_copy_data_only",
+                "Restore selected records",
+                "restore-confirmation-once")))
+        using (var replayResponse = await client.SendAsync(replayRequest))
+        {
+            var replayContent = await replayResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, replayResponse.StatusCode);
+            using var replayPayload = JsonDocument.Parse(replayContent);
+            Assert.Equal(restoreConfirmationSessionId, replayPayload.RootElement.GetProperty("restoreConfirmationSessionId").GetGuid());
+        }
+
+        var secondPreviewId = await CreateRestorePreviewAsync(client, actorSession.RawSessionToken, package);
+        using (var conflictRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{secondPreviewId:D}/confirmation-sessions",
+            actorSession.RawSessionToken,
+            RestoreConfirmationCreateJson(
+                secondPreviewId,
+                package.Sha256,
+                "server_mode_copy_data_only",
+                "Restore selected records",
+                "restore-confirmation-once")))
+        using (var conflictResponse = await client.SendAsync(conflictRequest))
+        {
+            var conflictContent = await conflictResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.Conflict, conflictResponse.StatusCode);
+            Assert.Contains("restore_confirmation_idempotency_conflict", conflictContent);
+            AssertLocalBackupRestoreConfirmationContentIsSafe(conflictContent, actorSession.RawSessionToken, billId);
+        }
+
+        using (var otherActorRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId:D}",
+            otherSession.RawSessionToken))
+        using (var otherActorResponse = await client.SendAsync(otherActorRequest))
+        {
+            var otherActorContent = await otherActorResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.NotFound, otherActorResponse.StatusCode);
+            AssertLocalBackupRestoreConfirmationContentIsSafe(otherActorContent, actorSession.RawSessionToken, billId);
+        }
+
+        using (var wrongSessionRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId:D}",
+            sameProfileOtherSession.RawSessionToken))
+        using (var wrongSessionResponse = await client.SendAsync(wrongSessionRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, wrongSessionResponse.StatusCode);
+        }
+
+        using (var getConfirmationRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId:D}",
+            actorSession.RawSessionToken))
+        using (var getConfirmationResponse = await client.SendAsync(getConfirmationRequest))
+        {
+            var getConfirmationContent = await getConfirmationResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, getConfirmationResponse.StatusCode);
+            AssertLocalBackupRestoreConfirmationContentIsSafe(getConfirmationContent, actorSession.RawSessionToken, billId);
+            using var getConfirmationPayload = JsonDocument.Parse(getConfirmationContent);
+            Assert.Equal("metadata_only", getConfirmationPayload.RootElement.GetProperty("status").GetString());
+            Assert.False(getConfirmationPayload.RootElement.GetProperty("canApplyRestore").GetBoolean());
+        }
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(11));
+        using (var discardRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId:D}/discard",
+            actorSession.RawSessionToken))
+        using (var discardResponse = await client.SendAsync(discardRequest))
+        {
+            var discardContent = await discardResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, discardResponse.StatusCode);
+            AssertLocalBackupRestoreConfirmationContentIsSafe(discardContent, actorSession.RawSessionToken, billId);
+            using var discardPayload = JsonDocument.Parse(discardContent);
+            Assert.Equal("discarded", discardPayload.RootElement.GetProperty("status").GetString());
+            Assert.Equal("restore_confirmation_discarded", discardPayload.RootElement.GetProperty("stableCode").GetString());
+            Assert.Equal(ArchiveTimestamp.AddMinutes(11), discardPayload.RootElement.GetProperty("discardedAtUtc").GetDateTimeOffset());
+        }
+
+        Assert.Equal(syncOperationCountBeforeConfirmation, await CountSyncOperationsAsync(testFactory));
+        Assert.Equal(syncResourceVersionCountBeforeConfirmation, await CountSyncResourceVersionsAsync(testFactory));
+        Assert.Equal(notificationCountBeforeConfirmation, await CountInAppNotificationsAsync(testFactory));
+        Assert.Null(await ReadArchivedAtAsync(testFactory, billId));
+    }
+
+    [Fact]
+    public async Task LocalBackupRestoreConfirmationSessionFailsClosedForUnavailablePreviewAndMismatches()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Restore Confirmation Guard Actor");
+        var otherSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Restore Confirmation Guard Other");
+        var billId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Restore Confirmation Guard Merchant",
+            InitialTimestamp,
+            includeSensitiveRows: true);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(9));
+        var package = await DownloadCurrentLocalBackupPackageAsync(client, actorSession.RawSessionToken);
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(10));
+        var restorePreviewId = await CreateRestorePreviewAsync(client, actorSession.RawSessionToken, package);
+
+        using (var invalidScopeRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{restorePreviewId:D}/confirmation-sessions",
+            actorSession.RawSessionToken,
+            RestoreConfirmationCreateJson(restorePreviewId, package.Sha256, "shared_group_records", "Restore selected records", "invalid-scope")))
+        using (var invalidScopeResponse = await client.SendAsync(invalidScopeRequest))
+        {
+            var invalidScopeContent = await invalidScopeResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, invalidScopeResponse.StatusCode);
+            Assert.Contains("restore_scope_unsupported", invalidScopeContent);
+            AssertLocalBackupRestoreConfirmationContentIsSafe(invalidScopeContent, actorSession.RawSessionToken, billId);
+        }
+
+        using (var mismatchedPackageRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{restorePreviewId:D}/confirmation-sessions",
+            actorSession.RawSessionToken,
+            RestoreConfirmationCreateJson(restorePreviewId, new string('0', 64), "server_mode_copy_data_only", "Restore selected records", "mismatched-package")))
+        using (var mismatchedPackageResponse = await client.SendAsync(mismatchedPackageRequest))
+        {
+            var mismatchedPackageContent = await mismatchedPackageResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.BadRequest, mismatchedPackageResponse.StatusCode);
+            Assert.Contains("restore_package_integrity_failed", mismatchedPackageContent);
+            AssertLocalBackupRestoreConfirmationContentIsSafe(mismatchedPackageContent, actorSession.RawSessionToken, billId);
+        }
+
+        using (var wrongActorRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{restorePreviewId:D}/confirmation-sessions",
+            otherSession.RawSessionToken,
+            RestoreConfirmationCreateJson(restorePreviewId, package.Sha256, "server_mode_copy_data_only", "Restore selected records", "wrong-actor")))
+        using (var wrongActorResponse = await client.SendAsync(wrongActorRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, wrongActorResponse.StatusCode);
+        }
+
+        using (var discardPreviewRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{restorePreviewId:D}/discard",
+            actorSession.RawSessionToken))
+        using (var discardPreviewResponse = await client.SendAsync(discardPreviewRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, discardPreviewResponse.StatusCode);
+        }
+
+        using (var discardedPreviewRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{restorePreviewId:D}/confirmation-sessions",
+            actorSession.RawSessionToken,
+            RestoreConfirmationCreateJson(restorePreviewId, package.Sha256, "server_mode_copy_data_only", "Restore selected records", "discarded-preview")))
+        using (var discardedPreviewResponse = await client.SendAsync(discardedPreviewRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, discardedPreviewResponse.StatusCode);
+        }
+
+        var freshPreviewId = await CreateRestorePreviewAsync(client, actorSession.RawSessionToken, package);
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(20));
+        using (var expiredPreviewRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{freshPreviewId:D}/confirmation-sessions",
+            actorSession.RawSessionToken,
+            RestoreConfirmationCreateJson(freshPreviewId, package.Sha256, "server_mode_copy_data_only", "Restore selected records", "expired-preview")))
+        using (var expiredPreviewResponse = await client.SendAsync(expiredPreviewRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, expiredPreviewResponse.StatusCode);
+        }
+
+        Assert.Null(await ReadArchivedAtAsync(testFactory, billId));
+    }
+
+    [Fact]
+    public async Task LocalBackupRestoreConfirmationSessionExpiryReturnsSafeUnavailableState()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Restore Confirmation Expiry Actor");
+        var billId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Restore Confirmation Expiry Merchant",
+            InitialTimestamp,
+            includeSensitiveRows: true);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(9));
+        var package = await DownloadCurrentLocalBackupPackageAsync(client, actorSession.RawSessionToken);
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(10));
+        var restorePreviewId = await CreateRestorePreviewAsync(client, actorSession.RawSessionToken, package);
+        using var createConfirmationRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-previews/{restorePreviewId:D}/confirmation-sessions",
+            actorSession.RawSessionToken,
+            RestoreConfirmationCreateJson(restorePreviewId, package.Sha256, "server_mode_copy_data_only", "Restore selected records", "confirmation-expiry"));
+        using var createConfirmationResponse = await client.SendAsync(createConfirmationRequest);
+        var createConfirmationContent = await createConfirmationResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Created, createConfirmationResponse.StatusCode);
+        using var createConfirmationPayload = JsonDocument.Parse(createConfirmationContent);
+        var restoreConfirmationSessionId = createConfirmationPayload.RootElement.GetProperty("restoreConfirmationSessionId").GetGuid();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(16));
+        using (var expiredGetRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            $"/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId:D}",
+            actorSession.RawSessionToken))
+        using (var expiredGetResponse = await client.SendAsync(expiredGetRequest))
+        {
+            var expiredGetContent = await expiredGetResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, expiredGetResponse.StatusCode);
+            AssertLocalBackupRestoreConfirmationContentIsSafe(expiredGetContent, actorSession.RawSessionToken, billId);
+            using var expiredGetPayload = JsonDocument.Parse(expiredGetContent);
+            Assert.Equal("expired", expiredGetPayload.RootElement.GetProperty("status").GetString());
+            Assert.Equal("restore_confirmation_expired", expiredGetPayload.RootElement.GetProperty("stableCode").GetString());
+            Assert.False(expiredGetPayload.RootElement.GetProperty("canApplyRestore").GetBoolean());
+            Assert.Equal("expired", expiredGetPayload.RootElement.GetProperty("restoreConfirmationState").GetString());
+        }
+
+        using (var expiredDiscardRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId:D}/discard",
+            actorSession.RawSessionToken))
+        using (var expiredDiscardResponse = await client.SendAsync(expiredDiscardRequest))
+        {
+            var expiredDiscardContent = await expiredDiscardResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, expiredDiscardResponse.StatusCode);
+            using var expiredDiscardPayload = JsonDocument.Parse(expiredDiscardContent);
+            Assert.Equal("expired", expiredDiscardPayload.RootElement.GetProperty("status").GetString());
+            Assert.Equal("restore_confirmation_expired", expiredDiscardPayload.RootElement.GetProperty("stableCode").GetString());
+        }
+
+        Assert.Null(await ReadArchivedAtAsync(testFactory, billId));
+    }
+
+    [Fact]
     public async Task LocalBackupPackageSessionExpiryAndRequestGuardsAreSafe()
     {
         var testContext = CreateFactory();
@@ -1835,6 +2174,9 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         var restorePreviewCreateBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/restore-previews:");
         var restorePreviewReadBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/restore-previews/{restorePreviewId}:");
         var restorePreviewDiscardBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/restore-previews/{restorePreviewId}/discard:");
+        var restoreConfirmationCreateBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/restore-previews/{restorePreviewId}/confirmation-sessions:");
+        var restoreConfirmationReadBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId}:");
+        var restoreConfirmationDiscardBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/restore-confirmation-sessions/{restoreConfirmationSessionId}/discard:");
         var backupReadinessSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupPackageReadinessResponse:");
         var backupReadinessStableCodeSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupPackageReadinessCode:");
         var backupSessionSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupPackageSessionResponse:");
@@ -1847,6 +2189,9 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         var restorePreviewResponseSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupRestorePreviewResponse:");
         var restorePreviewStableCodeSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupRestorePreviewStableCode:");
         var restorePreviewRecordSummarySchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupRestorePreviewRecordSummary:");
+        var restoreConfirmationRequestSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupRestoreConfirmationSessionCreateRequest:");
+        var restoreConfirmationResponseSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupRestoreConfirmationSessionResponse:");
+        var restoreConfirmationStableCodeSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupRestoreConfirmationSessionStableCode:");
         var operationsBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/operations:");
         var operationReadBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/operations/{syncOperationId}:");
         var changesBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/sync/changes:");
@@ -1892,10 +2237,17 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("operationId: createLocalBackupRestorePreview", restorePreviewCreateBlock);
         Assert.Contains("operationId: getLocalBackupRestorePreview", restorePreviewReadBlock);
         Assert.Contains("operationId: discardLocalBackupRestorePreview", restorePreviewDiscardBlock);
+        Assert.Contains("operationId: createLocalBackupRestoreConfirmationSession", restoreConfirmationCreateBlock);
+        Assert.Contains("operationId: getLocalBackupRestoreConfirmationSession", restoreConfirmationReadBlock);
+        Assert.Contains("operationId: discardLocalBackupRestoreConfirmationSession", restoreConfirmationDiscardBlock);
         Assert.Contains("LocalBackupRestorePreviewCreateRequest", restorePreviewCreateBlock);
         Assert.Contains("LocalBackupRestorePreviewResponse", restorePreviewCreateBlock);
         Assert.Contains("LocalBackupRestorePreviewResponse", restorePreviewReadBlock);
         Assert.Contains("LocalBackupRestorePreviewResponse", restorePreviewDiscardBlock);
+        Assert.Contains("LocalBackupRestoreConfirmationSessionCreateRequest", restoreConfirmationCreateBlock);
+        Assert.Contains("LocalBackupRestoreConfirmationSessionResponse", restoreConfirmationCreateBlock);
+        Assert.Contains("LocalBackupRestoreConfirmationSessionResponse", restoreConfirmationReadBlock);
+        Assert.Contains("LocalBackupRestoreConfirmationSessionResponse", restoreConfirmationDiscardBlock);
         Assert.Contains("LocalBackupPackageSessionResponse", backupSessionCreateBlock);
         Assert.Contains("LocalBackupPackageSessionResponse", backupSessionReadBlock);
         Assert.Contains("LocalBackupPackageSessionResponse", backupSessionDiscardBlock);
@@ -1945,6 +2297,21 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("unsupported_file_section", restorePreviewStableCodeSchema);
         Assert.Contains("totalCount", restorePreviewRecordSummarySchema);
         Assert.Contains("itemCount", restorePreviewRecordSummarySchema);
+        Assert.Contains("confirmationLabel", restoreConfirmationRequestSchema);
+        Assert.Contains("selectedRestoreScope", restoreConfirmationRequestSchema);
+        Assert.Contains("idempotencyKey", restoreConfirmationRequestSchema);
+        Assert.Contains("expectedRestorePreviewId", restoreConfirmationRequestSchema);
+        Assert.Contains("expectedPackageSha256", restoreConfirmationRequestSchema);
+        Assert.Contains("restoreConfirmationSessionId", restoreConfirmationResponseSchema);
+        Assert.Contains("canApplyRestore", restoreConfirmationResponseSchema);
+        Assert.Contains("mutationAvailability", restoreConfirmationResponseSchema);
+        Assert.Contains("blockedCodes", restoreConfirmationResponseSchema);
+        Assert.Contains("warningCodes", restoreConfirmationResponseSchema);
+        Assert.Contains("requestDigest", restoreConfirmationResponseSchema);
+        Assert.Contains("restore_confirmation_metadata_only", restoreConfirmationStableCodeSchema);
+        Assert.Contains("restore_confirmation_idempotency_conflict", restoreConfirmationStableCodeSchema);
+        Assert.Contains("restore_money_policy_blocked", restoreConfirmationStableCodeSchema);
+        Assert.Contains("restore_file_section_blocked", restoreConfirmationStableCodeSchema);
         Assert.DoesNotContain("downloadUrl", backupSessionSchema);
         Assert.DoesNotContain("storageObjectKey", backupSessionSchema);
         Assert.DoesNotContain("packageBytes", backupSessionSchema);
@@ -1954,6 +2321,10 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.DoesNotContain("storageObjectKey", restorePreviewResponseSchema);
         Assert.DoesNotContain("signedUrl", restorePreviewResponseSchema);
         Assert.DoesNotContain("directStorageUrl", restorePreviewResponseSchema);
+        Assert.DoesNotContain("storageObjectKey", restoreConfirmationResponseSchema);
+        Assert.DoesNotContain("signedUrl", restoreConfirmationResponseSchema);
+        Assert.DoesNotContain("directStorageUrl", restoreConfirmationResponseSchema);
+        Assert.DoesNotContain("packageContent", restoreConfirmationResponseSchema);
         Assert.Contains("operationId: submitSyncOperation", operationsBlock);
         Assert.Contains("operationId: getSyncOperation", operationReadBlock);
         Assert.Contains("operationId: listSyncChanges", changesBlock);
@@ -1989,6 +2360,9 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("createLocalBackupRestorePreview", webClient);
         Assert.Contains("getLocalBackupRestorePreview", webClient);
         Assert.Contains("discardLocalBackupRestorePreview", webClient);
+        Assert.Contains("createLocalBackupRestoreConfirmationSession", webClient);
+        Assert.Contains("getLocalBackupRestoreConfirmationSession", webClient);
+        Assert.Contains("discardLocalBackupRestoreConfirmationSession", webClient);
         Assert.Contains("submitSyncOperation", dartClient);
         Assert.Contains("getSyncOperation", dartClient);
         Assert.Contains("listSyncChanges", dartClient);
@@ -2005,6 +2379,9 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("createLocalBackupRestorePreview", dartClient);
         Assert.Contains("getLocalBackupRestorePreview", dartClient);
         Assert.Contains("discardLocalBackupRestorePreview", dartClient);
+        Assert.Contains("createLocalBackupRestoreConfirmationSession", dartClient);
+        Assert.Contains("getLocalBackupRestoreConfirmationSession", dartClient);
+        Assert.Contains("discardLocalBackupRestoreConfirmationSession", dartClient);
         Assert.Contains("SyncOperationRequest", webModels);
         Assert.Contains("SyncLocalStatusResponse", webModels);
         Assert.Contains("LocalBackupPackageReadinessResponse", webModels);
@@ -2014,6 +2391,8 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("LocalBackupPackageDownloadActionResponse", webModels);
         Assert.Contains("LocalBackupRestorePreviewCreateRequest", webModels);
         Assert.Contains("LocalBackupRestorePreviewResponse", webModels);
+        Assert.Contains("LocalBackupRestoreConfirmationSessionCreateRequest", webModels);
+        Assert.Contains("LocalBackupRestoreConfirmationSessionResponse", webModels);
         Assert.Contains("class SyncOperationRequest", dartModels);
         Assert.Contains("class SyncLocalStatusResponse", dartModels);
         Assert.Contains("class LocalBackupPackageReadinessResponse", dartModels);
@@ -2023,6 +2402,8 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("class LocalBackupPackageDownloadActionResponse", dartModels);
         Assert.Contains("class LocalBackupRestorePreviewCreateRequest", dartModels);
         Assert.Contains("class LocalBackupRestorePreviewResponse", dartModels);
+        Assert.Contains("class LocalBackupRestoreConfirmationSessionCreateRequest", dartModels);
+        Assert.Contains("class LocalBackupRestoreConfirmationSessionResponse", dartModels);
     }
 
     [Fact]
@@ -2187,6 +2568,23 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Equal(HttpStatusCode.OK, contentResponse.StatusCode);
         Assert.Equal(packageSha256, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant());
         return new DownloadedLocalBackupPackage(packageSessionId, content, packageSha256);
+    }
+
+    private static async Task<Guid> CreateRestorePreviewAsync(
+        HttpClient client,
+        string rawSessionToken,
+        DownloadedLocalBackupPackage package)
+    {
+        using var createPreviewRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            "/api/v1/local-backup/restore-previews",
+            rawSessionToken,
+            RestorePreviewCreateJson(package.Content, package.Sha256));
+        using var createPreviewResponse = await client.SendAsync(createPreviewRequest);
+        var createPreviewContent = await createPreviewResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Created, createPreviewResponse.StatusCode);
+        using var createPreviewPayload = JsonDocument.Parse(createPreviewContent);
+        return createPreviewPayload.RootElement.GetProperty("restorePreviewId").GetGuid();
     }
 
     private static async Task<SeededAccount> SeedAccountAsync(
@@ -2747,6 +3145,42 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.DoesNotContain("credential", content, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static void AssertLocalBackupRestoreConfirmationContentIsSafe(
+        string content,
+        string rawSessionToken,
+        Guid visibleBillId)
+    {
+        Assert.DoesNotContain("Restore Confirmation Visible Merchant", content);
+        Assert.DoesNotContain("Restore Confirmation Hidden Merchant", content);
+        Assert.DoesNotContain("Restore Confirmation Guard Merchant", content);
+        Assert.DoesNotContain("Restore Confirmation Expiry Merchant", content);
+        Assert.DoesNotContain("Seeded Sync Item", content);
+        Assert.DoesNotContain("Sensitive sync item note", content);
+        Assert.DoesNotContain("payment label secret", content);
+        Assert.DoesNotContain("storage/object/key", content);
+        Assert.DoesNotContain(rawSessionToken, content);
+        Assert.DoesNotContain(visibleBillId.ToString("D"), content);
+        Assert.DoesNotContain("packageContent", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("packageBytes", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("rawRequestBody", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("downloadUrl", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storageObjectKey", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("signedUrl", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("directStorageUrl", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("bucketName", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("bearerToken", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("downloadToken", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("filesystemPath", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("localDevicePath", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/tmp/", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/mnt/", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("objectKey", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("rawOcrText", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("password", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secret", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("credential", content, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void AssertRestorePreviewStringArrayContains(JsonElement values, string expectedValue)
     {
         Assert.Contains(expectedValue, values.EnumerateArray().Select(value => value.GetString()));
@@ -2758,6 +3192,24 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         {
             packageContent,
             packageSha256
+        });
+    }
+
+    private static string RestoreConfirmationCreateJson(
+        Guid expectedRestorePreviewId,
+        string? expectedPackageSha256,
+        string selectedRestoreScope,
+        string confirmationLabel,
+        string? idempotencyKey)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            confirmationLabel,
+            selectedRestoreScope,
+            idempotencyKey,
+            expectedRestorePreviewId,
+            expectedPackageSha256,
+            expectedPreviewStableCode = "restore_preview_ready"
         });
     }
 

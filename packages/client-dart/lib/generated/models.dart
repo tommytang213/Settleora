@@ -12129,7 +12129,86 @@ typedef LocalBackupRestoreConfirmationState = String;
 class LocalBackupRestoreConfirmationStateValues {
   const LocalBackupRestoreConfirmationStateValues._();
   static const LocalBackupRestoreConfirmationState unsupported = "unsupported";
-  static const Set<LocalBackupRestoreConfirmationState> values = {unsupported};
+  static const LocalBackupRestoreConfirmationState unavailable = "unavailable";
+  static const LocalBackupRestoreConfirmationState futureGateRequired = "future_gate_required";
+  static const LocalBackupRestoreConfirmationState blocked = "blocked";
+  static const LocalBackupRestoreConfirmationState expired = "expired";
+  static const LocalBackupRestoreConfirmationState discarded = "discarded";
+  static const LocalBackupRestoreConfirmationState stalePreview = "stale_preview";
+  static const LocalBackupRestoreConfirmationState metadataOnly = "metadata_only";
+  static const Set<LocalBackupRestoreConfirmationState> values = {unsupported, unavailable, futureGateRequired, blocked, expired, discarded, stalePreview, metadataOnly};
+}
+
+/// Short-lived metadata-only restore confirmation session status. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupRestoreConfirmationSessionStatus = String;
+class LocalBackupRestoreConfirmationSessionStatusValues {
+  const LocalBackupRestoreConfirmationSessionStatusValues._();
+  static const LocalBackupRestoreConfirmationSessionStatus metadataOnly = "metadata_only";
+  static const LocalBackupRestoreConfirmationSessionStatus blocked = "blocked";
+  static const LocalBackupRestoreConfirmationSessionStatus expired = "expired";
+  static const LocalBackupRestoreConfirmationSessionStatus discarded = "discarded";
+  static const Set<LocalBackupRestoreConfirmationSessionStatus> values = {metadataOnly, blocked, expired, discarded};
+}
+
+/// Stable local backup restore confirmation session code. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupRestoreConfirmationSessionStableCode = String;
+class LocalBackupRestoreConfirmationSessionStableCodeValues {
+  const LocalBackupRestoreConfirmationSessionStableCodeValues._();
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreConfirmationMetadataOnly = "restore_confirmation_metadata_only";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreConfirmationUnavailable = "restore_confirmation_unavailable";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreConfirmationRequired = "restore_confirmation_required";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreConfirmationPolicyDisabled = "restore_confirmation_policy_disabled";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreConfirmationExpired = "restore_confirmation_expired";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreConfirmationDiscarded = "restore_confirmation_discarded";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreConfirmationIdempotencyConflict = "restore_confirmation_idempotency_conflict";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePreviewExpired = "restore_preview_expired";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePreviewDiscarded = "restore_preview_discarded";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePreviewStale = "restore_preview_stale";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePreviewActorMismatch = "restore_preview_actor_mismatch";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePreviewSessionMismatch = "restore_preview_session_mismatch";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreScopeInvalid = "restore_scope_invalid";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreScopeUnsupported = "restore_scope_unsupported";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePackageIntegrityFailed = "restore_package_integrity_failed";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePackageSourceMismatch = "restore_package_source_mismatch";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreDuplicateExact = "restore_duplicate_exact";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreDuplicatePossible = "restore_duplicate_possible";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreCurrentRecordConflict = "restore_current_record_conflict";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreStaleServerCopy = "restore_stale_server_copy";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreHiddenDataBlocked = "restore_hidden_data_blocked";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreUnsupportedSection = "restore_unsupported_section";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePackageVersionMismatch = "restore_package_version_mismatch";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePrivacyDowngradeBlocked = "restore_privacy_downgrade_blocked";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreMoneyPolicyBlocked = "restore_money_policy_blocked";
+  static const LocalBackupRestoreConfirmationSessionStableCode restoreFileSectionBlocked = "restore_file_section_blocked";
+  static const LocalBackupRestoreConfirmationSessionStableCode restorePartialSelectionUnsupported = "restore_partial_selection_unsupported";
+  static const LocalBackupRestoreConfirmationSessionStableCode temporarilyUnavailable = "temporarily_unavailable";
+  static const Set<LocalBackupRestoreConfirmationSessionStableCode> values = {restoreConfirmationMetadataOnly, restoreConfirmationUnavailable, restoreConfirmationRequired, restoreConfirmationPolicyDisabled, restoreConfirmationExpired, restoreConfirmationDiscarded, restoreConfirmationIdempotencyConflict, restorePreviewExpired, restorePreviewDiscarded, restorePreviewStale, restorePreviewActorMismatch, restorePreviewSessionMismatch, restoreScopeInvalid, restoreScopeUnsupported, restorePackageIntegrityFailed, restorePackageSourceMismatch, restoreDuplicateExact, restoreDuplicatePossible, restoreCurrentRecordConflict, restoreStaleServerCopy, restoreHiddenDataBlocked, restoreUnsupportedSection, restorePackageVersionMismatch, restorePrivacyDowngradeBlocked, restoreMoneyPolicyBlocked, restoreFileSectionBlocked, restorePartialSelectionUnsupported, temporarilyUnavailable};
+}
+
+/// Selected restore scope intent accepted by the metadata-only confirmation session contract.
+typedef LocalBackupRestoreConfirmationSelectedScope = String;
+class LocalBackupRestoreConfirmationSelectedScopeValues {
+  const LocalBackupRestoreConfirmationSelectedScopeValues._();
+  static const LocalBackupRestoreConfirmationSelectedScope serverModeCopyDataOnly = "server_mode_copy_data_only";
+  static const Set<LocalBackupRestoreConfirmationSelectedScope> values = {serverModeCopyDataOnly};
+}
+
+/// Restore mutation availability. This slice always returns unavailable.
+typedef LocalBackupRestoreConfirmationMutationAvailability = String;
+class LocalBackupRestoreConfirmationMutationAvailabilityValues {
+  const LocalBackupRestoreConfirmationMutationAvailabilityValues._();
+  static const LocalBackupRestoreConfirmationMutationAvailability unavailable = "unavailable";
+  static const Set<LocalBackupRestoreConfirmationMutationAvailability> values = {unavailable};
+}
+
+/// Safe next action labels for metadata-only restore confirmation session lifecycle.
+typedef LocalBackupRestoreConfirmationNextAllowedAction = String;
+class LocalBackupRestoreConfirmationNextAllowedActionValues {
+  const LocalBackupRestoreConfirmationNextAllowedActionValues._();
+  static const LocalBackupRestoreConfirmationNextAllowedAction getRestoreConfirmationSession = "get_restore_confirmation_session";
+  static const LocalBackupRestoreConfirmationNextAllowedAction discardRestoreConfirmationSession = "discard_restore_confirmation_session";
+  static const LocalBackupRestoreConfirmationNextAllowedAction createRestorePreview = "create_restore_preview";
+  static const Set<LocalBackupRestoreConfirmationNextAllowedAction> values = {getRestoreConfirmationSession, discardRestoreConfirmationSession, createRestorePreview};
 }
 
 /// Submitted data-only local backup package content for non-mutating restore preview. The package content is sensitive input and is never echoed by normal responses or problem details.
@@ -12364,6 +12443,273 @@ class LocalBackupRestorePreviewResponse {
       "restoreConfirmationCopy": restoreConfirmationCopy,
       "nextAllowedActions": nextAllowedActions,
       "privacyBoundary": privacyBoundary,
+      "responseGeneratedAtUtc": responseGeneratedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Metadata-only restore confirmation session creation intent for an existing restore preview. The API revalidates preview ownership, auth session, expiry, selected scope, package integrity, and optional idempotency/request digest. This request never carries client-computed financial truth, storage object keys, filesystem paths, signed URLs, raw secrets, file bytes, raw package payload echoes, or hidden data.
+class LocalBackupRestoreConfirmationSessionCreateRequest {
+  static const Object _unsetIdempotencyKey = Object();
+  static const Object _unsetExpectedRestorePreviewId = Object();
+  static const Object _unsetExpectedPackageSha256 = Object();
+  static const Object _unsetExpectedRequestDigest = Object();
+  static const Object _unsetExpectedPreviewStableCode = Object();
+
+  LocalBackupRestoreConfirmationSessionCreateRequest({
+    required this.confirmationLabel,
+    required this.selectedRestoreScope,
+    Object? idempotencyKey = _unsetIdempotencyKey,
+    Object? expectedRestorePreviewId = _unsetExpectedRestorePreviewId,
+    Object? expectedPackageSha256 = _unsetExpectedPackageSha256,
+    Object? expectedRequestDigest = _unsetExpectedRequestDigest,
+    Object? expectedPreviewStableCode = _unsetExpectedPreviewStableCode,
+  })
+      : idempotencyKey = identical(idempotencyKey, _unsetIdempotencyKey) ? null : idempotencyKey as String?,
+        _hasIdempotencyKey = !identical(idempotencyKey, _unsetIdempotencyKey),
+        expectedRestorePreviewId = identical(expectedRestorePreviewId, _unsetExpectedRestorePreviewId) ? null : expectedRestorePreviewId as String?,
+        _hasExpectedRestorePreviewId = !identical(expectedRestorePreviewId, _unsetExpectedRestorePreviewId),
+        expectedPackageSha256 = identical(expectedPackageSha256, _unsetExpectedPackageSha256) ? null : expectedPackageSha256 as String?,
+        _hasExpectedPackageSha256 = !identical(expectedPackageSha256, _unsetExpectedPackageSha256),
+        expectedRequestDigest = identical(expectedRequestDigest, _unsetExpectedRequestDigest) ? null : expectedRequestDigest as String?,
+        _hasExpectedRequestDigest = !identical(expectedRequestDigest, _unsetExpectedRequestDigest),
+        expectedPreviewStableCode = identical(expectedPreviewStableCode, _unsetExpectedPreviewStableCode) ? null : expectedPreviewStableCode as LocalBackupRestorePreviewStableCode?,
+        _hasExpectedPreviewStableCode = !identical(expectedPreviewStableCode, _unsetExpectedPreviewStableCode);
+
+  /// Explicit confirmation label required for metadata session creation. It does not authorize restore mutation in this slice.
+  final String confirmationLabel;
+  final LocalBackupRestoreConfirmationSelectedScope selectedRestoreScope;
+  /// Optional caller idempotency key. Reusing the same key with a different digest, selected scope, preview, package hash, actor, or auth session fails closed.
+  final String? idempotencyKey;
+  final bool _hasIdempotencyKey;
+  /// Optional expected restore preview ID; when supplied it must match the route restorePreviewId.
+  final String? expectedRestorePreviewId;
+  final bool _hasExpectedRestorePreviewId;
+  /// Optional expected package SHA-256 copied from restore preview metadata. It is an integrity marker, not a secret.
+  final String? expectedPackageSha256;
+  final bool _hasExpectedPackageSha256;
+  /// Optional expected server request digest. Mismatches fail closed.
+  final String? expectedRequestDigest;
+  final bool _hasExpectedRequestDigest;
+  /// Optional expected preview stable code; mismatches fail closed as stale preview use.
+  final LocalBackupRestorePreviewStableCode? expectedPreviewStableCode;
+  final bool _hasExpectedPreviewStableCode;
+
+  factory LocalBackupRestoreConfirmationSessionCreateRequest.fromJson(JsonObject json) {
+    return LocalBackupRestoreConfirmationSessionCreateRequest(
+      confirmationLabel: json["confirmationLabel"] as String,
+      selectedRestoreScope: json["selectedRestoreScope"] as String,
+      idempotencyKey: json.containsKey("idempotencyKey")
+          ? json["idempotencyKey"] == null ? null : json["idempotencyKey"] as String
+          : _unsetIdempotencyKey,
+      expectedRestorePreviewId: json.containsKey("expectedRestorePreviewId")
+          ? json["expectedRestorePreviewId"] == null ? null : json["expectedRestorePreviewId"] as String
+          : _unsetExpectedRestorePreviewId,
+      expectedPackageSha256: json.containsKey("expectedPackageSha256")
+          ? json["expectedPackageSha256"] == null ? null : json["expectedPackageSha256"] as String
+          : _unsetExpectedPackageSha256,
+      expectedRequestDigest: json.containsKey("expectedRequestDigest")
+          ? json["expectedRequestDigest"] == null ? null : json["expectedRequestDigest"] as String
+          : _unsetExpectedRequestDigest,
+      expectedPreviewStableCode: json.containsKey("expectedPreviewStableCode")
+          ? json["expectedPreviewStableCode"] == null ? null : json["expectedPreviewStableCode"] as String
+          : _unsetExpectedPreviewStableCode,
+    );
+  }
+
+  JsonObject toJson() {
+    final idempotencyKeyJsonValue = idempotencyKey;
+    final expectedRestorePreviewIdJsonValue = expectedRestorePreviewId;
+    final expectedPackageSha256JsonValue = expectedPackageSha256;
+    final expectedRequestDigestJsonValue = expectedRequestDigest;
+    final expectedPreviewStableCodeJsonValue = expectedPreviewStableCode;
+
+    return {
+      "confirmationLabel": confirmationLabel,
+      "selectedRestoreScope": selectedRestoreScope,
+      if (_hasIdempotencyKey) "idempotencyKey": idempotencyKeyJsonValue,
+      if (_hasExpectedRestorePreviewId) "expectedRestorePreviewId": expectedRestorePreviewIdJsonValue,
+      if (_hasExpectedPackageSha256) "expectedPackageSha256": expectedPackageSha256JsonValue,
+      if (_hasExpectedRequestDigest) "expectedRequestDigest": expectedRequestDigestJsonValue,
+      if (_hasExpectedPreviewStableCode) "expectedPreviewStableCode": expectedPreviewStableCodeJsonValue,
+    };
+  }
+}
+
+/// Metadata-only restore confirmation session readback for the authenticated actor and current auth session. It contains no raw package payload, raw request body, file bytes, storage paths, object keys, bucket names, signed URLs, direct storage URLs, filesystem/local/temp paths, provider internals, raw OCR text, private notes, payment details, auth tokens, credentials, hidden records, browser-local persistence, or server/local mutation result.
+class LocalBackupRestoreConfirmationSessionResponse {
+  static const Object _unsetDiscardedAtUtc = Object();
+
+  LocalBackupRestoreConfirmationSessionResponse({
+    required this.restoreConfirmationSessionId,
+    required this.restorePreviewId,
+    required this.status,
+    required this.stableCode,
+    required this.safeMessage,
+    required this.selectedScope,
+    required this.selectedScopeSummary,
+    required this.canApplyRestore,
+    required this.restoreConfirmationState,
+    required this.mutationAvailability,
+    required this.sourceAuthorityBoundary,
+    required this.packageFormatName,
+    required this.packageVersion,
+    required this.manifestVersion,
+    required this.packageId,
+    required this.manifestId,
+    required this.packageSessionId,
+    required this.packageSha256,
+    required this.totalSectionCount,
+    required this.includedSectionCategories,
+    required this.omittedSectionCategories,
+    required this.unsupportedSectionCategories,
+    required this.blockedSectionCategories,
+    required this.recordSummaries,
+    required this.warningCodes,
+    required this.blockedCodes,
+    required this.idempotencyKeyAccepted,
+    required this.requestDigest,
+    required this.nextAllowedActions,
+    required this.privacyBoundary,
+    required this.dataBoundary,
+    required this.createdAtUtc,
+    required this.expiresAtUtc,
+    Object? discardedAtUtc = _unsetDiscardedAtUtc,
+    required this.packageGeneratedAtUtc,
+    required this.packageExpiresAtUtc,
+    required this.responseGeneratedAtUtc,
+  })
+      : discardedAtUtc = identical(discardedAtUtc, _unsetDiscardedAtUtc) ? null : discardedAtUtc as DateTime?,
+        _hasDiscardedAtUtc = !identical(discardedAtUtc, _unsetDiscardedAtUtc);
+
+  /// Opaque process-local restore confirmation session ID. It is not restore authority, storage authority, a package token, or a bearer credential.
+  final String restoreConfirmationSessionId;
+  final String restorePreviewId;
+  final LocalBackupRestoreConfirmationSessionStatus status;
+  final LocalBackupRestoreConfirmationSessionStableCode stableCode;
+  final String safeMessage;
+  final LocalBackupRestoreConfirmationSelectedScope selectedScope;
+  final String selectedScopeSummary;
+  /// Always false in this metadata-only slice. Restore mutation remains a separate future gate.
+  final bool canApplyRestore;
+  final LocalBackupRestoreConfirmationState restoreConfirmationState;
+  final LocalBackupRestoreConfirmationMutationAvailability mutationAvailability;
+  final String sourceAuthorityBoundary;
+  final String packageFormatName;
+  final String packageVersion;
+  final String manifestVersion;
+  final String packageId;
+  final String manifestId;
+  final String packageSessionId;
+  /// SHA-256 copied from restore preview metadata. It is an integrity marker, not a secret.
+  final String packageSha256;
+  final int totalSectionCount;
+  final List<LocalBackupRestorePreviewSectionCategory> includedSectionCategories;
+  final List<LocalBackupRestorePreviewSectionCategory> omittedSectionCategories;
+  final List<LocalBackupRestorePreviewSectionCategory> unsupportedSectionCategories;
+  final List<LocalBackupRestorePreviewSectionCategory> blockedSectionCategories;
+  final List<LocalBackupRestorePreviewRecordSummary> recordSummaries;
+  final List<LocalBackupRestorePreviewWarning> warningCodes;
+  /// Bounded blocked code categories copied from preview blocked sections plus confirmation policy families.
+  final List<String> blockedCodes;
+  final bool idempotencyKeyAccepted;
+  /// Server-created request digest for metadata-session idempotency checks. It is not a secret and does not contain raw request content.
+  final String requestDigest;
+  final List<LocalBackupRestoreConfirmationNextAllowedAction> nextAllowedActions;
+  final String privacyBoundary;
+  final String dataBoundary;
+  final DateTime createdAtUtc;
+  final DateTime expiresAtUtc;
+  final DateTime? discardedAtUtc;
+  final bool _hasDiscardedAtUtc;
+  final DateTime packageGeneratedAtUtc;
+  final DateTime packageExpiresAtUtc;
+  final DateTime responseGeneratedAtUtc;
+
+  factory LocalBackupRestoreConfirmationSessionResponse.fromJson(JsonObject json) {
+    return LocalBackupRestoreConfirmationSessionResponse(
+      restoreConfirmationSessionId: json["restoreConfirmationSessionId"] as String,
+      restorePreviewId: json["restorePreviewId"] as String,
+      status: json["status"] as String,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+      selectedScope: json["selectedScope"] as String,
+      selectedScopeSummary: json["selectedScopeSummary"] as String,
+      canApplyRestore: json["canApplyRestore"] as bool,
+      restoreConfirmationState: json["restoreConfirmationState"] as String,
+      mutationAvailability: json["mutationAvailability"] as String,
+      sourceAuthorityBoundary: json["sourceAuthorityBoundary"] as String,
+      packageFormatName: json["packageFormatName"] as String,
+      packageVersion: json["packageVersion"] as String,
+      manifestVersion: json["manifestVersion"] as String,
+      packageId: json["packageId"] as String,
+      manifestId: json["manifestId"] as String,
+      packageSessionId: json["packageSessionId"] as String,
+      packageSha256: json["packageSha256"] as String,
+      totalSectionCount: (json["totalSectionCount"] as num).toInt(),
+      includedSectionCategories: (json["includedSectionCategories"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      omittedSectionCategories: (json["omittedSectionCategories"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      unsupportedSectionCategories: (json["unsupportedSectionCategories"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      blockedSectionCategories: (json["blockedSectionCategories"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      recordSummaries: (json["recordSummaries"] as List<dynamic>).map((item) => LocalBackupRestorePreviewRecordSummary.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      warningCodes: (json["warningCodes"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      blockedCodes: (json["blockedCodes"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      idempotencyKeyAccepted: json["idempotencyKeyAccepted"] as bool,
+      requestDigest: json["requestDigest"] as String,
+      nextAllowedActions: (json["nextAllowedActions"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      privacyBoundary: json["privacyBoundary"] as String,
+      dataBoundary: json["dataBoundary"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      discardedAtUtc: json.containsKey("discardedAtUtc")
+          ? json["discardedAtUtc"] == null ? null : DateTime.parse(json["discardedAtUtc"] as String)
+          : _unsetDiscardedAtUtc,
+      packageGeneratedAtUtc: DateTime.parse(json["packageGeneratedAtUtc"] as String),
+      packageExpiresAtUtc: DateTime.parse(json["packageExpiresAtUtc"] as String),
+      responseGeneratedAtUtc: DateTime.parse(json["responseGeneratedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final discardedAtUtcJsonValue = discardedAtUtc;
+
+    return {
+      "restoreConfirmationSessionId": restoreConfirmationSessionId,
+      "restorePreviewId": restorePreviewId,
+      "status": status,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+      "selectedScope": selectedScope,
+      "selectedScopeSummary": selectedScopeSummary,
+      "canApplyRestore": canApplyRestore,
+      "restoreConfirmationState": restoreConfirmationState,
+      "mutationAvailability": mutationAvailability,
+      "sourceAuthorityBoundary": sourceAuthorityBoundary,
+      "packageFormatName": packageFormatName,
+      "packageVersion": packageVersion,
+      "manifestVersion": manifestVersion,
+      "packageId": packageId,
+      "manifestId": manifestId,
+      "packageSessionId": packageSessionId,
+      "packageSha256": packageSha256,
+      "totalSectionCount": totalSectionCount,
+      "includedSectionCategories": includedSectionCategories,
+      "omittedSectionCategories": omittedSectionCategories,
+      "unsupportedSectionCategories": unsupportedSectionCategories,
+      "blockedSectionCategories": blockedSectionCategories,
+      "recordSummaries": recordSummaries.map((item) => item.toJson()).toList(growable: false),
+      "warningCodes": warningCodes,
+      "blockedCodes": blockedCodes,
+      "idempotencyKeyAccepted": idempotencyKeyAccepted,
+      "requestDigest": requestDigest,
+      "nextAllowedActions": nextAllowedActions,
+      "privacyBoundary": privacyBoundary,
+      "dataBoundary": dataBoundary,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      if (_hasDiscardedAtUtc) "discardedAtUtc": discardedAtUtcJsonValue == null ? null : discardedAtUtcJsonValue.toUtc().toIso8601String(),
+      "packageGeneratedAtUtc": packageGeneratedAtUtc.toUtc().toIso8601String(),
+      "packageExpiresAtUtc": packageExpiresAtUtc.toUtc().toIso8601String(),
       "responseGeneratedAtUtc": responseGeneratedAtUtc.toUtc().toIso8601String(),
     };
   }
