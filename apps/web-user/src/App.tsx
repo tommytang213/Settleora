@@ -70,10 +70,12 @@ import {
   checkBillExportReadiness,
   confirmBillCsvImportSessionRuntime,
   createBillCsvImportSession,
+  createLocalBackupRestorePreviewRuntime,
   defaultBillExportFilters,
   cancelLocalBackupPackage,
   discardBillCsvImportSessionRuntime,
   discardLocalBackupPackage,
+  discardLocalBackupRestorePreviewRuntime,
   downloadBillExport,
   downloadLocalBackupPackage,
   labelImportExportStatus,
@@ -81,6 +83,7 @@ import {
   loadSyncLocalStatus,
   preflightBillCsvImport,
   refreshLocalBackupPackageStatus,
+  refreshLocalBackupRestorePreviewRuntime,
   startLocalBackupPackage,
   type BillImportPreflightRuntimeState,
   type BillImportSessionRuntimeState,
@@ -89,6 +92,7 @@ import {
   type ImportExportCapability,
   type ImportExportReadoutState,
   type LocalBackupPackageRuntimeState,
+  type LocalBackupRestorePreviewRuntimeState,
   type SyncLocalStatusRuntimeState
 } from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
@@ -251,6 +255,11 @@ export function App() {
   const [localBackupPackageState, setLocalBackupPackageState] = useState<LocalBackupPackageRuntimeState>({
     status: "idle",
     message: "Prepare a data-only backup package after sign-in."
+  });
+  const [restorePreviewFile, setRestorePreviewFile] = useState<File | null>(null);
+  const [restorePreviewState, setRestorePreviewState] = useState<LocalBackupRestorePreviewRuntimeState>({
+    status: "idle",
+    message: "Choose a data-only local backup package JSON file after sign-in to preview it."
   });
 
   useEffect(() => {
@@ -873,6 +882,65 @@ export function App() {
     );
   };
 
+  const handleRestorePreviewFileChange = (file: File | null) => {
+    setRestorePreviewFile(file);
+    setRestorePreviewState({
+      status: "idle",
+      message: file
+        ? "Backup package file is selected. Package content is hidden and will be sent only when preview is requested."
+        : "Choose a data-only local backup package JSON file after sign-in to preview it.",
+      selectedFileName: file?.name,
+      selectedFileSize: file?.size
+    });
+  };
+
+  const handleCreateRestorePreview = async () => {
+    setRestorePreviewState((current) => ({
+      ...current,
+      status: restorePreviewFile ? "reading" : "unavailable",
+      message: restorePreviewFile
+        ? "Reading the selected package for Settleora restore preview."
+        : "Choose a local backup package JSON file before creating a restore preview."
+    }));
+
+    setRestorePreviewState(
+      await createLocalBackupRestorePreviewRuntime({
+        accessToken: session.accessToken,
+        selectedFile: restorePreviewFile
+      })
+    );
+  };
+
+  const handleRefreshRestorePreview = async () => {
+    setRestorePreviewState((current) => ({
+      ...current,
+      status: "reading",
+      message: "Refreshing restore preview metadata with Settleora."
+    }));
+
+    setRestorePreviewState(
+      await refreshLocalBackupRestorePreviewRuntime({
+        accessToken: session.accessToken,
+        state: restorePreviewState
+      })
+    );
+  };
+
+  const handleDiscardRestorePreview = async () => {
+    setRestorePreviewState((current) => ({
+      ...current,
+      status: "discarded",
+      message: "Discarding restore preview metadata with Settleora."
+    }));
+
+    setRestorePreviewState(
+      await discardLocalBackupRestorePreviewRuntime({
+        accessToken: session.accessToken,
+        state: restorePreviewState
+      })
+    );
+  };
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -1037,6 +1105,7 @@ export function App() {
               importSessionState={importSessionState}
               syncLocalStatus={syncLocalStatus}
               localBackupPackageState={localBackupPackageState}
+              restorePreviewState={restorePreviewState}
               hasImportCsvText={importCsvText.length > 0}
               onImportFileChange={handleImportFileChange}
               onPreflightCsvImport={handlePreflightCsvImport}
@@ -1048,6 +1117,10 @@ export function App() {
               onDownloadLocalBackupPackage={handleDownloadLocalBackupPackage}
               onCancelLocalBackupPackage={handleCancelLocalBackupPackage}
               onDiscardLocalBackupPackage={handleDiscardLocalBackupPackage}
+              onRestorePreviewFileChange={handleRestorePreviewFileChange}
+              onCreateRestorePreview={handleCreateRestorePreview}
+              onRefreshRestorePreview={handleRefreshRestorePreview}
+              onDiscardRestorePreview={handleDiscardRestorePreview}
             />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
@@ -1370,6 +1443,7 @@ function ImportExportReadoutPanel({
   importSessionState,
   syncLocalStatus,
   localBackupPackageState,
+  restorePreviewState,
   hasImportCsvText,
   onImportFileChange,
   onPreflightCsvImport,
@@ -1380,7 +1454,11 @@ function ImportExportReadoutPanel({
   onRefreshLocalBackupPackageStatus,
   onDownloadLocalBackupPackage,
   onCancelLocalBackupPackage,
-  onDiscardLocalBackupPackage
+  onDiscardLocalBackupPackage,
+  onRestorePreviewFileChange,
+  onCreateRestorePreview,
+  onRefreshRestorePreview,
+  onDiscardRestorePreview
 }: {
   readout: ImportExportReadoutState;
   session: SessionBoundaryState;
@@ -1401,6 +1479,7 @@ function ImportExportReadoutPanel({
   importSessionState: BillImportSessionRuntimeState;
   syncLocalStatus: SyncLocalStatusRuntimeState;
   localBackupPackageState: LocalBackupPackageRuntimeState;
+  restorePreviewState: LocalBackupRestorePreviewRuntimeState;
   hasImportCsvText: boolean;
   onImportFileChange: (file: File | null) => void;
   onPreflightCsvImport: () => void;
@@ -1412,6 +1491,10 @@ function ImportExportReadoutPanel({
   onDownloadLocalBackupPackage: () => void;
   onCancelLocalBackupPackage: () => void;
   onDiscardLocalBackupPackage: () => void;
+  onRestorePreviewFileChange: (file: File | null) => void;
+  onCreateRestorePreview: () => void;
+  onRefreshRestorePreview: () => void;
+  onDiscardRestorePreview: () => void;
 }) {
   const unavailableCount = readout.capabilities.filter(
     (capability) => capability.status === "not_available_yet" || capability.status === "needs_readiness_endpoint"
@@ -1502,6 +1585,15 @@ function ImportExportReadoutPanel({
         onDownload={onDownloadLocalBackupPackage}
         onCancel={onCancelLocalBackupPackage}
         onDiscard={onDiscardLocalBackupPackage}
+      />
+
+      <LocalBackupRestorePreviewCard
+        session={session}
+        state={restorePreviewState}
+        onFileChange={onRestorePreviewFileChange}
+        onCreatePreview={onCreateRestorePreview}
+        onRefreshPreview={onRefreshRestorePreview}
+        onDiscardPreview={onDiscardRestorePreview}
       />
 
       <SyncLocalStatusCard state={syncLocalStatus} />
@@ -1713,6 +1805,192 @@ function LocalBackupPackageMetadataReadout({ state }: { state: LocalBackupPackag
       ) : null}
     </>
   );
+}
+
+function LocalBackupRestorePreviewCard({
+  session,
+  state,
+  onFileChange,
+  onCreatePreview,
+  onRefreshPreview,
+  onDiscardPreview
+}: {
+  session: SessionBoundaryState;
+  state: LocalBackupRestorePreviewRuntimeState;
+  onFileChange: (file: File | null) => void;
+  onCreatePreview: () => void;
+  onRefreshPreview: () => void;
+  onDiscardPreview: () => void;
+}) {
+  const isAuthenticated = session.status === "authenticated" && Boolean(session.accessToken);
+  const isBusy = state.status === "reading" || state.status === "creating";
+  const canCreatePreview = isAuthenticated && Boolean(state.selectedFileName) && !isBusy;
+  const canRefreshPreview = isAuthenticated && Boolean(state.preview?.restorePreviewId) && !isBusy;
+  const canDiscardPreview =
+    isAuthenticated &&
+    Boolean(state.preview?.restorePreviewId) &&
+    state.status !== "discarded" &&
+    state.status !== "expired" &&
+    !isBusy;
+
+  return (
+    <section className="surface-panel" aria-labelledby="restore-preview-title">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Restore preview</p>
+          <h3 id="restore-preview-title">Preview backup package</h3>
+        </div>
+        <span className={`status-chip ${localBackupRestorePreviewStatusClass(state.status)}`}>
+          {labelize(state.status)}
+        </span>
+      </div>
+
+      <p className="muted-copy">
+        Create restore preview sends the selected data-only package JSON to Settleora only to produce safe preview metadata. No records are restored from a preview.
+      </p>
+      <p className="muted-copy">
+        Browser-local persistence remains unsupported, and restore confirmation remains a separate future gate.
+      </p>
+
+      <label className="filter-field">
+        <span>Backup package JSON</span>
+        <input
+          type="file"
+          accept=".json,application/json,application/vnd.settleora.local-backup+json"
+          disabled={!isAuthenticated || isBusy}
+          onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+        />
+      </label>
+
+      <div className="action-row">
+        <button className="primary-button" type="button" disabled={!canCreatePreview} onClick={onCreatePreview}>
+          Create restore preview
+        </button>
+        <button className="secondary-button" type="button" disabled={!canRefreshPreview} onClick={onRefreshPreview}>
+          Refresh preview
+        </button>
+        <button className="secondary-button" type="button" disabled={!canDiscardPreview} onClick={onDiscardPreview}>
+          Discard preview
+        </button>
+      </div>
+
+      <ReadoutSection title="Selected file">
+        <StatusPill label="Name" value={state.selectedFileName ?? "No package selected"} />
+        <StatusPill label="Size" value={state.selectedFileSize === undefined ? "Not read" : `${state.selectedFileSize} bytes`} />
+        <StatusPill label="Raw package display" value="Never shown" />
+      </ReadoutSection>
+
+      <StateMessage
+        state={mapLocalBackupRestorePreviewStateForMessage(state.status)}
+        message={state.message}
+        emptyTitle="No restore preview yet"
+        errorTitle="Could not create restore preview"
+      />
+
+      {state.preview ? <LocalBackupRestorePreviewMetadataReadout preview={state.preview} /> : null}
+    </section>
+  );
+}
+
+function LocalBackupRestorePreviewMetadataReadout({
+  preview
+}: {
+  preview: NonNullable<LocalBackupRestorePreviewRuntimeState["preview"]>;
+}) {
+  return (
+    <>
+      <ReadoutSection title="Preview status">
+        <StatusPill label="Preview" value={preview.restorePreviewId} />
+        <StatusPill label="Status" value={`${preview.status} - ${preview.stableCode}`} />
+        <StatusPill label="Source boundary" value={labelize(preview.sourceAuthorityBoundary)} />
+        <StatusPill label="Package format" value={preview.packageFormatName} />
+        <StatusPill label="Package version" value={preview.packageVersion} />
+        <StatusPill label="Manifest version" value={preview.manifestVersion} />
+        <StatusPill label="Sections" value={String(preview.totalSectionCount)} />
+        <p className="muted-copy">{preview.safeMessage}</p>
+        <p className="muted-copy">{preview.privacyBoundary}</p>
+      </ReadoutSection>
+
+      <ReadoutSection title="Timestamps">
+        <StatusPill label="Created" value={formatDate(preview.createdAtUtc)} />
+        <StatusPill label="Expires" value={formatDate(preview.expiresAtUtc)} />
+        <StatusPill label="Discarded" value={preview.discardedAtUtc ? formatDate(preview.discardedAtUtc) : "Not discarded"} />
+        <StatusPill label="Package generated" value={formatDate(preview.packageGeneratedAtUtc)} />
+        <StatusPill label="Package expires" value={formatDate(preview.packageExpiresAtUtc)} />
+        <StatusPill label="Response generated" value={formatDate(preview.responseGeneratedAtUtc)} />
+      </ReadoutSection>
+
+      <ReadoutSection title="Safe section summaries">
+        {renderPreviewCategoryPills("Included", preview.includedSectionCategories)}
+        {renderPreviewCategoryPills("Omitted", preview.omittedSectionCategories)}
+        {renderPreviewCategoryPills("Unsupported", preview.unsupportedSectionCategories)}
+        {renderPreviewCategoryPills("Blocked", preview.blockedSectionCategories)}
+      </ReadoutSection>
+
+      <ReadoutSection title="Record counts">
+        {preview.recordSummaries.length === 0 ? (
+          <p className="muted-copy">No safe count summaries were returned.</p>
+        ) : (
+          preview.recordSummaries.map((summary) => (
+            <article className="notification-row" key={summary.category}>
+              <div className="notification-row-header">
+                <div>
+                  <strong>{labelize(summary.category)}</strong>
+                  <small>Safe bounded counts only</small>
+                </div>
+                <span className="status-chip status-sync">{summary.totalCount}</span>
+              </div>
+              <dl className="readout-list detail-readouts">
+                <div>
+                  <dt>Active</dt>
+                  <dd>{summary.activeCount}</dd>
+                </div>
+                <div>
+                  <dt>Archived</dt>
+                  <dd>{summary.archivedCount}</dd>
+                </div>
+                <div>
+                  <dt>Items</dt>
+                  <dd>{summary.itemCount}</dd>
+                </div>
+                <div>
+                  <dt>Participants</dt>
+                  <dd>{summary.participantCount}</dd>
+                </div>
+                <div>
+                  <dt>Payers</dt>
+                  <dd>{summary.payerCount}</dd>
+                </div>
+                <div>
+                  <dt>Adjustments</dt>
+                  <dd>{summary.adjustmentCount}</dd>
+                </div>
+              </dl>
+            </article>
+          ))
+        )}
+      </ReadoutSection>
+
+      <ReadoutSection title="Warnings and blocked reasons">
+        {renderPreviewCategoryPills("Warning", preview.warnings)}
+        {renderPreviewCategoryPills("Blocked reason", preview.blockedReasons)}
+      </ReadoutSection>
+
+      <ReadoutSection title="Next actions and confirmation">
+        <StatusPill label="Restore confirmation" value={preview.restoreConfirmationAvailable ? "Available" : labelize(preview.restoreConfirmationState)} />
+        <p className="muted-copy">{preview.restoreConfirmationCopy}</p>
+        {renderPreviewCategoryPills("Next action", preview.nextAllowedActions)}
+      </ReadoutSection>
+    </>
+  );
+}
+
+function renderPreviewCategoryPills(label: string, values: string[]) {
+  if (values.length === 0) {
+    return <StatusPill label={label} value="None returned" />;
+  }
+
+  return values.map((value) => <StatusPill key={`${label}:${value}`} label={label} value={labelize(value)} />);
 }
 
 function SyncLocalStatusCard({ state }: { state: SyncLocalStatusRuntimeState }) {
@@ -3889,6 +4167,24 @@ function localBackupPackageStatusClass(state: LocalBackupPackageRuntimeState["st
   return "status-warning";
 }
 
+function localBackupRestorePreviewStatusClass(state: LocalBackupRestorePreviewRuntimeState["status"]): string {
+  if (state === "ready" || state === "discarded") {
+    return "status-sync";
+  }
+
+  if (
+    state === "blocked" ||
+    state === "expired" ||
+    state === "session_expired" ||
+    state === "unavailable" ||
+    state === "error"
+  ) {
+    return "status-danger";
+  }
+
+  return "status-warning";
+}
+
 function syncSummaryStatusClass(
   state: SyncLocalStatusResponse["pendingOperationSummary"]["state"],
   count: number | null
@@ -3922,6 +4218,31 @@ function mapLocalBackupPackageStateForMessage(
     case "discarded":
     case "cancelled":
       return "loaded";
+    case "blocked":
+    case "expired":
+    case "unavailable":
+      return "unavailable";
+    case "error":
+      return "error";
+  }
+}
+
+function mapLocalBackupRestorePreviewStateForMessage(
+  state: LocalBackupRestorePreviewRuntimeState["status"]
+): BillsReadoutState["status"] {
+  switch (state) {
+    case "idle":
+      return "empty";
+    case "auth_required":
+      return "auth_required";
+    case "reading":
+    case "creating":
+      return "loading";
+    case "ready":
+    case "discarded":
+      return "loaded";
+    case "session_expired":
+      return "session_expired";
     case "blocked":
     case "expired":
     case "unavailable":

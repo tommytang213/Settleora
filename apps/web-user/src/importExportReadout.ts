@@ -12,6 +12,8 @@ import {
   type LocalBackupPackageDownloadActionResponse,
   type LocalBackupPackageGenerationStatusResponse,
   type LocalBackupPackageSessionResponse,
+  type LocalBackupRestorePreviewCreateRequest,
+  type LocalBackupRestorePreviewResponse,
   type BillCsvImportConfirmationResponse,
   type BillCsvImportConfirmRequest,
   type BillCsvImportPreflightResponse,
@@ -115,6 +117,18 @@ export type LocalBackupPackageRuntimeStatus =
   | "expired"
   | "unavailable"
   | "error";
+export type LocalBackupRestorePreviewRuntimeStatus =
+  | "idle"
+  | "auth_required"
+  | "reading"
+  | "creating"
+  | "ready"
+  | "blocked"
+  | "expired"
+  | "discarded"
+  | "session_expired"
+  | "unavailable"
+  | "error";
 
 export interface BillExportFilters {
   fromDate?: string | null;
@@ -173,6 +187,12 @@ export interface LocalBackupPackageRuntimeClient {
   cancelLocalBackupPackageGeneration?: SettleoraApiClient["cancelLocalBackupPackageGeneration"];
 }
 
+export interface LocalBackupRestorePreviewRuntimeClient {
+  createLocalBackupRestorePreview?: SettleoraApiClient["createLocalBackupRestorePreview"];
+  getLocalBackupRestorePreview?: SettleoraApiClient["getLocalBackupRestorePreview"];
+  discardLocalBackupRestorePreview?: SettleoraApiClient["discardLocalBackupRestorePreview"];
+}
+
 export interface BrowserDownloadAdapter {
   saveBlob(blob: Blob, filename: string): void;
 }
@@ -217,6 +237,20 @@ export interface LocalBackupPackageRuntimeState {
   filename?: string;
 }
 
+export interface LocalBackupRestorePreviewSelectedFile {
+  name: string;
+  size: number;
+  text(): Promise<string>;
+}
+
+export interface LocalBackupRestorePreviewRuntimeState {
+  status: LocalBackupRestorePreviewRuntimeStatus;
+  message: string;
+  selectedFileName?: string;
+  selectedFileSize?: number;
+  preview?: LocalBackupRestorePreviewResponse;
+}
+
 export interface BillImportPreflightRuntimeOptions {
   accessToken?: string | null;
   scope: BillImportPreflightScope;
@@ -252,6 +286,16 @@ export interface LocalBackupPackageRuntimeOptions {
   downloadAdapter?: BrowserDownloadAdapter;
 }
 
+export interface LocalBackupRestorePreviewRuntimeOptions {
+  accessToken?: string | null;
+  baseUrl?: string;
+  client?: LocalBackupRestorePreviewRuntimeClient;
+  selectedFile?: LocalBackupRestorePreviewSelectedFile | null;
+  packageSha256?: string | null;
+  state?: LocalBackupRestorePreviewRuntimeState | null;
+  now?: Date;
+}
+
 export const defaultBillExportFilters: BillExportFilters = {
   archiveState: "all",
   limit: 100
@@ -280,6 +324,9 @@ const operationMethods = [
   "downloadLocalBackupPackageContent",
   "discardLocalBackupPackageSession",
   "cancelLocalBackupPackageGeneration",
+  "createLocalBackupRestorePreview",
+  "getLocalBackupRestorePreview",
+  "discardLocalBackupRestorePreview",
   "importPersonalBillsCsv",
   "importGroupBillsCsv",
   "listSyncChanges",
@@ -386,11 +433,15 @@ const capabilityDefinitions: Array<{
       "createLocalBackupPackageDownloadAction",
       "downloadLocalBackupPackageContent",
       "discardLocalBackupPackageSession",
-      "cancelLocalBackupPackageGeneration"
+      "cancelLocalBackupPackageGeneration",
+      "createLocalBackupRestorePreview",
+      "getLocalBackupRestorePreview",
+      "discardLocalBackupRestorePreview"
     ],
     followUps: [
       "This web surface prepares and downloads only the approved short-lived data-only package artifact.",
-      "Restore preview, restore confirmation, durable encrypted storage, file-byte backup, and browser-local authority remain unavailable."
+      "Restore preview sends a selected data-only package to Settleora for safe non-mutating metadata only.",
+      "Restore confirmation, durable encrypted storage, file-byte backup, and browser-local authority remain unavailable."
     ]
   },
   {
@@ -425,7 +476,8 @@ export const importExportUnsupportedSections = [
   "Personal CSV/JSON export is available only after sign-in and a positive server readiness check.",
   "Group CSV/JSON export needs a safe group selector on this route before it can start.",
   "Import confirmation uses staged server sessions only; direct CSV import remains unavailable.",
-  "Local backup package download is data-only; restore, durable encrypted storage, file-byte backup, and browser-local authority are not implemented.",
+  "Local backup package download is data-only; restore preview is non-mutating and restore confirmation remains unavailable.",
+  "Durable encrypted backup storage, file-byte backup, restore confirmation, and browser-local authority are not implemented.",
   "User-web local-mode persistence is not implemented.",
   "Sync/local status is read-only; no sync queue or operation is submitted.",
   "Report/export history is not available when the server does not expose a safe history read."
@@ -1066,6 +1118,159 @@ export async function discardLocalBackupPackage(
   }
 }
 
+export async function createLocalBackupRestorePreviewRuntime(
+  options: LocalBackupRestorePreviewRuntimeOptions
+): Promise<LocalBackupRestorePreviewRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can read or preview a backup package.",
+      selectedFileName: options.selectedFile?.name,
+      selectedFileSize: options.selectedFile?.size
+    };
+  }
+
+  const selectedFile = options.selectedFile;
+  if (!selectedFile) {
+    return {
+      status: "unavailable",
+      message: "Choose a local backup package JSON file before creating a restore preview."
+    };
+  }
+
+  if (selectedFile.size <= 0) {
+    return {
+      status: "unavailable",
+      message: "Choose a non-empty local backup package JSON file before creating a restore preview.",
+      selectedFileName: selectedFile.name,
+      selectedFileSize: selectedFile.size
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+  if (typeof client.createLocalBackupRestorePreview !== "function") {
+    return {
+      status: "unavailable",
+      message: "Restore preview is not available in this web client build.",
+      selectedFileName: selectedFile.name,
+      selectedFileSize: selectedFile.size
+    };
+  }
+
+  try {
+    const packageContent = await selectedFile.text();
+    if (packageContent.trim().length === 0) {
+      return {
+        status: "unavailable",
+        message: "Choose a non-empty local backup package JSON file before creating a restore preview.",
+        selectedFileName: selectedFile.name,
+        selectedFileSize: selectedFile.size
+      };
+    }
+
+    const request = createRestorePreviewRequest(packageContent, options.packageSha256);
+    const preview = await client.createLocalBackupRestorePreview(request, { accessToken });
+
+    return mapLocalBackupRestorePreviewResponse(preview, options.now, selectedFile);
+  } catch (error) {
+    return classifyLocalBackupRestorePreviewFailure(
+      error,
+      "Settleora could not create the restore preview. No package content was displayed or stored.",
+      selectedFile
+    );
+  }
+}
+
+export async function refreshLocalBackupRestorePreviewRuntime(
+  options: LocalBackupRestorePreviewRuntimeOptions
+): Promise<LocalBackupRestorePreviewRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can refresh a restore preview.",
+      preview: options.state?.preview
+    };
+  }
+
+  const previewId = options.state?.preview?.restorePreviewId;
+  if (!previewId) {
+    return {
+      status: "unavailable",
+      message: "Create a restore preview before refreshing it."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+  if (typeof client.getLocalBackupRestorePreview !== "function") {
+    return {
+      status: "unavailable",
+      message: "Restore preview refresh is not available in this web client build.",
+      preview: options.state?.preview
+    };
+  }
+
+  try {
+    const preview = await client.getLocalBackupRestorePreview(previewId, { accessToken });
+
+    return mapLocalBackupRestorePreviewResponse(preview, options.now);
+  } catch (error) {
+    return classifyLocalBackupRestorePreviewFailure(
+      error,
+      "Settleora could not refresh the restore preview.",
+      undefined,
+      options.state?.preview
+    );
+  }
+}
+
+export async function discardLocalBackupRestorePreviewRuntime(
+  options: LocalBackupRestorePreviewRuntimeOptions
+): Promise<LocalBackupRestorePreviewRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can discard a restore preview.",
+      preview: options.state?.preview
+    };
+  }
+
+  const previewId = options.state?.preview?.restorePreviewId;
+  if (!previewId) {
+    return {
+      status: "unavailable",
+      message: "Create a restore preview before discarding it."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+  if (typeof client.discardLocalBackupRestorePreview !== "function") {
+    return {
+      status: "unavailable",
+      message: "Restore preview discard is not available in this web client build.",
+      preview: options.state?.preview
+    };
+  }
+
+  try {
+    const preview = await client.discardLocalBackupRestorePreview(previewId, { accessToken });
+
+    return mapLocalBackupRestorePreviewResponse(preview, options.now);
+  } catch (error) {
+    return classifyLocalBackupRestorePreviewFailure(
+      error,
+      "Settleora could not discard the restore preview.",
+      undefined,
+      options.state?.preview
+    );
+  }
+}
+
 export function evaluateLocalBackupPackageDownloadable(
   artifactStatus: LocalBackupPackageRuntimeState["artifactStatus"] | undefined,
   now: Date = new Date()
@@ -1460,7 +1665,7 @@ function statusForCapability(
 function chipsForCapability(id: string, hasAllMethods: boolean): string[] {
   if (id === "local-backup-restore") {
     return hasAllMethods
-      ? ["Data-only", "Same-API download", "Restore unavailable"]
+      ? ["Data-only", "Same-API download", "Preview only"]
       : ["Not available yet", "Future reviewed slice"];
   }
 
@@ -1797,6 +2002,71 @@ function mapLocalBackupPackageArtifactStatus(
   };
 }
 
+export function mapLocalBackupRestorePreviewResponse(
+  preview: LocalBackupRestorePreviewResponse,
+  now: Date = new Date(),
+  selectedFile?: Pick<LocalBackupRestorePreviewSelectedFile, "name" | "size">
+): LocalBackupRestorePreviewRuntimeState {
+  const base = {
+    selectedFileName: selectedFile?.name,
+    selectedFileSize: selectedFile?.size,
+    preview
+  };
+
+  if (new Date(preview.expiresAtUtc).getTime() <= now.getTime() || preview.status === "expired") {
+    return {
+      ...base,
+      status: "expired",
+      message: preview.safeMessage || "This restore preview expired. Create a new preview before reviewing it."
+    };
+  }
+
+  if (preview.status === "discarded") {
+    return {
+      ...base,
+      status: "discarded",
+      message: preview.safeMessage || "This restore preview was discarded. No records were restored."
+    };
+  }
+
+  if (!preview.restoreConfirmationAvailable && preview.restoreConfirmationState !== "unsupported") {
+    return {
+      ...base,
+      status: "blocked",
+      message: "Settleora returned an unknown restore confirmation state. Restore preview is blocked."
+    };
+  }
+
+  if (
+    preview.status === "ready" &&
+    preview.stableCode === "restore_preview_ready" &&
+    preview.nextAllowedActions.every((action) => action === "get_restore_preview" || action === "discard_restore_preview")
+  ) {
+    return {
+      ...base,
+      status: "ready",
+      message: preview.safeMessage || "Restore preview metadata loaded. No records were restored."
+    };
+  }
+
+  if (
+    preview.stableCode === "temporarily_unavailable" ||
+    preview.stableCode === "missing_package_content"
+  ) {
+    return {
+      ...base,
+      status: "unavailable",
+      message: preview.safeMessage || "Restore preview is unavailable for this package."
+    };
+  }
+
+  return {
+    ...base,
+    status: "blocked",
+    message: preview.safeMessage || "Settleora blocked this backup package restore preview."
+  };
+}
+
 function evaluateLocalBackupPackageDownloadAction(
   action: LocalBackupPackageDownloadActionResponse,
   now: Date = new Date()
@@ -1851,6 +2121,17 @@ function evaluateLocalBackupPackageDownloadAction(
     allowed: true,
     message: action.safeMessage
   };
+}
+
+function createRestorePreviewRequest(
+  packageContent: string,
+  packageSha256: string | null | undefined
+): LocalBackupRestorePreviewCreateRequest {
+  const normalizedPackageSha256 = packageSha256?.trim();
+
+  return normalizedPackageSha256
+    ? { packageContent, packageSha256: normalizedPackageSha256 }
+    : { packageContent, packageSha256: null };
 }
 
 function createJsonExportBlob(exportResponse: ExpenseBillExportResponse): Blob {
@@ -2086,6 +2367,89 @@ function classifyLocalBackupPackageFailure(
 }
 
 class MissingLocalBackupPackageMethodError extends Error {}
+
+function classifyLocalBackupRestorePreviewFailure(
+  error: unknown,
+  fallback: string,
+  selectedFile?: Pick<LocalBackupRestorePreviewSelectedFile, "name" | "size">,
+  preview?: LocalBackupRestorePreviewResponse
+): LocalBackupRestorePreviewRuntimeState {
+  const base = {
+    selectedFileName: selectedFile?.name,
+    selectedFileSize: selectedFile?.size,
+    preview
+  };
+
+  if (error instanceof SettleoraApiError && error.status === 401) {
+    return {
+      ...base,
+      status: "session_expired",
+      message: "Your session could not be verified. Sign in again before creating or reading a restore preview."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 403) {
+    return {
+      ...base,
+      status: "blocked",
+      message: "This account cannot create or read the requested restore preview."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 404) {
+    return {
+      ...base,
+      status: "unavailable",
+      message: "Restore preview is not available from this Settleora server."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 409) {
+    return {
+      ...base,
+      status: "blocked",
+      message: "Settleora reported the restore preview state changed. Refresh the preview before retrying."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 410) {
+    return {
+      ...base,
+      status: "expired",
+      message: "This restore preview expired. Create a new preview before reviewing it."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 413) {
+    return {
+      ...base,
+      status: "blocked",
+      message: "Settleora rejected this backup package because it is too large for restore preview."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 400) {
+    return {
+      ...base,
+      status: "blocked",
+      message: "Settleora rejected this backup package for restore preview. No package content was displayed."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status >= 500) {
+    return {
+      ...base,
+      status: "unavailable",
+      message: "Settleora could not create or read the restore preview right now."
+    };
+  }
+
+  return {
+    ...base,
+    status: "error",
+    message: fallback
+  };
+}
 
 const browserDownloadAdapter: BrowserDownloadAdapter = {
   saveBlob(blob, filename) {
