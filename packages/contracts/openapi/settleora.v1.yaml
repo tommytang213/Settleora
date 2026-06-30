@@ -2572,6 +2572,186 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-sessions/{packageSessionId}/prepare:
+    post:
+      summary: Prepare local backup package session metadata
+      description: Requests package preparation/generation for an existing authenticated package session. This metadata-only slice never creates package artifacts, package bytes, storage objects, storage references, queues, jobs, direct downloads, signed URLs, file-byte streams, browser-local state, restore previews, restore confirmations, or source-record mutations. Current responses report generation as unavailable or blocked using safe metadata only.
+      operationId: prepareLocalBackupPackageSession
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: packageSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor package preparation/generation metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupPackageGenerationStatusResponse"
+        "400":
+          description: Local backup package preparation request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to prepare a local backup package session.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Package session is missing, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-sessions/{packageSessionId}/artifact-status:
+    get:
+      summary: Get local backup package artifact status
+      description: Returns metadata-only artifact and download eligibility status for an existing authenticated package session. This response never includes artifact IDs, storage object keys, bucket names, filesystem paths, local device paths, signed URLs, direct storage URLs, download tokens, content-disposition behavior, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth tokens, credential material, browser-local state, restore previews, restore confirmations, or source-record mutations.
+      operationId: getLocalBackupPackageArtifactStatus
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: packageSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor package artifact/download eligibility metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupPackageArtifactStatusResponse"
+        "400":
+          description: Local backup package artifact status request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to read local backup package artifact status.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Package session is missing, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-sessions/{packageSessionId}/cancel:
+    post:
+      summary: Cancel local backup package generation metadata
+      description: Cancels a pending or future package generation attempt for an existing authenticated package session. This metadata-only operation may mark only package-session metadata as cancelled. It does not mutate source records, files, settlements, bills, sync conflicts, accounts, sessions, storage artifacts, package bytes, downloads, browser-local state, restore previews, or restore confirmations.
+      operationId: cancelLocalBackupPackageGeneration
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: packageSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor package generation cancellation metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupPackageGenerationStatusResponse"
+        "400":
+          description: Local backup package generation cancellation request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to cancel local backup package generation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Package session is missing, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/package-sessions/{packageSessionId}/download-actions:
+    post:
+      summary: Create local backup package download action metadata
+      description: Requests a future short-lived API-mediated download action for an existing authenticated package session. This metadata-only slice reports download as unavailable because no package artifact exists. It never returns raw bytes, content-disposition streams, direct storage URLs, signed URLs, object keys, bucket names, filesystem paths, local device paths, provider internals, browser object URLs, bearer tokens, download credentials, package bytes, file bytes, restore payloads, browser-local state, or source-record mutations.
+      operationId: createLocalBackupPackageDownloadAction
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: packageSessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor package download-action eligibility metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupPackageDownloadActionResponse"
+        "400":
+          description: Local backup package download action request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to create a local backup package download action.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Package session is missing, wrong actor, wrong auth session, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/sync/local-status:
     get:
       summary: Get sync and browser-local status
@@ -18018,6 +18198,7 @@ components:
       enum:
         - browser_local_persistence
         - package_generation
+        - package_artifact
         - package_download
         - restore_preview
         - restore_confirmation
@@ -18064,6 +18245,7 @@ components:
       description: Metadata-only local backup package session status. Unknown future values must be handled as unavailable by clients.
       enum:
         - created
+        - cancelled
         - expired
         - discarded
     LocalBackupPackageSessionStableCode:
@@ -18071,10 +18253,42 @@ components:
       description: Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
       enum:
         - package_session_created
+        - package_session_cancelled
         - package_session_expired
         - package_session_discarded
         - package_generation_unsupported
         - package_manifest_metadata_only
+    LocalBackupPackageArtifactStatus:
+      type: string
+      description: Metadata-only local backup package artifact/download status. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - metadata_only_no_artifact
+        - generation_unavailable
+        - download_unavailable
+        - cancelled
+        - expired
+        - discarded
+        - stale_recheck_required
+    LocalBackupPackageArtifactStableCode:
+      type: string
+      description: Stable metadata-only local backup package generation/artifact/download code. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - metadata_only_no_artifact
+        - package_generation_unsupported
+        - package_download_unavailable
+        - package_generation_cancelled
+        - package_session_expired
+        - package_session_discarded
+        - package_session_stale_recheck_required
+        - temporarily_unavailable
+    LocalBackupPackageNextAllowedAction:
+      type: string
+      description: Safe next action labels for metadata-only package-session flows. These are not storage, download, restore, or browser persistence authority.
+      enum:
+        - get_artifact_status
+        - cancel_package_generation
+        - discard_package_session
+        - create_new_package_session
     LocalBackupPackageSessionScope:
       type: string
       description: Metadata-only local backup package session scope.
@@ -18196,7 +18410,211 @@ components:
             - type: string
               format: date-time
             - type: "null"
+        cancelledAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
         generatedAtUtc:
+          type: string
+          format: date-time
+    LocalBackupPackageGenerationStatusResponse:
+      type: object
+      description: Metadata-only local backup package preparation/generation status for an authenticated package session. It contains no package artifact ID, storage path, object key, signed URL, direct storage URL, filesystem path, local device path, download token, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth token, credential material, restore payload, or browser-local persistence state.
+      additionalProperties: false
+      required:
+        - packageSessionId
+        - status
+        - stableCode
+        - safeMessage
+        - canPreparePackage
+        - artifactAvailable
+        - canDownloadPackage
+        - downloadAvailable
+        - expiresAtUtc
+        - privacyBoundary
+        - dataEgressBoundary
+        - unsupportedFeatures
+        - nextAllowedActions
+        - responseGeneratedAtUtc
+      properties:
+        packageSessionId:
+          type: string
+          format: uuid
+          description: Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+        status:
+          $ref: "#/components/schemas/LocalBackupPackageArtifactStatus"
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupPackageArtifactStableCode"
+        safeMessage:
+          type: string
+          maxLength: 420
+        canPreparePackage:
+          type: boolean
+          description: False for this slice because package generation runtime is not implemented.
+        artifactAvailable:
+          type: boolean
+          description: False for this slice because no package artifact is created.
+        canDownloadPackage:
+          type: boolean
+          description: False for this slice because no artifact can be downloaded.
+        downloadAvailable:
+          type: boolean
+          description: False for this slice because package download runtime is not implemented.
+        generatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Null for this slice because no package artifact is generated.
+        expiresAtUtc:
+          type: string
+          format: date-time
+        privacyBoundary:
+          type: string
+          maxLength: 760
+        dataEgressBoundary:
+          type: string
+          maxLength: 640
+        unsupportedFeatures:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageUnsupportedFeature"
+        nextAllowedActions:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageNextAllowedAction"
+        responseGeneratedAtUtc:
+          type: string
+          format: date-time
+    LocalBackupPackageArtifactStatusResponse:
+      type: object
+      description: Metadata-only local backup package artifact/download eligibility status for an authenticated package session. It contains no package artifact ID, storage path, object key, signed URL, direct storage URL, filesystem path, local device path, download token, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth token, credential material, restore payload, or browser-local persistence state.
+      additionalProperties: false
+      required:
+        - packageSessionId
+        - status
+        - stableCode
+        - safeMessage
+        - canPreparePackage
+        - artifactAvailable
+        - canDownloadPackage
+        - downloadAvailable
+        - expiresAtUtc
+        - privacyBoundary
+        - dataEgressBoundary
+        - unsupportedFeatures
+        - nextAllowedActions
+        - responseGeneratedAtUtc
+      properties:
+        packageSessionId:
+          type: string
+          format: uuid
+          description: Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+        status:
+          $ref: "#/components/schemas/LocalBackupPackageArtifactStatus"
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupPackageArtifactStableCode"
+        safeMessage:
+          type: string
+          maxLength: 420
+        canPreparePackage:
+          type: boolean
+        artifactAvailable:
+          type: boolean
+        canDownloadPackage:
+          type: boolean
+        downloadAvailable:
+          type: boolean
+        generatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Null for this slice because no package artifact is generated.
+        expiresAtUtc:
+          type: string
+          format: date-time
+        privacyBoundary:
+          type: string
+          maxLength: 760
+        dataEgressBoundary:
+          type: string
+          maxLength: 640
+        unsupportedFeatures:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageUnsupportedFeature"
+        nextAllowedActions:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageNextAllowedAction"
+        responseGeneratedAtUtc:
+          type: string
+          format: date-time
+    LocalBackupPackageDownloadActionResponse:
+      type: object
+      description: Metadata-only local backup package download-action eligibility response for an authenticated package session. It never contains raw bytes, direct storage URLs, signed URLs, object keys, bucket names, filesystem paths, local device paths, provider internals, browser object URLs, bearer tokens, download credentials, content-disposition behavior, package bytes, file bytes, restore payloads, or browser-local persistence state.
+      additionalProperties: false
+      required:
+        - packageSessionId
+        - status
+        - stableCode
+        - safeMessage
+        - downloadAvailable
+        - canDownloadPackage
+        - artifactAvailable
+        - expiresAtUtc
+        - privacyBoundary
+        - dataEgressBoundary
+        - unsupportedFeatures
+        - nextAllowedActions
+        - responseGeneratedAtUtc
+      properties:
+        packageSessionId:
+          type: string
+          format: uuid
+          description: Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
+        status:
+          $ref: "#/components/schemas/LocalBackupPackageArtifactStatus"
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupPackageArtifactStableCode"
+        safeMessage:
+          type: string
+          maxLength: 420
+        downloadAvailable:
+          type: boolean
+          description: False for this slice because no package artifact exists.
+        canDownloadPackage:
+          type: boolean
+          description: False for this slice because no package artifact exists.
+        artifactAvailable:
+          type: boolean
+          description: False for this slice because no package artifact exists.
+        expiresAtUtc:
+          type: string
+          format: date-time
+        privacyBoundary:
+          type: string
+          maxLength: 760
+        dataEgressBoundary:
+          type: string
+          maxLength: 640
+        unsupportedFeatures:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageUnsupportedFeature"
+        nextAllowedActions:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/LocalBackupPackageNextAllowedAction"
+        responseGeneratedAtUtc:
           type: string
           format: date-time
     LocalBackupPackageReadinessResponse:
