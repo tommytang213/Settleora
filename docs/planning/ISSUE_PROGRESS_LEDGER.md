@@ -90,6 +90,61 @@ remain the source of truth.
   - Issue #570 completion comment:
     `https://github.com/tommytang213/Settleora/issues/570#issuecomment-4844220380`
 
+### Issue #629 - Notification preference decision-envelope and delivery-state foundation
+
+- GitHub state/project status: issue `CLOSED`; Project status `Merged`,
+  `Progress %` `100`, `Initial MD` `2`, `Man-days Remaining` `0`,
+  `Actual Done Date` `2026-06-30`, and linked PR #630 by GitHub/Project
+  readback on 2026-06-30.
+- Last verified at main SHA:
+  `34caca01a6a746f08b1892134a9510b9265cb645`.
+- Completed PRs/slices:
+  - PR #630, reviewed source head
+    `3b181365246d895c9e8b69653dbd67e125cdcfc8`, merge SHA
+    `34caca01a6a746f08b1892134a9510b9265cb645`: implemented the
+    internal notification decision-envelope foundation.
+- Completed scope:
+  - Internal `INotificationDecisionEnvelopeResolver` service boundary.
+  - Provider-free `NotificationDecisionEnvelopeResolver`.
+  - Bounded `in_app`, `email`, and `mobile_push` channel vocabulary.
+  - Bounded decision/reason vocabulary with no fake provider success.
+  - Decision-only email and push outcomes without SMTP, push, queue, worker,
+    device-token, or provider-success runtime.
+  - In-app baseline eligibility behavior without weakening
+    `IInAppNotificationWriter`.
+  - Focused resolver tests.
+- Explicitly not complete:
+  - No SMTP runtime.
+  - No push runtime.
+  - No device-token API/storage.
+  - No delivery worker, queue, or provider-success state.
+  - No provider secrets, environment, or deployment changes.
+  - No admin/global notification policy API.
+  - No OpenAPI or generated-client changes.
+  - No EF schema, migration, or database persistence changes.
+  - No mobile, web, or admin UI.
+  - No #371 deep links or navigation.
+  - No auth/session/security runtime or bypass policy.
+- Remaining related work:
+  - #403 remains open for SMTP runtime, push runtime/device-token lifecycle,
+    server-side preference resolution beyond this foundation, delivery-state
+    persistence/workers, admin/global policy, and related gated work.
+  - #369 remains open for remaining Day 1 notification event-family runtime and
+    source-state work.
+  - #368 remains open as the notification epic.
+  - #371 remains open and Figma/reference-gated for notification deep
+    links/mobile UI.
+- Close/keep-open recommendation:
+  - Keep #629 closed as complete for the internal decision-envelope foundation
+    only. Do not treat #629 or PR #630 as completion of #403 or #369.
+- Last verified repo/report references:
+  - PR #630:
+    `https://github.com/tommytang213/Settleora/pull/630`
+  - Issue #629 completion comment:
+    `https://github.com/tommytang213/Settleora/issues/629#issuecomment-4845421050`
+  - Report:
+    `/workspace/logs/settleora-codex-report-20260630-2331-notification-decision-envelope-foundation-629-pr-merge.md`
+
 ### Issue #369 - Complete Day 1 in-app notification event coverage
 
 - GitHub state/project status: issue `OPEN`; Project status
@@ -100,8 +155,11 @@ remain the source of truth.
   `Needs Architecture Review`, `Progress %` `33`, `Figma Required` `Yes`,
   `Manual Gate` `Yes`.
 - Last verified at main SHA:
-  `ecbabe1bfe432deb8b10617ac59395f338c05b0b`.
+  `34caca01a6a746f08b1892134a9510b9265cb645`.
 - Completed child slices now recorded:
+  - PR #630 / #629 completed the internal notification decision-envelope
+    foundation only. It did not add new Day 1 event-family runtime, provider
+    delivery, source states, OpenAPI event values, schema, UI, or deep links.
   - PR #626 / #570 completed the narrow OCR `ocr.needs_review` runtime for
     explicit API-owned assignment creation/retarget transitions only.
   - Earlier merged #369/#367/#370 slices already cover recurring due-soon,
@@ -124,7 +182,7 @@ remain the source of truth.
   - Push/email provider delivery, provider workers, digests, delivery receipts,
     background delivery, admin/global policy, Day 1 notification acceptance,
     production readiness, release readiness, manual UI retest, and manual code
-    review are not completed by #626.
+    review are not completed by #626 or #630.
 - Future gates requiring explicit approval:
   - #371 Figma/reference-gated notification deep links/mobile UI.
   - Auth/session/security policy before security-impactful notifications.
@@ -132,7 +190,8 @@ remain the source of truth.
     event types with reviewed source states and safe targets.
 - Close/keep-open recommendation:
   - Do not close #369 or mark it `100`. PR #626/#570 is one completed child
-    runtime slice, not full Day 1 notification event-family acceptance.
+    runtime slice, and PR #630/#629 is one internal foundation slice; neither
+    is full Day 1 notification event-family acceptance.
 - Last verified repo/report references:
   - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
   - Issue #369 PR #626 progress comment:
@@ -143,9 +202,9 @@ remain the source of truth.
 - GitHub state/project status: issue `OPEN`; Project status
   `Needs Figma / Reference`, `Progress %` `80`, `Man-days Remaining` `1`,
   `Figma Required` `Yes`, `Manual Gate` `Yes` by GraphQL readback on
-  2026-06-30 before this checkpoint.
+  2026-06-30 after PR #630.
 - Last verified at main SHA:
-  `7225496d2da37e98af7788687cbb5109bf3a070c`.
+  `34caca01a6a746f08b1892134a9510b9265cb645`.
 - Completed docs/control child slices now recorded:
   - #448 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
     `Man-days Remaining` `0`, linked PR #493 merged on 2026-06-24. It
@@ -169,6 +228,11 @@ remain the source of truth.
     UX/reference gate only through repo-tracked Day 1 UX/reference decisions
     and existing domain references.
 - Completed adjacent runtime slices that must not be redone:
+  - #629 / PR #630 completed only the internal notification
+    decision-envelope foundation: provider-free resolver, bounded
+    `in_app`/`email`/`mobile_push` channel vocabulary, bounded decision/reason
+    vocabulary, decision-only external-channel outcomes, in-app baseline
+    eligibility behavior, and focused resolver tests.
   - #570 / PR #626 completed only the narrow `ocr.needs_review` in-app
     notification runtime for explicit API-owned OCR review assignment
     creation/retarget transitions.
@@ -193,10 +257,11 @@ remain the source of truth.
     behavior. This is manual-gated for provider/secrets, mobile release
     configuration, schema, OpenAPI/generated clients, deployment/env, and UI.
   - Server-side notification preference resolution is not implemented beyond
-    current persisted current-user preference readouts. Future work must
-    implement admin/global caps, user preferences, group/thread mute,
-    quiet-hours/digest behavior, required/security-event bypass policy, channel
-    capability checks, and safe decision envelopes before provider delivery.
+    current persisted current-user preference readouts and the internal #629
+    decision-envelope foundation. Future work must implement admin/global caps,
+    group/thread mute, channel capability checks, provider/device readiness,
+    required/security-event bypass policy, and runtime wiring before provider
+    delivery.
   - Email/push delivery-state persistence and delivery workers are not
     implemented. Current in-app unread/read/archive state is separate and must
     not be treated as provider delivery truth.
@@ -204,6 +269,8 @@ remain the source of truth.
   - Notification deep-link/mobile UI implementation remains #371 and is still
     open/Figma-reference-gated even though #452 closed the UX/reference
     planning gate.
+  - Future SMTP, push, admin/global policy, device-token, schema, OpenAPI,
+    deep-link, and provider-runtime work remains separate and gated.
 - Future gates requiring explicit approval:
   - Provider/secrets/deployment/env/mobile release gates for SMTP and push.
   - OpenAPI/generated-client and schema/migration gates for any contract,
@@ -216,8 +283,9 @@ remain the source of truth.
     settlement mismatch/residual/review, and remaining sync event families.
 - Close/keep-open recommendation:
   - Keep #403 open as a parent/split tracker. The original docs/control
-    children #448-#452 are complete, but provider runtime, server-side
-    preference resolution, delivery-state persistence/workers, admin policy,
+    children #448-#452 and the internal #629 foundation are complete, but
+    provider runtime, server-side preference resolution beyond the foundation,
+    delivery-state persistence/workers, admin policy, device-token lifecycle,
     and #371 implementation remain separate work and should be split into
     focused implementation issues before any runtime starts.
 - Last verified repo/report references:
@@ -228,6 +296,8 @@ remain the source of truth.
   - `docs/planning/DAY1_UX_REFERENCE_DECISIONS.md`
   - Report:
     `/workspace/logs/settleora-codex-report-20260630-2228-notification-day1-provider-remaining-gates-split-403-369.md`
+  - Report:
+    `/workspace/logs/settleora-codex-report-20260630-2331-notification-decision-envelope-foundation-629-pr-merge.md`
 
 ### Issue #458 - User web auth/session shell and navigation foundation
 
