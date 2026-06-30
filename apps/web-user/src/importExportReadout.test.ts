@@ -6,9 +6,11 @@ import {
   createLocalBackupPackageFilename,
   createBillCsvImportSession,
   createImportConfirmRequestFromSession,
+  createLocalBackupRestorePreviewRuntime,
   cancelLocalBackupPackage,
   discardBillCsvImportSessionRuntime,
   discardLocalBackupPackage,
+  discardLocalBackupRestorePreviewRuntime,
   downloadBillExport,
   downloadLocalBackupPackage,
   evaluateLocalBackupPackageDownloadable,
@@ -21,13 +23,16 @@ import {
   labelImportExportStatus,
   loadImportExportReadout,
   loadSyncLocalStatus,
+  mapLocalBackupRestorePreviewResponse,
   preflightBillCsvImport,
   refreshLocalBackupPackageStatus,
+  refreshLocalBackupRestorePreviewRuntime,
   startLocalBackupPackage,
   type BillImportSessionRuntimeClient,
   type BillImportPreflightRuntimeClient,
   type BillExportRuntimeClient,
   type LocalBackupPackageRuntimeClient,
+  type LocalBackupRestorePreviewRuntimeClient,
   type SyncLocalStatusRuntimeClient
 } from "./importExportReadout";
 import { loadGroupsReadout } from "./groupsFriendsReadout";
@@ -42,6 +47,7 @@ import type {
   LocalBackupPackageDownloadActionResponse,
   LocalBackupPackageGenerationStatusResponse,
   LocalBackupPackageSessionResponse,
+  LocalBackupRestorePreviewResponse,
   SyncLocalStatusResponse
 } from "../../../packages/client-web/src/generated";
 
@@ -69,6 +75,9 @@ function createOperationClient() {
     downloadLocalBackupPackageContent: vi.fn(),
     discardLocalBackupPackageSession: vi.fn(),
     cancelLocalBackupPackageGeneration: vi.fn(),
+    createLocalBackupRestorePreview: vi.fn(),
+    getLocalBackupRestorePreview: vi.fn(),
+    discardLocalBackupRestorePreview: vi.fn(),
     importPersonalBillsCsv: vi.fn(),
     importGroupBillsCsv: vi.fn(),
     listSyncChanges: vi.fn(),
@@ -106,6 +115,9 @@ describe("import/export availability readout", () => {
       "downloadLocalBackupPackageContent",
       "discardLocalBackupPackageSession",
       "cancelLocalBackupPackageGeneration",
+      "createLocalBackupRestorePreview",
+      "getLocalBackupRestorePreview",
+      "discardLocalBackupRestorePreview",
       "importPersonalBillsCsv",
       "importGroupBillsCsv",
       "listSyncChanges",
@@ -161,7 +173,10 @@ describe("import/export availability readout", () => {
             "createLocalBackupPackageDownloadAction",
             "downloadLocalBackupPackageContent",
             "discardLocalBackupPackageSession",
-            "cancelLocalBackupPackageGeneration"
+            "cancelLocalBackupPackageGeneration",
+            "createLocalBackupRestorePreview",
+            "getLocalBackupRestorePreview",
+            "discardLocalBackupRestorePreview"
           ]
         }),
         expect.objectContaining({
@@ -203,6 +218,9 @@ describe("import/export availability readout", () => {
       "downloadLocalBackupPackageContent",
       "discardLocalBackupPackageSession",
       "cancelLocalBackupPackageGeneration",
+      "createLocalBackupRestorePreview",
+      "getLocalBackupRestorePreview",
+      "discardLocalBackupRestorePreview",
       "importGroupBillsCsv",
       "listSyncChanges",
       "submitSyncOperation",
@@ -1091,6 +1109,218 @@ describe("local backup package runtime", () => {
     } finally {
       click.mockRestore();
       vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("local backup restore preview runtime", () => {
+  it("auth-gates before reading the selected package file or calling preview APIs", async () => {
+    const client = createLocalBackupRestorePreviewClient();
+    const selectedFile = createRestorePreviewFile("sensitive package content");
+
+    const result = await createLocalBackupRestorePreviewRuntime({
+      accessToken: " ",
+      selectedFile,
+      client
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "auth_required",
+        selectedFileName: "settleora-local-backup-data-only.json",
+        selectedFileSize: "sensitive package content".length
+      })
+    );
+    expect(selectedFile.text).not.toHaveBeenCalled();
+    expect(client.createLocalBackupRestorePreview).not.toHaveBeenCalled();
+  });
+
+  it("reports missing generated methods without fallback preview data", async () => {
+    const selectedFile = createRestorePreviewFile("{\"packageFormatName\":\"settleora.local-backup.data-only\"}");
+
+    const result = await createLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      selectedFile,
+      client: {}
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "unavailable",
+        message: "Restore preview is not available in this web client build."
+      })
+    );
+    expect(selectedFile.text).not.toHaveBeenCalled();
+    expect(result.preview).toBeUndefined();
+  });
+
+  it("blocks missing and empty file content before API calls", async () => {
+    const client = createLocalBackupRestorePreviewClient();
+    const missing = await createLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      selectedFile: null,
+      client
+    });
+    const emptyBySize = await createLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      selectedFile: createRestorePreviewFile("", { size: 0 }),
+      client
+    });
+    const whitespace = createRestorePreviewFile("   ");
+    const emptyByContent = await createLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      selectedFile: whitespace,
+      client
+    });
+
+    expect(missing.status).toBe("unavailable");
+    expect(emptyBySize.status).toBe("unavailable");
+    expect(emptyByContent.status).toBe("unavailable");
+    expect(whitespace.text).toHaveBeenCalledOnce();
+    expect(client.createLocalBackupRestorePreview).not.toHaveBeenCalled();
+  });
+
+  it("creates a restore preview with generated request shape and maps safe metadata", async () => {
+    const packageContent = "{\"packageFormatName\":\"settleora.local-backup.data-only\",\"secret\":\"not echoed\"}";
+    const selectedFile = createRestorePreviewFile(packageContent);
+    const preview = createRestorePreviewResponse({
+      recordSummaries: [
+        {
+          category: "personal_bill_safe_summary",
+          totalCount: 3,
+          activeCount: 2,
+          archivedCount: 1,
+          itemCount: 8,
+          participantCount: 4,
+          payerCount: 2,
+          adjustmentCount: 1
+        }
+      ],
+      warnings: ["restore_confirmation_separate_gate", "browser_local_persistence_unsupported"],
+      blockedReasons: ["receipt_and_supporting_files"]
+    });
+    const client = createLocalBackupRestorePreviewClient({ preview });
+
+    const result = await createLocalBackupRestorePreviewRuntime({
+      accessToken: " token ",
+      selectedFile,
+      packageSha256: "  abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd  ",
+      client
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.preview).toEqual(preview);
+    expect(client.createLocalBackupRestorePreview).toHaveBeenCalledWith(
+      {
+        packageContent,
+        packageSha256: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+      },
+      { accessToken: "token" }
+    );
+    expect(JSON.stringify(result)).toContain("personal_bill_safe_summary");
+    expect(JSON.stringify(result)).not.toContain("not echoed");
+  });
+
+  it("refreshes and discards only an existing restore preview ID", async () => {
+    const preview = createRestorePreviewResponse();
+    const discardedPreview = createRestorePreviewResponse({
+      status: "discarded",
+      stableCode: "restore_preview_discarded",
+      safeMessage: "Preview discarded.",
+      discardedAtUtc: "2026-06-30T07:20:00.000Z"
+    });
+    const client = createLocalBackupRestorePreviewClient({ preview, discardedPreview });
+
+    const missingRefresh = await refreshLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      client,
+      state: { status: "idle", message: "No preview." }
+    });
+    const refreshed = await refreshLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      client,
+      state: { status: "ready", message: "Ready.", preview }
+    });
+    const discarded = await discardLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      client,
+      state: { status: "ready", message: "Ready.", preview }
+    });
+
+    expect(missingRefresh.status).toBe("unavailable");
+    expect(refreshed.status).toBe("ready");
+    expect(discarded.status).toBe("discarded");
+    expect(client.getLocalBackupRestorePreview).toHaveBeenCalledWith(preview.restorePreviewId, { accessToken: "token" });
+    expect(client.discardLocalBackupRestorePreview).toHaveBeenCalledWith(preview.restorePreviewId, { accessToken: "token" });
+    expect(client.createLocalBackupRestorePreview).not.toHaveBeenCalled();
+  });
+
+  it("maps expired, discarded, blocked, and unavailable preview responses fail-closed", () => {
+    expect(
+      mapLocalBackupRestorePreviewResponse(
+        createRestorePreviewResponse({ expiresAtUtc: "2026-06-30T00:00:00.000Z" }),
+        new Date("2026-06-30T00:00:01.000Z")
+      ).status
+    ).toBe("expired");
+
+    expect(
+      mapLocalBackupRestorePreviewResponse(
+        createRestorePreviewResponse({ status: "discarded", stableCode: "restore_preview_discarded" })
+      ).status
+    ).toBe("discarded");
+
+    expect(
+      mapLocalBackupRestorePreviewResponse(
+        createRestorePreviewResponse({
+          stableCode: "unsupported_package_version",
+          safeMessage: "Package version is unsupported."
+        })
+      )
+    ).toEqual(expect.objectContaining({ status: "blocked", message: "Package version is unsupported." }));
+
+    expect(
+      mapLocalBackupRestorePreviewResponse(
+        createRestorePreviewResponse({
+          stableCode: "temporarily_unavailable",
+          safeMessage: "Preview temporarily unavailable."
+        })
+      ).status
+    ).toBe("unavailable");
+  });
+
+  it("maps errors without echoing package content", async () => {
+    const packageContent = "{\"private\":\"package content must stay hidden\"}";
+    const selectedFile = createRestorePreviewFile(packageContent);
+    const result = await createLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      selectedFile,
+      client: createThrowingRestorePreviewClient(new SettleoraApiError(400, packageContent, {}))
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(JSON.stringify(result)).not.toContain("package content must stay hidden");
+  });
+
+  it("does not call restore confirmation, import, sync, or package generation mutations", async () => {
+    const forbidden = {
+      confirmLocalBackupRestorePreview: vi.fn(),
+      importPersonalBillsCsv: vi.fn(),
+      importGroupBillsCsv: vi.fn(),
+      submitSyncOperation: vi.fn(),
+      createLocalBackupPackageSession: vi.fn(),
+      prepareLocalBackupPackageSession: vi.fn(),
+      createLocalBackupPackageDownloadAction: vi.fn()
+    };
+    const client = { ...createLocalBackupRestorePreviewClient(), ...forbidden };
+
+    await createLocalBackupRestorePreviewRuntime({
+      accessToken: "token",
+      selectedFile: createRestorePreviewFile("{}"),
+      client
+    });
+
+    for (const method of Object.values(forbidden)) {
+      expect(method).not.toHaveBeenCalled();
     }
   });
 });
@@ -2073,6 +2303,80 @@ function createThrowingImportSessionClient(error: unknown): BillImportSessionRun
       throw error;
     }),
     listGroups: vi.fn(async () => ({ groups: [createGroup()] }))
+  };
+}
+
+function createRestorePreviewResponse(
+  overrides: Partial<LocalBackupRestorePreviewResponse> = {}
+): LocalBackupRestorePreviewResponse {
+  return {
+    restorePreviewId: "00000000-0000-4000-8000-000000000619",
+    status: "ready",
+    stableCode: "restore_preview_ready",
+    safeMessage: "Restore preview is ready. No records were restored.",
+    createdAtUtc: "2026-06-30T07:15:00.000Z",
+    expiresAtUtc: "2999-01-01T00:00:00.000Z",
+    discardedAtUtc: null,
+    sourceAuthorityBoundary: "server_authoritative_copy",
+    packageFormatName: "settleora.local-backup.data-only",
+    packageVersion: "2026-06-30.data-only.v1",
+    manifestVersion: "2026-06-30.manifest.v1",
+    packageId: "00000000-0000-4000-8000-000000000111",
+    manifestId: "00000000-0000-4000-8000-000000000112",
+    packageSessionId: "00000000-0000-4000-8000-000000000113",
+    packageGeneratedAtUtc: "2026-06-30T07:10:00.000Z",
+    packageExpiresAtUtc: "2999-01-01T00:00:00.000Z",
+    packageSha256: "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    totalSectionCount: 2,
+    includedSectionCategories: ["current_actor_profile_summary", "personal_bill_safe_summary"],
+    omittedSectionCategories: ["receipt_and_supporting_files"],
+    unsupportedSectionCategories: ["raw_ocr_text", "private_notes_and_payment_details"],
+    blockedSectionCategories: ["restore_preview_and_confirmation"],
+    recordSummaries: [],
+    warnings: ["restore_confirmation_separate_gate", "browser_local_persistence_unsupported"],
+    blockedReasons: ["restore_preview_and_confirmation"],
+    restoreConfirmationAvailable: false,
+    restoreConfirmationState: "unsupported",
+    restoreConfirmationCopy: "Restore confirmation is unavailable and requires a separate future gate.",
+    nextAllowedActions: ["get_restore_preview", "discard_restore_preview"],
+    privacyBoundary: "No raw package content, file bytes, storage internals, tokens, or hidden records are returned.",
+    responseGeneratedAtUtc: "2026-06-30T07:15:01.000Z",
+    ...overrides
+  };
+}
+
+function createRestorePreviewFile(content: string, overrides: Partial<{ name: string; size: number }> = {}) {
+  return {
+    name: overrides.name ?? "settleora-local-backup-data-only.json",
+    size: overrides.size ?? content.length,
+    text: vi.fn(async () => content)
+  };
+}
+
+function createLocalBackupRestorePreviewClient({
+  preview = createRestorePreviewResponse(),
+  discardedPreview = createRestorePreviewResponse({
+    status: "discarded",
+    stableCode: "restore_preview_discarded",
+    safeMessage: "Preview discarded.",
+    discardedAtUtc: "2026-06-30T07:20:00.000Z"
+  })
+}: {
+  preview?: LocalBackupRestorePreviewResponse;
+  discardedPreview?: LocalBackupRestorePreviewResponse;
+} = {}): Required<LocalBackupRestorePreviewRuntimeClient> {
+  return {
+    createLocalBackupRestorePreview: vi.fn(async () => preview),
+    getLocalBackupRestorePreview: vi.fn(async () => preview),
+    discardLocalBackupRestorePreview: vi.fn(async () => discardedPreview)
+  };
+}
+
+function createThrowingRestorePreviewClient(error: unknown): LocalBackupRestorePreviewRuntimeClient {
+  return {
+    createLocalBackupRestorePreview: vi.fn(async () => {
+      throw error;
+    })
   };
 }
 
