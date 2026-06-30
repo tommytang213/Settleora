@@ -20,6 +20,124 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #570 - OCR review in-app notification runtime
+
+- GitHub state/project status: issue `CLOSED`; Project status `Merged`,
+  `Progress %` `100`, `Man-days Remaining` `0`, `Actual Done Date`
+  `2026-06-30`, and linked PR #626 by GraphQL readback on 2026-06-30.
+- Last verified at main SHA:
+  `ecbabe1bfe432deb8b10617ac59395f338c05b0b`.
+- Completed PRs/slices:
+  - PR #573, merge SHA `ce808da646146a5177444caff4702f1c645da994`:
+    recorded that current OCR review `provisional` and `reviewed` states were
+    not safe `ocr.needs_review` source events.
+  - PR #574, merge SHA `d755e00efb0db386ace386ed136af66aa79c3b30`:
+    recorded the explicit OCR review assignment/source-state policy and kept
+    OCR notification runtime blocked until that source state existed.
+  - PR #576 / issue #575, merge SHA
+    `21c55062a8b7c49a7058e2fbc879b3c5c79bc822`: added the explicit
+    API-owned OCR review needs-review assignment/source state prerequisite.
+  - PR #626, source head `581aa6aca39041477e3f6ab58a1b8e33944e89ff`,
+    merge SHA `ecbabe1bfe432deb8b10617ac59395f338c05b0b`: implemented the
+    narrow `ocr.needs_review` in-app notification runtime for explicit
+    API-owned OCR review assignment creation/retarget transitions only.
+- Completed scope:
+  - Creating a new active needs-review assignment, or retargeting an existing
+    active assignment to a different authorized responsible editor, writes one
+    safe unread `ocr.needs_review` in-app notification to the assigned profile.
+  - Plain OCR review save/read/list/apply-preview/apply/delete, assignment
+    visibility, completion, cancellation, duplicate same-recipient assignment,
+    and actor self-assignment do not create OCR notifications.
+  - Dependencies #568 target references and #575 assignment/source state are
+    completed and closed/merged.
+- Validation summary from PR #626:
+  - Local validation passed before merge: `npm run doctor:validation`,
+    `npm run validate:openapi`, `npm run validate:clients`,
+    `npm run validate:scaffold`, API build with 0 warnings and 0 errors,
+    focused API tests with 51 passed/0 failed/0 skipped,
+    `timeout 900s npm run validate:api-local` with 1191 passed/0 failed/0
+    skipped, `npm run validate:docs`, and final
+    `git diff --check origin/main...HEAD`.
+  - GitHub CI passed on exact PR head
+    `581aa6aca39041477e3f6ab58a1b8e33944e89ff`: CodeQL jobs and Scaffold
+    Validation.
+- Remaining Day 1 work:
+  - `ocr.completed` and `ocr.failed` remain blocked until server OCR
+    worker/job source states exist.
+  - #371 mobile/deep-link UI behavior remains separate and Figma/reference
+    gated.
+  - #369 and #368 remain open parent notification trackers.
+  - Auth/session/security notification runtime remains manual-gated where
+    applicable.
+- Future gates requiring explicit approval:
+  - Server OCR worker/job source states and failure/completion recipient policy.
+  - Mobile/deep-link UI behavior under #371.
+  - Auth/session/security notification policy and runtime.
+  - Any future OpenAPI/generated-client, schema/migration, storage/privacy,
+    money/settlement/bill authority, deployment, CI, or provider-delivery
+    expansion outside the already merged #626 slice.
+- Close/keep-open recommendation:
+  - Keep #570 closed. It completed its narrow runtime slice and must not be
+    used as proof that all OCR/server-worker/deep-link notification scope is
+    complete.
+- Last verified repo/report references:
+  - `.codex/reports/settleora-codex-report-20260628-1445-ocr-notification-source-state-review-570.md`
+  - `.codex/reports/settleora-codex-report-20260628-1500-pr-ocr-notification-source-state-review-570-merge.md`
+  - `.codex/reports/settleora-codex-report-20260628-1515-ocr-needs-review-source-transition-policy-570.md`
+  - `.codex/reports/settleora-codex-report-20260628-1545-ocr-needs-review-assignment-source-state-child-issue-570.md`
+  - PR #626:
+    `https://github.com/tommytang213/Settleora/pull/626`
+  - Issue #570 completion comment:
+    `https://github.com/tommytang213/Settleora/issues/570#issuecomment-4844220380`
+
+### Issue #369 - Complete Day 1 in-app notification event coverage
+
+- GitHub state/project status: issue `OPEN`; Project status
+  `Needs Architecture Review`, `Progress %` `60`, `Initial MD` `2`,
+  `Man-days Remaining` `2`, `Figma Required` `Yes`, `Manual Gate` `Yes` by
+  GraphQL readback on 2026-06-30.
+- Parent epic readback: #368 is `OPEN`; Project status
+  `Needs Architecture Review`, `Progress %` `33`, `Figma Required` `Yes`,
+  `Manual Gate` `Yes`.
+- Last verified at main SHA:
+  `ecbabe1bfe432deb8b10617ac59395f338c05b0b`.
+- Completed child slices now recorded:
+  - PR #626 / #570 completed the narrow OCR `ocr.needs_review` runtime for
+    explicit API-owned assignment creation/retarget transitions only.
+  - Earlier merged #369/#367/#370 slices already cover recurring due-soon,
+    notification preferences infrastructure, notification event coverage
+    review, settlement notification coverage, bill workflow coverage, bill
+    revision coverage, recurring draft-generated coverage, #568 OCR/sync target
+    references, and #571 persisted sync-conflict-only runtime.
+- Remaining Day 1 work:
+  - Future OCR `ocr.completed` and `ocr.failed` events require server OCR
+    worker/job source states and safe recipient/action policy first.
+  - Remaining sync notification events such as operation failed, queued,
+    conflict resolved, retry behavior, conflict resolution behavior, mobile
+    deep links/UI, and broad offline-sync expansion remain future work.
+  - Auth/session/security notification runtime remains manual auth-security
+    gated.
+  - Item claim/split/creator-review notification coverage remains blocked on
+    source claim runtime and #371/Figma/deep-link references.
+  - Future settlement mismatch/residual/review event coverage remains separate
+    source-state work.
+  - Push/email provider delivery, provider workers, digests, delivery receipts,
+    background delivery, admin/global policy, Day 1 notification acceptance,
+    production readiness, release readiness, manual UI retest, and manual code
+    review are not completed by #626.
+- Future gates requiring explicit approval:
+  - #371 Figma/reference-gated notification deep links/mobile UI.
+  - Auth/session/security policy before security-impactful notifications.
+  - OpenAPI/generated-client/schema/runtime work only for exact implemented
+    event types with reviewed source states and safe targets.
+- Close/keep-open recommendation:
+  - Do not close #369 or mark it `100`. PR #626/#570 is one completed child
+    runtime slice, not full Day 1 notification event-family acceptance.
+- Last verified repo/report references:
+  - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
+  - Issue #369 PR #626 progress comment:
+    `https://github.com/tommytang213/Settleora/issues/369#issuecomment-4844221960`
+
 ### Issue #458 - User web auth/session shell and navigation foundation
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,
