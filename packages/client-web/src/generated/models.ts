@@ -3872,7 +3872,7 @@ export type LocalBackupPackageSessionStatus = "created" | "ready_to_download" | 
 /**
  * Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupPackageSessionStableCode = "package_session_created" | "package_ready_to_download" | "package_session_cancelled" | "package_session_expired" | "package_session_discarded" | "package_generation_unsupported" | "package_manifest_metadata_only" | "policy_disabled" | "temporarily_unavailable";
+export type LocalBackupPackageSessionStableCode = "package_session_created" | "package_ready_to_download" | "package_session_cancelled" | "package_session_expired" | "package_session_discarded" | "package_generation_unsupported" | "package_manifest_metadata_only" | "policy_disabled" | "personal_bill_candidate_limit_exceeded" | "temporarily_unavailable";
 
 /**
  * Metadata-only local backup package artifact/download status. Unknown future values must be handled as unavailable by clients.
@@ -3882,7 +3882,7 @@ export type LocalBackupPackageArtifactStatus = "metadata_only_no_artifact" | "re
 /**
  * Stable metadata-only local backup package generation/artifact/download code. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupPackageArtifactStableCode = "metadata_only_no_artifact" | "package_ready_to_download" | "package_download_action_ready" | "package_generation_unsupported" | "package_download_unavailable" | "package_generation_cancelled" | "package_session_expired" | "package_session_discarded" | "package_session_stale_recheck_required" | "temporarily_unavailable";
+export type LocalBackupPackageArtifactStableCode = "metadata_only_no_artifact" | "package_ready_to_download" | "package_download_action_ready" | "package_generation_unsupported" | "package_download_unavailable" | "package_generation_cancelled" | "package_session_expired" | "package_session_discarded" | "package_session_stale_recheck_required" | "personal_bill_candidate_limit_exceeded" | "temporarily_unavailable";
 
 /**
  * Safe next action labels for metadata-only package-session flows. These are not storage, download, restore, or browser persistence authority.
@@ -4144,12 +4144,12 @@ export type LocalBackupRestorePreviewStatus = "ready" | "expired" | "discarded";
 /**
  * Stable local backup restore preview code. Unknown future values must be handled as unavailable by clients.
  */
-export type LocalBackupRestorePreviewStableCode = "restore_preview_ready" | "restore_preview_expired" | "restore_preview_discarded" | "invalid_json" | "missing_package_content" | "backup_package_too_large" | "unsupported_package_format" | "unsupported_package_version" | "unsupported_manifest_version" | "package_integrity_failed" | "backup_package_expired" | "unsupported_required_feature" | "unsupported_encrypted_section" | "unsupported_file_section" | "unsupported_source_authority_boundary" | "unsupported_source_server_mode_posture" | "missing_section_inventory" | "unsupported_section_inventory" | "unsupported_section_state" | "temporarily_unavailable";
+export type LocalBackupRestorePreviewStableCode = "restore_preview_ready" | "restore_preview_expired" | "restore_preview_discarded" | "invalid_json" | "missing_package_content" | "backup_package_too_large" | "unsupported_package_format" | "unsupported_package_version" | "unsupported_manifest_version" | "package_integrity_failed" | "backup_package_expired" | "unsupported_required_feature" | "unsupported_encrypted_section" | "unsupported_file_section" | "unsupported_source_authority_boundary" | "unsupported_source_server_mode_posture" | "missing_section_inventory" | "unsupported_section_inventory" | "unsupported_section_state" | "invalid_personal_bill_candidate_section" | "personal_bill_candidate_limit_exceeded" | "temporarily_unavailable";
 
 /**
  * Safe package section category labels exposed by restore preview.
  */
-export type LocalBackupRestorePreviewSectionCategory = "current_actor_profile_summary" | "personal_bill_safe_summary" | "receipt_and_supporting_files" | "raw_ocr_text" | "private_notes_and_payment_details" | "restore_preview_and_confirmation";
+export type LocalBackupRestorePreviewSectionCategory = "current_actor_profile_summary" | "personal_bill_safe_summary" | "personal_bill_candidates" | "receipt_and_supporting_files" | "raw_ocr_text" | "private_notes_and_payment_details" | "restore_preview_and_confirmation";
 
 /**
  * Safe bounded restore preview warning labels.
@@ -4159,7 +4159,7 @@ export type LocalBackupRestorePreviewWarning = "unsupported_sections_omitted" | 
 /**
  * Safe bounded restore preview blocked section labels.
  */
-export type LocalBackupRestorePreviewBlockedReason = "current_actor_profile_summary" | "personal_bill_safe_summary" | "receipt_and_supporting_files" | "raw_ocr_text" | "private_notes_and_payment_details" | "restore_preview_and_confirmation";
+export type LocalBackupRestorePreviewBlockedReason = "current_actor_profile_summary" | "personal_bill_safe_summary" | "personal_bill_candidates" | "receipt_and_supporting_files" | "raw_ocr_text" | "private_notes_and_payment_details" | "restore_preview_and_confirmation";
 
 /**
  * Safe next action labels for non-mutating restore preview lifecycle.

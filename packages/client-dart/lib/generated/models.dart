@@ -11341,8 +11341,9 @@ class LocalBackupPackageSessionStableCodeValues {
   static const LocalBackupPackageSessionStableCode packageGenerationUnsupported = "package_generation_unsupported";
   static const LocalBackupPackageSessionStableCode packageManifestMetadataOnly = "package_manifest_metadata_only";
   static const LocalBackupPackageSessionStableCode policyDisabled = "policy_disabled";
+  static const LocalBackupPackageSessionStableCode personalBillCandidateLimitExceeded = "personal_bill_candidate_limit_exceeded";
   static const LocalBackupPackageSessionStableCode temporarilyUnavailable = "temporarily_unavailable";
-  static const Set<LocalBackupPackageSessionStableCode> values = {packageSessionCreated, packageReadyToDownload, packageSessionCancelled, packageSessionExpired, packageSessionDiscarded, packageGenerationUnsupported, packageManifestMetadataOnly, policyDisabled, temporarilyUnavailable};
+  static const Set<LocalBackupPackageSessionStableCode> values = {packageSessionCreated, packageReadyToDownload, packageSessionCancelled, packageSessionExpired, packageSessionDiscarded, packageGenerationUnsupported, packageManifestMetadataOnly, policyDisabled, personalBillCandidateLimitExceeded, temporarilyUnavailable};
 }
 
 /// Metadata-only local backup package artifact/download status. Unknown future values must be handled as unavailable by clients.
@@ -11375,8 +11376,9 @@ class LocalBackupPackageArtifactStableCodeValues {
   static const LocalBackupPackageArtifactStableCode packageSessionExpired = "package_session_expired";
   static const LocalBackupPackageArtifactStableCode packageSessionDiscarded = "package_session_discarded";
   static const LocalBackupPackageArtifactStableCode packageSessionStaleRecheckRequired = "package_session_stale_recheck_required";
+  static const LocalBackupPackageArtifactStableCode personalBillCandidateLimitExceeded = "personal_bill_candidate_limit_exceeded";
   static const LocalBackupPackageArtifactStableCode temporarilyUnavailable = "temporarily_unavailable";
-  static const Set<LocalBackupPackageArtifactStableCode> values = {metadataOnlyNoArtifact, packageReadyToDownload, packageDownloadActionReady, packageGenerationUnsupported, packageDownloadUnavailable, packageGenerationCancelled, packageSessionExpired, packageSessionDiscarded, packageSessionStaleRecheckRequired, temporarilyUnavailable};
+  static const Set<LocalBackupPackageArtifactStableCode> values = {metadataOnlyNoArtifact, packageReadyToDownload, packageDownloadActionReady, packageGenerationUnsupported, packageDownloadUnavailable, packageGenerationCancelled, packageSessionExpired, packageSessionDiscarded, packageSessionStaleRecheckRequired, personalBillCandidateLimitExceeded, temporarilyUnavailable};
 }
 
 /// Safe next action labels for metadata-only package-session flows. These are not storage, download, restore, or browser persistence authority.
@@ -12074,8 +12076,10 @@ class LocalBackupRestorePreviewStableCodeValues {
   static const LocalBackupRestorePreviewStableCode missingSectionInventory = "missing_section_inventory";
   static const LocalBackupRestorePreviewStableCode unsupportedSectionInventory = "unsupported_section_inventory";
   static const LocalBackupRestorePreviewStableCode unsupportedSectionState = "unsupported_section_state";
+  static const LocalBackupRestorePreviewStableCode invalidPersonalBillCandidateSection = "invalid_personal_bill_candidate_section";
+  static const LocalBackupRestorePreviewStableCode personalBillCandidateLimitExceeded = "personal_bill_candidate_limit_exceeded";
   static const LocalBackupRestorePreviewStableCode temporarilyUnavailable = "temporarily_unavailable";
-  static const Set<LocalBackupRestorePreviewStableCode> values = {restorePreviewReady, restorePreviewExpired, restorePreviewDiscarded, invalidJson, missingPackageContent, backupPackageTooLarge, unsupportedPackageFormat, unsupportedPackageVersion, unsupportedManifestVersion, packageIntegrityFailed, backupPackageExpired, unsupportedRequiredFeature, unsupportedEncryptedSection, unsupportedFileSection, unsupportedSourceAuthorityBoundary, unsupportedSourceServerModePosture, missingSectionInventory, unsupportedSectionInventory, unsupportedSectionState, temporarilyUnavailable};
+  static const Set<LocalBackupRestorePreviewStableCode> values = {restorePreviewReady, restorePreviewExpired, restorePreviewDiscarded, invalidJson, missingPackageContent, backupPackageTooLarge, unsupportedPackageFormat, unsupportedPackageVersion, unsupportedManifestVersion, packageIntegrityFailed, backupPackageExpired, unsupportedRequiredFeature, unsupportedEncryptedSection, unsupportedFileSection, unsupportedSourceAuthorityBoundary, unsupportedSourceServerModePosture, missingSectionInventory, unsupportedSectionInventory, unsupportedSectionState, invalidPersonalBillCandidateSection, personalBillCandidateLimitExceeded, temporarilyUnavailable};
 }
 
 /// Safe package section category labels exposed by restore preview.
@@ -12084,11 +12088,12 @@ class LocalBackupRestorePreviewSectionCategoryValues {
   const LocalBackupRestorePreviewSectionCategoryValues._();
   static const LocalBackupRestorePreviewSectionCategory currentActorProfileSummary = "current_actor_profile_summary";
   static const LocalBackupRestorePreviewSectionCategory personalBillSafeSummary = "personal_bill_safe_summary";
+  static const LocalBackupRestorePreviewSectionCategory personalBillCandidates = "personal_bill_candidates";
   static const LocalBackupRestorePreviewSectionCategory receiptAndSupportingFiles = "receipt_and_supporting_files";
   static const LocalBackupRestorePreviewSectionCategory rawOcrText = "raw_ocr_text";
   static const LocalBackupRestorePreviewSectionCategory privateNotesAndPaymentDetails = "private_notes_and_payment_details";
   static const LocalBackupRestorePreviewSectionCategory restorePreviewAndConfirmation = "restore_preview_and_confirmation";
-  static const Set<LocalBackupRestorePreviewSectionCategory> values = {currentActorProfileSummary, personalBillSafeSummary, receiptAndSupportingFiles, rawOcrText, privateNotesAndPaymentDetails, restorePreviewAndConfirmation};
+  static const Set<LocalBackupRestorePreviewSectionCategory> values = {currentActorProfileSummary, personalBillSafeSummary, personalBillCandidates, receiptAndSupportingFiles, rawOcrText, privateNotesAndPaymentDetails, restorePreviewAndConfirmation};
 }
 
 /// Safe bounded restore preview warning labels.
@@ -12107,11 +12112,12 @@ class LocalBackupRestorePreviewBlockedReasonValues {
   const LocalBackupRestorePreviewBlockedReasonValues._();
   static const LocalBackupRestorePreviewBlockedReason currentActorProfileSummary = "current_actor_profile_summary";
   static const LocalBackupRestorePreviewBlockedReason personalBillSafeSummary = "personal_bill_safe_summary";
+  static const LocalBackupRestorePreviewBlockedReason personalBillCandidates = "personal_bill_candidates";
   static const LocalBackupRestorePreviewBlockedReason receiptAndSupportingFiles = "receipt_and_supporting_files";
   static const LocalBackupRestorePreviewBlockedReason rawOcrText = "raw_ocr_text";
   static const LocalBackupRestorePreviewBlockedReason privateNotesAndPaymentDetails = "private_notes_and_payment_details";
   static const LocalBackupRestorePreviewBlockedReason restorePreviewAndConfirmation = "restore_preview_and_confirmation";
-  static const Set<LocalBackupRestorePreviewBlockedReason> values = {currentActorProfileSummary, personalBillSafeSummary, receiptAndSupportingFiles, rawOcrText, privateNotesAndPaymentDetails, restorePreviewAndConfirmation};
+  static const Set<LocalBackupRestorePreviewBlockedReason> values = {currentActorProfileSummary, personalBillSafeSummary, personalBillCandidates, receiptAndSupportingFiles, rawOcrText, privateNotesAndPaymentDetails, restorePreviewAndConfirmation};
 }
 
 /// Safe next action labels for non-mutating restore preview lifecycle.

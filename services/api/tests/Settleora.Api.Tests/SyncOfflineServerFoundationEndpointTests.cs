@@ -1197,6 +1197,20 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
             "Backup Generation Hidden Merchant",
             InitialTimestamp.AddMinutes(1),
             includeSensitiveRows: true);
+        var groupId = await SeedGroupAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            "Backup Generation Group",
+            InitialTimestamp,
+            new MembershipSeed(actorSession.UserProfileId, GroupMembershipRoles.Owner, GroupMembershipStatuses.Active));
+        await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId,
+            [actorSession.UserProfileId],
+            "Backup Generation Group Merchant",
+            InitialTimestamp.AddMinutes(2),
+            includeSensitiveRows: true);
         var syncOperationCountBeforeSession = await CountSyncOperationsAsync(testFactory);
         var syncResourceVersionCountBeforeSession = await CountSyncResourceVersionsAsync(testFactory);
         var notificationCountBeforeSession = await CountInAppNotificationsAsync(testFactory);
@@ -1328,11 +1342,34 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
             Assert.True(packageRoot.GetProperty("sections").GetArrayLength() >= 6);
             Assert.Contains("current_actor_profile_summary", packageContent);
             Assert.Contains("personal_bill_safe_summary", packageContent);
+            Assert.Contains("personal_bill_candidates", packageContent);
             Assert.Contains("omitted_unsupported", packageContent);
             Assert.Contains("unsupported", packageContent);
             Assert.Equal("Backup Generation Actor", packageRoot.GetProperty("data").GetProperty("currentActorProfileSummary").GetProperty("displayName").GetString());
             Assert.Equal(1, packageRoot.GetProperty("data").GetProperty("personalBillSafeSummary").GetProperty("totalVisiblePersonalBills").GetInt32());
             Assert.Equal(1, packageRoot.GetProperty("data").GetProperty("personalBillSafeSummary").GetProperty("itemCount").GetInt32());
+            var personalBillCandidates = packageRoot.GetProperty("data").GetProperty("personalBillCandidates");
+            var personalBillCandidate = Assert.Single(personalBillCandidates.EnumerateArray());
+            Assert.Equal("personal-bill-candidate-000001", personalBillCandidate.GetProperty("candidateId").GetString());
+            Assert.Equal("expense_bill", personalBillCandidate.GetProperty("sourceProvenance").GetProperty("sourceRecordType").GetString());
+            Assert.Equal("server_authoritative_copy", personalBillCandidate.GetProperty("sourceProvenance").GetProperty("sourceAuthorityBoundary").GetString());
+            Assert.Equal("current_actor_personal_bill", personalBillCandidate.GetProperty("sourceProvenance").GetProperty("sourceScope").GetString());
+            Assert.Equal(64, personalBillCandidate.GetProperty("sourceProvenance").GetProperty("sourceRecordDigest").GetString()!.Length);
+            Assert.Equal("2026-05-17", personalBillCandidate.GetProperty("billDate").GetString());
+            Assert.Equal("draft", personalBillCandidate.GetProperty("status").GetString());
+            Assert.False(personalBillCandidate.GetProperty("archived").GetBoolean());
+            Assert.Equal("12", personalBillCandidate.GetProperty("totalAmount").GetString());
+            Assert.Equal("USD", personalBillCandidate.GetProperty("currency").GetString());
+            Assert.Equal(1, personalBillCandidate.GetProperty("itemCount").GetInt32());
+            Assert.Equal(1, personalBillCandidate.GetProperty("participantCount").GetInt32());
+            Assert.Equal(1, personalBillCandidate.GetProperty("payerCount").GetInt32());
+            Assert.True(personalBillCandidate.GetProperty("createdByCurrentActor").GetBoolean());
+            Assert.True(personalBillCandidate.GetProperty("billOwnerIsCurrentActor").GetBoolean());
+            Assert.Equal("pending_acceptance", personalBillCandidate.GetProperty("currentActorParticipant").GetProperty("status").GetString());
+            Assert.Equal("12", personalBillCandidate.GetProperty("currentActorParticipant").GetProperty("resolvedShareAmount").GetString());
+            Assert.Equal("USD", personalBillCandidate.GetProperty("currentActorPayer").GetProperty("currency").GetString());
+            Assert.DoesNotContain("Backup Generation Group Merchant", packageContent);
+            Assert.DoesNotContain(groupId.ToString("D"), packageContent);
             Assert.Equal(packageSha256, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(packageContent))).ToLowerInvariant());
         }
 
@@ -1455,6 +1492,7 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.True(createPreviewRoot.GetProperty("totalSectionCount").GetInt32() >= 6);
         AssertRestorePreviewStringArrayContains(createPreviewRoot.GetProperty("includedSectionCategories"), "current_actor_profile_summary");
         AssertRestorePreviewStringArrayContains(createPreviewRoot.GetProperty("includedSectionCategories"), "personal_bill_safe_summary");
+        AssertRestorePreviewStringArrayContains(createPreviewRoot.GetProperty("includedSectionCategories"), "personal_bill_candidates");
         AssertRestorePreviewStringArrayContains(createPreviewRoot.GetProperty("unsupportedSectionCategories"), "receipt_and_supporting_files");
         AssertRestorePreviewStringArrayContains(createPreviewRoot.GetProperty("warnings"), "restore_confirmation_separate_gate");
         Assert.False(createPreviewRoot.GetProperty("restoreConfirmationAvailable").GetBoolean());
@@ -1462,6 +1500,15 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("separate explicit mutation gate", createPreviewRoot.GetProperty("restoreConfirmationCopy").GetString(), StringComparison.Ordinal);
         Assert.Equal(1, createPreviewRoot.GetProperty("recordSummaries")[0].GetProperty("totalCount").GetInt32());
         Assert.Equal(1, createPreviewRoot.GetProperty("recordSummaries")[0].GetProperty("itemCount").GetInt32());
+        var candidateSummary = createPreviewRoot.GetProperty("recordSummaries")
+            .EnumerateArray()
+            .Single(summary => summary.GetProperty("category").GetString() == "personal_bill_candidates");
+        Assert.Equal(1, candidateSummary.GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, candidateSummary.GetProperty("activeCount").GetInt32());
+        Assert.Equal(0, candidateSummary.GetProperty("archivedCount").GetInt32());
+        Assert.Equal(1, candidateSummary.GetProperty("itemCount").GetInt32());
+        Assert.Equal(1, candidateSummary.GetProperty("participantCount").GetInt32());
+        Assert.Equal(1, candidateSummary.GetProperty("payerCount").GetInt32());
 
         using (var otherActorRequest = CreateBearerRequest(
             HttpMethod.Get,

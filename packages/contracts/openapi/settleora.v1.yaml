@@ -18601,6 +18601,7 @@ components:
         - package_generation_unsupported
         - package_manifest_metadata_only
         - policy_disabled
+        - personal_bill_candidate_limit_exceeded
         - temporarily_unavailable
     LocalBackupPackageArtifactStatus:
       type: string
@@ -18629,6 +18630,7 @@ components:
         - package_session_expired
         - package_session_discarded
         - package_session_stale_recheck_required
+        - personal_bill_candidate_limit_exceeded
         - temporarily_unavailable
     LocalBackupPackageNextAllowedAction:
       type: string
@@ -19106,6 +19108,8 @@ components:
         - missing_section_inventory
         - unsupported_section_inventory
         - unsupported_section_state
+        - invalid_personal_bill_candidate_section
+        - personal_bill_candidate_limit_exceeded
         - temporarily_unavailable
     LocalBackupRestorePreviewSectionCategory:
       type: string
@@ -19113,6 +19117,7 @@ components:
       enum:
         - current_actor_profile_summary
         - personal_bill_safe_summary
+        - personal_bill_candidates
         - receipt_and_supporting_files
         - raw_ocr_text
         - private_notes_and_payment_details
@@ -19130,6 +19135,7 @@ components:
       enum:
         - current_actor_profile_summary
         - personal_bill_safe_summary
+        - personal_bill_candidates
         - receipt_and_supporting_files
         - raw_ocr_text
         - private_notes_and_payment_details
