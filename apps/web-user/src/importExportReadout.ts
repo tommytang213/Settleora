@@ -8,6 +8,10 @@ import {
   type ExpenseBillExportResponse,
   type ExpenseBillReconciliationStatus,
   type ExpenseBillStatus,
+  type LocalBackupPackageArtifactStatusResponse,
+  type LocalBackupPackageDownloadActionResponse,
+  type LocalBackupPackageGenerationStatusResponse,
+  type LocalBackupPackageSessionResponse,
   type BillCsvImportConfirmationResponse,
   type BillCsvImportConfirmRequest,
   type BillCsvImportPreflightResponse,
@@ -96,6 +100,21 @@ export type SyncLocalStatusRuntimeStatus =
   | "stale"
   | "unavailable"
   | "error";
+export type LocalBackupPackageRuntimeStatus =
+  | "idle"
+  | "auth_required"
+  | "creating_session"
+  | "preparing"
+  | "ready_to_download"
+  | "creating_download_action"
+  | "downloading"
+  | "downloaded"
+  | "blocked"
+  | "cancelled"
+  | "discarded"
+  | "expired"
+  | "unavailable"
+  | "error";
 
 export interface BillExportFilters {
   fromDate?: string | null;
@@ -144,6 +163,16 @@ export interface SyncLocalStatusRuntimeClient {
   getSyncLocalStatus?: SettleoraApiClient["getSyncLocalStatus"];
 }
 
+export interface LocalBackupPackageRuntimeClient {
+  createLocalBackupPackageSession?: SettleoraApiClient["createLocalBackupPackageSession"];
+  prepareLocalBackupPackageSession?: SettleoraApiClient["prepareLocalBackupPackageSession"];
+  getLocalBackupPackageArtifactStatus?: SettleoraApiClient["getLocalBackupPackageArtifactStatus"];
+  createLocalBackupPackageDownloadAction?: SettleoraApiClient["createLocalBackupPackageDownloadAction"];
+  downloadLocalBackupPackageContent?: SettleoraApiClient["downloadLocalBackupPackageContent"];
+  discardLocalBackupPackageSession?: SettleoraApiClient["discardLocalBackupPackageSession"];
+  cancelLocalBackupPackageGeneration?: SettleoraApiClient["cancelLocalBackupPackageGeneration"];
+}
+
 export interface BrowserDownloadAdapter {
   saveBlob(blob: Blob, filename: string): void;
 }
@@ -179,6 +208,15 @@ export interface SyncLocalStatusRuntimeState {
   response?: SyncLocalStatusResponse;
 }
 
+export interface LocalBackupPackageRuntimeState {
+  status: LocalBackupPackageRuntimeStatus;
+  message: string;
+  session?: LocalBackupPackageSessionResponse;
+  artifactStatus?: LocalBackupPackageArtifactStatusResponse | LocalBackupPackageGenerationStatusResponse;
+  downloadAction?: LocalBackupPackageDownloadActionResponse;
+  filename?: string;
+}
+
 export interface BillImportPreflightRuntimeOptions {
   accessToken?: string | null;
   scope: BillImportPreflightScope;
@@ -205,6 +243,15 @@ export interface BillImportSessionActionOptions {
   now?: Date;
 }
 
+export interface LocalBackupPackageRuntimeOptions {
+  accessToken?: string | null;
+  baseUrl?: string;
+  client?: LocalBackupPackageRuntimeClient;
+  state?: LocalBackupPackageRuntimeState | null;
+  now?: Date;
+  downloadAdapter?: BrowserDownloadAdapter;
+}
+
 export const defaultBillExportFilters: BillExportFilters = {
   archiveState: "all",
   limit: 100
@@ -226,6 +273,13 @@ const operationMethods = [
   "discardBillCsvImportSession",
   "listGroups",
   "getSyncLocalStatus",
+  "createLocalBackupPackageSession",
+  "prepareLocalBackupPackageSession",
+  "getLocalBackupPackageArtifactStatus",
+  "createLocalBackupPackageDownloadAction",
+  "downloadLocalBackupPackageContent",
+  "discardLocalBackupPackageSession",
+  "cancelLocalBackupPackageGeneration",
   "importPersonalBillsCsv",
   "importGroupBillsCsv",
   "listSyncChanges",
@@ -320,15 +374,23 @@ const capabilityDefinitions: Array<{
   },
   {
     id: "local-backup-restore",
-    title: "Local backup / restore",
+    title: "Local backup package",
     summaryWhenPresent:
-      "No browser backup or restore methods are exposed for this web build.",
+      "Data-only local backup package session, prepare, status, action, and same-API content methods are present.",
     summaryWhenMissing:
-      "Browser local backup and restore are not supported by the current generated client.",
-    methods: [],
+      "Data-only local backup package methods are not available in this web client build.",
+    methods: [
+      "createLocalBackupPackageSession",
+      "prepareLocalBackupPackageSession",
+      "getLocalBackupPackageArtifactStatus",
+      "createLocalBackupPackageDownloadAction",
+      "downloadLocalBackupPackageContent",
+      "discardLocalBackupPackageSession",
+      "cancelLocalBackupPackageGeneration"
+    ],
     followUps: [
-      "Needs a reviewed browser local backup/restore design before package creation, preview, confirmation, or restore.",
-      "No backup package, restore preview, backup contents, or browser-local accounting state is read or written here."
+      "This web surface prepares and downloads only the approved short-lived data-only package artifact.",
+      "Restore preview, restore confirmation, durable encrypted storage, file-byte backup, and browser-local authority remain unavailable."
     ]
   },
   {
@@ -363,7 +425,7 @@ export const importExportUnsupportedSections = [
   "Personal CSV/JSON export is available only after sign-in and a positive server readiness check.",
   "Group CSV/JSON export needs a safe group selector on this route before it can start.",
   "Import confirmation uses staged server sessions only; direct CSV import remains unavailable.",
-  "Browser local backup and restore are not supported in this web slice.",
+  "Local backup package download is data-only; restore, durable encrypted storage, file-byte backup, and browser-local authority are not implemented.",
   "User-web local-mode persistence is not implemented.",
   "Sync/local status is read-only; no sync queue or operation is submitted.",
   "Report/export history is not available when the server does not expose a safe history read."
@@ -741,6 +803,339 @@ export async function loadSyncLocalStatus(
   }
 }
 
+export async function startLocalBackupPackage(
+  options: LocalBackupPackageRuntimeOptions
+): Promise<LocalBackupPackageRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can prepare a local backup package."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    if (typeof client.createLocalBackupPackageSession !== "function") {
+      throw new MissingLocalBackupPackageMethodError("Local backup package sessions are not available in this web client build.");
+    }
+
+    const session = await client.createLocalBackupPackageSession({ accessToken });
+
+    return await prepareLocalBackupPackage({
+      ...options,
+      accessToken,
+      client,
+      state: {
+        status: "creating_session",
+        message: session.safeMessage,
+        session
+      }
+    });
+  } catch (error) {
+    return classifyLocalBackupPackageFailure(error, "Settleora could not create a local backup package session. No fallback backup file was created.");
+  }
+}
+
+export async function prepareLocalBackupPackage(
+  options: LocalBackupPackageRuntimeOptions
+): Promise<LocalBackupPackageRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can prepare a local backup package."
+    };
+  }
+
+  const sessionId = getLocalBackupPackageSessionId(options.state);
+  if (!sessionId) {
+    return startLocalBackupPackage(options);
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    if (typeof client.prepareLocalBackupPackageSession !== "function") {
+      throw new MissingLocalBackupPackageMethodError("Local backup package preparation is not available in this web client build.");
+    }
+
+    const artifactStatus = await client.prepareLocalBackupPackageSession(sessionId, { accessToken });
+
+    return mapLocalBackupPackageArtifactStatus(artifactStatus, options.state?.session, options.now);
+  } catch (error) {
+    return classifyLocalBackupPackageFailure(error, "Settleora could not prepare the local backup package. No fallback backup file was created.");
+  }
+}
+
+export async function refreshLocalBackupPackageStatus(
+  options: LocalBackupPackageRuntimeOptions
+): Promise<LocalBackupPackageRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can read local backup package status."
+    };
+  }
+
+  const sessionId = getLocalBackupPackageSessionId(options.state);
+  if (!sessionId) {
+    return {
+      status: "idle",
+      message: "Prepare a backup package before reading artifact status."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    if (typeof client.getLocalBackupPackageArtifactStatus !== "function") {
+      throw new MissingLocalBackupPackageMethodError("Local backup package artifact status is not available in this web client build.");
+    }
+
+    const artifactStatus = await client.getLocalBackupPackageArtifactStatus(sessionId, { accessToken });
+
+    return mapLocalBackupPackageArtifactStatus(artifactStatus, options.state?.session, options.now);
+  } catch (error) {
+    return classifyLocalBackupPackageFailure(error, "Settleora could not read local backup package status.");
+  }
+}
+
+export async function downloadLocalBackupPackage(
+  options: LocalBackupPackageRuntimeOptions
+): Promise<LocalBackupPackageRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can download a local backup package."
+    };
+  }
+
+  const sessionId = getLocalBackupPackageSessionId(options.state);
+  if (!sessionId) {
+    return {
+      status: "unavailable",
+      message: "Prepare a backup package before downloading it."
+    };
+  }
+
+  const artifactGuard = evaluateLocalBackupPackageDownloadable(options.state?.artifactStatus, options.now);
+  if (!artifactGuard.allowed) {
+    return {
+      status: artifactGuard.status,
+      message: artifactGuard.message,
+      session: options.state?.session,
+      artifactStatus: options.state?.artifactStatus
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    if (typeof client.createLocalBackupPackageDownloadAction !== "function") {
+      throw new MissingLocalBackupPackageMethodError("Local backup package download actions are not available in this web client build.");
+    }
+
+    if (typeof client.downloadLocalBackupPackageContent !== "function") {
+      throw new MissingLocalBackupPackageMethodError("Local backup package content download is not available in this web client build.");
+    }
+
+    const downloadAction = await client.createLocalBackupPackageDownloadAction(sessionId, { accessToken });
+    const actionGuard = evaluateLocalBackupPackageDownloadAction(downloadAction, options.now);
+    if (!actionGuard.allowed) {
+      return {
+        status: actionGuard.status,
+        message: actionGuard.message,
+        session: options.state?.session,
+        artifactStatus: options.state?.artifactStatus,
+        downloadAction
+      };
+    }
+
+    const downloadActionId = downloadAction.downloadActionId;
+    if (!downloadActionId) {
+      return {
+        status: "blocked",
+        message: "Settleora did not return a usable same-API download action.",
+        session: options.state?.session,
+        artifactStatus: options.state?.artifactStatus,
+        downloadAction
+      };
+    }
+
+    const blob = await client.downloadLocalBackupPackageContent(sessionId, downloadActionId, { accessToken });
+    const filename = createLocalBackupPackageFilename(downloadAction);
+
+    (options.downloadAdapter ?? browserDownloadAdapter).saveBlob(blob, filename);
+
+    return {
+      status: "downloaded",
+      message: "Download backup package completed. The browser received a user-controlled data-only package copy.",
+      session: options.state?.session,
+      artifactStatus: options.state?.artifactStatus,
+      downloadAction,
+      filename
+    };
+  } catch (error) {
+    return classifyLocalBackupPackageFailure(error, "Settleora could not download the local backup package. No fallback backup file was created.");
+  }
+}
+
+export async function cancelLocalBackupPackage(
+  options: LocalBackupPackageRuntimeOptions
+): Promise<LocalBackupPackageRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can cancel package generation."
+    };
+  }
+
+  const sessionId = getLocalBackupPackageSessionId(options.state);
+  if (!sessionId) {
+    return {
+      status: "unavailable",
+      message: "Create a backup package session before cancelling generation."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    if (typeof client.cancelLocalBackupPackageGeneration !== "function") {
+      throw new MissingLocalBackupPackageMethodError("Local backup package cancellation is not available in this web client build.");
+    }
+
+    const artifactStatus = await client.cancelLocalBackupPackageGeneration(sessionId, { accessToken });
+
+    return {
+      ...mapLocalBackupPackageArtifactStatus(artifactStatus, options.state?.session, options.now),
+      status: "cancelled",
+      message: artifactStatus.safeMessage || "Local backup package generation was cancelled."
+    };
+  } catch (error) {
+    return classifyLocalBackupPackageFailure(error, "Settleora could not cancel package generation.");
+  }
+}
+
+export async function discardLocalBackupPackage(
+  options: LocalBackupPackageRuntimeOptions
+): Promise<LocalBackupPackageRuntimeState> {
+  const accessToken = options.accessToken?.trim();
+
+  if (!accessToken) {
+    return {
+      status: "auth_required",
+      message: "Sign in is required before Settleora can discard a backup package."
+    };
+  }
+
+  const sessionId = getLocalBackupPackageSessionId(options.state);
+  if (!sessionId) {
+    return {
+      status: "unavailable",
+      message: "Create a backup package session before discarding it."
+    };
+  }
+
+  const client = options.client ?? new SettleoraApiClient({ baseUrl: options.baseUrl ?? "/" });
+
+  try {
+    if (typeof client.discardLocalBackupPackageSession !== "function") {
+      throw new MissingLocalBackupPackageMethodError("Local backup package discard is not available in this web client build.");
+    }
+
+    const session = await client.discardLocalBackupPackageSession(sessionId, { accessToken });
+
+    return {
+      status: "discarded",
+      message: session.safeMessage || "The backup package session was discarded.",
+      session
+    };
+  } catch (error) {
+    return classifyLocalBackupPackageFailure(error, "Settleora could not discard the backup package session.");
+  }
+}
+
+export function evaluateLocalBackupPackageDownloadable(
+  artifactStatus: LocalBackupPackageRuntimeState["artifactStatus"] | undefined,
+  now: Date = new Date()
+): { allowed: boolean; status: LocalBackupPackageRuntimeStatus; message: string } {
+  if (!artifactStatus) {
+    return {
+      allowed: false,
+      status: "unavailable",
+      message: "Prepare a backup package before downloading it."
+    };
+  }
+
+  if (new Date(artifactStatus.expiresAtUtc).getTime() <= now.getTime()) {
+    return {
+      allowed: false,
+      status: "expired",
+      message: "This backup package status expired. Prepare a new package before downloading."
+    };
+  }
+
+  if (artifactStatus.status === "expired") {
+    return {
+      allowed: false,
+      status: "expired",
+      message: artifactStatus.safeMessage || "This backup package expired."
+    };
+  }
+
+  if (artifactStatus.status === "cancelled") {
+    return {
+      allowed: false,
+      status: "cancelled",
+      message: artifactStatus.safeMessage || "This backup package generation was cancelled."
+    };
+  }
+
+  if (artifactStatus.status === "discarded") {
+    return {
+      allowed: false,
+      status: "discarded",
+      message: artifactStatus.safeMessage || "This backup package was discarded."
+    };
+  }
+
+  if (artifactStatus.status === "blocked") {
+    return {
+      allowed: false,
+      status: "blocked",
+      message: artifactStatus.safeMessage || "Settleora blocked this backup package."
+    };
+  }
+
+  if (!artifactStatus.artifactAvailable || !artifactStatus.canDownloadPackage || !artifactStatus.downloadAvailable) {
+    return {
+      allowed: false,
+      status:
+        artifactStatus.status === "generation_unavailable" || artifactStatus.status === "download_unavailable"
+          ? "unavailable"
+          : "blocked",
+      message: artifactStatus.safeMessage || "Settleora did not return a downloadable backup package artifact."
+    };
+  }
+
+  return {
+    allowed: true,
+    status: "ready_to_download",
+    message: artifactStatus.safeMessage
+  };
+}
+
 export function evaluateSyncLocalStatusResponse(
   response: SyncLocalStatusResponse,
   now: Date = new Date()
@@ -1005,6 +1400,22 @@ export function createBillExportFilename(
   return `settleora-${scope}-${date}.${format}`;
 }
 
+export function createLocalBackupPackageFilename(
+  response: Pick<LocalBackupPackageDownloadActionResponse, "safeFilename" | "contentType">
+): string {
+  const safeFilename = response.safeFilename?.trim();
+
+  if (
+    safeFilename &&
+    !/[\\/]/.test(safeFilename) &&
+    !/(storage|object|bucket|signed|token|url|path|tmp|temp)/i.test(safeFilename)
+  ) {
+    return safeFilename;
+  }
+
+  return "settleora-local-backup-data-only.json";
+}
+
 function mapCapabilityDefinition(
   definition: (typeof capabilityDefinitions)[number],
   client: object
@@ -1032,7 +1443,7 @@ function statusForCapability(
   hasAllMethods: boolean
 ): ImportExportCapabilityStatus {
   if (id === "local-backup-restore" || id === "local-server-migration") {
-    return "not_available_yet";
+    return id === "local-backup-restore" && hasAllMethods ? "operation_method_exists" : "not_available_yet";
   }
 
   if (id === "sync-status") {
@@ -1048,7 +1459,9 @@ function statusForCapability(
 
 function chipsForCapability(id: string, hasAllMethods: boolean): string[] {
   if (id === "local-backup-restore") {
-    return ["Not available yet", "Future reviewed slice"];
+    return hasAllMethods
+      ? ["Data-only", "Same-API download", "Restore unavailable"]
+      : ["Not available yet", "Future reviewed slice"];
   }
 
   if (id === "local-server-migration") {
@@ -1307,6 +1720,139 @@ function mapImportSessionResponse(session: BillCsvImportSessionResponse): BillIm
   };
 }
 
+function getLocalBackupPackageSessionId(
+  state: LocalBackupPackageRuntimeState | null | undefined
+): string | null {
+  return state?.session?.packageSessionId ?? state?.artifactStatus?.packageSessionId ?? state?.downloadAction?.packageSessionId ?? null;
+}
+
+function mapLocalBackupPackageArtifactStatus(
+  artifactStatus: LocalBackupPackageArtifactStatusResponse | LocalBackupPackageGenerationStatusResponse,
+  session: LocalBackupPackageSessionResponse | undefined,
+  now: Date = new Date()
+): LocalBackupPackageRuntimeState {
+  if (new Date(artifactStatus.expiresAtUtc).getTime() <= now.getTime() || artifactStatus.status === "expired") {
+    return {
+      status: "expired",
+      message: artifactStatus.safeMessage || "This backup package expired. Prepare a new package before downloading.",
+      session,
+      artifactStatus
+    };
+  }
+
+  if (artifactStatus.status === "cancelled") {
+    return {
+      status: "cancelled",
+      message: artifactStatus.safeMessage || "Local backup package generation was cancelled.",
+      session,
+      artifactStatus
+    };
+  }
+
+  if (artifactStatus.status === "discarded") {
+    return {
+      status: "discarded",
+      message: artifactStatus.safeMessage || "This backup package was discarded.",
+      session,
+      artifactStatus
+    };
+  }
+
+  if (artifactStatus.status === "blocked") {
+    return {
+      status: "blocked",
+      message: artifactStatus.safeMessage || "Settleora blocked this backup package.",
+      session,
+      artifactStatus
+    };
+  }
+
+  if (artifactStatus.status === "generation_unavailable" || artifactStatus.status === "download_unavailable") {
+    return {
+      status: "unavailable",
+      message: artifactStatus.safeMessage || "Local backup package generation or download is unavailable.",
+      session,
+      artifactStatus
+    };
+  }
+
+  if (artifactStatus.status === "stale_recheck_required") {
+    return {
+      status: "blocked",
+      message: artifactStatus.safeMessage || "Refresh package status before downloading.",
+      session,
+      artifactStatus
+    };
+  }
+
+  const guard = evaluateLocalBackupPackageDownloadable(artifactStatus, now);
+
+  return {
+    status: guard.allowed ? "ready_to_download" : guard.status,
+    message: guard.allowed
+      ? artifactStatus.safeMessage || "The data-only backup package is ready to download."
+      : guard.message,
+    session,
+    artifactStatus
+  };
+}
+
+function evaluateLocalBackupPackageDownloadAction(
+  action: LocalBackupPackageDownloadActionResponse,
+  now: Date = new Date()
+): { allowed: true; message: string } | { allowed: false; status: LocalBackupPackageRuntimeStatus; message: string } {
+  if (action.status === "expired" || new Date(action.expiresAtUtc).getTime() <= now.getTime()) {
+    return {
+      allowed: false,
+      status: "expired",
+      message: action.safeMessage || "This backup package download action expired."
+    };
+  }
+
+  if (action.status === "cancelled") {
+    return {
+      allowed: false,
+      status: "cancelled",
+      message: action.safeMessage || "This backup package generation was cancelled."
+    };
+  }
+
+  if (action.status === "discarded") {
+    return {
+      allowed: false,
+      status: "discarded",
+      message: action.safeMessage || "This backup package was discarded."
+    };
+  }
+
+  if (action.status === "blocked") {
+    return {
+      allowed: false,
+      status: "blocked",
+      message: action.safeMessage || "Settleora blocked this backup package download."
+    };
+  }
+
+  if (
+    !action.downloadAvailable ||
+    !action.canDownloadPackage ||
+    !action.artifactAvailable ||
+    !action.downloadActionId ||
+    !action.contentPath
+  ) {
+    return {
+      allowed: false,
+      status: action.status === "download_unavailable" ? "unavailable" : "blocked",
+      message: action.safeMessage || "Settleora did not return a usable same-API download action."
+    };
+  }
+
+  return {
+    allowed: true,
+    message: action.safeMessage
+  };
+}
+
 function createJsonExportBlob(exportResponse: ExpenseBillExportResponse): Blob {
   return new Blob([JSON.stringify(exportResponse, null, 2)], {
     type: "application/json"
@@ -1479,6 +2025,67 @@ function classifyBillImportSessionFailure(error: unknown, fallback: string): Bil
 }
 
 class MissingImportSessionMethodError extends Error {}
+
+function classifyLocalBackupPackageFailure(
+  error: unknown,
+  fallback: string
+): LocalBackupPackageRuntimeState {
+  if (error instanceof MissingLocalBackupPackageMethodError) {
+    return {
+      status: "unavailable",
+      message: error.message
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 401) {
+    return {
+      status: "expired",
+      message: "Your session could not be verified. Sign in again before preparing or downloading a backup package."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 403) {
+    return {
+      status: "blocked",
+      message: "This account cannot prepare or download the requested backup package."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 404) {
+    return {
+      status: "unavailable",
+      message: "Local backup package runtime is not available from this Settleora server."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 409) {
+    return {
+      status: "blocked",
+      message: "Settleora reported the backup package state changed. Refresh status before retrying."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status === 410) {
+    return {
+      status: "expired",
+      message: "This backup package expired. Prepare a new package before downloading."
+    };
+  }
+
+  if (error instanceof SettleoraApiError && error.status >= 500) {
+    return {
+      status: "unavailable",
+      message: "Settleora could not prepare or download the backup package right now."
+    };
+  }
+
+  return {
+    status: "error",
+    message: fallback
+  };
+}
+
+class MissingLocalBackupPackageMethodError extends Error {}
 
 const browserDownloadAdapter: BrowserDownloadAdapter = {
   saveBlob(blob, filename) {
