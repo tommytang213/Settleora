@@ -70,11 +70,13 @@ import {
   checkBillExportReadiness,
   confirmBillCsvImportSessionRuntime,
   createBillCsvImportSession,
+  createLocalBackupRestoreConfirmationSessionRuntime,
   createLocalBackupRestorePreviewRuntime,
   defaultBillExportFilters,
   cancelLocalBackupPackage,
   discardBillCsvImportSessionRuntime,
   discardLocalBackupPackage,
+  discardLocalBackupRestoreConfirmationSessionRuntime,
   discardLocalBackupRestorePreviewRuntime,
   downloadBillExport,
   downloadLocalBackupPackage,
@@ -82,6 +84,7 @@ import {
   loadImportExportReadout,
   loadSyncLocalStatus,
   preflightBillCsvImport,
+  refreshLocalBackupRestoreConfirmationSessionRuntime,
   refreshLocalBackupPackageStatus,
   refreshLocalBackupRestorePreviewRuntime,
   startLocalBackupPackage,
@@ -92,6 +95,7 @@ import {
   type ImportExportCapability,
   type ImportExportReadoutState,
   type LocalBackupPackageRuntimeState,
+  type LocalBackupRestoreConfirmationSessionRuntimeState,
   type LocalBackupRestorePreviewRuntimeState,
   type SyncLocalStatusRuntimeState
 } from "./importExportReadout";
@@ -261,6 +265,11 @@ export function App() {
     status: "idle",
     message: "Choose a data-only local backup package JSON file after sign-in to preview it."
   });
+  const [restoreConfirmationSessionState, setRestoreConfirmationSessionState] =
+    useState<LocalBackupRestoreConfirmationSessionRuntimeState>({
+      status: "idle",
+      message: "Create a restore preview before creating metadata-only confirmation."
+    });
 
   useEffect(() => {
     let isMounted = true;
@@ -892,6 +901,10 @@ export function App() {
       selectedFileName: file?.name,
       selectedFileSize: file?.size
     });
+    setRestoreConfirmationSessionState({
+      status: "idle",
+      message: "Create a restore preview before creating metadata-only confirmation."
+    });
   };
 
   const handleCreateRestorePreview = async () => {
@@ -903,12 +916,17 @@ export function App() {
         : "Choose a local backup package JSON file before creating a restore preview."
     }));
 
-    setRestorePreviewState(
-      await createLocalBackupRestorePreviewRuntime({
+    const nextState = await createLocalBackupRestorePreviewRuntime({
         accessToken: session.accessToken,
         selectedFile: restorePreviewFile
-      })
-    );
+      });
+
+    setRestorePreviewState(nextState);
+    setRestoreConfirmationSessionState({
+      status: "idle",
+      message: "Create metadata-only confirmation from this restore preview.",
+      preview: nextState.preview
+    });
   };
 
   const handleRefreshRestorePreview = async () => {
@@ -918,12 +936,16 @@ export function App() {
       message: "Refreshing restore preview metadata with Settleora."
     }));
 
-    setRestorePreviewState(
-      await refreshLocalBackupRestorePreviewRuntime({
+    const nextState = await refreshLocalBackupRestorePreviewRuntime({
         accessToken: session.accessToken,
         state: restorePreviewState
-      })
-    );
+      });
+
+    setRestorePreviewState(nextState);
+    setRestoreConfirmationSessionState((current) => ({
+      ...current,
+      preview: nextState.preview ?? current.preview
+    }));
   };
 
   const handleDiscardRestorePreview = async () => {
@@ -933,10 +955,64 @@ export function App() {
       message: "Discarding restore preview metadata with Settleora."
     }));
 
-    setRestorePreviewState(
-      await discardLocalBackupRestorePreviewRuntime({
+    const nextState = await discardLocalBackupRestorePreviewRuntime({
         accessToken: session.accessToken,
         state: restorePreviewState
+      });
+
+    setRestorePreviewState(nextState);
+    setRestoreConfirmationSessionState({
+      status: "idle",
+      message: "Create a new restore preview before creating metadata-only confirmation.",
+      preview: nextState.preview
+    });
+  };
+
+  const handleCreateRestoreConfirmationSession = async () => {
+    setRestoreConfirmationSessionState((current) => ({
+      ...current,
+      preview: restorePreviewState.preview ?? current.preview,
+      status: "creating",
+      message: "Creating metadata-only restore confirmation with Settleora."
+    }));
+
+    setRestoreConfirmationSessionState(
+      await createLocalBackupRestoreConfirmationSessionRuntime({
+        accessToken: session.accessToken,
+        preview: restorePreviewState.preview,
+        state: restoreConfirmationSessionState
+      })
+    );
+  };
+
+  const handleRefreshRestoreConfirmationSession = async () => {
+    setRestoreConfirmationSessionState((current) => ({
+      ...current,
+      status: "refreshing",
+      message: "Refreshing metadata-only restore confirmation with Settleora."
+    }));
+
+    setRestoreConfirmationSessionState(
+      await refreshLocalBackupRestoreConfirmationSessionRuntime({
+        accessToken: session.accessToken,
+        preview: restorePreviewState.preview,
+        state: restoreConfirmationSessionState
+      })
+    );
+  };
+
+  const handleDiscardRestoreConfirmationSession = async () => {
+    setRestoreConfirmationSessionState((current) => ({
+      ...current,
+      status: "discarding",
+      message: "Discarding metadata-only restore confirmation with Settleora."
+    }));
+
+    setRestoreConfirmationSessionState(
+      await discardLocalBackupRestoreConfirmationSessionRuntime({
+        accessToken: session.accessToken,
+        preview: restorePreviewState.preview,
+        state: restoreConfirmationSessionState
       })
     );
   };
@@ -1106,6 +1182,7 @@ export function App() {
               syncLocalStatus={syncLocalStatus}
               localBackupPackageState={localBackupPackageState}
               restorePreviewState={restorePreviewState}
+              restoreConfirmationSessionState={restoreConfirmationSessionState}
               hasImportCsvText={importCsvText.length > 0}
               onImportFileChange={handleImportFileChange}
               onPreflightCsvImport={handlePreflightCsvImport}
@@ -1121,6 +1198,9 @@ export function App() {
               onCreateRestorePreview={handleCreateRestorePreview}
               onRefreshRestorePreview={handleRefreshRestorePreview}
               onDiscardRestorePreview={handleDiscardRestorePreview}
+              onCreateRestoreConfirmationSession={handleCreateRestoreConfirmationSession}
+              onRefreshRestoreConfirmationSession={handleRefreshRestoreConfirmationSession}
+              onDiscardRestoreConfirmationSession={handleDiscardRestoreConfirmationSession}
             />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
@@ -1444,6 +1524,7 @@ function ImportExportReadoutPanel({
   syncLocalStatus,
   localBackupPackageState,
   restorePreviewState,
+  restoreConfirmationSessionState,
   hasImportCsvText,
   onImportFileChange,
   onPreflightCsvImport,
@@ -1458,7 +1539,10 @@ function ImportExportReadoutPanel({
   onRestorePreviewFileChange,
   onCreateRestorePreview,
   onRefreshRestorePreview,
-  onDiscardRestorePreview
+  onDiscardRestorePreview,
+  onCreateRestoreConfirmationSession,
+  onRefreshRestoreConfirmationSession,
+  onDiscardRestoreConfirmationSession
 }: {
   readout: ImportExportReadoutState;
   session: SessionBoundaryState;
@@ -1480,6 +1564,7 @@ function ImportExportReadoutPanel({
   syncLocalStatus: SyncLocalStatusRuntimeState;
   localBackupPackageState: LocalBackupPackageRuntimeState;
   restorePreviewState: LocalBackupRestorePreviewRuntimeState;
+  restoreConfirmationSessionState: LocalBackupRestoreConfirmationSessionRuntimeState;
   hasImportCsvText: boolean;
   onImportFileChange: (file: File | null) => void;
   onPreflightCsvImport: () => void;
@@ -1495,6 +1580,9 @@ function ImportExportReadoutPanel({
   onCreateRestorePreview: () => void;
   onRefreshRestorePreview: () => void;
   onDiscardRestorePreview: () => void;
+  onCreateRestoreConfirmationSession: () => void;
+  onRefreshRestoreConfirmationSession: () => void;
+  onDiscardRestoreConfirmationSession: () => void;
 }) {
   const unavailableCount = readout.capabilities.filter(
     (capability) => capability.status === "not_available_yet" || capability.status === "needs_readiness_endpoint"
@@ -1590,10 +1678,14 @@ function ImportExportReadoutPanel({
       <LocalBackupRestorePreviewCard
         session={session}
         state={restorePreviewState}
+        confirmationState={restoreConfirmationSessionState}
         onFileChange={onRestorePreviewFileChange}
         onCreatePreview={onCreateRestorePreview}
         onRefreshPreview={onRefreshRestorePreview}
         onDiscardPreview={onDiscardRestorePreview}
+        onCreateConfirmationSession={onCreateRestoreConfirmationSession}
+        onRefreshConfirmationSession={onRefreshRestoreConfirmationSession}
+        onDiscardConfirmationSession={onDiscardRestoreConfirmationSession}
       />
 
       <SyncLocalStatusCard state={syncLocalStatus} />
@@ -1810,20 +1902,32 @@ function LocalBackupPackageMetadataReadout({ state }: { state: LocalBackupPackag
 function LocalBackupRestorePreviewCard({
   session,
   state,
+  confirmationState,
   onFileChange,
   onCreatePreview,
   onRefreshPreview,
-  onDiscardPreview
+  onDiscardPreview,
+  onCreateConfirmationSession,
+  onRefreshConfirmationSession,
+  onDiscardConfirmationSession
 }: {
   session: SessionBoundaryState;
   state: LocalBackupRestorePreviewRuntimeState;
+  confirmationState: LocalBackupRestoreConfirmationSessionRuntimeState;
   onFileChange: (file: File | null) => void;
   onCreatePreview: () => void;
   onRefreshPreview: () => void;
   onDiscardPreview: () => void;
+  onCreateConfirmationSession: () => void;
+  onRefreshConfirmationSession: () => void;
+  onDiscardConfirmationSession: () => void;
 }) {
   const isAuthenticated = session.status === "authenticated" && Boolean(session.accessToken);
   const isBusy = state.status === "reading" || state.status === "creating";
+  const isConfirmationBusy =
+    confirmationState.status === "creating" ||
+    confirmationState.status === "refreshing" ||
+    confirmationState.status === "discarding";
   const canCreatePreview = isAuthenticated && Boolean(state.selectedFileName) && !isBusy;
   const canRefreshPreview = isAuthenticated && Boolean(state.preview?.restorePreviewId) && !isBusy;
   const canDiscardPreview =
@@ -1832,6 +1936,20 @@ function LocalBackupRestorePreviewCard({
     state.status !== "discarded" &&
     state.status !== "expired" &&
     !isBusy;
+  const canCreateConfirmationSession =
+    isAuthenticated &&
+    Boolean(state.preview?.restorePreviewId) &&
+    state.status === "ready" &&
+    !isBusy &&
+    !isConfirmationBusy;
+  const canRefreshConfirmationSession =
+    isAuthenticated &&
+    Boolean(confirmationState.confirmationSession?.restoreConfirmationSessionId) &&
+    !isConfirmationBusy;
+  const canDiscardConfirmationSession =
+    canRefreshConfirmationSession &&
+    confirmationState.status !== "discarded" &&
+    confirmationState.status !== "expired";
 
   return (
     <section className="surface-panel" aria-labelledby="restore-preview-title">
@@ -1888,6 +2006,15 @@ function LocalBackupRestorePreviewCard({
       />
 
       {state.preview ? <LocalBackupRestorePreviewMetadataReadout preview={state.preview} /> : null}
+      <LocalBackupRestoreConfirmationSessionReadout
+        state={confirmationState}
+        canCreate={canCreateConfirmationSession}
+        canRefresh={canRefreshConfirmationSession}
+        canDiscard={canDiscardConfirmationSession}
+        onCreate={onCreateConfirmationSession}
+        onRefresh={onRefreshConfirmationSession}
+        onDiscard={onDiscardConfirmationSession}
+      />
     </section>
   );
 }
@@ -1982,6 +2109,120 @@ function LocalBackupRestorePreviewMetadataReadout({
         {renderPreviewCategoryPills("Next action", preview.nextAllowedActions)}
       </ReadoutSection>
     </>
+  );
+}
+
+function LocalBackupRestoreConfirmationSessionReadout({
+  state,
+  canCreate,
+  canRefresh,
+  canDiscard,
+  onCreate,
+  onRefresh,
+  onDiscard
+}: {
+  state: LocalBackupRestoreConfirmationSessionRuntimeState;
+  canCreate: boolean;
+  canRefresh: boolean;
+  canDiscard: boolean;
+  onCreate: () => void;
+  onRefresh: () => void;
+  onDiscard: () => void;
+}) {
+  const confirmationSession = state.confirmationSession;
+
+  return (
+    <ReadoutSection title="Restore confirmation metadata">
+      <div className="notification-row">
+        <div className="notification-row-header">
+          <div>
+            <strong>Metadata-only confirmation</strong>
+            <small>No records are restored. Restore apply remains a separate future gate.</small>
+          </div>
+          <span className={`status-chip ${localBackupRestoreConfirmationStatusClass(state.status)}`}>
+            {labelize(state.status)}
+          </span>
+        </div>
+        <p className="muted-copy">
+          This session uses an existing Settleora restore preview ID only. The browser must not treat selected files, route state, cached previews, or generated-client methods as restore authority.
+        </p>
+        <p className="muted-copy">
+          Browser-local persistence remains unsupported, and this web surface does not create local queues, local restore candidates, or restore apply mutations.
+        </p>
+        <div className="action-row">
+          <button className="primary-button" type="button" disabled={!canCreate} onClick={onCreate}>
+            Create confirmation session
+          </button>
+          <button className="secondary-button" type="button" disabled={!canRefresh} onClick={onRefresh}>
+            Refresh confirmation session
+          </button>
+          <button className="secondary-button" type="button" disabled={!canDiscard} onClick={onDiscard}>
+            Discard confirmation session
+          </button>
+        </div>
+      </div>
+
+      <StateMessage
+        state={mapLocalBackupRestoreConfirmationStateForMessage(state.status)}
+        message={state.message}
+        emptyTitle="No confirmation metadata yet"
+        errorTitle="Could not load confirmation metadata"
+      />
+
+      {confirmationSession ? (
+        <>
+          <ReadoutSection title="Confirmation status">
+            <StatusPill label="Session" value={confirmationSession.restoreConfirmationSessionId} />
+            <StatusPill label="Preview" value={confirmationSession.restorePreviewId} />
+            <StatusPill label="Status" value={`${confirmationSession.status} - ${confirmationSession.stableCode}`} />
+            <StatusPill label="Selected scope" value={labelize(confirmationSession.selectedScope)} />
+            <StatusPill label="Can apply restore" value={confirmationSession.canApplyRestore ? "True" : "False"} />
+            <StatusPill label="Mutation availability" value={labelize(confirmationSession.mutationAvailability)} />
+            <StatusPill label="Confirmation state" value={labelize(confirmationSession.restoreConfirmationState)} />
+            <p className="muted-copy">{confirmationSession.safeMessage}</p>
+            <p className="muted-copy">{confirmationSession.selectedScopeSummary}</p>
+          </ReadoutSection>
+
+          <ReadoutSection title="Safe confirmation counts">
+            <StatusPill label="Sections" value={String(confirmationSession.totalSectionCount)} />
+            {renderPreviewCategoryPills("Included", confirmationSession.includedSectionCategories)}
+            {renderPreviewCategoryPills("Omitted", confirmationSession.omittedSectionCategories)}
+            {renderPreviewCategoryPills("Unsupported", confirmationSession.unsupportedSectionCategories)}
+            {renderPreviewCategoryPills("Blocked", confirmationSession.blockedSectionCategories)}
+          </ReadoutSection>
+
+          <ReadoutSection title="Warnings and blockers">
+            {renderPreviewCategoryPills("Warning", confirmationSession.warningCodes)}
+            {renderPreviewCategoryPills("Blocked code", confirmationSession.blockedCodes)}
+            {renderPreviewCategoryPills("Next action", confirmationSession.nextAllowedActions)}
+          </ReadoutSection>
+
+          <ReadoutSection title="Record count categories">
+            {confirmationSession.recordSummaries.length === 0 ? (
+              <p className="muted-copy">No safe count summaries were returned.</p>
+            ) : (
+              confirmationSession.recordSummaries.map((summary) => (
+                <StatusPill
+                  key={summary.category}
+                  label={labelize(summary.category)}
+                  value={`${summary.totalCount} total / ${summary.activeCount} active / ${summary.archivedCount} archived`}
+                />
+              ))
+            )}
+          </ReadoutSection>
+
+          <ReadoutSection title="Boundaries and expiry">
+            <StatusPill label="Created" value={formatDate(confirmationSession.createdAtUtc)} />
+            <StatusPill label="Expires" value={formatDate(confirmationSession.expiresAtUtc)} />
+            <StatusPill label="Package generated" value={formatDate(confirmationSession.packageGeneratedAtUtc)} />
+            <StatusPill label="Package expires" value={formatDate(confirmationSession.packageExpiresAtUtc)} />
+            <StatusPill label="Response generated" value={formatDate(confirmationSession.responseGeneratedAtUtc)} />
+            <p className="muted-copy">{confirmationSession.privacyBoundary}</p>
+            <p className="muted-copy">{confirmationSession.dataBoundary}</p>
+          </ReadoutSection>
+        </>
+      ) : null}
+    </ReadoutSection>
   );
 }
 
@@ -4185,6 +4426,28 @@ function localBackupRestorePreviewStatusClass(state: LocalBackupRestorePreviewRu
   return "status-warning";
 }
 
+function localBackupRestoreConfirmationStatusClass(
+  state: LocalBackupRestoreConfirmationSessionRuntimeState["status"]
+): string {
+  if (state === "ready" || state === "discarded") {
+    return "status-sync";
+  }
+
+  if (
+    state === "blocked" ||
+    state === "expired" ||
+    state === "stale_preview" ||
+    state === "session_expired" ||
+    state === "unavailable" ||
+    state === "conflict" ||
+    state === "error"
+  ) {
+    return "status-danger";
+  }
+
+  return "status-warning";
+}
+
 function syncSummaryStatusClass(
   state: SyncLocalStatusResponse["pendingOperationSummary"]["state"],
   count: number | null
@@ -4246,6 +4509,34 @@ function mapLocalBackupRestorePreviewStateForMessage(
     case "blocked":
     case "expired":
     case "unavailable":
+      return "unavailable";
+    case "error":
+      return "error";
+  }
+}
+
+function mapLocalBackupRestoreConfirmationStateForMessage(
+  state: LocalBackupRestoreConfirmationSessionRuntimeState["status"]
+): BillsReadoutState["status"] {
+  switch (state) {
+    case "idle":
+      return "empty";
+    case "auth_required":
+      return "auth_required";
+    case "creating":
+    case "refreshing":
+    case "discarding":
+      return "loading";
+    case "ready":
+    case "discarded":
+      return "loaded";
+    case "session_expired":
+      return "session_expired";
+    case "blocked":
+    case "expired":
+    case "stale_preview":
+    case "unavailable":
+    case "conflict":
       return "unavailable";
     case "error":
       return "error";
