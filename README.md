@@ -71,6 +71,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [SMTP email provider policy](docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md)
 - [Push provider device-token lifecycle](docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md)
 - [Notification preference resolution model](docs/architecture/NOTIFICATION_PREFERENCE_RESOLUTION_MODEL.md)
+- [Notification delivery-state worker foundation](docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md)
 - [Architecture docs index](docs/architecture/)
 - [OCR architecture](docs/architecture/OCR_ARCHITECTURE.md)
 - [OCR ML Kit provider integration plan](docs/architecture/OCR_MLKIT_PROVIDER_INTEGRATION_PLAN.md)
