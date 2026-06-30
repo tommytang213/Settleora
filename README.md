@@ -222,3 +222,15 @@ The maintainer is not responsible for damages, data loss, financial loss, incorr
 No support, maintenance, updates, bug fixes, or security fixes are guaranteed.
 
 This section is a plain-English summary only. The actual license terms are in the LICENSE file.
+
+## Support Settleora
+
+If Settleora is useful to you, you can support development through GitHub Sponsors.
+
+Sponsorships are voluntary donations only. They do not provide paid support, priority handling, commercial rights, ownership, or guaranteed feature work.
+
+Thank you for supporting the project.
+
+## Support
+
+For questions, usage help, discussions, and sponsorship information, see [Support](docs/SUPPORT.md).
