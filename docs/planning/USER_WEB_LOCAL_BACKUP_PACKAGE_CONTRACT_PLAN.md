@@ -24,6 +24,7 @@ Use this file with:
 - [User web export, import, and local-mode implementation plan](USER_WEB_EXPORT_IMPORT_LOCAL_MODE_IMPLEMENTATION_PLAN.md)
 - [User web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md)
 - [User web local backup package manifest and session plan](USER_WEB_LOCAL_BACKUP_PACKAGE_SESSION_PLAN.md)
+- [User web local backup package generation and download plan](USER_WEB_LOCAL_BACKUP_PACKAGE_GENERATION_DOWNLOAD_PLAN.md)
 - [User web sync and local status plan](USER_WEB_SYNC_LOCAL_STATUS_PLAN.md)
 - [User web sync and local status contract plan](USER_WEB_SYNC_LOCAL_STATUS_CONTRACT_PLAN.md)
 - [User web export readiness contract plan](USER_WEB_EXPORT_READINESS_CONTRACT_PLAN.md)
@@ -158,6 +159,14 @@ defines the next docs-only gate for future package-session lifecycle,
 manifest/session metadata, data-egress consent, bounds, expiry, retry,
 cancellation, discard, and stale-session behavior before any OpenAPI/backend
 package session or generation/download contract is implemented.
+
+Follow-up planning update on 2026-06-30: the
+[user web local backup package generation and download plan](USER_WEB_LOCAL_BACKUP_PACKAGE_GENERATION_DOWNLOAD_PLAN.md)
+narrows the next data-egress gate after metadata-only package sessions. It
+covers prepare/generate, artifact status, short-lived download actions,
+storage/file-byte boundaries, retention/cleanup, encryption/key-handling
+direction, browser download safety, stable codes, and future validation before
+any OpenAPI/backend generation/download contract is implemented.
 
 Readiness should answer whether the current actor, profile mode, scope,
 policy, package size, file section, encryption state, and server/local mode are
@@ -492,12 +501,14 @@ Keep backup package and restore work split across reviewable gates:
 
 1. Docs-only backup package contract plan.
 2. Docs-only backup package manifest/session plan.
-3. OpenAPI/backend backup package read/generation/session contract.
-4. Generated-client refresh through the repo generation workflow.
-5. User-web backup package runtime.
-6. Restore preview contract/API.
-7. Restore confirmation contract/API.
-8. Browser local-mode persistence/security design before any IndexedDB,
+3. Docs-only backup package generation/download plan.
+4. OpenAPI/backend backup package generation/download contract, after the
+   existing readiness and package-session metadata contracts.
+5. Generated-client refresh through the repo generation workflow.
+6. User-web backup package runtime.
+7. Restore preview contract/API.
+8. Restore confirmation contract/API.
+9. Browser local-mode persistence/security design before any IndexedDB,
    localStorage, sessionStorage, cache, service-worker, file-system, object
    URL, browser-local queue, or browser-local authority runtime.
 
