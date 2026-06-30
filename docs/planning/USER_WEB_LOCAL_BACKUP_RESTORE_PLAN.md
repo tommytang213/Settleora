@@ -272,6 +272,22 @@ explicit, such as `Restore backup`, `Restore selected records`, `Discard
 restore session`, or `Cancel restore`, rather than vague labels like
 `Continue`, `OK`, or `Apply`.
 
+Implementation update on 2026-06-30: the restore-preview contract/API slice
+chose these authenticated process-local endpoints:
+
+- `POST /api/v1/local-backup/restore-previews` with operation ID
+  `createLocalBackupRestorePreview`
+- `GET /api/v1/local-backup/restore-previews/{restorePreviewId}` with
+  operation ID `getLocalBackupRestorePreview`
+- `POST /api/v1/local-backup/restore-previews/{restorePreviewId}/discard`
+  with operation ID `discardLocalBackupRestorePreview`
+
+This restore preview parses and validates current data-only local backup
+packages only. It is non-mutating and returns bounded safe metadata; restore
+confirmation remains a separate future mutation gate. Browser local-mode
+persistence remains unsupported, and file-byte, encrypted-section, durable
+storage, and server/local business-record restore remain separate future work.
+
 ## Conflict, Duplicate, And Partial Restore Direction
 
 Future restore preview should distinguish:

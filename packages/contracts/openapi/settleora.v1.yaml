@@ -2804,6 +2804,140 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/restore-previews:
+    post:
+      summary: Create local backup restore preview
+      description: Parses and validates a submitted current data-only local backup package for a short-lived non-mutating restore preview. The preview is scoped to the authenticated actor and current auth session, returns bounded safe metadata only, and does not restore, import, upload, persist package bytes, create browser-local state, read file bytes, or mutate server/local business records. Restore confirmation remains a separate future mutation gate.
+      operationId: createLocalBackupRestorePreview
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalBackupRestorePreviewCreateRequest"
+      responses:
+        "201":
+          description: Safe current-actor restore preview metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupRestorePreviewResponse"
+        "400":
+          description: Restore preview request or submitted package is invalid, unsupported, expired, tampered, or otherwise unsafe to preview.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to create a local backup restore preview.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "413":
+          description: Submitted local backup package content is too large for restore preview.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/restore-previews/{restorePreviewId}:
+    get:
+      summary: Get local backup restore preview
+      description: Returns one short-lived non-mutating local backup restore preview for the authenticated actor and current auth session. The response contains no raw package payload, file bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem/local/temp paths, raw OCR text, private notes, payment details, hidden records, secrets, tokens, credentials, restore confirmation, browser-local persistence, or server/local mutation result.
+      operationId: getLocalBackupRestorePreview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: restorePreviewId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor restore preview metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupRestorePreviewResponse"
+        "400":
+          description: Local backup restore preview read request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to read a local backup restore preview.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Restore preview is missing, wrong actor, wrong auth session, already discarded/expired for mutation actions, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/local-backup/restore-previews/{restorePreviewId}/discard:
+    post:
+      summary: Discard local backup restore preview
+      description: Discards one short-lived local backup restore preview metadata session for the authenticated actor and current auth session. This operation affects only process-local preview metadata and does not delete package files, storage objects, source records, files, settlements, bills, sync conflicts, accounts, browser-local state, restore candidates, or server/local business data.
+      operationId: discardLocalBackupRestorePreview
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: restorePreviewId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe current-actor restore preview metadata after discard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalBackupRestorePreviewResponse"
+        "400":
+          description: Local backup restore preview discard request envelope is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to discard a local backup restore preview.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Restore preview is missing, wrong actor, wrong auth session, already discarded/expired, or otherwise unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/sync/local-status:
     get:
       summary: Get sync and browser-local status
@@ -18786,6 +18920,291 @@ components:
           maxItems: 8
           items:
             $ref: "#/components/schemas/LocalBackupPackageNextAllowedAction"
+        responseGeneratedAtUtc:
+          type: string
+          format: date-time
+    LocalBackupRestorePreviewStatus:
+      type: string
+      description: Short-lived restore preview status. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - ready
+        - expired
+        - discarded
+    LocalBackupRestorePreviewStableCode:
+      type: string
+      description: Stable local backup restore preview code. Unknown future values must be handled as unavailable by clients.
+      enum:
+        - restore_preview_ready
+        - restore_preview_expired
+        - restore_preview_discarded
+        - invalid_json
+        - missing_package_content
+        - backup_package_too_large
+        - unsupported_package_format
+        - unsupported_package_version
+        - unsupported_manifest_version
+        - package_integrity_failed
+        - backup_package_expired
+        - unsupported_required_feature
+        - unsupported_encrypted_section
+        - unsupported_file_section
+        - unsupported_source_authority_boundary
+        - unsupported_source_server_mode_posture
+        - missing_section_inventory
+        - unsupported_section_inventory
+        - unsupported_section_state
+        - temporarily_unavailable
+    LocalBackupRestorePreviewSectionCategory:
+      type: string
+      description: Safe package section category labels exposed by restore preview.
+      enum:
+        - current_actor_profile_summary
+        - personal_bill_safe_summary
+        - receipt_and_supporting_files
+        - raw_ocr_text
+        - private_notes_and_payment_details
+        - restore_preview_and_confirmation
+    LocalBackupRestorePreviewWarning:
+      type: string
+      description: Safe bounded restore preview warning labels.
+      enum:
+        - unsupported_sections_omitted
+        - restore_confirmation_separate_gate
+        - browser_local_persistence_unsupported
+    LocalBackupRestorePreviewBlockedReason:
+      type: string
+      description: Safe bounded restore preview blocked section labels.
+      enum:
+        - current_actor_profile_summary
+        - personal_bill_safe_summary
+        - receipt_and_supporting_files
+        - raw_ocr_text
+        - private_notes_and_payment_details
+        - restore_preview_and_confirmation
+    LocalBackupRestorePreviewNextAllowedAction:
+      type: string
+      description: Safe next action labels for non-mutating restore preview lifecycle.
+      enum:
+        - get_restore_preview
+        - discard_restore_preview
+        - create_restore_preview
+    LocalBackupRestoreConfirmationState:
+      type: string
+      description: Restore confirmation support state for this preview contract.
+      enum:
+        - unsupported
+    LocalBackupRestorePreviewCreateRequest:
+      type: object
+      description: Submitted data-only local backup package content for non-mutating restore preview. The package content is sensitive input and is never echoed by normal responses or problem details.
+      additionalProperties: false
+      required:
+        - packageContent
+      properties:
+        packageContent:
+          type: string
+          maxLength: 1048576
+          description: Downloaded data-only local backup package JSON content. It is sensitive input and must not be logged or displayed by clients.
+        packageSha256:
+          oneOf:
+            - type: string
+              minLength: 64
+              maxLength: 64
+            - type: "null"
+          description: Optional SHA-256 integrity marker for the exact UTF-8 package content bytes when available from package download metadata.
+    LocalBackupRestorePreviewRecordSummary:
+      type: object
+      description: Safe bounded record-count summary. It contains counts only and no bill IDs, merchant names, item names, notes, OCR text, payment details, file references, or hidden records.
+      additionalProperties: false
+      required:
+        - category
+        - totalCount
+        - activeCount
+        - archivedCount
+        - itemCount
+        - participantCount
+        - payerCount
+        - adjustmentCount
+      properties:
+        category:
+          $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        totalCount:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        activeCount:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        archivedCount:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        itemCount:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        participantCount:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        payerCount:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        adjustmentCount:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+    LocalBackupRestorePreviewResponse:
+      type: object
+      description: Non-mutating local backup restore preview metadata for the authenticated actor and current auth session. It contains no raw package payload, file bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem/local/temp paths, raw OCR text, private notes, payment details, auth tokens, credential material, hidden records, restore confirmation, browser-local persistence, or server/local mutation result.
+      additionalProperties: false
+      required:
+        - restorePreviewId
+        - status
+        - stableCode
+        - safeMessage
+        - createdAtUtc
+        - expiresAtUtc
+        - sourceAuthorityBoundary
+        - packageFormatName
+        - packageVersion
+        - manifestVersion
+        - packageId
+        - manifestId
+        - packageSessionId
+        - packageGeneratedAtUtc
+        - packageExpiresAtUtc
+        - packageSha256
+        - totalSectionCount
+        - includedSectionCategories
+        - omittedSectionCategories
+        - unsupportedSectionCategories
+        - blockedSectionCategories
+        - recordSummaries
+        - warnings
+        - blockedReasons
+        - restoreConfirmationAvailable
+        - restoreConfirmationState
+        - restoreConfirmationCopy
+        - nextAllowedActions
+        - privacyBoundary
+        - responseGeneratedAtUtc
+      properties:
+        restorePreviewId:
+          type: string
+          format: uuid
+          description: Opaque process-local restore preview ID. It is not restore authority, storage authority, or a package token.
+        status:
+          $ref: "#/components/schemas/LocalBackupRestorePreviewStatus"
+        stableCode:
+          $ref: "#/components/schemas/LocalBackupRestorePreviewStableCode"
+        safeMessage:
+          type: string
+          maxLength: 360
+        createdAtUtc:
+          type: string
+          format: date-time
+        expiresAtUtc:
+          type: string
+          format: date-time
+        discardedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        sourceAuthorityBoundary:
+          type: string
+          enum:
+            - server_authoritative_copy
+        packageFormatName:
+          type: string
+          enum:
+            - settleora.local-backup.data-only
+        packageVersion:
+          type: string
+          enum:
+            - 2026-06-30.data-only.v1
+        manifestVersion:
+          type: string
+          enum:
+            - 2026-06-30.manifest.v1
+        packageId:
+          type: string
+          format: uuid
+        manifestId:
+          type: string
+          format: uuid
+        packageSessionId:
+          type: string
+          format: uuid
+        packageGeneratedAtUtc:
+          type: string
+          format: date-time
+        packageExpiresAtUtc:
+          type: string
+          format: date-time
+        packageSha256:
+          type: string
+          minLength: 64
+          maxLength: 64
+          description: SHA-256 of submitted package content bytes. It is an integrity marker, not a secret.
+        totalSectionCount:
+          type: integer
+          minimum: 0
+          maximum: 64
+        includedSectionCategories:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        omittedSectionCategories:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        unsupportedSectionCategories:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        blockedSectionCategories:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewSectionCategory"
+        recordSummaries:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewRecordSummary"
+        warnings:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewWarning"
+        blockedReasons:
+          type: array
+          maxItems: 16
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewBlockedReason"
+        restoreConfirmationAvailable:
+          type: boolean
+          enum:
+            - false
+        restoreConfirmationState:
+          $ref: "#/components/schemas/LocalBackupRestoreConfirmationState"
+        restoreConfirmationCopy:
+          type: string
+          maxLength: 360
+        nextAllowedActions:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/LocalBackupRestorePreviewNextAllowedAction"
+        privacyBoundary:
+          type: string
+          maxLength: 760
         responseGeneratedAtUtc:
           type: string
           format: date-time

@@ -18,11 +18,16 @@ internal static class LocalBackupPackageReadinessEndpoints
     private static readonly TimeSpan PackageSessionLifetime = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan PackageArtifactLifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan DownloadActionLifetime = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan RestorePreviewLifetime = TimeSpan.FromMinutes(10);
+    private const int MaxRestorePreviewRequestBytes = 1_100_000;
+    private const int MaxRestorePreviewPackageBytes = 1_048_576;
+    private const int MaxRestorePreviewSections = 64;
     private const string PackageContentType = "application/vnd.settleora.local-backup+json";
     private const string PackageFormatName = "settleora.local-backup.data-only";
     private const string PackageVersion = "2026-06-30.data-only.v1";
     private const string ManifestVersion = "2026-06-30.manifest.v1";
     private static readonly ConcurrentDictionary<Guid, LocalBackupPackageSessionMetadata> PackageSessions = new();
+    private static readonly ConcurrentDictionary<Guid, LocalBackupRestorePreviewMetadata> RestorePreviews = new();
 
     public static WebApplication MapLocalBackupPackageReadinessEndpoints(this WebApplication app)
     {
@@ -43,6 +48,12 @@ internal static class LocalBackupPackageReadinessEndpoints
         app.MapPost("/api/v1/local-backup/package-sessions/{packageSessionId:guid}/download-actions", CreatePackageDownloadActionAsync)
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
         app.MapGet("/api/v1/local-backup/package-sessions/{packageSessionId:guid}/download-actions/{downloadActionId:guid}/content", DownloadPackageContentAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapPost("/api/v1/local-backup/restore-previews", CreateRestorePreviewAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapGet("/api/v1/local-backup/restore-previews/{restorePreviewId:guid}", GetRestorePreviewAsync)
+            .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
+        app.MapPost("/api/v1/local-backup/restore-previews/{restorePreviewId:guid}/discard", DiscardRestorePreviewAsync)
             .RequireAuthorization(SettleoraAuthorizationPolicies.AuthenticatedUser);
 
         return app;
@@ -458,6 +469,208 @@ internal static class LocalBackupPackageReadinessEndpoints
         return Results.Ok(MapPackageSessionResponse(session, now));
     }
 
+    private static async Task<IResult> CreateRestorePreviewAsync(
+        HttpRequest request,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (UnsupportedRequestFieldGuards.TryRejectQueryFields(
+                request,
+                "Invalid local backup restore preview request",
+                "The submitted local backup restore preview request is invalid.",
+                out var invalidQueryEnvelope))
+        {
+            return invalidQueryEnvelope;
+        }
+
+        if (request.ContentLength is null or <= 0)
+        {
+            return InvalidRestorePreviewPackageProblem("missing_package_content");
+        }
+
+        if (request.ContentLength > MaxRestorePreviewRequestBytes)
+        {
+            return InvalidRestorePreviewPackageProblem("backup_package_too_large");
+        }
+
+        string requestBody;
+        using (var reader = new StreamReader(
+            request.Body,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 8192,
+            leaveOpen: false))
+        {
+            requestBody = await reader.ReadToEndAsync(cancellationToken);
+        }
+
+        if (Encoding.UTF8.GetByteCount(requestBody) > MaxRestorePreviewRequestBytes)
+        {
+            return InvalidRestorePreviewPackageProblem("backup_package_too_large");
+        }
+
+        string? packageContent;
+        string? submittedSha256;
+        try
+        {
+            using var requestPayload = JsonDocument.Parse(requestBody);
+            var root = requestPayload.RootElement;
+            if (root.ValueKind is not JsonValueKind.Object
+                || !root.TryGetProperty("packageContent", out var packageContentElement)
+                || packageContentElement.ValueKind is not JsonValueKind.String)
+            {
+                return InvalidRestorePreviewPackageProblem("missing_package_content");
+            }
+
+            packageContent = packageContentElement.GetString();
+            submittedSha256 = root.TryGetProperty("packageSha256", out var shaElement)
+                && shaElement.ValueKind is JsonValueKind.String
+                ? shaElement.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return InvalidRestorePreviewPackageProblem("invalid_json");
+        }
+
+        if (string.IsNullOrWhiteSpace(packageContent))
+        {
+            return InvalidRestorePreviewPackageProblem("missing_package_content");
+        }
+
+        var packageBytes = Encoding.UTF8.GetBytes(packageContent);
+        if (packageBytes.Length > MaxRestorePreviewPackageBytes)
+        {
+            return InvalidRestorePreviewPackageProblem("backup_package_too_large");
+        }
+
+        var actualSha256 = Sha256Hex(packageBytes);
+        if (!string.IsNullOrWhiteSpace(submittedSha256)
+            && (submittedSha256.Trim().Length != 64
+                || !CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(actualSha256),
+                Encoding.ASCII.GetBytes(submittedSha256.Trim().ToLowerInvariant()))))
+        {
+            return InvalidRestorePreviewPackageProblem("package_integrity_failed");
+        }
+
+        LocalBackupRestorePreviewPackageSummary summary;
+        try
+        {
+            summary = ParseRestorePreviewPackage(packageContent, actualSha256, timeProvider.GetUtcNow());
+        }
+        catch (LocalBackupRestorePreviewValidationException ex)
+        {
+            return InvalidRestorePreviewPackageProblem(ex.StableCode);
+        }
+        catch (JsonException)
+        {
+            return InvalidRestorePreviewPackageProblem("invalid_json");
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var preview = new LocalBackupRestorePreviewMetadata(
+            Guid.NewGuid(),
+            actor.UserProfileId,
+            actor.AuthSessionId,
+            "ready",
+            "restore_preview_ready",
+            now,
+            Min(now.Add(RestorePreviewLifetime), summary.PackageExpiresAtUtc),
+            null,
+            summary);
+        RestorePreviews[preview.RestorePreviewId] = preview;
+
+        return Results.Created(
+            $"/api/v1/local-backup/restore-previews/{preview.RestorePreviewId:D}",
+            MapRestorePreviewResponse(preview, now));
+    }
+
+    private static IResult GetRestorePreviewAsync(
+        HttpRequest request,
+        Guid restorePreviewId,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+                request,
+                "Invalid local backup restore preview request",
+                "The submitted local backup restore preview request is invalid.",
+                "Local backup restore preview reads do not accept a body.",
+                out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (!TryLoadActorRestorePreview(restorePreviewId, actor, out var preview))
+        {
+            return RestorePreviewUnavailableProblem();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpireRestorePreviewIfNeeded(preview, now);
+        return Results.Ok(MapRestorePreviewResponse(preview, now));
+    }
+
+    private static IResult DiscardRestorePreviewAsync(
+        HttpRequest request,
+        Guid restorePreviewId,
+        ICurrentActorAccessor currentActorAccessor,
+        TimeProvider timeProvider)
+    {
+        if (UnsupportedRequestFieldGuards.TryRejectNoBodyReadEnvelope(
+                request,
+                "Invalid local backup restore preview discard request",
+                "The submitted local backup restore preview discard request is invalid.",
+                "Local backup restore preview discard requests do not accept a body.",
+                out var invalidReadEnvelope))
+        {
+            return invalidReadEnvelope;
+        }
+
+        if (!currentActorAccessor.TryGetCurrentActor(out var actor))
+        {
+            return Results.Problem(
+                title: "Unauthenticated",
+                detail: "Authentication is required to access this resource.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        if (!TryLoadActorRestorePreview(restorePreviewId, actor, out var preview))
+        {
+            return RestorePreviewUnavailableProblem();
+        }
+
+        var now = timeProvider.GetUtcNow();
+        ExpireRestorePreviewIfNeeded(preview, now);
+        if (preview.Status is not "ready")
+        {
+            return RestorePreviewUnavailableProblem();
+        }
+
+        preview.Status = "discarded";
+        preview.StableCode = "restore_preview_discarded";
+        preview.DiscardedAtUtc = now;
+        return Results.Ok(MapRestorePreviewResponse(preview, now));
+    }
+
     private static LocalBackupPackageFeatureStatusResponse Feature(
         string state,
         string stableCode,
@@ -490,6 +703,24 @@ internal static class LocalBackupPackageReadinessEndpoints
             statusCode: StatusCodes.Status404NotFound);
     }
 
+    private static IResult RestorePreviewUnavailableProblem()
+    {
+        return Results.Problem(
+            title: "Local backup restore preview unavailable",
+            detail: "The local backup restore preview is unavailable for this authenticated actor.",
+            statusCode: StatusCodes.Status404NotFound);
+    }
+
+    private static IResult InvalidRestorePreviewPackageProblem(string stableCode)
+    {
+        return Results.Problem(
+            title: "Invalid local backup restore preview package",
+            detail: $"The submitted local backup package cannot be previewed. Stable code: {stableCode}.",
+            statusCode: stableCode is "backup_package_too_large"
+                ? StatusCodes.Status413PayloadTooLarge
+                : StatusCodes.Status400BadRequest);
+    }
+
     private static void ExpirePackageSessionIfNeeded(LocalBackupPackageSessionMetadata session, DateTimeOffset now)
     {
         if ((session.Status is "created" or "ready_to_download") && now >= session.ExpiresAtUtc)
@@ -517,6 +748,15 @@ internal static class LocalBackupPackageReadinessEndpoints
             .ToArray())
         {
             session.DownloadActions.Remove(expiredActionId);
+        }
+    }
+
+    private static void ExpireRestorePreviewIfNeeded(LocalBackupRestorePreviewMetadata preview, DateTimeOffset now)
+    {
+        if (preview.Status is "ready" && now >= preview.ExpiresAtUtc)
+        {
+            preview.Status = "expired";
+            preview.StableCode = "restore_preview_expired";
         }
     }
 
@@ -669,6 +909,281 @@ internal static class LocalBackupPackageReadinessEndpoints
             UnsupportedFeatures: UnsupportedPackageArtifactFeatures(),
             NextAllowedActions: NextAllowedArtifactActions(session),
             ResponseGeneratedAtUtc: now);
+    }
+
+    private static LocalBackupRestorePreviewResponse MapRestorePreviewResponse(
+        LocalBackupRestorePreviewMetadata preview,
+        DateTimeOffset now)
+    {
+        var summary = preview.PackageSummary;
+        return new LocalBackupRestorePreviewResponse(
+            preview.RestorePreviewId,
+            preview.Status,
+            preview.StableCode,
+            "Restore preview parsed and validated the data-only package without restoring anything. Restore confirmation remains a separate future mutation gate.",
+            preview.CreatedAtUtc,
+            preview.ExpiresAtUtc,
+            preview.DiscardedAtUtc,
+            summary.SourceAuthorityBoundary,
+            summary.PackageFormatName,
+            summary.PackageVersion,
+            summary.ManifestVersion,
+            summary.PackageId,
+            summary.ManifestId,
+            summary.PackageSessionId,
+            summary.GeneratedAtUtc,
+            summary.PackageExpiresAtUtc,
+            summary.PackageSha256,
+            summary.TotalSectionCount,
+            summary.IncludedSectionCategories,
+            summary.OmittedSectionCategories,
+            summary.UnsupportedSectionCategories,
+            summary.BlockedSectionCategories,
+            summary.RecordSummaries,
+            summary.Warnings,
+            summary.BlockedReasons,
+            RestoreConfirmationAvailable: false,
+            RestoreConfirmationState: "unsupported",
+            RestoreConfirmationCopy: "Restore confirmation is not available from this preview. Any future restore remains a separate explicit mutation gate with revalidation before writes.",
+            NextAllowedActions: preview.Status switch
+            {
+                "ready" => ["get_restore_preview", "discard_restore_preview"],
+                _ => ["create_restore_preview"]
+            },
+            PrivacyBoundary: "Restore preview responses return bounded safe metadata only. They exclude raw package payloads, file bytes, storage paths, object keys, signed URLs, filesystem/local/temp paths, provider internals, raw OCR text, private notes, payment details, hidden records, security material, auth material, and local Codex state.",
+            ResponseGeneratedAtUtc: now);
+    }
+
+    private static LocalBackupRestorePreviewPackageSummary ParseRestorePreviewPackage(
+        string packageContent,
+        string packageSha256,
+        DateTimeOffset now)
+    {
+        using var packagePayload = JsonDocument.Parse(packageContent);
+        var root = packagePayload.RootElement;
+        if (root.ValueKind is not JsonValueKind.Object)
+        {
+            throw new LocalBackupRestorePreviewValidationException("invalid_json");
+        }
+
+        var packageFormatName = RequiredString(root, "packageFormatName", "unsupported_package_format");
+        if (packageFormatName != PackageFormatName)
+        {
+            throw new LocalBackupRestorePreviewValidationException("unsupported_package_format");
+        }
+
+        var packageVersion = RequiredString(root, "packageVersion", "unsupported_package_version");
+        if (packageVersion != PackageVersion)
+        {
+            throw new LocalBackupRestorePreviewValidationException("unsupported_package_version");
+        }
+
+        var manifestVersion = RequiredString(root, "manifestVersion", "unsupported_manifest_version");
+        if (manifestVersion != ManifestVersion)
+        {
+            throw new LocalBackupRestorePreviewValidationException("unsupported_manifest_version");
+        }
+
+        var sourceAuthorityBoundary = RequiredString(root, "sourceAuthorityBoundary", "unsupported_source_authority_boundary");
+        if (sourceAuthorityBoundary != "server_authoritative_copy")
+        {
+            throw new LocalBackupRestorePreviewValidationException("unsupported_source_authority_boundary");
+        }
+
+        var sourceServerModePosture = RequiredString(root, "sourceServerModePosture", "unsupported_source_server_mode_posture");
+        if (sourceServerModePosture != "server_authoritative")
+        {
+            throw new LocalBackupRestorePreviewValidationException("unsupported_source_server_mode_posture");
+        }
+
+        var packageId = RequiredGuid(root, "packageId", "invalid_package_identity");
+        var manifestId = RequiredGuid(root, "manifestId", "invalid_manifest_identity");
+        var packageSessionId = RequiredGuid(root, "packageSessionId", "invalid_package_session_identity");
+        var generatedAtUtc = RequiredDateTimeOffset(root, "generatedAtUtc", "invalid_package_timestamp");
+        var packageExpiresAtUtc = RequiredDateTimeOffset(root, "expiresAtUtc", "invalid_package_timestamp");
+        if (packageExpiresAtUtc <= now || packageExpiresAtUtc <= generatedAtUtc)
+        {
+            throw new LocalBackupRestorePreviewValidationException("backup_package_expired");
+        }
+
+        if (root.TryGetProperty("requiredFeatures", out var requiredFeatures)
+            && requiredFeatures.ValueKind is JsonValueKind.Array
+            && requiredFeatures.GetArrayLength() > 0)
+        {
+            throw new LocalBackupRestorePreviewValidationException("unsupported_required_feature");
+        }
+
+        if (!root.TryGetProperty("sections", out var sections) || sections.ValueKind is not JsonValueKind.Array)
+        {
+            throw new LocalBackupRestorePreviewValidationException("missing_section_inventory");
+        }
+
+        if (sections.GetArrayLength() is 0 or > MaxRestorePreviewSections)
+        {
+            throw new LocalBackupRestorePreviewValidationException("unsupported_section_inventory");
+        }
+
+        var included = new List<string>();
+        var omitted = new List<string>();
+        var unsupported = new List<string>();
+        var blocked = new List<string>();
+        var warnings = new List<string>();
+        foreach (var section in sections.EnumerateArray())
+        {
+            var name = RequiredString(section, "name", "invalid_section_inventory");
+            var state = RequiredString(section, "state", "invalid_section_inventory");
+            var count = RequiredInt(section, "count", "invalid_section_inventory");
+            if (count < 0 || count > 1_000_000)
+            {
+                throw new LocalBackupRestorePreviewValidationException("unsupported_section_inventory");
+            }
+
+            if (state is "encrypted" or "included_encrypted")
+            {
+                throw new LocalBackupRestorePreviewValidationException("unsupported_encrypted_section");
+            }
+
+            if ((name.Contains("_files", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("file_section", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("blob", StringComparison.OrdinalIgnoreCase))
+                && state is "included")
+            {
+                throw new LocalBackupRestorePreviewValidationException("unsupported_file_section");
+            }
+
+            switch (state)
+            {
+                case "included":
+                    included.Add(name);
+                    break;
+                case "omitted" or "omitted_unsupported":
+                    omitted.Add(name);
+                    break;
+                case "unsupported":
+                    unsupported.Add(name);
+                    break;
+                case "blocked":
+                    blocked.Add(name);
+                    break;
+                default:
+                    throw new LocalBackupRestorePreviewValidationException("unsupported_section_state");
+            }
+        }
+
+        var recordSummaries = BuildRestorePreviewRecordSummaries(root);
+        if (unsupported.Count > 0)
+        {
+            warnings.Add("unsupported_sections_omitted");
+        }
+
+        warnings.Add("restore_confirmation_separate_gate");
+        warnings.Add("browser_local_persistence_unsupported");
+
+        return new LocalBackupRestorePreviewPackageSummary(
+            packageFormatName,
+            packageVersion,
+            manifestVersion,
+            packageId,
+            manifestId,
+            packageSessionId,
+            sourceAuthorityBoundary,
+            generatedAtUtc,
+            packageExpiresAtUtc,
+            packageSha256,
+            sections.GetArrayLength(),
+            included,
+            omitted,
+            unsupported,
+            blocked,
+            recordSummaries,
+            warnings,
+            blocked);
+    }
+
+    private static IReadOnlyList<LocalBackupRestorePreviewRecordSummary> BuildRestorePreviewRecordSummaries(JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var data)
+            || data.ValueKind is not JsonValueKind.Object
+            || !data.TryGetProperty("personalBillSafeSummary", out var billSummary)
+            || billSummary.ValueKind is not JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        return
+        [
+            new(
+                "personal_bill_safe_summary",
+                SafeIntOrZero(billSummary, "totalVisiblePersonalBills"),
+                SafeIntOrZero(billSummary, "activeVisiblePersonalBills"),
+                SafeIntOrZero(billSummary, "archivedVisiblePersonalBills"),
+                SafeIntOrZero(billSummary, "itemCount"),
+                SafeIntOrZero(billSummary, "participantCount"),
+                SafeIntOrZero(billSummary, "payerCount"),
+                SafeIntOrZero(billSummary, "adjustmentCount"))
+        ];
+    }
+
+    private static string RequiredString(JsonElement root, string propertyName, string stableCode)
+    {
+        if (!root.TryGetProperty(propertyName, out var value) || value.ValueKind is not JsonValueKind.String)
+        {
+            throw new LocalBackupRestorePreviewValidationException(stableCode);
+        }
+
+        return value.GetString() ?? throw new LocalBackupRestorePreviewValidationException(stableCode);
+    }
+
+    private static Guid RequiredGuid(JsonElement root, string propertyName, string stableCode)
+    {
+        var value = RequiredString(root, propertyName, stableCode);
+        return Guid.TryParse(value, out var parsed)
+            ? parsed
+            : throw new LocalBackupRestorePreviewValidationException(stableCode);
+    }
+
+    private static DateTimeOffset RequiredDateTimeOffset(JsonElement root, string propertyName, string stableCode)
+    {
+        if (!root.TryGetProperty(propertyName, out var value)
+            || !value.TryGetDateTimeOffset(out var parsed))
+        {
+            throw new LocalBackupRestorePreviewValidationException(stableCode);
+        }
+
+        return parsed;
+    }
+
+    private static int RequiredInt(JsonElement root, string propertyName, string stableCode)
+    {
+        if (!root.TryGetProperty(propertyName, out var value) || !value.TryGetInt32(out var parsed))
+        {
+            throw new LocalBackupRestorePreviewValidationException(stableCode);
+        }
+
+        return parsed;
+    }
+
+    private static int SafeIntOrZero(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out var value) && value.TryGetInt32(out var parsed)
+            ? Math.Clamp(parsed, 0, 1_000_000)
+            : 0;
+    }
+
+    private static bool TryLoadActorRestorePreview(
+        Guid restorePreviewId,
+        AuthenticatedActor actor,
+        out LocalBackupRestorePreviewMetadata preview)
+    {
+        if (RestorePreviews.TryGetValue(restorePreviewId, out preview!)
+            && preview.ActorUserProfileId == actor.UserProfileId
+            && preview.AuthSessionId == actor.AuthSessionId)
+        {
+            return true;
+        }
+
+        preview = null!;
+        return false;
     }
 
     private static string ArtifactStatus(LocalBackupPackageSessionMetadata session)
@@ -1035,6 +1550,96 @@ internal sealed record LocalBackupPackageSection(
     int Count,
     string SafeSummary,
     string? Sha256);
+
+internal sealed class LocalBackupRestorePreviewMetadata(
+    Guid restorePreviewId,
+    Guid actorUserProfileId,
+    Guid authSessionId,
+    string status,
+    string stableCode,
+    DateTimeOffset createdAtUtc,
+    DateTimeOffset expiresAtUtc,
+    DateTimeOffset? discardedAtUtc,
+    LocalBackupRestorePreviewPackageSummary packageSummary)
+{
+    public Guid RestorePreviewId { get; } = restorePreviewId;
+    public Guid ActorUserProfileId { get; } = actorUserProfileId;
+    public Guid AuthSessionId { get; } = authSessionId;
+    public string Status { get; set; } = status;
+    public string StableCode { get; set; } = stableCode;
+    public DateTimeOffset CreatedAtUtc { get; } = createdAtUtc;
+    public DateTimeOffset ExpiresAtUtc { get; } = expiresAtUtc;
+    public DateTimeOffset? DiscardedAtUtc { get; set; } = discardedAtUtc;
+    public LocalBackupRestorePreviewPackageSummary PackageSummary { get; } = packageSummary;
+}
+
+internal sealed record LocalBackupRestorePreviewPackageSummary(
+    string PackageFormatName,
+    string PackageVersion,
+    string ManifestVersion,
+    Guid PackageId,
+    Guid ManifestId,
+    Guid PackageSessionId,
+    string SourceAuthorityBoundary,
+    DateTimeOffset GeneratedAtUtc,
+    DateTimeOffset PackageExpiresAtUtc,
+    string PackageSha256,
+    int TotalSectionCount,
+    IReadOnlyList<string> IncludedSectionCategories,
+    IReadOnlyList<string> OmittedSectionCategories,
+    IReadOnlyList<string> UnsupportedSectionCategories,
+    IReadOnlyList<string> BlockedSectionCategories,
+    IReadOnlyList<LocalBackupRestorePreviewRecordSummary> RecordSummaries,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<string> BlockedReasons);
+
+internal sealed record LocalBackupRestorePreviewRecordSummary(
+    string Category,
+    int TotalCount,
+    int ActiveCount,
+    int ArchivedCount,
+    int ItemCount,
+    int ParticipantCount,
+    int PayerCount,
+    int AdjustmentCount);
+
+internal sealed record LocalBackupRestorePreviewResponse(
+    Guid RestorePreviewId,
+    string Status,
+    string StableCode,
+    string SafeMessage,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset ExpiresAtUtc,
+    DateTimeOffset? DiscardedAtUtc,
+    string SourceAuthorityBoundary,
+    string PackageFormatName,
+    string PackageVersion,
+    string ManifestVersion,
+    Guid PackageId,
+    Guid ManifestId,
+    Guid PackageSessionId,
+    DateTimeOffset PackageGeneratedAtUtc,
+    DateTimeOffset PackageExpiresAtUtc,
+    string PackageSha256,
+    int TotalSectionCount,
+    IReadOnlyList<string> IncludedSectionCategories,
+    IReadOnlyList<string> OmittedSectionCategories,
+    IReadOnlyList<string> UnsupportedSectionCategories,
+    IReadOnlyList<string> BlockedSectionCategories,
+    IReadOnlyList<LocalBackupRestorePreviewRecordSummary> RecordSummaries,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<string> BlockedReasons,
+    bool RestoreConfirmationAvailable,
+    string RestoreConfirmationState,
+    string RestoreConfirmationCopy,
+    IReadOnlyList<string> NextAllowedActions,
+    string PrivacyBoundary,
+    DateTimeOffset ResponseGeneratedAtUtc);
+
+internal sealed class LocalBackupRestorePreviewValidationException(string stableCode) : Exception
+{
+    public string StableCode { get; } = stableCode;
+}
 
 internal sealed record LocalBackupPackageSessionResponse(
     Guid PackageSessionId,

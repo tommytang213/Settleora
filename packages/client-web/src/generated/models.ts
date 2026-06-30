@@ -4137,6 +4137,112 @@ export interface LocalBackupPackageDownloadActionResponse {
 }
 
 /**
+ * Short-lived restore preview status. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupRestorePreviewStatus = "ready" | "expired" | "discarded";
+
+/**
+ * Stable local backup restore preview code. Unknown future values must be handled as unavailable by clients.
+ */
+export type LocalBackupRestorePreviewStableCode = "restore_preview_ready" | "restore_preview_expired" | "restore_preview_discarded" | "invalid_json" | "missing_package_content" | "backup_package_too_large" | "unsupported_package_format" | "unsupported_package_version" | "unsupported_manifest_version" | "package_integrity_failed" | "backup_package_expired" | "unsupported_required_feature" | "unsupported_encrypted_section" | "unsupported_file_section" | "unsupported_source_authority_boundary" | "unsupported_source_server_mode_posture" | "missing_section_inventory" | "unsupported_section_inventory" | "unsupported_section_state" | "temporarily_unavailable";
+
+/**
+ * Safe package section category labels exposed by restore preview.
+ */
+export type LocalBackupRestorePreviewSectionCategory = "current_actor_profile_summary" | "personal_bill_safe_summary" | "receipt_and_supporting_files" | "raw_ocr_text" | "private_notes_and_payment_details" | "restore_preview_and_confirmation";
+
+/**
+ * Safe bounded restore preview warning labels.
+ */
+export type LocalBackupRestorePreviewWarning = "unsupported_sections_omitted" | "restore_confirmation_separate_gate" | "browser_local_persistence_unsupported";
+
+/**
+ * Safe bounded restore preview blocked section labels.
+ */
+export type LocalBackupRestorePreviewBlockedReason = "current_actor_profile_summary" | "personal_bill_safe_summary" | "receipt_and_supporting_files" | "raw_ocr_text" | "private_notes_and_payment_details" | "restore_preview_and_confirmation";
+
+/**
+ * Safe next action labels for non-mutating restore preview lifecycle.
+ */
+export type LocalBackupRestorePreviewNextAllowedAction = "get_restore_preview" | "discard_restore_preview" | "create_restore_preview";
+
+/**
+ * Restore confirmation support state for this preview contract.
+ */
+export type LocalBackupRestoreConfirmationState = "unsupported";
+
+/**
+ * Submitted data-only local backup package content for non-mutating restore preview. The package content is sensitive input and is never echoed by normal responses or problem details.
+ */
+export interface LocalBackupRestorePreviewCreateRequest {
+  /**
+   * Downloaded data-only local backup package JSON content. It is sensitive input and must not be logged or displayed by clients.
+   */
+  packageContent: string;
+  /**
+   * Optional SHA-256 integrity marker for the exact UTF-8 package content bytes when available from package download metadata.
+   */
+  packageSha256?: string | null;
+}
+
+/**
+ * Safe bounded record-count summary. It contains counts only and no bill IDs, merchant names, item names, notes, OCR text, payment details, file references, or hidden records.
+ */
+export interface LocalBackupRestorePreviewRecordSummary {
+  category: LocalBackupRestorePreviewSectionCategory;
+  totalCount: number;
+  activeCount: number;
+  archivedCount: number;
+  itemCount: number;
+  participantCount: number;
+  payerCount: number;
+  adjustmentCount: number;
+}
+
+/**
+ * Non-mutating local backup restore preview metadata for the authenticated actor and current auth session. It contains no raw package payload, file bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem/local/temp paths, raw OCR text, private notes, payment details, auth tokens, credential material, hidden records, restore confirmation, browser-local persistence, or server/local mutation result.
+ */
+export interface LocalBackupRestorePreviewResponse {
+  /**
+   * Opaque process-local restore preview ID. It is not restore authority, storage authority, or a package token.
+   */
+  restorePreviewId: string;
+  status: LocalBackupRestorePreviewStatus;
+  stableCode: LocalBackupRestorePreviewStableCode;
+  safeMessage: string;
+  createdAtUtc: string;
+  expiresAtUtc: string;
+  discardedAtUtc?: string | null;
+  sourceAuthorityBoundary: "server_authoritative_copy";
+  packageFormatName: "settleora.local-backup.data-only";
+  packageVersion: "2026-06-30.data-only.v1";
+  manifestVersion: "2026-06-30.manifest.v1";
+  packageId: string;
+  manifestId: string;
+  packageSessionId: string;
+  packageGeneratedAtUtc: string;
+  packageExpiresAtUtc: string;
+  /**
+   * SHA-256 of submitted package content bytes. It is an integrity marker, not a secret.
+   */
+  packageSha256: string;
+  totalSectionCount: number;
+  includedSectionCategories: LocalBackupRestorePreviewSectionCategory[];
+  omittedSectionCategories: LocalBackupRestorePreviewSectionCategory[];
+  unsupportedSectionCategories: LocalBackupRestorePreviewSectionCategory[];
+  blockedSectionCategories: LocalBackupRestorePreviewSectionCategory[];
+  recordSummaries: LocalBackupRestorePreviewRecordSummary[];
+  warnings: LocalBackupRestorePreviewWarning[];
+  blockedReasons: LocalBackupRestorePreviewBlockedReason[];
+  restoreConfirmationAvailable: false;
+  restoreConfirmationState: LocalBackupRestoreConfirmationState;
+  restoreConfirmationCopy: string;
+  nextAllowedActions: LocalBackupRestorePreviewNextAllowedAction[];
+  privacyBoundary: string;
+  responseGeneratedAtUtc: string;
+}
+
+/**
  * Metadata-only local backup package readiness for the current authenticated actor. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, or hidden records.
  */
 export interface LocalBackupPackageReadinessResponse {
