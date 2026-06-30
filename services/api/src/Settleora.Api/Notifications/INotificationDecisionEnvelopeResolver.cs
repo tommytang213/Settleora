@@ -4,4 +4,3 @@ internal interface INotificationDecisionEnvelopeResolver
 {
     NotificationDecisionEnvelope Resolve(NotificationDecisionEnvelopeRequest request);
 }
-

@@ -104,4 +104,3 @@ internal sealed record NotificationDecisionEnvelope(
         return Channels.Single(decision => string.Equals(decision.Channel, channel, StringComparison.Ordinal));
     }
 }
-

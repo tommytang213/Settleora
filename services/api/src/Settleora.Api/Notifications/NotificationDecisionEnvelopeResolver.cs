@@ -277,4 +277,3 @@ internal sealed class NotificationDecisionEnvelopeResolver : INotificationDecisi
             || eventType.StartsWith("auth.", StringComparison.Ordinal);
     }
 }
-
