@@ -25,6 +25,7 @@ Use this file with:
 - [User web export, import, and local-mode implementation plan](USER_WEB_EXPORT_IMPORT_LOCAL_MODE_IMPLEMENTATION_PLAN.md)
 - [User web local backup and restore plan](USER_WEB_LOCAL_BACKUP_RESTORE_PLAN.md)
 - [User web local backup package contract plan](USER_WEB_LOCAL_BACKUP_PACKAGE_CONTRACT_PLAN.md)
+- [User web local backup package generation and download plan](USER_WEB_LOCAL_BACKUP_PACKAGE_GENERATION_DOWNLOAD_PLAN.md)
 - [User web sync and local status plan](USER_WEB_SYNC_LOCAL_STATUS_PLAN.md)
 - [User web sync and local status contract plan](USER_WEB_SYNC_LOCAL_STATUS_CONTRACT_PLAN.md)
 - [Local, server, import, export, and restore boundaries](../architecture/LOCAL_SERVER_IMPORT_EXPORT_BOUNDARIES.md)
@@ -128,6 +129,14 @@ bytes, package manifests, downloads, storage objects, storage paths, file-byte
 reads or writes, restore previews, restore confirmations, browser-local
 persistence, user-web runtime controls, or server/local business-record
 mutations.
+
+Follow-up planning update on 2026-06-30: the
+[user web local backup package generation and download plan](USER_WEB_LOCAL_BACKUP_PACKAGE_GENERATION_DOWNLOAD_PLAN.md)
+defines the next docs-only gate for future package generation/download,
+artifact status, short-lived download actions, storage/file-byte boundaries,
+retention/cleanup, encryption/key-handling direction, and browser download
+safety before any OpenAPI/backend package artifact or user-web runtime work is
+implemented.
 
 A future package-session contract should be staged:
 
@@ -421,18 +430,20 @@ Keep package and restore work split across reviewable gates:
 
 1. OpenAPI/backend package session/readiness/generation contract, including
    create/inspect/prepare/download eligibility/expire/discard/cancel concepts.
-2. Generated-client refresh through the repo generation workflow.
-3. Package generation/download runtime, including storage/file-byte,
+2. OpenAPI/backend package generation/download contract for existing package
+   sessions, informed by the dedicated generation/download planning gate.
+3. Generated-client refresh through the repo generation workflow.
+4. Package generation/download runtime, including storage/file-byte,
    encryption/key handling, retention, audit, privacy, and data-egress gates.
-4. Restore preview contract/API, with package parsing, manifest validation,
+5. Restore preview contract/API, with package parsing, manifest validation,
    integrity, encryption/key access, conflict/duplicate, file-section, and
    privacy gates.
-5. Restore confirmation contract/API, with mutation, money/bill/settlement,
+6. Restore confirmation contract/API, with mutation, money/bill/settlement,
    storage/file, idempotency, audit, conflict, and privacy gates.
-6. Browser local-mode persistence/security design before any IndexedDB,
+7. Browser local-mode persistence/security design before any IndexedDB,
    localStorage, sessionStorage, cache, service-worker, file-system, object
    URL, browser-local queue, or browser-local authority runtime.
-7. User-web runtime wiring only after the relevant approved generated-client
+8. User-web runtime wiring only after the relevant approved generated-client
    methods and runtime contracts exist.
 
 ## Explicit Non-Goals
