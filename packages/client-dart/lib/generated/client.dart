@@ -1511,6 +1511,39 @@ class SettleoraApiClient {
     return LocalBackupPackageGenerationStatusResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<LocalBackupRestorePreviewResponse> createLocalBackupRestorePreview(LocalBackupRestorePreviewCreateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/local-backup/restore-previews",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupRestorePreviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<LocalBackupRestorePreviewResponse> getLocalBackupRestorePreview(String restorePreviewId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/local-backup/restore-previews/${Uri.encodeComponent(restorePreviewId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupRestorePreviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<LocalBackupRestorePreviewResponse> discardLocalBackupRestorePreview(String restorePreviewId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/local-backup/restore-previews/${Uri.encodeComponent(restorePreviewId.toString())}/discard',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return LocalBackupRestorePreviewResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<ManualFinanceSummaryResponse> getManualFinanceSummary({String? windowStartDate, String? windowEndDate, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

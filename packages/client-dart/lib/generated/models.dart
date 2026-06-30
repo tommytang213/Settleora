@@ -12041,6 +12041,334 @@ class LocalBackupPackageDownloadActionResponse {
   }
 }
 
+/// Short-lived restore preview status. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupRestorePreviewStatus = String;
+class LocalBackupRestorePreviewStatusValues {
+  const LocalBackupRestorePreviewStatusValues._();
+  static const LocalBackupRestorePreviewStatus ready = "ready";
+  static const LocalBackupRestorePreviewStatus expired = "expired";
+  static const LocalBackupRestorePreviewStatus discarded = "discarded";
+  static const Set<LocalBackupRestorePreviewStatus> values = {ready, expired, discarded};
+}
+
+/// Stable local backup restore preview code. Unknown future values must be handled as unavailable by clients.
+typedef LocalBackupRestorePreviewStableCode = String;
+class LocalBackupRestorePreviewStableCodeValues {
+  const LocalBackupRestorePreviewStableCodeValues._();
+  static const LocalBackupRestorePreviewStableCode restorePreviewReady = "restore_preview_ready";
+  static const LocalBackupRestorePreviewStableCode restorePreviewExpired = "restore_preview_expired";
+  static const LocalBackupRestorePreviewStableCode restorePreviewDiscarded = "restore_preview_discarded";
+  static const LocalBackupRestorePreviewStableCode invalidJson = "invalid_json";
+  static const LocalBackupRestorePreviewStableCode missingPackageContent = "missing_package_content";
+  static const LocalBackupRestorePreviewStableCode backupPackageTooLarge = "backup_package_too_large";
+  static const LocalBackupRestorePreviewStableCode unsupportedPackageFormat = "unsupported_package_format";
+  static const LocalBackupRestorePreviewStableCode unsupportedPackageVersion = "unsupported_package_version";
+  static const LocalBackupRestorePreviewStableCode unsupportedManifestVersion = "unsupported_manifest_version";
+  static const LocalBackupRestorePreviewStableCode packageIntegrityFailed = "package_integrity_failed";
+  static const LocalBackupRestorePreviewStableCode backupPackageExpired = "backup_package_expired";
+  static const LocalBackupRestorePreviewStableCode unsupportedRequiredFeature = "unsupported_required_feature";
+  static const LocalBackupRestorePreviewStableCode unsupportedEncryptedSection = "unsupported_encrypted_section";
+  static const LocalBackupRestorePreviewStableCode unsupportedFileSection = "unsupported_file_section";
+  static const LocalBackupRestorePreviewStableCode unsupportedSourceAuthorityBoundary = "unsupported_source_authority_boundary";
+  static const LocalBackupRestorePreviewStableCode unsupportedSourceServerModePosture = "unsupported_source_server_mode_posture";
+  static const LocalBackupRestorePreviewStableCode missingSectionInventory = "missing_section_inventory";
+  static const LocalBackupRestorePreviewStableCode unsupportedSectionInventory = "unsupported_section_inventory";
+  static const LocalBackupRestorePreviewStableCode unsupportedSectionState = "unsupported_section_state";
+  static const LocalBackupRestorePreviewStableCode temporarilyUnavailable = "temporarily_unavailable";
+  static const Set<LocalBackupRestorePreviewStableCode> values = {restorePreviewReady, restorePreviewExpired, restorePreviewDiscarded, invalidJson, missingPackageContent, backupPackageTooLarge, unsupportedPackageFormat, unsupportedPackageVersion, unsupportedManifestVersion, packageIntegrityFailed, backupPackageExpired, unsupportedRequiredFeature, unsupportedEncryptedSection, unsupportedFileSection, unsupportedSourceAuthorityBoundary, unsupportedSourceServerModePosture, missingSectionInventory, unsupportedSectionInventory, unsupportedSectionState, temporarilyUnavailable};
+}
+
+/// Safe package section category labels exposed by restore preview.
+typedef LocalBackupRestorePreviewSectionCategory = String;
+class LocalBackupRestorePreviewSectionCategoryValues {
+  const LocalBackupRestorePreviewSectionCategoryValues._();
+  static const LocalBackupRestorePreviewSectionCategory currentActorProfileSummary = "current_actor_profile_summary";
+  static const LocalBackupRestorePreviewSectionCategory personalBillSafeSummary = "personal_bill_safe_summary";
+  static const LocalBackupRestorePreviewSectionCategory receiptAndSupportingFiles = "receipt_and_supporting_files";
+  static const LocalBackupRestorePreviewSectionCategory rawOcrText = "raw_ocr_text";
+  static const LocalBackupRestorePreviewSectionCategory privateNotesAndPaymentDetails = "private_notes_and_payment_details";
+  static const LocalBackupRestorePreviewSectionCategory restorePreviewAndConfirmation = "restore_preview_and_confirmation";
+  static const Set<LocalBackupRestorePreviewSectionCategory> values = {currentActorProfileSummary, personalBillSafeSummary, receiptAndSupportingFiles, rawOcrText, privateNotesAndPaymentDetails, restorePreviewAndConfirmation};
+}
+
+/// Safe bounded restore preview warning labels.
+typedef LocalBackupRestorePreviewWarning = String;
+class LocalBackupRestorePreviewWarningValues {
+  const LocalBackupRestorePreviewWarningValues._();
+  static const LocalBackupRestorePreviewWarning unsupportedSectionsOmitted = "unsupported_sections_omitted";
+  static const LocalBackupRestorePreviewWarning restoreConfirmationSeparateGate = "restore_confirmation_separate_gate";
+  static const LocalBackupRestorePreviewWarning browserLocalPersistenceUnsupported = "browser_local_persistence_unsupported";
+  static const Set<LocalBackupRestorePreviewWarning> values = {unsupportedSectionsOmitted, restoreConfirmationSeparateGate, browserLocalPersistenceUnsupported};
+}
+
+/// Safe bounded restore preview blocked section labels.
+typedef LocalBackupRestorePreviewBlockedReason = String;
+class LocalBackupRestorePreviewBlockedReasonValues {
+  const LocalBackupRestorePreviewBlockedReasonValues._();
+  static const LocalBackupRestorePreviewBlockedReason currentActorProfileSummary = "current_actor_profile_summary";
+  static const LocalBackupRestorePreviewBlockedReason personalBillSafeSummary = "personal_bill_safe_summary";
+  static const LocalBackupRestorePreviewBlockedReason receiptAndSupportingFiles = "receipt_and_supporting_files";
+  static const LocalBackupRestorePreviewBlockedReason rawOcrText = "raw_ocr_text";
+  static const LocalBackupRestorePreviewBlockedReason privateNotesAndPaymentDetails = "private_notes_and_payment_details";
+  static const LocalBackupRestorePreviewBlockedReason restorePreviewAndConfirmation = "restore_preview_and_confirmation";
+  static const Set<LocalBackupRestorePreviewBlockedReason> values = {currentActorProfileSummary, personalBillSafeSummary, receiptAndSupportingFiles, rawOcrText, privateNotesAndPaymentDetails, restorePreviewAndConfirmation};
+}
+
+/// Safe next action labels for non-mutating restore preview lifecycle.
+typedef LocalBackupRestorePreviewNextAllowedAction = String;
+class LocalBackupRestorePreviewNextAllowedActionValues {
+  const LocalBackupRestorePreviewNextAllowedActionValues._();
+  static const LocalBackupRestorePreviewNextAllowedAction getRestorePreview = "get_restore_preview";
+  static const LocalBackupRestorePreviewNextAllowedAction discardRestorePreview = "discard_restore_preview";
+  static const LocalBackupRestorePreviewNextAllowedAction createRestorePreview = "create_restore_preview";
+  static const Set<LocalBackupRestorePreviewNextAllowedAction> values = {getRestorePreview, discardRestorePreview, createRestorePreview};
+}
+
+/// Restore confirmation support state for this preview contract.
+typedef LocalBackupRestoreConfirmationState = String;
+class LocalBackupRestoreConfirmationStateValues {
+  const LocalBackupRestoreConfirmationStateValues._();
+  static const LocalBackupRestoreConfirmationState unsupported = "unsupported";
+  static const Set<LocalBackupRestoreConfirmationState> values = {unsupported};
+}
+
+/// Submitted data-only local backup package content for non-mutating restore preview. The package content is sensitive input and is never echoed by normal responses or problem details.
+class LocalBackupRestorePreviewCreateRequest {
+  static const Object _unsetPackageSha256 = Object();
+
+  LocalBackupRestorePreviewCreateRequest({
+    required this.packageContent,
+    Object? packageSha256 = _unsetPackageSha256,
+  })
+      : packageSha256 = identical(packageSha256, _unsetPackageSha256) ? null : packageSha256 as String?,
+        _hasPackageSha256 = !identical(packageSha256, _unsetPackageSha256);
+
+  /// Downloaded data-only local backup package JSON content. It is sensitive input and must not be logged or displayed by clients.
+  final String packageContent;
+  /// Optional SHA-256 integrity marker for the exact UTF-8 package content bytes when available from package download metadata.
+  final String? packageSha256;
+  final bool _hasPackageSha256;
+
+  factory LocalBackupRestorePreviewCreateRequest.fromJson(JsonObject json) {
+    return LocalBackupRestorePreviewCreateRequest(
+      packageContent: json["packageContent"] as String,
+      packageSha256: json.containsKey("packageSha256")
+          ? json["packageSha256"] == null ? null : json["packageSha256"] as String
+          : _unsetPackageSha256,
+    );
+  }
+
+  JsonObject toJson() {
+    final packageSha256JsonValue = packageSha256;
+
+    return {
+      "packageContent": packageContent,
+      if (_hasPackageSha256) "packageSha256": packageSha256JsonValue,
+    };
+  }
+}
+
+/// Safe bounded record-count summary. It contains counts only and no bill IDs, merchant names, item names, notes, OCR text, payment details, file references, or hidden records.
+class LocalBackupRestorePreviewRecordSummary {
+  const LocalBackupRestorePreviewRecordSummary({
+    required this.category,
+    required this.totalCount,
+    required this.activeCount,
+    required this.archivedCount,
+    required this.itemCount,
+    required this.participantCount,
+    required this.payerCount,
+    required this.adjustmentCount,
+  });
+
+  final LocalBackupRestorePreviewSectionCategory category;
+  final int totalCount;
+  final int activeCount;
+  final int archivedCount;
+  final int itemCount;
+  final int participantCount;
+  final int payerCount;
+  final int adjustmentCount;
+
+  factory LocalBackupRestorePreviewRecordSummary.fromJson(JsonObject json) {
+    return LocalBackupRestorePreviewRecordSummary(
+      category: json["category"] as String,
+      totalCount: (json["totalCount"] as num).toInt(),
+      activeCount: (json["activeCount"] as num).toInt(),
+      archivedCount: (json["archivedCount"] as num).toInt(),
+      itemCount: (json["itemCount"] as num).toInt(),
+      participantCount: (json["participantCount"] as num).toInt(),
+      payerCount: (json["payerCount"] as num).toInt(),
+      adjustmentCount: (json["adjustmentCount"] as num).toInt(),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "category": category,
+      "totalCount": totalCount,
+      "activeCount": activeCount,
+      "archivedCount": archivedCount,
+      "itemCount": itemCount,
+      "participantCount": participantCount,
+      "payerCount": payerCount,
+      "adjustmentCount": adjustmentCount,
+    };
+  }
+}
+
+/// Non-mutating local backup restore preview metadata for the authenticated actor and current auth session. It contains no raw package payload, file bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem/local/temp paths, raw OCR text, private notes, payment details, auth tokens, credential material, hidden records, restore confirmation, browser-local persistence, or server/local mutation result.
+class LocalBackupRestorePreviewResponse {
+  static const Object _unsetDiscardedAtUtc = Object();
+
+  LocalBackupRestorePreviewResponse({
+    required this.restorePreviewId,
+    required this.status,
+    required this.stableCode,
+    required this.safeMessage,
+    required this.createdAtUtc,
+    required this.expiresAtUtc,
+    Object? discardedAtUtc = _unsetDiscardedAtUtc,
+    required this.sourceAuthorityBoundary,
+    required this.packageFormatName,
+    required this.packageVersion,
+    required this.manifestVersion,
+    required this.packageId,
+    required this.manifestId,
+    required this.packageSessionId,
+    required this.packageGeneratedAtUtc,
+    required this.packageExpiresAtUtc,
+    required this.packageSha256,
+    required this.totalSectionCount,
+    required this.includedSectionCategories,
+    required this.omittedSectionCategories,
+    required this.unsupportedSectionCategories,
+    required this.blockedSectionCategories,
+    required this.recordSummaries,
+    required this.warnings,
+    required this.blockedReasons,
+    required this.restoreConfirmationAvailable,
+    required this.restoreConfirmationState,
+    required this.restoreConfirmationCopy,
+    required this.nextAllowedActions,
+    required this.privacyBoundary,
+    required this.responseGeneratedAtUtc,
+  })
+      : discardedAtUtc = identical(discardedAtUtc, _unsetDiscardedAtUtc) ? null : discardedAtUtc as DateTime?,
+        _hasDiscardedAtUtc = !identical(discardedAtUtc, _unsetDiscardedAtUtc);
+
+  /// Opaque process-local restore preview ID. It is not restore authority, storage authority, or a package token.
+  final String restorePreviewId;
+  final LocalBackupRestorePreviewStatus status;
+  final LocalBackupRestorePreviewStableCode stableCode;
+  final String safeMessage;
+  final DateTime createdAtUtc;
+  final DateTime expiresAtUtc;
+  final DateTime? discardedAtUtc;
+  final bool _hasDiscardedAtUtc;
+  final String sourceAuthorityBoundary;
+  final String packageFormatName;
+  final String packageVersion;
+  final String manifestVersion;
+  final String packageId;
+  final String manifestId;
+  final String packageSessionId;
+  final DateTime packageGeneratedAtUtc;
+  final DateTime packageExpiresAtUtc;
+  /// SHA-256 of submitted package content bytes. It is an integrity marker, not a secret.
+  final String packageSha256;
+  final int totalSectionCount;
+  final List<LocalBackupRestorePreviewSectionCategory> includedSectionCategories;
+  final List<LocalBackupRestorePreviewSectionCategory> omittedSectionCategories;
+  final List<LocalBackupRestorePreviewSectionCategory> unsupportedSectionCategories;
+  final List<LocalBackupRestorePreviewSectionCategory> blockedSectionCategories;
+  final List<LocalBackupRestorePreviewRecordSummary> recordSummaries;
+  final List<LocalBackupRestorePreviewWarning> warnings;
+  final List<LocalBackupRestorePreviewBlockedReason> blockedReasons;
+  final bool restoreConfirmationAvailable;
+  final LocalBackupRestoreConfirmationState restoreConfirmationState;
+  final String restoreConfirmationCopy;
+  final List<LocalBackupRestorePreviewNextAllowedAction> nextAllowedActions;
+  final String privacyBoundary;
+  final DateTime responseGeneratedAtUtc;
+
+  factory LocalBackupRestorePreviewResponse.fromJson(JsonObject json) {
+    return LocalBackupRestorePreviewResponse(
+      restorePreviewId: json["restorePreviewId"] as String,
+      status: json["status"] as String,
+      stableCode: json["stableCode"] as String,
+      safeMessage: json["safeMessage"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      discardedAtUtc: json.containsKey("discardedAtUtc")
+          ? json["discardedAtUtc"] == null ? null : DateTime.parse(json["discardedAtUtc"] as String)
+          : _unsetDiscardedAtUtc,
+      sourceAuthorityBoundary: json["sourceAuthorityBoundary"] as String,
+      packageFormatName: json["packageFormatName"] as String,
+      packageVersion: json["packageVersion"] as String,
+      manifestVersion: json["manifestVersion"] as String,
+      packageId: json["packageId"] as String,
+      manifestId: json["manifestId"] as String,
+      packageSessionId: json["packageSessionId"] as String,
+      packageGeneratedAtUtc: DateTime.parse(json["packageGeneratedAtUtc"] as String),
+      packageExpiresAtUtc: DateTime.parse(json["packageExpiresAtUtc"] as String),
+      packageSha256: json["packageSha256"] as String,
+      totalSectionCount: (json["totalSectionCount"] as num).toInt(),
+      includedSectionCategories: (json["includedSectionCategories"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      omittedSectionCategories: (json["omittedSectionCategories"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      unsupportedSectionCategories: (json["unsupportedSectionCategories"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      blockedSectionCategories: (json["blockedSectionCategories"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      recordSummaries: (json["recordSummaries"] as List<dynamic>).map((item) => LocalBackupRestorePreviewRecordSummary.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      warnings: (json["warnings"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      blockedReasons: (json["blockedReasons"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      restoreConfirmationAvailable: json["restoreConfirmationAvailable"] as bool,
+      restoreConfirmationState: json["restoreConfirmationState"] as String,
+      restoreConfirmationCopy: json["restoreConfirmationCopy"] as String,
+      nextAllowedActions: (json["nextAllowedActions"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      privacyBoundary: json["privacyBoundary"] as String,
+      responseGeneratedAtUtc: DateTime.parse(json["responseGeneratedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final discardedAtUtcJsonValue = discardedAtUtc;
+
+    return {
+      "restorePreviewId": restorePreviewId,
+      "status": status,
+      "stableCode": stableCode,
+      "safeMessage": safeMessage,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      if (_hasDiscardedAtUtc) "discardedAtUtc": discardedAtUtcJsonValue == null ? null : discardedAtUtcJsonValue.toUtc().toIso8601String(),
+      "sourceAuthorityBoundary": sourceAuthorityBoundary,
+      "packageFormatName": packageFormatName,
+      "packageVersion": packageVersion,
+      "manifestVersion": manifestVersion,
+      "packageId": packageId,
+      "manifestId": manifestId,
+      "packageSessionId": packageSessionId,
+      "packageGeneratedAtUtc": packageGeneratedAtUtc.toUtc().toIso8601String(),
+      "packageExpiresAtUtc": packageExpiresAtUtc.toUtc().toIso8601String(),
+      "packageSha256": packageSha256,
+      "totalSectionCount": totalSectionCount,
+      "includedSectionCategories": includedSectionCategories,
+      "omittedSectionCategories": omittedSectionCategories,
+      "unsupportedSectionCategories": unsupportedSectionCategories,
+      "blockedSectionCategories": blockedSectionCategories,
+      "recordSummaries": recordSummaries.map((item) => item.toJson()).toList(growable: false),
+      "warnings": warnings,
+      "blockedReasons": blockedReasons,
+      "restoreConfirmationAvailable": restoreConfirmationAvailable,
+      "restoreConfirmationState": restoreConfirmationState,
+      "restoreConfirmationCopy": restoreConfirmationCopy,
+      "nextAllowedActions": nextAllowedActions,
+      "privacyBoundary": privacyBoundary,
+      "responseGeneratedAtUtc": responseGeneratedAtUtc.toUtc().toIso8601String(),
+    };
+  }
+}
+
 /// Metadata-only local backup package readiness for the current authenticated actor. It contains no package bytes, storage paths, object keys, signed URLs, direct storage URLs, filesystem paths, local device paths, file bytes, restore payloads, raw OCR text, private notes, payment details, auth tokens, credential material, or hidden records.
 class LocalBackupPackageReadinessResponse {
   const LocalBackupPackageReadinessResponse({
