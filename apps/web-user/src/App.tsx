@@ -71,18 +71,24 @@ import {
   confirmBillCsvImportSessionRuntime,
   createBillCsvImportSession,
   defaultBillExportFilters,
+  cancelLocalBackupPackage,
   discardBillCsvImportSessionRuntime,
+  discardLocalBackupPackage,
   downloadBillExport,
+  downloadLocalBackupPackage,
   labelImportExportStatus,
   loadImportExportReadout,
   loadSyncLocalStatus,
   preflightBillCsvImport,
+  refreshLocalBackupPackageStatus,
+  startLocalBackupPackage,
   type BillImportPreflightRuntimeState,
   type BillImportSessionRuntimeState,
   type BillImportPreflightScope,
   type BillExportRuntimeState,
   type ImportExportCapability,
   type ImportExportReadoutState,
+  type LocalBackupPackageRuntimeState,
   type SyncLocalStatusRuntimeState
 } from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
@@ -241,6 +247,10 @@ export function App() {
   const [syncLocalStatus, setSyncLocalStatus] = useState<SyncLocalStatusRuntimeState>({
     status: "auth_required",
     message: "Sign in is required before Settleora can show sync and local status."
+  });
+  const [localBackupPackageState, setLocalBackupPackageState] = useState<LocalBackupPackageRuntimeState>({
+    status: "idle",
+    message: "Prepare a data-only backup package after sign-in."
   });
 
   useEffect(() => {
@@ -786,6 +796,83 @@ export function App() {
     );
   };
 
+  const handlePrepareLocalBackupPackage = async () => {
+    setLocalBackupPackageState((current) => ({
+      ...current,
+      status: current.session ? "preparing" : "creating_session",
+      message: current.session
+        ? "Preparing the data-only backup package with Settleora."
+        : "Creating a local backup package session with Settleora."
+    }));
+
+    setLocalBackupPackageState(
+      await startLocalBackupPackage({
+        accessToken: session.accessToken,
+        state: localBackupPackageState
+      })
+    );
+  };
+
+  const handleRefreshLocalBackupPackageStatus = async () => {
+    setLocalBackupPackageState((current) => ({
+      ...current,
+      status: "preparing",
+      message: "Refreshing backup package artifact status with Settleora."
+    }));
+
+    setLocalBackupPackageState(
+      await refreshLocalBackupPackageStatus({
+        accessToken: session.accessToken,
+        state: localBackupPackageState
+      })
+    );
+  };
+
+  const handleDownloadLocalBackupPackage = async () => {
+    setLocalBackupPackageState((current) => ({
+      ...current,
+      status: "creating_download_action",
+      message: "Creating a short-lived same-API download action."
+    }));
+
+    setLocalBackupPackageState(
+      await downloadLocalBackupPackage({
+        accessToken: session.accessToken,
+        state: localBackupPackageState
+      })
+    );
+  };
+
+  const handleCancelLocalBackupPackage = async () => {
+    setLocalBackupPackageState((current) => ({
+      ...current,
+      status: "preparing",
+      message: "Cancelling backup package generation with Settleora."
+    }));
+
+    setLocalBackupPackageState(
+      await cancelLocalBackupPackage({
+        accessToken: session.accessToken,
+        state: localBackupPackageState
+      })
+    );
+  };
+
+  const handleDiscardLocalBackupPackage = async () => {
+    setLocalBackupPackageState((current) => ({
+      ...current,
+      status: "discarded",
+      message: "Discarding the backup package session with Settleora."
+    }));
+
+    setLocalBackupPackageState(
+      await discardLocalBackupPackage({
+        accessToken: session.accessToken,
+        state: localBackupPackageState
+      })
+    );
+  };
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -949,12 +1036,18 @@ export function App() {
               importPreflightState={importPreflightState}
               importSessionState={importSessionState}
               syncLocalStatus={syncLocalStatus}
+              localBackupPackageState={localBackupPackageState}
               hasImportCsvText={importCsvText.length > 0}
               onImportFileChange={handleImportFileChange}
               onPreflightCsvImport={handlePreflightCsvImport}
               onCreateImportSession={handleCreateImportSession}
               onConfirmImportSession={handleConfirmImportSession}
               onDiscardImportSession={handleDiscardImportSession}
+              onPrepareLocalBackupPackage={handlePrepareLocalBackupPackage}
+              onRefreshLocalBackupPackageStatus={handleRefreshLocalBackupPackageStatus}
+              onDownloadLocalBackupPackage={handleDownloadLocalBackupPackage}
+              onCancelLocalBackupPackage={handleCancelLocalBackupPackage}
+              onDiscardLocalBackupPackage={handleDiscardLocalBackupPackage}
             />
           ) : activeId === "notifications" ? (
             <NotificationsReadoutPanel
@@ -1276,12 +1369,18 @@ function ImportExportReadoutPanel({
   importPreflightState,
   importSessionState,
   syncLocalStatus,
+  localBackupPackageState,
   hasImportCsvText,
   onImportFileChange,
   onPreflightCsvImport,
   onCreateImportSession,
   onConfirmImportSession,
-  onDiscardImportSession
+  onDiscardImportSession,
+  onPrepareLocalBackupPackage,
+  onRefreshLocalBackupPackageStatus,
+  onDownloadLocalBackupPackage,
+  onCancelLocalBackupPackage,
+  onDiscardLocalBackupPackage
 }: {
   readout: ImportExportReadoutState;
   session: SessionBoundaryState;
@@ -1301,12 +1400,18 @@ function ImportExportReadoutPanel({
   importPreflightState: BillImportPreflightRuntimeState;
   importSessionState: BillImportSessionRuntimeState;
   syncLocalStatus: SyncLocalStatusRuntimeState;
+  localBackupPackageState: LocalBackupPackageRuntimeState;
   hasImportCsvText: boolean;
   onImportFileChange: (file: File | null) => void;
   onPreflightCsvImport: () => void;
   onCreateImportSession: () => void;
   onConfirmImportSession: () => void;
   onDiscardImportSession: () => void;
+  onPrepareLocalBackupPackage: () => void;
+  onRefreshLocalBackupPackageStatus: () => void;
+  onDownloadLocalBackupPackage: () => void;
+  onCancelLocalBackupPackage: () => void;
+  onDiscardLocalBackupPackage: () => void;
 }) {
   const unavailableCount = readout.capabilities.filter(
     (capability) => capability.status === "not_available_yet" || capability.status === "needs_readiness_endpoint"
@@ -1389,6 +1494,16 @@ function ImportExportReadoutPanel({
         onDiscardImportSession={onDiscardImportSession}
       />
 
+      <LocalBackupPackageRuntimeCard
+        session={session}
+        state={localBackupPackageState}
+        onPrepare={onPrepareLocalBackupPackage}
+        onRefreshStatus={onRefreshLocalBackupPackageStatus}
+        onDownload={onDownloadLocalBackupPackage}
+        onCancel={onCancelLocalBackupPackage}
+        onDiscard={onDiscardLocalBackupPackage}
+      />
+
       <SyncLocalStatusCard state={syncLocalStatus} />
 
       <section className="capability-grid" aria-label="Capability availability">
@@ -1441,6 +1556,162 @@ function ImportExportReadoutPanel({
         </aside>
       </section>
     </section>
+  );
+}
+
+function LocalBackupPackageRuntimeCard({
+  session,
+  state,
+  onPrepare,
+  onRefreshStatus,
+  onDownload,
+  onCancel,
+  onDiscard
+}: {
+  session: SessionBoundaryState;
+  state: LocalBackupPackageRuntimeState;
+  onPrepare: () => void;
+  onRefreshStatus: () => void;
+  onDownload: () => void;
+  onCancel: () => void;
+  onDiscard: () => void;
+}) {
+  const isAuthenticated = session.status === "authenticated" && Boolean(session.accessToken);
+  const isBusy =
+    state.status === "creating_session" ||
+    state.status === "preparing" ||
+    state.status === "creating_download_action" ||
+    state.status === "downloading";
+  const canPrepare = isAuthenticated && !isBusy;
+  const canRefresh = isAuthenticated && Boolean(state.session || state.artifactStatus) && !isBusy;
+  const canDownload = isAuthenticated && state.status === "ready_to_download" && !isBusy;
+  const canCancel =
+    isAuthenticated &&
+    Boolean(state.session || state.artifactStatus) &&
+    (state.status === "creating_session" || state.status === "preparing" || state.status === "blocked") &&
+    !isBusy;
+  const canDiscard =
+    isAuthenticated &&
+    Boolean(state.session || state.artifactStatus || state.downloadAction) &&
+    state.status !== "discarded" &&
+    state.status !== "idle" &&
+    !isBusy;
+
+  return (
+    <section className="surface-panel" aria-labelledby="local-backup-package-title">
+      <div className="panel-header">
+        <div>
+          <p className="eyebrow">Local backup package</p>
+          <h3 id="local-backup-package-title">Data-only package download</h3>
+        </div>
+        <span className={`status-chip ${localBackupPackageStatusClass(state.status)}`}>
+          {labelize(state.status)}
+        </span>
+      </div>
+
+      <p className="muted-copy">
+        This prepares a short-lived server-mode data-only package through Settleora and downloads it through the same API session. The downloaded file is a user-controlled copy and may outlive source records.
+      </p>
+      <p className="muted-copy">
+        This is not restore, durable encrypted backup storage, file-byte backup, browser-local persistence, or local-mode authority.
+      </p>
+
+      <div className="action-row">
+        <button className="primary-button" type="button" disabled={!canPrepare} onClick={onPrepare}>
+          Prepare backup package
+        </button>
+        <button className="secondary-button" type="button" disabled={!canRefresh} onClick={onRefreshStatus}>
+          Refresh package status
+        </button>
+        <button className="primary-button" type="button" disabled={!canDownload} onClick={onDownload}>
+          Download backup package
+        </button>
+        <button className="secondary-button" type="button" disabled={!canCancel} onClick={onCancel}>
+          Cancel package generation
+        </button>
+        <button className="secondary-button" type="button" disabled={!canDiscard} onClick={onDiscard}>
+          Discard backup package
+        </button>
+      </div>
+
+      <StateMessage
+        state={mapLocalBackupPackageStateForMessage(state.status)}
+        message={state.message}
+        emptyTitle="No package session yet"
+        errorTitle="Could not prepare backup package"
+      />
+
+      <LocalBackupPackageMetadataReadout state={state} />
+    </section>
+  );
+}
+
+function LocalBackupPackageMetadataReadout({ state }: { state: LocalBackupPackageRuntimeState }) {
+  const session = state.session;
+  const artifact = state.artifactStatus;
+  const action = state.downloadAction;
+
+  return (
+    <>
+      <ReadoutSection title="Package boundaries">
+        <StatusPill label="Format" value="settleora.local-backup.data-only" />
+        <StatusPill label="Category" value={session?.scope ? labelize(session.scope) : "Server-mode copy data only"} />
+        <StatusPill label="Downloaded file" value={state.filename ?? "Not downloaded"} />
+        <p className="muted-copy">
+          The package omits restore preview, restore confirmation, durable encrypted storage, file-byte sections, and browser-local authority.
+        </p>
+      </ReadoutSection>
+
+      {session ? (
+        <ReadoutSection title="Session metadata">
+          <StatusPill label="Package session" value={session.packageSessionId} />
+          <StatusPill label="Status" value={`${session.status} - ${session.stableCode}`} />
+          <StatusPill label="Server posture" value={labelize(session.serverModePosture)} />
+          <StatusPill label="Created" value={formatDate(session.createdAtUtc)} />
+          <StatusPill label="Session expires" value={formatDate(session.expiresAtUtc)} />
+          <p className="muted-copy">{session.safeMessage}</p>
+          <p className="muted-copy">{session.privacyBoundary}</p>
+          <p className="muted-copy">{session.dataEgressBoundary}</p>
+        </ReadoutSection>
+      ) : null}
+
+      {artifact ? (
+        <ReadoutSection title="Artifact metadata">
+          <StatusPill label="Artifact status" value={`${artifact.status} - ${artifact.stableCode}`} />
+          <StatusPill label="Filename" value={artifact.safeFilename ?? "Not returned"} />
+          <StatusPill label="Content type" value={artifact.contentType ?? "Not returned"} />
+          <StatusPill
+            label="Byte length"
+            value={artifact.contentLengthBytes === null || artifact.contentLengthBytes === undefined ? "Not returned" : String(artifact.contentLengthBytes)}
+          />
+          <StatusPill label="SHA-256" value={artifact.packageSha256 ?? "Not returned"} />
+          <StatusPill label="Generated" value={artifact.generatedAtUtc ? formatDate(artifact.generatedAtUtc) : "Not returned"} />
+          <StatusPill label="Artifact expires" value={artifact.artifactExpiresAtUtc ? formatDate(artifact.artifactExpiresAtUtc) : "Not returned"} />
+          <StatusPill label="Status expires" value={formatDate(artifact.expiresAtUtc)} />
+          <p className="muted-copy">{artifact.safeMessage}</p>
+          <p className="muted-copy">{artifact.privacyBoundary}</p>
+          <p className="muted-copy">{artifact.dataEgressBoundary}</p>
+        </ReadoutSection>
+      ) : null}
+
+      {action ? (
+        <ReadoutSection title="Download action">
+          <StatusPill label="Download action" value={action.downloadActionId ?? "Not returned"} />
+          <StatusPill label="Action status" value={`${action.status} - ${action.stableCode}`} />
+          <StatusPill label="Action expires" value={action.downloadActionExpiresAtUtc ? formatDate(action.downloadActionExpiresAtUtc) : "Not returned"} />
+          <StatusPill label="Same-API content path" value={action.contentPath ?? "Not returned"} />
+          <p className="muted-copy">{action.safeMessage}</p>
+        </ReadoutSection>
+      ) : null}
+
+      {artifact?.unsupportedFeatures.length || session?.unsupportedFeatures.length || action?.unsupportedFeatures.length ? (
+        <ReadoutSection title="Unsupported or omitted sections">
+          {[...(session?.unsupportedFeatures ?? []), ...(artifact?.unsupportedFeatures ?? []), ...(action?.unsupportedFeatures ?? [])].map((feature, index) => (
+            <StatusPill key={`${feature}:${state.status}:${index}`} label="Omitted" value={labelize(feature)} />
+          ))}
+        </ReadoutSection>
+      ) : null}
+    </>
   );
 }
 
@@ -3606,6 +3877,18 @@ function syncLocalStatusClass(state: SyncLocalStatusRuntimeState["status"]): str
   return "status-warning";
 }
 
+function localBackupPackageStatusClass(state: LocalBackupPackageRuntimeState["status"]): string {
+  if (state === "ready_to_download" || state === "downloaded" || state === "discarded" || state === "cancelled") {
+    return "status-sync";
+  }
+
+  if (state === "blocked" || state === "expired" || state === "unavailable" || state === "error") {
+    return "status-danger";
+  }
+
+  return "status-warning";
+}
+
 function syncSummaryStatusClass(
   state: SyncLocalStatusResponse["pendingOperationSummary"]["state"],
   count: number | null
@@ -3619,6 +3902,33 @@ function syncSummaryStatusClass(
   }
 
   return state === "unsupported" ? "status-danger" : "status-warning";
+}
+
+function mapLocalBackupPackageStateForMessage(
+  state: LocalBackupPackageRuntimeState["status"]
+): BillsReadoutState["status"] {
+  switch (state) {
+    case "idle":
+      return "empty";
+    case "auth_required":
+      return "auth_required";
+    case "creating_session":
+    case "preparing":
+    case "creating_download_action":
+    case "downloading":
+      return "loading";
+    case "ready_to_download":
+    case "downloaded":
+    case "discarded":
+    case "cancelled":
+      return "loaded";
+    case "blocked":
+    case "expired":
+    case "unavailable":
+      return "unavailable";
+    case "error":
+      return "error";
+  }
 }
 
 function mapSyncLocalStateForMessage(

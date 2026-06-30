@@ -3,10 +3,15 @@ import {
   checkBillExportReadiness,
   confirmBillCsvImportSessionRuntime,
   createBillExportFilename,
+  createLocalBackupPackageFilename,
   createBillCsvImportSession,
   createImportConfirmRequestFromSession,
+  cancelLocalBackupPackage,
   discardBillCsvImportSessionRuntime,
+  discardLocalBackupPackage,
   downloadBillExport,
+  downloadLocalBackupPackage,
+  evaluateLocalBackupPackageDownloadable,
   evaluateSyncLocalStatusResponse,
   evaluateBillImportSessionConfirmable,
   evaluateBillImportPreflightScope,
@@ -17,9 +22,12 @@ import {
   loadImportExportReadout,
   loadSyncLocalStatus,
   preflightBillCsvImport,
+  refreshLocalBackupPackageStatus,
+  startLocalBackupPackage,
   type BillImportSessionRuntimeClient,
   type BillImportPreflightRuntimeClient,
   type BillExportRuntimeClient,
+  type LocalBackupPackageRuntimeClient,
   type SyncLocalStatusRuntimeClient
 } from "./importExportReadout";
 import { loadGroupsReadout } from "./groupsFriendsReadout";
@@ -30,6 +38,10 @@ import type {
   BillCsvImportSessionResponse,
   ExpenseBillExportReadinessResponse,
   GroupResponse,
+  LocalBackupPackageArtifactStatusResponse,
+  LocalBackupPackageDownloadActionResponse,
+  LocalBackupPackageGenerationStatusResponse,
+  LocalBackupPackageSessionResponse,
   SyncLocalStatusResponse
 } from "../../../packages/client-web/src/generated";
 
@@ -50,6 +62,13 @@ function createOperationClient() {
     discardBillCsvImportSession: vi.fn(),
     listGroups: vi.fn(),
     getSyncLocalStatus: vi.fn(),
+    createLocalBackupPackageSession: vi.fn(),
+    prepareLocalBackupPackageSession: vi.fn(),
+    getLocalBackupPackageArtifactStatus: vi.fn(),
+    createLocalBackupPackageDownloadAction: vi.fn(),
+    downloadLocalBackupPackageContent: vi.fn(),
+    discardLocalBackupPackageSession: vi.fn(),
+    cancelLocalBackupPackageGeneration: vi.fn(),
     importPersonalBillsCsv: vi.fn(),
     importGroupBillsCsv: vi.fn(),
     listSyncChanges: vi.fn(),
@@ -80,6 +99,13 @@ describe("import/export availability readout", () => {
       "discardBillCsvImportSession",
       "listGroups",
       "getSyncLocalStatus",
+      "createLocalBackupPackageSession",
+      "prepareLocalBackupPackageSession",
+      "getLocalBackupPackageArtifactStatus",
+      "createLocalBackupPackageDownloadAction",
+      "downloadLocalBackupPackageContent",
+      "discardLocalBackupPackageSession",
+      "cancelLocalBackupPackageGeneration",
       "importPersonalBillsCsv",
       "importGroupBillsCsv",
       "listSyncChanges",
@@ -126,6 +152,19 @@ describe("import/export availability readout", () => {
           ]
         }),
         expect.objectContaining({
+          id: "local-backup-restore",
+          status: "operation_method_exists",
+          methodsPresent: [
+            "createLocalBackupPackageSession",
+            "prepareLocalBackupPackageSession",
+            "getLocalBackupPackageArtifactStatus",
+            "createLocalBackupPackageDownloadAction",
+            "downloadLocalBackupPackageContent",
+            "discardLocalBackupPackageSession",
+            "cancelLocalBackupPackageGeneration"
+          ]
+        }),
+        expect.objectContaining({
           id: "sync-status",
           status: "readout_only",
           methodsPresent: ["getSyncLocalStatus"]
@@ -157,6 +196,13 @@ describe("import/export availability readout", () => {
       "discardBillCsvImportSession",
       "listGroups",
       "getSyncLocalStatus",
+      "createLocalBackupPackageSession",
+      "prepareLocalBackupPackageSession",
+      "getLocalBackupPackageArtifactStatus",
+      "createLocalBackupPackageDownloadAction",
+      "downloadLocalBackupPackageContent",
+      "discardLocalBackupPackageSession",
+      "cancelLocalBackupPackageGeneration",
       "importGroupBillsCsv",
       "listSyncChanges",
       "submitSyncOperation",
@@ -220,7 +266,7 @@ describe("import/export availability readout", () => {
     expect(copy).toContain("Personal CSV/JSON export");
     expect(copy).toContain("Group CSV/JSON export");
     expect(copy).toContain("Import");
-    expect(copy).toContain("Browser local backup");
+    expect(copy).toContain("Local backup package");
     expect(copy).toContain("User-web local-mode persistence");
     expect(copy).toContain("Sync/local status");
     expect(copy).toContain("Report/export history");
@@ -838,6 +884,217 @@ describe("readiness-driven bill export runtime", () => {
   });
 });
 
+describe("local backup package runtime", () => {
+  it("auth-gates before creating a package session", async () => {
+    const client = createLocalBackupPackageClient();
+
+    const result = await startLocalBackupPackage({
+      accessToken: " ",
+      client
+    });
+
+    expect(result).toEqual({
+      status: "auth_required",
+      message: "Sign in is required before Settleora can prepare a local backup package."
+    });
+    expect(client.createLocalBackupPackageSession).not.toHaveBeenCalled();
+  });
+
+  it("creates a session, prepares the artifact, creates a download action, and saves the API Blob", async () => {
+    const packageBlob = new Blob(["{\"manifestVersion\":\"2026-06-30.manifest.v1\"}"], {
+      type: "application/vnd.settleora.local-backup+json"
+    });
+    const client = createLocalBackupPackageClient({ packageBlob });
+    const saveBlob = vi.fn();
+
+    const prepared = await startLocalBackupPackage({
+      accessToken: " token ",
+      client,
+      downloadAdapter: { saveBlob }
+    });
+    const downloaded = await downloadLocalBackupPackage({
+      accessToken: "token",
+      client,
+      state: prepared,
+      downloadAdapter: { saveBlob }
+    });
+
+    expect(prepared.status).toBe("ready_to_download");
+    expect(client.createLocalBackupPackageSession).toHaveBeenCalledWith({ accessToken: "token" });
+    expect(
+      vi.mocked(client.createLocalBackupPackageSession).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(client.prepareLocalBackupPackageSession).mock.invocationCallOrder[0]);
+    expect(client.prepareLocalBackupPackageSession).toHaveBeenCalledWith("package-session-1", { accessToken: "token" });
+    expect(client.createLocalBackupPackageDownloadAction).toHaveBeenCalledWith("package-session-1", { accessToken: "token" });
+    expect(client.downloadLocalBackupPackageContent).toHaveBeenCalledWith("package-session-1", "download-action-1", { accessToken: "token" });
+    expect(saveBlob).toHaveBeenCalledWith(packageBlob, "settleora-local-backup-data-only-20260630.json");
+    expect(downloaded).toEqual(
+      expect.objectContaining({
+        status: "downloaded",
+        filename: "settleora-local-backup-data-only-20260630.json"
+      })
+    );
+  });
+
+  it("reports missing generated methods without fake package output", async () => {
+    const saveBlob = vi.fn();
+    const result = await startLocalBackupPackage({
+      accessToken: "token",
+      client: {},
+      downloadAdapter: { saveBlob }
+    });
+
+    expect(result).toEqual({
+      status: "unavailable",
+      message: "Local backup package sessions are not available in this web client build."
+    });
+    expect(saveBlob).not.toHaveBeenCalled();
+  });
+
+  it("blocks download for unavailable, expired, cancelled, discarded, and stale artifact states", async () => {
+    expect(
+      evaluateLocalBackupPackageDownloadable(
+        createLocalBackupArtifactStatus({
+          status: "download_unavailable",
+          canDownloadPackage: false,
+          downloadAvailable: false
+        })
+      )
+    ).toEqual(
+      expect.objectContaining({
+        allowed: false,
+        status: "unavailable"
+      })
+    );
+    expect(
+      evaluateLocalBackupPackageDownloadable(createLocalBackupArtifactStatus({ status: "expired" }))
+    ).toEqual(expect.objectContaining({ allowed: false, status: "expired" }));
+    expect(
+      evaluateLocalBackupPackageDownloadable(createLocalBackupArtifactStatus({ status: "cancelled" }))
+    ).toEqual(expect.objectContaining({ allowed: false, status: "cancelled" }));
+    expect(
+      evaluateLocalBackupPackageDownloadable(createLocalBackupArtifactStatus({ status: "discarded" }))
+    ).toEqual(expect.objectContaining({ allowed: false, status: "discarded" }));
+    expect(
+      evaluateLocalBackupPackageDownloadable(
+        createLocalBackupArtifactStatus({ expiresAtUtc: "2026-06-30T05:00:00.000Z" }),
+        new Date("2026-06-30T05:00:01.000Z")
+      )
+    ).toEqual(expect.objectContaining({ allowed: false, status: "expired" }));
+  });
+
+  it("does not call content download or save a Blob when the artifact is not downloadable", async () => {
+    const client = createLocalBackupPackageClient();
+    const saveBlob = vi.fn();
+
+    const result = await downloadLocalBackupPackage({
+      accessToken: "token",
+      client,
+      state: {
+        status: "blocked",
+        message: "Blocked.",
+        session: createLocalBackupSession(),
+        artifactStatus: createLocalBackupArtifactStatus({ artifactAvailable: false })
+      },
+      downloadAdapter: { saveBlob }
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(client.createLocalBackupPackageDownloadAction).not.toHaveBeenCalled();
+    expect(client.downloadLocalBackupPackageContent).not.toHaveBeenCalled();
+    expect(saveBlob).not.toHaveBeenCalled();
+  });
+
+  it("refreshes status and maps blocked server states safely", async () => {
+    const blocked = createLocalBackupArtifactStatus({
+      status: "blocked",
+      stableCode: "temporarily_unavailable",
+      safeMessage: "Package generation is temporarily unavailable."
+    });
+    const client = createLocalBackupPackageClient({ artifactStatus: blocked });
+
+    const result = await refreshLocalBackupPackageStatus({
+      accessToken: "token",
+      client,
+      state: {
+        status: "ready_to_download",
+        message: "Ready.",
+        session: createLocalBackupSession()
+      }
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        message: "Package generation is temporarily unavailable.",
+        artifactStatus: blocked
+      })
+    );
+    expect(client.getLocalBackupPackageArtifactStatus).toHaveBeenCalledWith("package-session-1", { accessToken: "token" });
+  });
+
+  it("cancels and discards package sessions through generated methods only", async () => {
+    const client = createLocalBackupPackageClient();
+    const state = {
+      status: "ready_to_download" as const,
+      message: "Ready.",
+      session: createLocalBackupSession(),
+      artifactStatus: createLocalBackupArtifactStatus()
+    };
+
+    const cancelled = await cancelLocalBackupPackage({ accessToken: "token", client, state });
+    const discarded = await discardLocalBackupPackage({ accessToken: "token", client, state });
+
+    expect(cancelled.status).toBe("cancelled");
+    expect(discarded.status).toBe("discarded");
+    expect(client.cancelLocalBackupPackageGeneration).toHaveBeenCalledWith("package-session-1", { accessToken: "token" });
+    expect(client.discardLocalBackupPackageSession).toHaveBeenCalledWith("package-session-1", { accessToken: "token" });
+  });
+
+  it("sanitizes unsafe server filename fallback without paths or provider internals", () => {
+    expect(
+      createLocalBackupPackageFilename({
+        safeFilename: "../storage/object-key/signed-url.json",
+        contentType: "application/vnd.settleora.local-backup+json"
+      })
+    ).toBe("settleora-local-backup-data-only.json");
+  });
+
+  it("uses browser object URLs only for an allowed package download and revokes them", async () => {
+    const createObjectURL = vi.fn(() => "blob:settleora-local-backup");
+    const revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL
+    });
+
+    try {
+      const state = {
+        status: "ready_to_download" as const,
+        message: "Ready.",
+        session: createLocalBackupSession(),
+        artifactStatus: createLocalBackupArtifactStatus()
+      };
+      const result = await downloadLocalBackupPackage({
+        accessToken: "token",
+        state,
+        client: createLocalBackupPackageClient()
+      });
+
+      expect(result.status).toBe("downloaded");
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(click).toHaveBeenCalledOnce();
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:settleora-local-backup");
+    } finally {
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("CSV import preflight runtime", () => {
   it("auth-gates before CSV text is submitted to generated preflight methods", async () => {
     const client = createImportPreflightClient();
@@ -1436,6 +1693,139 @@ function createSyncLocalStatusResponse(
     ],
     privacyBoundary: "No file bytes, storage internals, raw payloads, tokens, or hidden records are returned.",
     ...overrides
+  };
+}
+
+function createLocalBackupSession(
+  overrides: Partial<LocalBackupPackageSessionResponse> = {}
+): LocalBackupPackageSessionResponse {
+  return {
+    packageSessionId: "package-session-1",
+    status: "ready_to_download",
+    stableCode: "package_ready_to_download",
+    scope: "server_mode_copy_data_only",
+    serverModePosture: "server_authoritative",
+    availableForPackageGeneration: true,
+    safeMessage: "Data-only package session is ready.",
+    readiness: {
+      canPreparePackage: true,
+      canDownloadPackage: true,
+      canRestorePackage: false,
+      stableCode: "package_ready_to_download",
+      safeMessage: "Package can be prepared and downloaded."
+    },
+    manifestPreview: {
+      manifestAvailable: true,
+      manifestStableCode: "package_ready_to_download",
+      safeDescription: "Data-only manifest metadata."
+    },
+    confirmationCopy: "Prepare backup package",
+    unsupportedFeatures: ["browser_local_persistence", "restore_preview", "restore_confirmation", "local_mode_authority"],
+    privacyBoundary: "No hidden records, file bytes, storage paths, or credentials are returned.",
+    dataEgressBoundary: "Downloaded files are user-controlled copies.",
+    createdAtUtc: "2026-06-30T05:52:00.000Z",
+    expiresAtUtc: "2999-01-01T00:00:00.000Z",
+    discardedAtUtc: null,
+    cancelledAtUtc: null,
+    generatedAtUtc: "2026-06-30T05:52:00.000Z",
+    ...overrides
+  };
+}
+
+function createLocalBackupArtifactStatus(
+  overrides: Partial<LocalBackupPackageArtifactStatusResponse> = {}
+): LocalBackupPackageArtifactStatusResponse {
+  return {
+    packageSessionId: "package-session-1",
+    status: "ready",
+    stableCode: "package_ready_to_download",
+    safeMessage: "Data-only package artifact is ready.",
+    canPreparePackage: true,
+    artifactAvailable: true,
+    canDownloadPackage: true,
+    downloadAvailable: true,
+    generatedAtUtc: "2026-06-30T05:53:00.000Z",
+    artifactExpiresAtUtc: "2999-01-01T00:00:00.000Z",
+    safeFilename: "settleora-local-backup-data-only-20260630.json",
+    contentType: "application/vnd.settleora.local-backup+json",
+    contentLengthBytes: 512,
+    packageSha256: "sha256-package",
+    expiresAtUtc: "2999-01-01T00:00:00.000Z",
+    privacyBoundary: "No file bytes, hidden records, storage paths, or credentials are exposed in metadata.",
+    dataEgressBoundary: "Download creates a user-controlled copy.",
+    unsupportedFeatures: ["browser_local_persistence", "restore_preview", "restore_confirmation", "local_mode_authority"],
+    nextAllowedActions: ["create_download_action", "discard_package_session"],
+    responseGeneratedAtUtc: "2026-06-30T05:53:00.000Z",
+    ...overrides
+  };
+}
+
+function createLocalBackupGenerationStatus(
+  overrides: Partial<LocalBackupPackageGenerationStatusResponse> = {}
+): LocalBackupPackageGenerationStatusResponse {
+  return {
+    ...createLocalBackupArtifactStatus(),
+    ...overrides
+  };
+}
+
+function createLocalBackupDownloadAction(
+  overrides: Partial<LocalBackupPackageDownloadActionResponse> = {}
+): LocalBackupPackageDownloadActionResponse {
+  return {
+    packageSessionId: "package-session-1",
+    status: "download_action_ready",
+    stableCode: "package_download_action_ready",
+    safeMessage: "Short-lived same-API download action is ready.",
+    downloadAvailable: true,
+    canDownloadPackage: true,
+    artifactAvailable: true,
+    expiresAtUtc: "2999-01-01T00:00:00.000Z",
+    downloadActionId: "download-action-1",
+    downloadActionExpiresAtUtc: "2999-01-01T00:00:00.000Z",
+    contentPath: "/api/v1/local-backup/package-sessions/package-session-1/download-actions/download-action-1/content",
+    safeFilename: "settleora-local-backup-data-only-20260630.json",
+    contentType: "application/vnd.settleora.local-backup+json",
+    contentLengthBytes: 512,
+    packageSha256: "sha256-package",
+    privacyBoundary: "No storage internals are returned.",
+    dataEgressBoundary: "Download creates a user-controlled copy.",
+    unsupportedFeatures: ["browser_local_persistence", "restore_preview", "restore_confirmation", "local_mode_authority"],
+    nextAllowedActions: ["discard_package_session"],
+    responseGeneratedAtUtc: "2026-06-30T05:54:00.000Z",
+    ...overrides
+  };
+}
+
+function createLocalBackupPackageClient({
+  session = createLocalBackupSession(),
+  artifactStatus = createLocalBackupArtifactStatus(),
+  generationStatus = createLocalBackupGenerationStatus(artifactStatus),
+  downloadAction = createLocalBackupDownloadAction(),
+  packageBlob = new Blob(["{}"], { type: "application/vnd.settleora.local-backup+json" })
+}: {
+  session?: LocalBackupPackageSessionResponse;
+  artifactStatus?: LocalBackupPackageArtifactStatusResponse;
+  generationStatus?: LocalBackupPackageGenerationStatusResponse;
+  downloadAction?: LocalBackupPackageDownloadActionResponse;
+  packageBlob?: Blob;
+} = {}): Required<LocalBackupPackageRuntimeClient> {
+  return {
+    createLocalBackupPackageSession: vi.fn(async () => session),
+    prepareLocalBackupPackageSession: vi.fn(async () => generationStatus),
+    getLocalBackupPackageArtifactStatus: vi.fn(async () => artifactStatus),
+    createLocalBackupPackageDownloadAction: vi.fn(async () => downloadAction),
+    downloadLocalBackupPackageContent: vi.fn(async () => packageBlob),
+    discardLocalBackupPackageSession: vi.fn(async () =>
+      createLocalBackupSession({ status: "discarded", stableCode: "package_session_discarded" })
+    ),
+    cancelLocalBackupPackageGeneration: vi.fn(async () =>
+      createLocalBackupGenerationStatus({
+        status: "cancelled",
+        stableCode: "package_generation_cancelled",
+        safeMessage: "Package generation was cancelled."
+      })
+    )
   };
 }
 
