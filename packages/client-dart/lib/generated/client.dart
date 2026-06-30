@@ -1491,6 +1491,15 @@ class SettleoraApiClient {
     return LocalBackupPackageDownloadActionResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<List<int>> downloadLocalBackupPackageContent(String packageSessionId, String downloadActionId, {required String accessToken, Map<String, String>? headers}) async {
+    return _sendBytes(
+      "GET",
+      '/api/v1/local-backup/package-sessions/${Uri.encodeComponent(packageSessionId.toString())}/download-actions/${Uri.encodeComponent(downloadActionId.toString())}/content',
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<LocalBackupPackageGenerationStatusResponse> prepareLocalBackupPackageSession(String packageSessionId, {required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "POST",

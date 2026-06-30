@@ -1081,25 +1081,23 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.NotEqual(Guid.Empty, packageSessionId);
         Assert.Equal("created", createRoot.GetProperty("status").GetString());
         Assert.Equal("package_session_created", createRoot.GetProperty("stableCode").GetString());
-        Assert.Equal("server_mode_copy_metadata_only", createRoot.GetProperty("scope").GetString());
+        Assert.Equal("server_mode_copy_data_only", createRoot.GetProperty("scope").GetString());
         Assert.Equal("server_authoritative", createRoot.GetProperty("serverModePosture").GetString());
-        Assert.False(createRoot.GetProperty("availableForPackageGeneration").GetBoolean());
+        Assert.True(createRoot.GetProperty("availableForPackageGeneration").GetBoolean());
         Assert.Equal(ArchiveTimestamp.AddMinutes(8), createRoot.GetProperty("createdAtUtc").GetDateTimeOffset());
         Assert.Equal(ArchiveTimestamp.AddMinutes(23), createRoot.GetProperty("expiresAtUtc").GetDateTimeOffset());
         Assert.Equal(ArchiveTimestamp.AddMinutes(8), createRoot.GetProperty("generatedAtUtc").GetDateTimeOffset());
         Assert.Equal(JsonValueKind.Null, createRoot.GetProperty("discardedAtUtc").ValueKind);
         Assert.Equal(JsonValueKind.Null, createRoot.GetProperty("cancelledAtUtc").ValueKind);
-        Assert.Equal("package_generation_unsupported", createRoot.GetProperty("readiness").GetProperty("stableCode").GetString());
-        Assert.False(createRoot.GetProperty("readiness").GetProperty("canPreparePackage").GetBoolean());
+        Assert.Equal("package_session_created", createRoot.GetProperty("readiness").GetProperty("stableCode").GetString());
+        Assert.True(createRoot.GetProperty("readiness").GetProperty("canPreparePackage").GetBoolean());
         Assert.False(createRoot.GetProperty("readiness").GetProperty("canDownloadPackage").GetBoolean());
         Assert.False(createRoot.GetProperty("readiness").GetProperty("canRestorePackage").GetBoolean());
         Assert.False(createRoot.GetProperty("manifestPreview").GetProperty("manifestAvailable").GetBoolean());
         Assert.Equal("package_manifest_metadata_only", createRoot.GetProperty("manifestPreview").GetProperty("manifestStableCode").GetString());
-        Assert.Contains("does not create", createRoot.GetProperty("confirmationCopy").GetString(), StringComparison.Ordinal);
+        Assert.Contains("short-lived API-mediated data-only copy", createRoot.GetProperty("confirmationCopy").GetString(), StringComparison.Ordinal);
         AssertUnsupportedFeatureValues(
             createRoot.GetProperty("unsupportedFeatures"),
-            "package_generation",
-            "package_download",
             "restore_preview",
             "restore_confirmation",
             "browser_local_persistence",
@@ -1231,11 +1229,10 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
             Assert.Equal(HttpStatusCode.OK, prepareResponse.StatusCode);
             AssertLocalBackupSessionContentIsSafe(prepareContent, actorSession.RawSessionToken, billId);
             using var preparePayload = JsonDocument.Parse(prepareContent);
-            AssertLocalBackupArtifactMetadataOnly(
+            AssertLocalBackupArtifactReady(
                 preparePayload.RootElement,
                 packageSessionId,
-                "generation_unavailable",
-                "package_generation_unsupported");
+                expectDownloadAction: false);
         }
 
         using (var statusRequest = CreateBearerRequest(
@@ -1248,13 +1245,15 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
             Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
             AssertLocalBackupSessionContentIsSafe(statusContent, actorSession.RawSessionToken, billId);
             using var statusPayload = JsonDocument.Parse(statusContent);
-            AssertLocalBackupArtifactMetadataOnly(
+            AssertLocalBackupArtifactReady(
                 statusPayload.RootElement,
                 packageSessionId,
-                "metadata_only_no_artifact",
-                "metadata_only_no_artifact");
+                expectDownloadAction: false);
         }
 
+        Guid downloadActionId;
+        string contentPath;
+        string packageSha256;
         using (var downloadActionRequest = CreateBearerRequest(
             HttpMethod.Post,
             $"/api/v1/local-backup/package-sessions/{packageSessionId:D}/download-actions",
@@ -1265,12 +1264,64 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
             Assert.Equal(HttpStatusCode.OK, downloadActionResponse.StatusCode);
             AssertLocalBackupSessionContentIsSafe(downloadActionContent, actorSession.RawSessionToken, billId);
             using var downloadActionPayload = JsonDocument.Parse(downloadActionContent);
-            Assert.Equal(packageSessionId, downloadActionPayload.RootElement.GetProperty("packageSessionId").GetGuid());
-            Assert.Equal("download_unavailable", downloadActionPayload.RootElement.GetProperty("status").GetString());
-            Assert.Equal("package_download_unavailable", downloadActionPayload.RootElement.GetProperty("stableCode").GetString());
-            Assert.False(downloadActionPayload.RootElement.GetProperty("downloadAvailable").GetBoolean());
-            Assert.False(downloadActionPayload.RootElement.GetProperty("canDownloadPackage").GetBoolean());
-            Assert.False(downloadActionPayload.RootElement.GetProperty("artifactAvailable").GetBoolean());
+            var downloadActionRoot = downloadActionPayload.RootElement;
+            AssertLocalBackupArtifactReady(downloadActionRoot, packageSessionId, expectDownloadAction: true);
+            downloadActionId = downloadActionRoot.GetProperty("downloadActionId").GetGuid();
+            contentPath = downloadActionRoot.GetProperty("contentPath").GetString()!;
+            packageSha256 = downloadActionRoot.GetProperty("packageSha256").GetString()!;
+            Assert.Equal($"/api/v1/local-backup/package-sessions/{packageSessionId:D}/download-actions/{downloadActionId:D}/content", contentPath);
+        }
+
+        using (var otherActorContentRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            contentPath,
+            otherSession.RawSessionToken))
+        using (var otherActorContentResponse = await client.SendAsync(otherActorContentRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, otherActorContentResponse.StatusCode);
+        }
+
+        using (var contentRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            contentPath,
+            actorSession.RawSessionToken))
+        using (var contentResponse = await client.SendAsync(contentRequest))
+        {
+            var packageContent = await contentResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, contentResponse.StatusCode);
+            Assert.Equal("application/vnd.settleora.local-backup+json", contentResponse.Content.Headers.ContentType?.MediaType);
+            Assert.NotNull(contentResponse.Content.Headers.ContentDisposition);
+            Assert.Equal("attachment", contentResponse.Content.Headers.ContentDisposition!.DispositionType);
+            Assert.EndsWith(".json", contentResponse.Content.Headers.ContentDisposition.FileName);
+            AssertLocalBackupPackageContentIsSafe(packageContent, actorSession.RawSessionToken, billId);
+            using var packagePayload = JsonDocument.Parse(packageContent);
+            var packageRoot = packagePayload.RootElement;
+            Assert.Equal("settleora.local-backup.data-only", packageRoot.GetProperty("packageFormatName").GetString());
+            Assert.Equal("2026-06-30.data-only.v1", packageRoot.GetProperty("packageVersion").GetString());
+            Assert.Equal("2026-06-30.manifest.v1", packageRoot.GetProperty("manifestVersion").GetString());
+            Assert.Equal(packageSessionId, packageRoot.GetProperty("packageSessionId").GetGuid());
+            Assert.Equal("server_authoritative_copy", packageRoot.GetProperty("sourceAuthorityBoundary").GetString());
+            Assert.Equal("server_mode_copy", packageRoot.GetProperty("sourceProfileMode").GetString());
+            Assert.Equal(ArchiveTimestamp.AddMinutes(9), packageRoot.GetProperty("generatedAtUtc").GetDateTimeOffset());
+            Assert.Equal(ArchiveTimestamp.AddMinutes(19), packageRoot.GetProperty("expiresAtUtc").GetDateTimeOffset());
+            Assert.True(packageRoot.GetProperty("sections").GetArrayLength() >= 6);
+            Assert.Contains("current_actor_profile_summary", packageContent);
+            Assert.Contains("personal_bill_safe_summary", packageContent);
+            Assert.Contains("omitted_unsupported", packageContent);
+            Assert.Contains("unsupported", packageContent);
+            Assert.Equal("Backup Generation Actor", packageRoot.GetProperty("data").GetProperty("currentActorProfileSummary").GetProperty("displayName").GetString());
+            Assert.Equal(1, packageRoot.GetProperty("data").GetProperty("personalBillSafeSummary").GetProperty("totalVisiblePersonalBills").GetInt32());
+            Assert.Equal(1, packageRoot.GetProperty("data").GetProperty("personalBillSafeSummary").GetProperty("itemCount").GetInt32());
+            Assert.Equal(packageSha256, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(packageContent))).ToLowerInvariant());
+        }
+
+        using (var reusedContentRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            contentPath,
+            actorSession.RawSessionToken))
+        using (var reusedContentResponse = await client.SendAsync(reusedContentRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, reusedContentResponse.StatusCode);
         }
 
         testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(10));
@@ -1446,6 +1497,7 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         var backupArtifactStatusBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/package-sessions/{packageSessionId}/artifact-status:");
         var backupGenerationCancelBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/package-sessions/{packageSessionId}/cancel:");
         var backupDownloadActionBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/package-sessions/{packageSessionId}/download-actions:");
+        var backupDownloadContentBlock = ExtractOpenApiPathBlock(openApi, "/api/v1/local-backup/package-sessions/{packageSessionId}/download-actions/{downloadActionId}/content:");
         var backupReadinessSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupPackageReadinessResponse:");
         var backupReadinessStableCodeSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupPackageReadinessCode:");
         var backupSessionSchema = ExtractOpenApiSchemaBlock(openApi, "LocalBackupPackageSessionResponse:");
@@ -1493,6 +1545,9 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("operationId: getLocalBackupPackageArtifactStatus", backupArtifactStatusBlock);
         Assert.Contains("operationId: cancelLocalBackupPackageGeneration", backupGenerationCancelBlock);
         Assert.Contains("operationId: createLocalBackupPackageDownloadAction", backupDownloadActionBlock);
+        Assert.Contains("operationId: downloadLocalBackupPackageContent", backupDownloadContentBlock);
+        Assert.Contains("application/vnd.settleora.local-backup+json", backupDownloadContentBlock);
+        Assert.Contains("format: binary", backupDownloadContentBlock);
         Assert.Contains("LocalBackupPackageSessionResponse", backupSessionCreateBlock);
         Assert.Contains("LocalBackupPackageSessionResponse", backupSessionReadBlock);
         Assert.Contains("LocalBackupPackageSessionResponse", backupSessionDiscardBlock);
@@ -1510,12 +1565,20 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("package_session_cancelled", backupSessionStableCodeSchema);
         Assert.Contains("package_session_expired", backupSessionStableCodeSchema);
         Assert.Contains("package_session_discarded", backupSessionStableCodeSchema);
+        Assert.Contains("package_ready_to_download", backupSessionStableCodeSchema);
         Assert.Contains("metadata_only_no_artifact", backupArtifactStableCodeSchema);
-        Assert.Contains("package_generation_unsupported", backupArtifactStableCodeSchema);
+        Assert.Contains("package_ready_to_download", backupArtifactStableCodeSchema);
+        Assert.Contains("package_download_action_ready", backupArtifactStableCodeSchema);
         Assert.Contains("package_download_unavailable", backupArtifactStableCodeSchema);
         Assert.Contains("package_generation_cancelled", backupArtifactStableCodeSchema);
         Assert.Contains("artifactAvailable", backupGenerationSchema);
+        Assert.Contains("safeFilename", backupGenerationSchema);
+        Assert.Contains("contentType", backupGenerationSchema);
+        Assert.Contains("contentLengthBytes", backupGenerationSchema);
+        Assert.Contains("packageSha256", backupArtifactStatusSchema);
         Assert.Contains("downloadAvailable", backupArtifactStatusSchema);
+        Assert.Contains("downloadActionId", backupDownloadActionSchema);
+        Assert.Contains("contentPath", backupDownloadActionSchema);
         Assert.Contains("nextAllowedActions", backupDownloadActionSchema);
         Assert.DoesNotContain("downloadUrl", backupSessionSchema);
         Assert.DoesNotContain("storageObjectKey", backupSessionSchema);
@@ -1554,6 +1617,7 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("getLocalBackupPackageArtifactStatus", webClient);
         Assert.Contains("cancelLocalBackupPackageGeneration", webClient);
         Assert.Contains("createLocalBackupPackageDownloadAction", webClient);
+        Assert.Contains("downloadLocalBackupPackageContent", webClient);
         Assert.Contains("submitSyncOperation", dartClient);
         Assert.Contains("getSyncOperation", dartClient);
         Assert.Contains("listSyncChanges", dartClient);
@@ -1566,6 +1630,7 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Contains("getLocalBackupPackageArtifactStatus", dartClient);
         Assert.Contains("cancelLocalBackupPackageGeneration", dartClient);
         Assert.Contains("createLocalBackupPackageDownloadAction", dartClient);
+        Assert.Contains("downloadLocalBackupPackageContent", dartClient);
         Assert.Contains("SyncOperationRequest", webModels);
         Assert.Contains("SyncLocalStatusResponse", webModels);
         Assert.Contains("LocalBackupPackageReadinessResponse", webModels);
@@ -2172,6 +2237,86 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.DoesNotContain("restorePreviewRows", content, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static void AssertLocalBackupPackageContentIsSafe(
+        string content,
+        string rawSessionToken,
+        Guid visibleBillId)
+    {
+        Assert.DoesNotContain("Backup Generation Visible Merchant", content);
+        Assert.DoesNotContain("Backup Generation Hidden Merchant", content);
+        Assert.DoesNotContain("Seeded Sync Item", content);
+        Assert.DoesNotContain("Sensitive sync item note", content);
+        Assert.DoesNotContain("payment label secret", content);
+        Assert.DoesNotContain("storage/object/key", content);
+        Assert.DoesNotContain(rawSessionToken, content);
+        Assert.DoesNotContain(visibleBillId.ToString("D"), content);
+        Assert.DoesNotContain("storageObjectKey", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("signedUrl", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("directStorageUrl", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("bucketName", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("bearerToken", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("downloadToken", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("downloadCredential", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("filesystemPath", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("localDevicePath", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/tmp/", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/mnt/", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("objectKey", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("rawOcrText", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("password", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secret", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("credential", content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AssertLocalBackupArtifactReady(
+        JsonElement root,
+        Guid packageSessionId,
+        bool expectDownloadAction)
+    {
+        Assert.Equal(packageSessionId, root.GetProperty("packageSessionId").GetGuid());
+        Assert.Equal(expectDownloadAction ? "download_action_ready" : "ready", root.GetProperty("status").GetString());
+        Assert.Equal(expectDownloadAction ? "package_download_action_ready" : "package_ready_to_download", root.GetProperty("stableCode").GetString());
+        if (!expectDownloadAction)
+        {
+            Assert.False(root.GetProperty("canPreparePackage").GetBoolean());
+        }
+
+        Assert.True(root.GetProperty("artifactAvailable").GetBoolean());
+        Assert.True(root.GetProperty("canDownloadPackage").GetBoolean());
+        Assert.True(root.GetProperty("downloadAvailable").GetBoolean());
+        if (!expectDownloadAction)
+        {
+            Assert.NotEqual(JsonValueKind.Null, root.GetProperty("generatedAtUtc").ValueKind);
+        }
+
+        Assert.NotEqual(JsonValueKind.Null, root.GetProperty("expiresAtUtc").ValueKind);
+        if (!expectDownloadAction)
+        {
+            Assert.NotEqual(JsonValueKind.Null, root.GetProperty("artifactExpiresAtUtc").ValueKind);
+        }
+
+        Assert.EndsWith(".json", root.GetProperty("safeFilename").GetString());
+        Assert.Equal("application/vnd.settleora.local-backup+json", root.GetProperty("contentType").GetString());
+        Assert.True(root.GetProperty("contentLengthBytes").GetInt32() > 0);
+        Assert.Equal(64, root.GetProperty("packageSha256").GetString()!.Length);
+        if (expectDownloadAction)
+        {
+            Assert.NotEqual(Guid.Empty, root.GetProperty("downloadActionId").GetGuid());
+            Assert.NotEqual(JsonValueKind.Null, root.GetProperty("downloadActionExpiresAtUtc").ValueKind);
+            Assert.StartsWith("/api/v1/local-backup/package-sessions/", root.GetProperty("contentPath").GetString(), StringComparison.Ordinal);
+        }
+
+        Assert.NotEqual(JsonValueKind.Null, root.GetProperty("privacyBoundary").ValueKind);
+        Assert.NotEqual(JsonValueKind.Null, root.GetProperty("dataEgressBoundary").ValueKind);
+        AssertUnsupportedFeatureValues(
+            root.GetProperty("unsupportedFeatures"),
+            "restore_preview",
+            "restore_confirmation",
+            "browser_local_persistence",
+            "local_mode_authority");
+        Assert.Contains("create_download_action", root.GetProperty("nextAllowedActions").EnumerateArray().Select(action => action.GetString()));
+    }
+
     private static void AssertLocalBackupArtifactMetadataOnly(
         JsonElement root,
         Guid packageSessionId,
@@ -2191,9 +2336,6 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.NotEqual(JsonValueKind.Null, root.GetProperty("dataEgressBoundary").ValueKind);
         AssertUnsupportedFeatureValues(
             root.GetProperty("unsupportedFeatures"),
-            "package_generation",
-            "package_artifact",
-            "package_download",
             "restore_preview",
             "restore_confirmation",
             "browser_local_persistence",

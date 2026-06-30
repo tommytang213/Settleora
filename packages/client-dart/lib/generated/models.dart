@@ -11321,10 +11321,12 @@ typedef LocalBackupPackageSessionStatus = String;
 class LocalBackupPackageSessionStatusValues {
   const LocalBackupPackageSessionStatusValues._();
   static const LocalBackupPackageSessionStatus created = "created";
+  static const LocalBackupPackageSessionStatus readyToDownload = "ready_to_download";
+  static const LocalBackupPackageSessionStatus blocked = "blocked";
   static const LocalBackupPackageSessionStatus cancelled = "cancelled";
   static const LocalBackupPackageSessionStatus expired = "expired";
   static const LocalBackupPackageSessionStatus discarded = "discarded";
-  static const Set<LocalBackupPackageSessionStatus> values = {created, cancelled, expired, discarded};
+  static const Set<LocalBackupPackageSessionStatus> values = {created, readyToDownload, blocked, cancelled, expired, discarded};
 }
 
 /// Stable local backup package session code. Unknown future values must be handled as unavailable by clients.
@@ -11332,12 +11334,15 @@ typedef LocalBackupPackageSessionStableCode = String;
 class LocalBackupPackageSessionStableCodeValues {
   const LocalBackupPackageSessionStableCodeValues._();
   static const LocalBackupPackageSessionStableCode packageSessionCreated = "package_session_created";
+  static const LocalBackupPackageSessionStableCode packageReadyToDownload = "package_ready_to_download";
   static const LocalBackupPackageSessionStableCode packageSessionCancelled = "package_session_cancelled";
   static const LocalBackupPackageSessionStableCode packageSessionExpired = "package_session_expired";
   static const LocalBackupPackageSessionStableCode packageSessionDiscarded = "package_session_discarded";
   static const LocalBackupPackageSessionStableCode packageGenerationUnsupported = "package_generation_unsupported";
   static const LocalBackupPackageSessionStableCode packageManifestMetadataOnly = "package_manifest_metadata_only";
-  static const Set<LocalBackupPackageSessionStableCode> values = {packageSessionCreated, packageSessionCancelled, packageSessionExpired, packageSessionDiscarded, packageGenerationUnsupported, packageManifestMetadataOnly};
+  static const LocalBackupPackageSessionStableCode policyDisabled = "policy_disabled";
+  static const LocalBackupPackageSessionStableCode temporarilyUnavailable = "temporarily_unavailable";
+  static const Set<LocalBackupPackageSessionStableCode> values = {packageSessionCreated, packageReadyToDownload, packageSessionCancelled, packageSessionExpired, packageSessionDiscarded, packageGenerationUnsupported, packageManifestMetadataOnly, policyDisabled, temporarilyUnavailable};
 }
 
 /// Metadata-only local backup package artifact/download status. Unknown future values must be handled as unavailable by clients.
@@ -11345,13 +11350,16 @@ typedef LocalBackupPackageArtifactStatus = String;
 class LocalBackupPackageArtifactStatusValues {
   const LocalBackupPackageArtifactStatusValues._();
   static const LocalBackupPackageArtifactStatus metadataOnlyNoArtifact = "metadata_only_no_artifact";
+  static const LocalBackupPackageArtifactStatus ready = "ready";
+  static const LocalBackupPackageArtifactStatus downloadActionReady = "download_action_ready";
+  static const LocalBackupPackageArtifactStatus blocked = "blocked";
   static const LocalBackupPackageArtifactStatus generationUnavailable = "generation_unavailable";
   static const LocalBackupPackageArtifactStatus downloadUnavailable = "download_unavailable";
   static const LocalBackupPackageArtifactStatus cancelled = "cancelled";
   static const LocalBackupPackageArtifactStatus expired = "expired";
   static const LocalBackupPackageArtifactStatus discarded = "discarded";
   static const LocalBackupPackageArtifactStatus staleRecheckRequired = "stale_recheck_required";
-  static const Set<LocalBackupPackageArtifactStatus> values = {metadataOnlyNoArtifact, generationUnavailable, downloadUnavailable, cancelled, expired, discarded, staleRecheckRequired};
+  static const Set<LocalBackupPackageArtifactStatus> values = {metadataOnlyNoArtifact, ready, downloadActionReady, blocked, generationUnavailable, downloadUnavailable, cancelled, expired, discarded, staleRecheckRequired};
 }
 
 /// Stable metadata-only local backup package generation/artifact/download code. Unknown future values must be handled as unavailable by clients.
@@ -11359,6 +11367,8 @@ typedef LocalBackupPackageArtifactStableCode = String;
 class LocalBackupPackageArtifactStableCodeValues {
   const LocalBackupPackageArtifactStableCodeValues._();
   static const LocalBackupPackageArtifactStableCode metadataOnlyNoArtifact = "metadata_only_no_artifact";
+  static const LocalBackupPackageArtifactStableCode packageReadyToDownload = "package_ready_to_download";
+  static const LocalBackupPackageArtifactStableCode packageDownloadActionReady = "package_download_action_ready";
   static const LocalBackupPackageArtifactStableCode packageGenerationUnsupported = "package_generation_unsupported";
   static const LocalBackupPackageArtifactStableCode packageDownloadUnavailable = "package_download_unavailable";
   static const LocalBackupPackageArtifactStableCode packageGenerationCancelled = "package_generation_cancelled";
@@ -11366,7 +11376,7 @@ class LocalBackupPackageArtifactStableCodeValues {
   static const LocalBackupPackageArtifactStableCode packageSessionDiscarded = "package_session_discarded";
   static const LocalBackupPackageArtifactStableCode packageSessionStaleRecheckRequired = "package_session_stale_recheck_required";
   static const LocalBackupPackageArtifactStableCode temporarilyUnavailable = "temporarily_unavailable";
-  static const Set<LocalBackupPackageArtifactStableCode> values = {metadataOnlyNoArtifact, packageGenerationUnsupported, packageDownloadUnavailable, packageGenerationCancelled, packageSessionExpired, packageSessionDiscarded, packageSessionStaleRecheckRequired, temporarilyUnavailable};
+  static const Set<LocalBackupPackageArtifactStableCode> values = {metadataOnlyNoArtifact, packageReadyToDownload, packageDownloadActionReady, packageGenerationUnsupported, packageDownloadUnavailable, packageGenerationCancelled, packageSessionExpired, packageSessionDiscarded, packageSessionStaleRecheckRequired, temporarilyUnavailable};
 }
 
 /// Safe next action labels for metadata-only package-session flows. These are not storage, download, restore, or browser persistence authority.
@@ -11374,18 +11384,20 @@ typedef LocalBackupPackageNextAllowedAction = String;
 class LocalBackupPackageNextAllowedActionValues {
   const LocalBackupPackageNextAllowedActionValues._();
   static const LocalBackupPackageNextAllowedAction getArtifactStatus = "get_artifact_status";
+  static const LocalBackupPackageNextAllowedAction preparePackage = "prepare_package";
+  static const LocalBackupPackageNextAllowedAction createDownloadAction = "create_download_action";
   static const LocalBackupPackageNextAllowedAction cancelPackageGeneration = "cancel_package_generation";
   static const LocalBackupPackageNextAllowedAction discardPackageSession = "discard_package_session";
   static const LocalBackupPackageNextAllowedAction createNewPackageSession = "create_new_package_session";
-  static const Set<LocalBackupPackageNextAllowedAction> values = {getArtifactStatus, cancelPackageGeneration, discardPackageSession, createNewPackageSession};
+  static const Set<LocalBackupPackageNextAllowedAction> values = {getArtifactStatus, preparePackage, createDownloadAction, cancelPackageGeneration, discardPackageSession, createNewPackageSession};
 }
 
 /// Metadata-only local backup package session scope.
 typedef LocalBackupPackageSessionScope = String;
 class LocalBackupPackageSessionScopeValues {
   const LocalBackupPackageSessionScopeValues._();
-  static const LocalBackupPackageSessionScope serverModeCopyMetadataOnly = "server_mode_copy_metadata_only";
-  static const Set<LocalBackupPackageSessionScope> values = {serverModeCopyMetadataOnly};
+  static const LocalBackupPackageSessionScope serverModeCopyDataOnly = "server_mode_copy_data_only";
+  static const Set<LocalBackupPackageSessionScope> values = {serverModeCopyDataOnly};
 }
 
 /// Safe package-session readiness metadata. It does not prepare, generate, download, parse, preview, confirm, or restore a package.
@@ -11573,6 +11585,11 @@ class LocalBackupPackageSessionResponse {
 /// Metadata-only local backup package preparation/generation status for an authenticated package session. It contains no package artifact ID, storage path, object key, signed URL, direct storage URL, filesystem path, local device path, download token, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth token, credential material, restore payload, or browser-local persistence state.
 class LocalBackupPackageGenerationStatusResponse {
   static const Object _unsetGeneratedAtUtc = Object();
+  static const Object _unsetArtifactExpiresAtUtc = Object();
+  static const Object _unsetSafeFilename = Object();
+  static const Object _unsetContentType = Object();
+  static const Object _unsetContentLengthBytes = Object();
+  static const Object _unsetPackageSha256 = Object();
 
   LocalBackupPackageGenerationStatusResponse({
     required this.packageSessionId,
@@ -11584,6 +11601,11 @@ class LocalBackupPackageGenerationStatusResponse {
     required this.canDownloadPackage,
     required this.downloadAvailable,
     Object? generatedAtUtc = _unsetGeneratedAtUtc,
+    Object? artifactExpiresAtUtc = _unsetArtifactExpiresAtUtc,
+    Object? safeFilename = _unsetSafeFilename,
+    Object? contentType = _unsetContentType,
+    Object? contentLengthBytes = _unsetContentLengthBytes,
+    Object? packageSha256 = _unsetPackageSha256,
     required this.expiresAtUtc,
     required this.privacyBoundary,
     required this.dataEgressBoundary,
@@ -11592,7 +11614,17 @@ class LocalBackupPackageGenerationStatusResponse {
     required this.responseGeneratedAtUtc,
   })
       : generatedAtUtc = identical(generatedAtUtc, _unsetGeneratedAtUtc) ? null : generatedAtUtc as DateTime?,
-        _hasGeneratedAtUtc = !identical(generatedAtUtc, _unsetGeneratedAtUtc);
+        _hasGeneratedAtUtc = !identical(generatedAtUtc, _unsetGeneratedAtUtc),
+        artifactExpiresAtUtc = identical(artifactExpiresAtUtc, _unsetArtifactExpiresAtUtc) ? null : artifactExpiresAtUtc as DateTime?,
+        _hasArtifactExpiresAtUtc = !identical(artifactExpiresAtUtc, _unsetArtifactExpiresAtUtc),
+        safeFilename = identical(safeFilename, _unsetSafeFilename) ? null : safeFilename as String?,
+        _hasSafeFilename = !identical(safeFilename, _unsetSafeFilename),
+        contentType = identical(contentType, _unsetContentType) ? null : contentType as String?,
+        _hasContentType = !identical(contentType, _unsetContentType),
+        contentLengthBytes = identical(contentLengthBytes, _unsetContentLengthBytes) ? null : contentLengthBytes as int?,
+        _hasContentLengthBytes = !identical(contentLengthBytes, _unsetContentLengthBytes),
+        packageSha256 = identical(packageSha256, _unsetPackageSha256) ? null : packageSha256 as String?,
+        _hasPackageSha256 = !identical(packageSha256, _unsetPackageSha256);
 
   /// Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
   final String packageSessionId;
@@ -11607,9 +11639,24 @@ class LocalBackupPackageGenerationStatusResponse {
   final bool canDownloadPackage;
   /// False for this slice because package download runtime is not implemented.
   final bool downloadAvailable;
-  /// Null for this slice because no package artifact is generated.
+  /// Artifact generation timestamp when a data-only package artifact is ready.
   final DateTime? generatedAtUtc;
   final bool _hasGeneratedAtUtc;
+  /// Short-lived process-local artifact expiry. Clients must reprepare after expiry.
+  final DateTime? artifactExpiresAtUtc;
+  final bool _hasArtifactExpiresAtUtc;
+  /// Deterministic safe download filename, not a path or storage object key.
+  final String? safeFilename;
+  final bool _hasSafeFilename;
+  /// Safe API content type for the package artifact.
+  final String? contentType;
+  final bool _hasContentType;
+  /// Bounded artifact byte length.
+  final int? contentLengthBytes;
+  final bool _hasContentLengthBytes;
+  /// SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
+  final String? packageSha256;
+  final bool _hasPackageSha256;
   final DateTime expiresAtUtc;
   final String privacyBoundary;
   final String dataEgressBoundary;
@@ -11630,6 +11677,21 @@ class LocalBackupPackageGenerationStatusResponse {
       generatedAtUtc: json.containsKey("generatedAtUtc")
           ? json["generatedAtUtc"] == null ? null : DateTime.parse(json["generatedAtUtc"] as String)
           : _unsetGeneratedAtUtc,
+      artifactExpiresAtUtc: json.containsKey("artifactExpiresAtUtc")
+          ? json["artifactExpiresAtUtc"] == null ? null : DateTime.parse(json["artifactExpiresAtUtc"] as String)
+          : _unsetArtifactExpiresAtUtc,
+      safeFilename: json.containsKey("safeFilename")
+          ? json["safeFilename"] == null ? null : json["safeFilename"] as String
+          : _unsetSafeFilename,
+      contentType: json.containsKey("contentType")
+          ? json["contentType"] == null ? null : json["contentType"] as String
+          : _unsetContentType,
+      contentLengthBytes: json.containsKey("contentLengthBytes")
+          ? json["contentLengthBytes"] == null ? null : (json["contentLengthBytes"] as num).toInt()
+          : _unsetContentLengthBytes,
+      packageSha256: json.containsKey("packageSha256")
+          ? json["packageSha256"] == null ? null : json["packageSha256"] as String
+          : _unsetPackageSha256,
       expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
       privacyBoundary: json["privacyBoundary"] as String,
       dataEgressBoundary: json["dataEgressBoundary"] as String,
@@ -11641,6 +11703,11 @@ class LocalBackupPackageGenerationStatusResponse {
 
   JsonObject toJson() {
     final generatedAtUtcJsonValue = generatedAtUtc;
+    final artifactExpiresAtUtcJsonValue = artifactExpiresAtUtc;
+    final safeFilenameJsonValue = safeFilename;
+    final contentTypeJsonValue = contentType;
+    final contentLengthBytesJsonValue = contentLengthBytes;
+    final packageSha256JsonValue = packageSha256;
 
     return {
       "packageSessionId": packageSessionId,
@@ -11652,6 +11719,11 @@ class LocalBackupPackageGenerationStatusResponse {
       "canDownloadPackage": canDownloadPackage,
       "downloadAvailable": downloadAvailable,
       if (_hasGeneratedAtUtc) "generatedAtUtc": generatedAtUtcJsonValue == null ? null : generatedAtUtcJsonValue.toUtc().toIso8601String(),
+      if (_hasArtifactExpiresAtUtc) "artifactExpiresAtUtc": artifactExpiresAtUtcJsonValue == null ? null : artifactExpiresAtUtcJsonValue.toUtc().toIso8601String(),
+      if (_hasSafeFilename) "safeFilename": safeFilenameJsonValue,
+      if (_hasContentType) "contentType": contentTypeJsonValue,
+      if (_hasContentLengthBytes) "contentLengthBytes": contentLengthBytesJsonValue,
+      if (_hasPackageSha256) "packageSha256": packageSha256JsonValue,
       "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
       "privacyBoundary": privacyBoundary,
       "dataEgressBoundary": dataEgressBoundary,
@@ -11665,6 +11737,11 @@ class LocalBackupPackageGenerationStatusResponse {
 /// Metadata-only local backup package artifact/download eligibility status for an authenticated package session. It contains no package artifact ID, storage path, object key, signed URL, direct storage URL, filesystem path, local device path, download token, package bytes, file bytes, raw OCR text, private notes, payment details, hidden records, auth token, credential material, restore payload, or browser-local persistence state.
 class LocalBackupPackageArtifactStatusResponse {
   static const Object _unsetGeneratedAtUtc = Object();
+  static const Object _unsetArtifactExpiresAtUtc = Object();
+  static const Object _unsetSafeFilename = Object();
+  static const Object _unsetContentType = Object();
+  static const Object _unsetContentLengthBytes = Object();
+  static const Object _unsetPackageSha256 = Object();
 
   LocalBackupPackageArtifactStatusResponse({
     required this.packageSessionId,
@@ -11676,6 +11753,11 @@ class LocalBackupPackageArtifactStatusResponse {
     required this.canDownloadPackage,
     required this.downloadAvailable,
     Object? generatedAtUtc = _unsetGeneratedAtUtc,
+    Object? artifactExpiresAtUtc = _unsetArtifactExpiresAtUtc,
+    Object? safeFilename = _unsetSafeFilename,
+    Object? contentType = _unsetContentType,
+    Object? contentLengthBytes = _unsetContentLengthBytes,
+    Object? packageSha256 = _unsetPackageSha256,
     required this.expiresAtUtc,
     required this.privacyBoundary,
     required this.dataEgressBoundary,
@@ -11684,7 +11766,17 @@ class LocalBackupPackageArtifactStatusResponse {
     required this.responseGeneratedAtUtc,
   })
       : generatedAtUtc = identical(generatedAtUtc, _unsetGeneratedAtUtc) ? null : generatedAtUtc as DateTime?,
-        _hasGeneratedAtUtc = !identical(generatedAtUtc, _unsetGeneratedAtUtc);
+        _hasGeneratedAtUtc = !identical(generatedAtUtc, _unsetGeneratedAtUtc),
+        artifactExpiresAtUtc = identical(artifactExpiresAtUtc, _unsetArtifactExpiresAtUtc) ? null : artifactExpiresAtUtc as DateTime?,
+        _hasArtifactExpiresAtUtc = !identical(artifactExpiresAtUtc, _unsetArtifactExpiresAtUtc),
+        safeFilename = identical(safeFilename, _unsetSafeFilename) ? null : safeFilename as String?,
+        _hasSafeFilename = !identical(safeFilename, _unsetSafeFilename),
+        contentType = identical(contentType, _unsetContentType) ? null : contentType as String?,
+        _hasContentType = !identical(contentType, _unsetContentType),
+        contentLengthBytes = identical(contentLengthBytes, _unsetContentLengthBytes) ? null : contentLengthBytes as int?,
+        _hasContentLengthBytes = !identical(contentLengthBytes, _unsetContentLengthBytes),
+        packageSha256 = identical(packageSha256, _unsetPackageSha256) ? null : packageSha256 as String?,
+        _hasPackageSha256 = !identical(packageSha256, _unsetPackageSha256);
 
   /// Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
   final String packageSessionId;
@@ -11695,9 +11787,24 @@ class LocalBackupPackageArtifactStatusResponse {
   final bool artifactAvailable;
   final bool canDownloadPackage;
   final bool downloadAvailable;
-  /// Null for this slice because no package artifact is generated.
+  /// Artifact generation timestamp when a data-only package artifact is ready.
   final DateTime? generatedAtUtc;
   final bool _hasGeneratedAtUtc;
+  /// Short-lived process-local artifact expiry. Clients must reprepare after expiry.
+  final DateTime? artifactExpiresAtUtc;
+  final bool _hasArtifactExpiresAtUtc;
+  /// Deterministic safe download filename, not a path or storage object key.
+  final String? safeFilename;
+  final bool _hasSafeFilename;
+  /// Safe API content type for the package artifact.
+  final String? contentType;
+  final bool _hasContentType;
+  /// Bounded artifact byte length.
+  final int? contentLengthBytes;
+  final bool _hasContentLengthBytes;
+  /// SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
+  final String? packageSha256;
+  final bool _hasPackageSha256;
   final DateTime expiresAtUtc;
   final String privacyBoundary;
   final String dataEgressBoundary;
@@ -11718,6 +11825,21 @@ class LocalBackupPackageArtifactStatusResponse {
       generatedAtUtc: json.containsKey("generatedAtUtc")
           ? json["generatedAtUtc"] == null ? null : DateTime.parse(json["generatedAtUtc"] as String)
           : _unsetGeneratedAtUtc,
+      artifactExpiresAtUtc: json.containsKey("artifactExpiresAtUtc")
+          ? json["artifactExpiresAtUtc"] == null ? null : DateTime.parse(json["artifactExpiresAtUtc"] as String)
+          : _unsetArtifactExpiresAtUtc,
+      safeFilename: json.containsKey("safeFilename")
+          ? json["safeFilename"] == null ? null : json["safeFilename"] as String
+          : _unsetSafeFilename,
+      contentType: json.containsKey("contentType")
+          ? json["contentType"] == null ? null : json["contentType"] as String
+          : _unsetContentType,
+      contentLengthBytes: json.containsKey("contentLengthBytes")
+          ? json["contentLengthBytes"] == null ? null : (json["contentLengthBytes"] as num).toInt()
+          : _unsetContentLengthBytes,
+      packageSha256: json.containsKey("packageSha256")
+          ? json["packageSha256"] == null ? null : json["packageSha256"] as String
+          : _unsetPackageSha256,
       expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
       privacyBoundary: json["privacyBoundary"] as String,
       dataEgressBoundary: json["dataEgressBoundary"] as String,
@@ -11729,6 +11851,11 @@ class LocalBackupPackageArtifactStatusResponse {
 
   JsonObject toJson() {
     final generatedAtUtcJsonValue = generatedAtUtc;
+    final artifactExpiresAtUtcJsonValue = artifactExpiresAtUtc;
+    final safeFilenameJsonValue = safeFilename;
+    final contentTypeJsonValue = contentType;
+    final contentLengthBytesJsonValue = contentLengthBytes;
+    final packageSha256JsonValue = packageSha256;
 
     return {
       "packageSessionId": packageSessionId,
@@ -11740,6 +11867,11 @@ class LocalBackupPackageArtifactStatusResponse {
       "canDownloadPackage": canDownloadPackage,
       "downloadAvailable": downloadAvailable,
       if (_hasGeneratedAtUtc) "generatedAtUtc": generatedAtUtcJsonValue == null ? null : generatedAtUtcJsonValue.toUtc().toIso8601String(),
+      if (_hasArtifactExpiresAtUtc) "artifactExpiresAtUtc": artifactExpiresAtUtcJsonValue == null ? null : artifactExpiresAtUtcJsonValue.toUtc().toIso8601String(),
+      if (_hasSafeFilename) "safeFilename": safeFilenameJsonValue,
+      if (_hasContentType) "contentType": contentTypeJsonValue,
+      if (_hasContentLengthBytes) "contentLengthBytes": contentLengthBytesJsonValue,
+      if (_hasPackageSha256) "packageSha256": packageSha256JsonValue,
       "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
       "privacyBoundary": privacyBoundary,
       "dataEgressBoundary": dataEgressBoundary,
@@ -11752,7 +11884,15 @@ class LocalBackupPackageArtifactStatusResponse {
 
 /// Metadata-only local backup package download-action eligibility response for an authenticated package session. It never contains raw bytes, direct storage URLs, signed URLs, object keys, bucket names, filesystem paths, local device paths, provider internals, browser object URLs, bearer tokens, download credentials, content-disposition behavior, package bytes, file bytes, restore payloads, or browser-local persistence state.
 class LocalBackupPackageDownloadActionResponse {
-  const LocalBackupPackageDownloadActionResponse({
+  static const Object _unsetDownloadActionId = Object();
+  static const Object _unsetDownloadActionExpiresAtUtc = Object();
+  static const Object _unsetContentPath = Object();
+  static const Object _unsetSafeFilename = Object();
+  static const Object _unsetContentType = Object();
+  static const Object _unsetContentLengthBytes = Object();
+  static const Object _unsetPackageSha256 = Object();
+
+  LocalBackupPackageDownloadActionResponse({
     required this.packageSessionId,
     required this.status,
     required this.stableCode,
@@ -11761,12 +11901,33 @@ class LocalBackupPackageDownloadActionResponse {
     required this.canDownloadPackage,
     required this.artifactAvailable,
     required this.expiresAtUtc,
+    Object? downloadActionId = _unsetDownloadActionId,
+    Object? downloadActionExpiresAtUtc = _unsetDownloadActionExpiresAtUtc,
+    Object? contentPath = _unsetContentPath,
+    Object? safeFilename = _unsetSafeFilename,
+    Object? contentType = _unsetContentType,
+    Object? contentLengthBytes = _unsetContentLengthBytes,
+    Object? packageSha256 = _unsetPackageSha256,
     required this.privacyBoundary,
     required this.dataEgressBoundary,
     required this.unsupportedFeatures,
     required this.nextAllowedActions,
     required this.responseGeneratedAtUtc,
-  });
+  })
+      : downloadActionId = identical(downloadActionId, _unsetDownloadActionId) ? null : downloadActionId as String?,
+        _hasDownloadActionId = !identical(downloadActionId, _unsetDownloadActionId),
+        downloadActionExpiresAtUtc = identical(downloadActionExpiresAtUtc, _unsetDownloadActionExpiresAtUtc) ? null : downloadActionExpiresAtUtc as DateTime?,
+        _hasDownloadActionExpiresAtUtc = !identical(downloadActionExpiresAtUtc, _unsetDownloadActionExpiresAtUtc),
+        contentPath = identical(contentPath, _unsetContentPath) ? null : contentPath as String?,
+        _hasContentPath = !identical(contentPath, _unsetContentPath),
+        safeFilename = identical(safeFilename, _unsetSafeFilename) ? null : safeFilename as String?,
+        _hasSafeFilename = !identical(safeFilename, _unsetSafeFilename),
+        contentType = identical(contentType, _unsetContentType) ? null : contentType as String?,
+        _hasContentType = !identical(contentType, _unsetContentType),
+        contentLengthBytes = identical(contentLengthBytes, _unsetContentLengthBytes) ? null : contentLengthBytes as int?,
+        _hasContentLengthBytes = !identical(contentLengthBytes, _unsetContentLengthBytes),
+        packageSha256 = identical(packageSha256, _unsetPackageSha256) ? null : packageSha256 as String?,
+        _hasPackageSha256 = !identical(packageSha256, _unsetPackageSha256);
 
   /// Opaque package-session metadata ID. It is not an artifact ID, storage object, download token, or restore authority.
   final String packageSessionId;
@@ -11777,9 +11938,30 @@ class LocalBackupPackageDownloadActionResponse {
   final bool downloadAvailable;
   /// False for this slice because no package artifact exists.
   final bool canDownloadPackage;
-  /// False for this slice because no package artifact exists.
+  /// Whether a prepared package artifact is available.
   final bool artifactAvailable;
   final DateTime expiresAtUtc;
+  /// Opaque same-API download action ID. It is not a bearer token, storage credential, object key, or signed URL.
+  final String? downloadActionId;
+  final bool _hasDownloadActionId;
+  /// Short-lived download-action expiry.
+  final DateTime? downloadActionExpiresAtUtc;
+  final bool _hasDownloadActionExpiresAtUtc;
+  /// Relative API content endpoint path for this actor/session action. It is not a direct storage URL or signed URL.
+  final String? contentPath;
+  final bool _hasContentPath;
+  /// Deterministic safe download filename, not a path or storage object key.
+  final String? safeFilename;
+  final bool _hasSafeFilename;
+  /// Safe API content type for the package artifact.
+  final String? contentType;
+  final bool _hasContentType;
+  /// Bounded artifact byte length.
+  final int? contentLengthBytes;
+  final bool _hasContentLengthBytes;
+  /// SHA-256 of the API-served package bytes. It is an integrity marker, not a secret.
+  final String? packageSha256;
+  final bool _hasPackageSha256;
   final String privacyBoundary;
   final String dataEgressBoundary;
   final List<LocalBackupPackageUnsupportedFeature> unsupportedFeatures;
@@ -11796,6 +11978,27 @@ class LocalBackupPackageDownloadActionResponse {
       canDownloadPackage: json["canDownloadPackage"] as bool,
       artifactAvailable: json["artifactAvailable"] as bool,
       expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      downloadActionId: json.containsKey("downloadActionId")
+          ? json["downloadActionId"] == null ? null : json["downloadActionId"] as String
+          : _unsetDownloadActionId,
+      downloadActionExpiresAtUtc: json.containsKey("downloadActionExpiresAtUtc")
+          ? json["downloadActionExpiresAtUtc"] == null ? null : DateTime.parse(json["downloadActionExpiresAtUtc"] as String)
+          : _unsetDownloadActionExpiresAtUtc,
+      contentPath: json.containsKey("contentPath")
+          ? json["contentPath"] == null ? null : json["contentPath"] as String
+          : _unsetContentPath,
+      safeFilename: json.containsKey("safeFilename")
+          ? json["safeFilename"] == null ? null : json["safeFilename"] as String
+          : _unsetSafeFilename,
+      contentType: json.containsKey("contentType")
+          ? json["contentType"] == null ? null : json["contentType"] as String
+          : _unsetContentType,
+      contentLengthBytes: json.containsKey("contentLengthBytes")
+          ? json["contentLengthBytes"] == null ? null : (json["contentLengthBytes"] as num).toInt()
+          : _unsetContentLengthBytes,
+      packageSha256: json.containsKey("packageSha256")
+          ? json["packageSha256"] == null ? null : json["packageSha256"] as String
+          : _unsetPackageSha256,
       privacyBoundary: json["privacyBoundary"] as String,
       dataEgressBoundary: json["dataEgressBoundary"] as String,
       unsupportedFeatures: (json["unsupportedFeatures"] as List<dynamic>).map((item) => item as String).toList(growable: false),
@@ -11805,6 +12008,14 @@ class LocalBackupPackageDownloadActionResponse {
   }
 
   JsonObject toJson() {
+    final downloadActionIdJsonValue = downloadActionId;
+    final downloadActionExpiresAtUtcJsonValue = downloadActionExpiresAtUtc;
+    final contentPathJsonValue = contentPath;
+    final safeFilenameJsonValue = safeFilename;
+    final contentTypeJsonValue = contentType;
+    final contentLengthBytesJsonValue = contentLengthBytes;
+    final packageSha256JsonValue = packageSha256;
+
     return {
       "packageSessionId": packageSessionId,
       "status": status,
@@ -11814,6 +12025,13 @@ class LocalBackupPackageDownloadActionResponse {
       "canDownloadPackage": canDownloadPackage,
       "artifactAvailable": artifactAvailable,
       "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      if (_hasDownloadActionId) "downloadActionId": downloadActionIdJsonValue,
+      if (_hasDownloadActionExpiresAtUtc) "downloadActionExpiresAtUtc": downloadActionExpiresAtUtcJsonValue == null ? null : downloadActionExpiresAtUtcJsonValue.toUtc().toIso8601String(),
+      if (_hasContentPath) "contentPath": contentPathJsonValue,
+      if (_hasSafeFilename) "safeFilename": safeFilenameJsonValue,
+      if (_hasContentType) "contentType": contentTypeJsonValue,
+      if (_hasContentLengthBytes) "contentLengthBytes": contentLengthBytesJsonValue,
+      if (_hasPackageSha256) "packageSha256": packageSha256JsonValue,
       "privacyBoundary": privacyBoundary,
       "dataEgressBoundary": dataEgressBoundary,
       "unsupportedFeatures": unsupportedFeatures,
