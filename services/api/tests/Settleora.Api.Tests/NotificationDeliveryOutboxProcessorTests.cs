@@ -202,18 +202,80 @@ public sealed class NotificationDeliveryOutboxProcessorTests
     }
 
     [Fact]
-    public void OutboxFoundationHasNoProviderRuntimeOrDeviceTokenDependencies()
+    public async Task EmailAttemptUsesSmtpBoundaryAndStoresOnlyRedactedProviderCategory()
+    {
+        await using var dbContext = CreateDbContext();
+        var attemptId = await SeedAttemptAsync(
+            dbContext,
+            idempotencyKey: "notification-attempt:smtp-accepted");
+        var processor = CreateProcessor(dbContext, new FakeSmtpEmailNotificationSender(
+            SmtpEmailNotificationSendResult.AcceptedByProvider()));
+
+        var result = await processor.ProcessAsync(CreateProcessingRequest(attemptId, "worker-a", ProcessingTime));
+
+        Assert.True(result.Processed);
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Queued, result.Status);
+        Assert.Null(result.NextAttemptAtUtc);
+
+        var attempt = await dbContext.Set<NotificationDeliveryAttempt>().SingleAsync();
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Queued, attempt.Status);
+        Assert.Equal(NotificationChannelDecisionReasons.FutureProviderEligible, attempt.StatusReason);
+        Assert.Equal(SmtpEmailNotificationResultCategories.Accepted, attempt.RedactedProviderResultCategory);
+        Assert.Equal(ProcessingTime, attempt.CompletedAtUtc);
+        Assert.False(NotificationDeliveryAttemptStatuses.IsProviderRuntimeStatus(attempt.Status));
+    }
+
+    [Fact]
+    public async Task DisabledAndUnconfiguredSmtpResultsDoNotBecomeFakeSentSuccess()
+    {
+        await using var dbContext = CreateDbContext();
+        var disabledId = await SeedAttemptAsync(
+            dbContext,
+            idempotencyKey: "notification-attempt:smtp-disabled");
+        var unconfiguredId = await SeedAttemptAsync(
+            dbContext,
+            idempotencyKey: "notification-attempt:smtp-unconfigured");
+
+        var disabledProcessor = CreateProcessor(dbContext, new FakeSmtpEmailNotificationSender(
+            SmtpEmailNotificationSendResult.DisabledByConfiguration()));
+        var disabled = await disabledProcessor.ProcessAsync(CreateProcessingRequest(disabledId, "worker-a", ProcessingTime));
+
+        var unconfiguredProcessor = CreateProcessor(dbContext, new FakeSmtpEmailNotificationSender(
+            SmtpEmailNotificationSendResult.ProviderUnconfigured()));
+        var unconfigured = await unconfiguredProcessor.ProcessAsync(CreateProcessingRequest(unconfiguredId, "worker-b", ProcessingTime));
+
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Disabled, disabled.Status);
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Unconfigured, unconfigured.Status);
+
+        var attempts = await dbContext.Set<NotificationDeliveryAttempt>()
+            .AsNoTracking()
+            .OrderBy(attempt => attempt.IdempotencyKey)
+            .ToListAsync();
+        Assert.All(attempts, attempt =>
+        {
+            Assert.NotEqual("sent", attempt.Status);
+            Assert.NotEqual("delivered", attempt.Status);
+            Assert.False(NotificationDeliveryAttemptStatuses.IsProviderRuntimeStatus(attempt.Status));
+            Assert.NotNull(attempt.CompletedAtUtc);
+            Assert.True(
+                attempt.RedactedProviderResultCategory is SmtpEmailNotificationResultCategories.DisabledByConfiguration
+                    or SmtpEmailNotificationResultCategories.ProviderUnconfigured,
+                $"Unexpected SMTP result category: {attempt.RedactedProviderResultCategory}");
+        });
+    }
+
+    [Fact]
+    public void OutboxFoundationHasOnlyInternalSmtpProviderRuntimeAndNoPushOrDeviceTokenDependencies()
     {
         AssertConstructorDependencies(
             typeof(EfNotificationDeliveryAttemptLeaseService),
             [typeof(SettleoraDbContext)]);
         AssertConstructorDependencies(
             typeof(NotificationDeliveryOutboxProcessor),
-            [typeof(SettleoraDbContext), typeof(INotificationDeliveryAttemptLeaseService)]);
+            [typeof(SettleoraDbContext), typeof(INotificationDeliveryAttemptLeaseService), typeof(ISmtpEmailNotificationSender)]);
         Assert.DoesNotContain(
             typeof(NotificationDeliveryOutboxProcessor).Assembly.GetTypes().Select(type => type.Name),
-            name => name.Contains("Smtp", StringComparison.OrdinalIgnoreCase)
-                || name.Contains("PushProvider", StringComparison.OrdinalIgnoreCase)
+            name => name.Contains("PushProvider", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("DeviceToken", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("Apns", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("Fcm", StringComparison.OrdinalIgnoreCase));
@@ -244,11 +306,16 @@ public sealed class NotificationDeliveryOutboxProcessorTests
             RetryBackoff);
     }
 
-    private static INotificationDeliveryOutboxProcessor CreateProcessor(SettleoraDbContext dbContext)
+    private static INotificationDeliveryOutboxProcessor CreateProcessor(
+        SettleoraDbContext dbContext,
+        ISmtpEmailNotificationSender? smtpEmailSender = null)
     {
         return new NotificationDeliveryOutboxProcessor(
             dbContext,
-            new EfNotificationDeliveryAttemptLeaseService(dbContext));
+            new EfNotificationDeliveryAttemptLeaseService(dbContext),
+            smtpEmailSender ?? new FakeSmtpEmailNotificationSender(
+                SmtpEmailNotificationSendResult.FailedTransient(
+                    SmtpEmailNotificationResultCategories.ProviderUnavailable)));
     }
 
     private static async Task<Guid> SeedAttemptAsync(
@@ -334,5 +401,22 @@ public sealed class NotificationDeliveryOutboxProcessorTests
         return new SettleoraDbContext(new DbContextOptionsBuilder<SettleoraDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options);
+    }
+
+    private sealed class FakeSmtpEmailNotificationSender : ISmtpEmailNotificationSender
+    {
+        private readonly SmtpEmailNotificationSendResult result;
+
+        public FakeSmtpEmailNotificationSender(SmtpEmailNotificationSendResult result)
+        {
+            this.result = result;
+        }
+
+        public Task<SmtpEmailNotificationSendResult> SendAsync(
+            SmtpEmailNotificationSendRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(result);
+        }
     }
 }

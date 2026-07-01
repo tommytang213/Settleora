@@ -18,13 +18,16 @@ internal sealed class NotificationDeliveryOutboxProcessor : INotificationDeliver
 
     private readonly SettleoraDbContext dbContext;
     private readonly INotificationDeliveryAttemptLeaseService leaseService;
+    private readonly ISmtpEmailNotificationSender smtpEmailSender;
 
     public NotificationDeliveryOutboxProcessor(
         SettleoraDbContext dbContext,
-        INotificationDeliveryAttemptLeaseService leaseService)
+        INotificationDeliveryAttemptLeaseService leaseService,
+        ISmtpEmailNotificationSender smtpEmailSender)
     {
         this.dbContext = dbContext;
         this.leaseService = leaseService;
+        this.smtpEmailSender = smtpEmailSender;
     }
 
     public async Task<NotificationDeliveryOutboxProcessingResult> ProcessAsync(
@@ -91,6 +94,23 @@ internal sealed class NotificationDeliveryOutboxProcessor : INotificationDeliver
                 attempt.AttemptCount);
         }
 
+        if (string.Equals(attempt.Channel, NotificationChannels.Email, StringComparison.Ordinal))
+        {
+            var emailResult = await smtpEmailSender.SendAsync(
+                SmtpEmailNotificationSendRequest.FromDeliveryAttempt(attempt),
+                cancellationToken);
+
+            ApplyEmailResult(attempt, emailResult, request.ProcessedAtUtc, request.RetryBackoff);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            return NotificationDeliveryOutboxProcessingResult.ProcessedAttempt(
+                attempt.Id,
+                attempt.Status,
+                attempt.StatusReason,
+                attempt.NextAttemptAtUtc,
+                attempt.AttemptCount);
+        }
+
         attempt.Status = NotificationDeliveryAttemptStatuses.Queued;
         attempt.NextAttemptAtUtc = request.ProcessedAtUtc.Add(request.RetryBackoff);
         attempt.LeaseOwner = null;
@@ -118,6 +138,56 @@ internal sealed class NotificationDeliveryOutboxProcessor : INotificationDeliver
         attempt.CompletedAtUtc = completedAtUtc;
         attempt.UpdatedAtUtc = completedAtUtc;
         attempt.RedactedProviderResultCategory = null;
+    }
+
+    private static void ApplyEmailResult(
+        NotificationDeliveryAttempt attempt,
+        SmtpEmailNotificationSendResult emailResult,
+        DateTimeOffset processedAtUtc,
+        TimeSpan retryBackoff)
+    {
+        attempt.LeaseOwner = null;
+        attempt.LeaseExpiresAtUtc = null;
+        attempt.UpdatedAtUtc = processedAtUtc;
+
+        if (emailResult.Accepted)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Queued;
+            attempt.NextAttemptAtUtc = null;
+            attempt.CompletedAtUtc = processedAtUtc;
+            attempt.RedactedProviderResultCategory = emailResult.Category;
+            return;
+        }
+
+        if (emailResult.Retryable)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Queued;
+            attempt.NextAttemptAtUtc = processedAtUtc.Add(retryBackoff);
+            attempt.CompletedAtUtc = null;
+            attempt.RedactedProviderResultCategory = null;
+            return;
+        }
+
+        attempt.NextAttemptAtUtc = null;
+        attempt.CompletedAtUtc = processedAtUtc;
+        attempt.RedactedProviderResultCategory = emailResult.Category;
+
+        if (emailResult.Disabled)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Disabled;
+            attempt.StatusReason = NotificationChannelDecisionReasons.DisabledByPolicy;
+            return;
+        }
+
+        if (emailResult.Unconfigured)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Unconfigured;
+            attempt.StatusReason = NotificationChannelDecisionReasons.ProviderUnconfigured;
+            return;
+        }
+
+        attempt.Status = NotificationDeliveryAttemptStatuses.Suppressed;
+        attempt.StatusReason = NotificationChannelDecisionReasons.UnsafeExternalContent;
     }
 
     private static bool IsSafeProcessingRequest(NotificationDeliveryOutboxProcessingRequest request)
