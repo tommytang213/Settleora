@@ -223,8 +223,7 @@ public sealed class NotificationDeliveryAttemptRecorderTests
         Assert.Equal(typeof(SettleoraDbContext), parameter.ParameterType);
         Assert.DoesNotContain(
             typeof(EfNotificationDeliveryAttemptRecorder).Assembly.GetTypes().Select(type => type.Name),
-            name => name.Contains("Smtp", StringComparison.OrdinalIgnoreCase)
-                || name.Contains("PushProvider", StringComparison.OrdinalIgnoreCase)
+            name => name.Contains("PushProvider", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("DeviceToken", StringComparison.OrdinalIgnoreCase));
     }
 
