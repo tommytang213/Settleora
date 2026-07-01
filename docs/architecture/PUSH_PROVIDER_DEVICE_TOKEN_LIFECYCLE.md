@@ -8,12 +8,15 @@ push can become an optional notification channel without leaking device tokens,
 pretending unavailable delivery succeeded, or tying product notification events
 directly to one provider SDK.
 
-It complements [Notification event taxonomy](NOTIFICATION_EVENT_TAXONOMY.md)
-and [SMTP email provider policy](SMTP_EMAIL_PROVIDER_POLICY.md). The taxonomy
+It complements [Notification event taxonomy](NOTIFICATION_EVENT_TAXONOMY.md),
+[SMTP email provider policy](SMTP_EMAIL_PROVIDER_POLICY.md), and
+[Push token protection design](PUSH_TOKEN_PROTECTION_DESIGN.md). The taxonomy
 defines event families, safe payload shape, shared delivery states, in-app
 baseline behavior, preference resolution, and validation. The SMTP policy covers
 the email provider slice. This document covers the mobile push provider and
-device-token lifecycle slice.
+device-token lifecycle slice; the token-protection design narrows the
+encryption/sealing, fingerprinting, redaction, read-path, backup/restore, and
+future A2 implementation stop conditions.
 
 This document does not authorize runtime push delivery, provider SDK/API
 implementation, provider credential setup, database schema changes, migrations,
@@ -634,7 +637,7 @@ Recommended future slices:
 
 | Slice | Scope | Required gates |
 | --- | --- | --- |
-| A2 server-side token persistence/API foundation | Add the authenticated token register/revoke/rotate/stale-cleanup contract, additive schema, protected token storage, safe lifecycle service, and generated clients. No provider sending. No mobile UI unless separately approved. | Schema/migration review, OpenAPI contract review, generated-client regeneration, auth/session/security review, token protection design, docs/tests proving no raw token exposure. |
+| A2 server-side token persistence/API foundation | Add the authenticated token register/revoke/rotate/stale-cleanup contract, additive schema, protected token storage or fingerprint-only metadata, safe lifecycle service, and generated clients. No provider sending. No mobile UI unless separately approved. | Schema/migration review, OpenAPI contract review, generated-client regeneration, auth/session/security review, [token protection design](PUSH_TOKEN_PROTECTION_DESIGN.md), docs/tests proving no raw token exposure. |
 | A3 provider-neutral push delivery runtime | Add disabled/unconfigured-by-default provider-neutral push sender over #629/#638/#641 foundations, safe payload rendering, provider feedback classification, no fake success, and no source business mutation. | Provider/runtime architecture approval, APNs/FCM provider decision, no secrets in repo/issues/logs, hosted activation gate, provider validation, delivery-state validation. |
 | A4 mobile app registration/permission UX | Add mobile OS permission flow, token registration/revocation calls, safe local app install identifier if approved, user-facing settings/readout, and mobile validation. | Figma/reference, mobile platform permission review, iOS/Android build/release config gate, generated-client availability from A2, mobile validation, #371 separate approval if deep links enter scope. |
 
@@ -652,6 +655,7 @@ planning #634 follow-up work.
 | #633 delivery-state parent | Closed/Merged before A1 | Closed for persistence/worker foundation only, not provider runtime or push lifecycle. |
 | #632 disabled-by-default SMTP runtime foundation | Completed before A1 | Email provider foundation only; does not complete push. |
 | #634 A1 push token lifecycle architecture/contract design | This PR completes design only after merge | Answers API shape, data model, token protection, provider posture, payload privacy, mobile/Figma posture, deep-link separation, and future split. It does not implement runtime. |
+| #634 A2 Option C push token protection design | Completed only after the protection design PR merges | Defines token classification, protected storage posture, key-management expectations, fingerprinting, read-path rules, redaction, backup/restore implications, provider boundary, future A2 stop conditions, and Option A/B implementation choices. It does not implement runtime. |
 | Schema/OpenAPI/generated clients | Remaining gate | Required for A2; no OpenAPI, generated-client, EF schema, or migration changes are approved by A1. |
 | Mobile/Figma | Remaining gate | Required for mobile permission/settings UI and actual app registration integration. |
 | APNs/FCM secrets/provider accounts | Remaining gate | No secrets or real provider setup are approved. |

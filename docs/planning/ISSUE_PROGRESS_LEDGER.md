@@ -529,6 +529,11 @@ remain the source of truth.
     `837e51ccad71f79762ddd6b2b4035145d8497469`, merge SHA
     `7898d8f75008474a6bc1aff6d0a02552291f2bc4`: completed the #634 A1
     push token lifecycle architecture/contract design checkpoint only.
+  - A2 Option C was approved by Tommy at
+    `https://github.com/tommytang213/Settleora/issues/634#issuecomment-4853837891`:
+    token-protection design PR first, before any A2 schema/OpenAPI/API or
+    generated-client implementation. The design is complete only after that PR
+    merges.
 - Completed A1 design scope:
   - Future current-user push token register/replace, revoke current token,
     revoke current-session tokens, revoke all current-user tokens, optional
@@ -555,6 +560,19 @@ remain the source of truth.
   - Recommended A2/A3/A4 future implementation split: A2 server-side token
     persistence/API foundation, A3 provider-neutral push delivery runtime, and
     A4 mobile app registration/permission UX.
+- A2 Option C design scope to complete before implementation:
+  - Classify push tokens as provider-usable sensitive secrets.
+  - Define protected storage/encryption/sealing and key-management posture.
+  - Define purpose-bound token fingerprinting for dedupe/correlation only.
+  - Define API/read-path policy that excludes raw token, protected blob,
+    ciphertext, and fingerprint from ordinary readouts.
+  - Define log, audit, telemetry, issue, docs, API response, generated-client,
+    and test redaction expectations.
+  - Define backup/restore/local-mode implications and re-registration default.
+  - Define provider/runtime boundary and safe provider feedback categories.
+  - Define future A2 stop conditions when protected storage, auth/session
+    binding, OpenAPI/client exposure, backup/restore semantics, or scope are
+    unsafe.
 - Explicitly not complete:
   - No token lifecycle API implementation.
   - No schema migration, EF model change, or database persistence.
@@ -579,20 +597,23 @@ remain the source of truth.
   - Final readback after hygiene: #634 is `OPEN` and Project status `Blocked`;
     the accidental close must not be read as completion of #634.
 - Remaining related work:
-  - #403 remains open because #634 A1 completed only design, while A2
-    schema/OpenAPI/generated-client, token protection/encryption/sealing,
-    mobile/Figma, APNs/FCM secrets, provider runtime, hosted activation,
-    admin/readout, #371 deep links, recipient/policy/runtime wiring, and
-    remaining notification work remain gated.
+  - #403 remains open because #634 A1 completed lifecycle design and A2 Option
+    C requires a token-protection design PR first, while A2
+    schema/OpenAPI/generated-client, protected-storage implementation, mobile
+    Figma, APNs/FCM secrets, provider runtime, hosted activation, admin/readout,
+    #371 deep links, recipient/policy/runtime wiring, and remaining
+    notification work remain gated.
   - #369 remains open because #634 A1 is push-token lifecycle design only, not
     full Day 1 notification event-family acceptance.
   - #635, #368, and #371 remain open.
   - #629, #632, #633, #638, and #641 remain closed/Merged as completed
     foundations/slices.
 - Close/keep-open recommendation:
-  - Keep #634 open/Blocked. PR #647 completes A1 design only and should not be
-    used as proof that token lifecycle APIs, provider runtime, mobile
-    integration, hosted activation, admin/readout, or deep links are complete.
+  - Keep #634 open/Blocked. PR #647 completes A1 design only, and A2 Option C
+    is a token-protection design checkpoint only after merge. Neither should be
+    used as proof that token lifecycle APIs, schema/OpenAPI/generated clients,
+    provider runtime, mobile integration, hosted activation, admin/readout, or
+    deep links are complete.
 - Last verified repo/report references:
   - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
   - PR #647:
