@@ -292,22 +292,104 @@ remain the source of truth.
     and
     `/workspace/logs/settleora-codex-report-20260701-1444-notification-delivery-worker-outbox-foundation-641-pr-merge.md`
 
+### Issue #632 - SMTP email notification runtime
+
+- GitHub state/project status: issue `CLOSED`; PR #645 merged; Project
+  status `Merged`, `Progress %` `100`, `Man-days Remaining` `0`, and
+  `Actual Done Date` `2026-07-01` by GitHub/Project readback after PR #645.
+- Last verified at main SHA:
+  `39d1d669cc55988da31d4c5b76800c3f29aa4e83`.
+- Completed PRs/slices:
+  - PR #645, reviewed source head
+    `28791c2159646a17733ea7ac08f9c744c7fd7687`, merge SHA
+    `39d1d669cc55988da31d4c5b76800c3f29aa4e83`: implemented the
+    approved Option A disabled-by-default SMTP email notification runtime
+    foundation.
+- Completed scope:
+  - Approved Option A disabled-by-default SMTP email notification runtime
+    foundation.
+  - Internal SMTP provider adapter boundary behind server configuration.
+  - Safe `disabled` and `unconfigured` outcomes.
+  - Integration with #629 decision-envelope output and #638/#641
+    delivery-attempt/outbox foundations.
+  - Delivery-attempt state updates only through approved notification
+    delivery-attempt/outbox boundaries.
+  - No fake `sent` or `delivered` success.
+  - In-app fallback unchanged.
+  - Minimal generic email templates.
+  - Bounded provider-result categories without raw SMTP response persistence.
+  - Focused tests for disabled/unconfigured behavior, no fake sent success,
+    redaction, provider classification, no secret leakage, no real network
+    dependency, and no source business mutation.
+- Configuration/secrets review:
+  - SMTP remains disabled by default through
+    `Notifications:SmtpEmail:Enabled = false`.
+  - Enablement is through server/operator configuration only.
+  - No committed SMTP secrets, credentials, tokens, `.env`, local secret
+    files, deployment/env exposure files, or secret-like sample values.
+  - No options endpoint, admin route, public route, OpenAPI schema,
+    generated client, or UI exposes SMTP values.
+  - Provider exceptions are classified into bounded redacted categories.
+  - No secrets are exposed in logs, API responses, issue comments, docs, test
+    snapshots, exceptions, or client-visible payloads.
+- Email template/privacy review:
+  - Minimal generic subject/body.
+  - Bodies say a notification is available in Settleora and require
+    sign-in/authorization.
+  - Bodies include only event type and one safe stable reference when present.
+  - Bodies exclude raw OCR/receipt text, private/hidden bill details, payment
+    data, proof contents, signed URLs, object keys, storage paths, tokens,
+    credentials, provider payloads, private notes, and unrelated user data.
+- Explicitly not complete:
+  - Recipient email-address source/policy for actual recipient addressing.
+  - Hosted runtime activation.
+  - Production deployment/env/secrets setup.
+  - Admin/global notification policy/readout under #635.
+  - Push/device-token/provider runtime under #634.
+  - OpenAPI/generated-client/readout.
+  - Admin, web, mobile UI and #371 deep links.
+  - Auth/session/security notification behavior.
+  - Email digests, bulk campaigns, or marketing emails.
+  - Money, bill, split, settlement, payment, recurring, sync, OCR, import,
+    export, or restore authority.
+- Remaining related work:
+  - #403 remains open because #632 completed only the disabled-by-default SMTP
+    runtime foundation; push/device-token runtime (#634), admin/global
+    policy/readout (#635), #371 deep links/mobile UI, hosted runtime
+    activation, recipient-email source/policy, OpenAPI/readout, and remaining
+    notification work remain gated.
+  - #369 remains open because #632 closure is provider runtime foundation
+    only, not full Day 1 notification event-family acceptance.
+  - #634/#635/#368/#371 remain open.
+  - #629/#633/#638/#641/#632 remain closed/Merged as completed
+    foundations/slices.
+- Close/keep-open recommendation:
+  - Keep #632 closed as complete for the disabled-by-default SMTP runtime
+    foundation only.
+  - Do not treat #632 or PR #645 as completion of #403.
+- Last verified repo/report references:
+  - PR #645:
+    `https://github.com/tommytang213/Settleora/pull/645`
+  - Issue #632 completion comment:
+    `https://github.com/tommytang213/Settleora/issues/632#issuecomment-4852592872`
+  - Reports:
+    `/workspace/logs/settleora-codex-report-20260701-1632-smtp-email-runtime-foundation-632.md`
+    and
+    `/workspace/logs/settleora-codex-report-20260701-1655-smtp-email-runtime-foundation-632-pr-merge.md`
+
 ### Issue #633 - Notification delivery-state persistence and worker foundation
 
-- GitHub state/project status: issue `OPEN` before this closure PR by
-  GitHub readback on 2026-07-01; close target after this PR merges is issue
-  `CLOSED`, Project status `Merged`, `Progress %` `100`,
-  `Man-days Remaining` `0`, and `Actual Done Date` `2026-07-01`.
-  Project readback before this closure PR showed status
-  `Needs Architecture Review`. PR #636, PR #639, PR #642, and PR #643 are
-  merged, and #633's own close rule is now satisfied for the reviewed and
-  validated delivery-state persistence/worker foundation scope. This closure
-  does not complete provider runtime, hosted worker activation, admin policy,
-  OpenAPI/readout, UI/deep-link work, remaining event-family runtime, or
-  provider/deployment gates.
+- GitHub state/project status: issue `CLOSED`; Project status `Merged`,
+  `Progress %` `100`, `Man-days Remaining` `0`, and `Actual Done Date`
+  `2026-07-01` by GitHub/Project readback on 2026-07-01 after PR #644.
+  PR #636, PR #639, PR #642, PR #643, and PR #644 are merged, and #633's
+  own close rule is satisfied for the reviewed and validated delivery-state
+  persistence/worker foundation scope. This closure does not complete
+  provider runtime, hosted worker activation, admin policy, OpenAPI/readout,
+  UI/deep-link work, remaining event-family runtime, or provider/deployment
+  gates.
 - Last verified at main SHA:
-  `b669afc095f2fceec110813b58904fd1a367a415` before this closure PR.
-  This closure PR should be recorded as the next verified main SHA after merge.
+  `79d6f71cade6f6edfa3bdb95b8b7b1aebd1b370d` after PR #644.
 - Completed PRs/slices:
   - PR #636, reviewed source head
     `bed8689325fc76dcf071970256df1da4f7ebe615`, merge SHA
@@ -327,6 +409,11 @@ remain the source of truth.
     `f18bbc5e6c1dd7dfc68ffb361e118b8164c9ca88`, merge SHA
     `b669afc095f2fceec110813b58904fd1a367a415`: recorded the #641/#633
     ledger checkpoint before #633 closure.
+  - PR #644, reviewed source head
+    `23991b533a4e459c53b58769f69736e8b0a173cc`, merge SHA
+    `79d6f71cade6f6edfa3bdb95b8b7b1aebd1b370d`: closed #633 for the
+    delivery-state persistence/worker foundation only and recorded the closure
+    checkpoint.
 - Completed scope:
   - Added
     `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`.
@@ -360,8 +447,12 @@ remain the source of truth.
     in-app read/archive state, have no provider dependency, do not change
     OpenAPI/generated clients, and use additive migrations only.
 - Explicitly not complete:
-  - No provider runtime, SMTP runtime under #632, push runtime/device-token
-    storage under #634, or admin/global policy API/readout under #635.
+  - No hosted provider runtime activation, push runtime/device-token storage
+    under #634, or admin/global policy API/readout under #635.
+  - SMTP runtime under #632 is now separately closed only for the
+    disabled-by-default internal SMTP foundation; #633 itself did not complete
+    SMTP recipient addressing, hosted activation, deployment/env/secrets, or
+    external delivery-state API/readout.
   - No hosted background service, scheduler, queue consumer, RabbitMQ
     consumer, cron, endpoint, notification-writer hook, provider adapter, SMTP
     sending, push sending, device-token API/storage, deployment/env behavior,
@@ -374,25 +465,31 @@ remain the source of truth.
     exposure, hosted runtime activation, UI/deep links, or source-state event
     families.
 - Remaining related work:
-  - Future SMTP and push provider runtime, provider adapters, provider-result
-    success/failure classification, and hosted runtime activation remain
-    separate gated work and must not be inferred from #641.
+  - The #632 disabled-by-default SMTP runtime foundation is complete, but
+    actual recipient email-address source/policy, hosted runtime activation,
+    deployment/env/secrets setup, admin/readout, OpenAPI/readout, and UI
+    remain separate gated work and must not be inferred from #633 or #641.
+  - Future push provider runtime, device-token lifecycle, provider adapters,
+    provider-result success/failure classification, and hosted runtime
+    activation remain separate gated work and must not be inferred from #641.
   - Any external delivery-state API/readout requires separate
     OpenAPI/generated-client gates.
-  - #403 remains open because provider runtime, server-side preference/runtime
-    resolution beyond foundations, admin policy/readout, deep links, SMTP,
-    push/device-token, and remaining notification work remain gated.
+  - #403 remains open because #632 completed only the disabled-by-default SMTP
+    runtime foundation, while server-side preference/runtime resolution beyond
+    foundations, admin policy/readout, deep links, push/device-token, hosted
+    runtime activation, recipient-email source/policy, OpenAPI/readout, and
+    remaining notification work remain gated.
   - #369 remains open because #633 closure is provider-neutral
     delivery-state foundation only, not full Day 1 notification event-family
     acceptance.
   - #368 remains open as the notification epic.
   - #371 remains open and Figma/reference-gated.
-  - #632/#634/#635 remain separate gated issues for SMTP runtime, push/device
-    token/runtime, and admin/global policy API/readout.
-  - #638/#641/#629 remain closed/Merged as completed foundations.
+  - #634/#635 remain separate gated issues for push/device-token runtime and
+    admin/global policy API/readout.
+  - #632/#638/#641/#629 remain closed/Merged as completed foundations/slices.
 - Close/keep-open recommendation:
-  - Close #633 as complete for delivery-state persistence/worker foundation
-    only after this ledger closure PR merges.
+  - Keep #633 closed as complete for delivery-state persistence/worker
+    foundation only.
   - Do not treat #633 closure as provider/runtime/admin/UI completion.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
@@ -404,6 +501,8 @@ remain the source of truth.
     `https://github.com/tommytang213/Settleora/pull/642`
   - PR #643:
     `https://github.com/tommytang213/Settleora/pull/643`
+  - PR #644:
+    `https://github.com/tommytang213/Settleora/pull/644`
   - Issue #633 merge checkpoint comment:
     `https://github.com/tommytang213/Settleora/issues/633#issuecomment-4846071136`
   - Reports:
@@ -424,19 +523,25 @@ remain the source of truth.
   `Man-days Remaining` `2`, `Figma Required` `Yes`, `Manual Gate` `Yes` by
   GraphQL readback on 2026-06-30. GitHub issue remains `OPEN` and Project
   status remains `Needs Architecture Review` by readback on 2026-07-01 after
-  PR #642.
+  PR #645.
 - Parent epic readback: #368 is `OPEN`; Project status
   `Needs Architecture Review`, `Progress %` `33`, `Figma Required` `Yes`,
   `Manual Gate` `Yes`. GitHub issue #368 remains `OPEN` by readback on
   2026-07-01.
 - Last verified at main SHA:
-  `b669afc095f2fceec110813b58904fd1a367a415` before this closure PR.
+  `39d1d669cc55988da31d4c5b76800c3f29aa4e83`.
 - Completed child slices now recorded:
-  - #633 is ready to close for its own provider-neutral delivery-state
+  - #632 / PR #645 completed only the disabled-by-default SMTP runtime
+    foundation. It did not add recipient email-address source/policy, hosted
+    runtime activation, deployment/env/secrets setup, admin/global
+    policy/readout, push/device-token runtime, OpenAPI/readout, UI, or deep
+    links, and it does not complete full Day 1 notification event-family
+    acceptance.
+  - #633 is closed for its own provider-neutral delivery-state
     persistence/worker foundation after PR #636 architecture/design, PR
     #639/#638 persistence/service foundation, PR #642/#641 worker/outbox
-    foundation, and PR #643 ledger checkpoint. This does not complete full
-    Day 1 notification event-family acceptance.
+    foundation, PR #643 ledger checkpoint, and PR #644 closure. This does not
+    complete full Day 1 notification event-family acceptance.
   - PR #642 / #641 completed only the provider-neutral worker/outbox
     foundation over `notification_delivery_attempts`. It did not add SMTP
     runtime, push runtime, provider adapters, device-token APIs/storage,
@@ -475,8 +580,8 @@ remain the source of truth.
   - Push/email provider delivery, provider workers, digests, delivery receipts,
     background delivery, admin/global policy, Day 1 notification acceptance,
     production readiness, release readiness, manual UI retest, and manual code
-    review are not completed by #626, #630, #636, #639, #642, #643, or this
-    #633 closure checkpoint.
+    review are not completed by #626, #630, #636, #639, #642, #643, #644, or
+    #645.
 - Future gates requiring explicit approval:
   - #371 Figma/reference-gated notification deep links/mobile UI.
   - Auth/session/security policy before security-impactful notifications.
@@ -487,9 +592,10 @@ remain the source of truth.
     runtime slice, PR #630/#629 is one internal foundation slice, PR #636/#633
     is one architecture slice, and PR #639/#638 is one provider-neutral
     persistence/service foundation slice, and PR #642/#641 is one
-    provider-neutral worker/outbox foundation slice. #633 closure records the
-    delivery-state foundation as complete, but none of these is full Day 1
-    notification event-family acceptance.
+    provider-neutral worker/outbox foundation slice, PR #644 closed #633 for
+    delivery-state persistence/worker foundation, and PR #645/#632 is one
+    disabled-by-default SMTP runtime foundation slice. None of these is full
+    Day 1 notification event-family acceptance.
 - Last verified repo/report references:
   - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
   - Issue #369 PR #626 progress comment:
@@ -501,9 +607,9 @@ remain the source of truth.
   `Needs Figma / Reference`, `Progress %` `80`, `Man-days Remaining` `1`,
   `Figma Required` `Yes`, `Manual Gate` `Yes` by GraphQL readback on
   2026-06-30 after PR #630. GitHub issue remains `OPEN` and Project status
-  remains `Needs Figma / Reference` by readback on 2026-07-01 after PR #642.
+  remains `Needs Figma / Reference` by readback on 2026-07-01 after PR #645.
 - Last verified at main SHA:
-  `b669afc095f2fceec110813b58904fd1a367a415` before this closure PR.
+  `39d1d669cc55988da31d4c5b76800c3f29aa4e83`.
 - Completed docs/control child slices now recorded:
   - #448 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
     `Man-days Remaining` `0`, linked PR #493 merged on 2026-06-24. It
@@ -527,27 +633,38 @@ remain the source of truth.
     UX/reference gate only through repo-tracked Day 1 UX/reference decisions
     and existing domain references.
 - Completed adjacent runtime slices that must not be redone:
+  - #632 / PR #645 completed only the approved Option A disabled-by-default
+    SMTP runtime foundation: internal SMTP adapter boundary, safe
+    disabled/unconfigured outcomes, #629/#638/#641 integration through
+    approved delivery-attempt/outbox boundaries, generic privacy-safe
+    templates, bounded redacted provider-result categories, no fake `sent` or
+    `delivered` success, no real network dependency in tests, and no source
+    business mutation. It did not add recipient email-address source/policy,
+    hosted runtime activation, production deployment/env/secrets setup,
+    admin/global policy/readout, push/device-token runtime, OpenAPI/readout,
+    UI, deep links, auth/session/security notification behavior, email
+    digests/bulk campaigns/marketing, or money/source-business authority.
   - #641 / PR #642 completed only the provider-neutral
     worker/outbox processing foundation over `notification_delivery_attempts`:
     internal lease service and outbox processor boundaries, lease metadata,
     retry/backoff handling, idempotent safe no-op behavior, bounded
     pre-provider state transitions, and focused tests. It did not add hosted
-    runtime activation, SMTP runtime, push runtime, provider adapters,
-    device-token APIs/storage, admin/global policy, OpenAPI/readout, UI, or
-    deep links.
+    runtime activation, SMTP runtime, push runtime, device-token APIs/storage,
+    admin/global policy, OpenAPI/readout, UI, or deep links.
   - #638 / PR #639 completed only the provider-neutral
     `NotificationDeliveryAttempt` persistence/service foundation for eligible
     external-channel decisions. It did not add worker/outbox processing, SMTP
     runtime, push runtime, provider adapters, device-token APIs/storage,
     admin/global policy, OpenAPI/readout, UI, or deep links.
-  - #633 is ready to close for its own provider-neutral delivery-state
+  - #633 is closed for its own provider-neutral delivery-state
     persistence/worker foundation after PR #636 architecture/design, PR
     #639/#638 persistence/service foundation, PR #642/#641 worker/outbox
-    foundation, and PR #643 ledger checkpoint. It did not implement provider
-    runtime, SMTP runtime, push runtime/device-token storage, admin/global
-    policy, external delivery-state API/readout, OpenAPI/generated-client
-    exposure, UI/deep links, hosted runtime activation, provider secrets,
-    deployment, or remaining event-family source-state work.
+    foundation, PR #643 ledger checkpoint, and PR #644 closure. It did not
+    implement hosted provider runtime activation, push runtime/device-token
+    storage, admin/global policy, external delivery-state API/readout,
+    OpenAPI/generated-client exposure, UI/deep links, provider secrets,
+    deployment, recipient-email source/policy, or remaining event-family
+    source-state work.
   - #629 / PR #630 completed only the internal notification
     decision-envelope foundation: provider-free resolver, bounded
     `in_app`/`email`/`mobile_push` channel vocabulary, bounded decision/reason
@@ -564,12 +681,12 @@ remain the source of truth.
     notification preference persistence boundaries where documented in
     `DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`.
 - Remaining Day 1 provider/preference/delivery-state work:
-  - SMTP/email runtime is not implemented. A future implementation issue must
-    cover provider configuration/secrets boundary, privacy-safe templates,
-    queue/worker or immediate-send choice, explicit disabled/unconfigured/
-    deferred/queued/sent/failed states, audit/log redaction, and in-app
-    fallback. This is manual-gated for provider/secrets and any schema,
-    OpenAPI/generated-client, worker, deployment/env, or UI changes.
+  - SMTP/email runtime foundation is complete only for disabled-by-default
+    internal SMTP sending behind server/operator configuration. Actual
+    recipient email-address source/policy, hosted runtime activation,
+    production deployment/env/secrets setup, admin/readout, OpenAPI/readout,
+    UI/configuration surfaces, digests/bulk emails, and security-sensitive
+    notification behavior remain separate gated work.
   - Mobile push runtime is not implemented. A future implementation issue must
     cover provider-neutral push attempts, authenticated device-token
     registration/revocation, OS permission states, stale-token cleanup,
@@ -586,23 +703,28 @@ remain the source of truth.
     provider-neutral internal lease/outbox service boundaries and processing
     rules, without a hosted background service, scheduler, queue consumer,
     RabbitMQ consumer, cron, endpoint, notification-writer hook, provider
-    adapter, SMTP sending, push sending, device-token API/storage, deployment,
-    environment, or secret behavior. Current in-app unread/read/archive state
-    is separate and must not be treated as provider delivery truth.
-  - #633 closure does not complete #403. It closes only the delivery-state
-    persistence/worker foundation sub-scope; provider runtime, preference
-    runtime beyond foundations, admin/readout, SMTP, push/device-token, UI, and
-    remaining notification work stay open/gated.
+    adapter, push sending, device-token API/storage, deployment, environment,
+    or secret behavior. PR #645 added only the disabled-by-default SMTP
+    adapter foundation and did not activate hosted delivery. Current in-app
+    unread/read/archive state is separate and must not be treated as provider
+    delivery truth.
+  - #632 closure does not complete #403. It closes only the
+    disabled-by-default SMTP runtime foundation sub-scope; push/device-token
+    runtime (#634), admin/global policy/readout (#635), #371 deep links/mobile
+    UI, hosted runtime activation, recipient-email source/policy,
+    OpenAPI/readout, and remaining notification work stay open/gated.
   - Any external delivery-state API/readout requires a separate
     OpenAPI/generated-client gate.
   - Admin/global notification policy APIs and admin UI are not implemented.
   - Notification deep-link/mobile UI implementation remains #371 and is still
     open/Figma-reference-gated even though #452 closed the UX/reference
     planning gate.
-  - Future SMTP, push, admin/global policy, device-token, schema, OpenAPI,
-    deep-link, and provider-runtime work remains separate and gated.
+  - Future push, admin/global policy, device-token, schema, OpenAPI,
+    deep-link, hosted activation, recipient-email source/policy, and provider
+    runtime expansion work remains separate and gated.
 - Future gates requiring explicit approval:
-  - Provider/secrets/deployment/env/mobile release gates for SMTP and push.
+  - Provider/secrets/deployment/env/mobile release gates for SMTP expansion
+    and push.
   - OpenAPI/generated-client and schema/migration gates for any contract,
     delivery-state, device-token, admin-policy, or preference-runtime storage
     changes.
@@ -613,12 +735,13 @@ remain the source of truth.
     settlement mismatch/residual/review, and remaining sync event families.
 - Close/keep-open recommendation:
   - Keep #403 open as a parent/split tracker. The original docs/control
-    children #448-#452, the internal #629 foundation, and the #633
-    delivery-state persistence/worker foundation are complete, but provider
-    runtime, hosted runtime activation, server-side preference resolution
-    beyond the foundation, admin policy, device-token lifecycle, and #371
-    implementation remain separate work and should be split into focused
-    implementation issues before any runtime starts.
+    children #448-#452, the internal #629 foundation, the #633 delivery-state
+    persistence/worker foundation, and the #632 disabled-by-default SMTP
+    foundation are complete, but push/device-token runtime, hosted runtime
+    activation, recipient-email source/policy, server-side preference
+    resolution beyond the foundation, admin policy, and #371 implementation
+    remain separate work and should be split into focused implementation
+    issues before runtime expansion starts.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md`
   - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
