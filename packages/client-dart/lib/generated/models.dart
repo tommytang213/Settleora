@@ -10636,8 +10636,9 @@ class InAppNotificationEventTypeValues {
   static const InAppNotificationEventType recurringBillDueSoon = "recurring_bill.due_soon";
   static const InAppNotificationEventType recurringBillDraftGenerated = "recurring_bill.draft_generated";
   static const InAppNotificationEventType syncConflictDetected = "sync.conflict_detected";
+  static const InAppNotificationEventType syncOperationFailed = "sync.operation_failed";
   static const InAppNotificationEventType ocrNeedsReview = "ocr.needs_review";
-  static const Set<InAppNotificationEventType> values = {billSubmitted, billParticipantAccepted, billParticipantRejected, billConfirmed, billRevisionProposed, billRevisionResubmitted, billRevisionSubmitted, billRevisionWithdrawn, billRevisionApproved, billRevisionRejected, billRevisionPayerConfirmed, billRevisionApplied, settlementRequestCreated, settlementPaymentMarkedPaid, settlementPaymentPartiallyPaid, settlementPaymentConfirmed, settlementRequestDisputed, settlementPaymentDisputed, settlementRequestCancelled, settlementPaymentCancelled, settlementProofAttached, recurringBillDueSoon, recurringBillDraftGenerated, syncConflictDetected, ocrNeedsReview};
+  static const Set<InAppNotificationEventType> values = {billSubmitted, billParticipantAccepted, billParticipantRejected, billConfirmed, billRevisionProposed, billRevisionResubmitted, billRevisionSubmitted, billRevisionWithdrawn, billRevisionApproved, billRevisionRejected, billRevisionPayerConfirmed, billRevisionApplied, settlementRequestCreated, settlementPaymentMarkedPaid, settlementPaymentPartiallyPaid, settlementPaymentConfirmed, settlementRequestDisputed, settlementPaymentDisputed, settlementRequestCancelled, settlementPaymentCancelled, settlementProofAttached, recurringBillDueSoon, recurringBillDraftGenerated, syncConflictDetected, syncOperationFailed, ocrNeedsReview};
 }
 
 /// Current lifecycle state for an in-app notification.

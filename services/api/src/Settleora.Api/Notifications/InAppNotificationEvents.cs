@@ -234,6 +234,33 @@ internal static class InAppNotificationEvents
             cancellationToken);
     }
 
+    public static Task WriteSyncOperationFailedNotificationAsync(
+        IInAppNotificationWriter notificationWriter,
+        SyncOperation operation,
+        Guid actorUserProfileId,
+        Guid? groupId,
+        Guid? expenseBillId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        return notificationWriter.WriteAsync(
+            new InAppNotificationWriteRequest(
+                actorUserProfileId,
+                actorUserProfileId,
+                InAppNotificationEventTypes.SyncOperationFailed,
+                InAppNotificationPriorities.Attention,
+                InAppNotificationSubjectTypes.SyncOperation,
+                TitleKey(InAppNotificationEventTypes.SyncOperationFailed),
+                MessageKey(InAppNotificationEventTypes.SyncOperationFailed),
+                now,
+                ActionUrl: $"/api/v1/sync/operations/{operation.Id:D}",
+                GroupId: groupId,
+                ExpenseBillId: expenseBillId,
+                SyncOperationId: operation.Id,
+                AllowSelfNotification: true),
+            cancellationToken);
+    }
+
     public static Task WriteReceiptOcrNeedsReviewNotificationAsync(
         IInAppNotificationWriter notificationWriter,
         Guid expenseBillId,

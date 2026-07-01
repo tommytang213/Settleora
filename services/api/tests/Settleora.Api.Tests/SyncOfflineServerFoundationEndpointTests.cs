@@ -511,15 +511,19 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Null(await ReadArchivedAtAsync(testFactory, personalBillId));
         Assert.Null(await ReadArchivedAtAsync(testFactory, groupBillId));
         Assert.Equal(["rejected", "rejected", "rejected"], await ReadSyncOperationStatusesAsync(testFactory));
-        Assert.Equal(0, await CountInAppNotificationsAsync(testFactory));
+        Assert.Equal(3, await CountInAppNotificationsAsync(testFactory));
+        await AssertSyncOperationFailedNotificationCountAsync(testFactory, actorSession.UserProfileId, personalBillId, 1);
+        await AssertSyncOperationFailedNotificationCountAsync(testFactory, removedSession.UserProfileId, groupBillId, 1);
+        await AssertSyncOperationFailedNotificationCountAsync(testFactory, outsideSession.UserProfileId, groupBillId, 1);
     }
 
     [Fact]
-    public async Task RejectedOperationDoesNotMutateBusinessResource()
+    public async Task RejectedOperationWritesCurrentActorSyncOperationFailedNotificationWithoutMutatingBusinessResource()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
         var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Rejected Owner");
+        var otherSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Rejected Other");
         var billId = await SeedBillAsync(
             testFactory,
             actorSession.UserProfileId,
@@ -545,6 +549,158 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
             "unsupported_payload");
         Assert.Null(await ReadArchivedAtAsync(testFactory, billId));
         Assert.Equal(["rejected"], await ReadSyncOperationStatusesAsync(testFactory));
+        Assert.Equal(0, await CountSyncResourceVersionsAsync(testFactory));
+        var notification = await AssertSingleSyncOperationFailedNotificationAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            billId,
+            expectedGroupId: null,
+            expectedCreatedAtUtc: ArchiveTimestamp);
+        var syncOperation = await ReadSyncOperationAsync(testFactory, notification.SyncOperationId!.Value);
+        Assert.Equal("unsupported-payload", syncOperation.IdempotencyKey);
+        Assert.Equal(SyncOperationStatuses.Rejected, syncOperation.Status);
+        Assert.Equal("unsupported_payload", syncOperation.SafeErrorCode);
+
+        using (var notificationRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            "/api/v1/notifications",
+            actorSession.RawSessionToken))
+        using (var notificationResponse = await client.SendAsync(notificationRequest))
+        {
+            var content = await notificationResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, notificationResponse.StatusCode);
+            Assert.Contains(InAppNotificationEventTypes.SyncOperationFailed, content);
+            Assert.Contains(notification.SyncOperationId.Value.ToString("D"), content);
+            Assert.Contains(billId.ToString("D"), content);
+            Assert.DoesNotContain("unsupported-payload", content);
+            Assert.DoesNotContain(syncOperation.RequestPayloadHash, content);
+            Assert.DoesNotContain("Rejected Sync Merchant", content);
+            Assert.DoesNotContain("clientSubmittedOwnerId", content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var readRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            notification.ActionUrl!,
+            actorSession.RawSessionToken))
+        using (var readResponse = await client.SendAsync(readRequest))
+        {
+            var content = await readResponse.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.OK, readResponse.StatusCode);
+            using var payload = JsonDocument.Parse(content);
+            Assert.Equal(notification.SyncOperationId.Value, payload.RootElement.GetProperty("operationId").GetGuid());
+            Assert.Equal("rejected", payload.RootElement.GetProperty("status").GetString());
+            Assert.Equal(billId, payload.RootElement.GetProperty("resourceId").GetGuid());
+            Assert.Equal("unsupported_payload", payload.RootElement.GetProperty("safeErrorCode").GetString());
+            Assert.DoesNotContain("unsupported-payload", content);
+            Assert.DoesNotContain(syncOperation.RequestPayloadHash, content);
+            Assert.DoesNotContain("Rejected Sync Merchant", content);
+            Assert.DoesNotContain("clientSubmittedOwnerId", content, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var crossUserReadRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            notification.ActionUrl!,
+            otherSession.RawSessionToken))
+        using (var crossUserReadResponse = await client.SendAsync(crossUserReadRequest))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, crossUserReadResponse.StatusCode);
+        }
+
+        using (var markReadRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/notifications/{notification.Id:D}/read",
+            actorSession.RawSessionToken))
+        using (var markReadResponse = await client.SendAsync(markReadRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, markReadResponse.StatusCode);
+        }
+
+        using (var archiveNotificationRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/notifications/{notification.Id:D}/archive",
+            actorSession.RawSessionToken))
+        using (var archiveNotificationResponse = await client.SendAsync(archiveNotificationRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, archiveNotificationResponse.StatusCode);
+        }
+
+        var operationAfterNotificationActions = await ReadSyncOperationAsync(testFactory, notification.SyncOperationId.Value);
+        Assert.Equal(SyncOperationStatuses.Rejected, operationAfterNotificationActions.Status);
+        Assert.Equal("unsupported_payload", operationAfterNotificationActions.SafeErrorCode);
+        Assert.Null(await ReadArchivedAtAsync(testFactory, billId));
+    }
+
+    [Fact]
+    public async Task ReplayedRejectedOperationDoesNotDuplicateSyncOperationFailedNotification()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Rejected Replay Owner");
+        var billId = await SeedBillAsync(
+            testFactory,
+            actorSession.UserProfileId,
+            groupId: null,
+            [actorSession.UserProfileId],
+            "Rejected Replay Sync Merchant",
+            InitialTimestamp);
+        using var client = testFactory.CreateClient();
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp);
+        var body = ArchiveOperationJson("unsupported-payload-replay", billId, null, "\"clientSubmittedOwnerId\":\"not-authoritative\"");
+        using (var request = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            "/api/v1/sync/operations",
+            actorSession.RawSessionToken,
+            body))
+        using (var response = await client.SendAsync(request))
+        {
+            await AssertSyncOperationResponseAsync(
+                response,
+                "rejected",
+                billId,
+                expectedVersion: null,
+                "unsupported_payload");
+        }
+
+        testContext.TimeProvider.SetUtcNow(ArchiveTimestamp.AddMinutes(1));
+        using (var replayRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            "/api/v1/sync/operations",
+            actorSession.RawSessionToken,
+            body))
+        using (var replayResponse = await client.SendAsync(replayRequest))
+        {
+            await AssertSyncOperationResponseAsync(
+                replayResponse,
+                "rejected",
+                billId,
+                expectedVersion: null,
+                "unsupported_payload");
+        }
+
+        Assert.Equal(["rejected"], await ReadSyncOperationStatusesAsync(testFactory));
+        await AssertSyncOperationFailedNotificationCountAsync(testFactory, actorSession.UserProfileId, billId, 1);
+    }
+
+    [Fact]
+    public async Task InvalidSyncOperationRequestDoesNotPersistOrNotify()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var actorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Sync Invalid Request Owner");
+        using var client = testFactory.CreateClient();
+
+        using var request = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            "/api/v1/sync/operations",
+            actorSession.RawSessionToken,
+            """{"idempotencyKey":"","operationType":"unsupported","resourceType":"hidden","resourceId":"00000000-0000-0000-0000-000000000000","payload":{}}""");
+        using var response = await client.SendAsync(request);
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.DoesNotContain(actorSession.RawSessionToken, content);
+        Assert.Equal(0, await CountSyncOperationsAsync(testFactory));
         Assert.Equal(0, await CountSyncResourceVersionsAsync(testFactory));
         Assert.Equal(0, await CountInAppNotificationsAsync(testFactory));
     }
@@ -2454,7 +2610,7 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
     }
 
     [Fact]
-    public void OpenApiAndGeneratedClientsExposeSyncConflictNotificationsOnly()
+    public void OpenApiAndGeneratedClientsExposeSyncOperationNotificationsOnlyForImplementedSlices()
     {
         var openApi = File.ReadAllText(FindRepoFile("packages/contracts/openapi/settleora.v1.yaml"));
         var eventSchema = ExtractOpenApiSchemaBlock(openApi, "InAppNotificationEventType:");
@@ -2463,12 +2619,14 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         var dartModels = File.ReadAllText(FindRepoFile("packages/client-dart/lib/generated/models.dart"));
 
         Assert.Contains("sync.conflict_detected", eventSchema);
+        Assert.Contains("sync.operation_failed", eventSchema);
         Assert.Contains("sync_operation", subjectSchema);
-        Assert.DoesNotContain("sync.operation_failed", eventSchema);
         Assert.DoesNotContain("sync.operation_queued", eventSchema);
         Assert.DoesNotContain("sync.conflict_resolved", eventSchema);
         Assert.Contains("sync.conflict_detected", webModels);
+        Assert.Contains("sync.operation_failed", webModels);
         Assert.Contains("sync.conflict_detected", dartModels);
+        Assert.Contains("sync.operation_failed", dartModels);
         Assert.Contains("sync_operation", webModels);
         Assert.Contains("sync_operation", dartModels);
     }
@@ -2929,6 +3087,87 @@ public sealed class SyncOfflineServerFoundationEndpointTests : IClassFixture<Web
         Assert.Null(notification.ReadAtUtc);
         Assert.Null(notification.ArchivedAtUtc);
         return notification;
+    }
+
+    private static async Task<InAppNotification> AssertSingleSyncOperationFailedNotificationAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid actorUserProfileId,
+        Guid billId,
+        Guid? expectedGroupId,
+        DateTimeOffset expectedCreatedAtUtc)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var notification = Assert.Single(await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<InAppNotification>()
+            .AsNoTracking()
+            .ToListAsync());
+
+        AssertSyncOperationFailedNotification(
+            notification,
+            actorUserProfileId,
+            billId,
+            expectedGroupId,
+            expectedCreatedAtUtc);
+        return notification;
+    }
+
+    private static async Task AssertSyncOperationFailedNotificationCountAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid actorUserProfileId,
+        Guid billId,
+        int expectedCount)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var notifications = await scope.ServiceProvider.GetRequiredService<SettleoraDbContext>()
+            .Set<InAppNotification>()
+            .AsNoTracking()
+            .Where(notification => notification.EventType == InAppNotificationEventTypes.SyncOperationFailed
+                && notification.RecipientUserProfileId == actorUserProfileId
+                && notification.ExpenseBillId == billId)
+            .ToListAsync();
+
+        Assert.Equal(expectedCount, notifications.Count);
+        foreach (var notification in notifications)
+        {
+            AssertSyncOperationFailedNotification(
+                notification,
+                actorUserProfileId,
+                billId,
+                expectedGroupId: null,
+                notification.CreatedAtUtc);
+        }
+    }
+
+    private static void AssertSyncOperationFailedNotification(
+        InAppNotification notification,
+        Guid actorUserProfileId,
+        Guid billId,
+        Guid? expectedGroupId,
+        DateTimeOffset expectedCreatedAtUtc)
+    {
+        Assert.Equal(actorUserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(actorUserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.SyncOperationFailed, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.SyncOperation, notification.SubjectType);
+        Assert.Equal("notifications.sync.operation_failed.title", notification.TitleKey);
+        Assert.Equal("notifications.sync.operation_failed.message", notification.MessageKey);
+        Assert.Null(notification.SafeSummary);
+        Assert.Equal(expectedGroupId, notification.GroupId);
+        Assert.Equal(billId, notification.ExpenseBillId);
+        Assert.Null(notification.ExpenseBillRevisionId);
+        Assert.Null(notification.SettlementRequestId);
+        Assert.Null(notification.SettlementPaymentId);
+        Assert.Null(notification.RecurringBillTemplateId);
+        Assert.Null(notification.RecurringBillOccurrenceId);
+        Assert.Null(notification.ReceiptOcrReviewId);
+        Assert.Null(notification.ReceiptAttachmentFileId);
+        Assert.NotNull(notification.SyncOperationId);
+        Assert.Equal($"/api/v1/sync/operations/{notification.SyncOperationId.Value:D}", notification.ActionUrl);
+        Assert.Equal(expectedCreatedAtUtc, notification.CreatedAtUtc);
+        Assert.Null(notification.ReadAtUtc);
+        Assert.Null(notification.ArchivedAtUtc);
     }
 
     private static async Task<SyncOperation> ReadSyncOperationAsync(

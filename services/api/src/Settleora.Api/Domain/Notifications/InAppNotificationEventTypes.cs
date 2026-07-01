@@ -26,6 +26,7 @@ public static class InAppNotificationEventTypes
     public const string RecurringBillDueSoon = "recurring_bill.due_soon";
     public const string RecurringBillDraftGenerated = "recurring_bill.draft_generated";
     public const string SyncConflictDetected = "sync.conflict_detected";
+    public const string SyncOperationFailed = "sync.operation_failed";
     public const string OcrNeedsReview = "ocr.needs_review";
 
     private static readonly string[] SupportedValues =
@@ -54,6 +55,7 @@ public static class InAppNotificationEventTypes
         RecurringBillDueSoon,
         RecurringBillDraftGenerated,
         SyncConflictDetected,
+        SyncOperationFailed,
         OcrNeedsReview
     ];
 

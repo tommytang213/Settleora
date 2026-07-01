@@ -18220,6 +18220,7 @@ components:
         - recurring_bill.due_soon
         - recurring_bill.draft_generated
         - sync.conflict_detected
+        - sync.operation_failed
         - ocr.needs_review
     InAppNotificationStatus:
       type: string

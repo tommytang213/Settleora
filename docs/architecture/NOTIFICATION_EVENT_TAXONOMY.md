@@ -311,6 +311,14 @@ or unrelated user details.
 In-app baseline: required for conflict and failure states. Queued/resolved
 readouts may be summary-only where UI policy allows.
 
+Current runtime coverage: `sync.conflict_detected` is implemented only for
+newly persisted current-actor sync conflict rows. `sync.operation_failed` is
+implemented only for newly persisted current-actor rejected sync operation rows.
+Accepted operations, replay/idempotency reuse paths, conflict rows already
+covered by `sync.conflict_detected`, and invalid requests that do not persist a
+terminal sync operation row do not create `sync.operation_failed`
+notifications.
+
 Read/archive/summary/digest impact: conflicts and failures count toward
 attention summaries. Read/archive does not resolve conflicts, retry operations,
 or accept pending changes.
