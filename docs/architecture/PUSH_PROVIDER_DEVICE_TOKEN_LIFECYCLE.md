@@ -124,6 +124,187 @@ Registration must not create an account, extend a session, authorize a resource,
 make a user online, prove possession of money/settlement state, or bypass the
 normal API authorization checks required when a notification is opened.
 
+## A1 API Contract Proposal
+
+This section records the #634 A1 design proposal only. It is not an OpenAPI
+change and does not authorize implementation. A future A2 server-side token
+foundation must update `packages/contracts/openapi/settleora.v1.yaml`,
+regenerate clients, and pass the OpenAPI/generated-client gate before any
+runtime endpoint exists.
+
+Proposed future endpoints should be current-user scoped under `/api/v1`, with
+server-derived account/profile/session context:
+
+| Operation | Proposed shape | Purpose |
+| --- | --- | --- |
+| Register or replace current device token | `PUT /api/v1/me/push-devices/current-token` | Write-only registration for the authenticated current app install/device. Creates or replaces the active token binding for the current user/profile/session/device/platform/provider tuple. |
+| Revoke current device token | `DELETE /api/v1/me/push-devices/current-token` | Idempotently revokes the current app install/device token binding without exposing prior token value. |
+| Revoke one current-account device binding | `DELETE /api/v1/me/push-devices/{pushDeviceId}` | Revokes one safe server-issued device binding owned by the authenticated account/profile where future device/session readout is approved. |
+| Revoke current-session linked tokens | `DELETE /api/v1/me/push-devices/current-session` | Revokes active tokens linked to the current authenticated session where session-linked policy is enabled. |
+| Revoke all current-account push tokens | `DELETE /api/v1/me/push-devices` | Account-scoped push opt-out/sign-out cleanup action that revokes all current user's active push tokens. This must not revoke auth sessions unless called by an auth/session policy flow that separately owns session revocation. |
+| Optional safe status/readout | `GET /api/v1/me/push-devices` | Optional later readout of safe device metadata only, such as device ID, platform, provider, permission state, last seen, and revoked/stale state. It must never return token values, ciphertext, raw provider responses, provider credentials, payload internals, storage paths, payment details, OCR text, or private notification content. |
+
+The registration request should be write-only for token material. A future
+request shape may include:
+
+- `platform`: `ios` or `android` for Day 1; `web` is not Day 1 unless a later
+  task explicitly approves browser push.
+- `provider`: provider key such as `apns` or `fcm`, or a provider-neutral
+  adapter key if runtime remains disabled/unconfigured.
+- `token`: raw provider token accepted only in the request body and handled
+  behind the protected server boundary.
+- `deviceInstallationId`: app-generated stable install identifier only if a
+  later mobile/security review approves it; it must not be an advertising ID,
+  hardware serial, IMEI, phone number, contact identifier, or cross-app tracker.
+- `appInstanceId` or `clientInstanceId`: optional idempotency key for reinstall
+  and token-refresh behavior where approved.
+- `permissionState`: bounded OS permission state from this document.
+- `appBuildEnvironment`: development, staging, or production where needed to
+  avoid APNs/FCM environment mixups, without exposing provider credentials.
+- `clientObservedAtUtc`: optional client timestamp for support/readout only;
+  server receipt time remains authoritative for lifecycle state.
+
+The registration response should return only safe metadata:
+
+- Server-issued push device/token binding ID.
+- Platform, provider, permission state, status, last seen, and whether the
+  registration replaced a prior active binding.
+- Redacted token fingerprint only if a future support/readout policy requires
+  it; ordinary clients do not need it.
+
+The registration response must not return the raw token, token ciphertext,
+provider payload, provider request/response body, provider credentials, app
+secret material, sender IDs where sensitive, private app identifiers, storage
+internals, notification content, or hidden business data.
+
+Contract behavior:
+
+- Registration requires an authenticated `SettleoraSession` and binds to the
+  current actor/profile/account and current session according to the auth model.
+- Clients must not submit user IDs, profile IDs, account IDs, or session IDs as
+  authority. Route/body identifiers are hints only where later contract shape
+  explicitly allows them; the server derives ownership from the bearer session.
+- Duplicate registration of the same token fingerprint for the same
+  user/profile/device/platform/provider should be idempotent and update
+  `lastSeenAtUtc`, permission state, app environment, and safe metadata.
+- Registration of a new token for the same authenticated device/platform/provider
+  should atomically supersede the prior active token for that device binding.
+- Registration of the same token fingerprint under another user/profile/session
+  must fail closed, revoke/supersede according to an explicit account-transfer
+  policy, or require a new approved conflict flow. It must not silently link one
+  token to multiple unrelated users.
+- Revocation endpoints are idempotent: deleting an already revoked, missing, or
+  stale current-device token returns safe success or a generic unavailable result
+  without revealing whether a specific raw token ever existed.
+- Stale cleanup is server-owned. A future internal cleanup job or provider
+  feedback handler may mark tokens stale/revoked by last-seen age, app
+  environment mismatch, account/session revocation, uninstall feedback, or
+  invalid-token feedback. Clients may report permission denial or token refresh,
+  but clients do not decide final cleanup authority.
+- Rate limiting should apply per authenticated account/session/device and per
+  source IP/request fingerprint. Registration should tolerate normal OS token
+  refresh bursts but reject abuse, high-churn loops, and enumeration attempts.
+- Error responses should use safe problem categories such as
+  `authentication_required`, `push_unsupported`, `provider_unconfigured`,
+  `platform_unsupported`, `permission_denied`, `token_invalid`,
+  `token_conflict`, `rate_limited`, `session_not_eligible`, and
+  `validation_failed`. Client-facing messages must not reveal raw token
+  presence, account ownership, provider credentials, provider internals, or
+  sensitive deployment values.
+
+## A1 Token Data Model Proposal
+
+This is a later schema proposal only. It does not create EF entities,
+migrations, OpenAPI schemas, or generated clients.
+
+Future token persistence should use a dedicated push device/token table or
+equivalent protected store with fields equivalent to:
+
+- `id`: server-generated push device/token binding ID.
+- `userAccountId` and `userProfileId`: authenticated owner context derived from
+  the current session.
+- `authSessionId` or `sessionFamilyId`: nullable link to the session context
+  used at registration, where session-linked revocation is approved.
+- `deviceInstallationIdHash`: optional keyed hash of an approved app install
+  identifier, not a raw device hardware identifier.
+- `platform`: `ios` or `android` for Day 1; `web` reserved for future work.
+- `provider`: `apns`, `fcm`, or a provider-neutral adapter key. A1 recommends
+  provider-neutral-first data shape so A2 can store lifecycle state before any
+  real APNs/FCM provider is enabled.
+- `appBuildEnvironment`: development/staging/production where needed.
+- `tokenFingerprint`: keyed HMAC or equivalent purpose-bound fingerprint for
+  dedupe and audit-safe correlation.
+- `tokenCiphertext` or protected token secret reference: encrypted/sealed token
+  material available only to the approved server-side provider-send boundary.
+- `tokenSecretVersion` and `tokenProtectionKeyId`: safe metadata for rotation
+  of sealing keys, if used.
+- `permissionState`: bounded OS permission state.
+- `status`: active, revoked, superseded, stale, provider_invalid, or disabled.
+- `lastSeenAtUtc`, `registeredAtUtc`, `updatedAtUtc`, `revokedAtUtc`,
+  `supersededAtUtc`, and `staleMarkedAtUtc`.
+- `failureCount`, `lastFailureAtUtc`, `lastProviderFeedbackCategory`, and
+  `nextEligibleAttemptAtUtc`.
+- `revokedReason` and `staleReason`: bounded reason categories only.
+- `createdBySessionId` and `updatedBySessionId`: safe server-side correlation
+  where audit policy approves it.
+
+Recommended constraints:
+
+- At most one active token per
+  `(userProfileId, platform, provider, deviceInstallationIdHash,
+  appBuildEnvironment)` where device installation identity is approved.
+- Unique active `tokenFingerprint` within one deployment/provider environment.
+- Idempotency key or request correlation uniqueness for accepted registration
+  attempts where clients retry.
+- Indexes for current user/profile active token lookup, session-linked
+  revocation, stale cleanup, and provider feedback cleanup.
+
+Retention and cleanup:
+
+- Raw token material must not be stored in plaintext normal read paths.
+- Revoked, superseded, invalid, or stale token records may be retained for a
+  bounded support/audit window using only ciphertext/protected secret reference
+  plus safe metadata; expired retention should delete or irreversibly destroy
+  token secret material while preserving only audit-safe lifecycle summaries if
+  policy requires them.
+- Stale cleanup should be driven by last-seen age, provider invalid/not
+  registered feedback, account/session revocation, app environment mismatch,
+  repeated permanent failure, user opt-out, and admin/deployment disablement.
+- No API, audit event, admin readout, log, metric, trace, issue comment, PR body,
+  screenshot, report, or docs example should expose raw token values,
+  ciphertext, provider payload internals, or provider diagnostic bodies.
+
+## Token Protection And Redaction Policy
+
+Future implementation must define the token protection mechanism before storing
+any token material.
+
+Minimum policy:
+
+- Do not store push tokens in plaintext normal read paths.
+- Use a keyed, purpose-bound fingerprint for dedupe, idempotency, cleanup, and
+  audit-safe support correlation. Do not use a plain unsalted hash that can be
+  compared across deployments or exports.
+- If raw token material is needed to call APNs/FCM, keep it encrypted, sealed,
+  or referenced through an approved secret/protected-storage boundary accessible
+  only to the server-side provider-send path.
+- Treat token ciphertext and secret references as sensitive. They must not be
+  returned through API readouts, logs, audit metadata, reports, generated docs,
+  or generated clients.
+- Token registration must require an authenticated session and bind to the
+  authenticated user/profile/session according to the repo auth model.
+- Revocation must require authentication and must be scoped to current device,
+  current session, current account/profile, or an explicitly reviewed
+  auth/session policy action.
+- Clients cannot decide authorization, source business state, or security state
+  from token/device status. Opening a notification must always re-fetch through
+  authorized API paths.
+- Audit records may include safe lifecycle action, actor/profile/session
+  correlation, platform/provider, status, reason category, and redacted
+  fingerprint where strictly needed. Audit must not include raw tokens,
+  ciphertext, provider payload internals, provider credentials, or raw provider
+  diagnostic bodies.
+
 ## Revocation Lifecycle
 
 Future runtime work must support explicit and inferred token revocation without
@@ -198,6 +379,49 @@ vocabulary. Admin-visible readouts may include the more specific categories
 above only when they do not expose secrets, provider internals, raw device
 tokens, private app identifiers, or sensitive deployment values.
 
+## A1 Provider And Runtime Posture
+
+A1 recommends a provider-neutral-first contract and data model with no real
+provider enabled by default.
+
+Rationale:
+
+- Settleora has both iOS and Android mobile scope, so an eventual complete
+  runtime likely needs APNs and FCM or an approved provider abstraction that can
+  reach both platforms.
+- Choosing FCM-only now would not cover native iOS/APNs requirements without a
+  later contract correction.
+- Enabling APNs + FCM now would require secrets, app identifiers, entitlements,
+  provider accounts, mobile release/build configuration, hosted runtime
+  activation, and validation gates that A1 does not approve.
+- A provider-neutral-first shape lets A2 implement safe token lifecycle APIs
+  while A3 separately decides whether provider adapters start with FCM, APNs,
+  or both.
+
+Provider/runtime policy:
+
+- Runtime push sending remains disabled/unconfigured by default.
+- No APNs, FCM, Firebase, Expo, OneSignal, provider dashboard value, signing
+  key, certificate, team ID, sender ID, app secret, `.env` value, or credential
+  belongs in repo files, issue comments, PR bodies, logs, reports, docs
+  examples, screenshots, generated clients, or API responses.
+- The payload boundary is provider-neutral first. Product notification events
+  produce a safe generic push envelope; provider adapters translate only after
+  policy, preference, provider readiness, token, permission, and content-safety
+  checks pass.
+- Provider feedback must be classified into safe categories only, such as
+  `accepted`, `invalid_token`, `not_registered`, `expired_token`,
+  `permission_denied`, `credential_invalid`, `rate_limited`,
+  `provider_unavailable`, `payload_invalid`, `retryable_failure`, or
+  `non_retryable_failure`.
+- Missing configuration, disabled admin policy, denied OS permission, missing
+  token, stale token, queued attempt, deferred quiet-hours/digest state,
+  retryable provider failure, invalid credential, or unsupported platform must
+  never be represented as successful push delivery.
+- Hosted runtime activation remains a separate gate. A provider adapter in code
+  is not approval to run a hosted worker, scheduler, queue consumer, production
+  sender, or public/admin diagnostic endpoint.
+
 ## No-Fake-Success Rule
 
 Missing, unsupported, disabled, unconfigured, invalid, permission-denied,
@@ -237,6 +461,8 @@ to Settleora.
 
 Push payloads must not include:
 
+- Hidden/private bill data, hidden participant shares, full source business
+  records, or values the recipient is not authorized to re-fetch.
 - Raw receipt text, full OCR text, itemized OCR lines, or OCR debug output.
 - Receipt images, file bytes, filenames where sensitive, storage paths, object
   keys, bucket names, signed URLs, provider internals, or vault internals.
@@ -262,6 +488,28 @@ Default push payload shape should use:
 The app must fetch notification detail and linked business resources through
 authorized API paths after the user opens the notification. Push payloads are
 not authorization and are not source data.
+
+## Mobile, Figma, And Deep-Link Posture
+
+A1 separates server/API token lifecycle design from mobile UI and platform
+integration.
+
+- Mobile OS permission prompts, notification settings screens, background
+  delivery behavior, entitlement/capability changes, Android manifest changes,
+  iOS plist changes, signing/release configuration, and store/TestFlight
+  behavior are not implemented or approved by this task.
+- Mobile OS permission/settings UI requires Figma, screenshot, or design
+  reference review before UI implementation.
+- Token registration can be designed as an API contract before UI screens exist,
+  but actual mobile app integration requires a separate mobile validation and
+  release/build configuration gate.
+- Mobile code must not register tokens solely because generated clients exist.
+  The app must respect OS permission/capability state, user preference, admin
+  policy, provider readiness, and authenticated session state.
+- #371 notification deep links remain separate and Figma/reference-gated.
+  Push payloads may carry only a safe relative action key or notification ID
+  that later deep-link work can interpret after authentication and
+  authorization re-fetch. A1 does not implement or approve deep links.
 
 ## Security And Money-Critical Rules
 
@@ -377,6 +625,41 @@ app password, device token, key ID, team ID, sender ID, or `.env` value belongs
 in repository files, issue comments, PR bodies, screenshots, docs examples, or
 Codex reports.
 
+## A1 Implementation Split Recommendation
+
+Do not implement #634 as one cross-domain branch. Keep #634 open and split
+future work after this A1 design checkpoint.
+
+Recommended future slices:
+
+| Slice | Scope | Required gates |
+| --- | --- | --- |
+| A2 server-side token persistence/API foundation | Add the authenticated token register/revoke/rotate/stale-cleanup contract, additive schema, protected token storage, safe lifecycle service, and generated clients. No provider sending. No mobile UI unless separately approved. | Schema/migration review, OpenAPI contract review, generated-client regeneration, auth/session/security review, token protection design, docs/tests proving no raw token exposure. |
+| A3 provider-neutral push delivery runtime | Add disabled/unconfigured-by-default provider-neutral push sender over #629/#638/#641 foundations, safe payload rendering, provider feedback classification, no fake success, and no source business mutation. | Provider/runtime architecture approval, APNs/FCM provider decision, no secrets in repo/issues/logs, hosted activation gate, provider validation, delivery-state validation. |
+| A4 mobile app registration/permission UX | Add mobile OS permission flow, token registration/revocation calls, safe local app install identifier if approved, user-facing settings/readout, and mobile validation. | Figma/reference, mobile platform permission review, iOS/Android build/release config gate, generated-client availability from A2, mobile validation, #371 separate approval if deep links enter scope. |
+
+Do not create child issues from this document unless a future issue workflow
+explicitly asks for them. The recommended split is architecture guidance for
+planning #634 follow-up work.
+
+## Completed And Remaining Gates
+
+| Area | Status after A1 design PR | Notes |
+| --- | --- | --- |
+| #629 decision-envelope foundation | Completed before A1 | Provides provider-free channel decision input; does not implement push tokens or provider sending. |
+| #638 delivery-attempt persistence/service foundation | Completed before A1 | Provides provider-neutral attempt persistence foundation; does not store device tokens. |
+| #641 worker/outbox foundation | Completed before A1 | Provides provider-neutral outbox/lease foundation; no push provider adapter or hosted activation. |
+| #633 delivery-state parent | Closed/Merged before A1 | Closed for persistence/worker foundation only, not provider runtime or push lifecycle. |
+| #632 disabled-by-default SMTP runtime foundation | Completed before A1 | Email provider foundation only; does not complete push. |
+| #634 A1 push token lifecycle architecture/contract design | This PR completes design only after merge | Answers API shape, data model, token protection, provider posture, payload privacy, mobile/Figma posture, deep-link separation, and future split. It does not implement runtime. |
+| Schema/OpenAPI/generated clients | Remaining gate | Required for A2; no OpenAPI, generated-client, EF schema, or migration changes are approved by A1. |
+| Mobile/Figma | Remaining gate | Required for mobile permission/settings UI and actual app registration integration. |
+| APNs/FCM secrets/provider accounts | Remaining gate | No secrets or real provider setup are approved. |
+| Provider runtime/hosted activation | Remaining gate | A3 and hosted runtime activation remain separate and disabled/unconfigured by default until approved. |
+| Admin/global readout and policy | Remaining gate | #635 remains separate for admin/global notification policy API/readout. |
+| #371 notification deep links | Remaining gate | Remains separate and Figma/reference-gated. |
+| Auth/security-sensitive behavior | Remaining gate | Token registration must use authenticated sessions, but auth/session/security runtime changes require their own review. |
+
 ## Audit And Logging Expectations
 
 Push-related logs and audit should explain policy decisions without leaking
@@ -416,14 +699,17 @@ resolved, paid, confirmed, reviewed, or acknowledged.
 
 ## Relationship To Follow-Ups
 
-This document prepares #450 only.
+This document now records the #634 A1 push token lifecycle architecture and
+contract design checkpoint. Earlier text prepared the original push provider
+policy slice; the current #634 A1 additions do not change runtime behavior.
 
 - #403 remains the broad notification parent.
-- #449 is already closed for the SMTP email provider policy slice; this push
-  slice complements it without mutating #449.
-- #451 notification preference resolution remains separate.
-- #452 notification UI/reference work remains Stream A/UI gated and requires
-  Figma/reference review.
+- #629, #632, #633, #638, and #641 are completed foundations only.
+- #635 admin/global notification policy API/readout remains separate.
+- #369 and #368 remain open for remaining Day 1 notification event-family
+  runtime/source-state work.
+- #371 notification deep links/mobile UI remains separate and
+  Figma/reference-gated.
 
 Future push runtime work must be a separate manually gated implementation slice
 if it touches provider configuration, secrets, deployment/env files, mobile
