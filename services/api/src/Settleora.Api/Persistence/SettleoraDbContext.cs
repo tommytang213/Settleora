@@ -142,6 +142,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<SystemRoleAssignment>(ConfigureSystemRoleAssignment);
         modelBuilder.Entity<FileObject>(ConfigureFileObject);
         modelBuilder.Entity<InAppNotification>(ConfigureInAppNotification);
+        modelBuilder.Entity<NotificationDeliveryAttempt>(ConfigureNotificationDeliveryAttempt);
         modelBuilder.Entity<UserNotificationPreference>(ConfigureUserNotificationPreference);
         modelBuilder.Entity<SyncOperation>(ConfigureSyncOperation);
         modelBuilder.Entity<SyncResourceVersion>(ConfigureSyncResourceVersion);
@@ -1026,6 +1027,288 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(notification => notification.SyncOperationId)
             .HasConstraintName("fk_user_notifications_sync_operations_operation_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureNotificationDeliveryAttempt(EntityTypeBuilder<NotificationDeliveryAttempt> entity)
+    {
+        entity.ToTable("notification_delivery_attempts", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_channel",
+                "channel IN ('email', 'mobile_push')");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_status",
+                "status IN ('not_applicable', 'disabled', 'unconfigured', 'deferred', 'queued', 'suppressed', 'cancelled', 'expired')");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_status_reason",
+                "status_reason IN ('future_provider_eligible', 'required_bypass_policy_not_configured', 'channel_unsupported_for_event', 'disabled_by_policy', 'disabled_by_user_preference', 'provider_unconfigured', 'device_availability_unconfigured', 'quiet_hours_deferred', 'digest_readout_deferred', 'unsafe_external_content', 'recipient_unauthorized', 'event_type_unsupported', 'subject_type_unsupported', 'unsafe_notification_content', 'source_domain_ineligible', 'recipient_profile_unavailable', 'unsafe_delivery_attempt_request')");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_event_type",
+                "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'recurring_bill.due_soon', 'recurring_bill.draft_generated', 'sync.conflict_detected', 'ocr.needs_review')");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_subject_type",
+                "subject_type IN ('expense_bill', 'settlement_request', 'settlement_payment', 'recurring_bill_occurrence', 'sync_operation', 'receipt_ocr_review')");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_idempotency_key_not_blank",
+                "length(btrim(idempotency_key)) > 0");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_source_correlation_not_blank",
+                "source_correlation_id IS NULL OR length(btrim(source_correlation_id)) > 0");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_attempt_count_non_negative",
+                "attempt_count >= 0");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_no_provider_runtime_status",
+                "status NOT IN ('attempting', 'sent', 'failed_transient', 'failed_permanent', 'delivered')");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_provider_result_completion",
+                "redacted_provider_result_category IS NULL OR completed_at_utc IS NOT NULL");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_provider_result_not_blank",
+                "redacted_provider_result_category IS NULL OR length(btrim(redacted_provider_result_category)) > 0");
+        });
+
+        entity.HasKey(attempt => attempt.Id);
+
+        entity.Property(attempt => attempt.Id)
+            .HasColumnName("id");
+
+        entity.Property(attempt => attempt.InAppNotificationId)
+            .HasColumnName("in_app_notification_id");
+
+        entity.Property(attempt => attempt.RecipientUserProfileId)
+            .HasColumnName("recipient_user_profile_id")
+            .IsRequired();
+
+        entity.Property(attempt => attempt.ActorUserProfileId)
+            .HasColumnName("actor_user_profile_id");
+
+        entity.Property(attempt => attempt.EventType)
+            .HasColumnName("event_type")
+            .HasMaxLength(InAppNotificationConstraints.EventTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(attempt => attempt.SubjectType)
+            .HasColumnName("subject_type")
+            .HasMaxLength(InAppNotificationConstraints.SubjectTypeMaxLength)
+            .IsRequired();
+
+        entity.Property(attempt => attempt.Channel)
+            .HasColumnName("channel")
+            .HasMaxLength(NotificationDeliveryAttemptConstraints.ChannelMaxLength)
+            .IsRequired();
+
+        entity.Property(attempt => attempt.Status)
+            .HasColumnName("status")
+            .HasMaxLength(NotificationDeliveryAttemptConstraints.StatusMaxLength)
+            .IsRequired();
+
+        entity.Property(attempt => attempt.StatusReason)
+            .HasColumnName("status_reason")
+            .HasMaxLength(NotificationDeliveryAttemptConstraints.StatusReasonMaxLength)
+            .IsRequired();
+
+        entity.Property(attempt => attempt.IdempotencyKey)
+            .HasColumnName("idempotency_key")
+            .HasMaxLength(NotificationDeliveryAttemptConstraints.IdempotencyKeyMaxLength)
+            .IsRequired();
+
+        entity.Property(attempt => attempt.SourceCorrelationId)
+            .HasColumnName("source_correlation_id")
+            .HasMaxLength(NotificationDeliveryAttemptConstraints.SourceCorrelationIdMaxLength);
+
+        entity.Property(attempt => attempt.AttemptCount)
+            .HasColumnName("attempt_count")
+            .IsRequired();
+
+        entity.Property(attempt => attempt.NextAttemptAtUtc)
+            .HasColumnName("next_attempt_at_utc");
+
+        entity.Property(attempt => attempt.ExpiresAtUtc)
+            .HasColumnName("expires_at_utc");
+
+        entity.Property(attempt => attempt.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(attempt => attempt.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(attempt => attempt.CompletedAtUtc)
+            .HasColumnName("completed_at_utc");
+
+        entity.Property(attempt => attempt.RedactedProviderResultCategory)
+            .HasColumnName("redacted_provider_result_category")
+            .HasMaxLength(NotificationDeliveryAttemptConstraints.RedactedProviderResultCategoryMaxLength);
+
+        entity.Property(attempt => attempt.GroupId)
+            .HasColumnName("group_id");
+
+        entity.Property(attempt => attempt.ExpenseBillId)
+            .HasColumnName("expense_bill_id");
+
+        entity.Property(attempt => attempt.ExpenseBillRevisionId)
+            .HasColumnName("expense_bill_revision_id");
+
+        entity.Property(attempt => attempt.SettlementRequestId)
+            .HasColumnName("settlement_request_id");
+
+        entity.Property(attempt => attempt.SettlementPaymentId)
+            .HasColumnName("settlement_payment_id");
+
+        entity.Property(attempt => attempt.RecurringBillTemplateId)
+            .HasColumnName("recurring_bill_template_id");
+
+        entity.Property(attempt => attempt.RecurringBillOccurrenceId)
+            .HasColumnName("recurring_bill_occurrence_id");
+
+        entity.Property(attempt => attempt.ReceiptOcrReviewId)
+            .HasColumnName("receipt_ocr_review_id");
+
+        entity.Property(attempt => attempt.ReceiptAttachmentFileId)
+            .HasColumnName("receipt_attachment_file_id");
+
+        entity.Property(attempt => attempt.SyncOperationId)
+            .HasColumnName("sync_operation_id");
+
+        entity.HasIndex(attempt => attempt.IdempotencyKey)
+            .IsUnique()
+            .HasDatabaseName("ux_notification_delivery_attempts_idempotency_key");
+
+        entity.HasIndex(attempt => new
+            {
+                attempt.RecipientUserProfileId,
+                attempt.Channel,
+                attempt.Status,
+                attempt.CreatedAtUtc
+            })
+            .HasDatabaseName("ix_notification_delivery_attempts_recipient_channel_status");
+
+        entity.HasIndex(attempt => new
+            {
+                attempt.Channel,
+                attempt.Status,
+                attempt.NextAttemptAtUtc
+            })
+            .HasDatabaseName("ix_notification_delivery_attempts_channel_status_next_attempt");
+
+        entity.HasIndex(attempt => attempt.InAppNotificationId)
+            .HasDatabaseName("ix_notification_delivery_attempts_in_app_notification_id");
+
+        entity.HasIndex(attempt => attempt.RecipientUserProfileId)
+            .HasDatabaseName("ix_notification_delivery_attempts_recipient_user_profile_id");
+
+        entity.HasIndex(attempt => attempt.ActorUserProfileId)
+            .HasDatabaseName("ix_notification_delivery_attempts_actor_user_profile_id");
+
+        entity.HasIndex(attempt => attempt.GroupId)
+            .HasDatabaseName("ix_notification_delivery_attempts_group_id");
+
+        entity.HasIndex(attempt => attempt.ExpenseBillId)
+            .HasDatabaseName("ix_notification_delivery_attempts_expense_bill_id");
+
+        entity.HasIndex(attempt => attempt.ExpenseBillRevisionId)
+            .HasDatabaseName("ix_notification_delivery_attempts_expense_bill_revision_id");
+
+        entity.HasIndex(attempt => attempt.SettlementRequestId)
+            .HasDatabaseName("ix_notification_delivery_attempts_settlement_request_id");
+
+        entity.HasIndex(attempt => attempt.SettlementPaymentId)
+            .HasDatabaseName("ix_notification_delivery_attempts_settlement_payment_id");
+
+        entity.HasIndex(attempt => attempt.RecurringBillTemplateId)
+            .HasDatabaseName("ix_notification_delivery_attempts_recurring_bill_template_id");
+
+        entity.HasIndex(attempt => attempt.RecurringBillOccurrenceId)
+            .HasDatabaseName("ix_notification_delivery_attempts_recurring_bill_occurrence_id");
+
+        entity.HasIndex(attempt => attempt.ReceiptOcrReviewId)
+            .HasDatabaseName("ix_notification_delivery_attempts_receipt_ocr_review_id");
+
+        entity.HasIndex(attempt => attempt.ReceiptAttachmentFileId)
+            .HasDatabaseName("ix_notification_delivery_attempts_receipt_attachment_file_id");
+
+        entity.HasIndex(attempt => attempt.SyncOperationId)
+            .HasDatabaseName("ix_notification_delivery_attempts_sync_operation_id");
+
+        entity.HasOne(attempt => attempt.InAppNotification)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.InAppNotificationId)
+            .HasConstraintName("fk_notification_delivery_attempts_user_notifications")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.RecipientUserProfile)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.RecipientUserProfileId)
+            .HasConstraintName("fk_notification_delivery_attempts_recipient_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.ActorUserProfile)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.ActorUserProfileId)
+            .HasConstraintName("fk_notification_delivery_attempts_actor_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.Group)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.GroupId)
+            .HasConstraintName("fk_notification_delivery_attempts_user_groups_group_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.ExpenseBill)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.ExpenseBillId)
+            .HasConstraintName("fk_notification_delivery_attempts_expense_bills_expense_bill_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.ExpenseBillRevision)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.ExpenseBillRevisionId)
+            .HasConstraintName("fk_notification_delivery_attempts_expense_bill_revisions")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.SettlementRequest)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.SettlementRequestId)
+            .HasConstraintName("fk_notification_delivery_attempts_settlement_requests")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.SettlementPayment)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.SettlementPaymentId)
+            .HasConstraintName("fk_notification_delivery_attempts_settlement_payments")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.RecurringBillTemplate)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.RecurringBillTemplateId)
+            .HasConstraintName("fk_notification_delivery_attempts_recurring_templates")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.RecurringBillOccurrence)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.RecurringBillOccurrenceId)
+            .HasConstraintName("fk_notification_delivery_attempts_recurring_occurrences")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.ReceiptOcrReview)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.ReceiptOcrReviewId)
+            .HasConstraintName("fk_notification_delivery_attempts_receipt_ocr_reviews_review_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.ReceiptAttachmentFile)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.ReceiptAttachmentFileId)
+            .HasConstraintName("fk_notification_delivery_attempts_file_objects_receipt")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(attempt => attempt.SyncOperation)
+            .WithMany()
+            .HasForeignKey(attempt => attempt.SyncOperationId)
+            .HasConstraintName("fk_notification_delivery_attempts_sync_operations_operation_id")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
