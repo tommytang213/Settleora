@@ -166,6 +166,57 @@ public sealed class NotificationDeliveryAttemptRecorderTests
     }
 
     [Fact]
+    public async Task RecorderCanPersistSyncOperationFailedExternalAttemptWithoutProviderSuccessOrSensitivePayload()
+    {
+        await using var dbContext = CreateDbContext();
+        var recipientId = await SeedUserProfileAsync(dbContext, "Sync Recipient");
+        var actorId = recipientId;
+        var syncOperationId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var expenseBillId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var recorder = new EfNotificationDeliveryAttemptRecorder(dbContext);
+        var envelope = CreateEligibleEnvelope(
+            recipientId,
+            actorId,
+            groupId: null,
+            NotificationChannels.MobilePush,
+            InAppNotificationEventTypes.SyncOperationFailed,
+            InAppNotificationSubjectTypes.SyncOperation);
+
+        var result = await recorder.RecordAsync(new NotificationDeliveryAttemptRecordRequest(
+            envelope,
+            NotificationChannels.MobilePush,
+            "notification-attempt:sync-operation-failed:1",
+            EvaluationTime,
+            SourceDomainEligible: true,
+            SourceCorrelationId: "sync-operation-failed-source",
+            ExpenseBillId: expenseBillId,
+            SyncOperationId: syncOperationId));
+        await dbContext.SaveChangesAsync();
+
+        Assert.True(result.Created);
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Queued, result.Status);
+        Assert.False(NotificationChannelDecisionStates.IsTerminalProviderSuccess(result.Status));
+        Assert.False(NotificationDeliveryAttemptStatuses.IsProviderRuntimeStatus(result.Status));
+
+        var attempt = Assert.Single(await dbContext.Set<NotificationDeliveryAttempt>().AsNoTracking().ToListAsync());
+        Assert.Equal(InAppNotificationEventTypes.SyncOperationFailed, attempt.EventType);
+        Assert.Equal(InAppNotificationSubjectTypes.SyncOperation, attempt.SubjectType);
+        Assert.Equal(syncOperationId, attempt.SyncOperationId);
+        Assert.Equal(expenseBillId, attempt.ExpenseBillId);
+        Assert.Null(attempt.CompletedAtUtc);
+        Assert.Null(attempt.RedactedProviderResultCategory);
+
+        var columnNames = dbContext.Model.FindEntityType(typeof(NotificationDeliveryAttempt))!
+            .GetProperties()
+            .Select(property => property.GetColumnName())
+            .ToArray();
+        Assert.DoesNotContain(columnNames, name => name.Contains("payload", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("hash", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("token", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("path", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task RecorderDoesNotMutateInAppInboxOrSourceBusinessState()
     {
         await using var dbContext = CreateDbContext();
@@ -234,7 +285,9 @@ public sealed class NotificationDeliveryAttemptRecorderTests
         Guid recipientId,
         Guid? actorId,
         Guid? groupId,
-        string channel)
+        string channel,
+        string eventType = InAppNotificationEventTypes.BillSubmitted,
+        string subjectType = InAppNotificationSubjectTypes.ExpenseBill)
     {
         var emailPolicy = channel == NotificationChannels.Email
             ? new NotificationDecisionChannelPolicy(ProviderConfigured: true)
@@ -247,6 +300,8 @@ public sealed class NotificationDeliveryAttemptRecorderTests
             recipientId,
             actorId,
             groupId,
+            eventType,
+            subjectType,
             emailPolicy: emailPolicy,
             mobilePushPolicy: mobilePushPolicy);
     }
@@ -255,14 +310,16 @@ public sealed class NotificationDeliveryAttemptRecorderTests
         Guid recipientId,
         Guid? actorId,
         Guid? groupId = null,
+        string eventType = InAppNotificationEventTypes.BillSubmitted,
+        string subjectType = InAppNotificationSubjectTypes.ExpenseBill,
         UserNotificationPreference? preference = null,
         bool externalContentSafe = true,
         NotificationDecisionChannelPolicy? emailPolicy = null,
         NotificationDecisionChannelPolicy? mobilePushPolicy = null)
     {
         return resolver.Resolve(new NotificationDecisionEnvelopeRequest(
-            InAppNotificationEventTypes.BillSubmitted,
-            InAppNotificationSubjectTypes.ExpenseBill,
+            eventType,
+            subjectType,
             recipientId,
             actorId,
             groupId,

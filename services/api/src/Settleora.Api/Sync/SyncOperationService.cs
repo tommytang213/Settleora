@@ -449,7 +449,18 @@ internal sealed class SyncOperationService
                 syncOperation,
                 actor.UserProfileId,
                 bill?.GroupId,
-                bill?.Id,
+                SyncOperationExpenseBillId(operation, bill),
+                now,
+                cancellationToken);
+        }
+        else if (status is SyncOperationStatuses.Rejected)
+        {
+            await InAppNotificationEvents.WriteSyncOperationFailedNotificationAsync(
+                notificationWriter,
+                syncOperation,
+                actor.UserProfileId,
+                bill?.GroupId,
+                SyncOperationExpenseBillId(operation, bill),
                 now,
                 cancellationToken);
         }
@@ -464,6 +475,14 @@ internal sealed class SyncOperationService
                 safeErrorCode,
                 SafeMessage(safeErrorCode)),
             cancellationToken);
+    }
+
+    private static Guid? SyncOperationExpenseBillId(
+        ValidatedSyncOperation operation,
+        ExpenseBill? bill)
+    {
+        return bill?.Id
+            ?? (operation.ResourceType is SyncResourceTypes.ExpenseBill ? operation.ResourceId : null);
     }
 
     private SyncOperation AddSyncOperation(

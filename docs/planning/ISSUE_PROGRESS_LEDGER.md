@@ -739,13 +739,14 @@ remain the source of truth.
   `Man-days Remaining` `2`, `Figma Required` `Yes`, `Manual Gate` `Yes` by
   GraphQL readback on 2026-06-30. GitHub issue remains `OPEN` and Project
   status remains `Needs Architecture Review` by readback on 2026-07-01 after
-  PR #650.
+  PR #650 and by issue readback on 2026-07-02 before the
+  `sync.operation_failed` implementation branch report.
 - Parent epic readback: #368 is `OPEN`; Project status
   `Needs Architecture Review`, `Progress %` `33`, `Figma Required` `Yes`,
   `Manual Gate` `Yes`. GitHub issue #368 remains `OPEN` by readback on
   2026-07-01.
 - Last verified at main SHA:
-  `1983832614394ed0dd8c8c6d4aab63e512e42b4b`.
+  `1c94fda04dfcea282bc15f6d06a83ce5cb7faaef`.
 - Completed child slices now recorded:
   - #634 / PR #647 completed the A1 push token lifecycle
     architecture/contract design checkpoint. PR #649 completed the A2
@@ -800,12 +801,25 @@ remain the source of truth.
     review, settlement notification coverage, bill workflow coverage, bill
     revision coverage, recurring draft-generated coverage, #568 OCR/sync target
     references, and #571 persisted sync-conflict-only runtime.
+  - Branch `feature/sync-operation-failed-notification-369-20260702`
+    implements the next narrow #369 sync slice for
+    `sync.operation_failed`: newly persisted current-actor
+    `SyncOperationStatuses.Rejected` rows write one unread in-app notification
+    with first-class `syncOperationId`, safe sync operation action URL, current
+    actor recipient, and bounded safe resource metadata. Accepted operations,
+    replay/idempotency reuse, existing conflict rows, and invalid requests that
+    do not persist a rejected row do not write this notification. This branch
+    updates OpenAPI/generated clients only for the notification event enum and
+    adds an additive EF migration that widens notification event-type check
+    constraints; it does not implement queued/resolved/retry/conflict
+    resolution, mobile/deep links, provider send, admin policy, or broader sync
+    behavior.
 - Remaining Day 1 work:
   - Future OCR `ocr.completed` and `ocr.failed` events require server OCR
     worker/job source states and safe recipient/action policy first.
-  - Remaining sync notification events such as operation failed, queued,
-    conflict resolved, retry behavior, conflict resolution behavior, mobile
-    deep links/UI, and broad offline-sync expansion remain future work.
+  - Remaining sync notification events such as queued, conflict resolved, retry
+    behavior, conflict resolution behavior, mobile deep links/UI, and broad
+    offline-sync expansion remain future work.
   - Auth/session/security notification runtime remains manual auth-security
     gated.
   - Item claim/split/creator-review notification coverage remains blocked on
@@ -825,18 +839,21 @@ remain the source of truth.
 - Close/keep-open recommendation:
   - Do not close #369 or mark it `100`. PR #626/#570 is one completed child
     runtime slice, PR #630/#629 is one internal foundation slice, PR #636/#633
-    is one architecture slice, and PR #639/#638 is one provider-neutral
-    persistence/service foundation slice, and PR #642/#641 is one
-    provider-neutral worker/outbox foundation slice, PR #644 closed #633 for
-    delivery-state persistence/worker foundation, PR #645/#632 is one
-    disabled-by-default SMTP runtime foundation slice, and PR #647/#649/#650
-    are #634 push-token lifecycle design/protection/API-foundation
-    checkpoints. None of these is full Day 1 notification event-family
-    acceptance.
+    is one architecture slice, PR #639/#638 is one provider-neutral
+    persistence/service foundation slice, PR #642/#641 is one provider-neutral
+    worker/outbox foundation slice, PR #644 closed #633 for delivery-state
+    persistence/worker foundation, PR #645/#632 is one disabled-by-default SMTP
+    runtime foundation slice, PR #647/#649/#650 are #634 push-token lifecycle
+    design/protection/API-foundation checkpoints, and
+    `feature/sync-operation-failed-notification-369-20260702` is one narrow
+    `sync.operation_failed` implementation slice. None of these is full Day 1
+    notification event-family acceptance.
 - Last verified repo/report references:
   - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
   - Issue #369 PR #626 progress comment:
     `https://github.com/tommytang213/Settleora/issues/369#issuecomment-4844221960`
+  - Branch report:
+    `/workspace/logs/settleora-codex-report-20260702-0112-sync-operation-failed-notification-369.md`
 
 ### Issue #403 - Day 1 email, push, provider, preference, delivery-state split
 
