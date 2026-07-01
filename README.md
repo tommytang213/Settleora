@@ -66,6 +66,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Notification event taxonomy](docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md)
 - [Day 1 notification event coverage review](docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md)
 - [Notification target reference gap review](docs/architecture/NOTIFICATION_TARGET_REFERENCE_GAP_REVIEW.md)
+- [Settlement residual review notification source policy](docs/architecture/SETTLEMENT_RESIDUAL_REVIEW_NOTIFICATION_SOURCE_POLICY.md)
 - [OCR notification source-state review](docs/architecture/OCR_NOTIFICATION_SOURCE_STATE_REVIEW.md)
 - [OCR needs-review notification source policy](docs/architecture/OCR_NEEDS_REVIEW_NOTIFICATION_SOURCE_POLICY.md)
 - [SMTP email provider policy](docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md)

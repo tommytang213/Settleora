@@ -199,6 +199,8 @@ Representative event types:
 - `settlement.request_created`
 - `settlement.payment_marked_paid`
 - `settlement.payment_partially_paid`
+- Future-only pending residual handoff, if implemented:
+  `settlement.residual_review_needed`
 - `settlement.payment_confirmed`
 - `settlement.request_disputed`
 - `settlement.payment_disputed`
@@ -209,7 +211,8 @@ Representative event types:
 Owning domain: settlement request/payment/proof services.
 
 Purpose: notify debtors and creditors about settlement requests, marked-paid
-claims, confirmations, disputes, and proof attachment activity.
+claims, confirmations, disputes, residual review handoffs where separately
+approved, and proof attachment activity.
 
 Safe IDs: settlement request ID, settlement payment ID, group ID, related bill ID
 only where already visible, recipient profile ID, actor profile ID when safe,
@@ -240,6 +243,15 @@ bounded settlement request/payment IDs and route-like action URLs; payment/proof
 resources reauthorize on open; proof file IDs never expose storage internals;
 read/archive does not mutate settlement state; and optional channel snippets
 exclude payment details.
+
+Residual-review source policy: current `settlement.payment_partially_paid`
+remains a payment-claim/request-status notice, not residual-review acceptance.
+Future pending receiver-confirmation residual notifications should use a
+dedicated event such as `settlement.residual_review_needed` only after the
+source-policy and runtime gates in
+[Settlement residual review notification source policy](SETTLEMENT_RESIDUAL_REVIEW_NOTIFICATION_SOURCE_POLICY.md)
+are satisfied. Broader mismatch/review events remain future-only until
+settlement review states exist.
 
 ### Recurring Bills
 
