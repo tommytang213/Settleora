@@ -294,15 +294,20 @@ remain the source of truth.
 
 ### Issue #633 - Notification delivery-state persistence and worker foundation
 
-- GitHub state/project status: issue `OPEN`; Project status
-  `Needs Architecture Review`, `Initial MD` `2`, `Man-days Remaining` `2`,
-  `Manual Gate` `Yes`, and `Validation Class` `openapi-client` by
-  GitHub/Project readback on 2026-07-01. PR #636, PR #639, and PR #642 are
-  merged, but #633 remains open because provider runtime, hosted worker
-  activation, admin policy, OpenAPI/readout, UI/deep-link work, remaining
-  event-family runtime, and provider/deployment gates remain separate work.
+- GitHub state/project status: issue `OPEN` before this closure PR by
+  GitHub readback on 2026-07-01; close target after this PR merges is issue
+  `CLOSED`, Project status `Merged`, `Progress %` `100`,
+  `Man-days Remaining` `0`, and `Actual Done Date` `2026-07-01`.
+  Project readback before this closure PR showed status
+  `Needs Architecture Review`. PR #636, PR #639, PR #642, and PR #643 are
+  merged, and #633's own close rule is now satisfied for the reviewed and
+  validated delivery-state persistence/worker foundation scope. This closure
+  does not complete provider runtime, hosted worker activation, admin policy,
+  OpenAPI/readout, UI/deep-link work, remaining event-family runtime, or
+  provider/deployment gates.
 - Last verified at main SHA:
-  `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`.
+  `b669afc095f2fceec110813b58904fd1a367a415` before this closure PR.
+  This closure PR should be recorded as the next verified main SHA after merge.
 - Completed PRs/slices:
   - PR #636, reviewed source head
     `bed8689325fc76dcf071970256df1da4f7ebe615`, merge SHA
@@ -317,7 +322,11 @@ remain the source of truth.
   - PR #642 / issue #641, reviewed source head
     `e65ad69f7ecfc28f4d56d844e2d1a2c8ca927d69`, merge SHA
     `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`: completed the approved
-    provider-neutral worker/outbox processing foundation slice only.
+    provider-neutral worker/outbox processing foundation slice.
+  - PR #643, reviewed source head
+    `f18bbc5e6c1dd7dfc68ffb361e118b8164c9ca88`, merge SHA
+    `b669afc095f2fceec110813b58904fd1a367a415`: recorded the #641/#633
+    ledger checkpoint before #633 closure.
 - Completed scope:
   - Added
     `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`.
@@ -342,6 +351,14 @@ remain the source of truth.
     boundaries over `notification_delivery_attempts`, with retry/backoff,
     idempotent safe no-op handling, bounded pre-provider transitions, and no
     hosted runtime activation.
+  - Added safe metadata only: no raw provider payload, SMTP credential, push
+    credential, raw device token, storage path, object key, signed URL, local
+    path, raw OCR/receipt text, payment detail, private note, hidden bill
+    detail, or unrelated sensitive field.
+  - Validated that the persistence and worker/outbox foundations do not create
+    fake provider success, do not mutate source business state, do not mutate
+    in-app read/archive state, have no provider dependency, do not change
+    OpenAPI/generated clients, and use additive migrations only.
 - Explicitly not complete:
   - No provider runtime, SMTP runtime under #632, push runtime/device-token
     storage under #634, or admin/global policy API/readout under #635.
@@ -353,24 +370,30 @@ remain the source of truth.
   - No mobile, web, admin UI, deep-link, or #371 work.
   - No provider secrets, environment, deployment, auth/session/security
     runtime, or bypass policy changes.
+  - No external delivery-state API/readout, OpenAPI contract, generated-client
+    exposure, hosted runtime activation, UI/deep links, or source-state event
+    families.
 - Remaining related work:
   - Future SMTP and push provider runtime, provider adapters, provider-result
     success/failure classification, and hosted runtime activation remain
     separate gated work and must not be inferred from #641.
   - Any external delivery-state API/readout requires separate
     OpenAPI/generated-client gates.
-  - #403 remains open because #632/#633/#634/#635 implementation work remains
-    open/gated.
-  - #369 remains open because #636/#638 are provider/delivery foundation
-    slices, not event-family runtime acceptance.
+  - #403 remains open because provider runtime, server-side preference/runtime
+    resolution beyond foundations, admin policy/readout, deep links, SMTP,
+    push/device-token, and remaining notification work remain gated.
+  - #369 remains open because #633 closure is provider-neutral
+    delivery-state foundation only, not full Day 1 notification event-family
+    acceptance.
   - #368 remains open as the notification epic.
   - #371 remains open and Figma/reference-gated.
   - #632/#634/#635 remain separate gated issues for SMTP runtime, push/device
     token/runtime, and admin/global policy API/readout.
+  - #638/#641/#629 remain closed/Merged as completed foundations.
 - Close/keep-open recommendation:
-  - Keep #633 open. PR #642 completes #641 only and must not be treated as
-    SMTP, push, device-token, admin policy, OpenAPI/readout, UI/deep-link,
-    hosted runtime activation, or provider runtime completion.
+  - Close #633 as complete for delivery-state persistence/worker foundation
+    only after this ledger closure PR merges.
+  - Do not treat #633 closure as provider/runtime/admin/UI completion.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
   - PR #636:
@@ -379,6 +402,8 @@ remain the source of truth.
     `https://github.com/tommytang213/Settleora/pull/639`
   - PR #642:
     `https://github.com/tommytang213/Settleora/pull/642`
+  - PR #643:
+    `https://github.com/tommytang213/Settleora/pull/643`
   - Issue #633 merge checkpoint comment:
     `https://github.com/tommytang213/Settleora/issues/633#issuecomment-4846071136`
   - Reports:
@@ -389,6 +414,8 @@ remain the source of truth.
     `/workspace/logs/settleora-codex-report-20260701-1325-notification-delivery-attempt-persistence-foundation-638-pr-merge.md`
     and
     `/workspace/logs/settleora-codex-report-20260701-1444-notification-delivery-worker-outbox-foundation-641-pr-merge.md`
+    and
+    `/workspace/logs/settleora-codex-report-20260701-1512-issue-progress-ledger-641-633-checkpoint.md`
 
 ### Issue #369 - Complete Day 1 in-app notification event coverage
 
@@ -403,8 +430,13 @@ remain the source of truth.
   `Manual Gate` `Yes`. GitHub issue #368 remains `OPEN` by readback on
   2026-07-01.
 - Last verified at main SHA:
-  `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`.
+  `b669afc095f2fceec110813b58904fd1a367a415` before this closure PR.
 - Completed child slices now recorded:
+  - #633 is ready to close for its own provider-neutral delivery-state
+    persistence/worker foundation after PR #636 architecture/design, PR
+    #639/#638 persistence/service foundation, PR #642/#641 worker/outbox
+    foundation, and PR #643 ledger checkpoint. This does not complete full
+    Day 1 notification event-family acceptance.
   - PR #642 / #641 completed only the provider-neutral worker/outbox
     foundation over `notification_delivery_attempts`. It did not add SMTP
     runtime, push runtime, provider adapters, device-token APIs/storage,
@@ -443,7 +475,8 @@ remain the source of truth.
   - Push/email provider delivery, provider workers, digests, delivery receipts,
     background delivery, admin/global policy, Day 1 notification acceptance,
     production readiness, release readiness, manual UI retest, and manual code
-    review are not completed by #626, #630, #636, #639, or #642.
+    review are not completed by #626, #630, #636, #639, #642, #643, or this
+    #633 closure checkpoint.
 - Future gates requiring explicit approval:
   - #371 Figma/reference-gated notification deep links/mobile UI.
   - Auth/session/security policy before security-impactful notifications.
@@ -454,7 +487,8 @@ remain the source of truth.
     runtime slice, PR #630/#629 is one internal foundation slice, PR #636/#633
     is one architecture slice, and PR #639/#638 is one provider-neutral
     persistence/service foundation slice, and PR #642/#641 is one
-    provider-neutral worker/outbox foundation slice; none is full Day 1
+    provider-neutral worker/outbox foundation slice. #633 closure records the
+    delivery-state foundation as complete, but none of these is full Day 1
     notification event-family acceptance.
 - Last verified repo/report references:
   - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
@@ -469,7 +503,7 @@ remain the source of truth.
   2026-06-30 after PR #630. GitHub issue remains `OPEN` and Project status
   remains `Needs Figma / Reference` by readback on 2026-07-01 after PR #642.
 - Last verified at main SHA:
-  `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`.
+  `b669afc095f2fceec110813b58904fd1a367a415` before this closure PR.
 - Completed docs/control child slices now recorded:
   - #448 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
     `Man-days Remaining` `0`, linked PR #493 merged on 2026-06-24. It
@@ -506,12 +540,14 @@ remain the source of truth.
     external-channel decisions. It did not add worker/outbox processing, SMTP
     runtime, push runtime, provider adapters, device-token APIs/storage,
     admin/global policy, OpenAPI/readout, UI, or deep links.
-  - #633 / PR #636 completed only the delivery-state persistence and worker
-    foundation architecture review: provider-neutral state vocabulary,
-    redaction rules, API/domain authority boundaries, future persistence model,
-    and future implementation split recommendations. It did not implement
-    schema, migrations, delivery workers, queues, provider runtime, OpenAPI,
-    generated clients, UI, secrets, deployment, or admin exposure.
+  - #633 is ready to close for its own provider-neutral delivery-state
+    persistence/worker foundation after PR #636 architecture/design, PR
+    #639/#638 persistence/service foundation, PR #642/#641 worker/outbox
+    foundation, and PR #643 ledger checkpoint. It did not implement provider
+    runtime, SMTP runtime, push runtime/device-token storage, admin/global
+    policy, external delivery-state API/readout, OpenAPI/generated-client
+    exposure, UI/deep links, hosted runtime activation, provider secrets,
+    deployment, or remaining event-family source-state work.
   - #629 / PR #630 completed only the internal notification
     decision-envelope foundation: provider-free resolver, bounded
     `in_app`/`email`/`mobile_push` channel vocabulary, bounded decision/reason
@@ -553,6 +589,10 @@ remain the source of truth.
     adapter, SMTP sending, push sending, device-token API/storage, deployment,
     environment, or secret behavior. Current in-app unread/read/archive state
     is separate and must not be treated as provider delivery truth.
+  - #633 closure does not complete #403. It closes only the delivery-state
+    persistence/worker foundation sub-scope; provider runtime, preference
+    runtime beyond foundations, admin/readout, SMTP, push/device-token, UI, and
+    remaining notification work stay open/gated.
   - Any external delivery-state API/readout requires a separate
     OpenAPI/generated-client gate.
   - Admin/global notification policy APIs and admin UI are not implemented.
@@ -573,9 +613,8 @@ remain the source of truth.
     settlement mismatch/residual/review, and remaining sync event families.
 - Close/keep-open recommendation:
   - Keep #403 open as a parent/split tracker. The original docs/control
-    children #448-#452, the internal #629 foundation, the #633 architecture
-    review, the #638 provider-neutral persistence/service foundation, and the
-    #641 provider-neutral worker/outbox foundation are complete, but provider
+    children #448-#452, the internal #629 foundation, and the #633
+    delivery-state persistence/worker foundation are complete, but provider
     runtime, hosted runtime activation, server-side preference resolution
     beyond the foundation, admin policy, device-token lifecycle, and #371
     implementation remain separate work and should be split into focused
