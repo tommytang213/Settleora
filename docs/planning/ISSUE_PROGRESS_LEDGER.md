@@ -516,6 +516,94 @@ remain the source of truth.
     and
     `/workspace/logs/settleora-codex-report-20260701-1512-issue-progress-ledger-641-633-checkpoint.md`
 
+### Issue #634 - Mobile push device-token API and provider-neutral delivery runtime
+
+- GitHub state/project status: issue `OPEN`; Project status `Blocked` by
+  GitHub/Project readback on 2026-07-01 after PR #647. A1 design is complete
+  only; #634 implementation slices remain blocked/gated and remaining MD
+  should not be reduced to `0`.
+- Last verified at main SHA:
+  `7898d8f75008474a6bc1aff6d0a02552291f2bc4`.
+- Completed PRs/slices:
+  - PR #647, reviewed source head
+    `837e51ccad71f79762ddd6b2b4035145d8497469`, merge SHA
+    `7898d8f75008474a6bc1aff6d0a02552291f2bc4`: completed the #634 A1
+    push token lifecycle architecture/contract design checkpoint only.
+- Completed A1 design scope:
+  - Future current-user push token register/replace, revoke current token,
+    revoke current-session tokens, revoke all current-user tokens, optional
+    safe readout, token rotation, and stale-cleanup endpoint shapes.
+  - Idempotent duplicate registration behavior, token-conflict posture,
+    authenticated session/profile binding, rate-limiting posture, and safe
+    error vocabulary.
+  - Later token persistence fields for user/profile/session/device
+    association, platform/provider, token fingerprint, protected token
+    secret/ciphertext, lifecycle timestamps, revocation/stale/failure
+    metadata, provider feedback category, unique constraints, idempotency keys,
+    retention, and cleanup.
+  - Token protection policy with no plaintext normal read paths, no raw token
+    exposure, a purpose-bound keyed fingerprint, and a protected server
+    boundary for raw provider send.
+  - Privacy-safe push payload exclusions and the rule that notification opens
+    must re-fetch linked resources through authorized API paths.
+  - Provider-neutral-first runtime posture with no real provider enabled by
+    default.
+  - Mobile/Figma posture, including a required Figma/reference gate for mobile
+    OS permission/settings UI and separate mobile validation/release gates for
+    actual app integration.
+  - #371 notification deep links kept separate and Figma/reference-gated.
+  - Recommended A2/A3/A4 future implementation split: A2 server-side token
+    persistence/API foundation, A3 provider-neutral push delivery runtime, and
+    A4 mobile app registration/permission UX.
+- Explicitly not complete:
+  - No token lifecycle API implementation.
+  - No schema migration, EF model change, or database persistence.
+  - No OpenAPI contract or generated-client implementation.
+  - No mobile app code.
+  - No mobile OS permission/settings UI.
+  - No APNs/FCM secrets, credentials, signing config, release config, provider
+    account setup, or real provider dashboard values.
+  - No provider runtime/sending or hosted runtime activation.
+  - No admin/global policy/readout under #635.
+  - No #371 deep links/navigation.
+  - No public/admin UI.
+  - No auth/session/security-sensitive runtime behavior.
+  - No storage/file-byte behavior.
+  - No money, bill, split, settlement, payment, recurring, sync, OCR, import,
+    export, or restore authority changes.
+- Auto-close hygiene:
+  - PR #647 originally auto-closed #634 due to a GitHub keyword phrase in the
+    PR body.
+  - Codex reopened #634 immediately and edited the PR body to remove the
+    accidental auto-close phrase.
+  - Final readback after hygiene: #634 is `OPEN` and Project status `Blocked`;
+    the accidental close must not be read as completion of #634.
+- Remaining related work:
+  - #403 remains open because #634 A1 completed only design, while A2
+    schema/OpenAPI/generated-client, token protection/encryption/sealing,
+    mobile/Figma, APNs/FCM secrets, provider runtime, hosted activation,
+    admin/readout, #371 deep links, recipient/policy/runtime wiring, and
+    remaining notification work remain gated.
+  - #369 remains open because #634 A1 is push-token lifecycle design only, not
+    full Day 1 notification event-family acceptance.
+  - #635, #368, and #371 remain open.
+  - #629, #632, #633, #638, and #641 remain closed/Merged as completed
+    foundations/slices.
+- Close/keep-open recommendation:
+  - Keep #634 open/Blocked. PR #647 completes A1 design only and should not be
+    used as proof that token lifecycle APIs, provider runtime, mobile
+    integration, hosted activation, admin/readout, or deep links are complete.
+- Last verified repo/report references:
+  - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
+  - PR #647:
+    `https://github.com/tommytang213/Settleora/pull/647`
+  - #634 A1 completion comment:
+    `https://github.com/tommytang213/Settleora/issues/634#issuecomment-4853371580`
+  - Reports:
+    `/workspace/logs/settleora-codex-report-20260701-1755-push-device-token-runtime-decision-packet-634.md`
+    and
+    `/workspace/logs/settleora-codex-report-20260701-1802-push-token-lifecycle-architecture-contract-634-a1.md`
+
 ### Issue #369 - Complete Day 1 in-app notification event coverage
 
 - GitHub state/project status: issue `OPEN`; Project status
@@ -523,14 +611,22 @@ remain the source of truth.
   `Man-days Remaining` `2`, `Figma Required` `Yes`, `Manual Gate` `Yes` by
   GraphQL readback on 2026-06-30. GitHub issue remains `OPEN` and Project
   status remains `Needs Architecture Review` by readback on 2026-07-01 after
-  PR #645.
+  PR #647.
 - Parent epic readback: #368 is `OPEN`; Project status
   `Needs Architecture Review`, `Progress %` `33`, `Figma Required` `Yes`,
   `Manual Gate` `Yes`. GitHub issue #368 remains `OPEN` by readback on
   2026-07-01.
 - Last verified at main SHA:
-  `39d1d669cc55988da31d4c5b76800c3f29aa4e83`.
+  `7898d8f75008474a6bc1aff6d0a02552291f2bc4`.
 - Completed child slices now recorded:
+  - #634 / PR #647 completed only the A1 push token lifecycle
+    architecture/contract design checkpoint. It recorded proposed future
+    current-user token register/revoke/rotate/stale-cleanup shapes,
+    token-protection policy, privacy-safe payload boundaries,
+    provider-neutral-first posture, mobile/Figma posture, #371 separation,
+    and A2/A3/A4 split guidance. It did not implement token lifecycle APIs,
+    schema, OpenAPI/generated clients, mobile code, APNs/FCM provider runtime,
+    hosted activation, admin/readout, or full Day 1 notification acceptance.
   - #632 / PR #645 completed only the disabled-by-default SMTP runtime
     foundation. It did not add recipient email-address source/policy, hosted
     runtime activation, deployment/env/secrets setup, admin/global
@@ -580,8 +676,8 @@ remain the source of truth.
   - Push/email provider delivery, provider workers, digests, delivery receipts,
     background delivery, admin/global policy, Day 1 notification acceptance,
     production readiness, release readiness, manual UI retest, and manual code
-    review are not completed by #626, #630, #636, #639, #642, #643, #644, or
-    #645.
+    review are not completed by #626, #630, #636, #639, #642, #643, #644,
+    #645, or #647.
 - Future gates requiring explicit approval:
   - #371 Figma/reference-gated notification deep links/mobile UI.
   - Auth/session/security policy before security-impactful notifications.
@@ -593,9 +689,10 @@ remain the source of truth.
     is one architecture slice, and PR #639/#638 is one provider-neutral
     persistence/service foundation slice, and PR #642/#641 is one
     provider-neutral worker/outbox foundation slice, PR #644 closed #633 for
-    delivery-state persistence/worker foundation, and PR #645/#632 is one
-    disabled-by-default SMTP runtime foundation slice. None of these is full
-    Day 1 notification event-family acceptance.
+    delivery-state persistence/worker foundation, PR #645/#632 is one
+    disabled-by-default SMTP runtime foundation slice, and PR #647/#634 is one
+    push token lifecycle architecture/contract design checkpoint. None of
+    these is full Day 1 notification event-family acceptance.
 - Last verified repo/report references:
   - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
   - Issue #369 PR #626 progress comment:
@@ -607,9 +704,9 @@ remain the source of truth.
   `Needs Figma / Reference`, `Progress %` `80`, `Man-days Remaining` `1`,
   `Figma Required` `Yes`, `Manual Gate` `Yes` by GraphQL readback on
   2026-06-30 after PR #630. GitHub issue remains `OPEN` and Project status
-  remains `Needs Figma / Reference` by readback on 2026-07-01 after PR #645.
+  remains `Needs Figma / Reference` by readback on 2026-07-01 after PR #647.
 - Last verified at main SHA:
-  `39d1d669cc55988da31d4c5b76800c3f29aa4e83`.
+  `7898d8f75008474a6bc1aff6d0a02552291f2bc4`.
 - Completed docs/control child slices now recorded:
   - #448 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
     `Man-days Remaining` `0`, linked PR #493 merged on 2026-06-24. It
@@ -632,7 +729,16 @@ remain the source of truth.
     `Blocking Gate` `None`. The issue comment says it closed the
     UX/reference gate only through repo-tracked Day 1 UX/reference decisions
     and existing domain references.
-- Completed adjacent runtime slices that must not be redone:
+- Completed adjacent design/runtime slices that must not be redone:
+  - #634 / PR #647 completed only the A1 push token lifecycle
+    architecture/contract design checkpoint: proposed future current-user push
+    token register/revoke/rotate/stale-cleanup contract shapes, token
+    persistence field categories, token protection and redaction policy,
+    privacy-safe push payload exclusions, provider-neutral-first posture,
+    mobile/Figma posture, #371 separation, and A2/A3/A4 future split
+    guidance. #634 remains open/Blocked; PR #647 did not implement token
+    lifecycle APIs, schema/OpenAPI/generated clients, mobile code, APNs/FCM
+    provider runtime, hosted activation, admin/readout, or deep links.
   - #632 / PR #645 completed only the approved Option A disabled-by-default
     SMTP runtime foundation: internal SMTP adapter boundary, safe
     disabled/unconfigured outcomes, #629/#638/#641 integration through
@@ -687,12 +793,17 @@ remain the source of truth.
     production deployment/env/secrets setup, admin/readout, OpenAPI/readout,
     UI/configuration surfaces, digests/bulk emails, and security-sensitive
     notification behavior remain separate gated work.
-  - Mobile push runtime is not implemented. A future implementation issue must
-    cover provider-neutral push attempts, authenticated device-token
-    registration/revocation, OS permission states, stale-token cleanup,
-    provider feedback classification, privacy-safe payloads, and multi-device
-    behavior. This is manual-gated for provider/secrets, mobile release
-    configuration, schema, OpenAPI/generated clients, deployment/env, and UI.
+  - Mobile push runtime is not implemented. #634 A1 now documents the
+    recommended token lifecycle architecture/contract posture only. A future
+    A2/A3/A4 implementation split must still cover authenticated
+    device-token registration/revocation APIs, additive schema,
+    OpenAPI/generated clients, token protection/encryption/sealing,
+    provider-neutral push attempts, OS permission states, stale-token cleanup,
+    provider feedback classification, privacy-safe payloads, multi-device
+    behavior, and mobile registration/permission UX. This remains manual-gated
+    for provider/secrets, mobile release configuration, schema,
+    OpenAPI/generated clients, deployment/env, auth/security-sensitive
+    behavior, and UI/Figma.
   - Server-side notification preference resolution is not implemented beyond
     current persisted current-user preference readouts and the internal #629
     decision-envelope foundation. Future work must implement admin/global caps,
@@ -713,6 +824,11 @@ remain the source of truth.
     runtime (#634), admin/global policy/readout (#635), #371 deep links/mobile
     UI, hosted runtime activation, recipient-email source/policy,
     OpenAPI/readout, and remaining notification work stay open/gated.
+  - #634 A1 does not complete #403. It completes only the push token lifecycle
+    design checkpoint; A2 schema/OpenAPI/generated-client, token
+    protection/encryption/sealing, mobile/Figma, APNs/FCM secrets, provider
+    runtime, hosted activation, admin/readout, #371 deep links, and remaining
+    notification work stay open/gated.
   - Any external delivery-state API/readout requires a separate
     OpenAPI/generated-client gate.
   - Admin/global notification policy APIs and admin UI are not implemented.
@@ -736,12 +852,13 @@ remain the source of truth.
 - Close/keep-open recommendation:
   - Keep #403 open as a parent/split tracker. The original docs/control
     children #448-#452, the internal #629 foundation, the #633 delivery-state
-    persistence/worker foundation, and the #632 disabled-by-default SMTP
-    foundation are complete, but push/device-token runtime, hosted runtime
-    activation, recipient-email source/policy, server-side preference
-    resolution beyond the foundation, admin policy, and #371 implementation
-    remain separate work and should be split into focused implementation
-    issues before runtime expansion starts.
+    persistence/worker foundation, the #632 disabled-by-default SMTP
+    foundation, and the #634 A1 push token lifecycle design checkpoint are
+    complete, but push/device-token implementation, hosted runtime activation,
+    recipient-email source/policy, server-side preference resolution beyond
+    the foundation, admin policy, and #371 implementation remain separate work
+    and should be split into focused implementation issues before runtime
+    expansion starts.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md`
   - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
@@ -759,6 +876,10 @@ remain the source of truth.
     `/workspace/logs/settleora-codex-report-20260701-1325-notification-delivery-attempt-persistence-foundation-638-pr-merge.md`
   - Report:
     `/workspace/logs/settleora-codex-report-20260701-1444-notification-delivery-worker-outbox-foundation-641-pr-merge.md`
+  - Report:
+    `/workspace/logs/settleora-codex-report-20260701-1755-push-device-token-runtime-decision-packet-634.md`
+  - Report:
+    `/workspace/logs/settleora-codex-report-20260701-1802-push-token-lifecycle-architecture-contract-634-a1.md`
 
 ### Issue #458 - User web auth/session shell and navigation foundation
 
