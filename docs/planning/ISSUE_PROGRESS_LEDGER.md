@@ -520,9 +520,10 @@ remain the source of truth.
 
 - GitHub state/project status: issue `OPEN`; Project status `Blocked` by
   GitHub/Project readback on 2026-07-01 after PR #650. A1 design, A2
-  token-protection design, and the A2 server-side token lifecycle API
-  foundation are complete. #634 remains open because A3 provider runtime, A4
-  mobile/Figma integration, APNs/FCM/provider setup, hosted activation,
+  token-protection design, the A2 server-side token lifecycle API foundation,
+  and the A3 Option A provider-neutral push runtime foundation branch
+  checkpoint are complete. #634 remains open because real APNs/FCM providers,
+  A4 mobile/Figma integration, APNs/FCM/provider setup, hosted activation,
   admin/readout, #371 deep links, and related notification work remain
   blocked/gated. Remaining MD must not be reduced to `0`.
 - Last verified at main SHA:
@@ -540,7 +541,12 @@ remain the source of truth.
     `c86b95f3e16b40495e23f9c2a8aca008789a4470`, merge SHA
     `1983832614394ed0dd8c8c6d4aab63e512e42b4b`: completed the #634 A2
     Option A server-side push token lifecycle API foundation only.
-- Completed A1/A2 scope:
+  - Branch `feature/push-a3-provider-runtime-634-option-a-20260701`:
+    implements the approved #634 A3 Option A provider-neutral push delivery
+    runtime foundation over the existing #629/#638/#641 notification
+    foundations. This branch is not a real APNs/FCM provider implementation and
+    does not close #634.
+- Completed A1/A2/A3 Option A scope:
   - Future current-user push token register/replace, revoke current token,
     revoke current-session tokens, revoke all current-user tokens, optional
     safe readout, token rotation, and stale-cleanup endpoint shapes.
@@ -584,6 +590,14 @@ remain the source of truth.
     `DELETE /api/v1/me/push-devices/current-session`; OpenAPI contract
     updates; regenerated web/Dart generated clients; and safe lifecycle
     metadata responses only.
+  - A3 Option A adds internal provider-neutral push send boundaries,
+    disabled/unconfigured default provider registration, a privacy-safe
+    provider-neutral payload builder, bounded provider feedback categories,
+    existing `mobile_push` delivery-attempt/outbox integration, no-active-token
+    handling, and protected token unprotect only inside the push send boundary.
+  - A3 Option A maps disabled, unconfigured, and no-active-token outcomes to
+    existing safe non-success delivery-attempt states and never records fake
+    `sent` or `delivered` success.
   - A2 validation covered protection, auth/session binding, dedupe/idempotency,
     revocation, schema/migration, OpenAPI/client validation, no provider
     dependency, and token redaction.
@@ -622,17 +636,18 @@ remain the source of truth.
   - Current-session revocation affects push token bindings only, not auth
     sessions.
 - Explicitly not complete:
-  - No APNs/FCM provider runtime or sending.
+  - No real APNs/FCM provider sending.
   - No APNs/FCM secrets, credentials, signing/release config, provider account
     setup, or deployment/env setup.
   - No mobile app code.
   - No mobile OS permission/settings UI or Figma work.
   - No #371 deep links/navigation.
   - No hosted runtime activation, scheduler, queue consumer, or push sender
-    worker.
+    worker beyond the existing internal outbox processor service boundary.
   - No admin/global policy/readout under #635.
   - No public/admin UI.
-  - No push payload design beyond safe token lifecycle metadata.
+  - No public/admin push payload readout, provider payload persistence, or
+    raw provider request/response storage.
   - No source-business mutation.
   - No auth/session/security bypass behavior.
   - No storage/file-byte behavior outside the approved token-protection
@@ -647,19 +662,21 @@ remain the source of truth.
   - Final readback after hygiene: #634 is `OPEN` and Project status `Blocked`;
     the accidental close must not be read as completion of #634.
 - Remaining related work:
-  - #403 remains open because #634 A2 completed the server-side token lifecycle
-    foundation only, while A3 provider runtime, A4 mobile/Figma, APNs/FCM
-    secrets/provider account setup, hosted activation, admin/readout, #371
-    deep links, recipient/policy/runtime wiring, and remaining notification
-    work remain gated.
-  - #369 remains open because #634 A2 is push token lifecycle foundation only,
-    not full Day 1 notification event-family acceptance.
+  - #403 remains open because #634 A2/A3 Option A completed only the
+    server-side token lifecycle foundation and disabled/unconfigured
+    provider-neutral push runtime foundation, while real APNs/FCM providers,
+    A4 mobile/Figma, APNs/FCM secrets/provider account setup, hosted
+    activation, admin/readout, #371 deep links, recipient/policy/runtime
+    wiring, and remaining notification work remain gated.
+  - #369 remains open because #634 A2/A3 Option A are push token/runtime
+    foundations only, not full Day 1 notification event-family acceptance.
   - #635, #368, and #371 remain open.
   - #629, #632, #633, #638, and #641 remain closed/Merged as completed
     foundations/slices.
 - Close/keep-open recommendation:
-  - Keep #634 open/Blocked. PR #650 completes A2 server-side token lifecycle
-    foundation only. Do not treat #634 as complete, and do not treat #403 as
+  - Keep #634 open/Blocked. A2 plus A3 Option A complete only the server-side
+    token lifecycle foundation and disabled/unconfigured provider-neutral push
+    runtime foundation. Do not treat #634 as complete, and do not treat #403 as
     complete.
 - Last verified repo/report references:
   - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
@@ -684,6 +701,8 @@ remain the source of truth.
     `/workspace/logs/settleora-codex-report-20260701-1951-push-token-a2-api-foundation-634-option-a.md`
     and
     `/workspace/logs/settleora-codex-report-20260701-2032-push-token-a2-api-foundation-634-pr-merge.md`
+    and
+    `/workspace/logs/settleora-codex-report-20260701-2219-push-a3-provider-runtime-634-option-a.md`
 
 ### Issue #369 - Complete Day 1 in-app notification event coverage
 
@@ -711,6 +730,14 @@ remain the source of truth.
     mobile code, APNs/FCM provider runtime or sending, provider secrets,
     hosted activation, admin/readout, #371 deep links, or full Day 1
     notification acceptance.
+  - #634 A3 Option A branch
+    `feature/push-a3-provider-runtime-634-option-a-20260701` adds only the
+    internal disabled/unconfigured provider-neutral push runtime foundation:
+    safe payload builder, `mobile_push` outbox integration, no-active-token
+    handling, bounded provider categories, and no fake `sent`/`delivered`
+    success. It does not add real APNs/FCM sending, mobile UI, hosted
+    activation, admin/readout, #371 deep links, or Day 1 notification
+    acceptance.
   - #632 / PR #645 completed only the disabled-by-default SMTP runtime
     foundation. It did not add recipient email-address source/policy, hosted
     runtime activation, deployment/env/secrets setup, admin/global
@@ -826,6 +853,13 @@ remain the source of truth.
     provider dependency. #634 remains open/Blocked; PR #650 did not implement
     mobile code, APNs/FCM provider runtime or sending, provider secrets, hosted
     activation, admin/readout, #371 deep links, or provider payload behavior.
+    Branch `feature/push-a3-provider-runtime-634-option-a-20260701` adds the
+    A3 Option A internal provider-neutral push runtime foundation:
+    disabled/unconfigured default provider, safe payload builder,
+    `mobile_push` outbox processing integration, no-active-token handling, and
+    protected token unprotect only inside the push send boundary. It still does
+    not implement real APNs/FCM sending, provider secrets, hosted activation,
+    mobile UI, admin/readout, #371 deep links, or full #403 completion.
   - #632 / PR #645 completed only the approved Option A disabled-by-default
     SMTP runtime foundation: internal SMTP adapter boundary, safe
     disabled/unconfigured outcomes, #629/#638/#641 integration through
@@ -880,12 +914,13 @@ remain the source of truth.
     production deployment/env/secrets setup, admin/readout, OpenAPI/readout,
     UI/configuration surfaces, digests/bulk emails, and security-sensitive
     notification behavior remain separate gated work.
-  - Mobile push provider runtime is not implemented. #634 A2 now covers only
-    the server-side token lifecycle foundation. A3/A4 and related follow-ups
-    must still cover provider-neutral push attempts, APNs/FCM provider
-    adapters, OS permission states, stale-token cleanup, provider feedback
-    classification, privacy-safe payloads, multi-device provider behavior, and
-    mobile registration/permission UX. This remains manual-gated for
+  - Mobile push provider runtime is partially implemented only as #634 A3
+    Option A disabled/unconfigured provider-neutral foundation. #634 A2 covers
+    the server-side token lifecycle foundation. Remaining push follow-ups must
+    still cover real APNs/FCM provider adapters, provider secrets/account
+    setup, hosted activation, OS permission/mobile registration UX, stale-token
+    cleanup from real provider feedback, multi-device provider behavior,
+    admin/readout, and #371 deep links. This remains manual-gated for
     provider/secrets, mobile release configuration, deployment/env,
     auth/security-sensitive behavior, and UI/Figma.
   - Server-side notification preference resolution is not implemented beyond
@@ -908,17 +943,19 @@ remain the source of truth.
     runtime (#634), admin/global policy/readout (#635), #371 deep links/mobile
     UI, hosted runtime activation, recipient-email source/policy,
     OpenAPI/readout, and remaining notification work stay open/gated.
-  - #634 A2 does not complete #403. It completes only the server-side token
-    lifecycle foundation; A3 provider runtime, A4 mobile/Figma, APNs/FCM
-    secrets/provider account setup, hosted activation, admin/readout, #371
-    deep links, and remaining notification work stay open/gated.
+  - #634 A2/A3 Option A do not complete #403. They complete only the
+    server-side token lifecycle foundation and disabled/unconfigured
+    provider-neutral push runtime foundation; real APNs/FCM providers, A4
+    mobile/Figma, APNs/FCM secrets/provider account setup, hosted activation,
+    admin/readout, #371 deep links, and remaining notification work stay
+    open/gated.
   - Any external delivery-state API/readout requires a separate
     OpenAPI/generated-client gate.
   - Admin/global notification policy APIs and admin UI are not implemented.
   - Notification deep-link/mobile UI implementation remains #371 and is still
     open/Figma-reference-gated even though #452 closed the UX/reference
     planning gate.
-  - Future push provider runtime, admin/global policy, mobile registration/UI,
+  - Real push provider adapters, admin/global policy, mobile registration/UI,
     deep-link, hosted activation, recipient-email source/policy, and provider
     runtime expansion work remains separate and gated.
 - Future gates requiring explicit approval:
@@ -936,11 +973,12 @@ remain the source of truth.
   - Keep #403 open as a parent/split tracker. The original docs/control
     children #448-#452, the internal #629 foundation, the #633 delivery-state
     persistence/worker foundation, the #632 disabled-by-default SMTP
-    foundation, and the #634 A2 server-side push token lifecycle API
-    foundation are complete, but push provider runtime, hosted runtime
-    activation, mobile integration/UI, recipient-email source/policy,
-    server-side preference resolution beyond the foundation, admin policy, and
-    #371 implementation remain separate work and should be split into focused
+    foundation, the #634 A2 server-side push token lifecycle API foundation,
+    and #634 A3 Option A disabled/unconfigured push runtime foundation are
+    complete, but real push provider adapters, hosted runtime activation,
+    mobile integration/UI, recipient-email source/policy, server-side
+    preference resolution beyond the foundation, admin policy, and #371
+    implementation remain separate work and should be split into focused
     implementation issues before runtime expansion starts.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md`

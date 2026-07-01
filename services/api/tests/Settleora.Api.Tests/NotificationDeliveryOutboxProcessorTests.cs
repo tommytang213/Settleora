@@ -265,21 +265,76 @@ public sealed class NotificationDeliveryOutboxProcessorTests
     }
 
     [Fact]
-    public void OutboxFoundationHasOnlyInternalSmtpProviderRuntimeAndNoPushOrDeviceTokenDependencies()
+    public async Task DisabledUnconfiguredAndNoTokenPushResultsDoNotBecomeFakeSentSuccess()
+    {
+        await using var dbContext = CreateDbContext();
+        var disabledId = await SeedAttemptAsync(
+            dbContext,
+            idempotencyKey: "notification-attempt:push-disabled",
+            channel: NotificationChannels.MobilePush);
+        var unconfiguredId = await SeedAttemptAsync(
+            dbContext,
+            idempotencyKey: "notification-attempt:push-unconfigured",
+            channel: NotificationChannels.MobilePush);
+        var noTokensId = await SeedAttemptAsync(
+            dbContext,
+            idempotencyKey: "notification-attempt:push-no-active-tokens",
+            channel: NotificationChannels.MobilePush);
+
+        var disabledProcessor = CreateProcessor(dbContext, pushNotificationSender: new FakePushNotificationSender(
+            PushNotificationSendResult.DisabledByConfiguration()));
+        var disabled = await disabledProcessor.ProcessAsync(CreateProcessingRequest(disabledId, "worker-a", ProcessingTime));
+
+        var unconfiguredProcessor = CreateProcessor(dbContext, pushNotificationSender: new FakePushNotificationSender(
+            PushNotificationSendResult.ProviderUnconfigured()));
+        var unconfigured = await unconfiguredProcessor.ProcessAsync(CreateProcessingRequest(unconfiguredId, "worker-b", ProcessingTime));
+
+        var noTokensProcessor = CreateProcessor(dbContext, pushNotificationSender: new FakePushNotificationSender(
+            PushNotificationSendResult.NoActiveDeviceTokens()));
+        var noTokens = await noTokensProcessor.ProcessAsync(CreateProcessingRequest(noTokensId, "worker-c", ProcessingTime));
+
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Disabled, disabled.Status);
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Unconfigured, unconfigured.Status);
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Unconfigured, noTokens.Status);
+
+        var attempts = await dbContext.Set<NotificationDeliveryAttempt>()
+            .AsNoTracking()
+            .OrderBy(attempt => attempt.IdempotencyKey)
+            .ToListAsync();
+        Assert.All(attempts, attempt =>
+        {
+            Assert.NotEqual("sent", attempt.Status);
+            Assert.NotEqual("delivered", attempt.Status);
+            Assert.False(NotificationDeliveryAttemptStatuses.IsProviderRuntimeStatus(attempt.Status));
+            Assert.NotNull(attempt.CompletedAtUtc);
+            Assert.True(
+                attempt.RedactedProviderResultCategory is PushNotificationResultCategories.DisabledByConfiguration
+                    or PushNotificationResultCategories.ProviderUnconfigured
+                    or PushNotificationResultCategories.NoActiveTokens,
+                $"Unexpected push result category: {attempt.RedactedProviderResultCategory}");
+        });
+    }
+
+    [Fact]
+    public void OutboxFoundationHasOnlyInternalEmailAndPushProviderRuntimeDependencies()
     {
         AssertConstructorDependencies(
             typeof(EfNotificationDeliveryAttemptLeaseService),
             [typeof(SettleoraDbContext)]);
         AssertConstructorDependencies(
             typeof(NotificationDeliveryOutboxProcessor),
-            [typeof(SettleoraDbContext), typeof(INotificationDeliveryAttemptLeaseService), typeof(ISmtpEmailNotificationSender)]);
+            [
+                typeof(SettleoraDbContext),
+                typeof(INotificationDeliveryAttemptLeaseService),
+                typeof(ISmtpEmailNotificationSender),
+                typeof(IPushNotificationSender)
+            ]);
         Assert.DoesNotContain(
             typeof(NotificationDeliveryOutboxProcessor)
                 .GetConstructors()
                 .SelectMany(candidate => candidate.GetParameters())
                 .Select(parameterInfo => parameterInfo.ParameterType.Name),
-            name => name.Contains("PushProvider", StringComparison.OrdinalIgnoreCase)
-                || name.Contains("DeviceToken", StringComparison.OrdinalIgnoreCase)
+            name => name.Contains("DeviceToken", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("Apns", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("Fcm", StringComparison.OrdinalIgnoreCase));
     }
@@ -311,14 +366,18 @@ public sealed class NotificationDeliveryOutboxProcessorTests
 
     private static INotificationDeliveryOutboxProcessor CreateProcessor(
         SettleoraDbContext dbContext,
-        ISmtpEmailNotificationSender? smtpEmailSender = null)
+        ISmtpEmailNotificationSender? smtpEmailSender = null,
+        IPushNotificationSender? pushNotificationSender = null)
     {
         return new NotificationDeliveryOutboxProcessor(
             dbContext,
             new EfNotificationDeliveryAttemptLeaseService(dbContext),
             smtpEmailSender ?? new FakeSmtpEmailNotificationSender(
                 SmtpEmailNotificationSendResult.FailedTransient(
-                    SmtpEmailNotificationResultCategories.ProviderUnavailable)));
+                    SmtpEmailNotificationResultCategories.ProviderUnavailable)),
+            pushNotificationSender ?? new FakePushNotificationSender(
+                PushNotificationSendResult.FailedTransient(
+                    PushNotificationResultCategories.ProviderUnavailable)));
     }
 
     private static async Task<Guid> SeedAttemptAsync(
@@ -332,7 +391,8 @@ public sealed class NotificationDeliveryOutboxProcessorTests
         Guid? recipientId = null,
         Guid? actorId = null,
         Guid? groupId = null,
-        Guid? inAppNotificationId = null)
+        Guid? inAppNotificationId = null,
+        string channel = NotificationChannels.Email)
     {
         var resolvedRecipientId = recipientId ?? await SeedUserProfileAsync(dbContext, $"Recipient {Guid.NewGuid()}");
         var attemptId = Guid.NewGuid();
@@ -344,7 +404,7 @@ public sealed class NotificationDeliveryOutboxProcessorTests
             ActorUserProfileId = actorId,
             EventType = InAppNotificationEventTypes.BillSubmitted,
             SubjectType = InAppNotificationSubjectTypes.ExpenseBill,
-            Channel = NotificationChannels.Email,
+            Channel = channel,
             Status = status,
             StatusReason = statusReason,
             IdempotencyKey = idempotencyKey,
@@ -417,6 +477,23 @@ public sealed class NotificationDeliveryOutboxProcessorTests
 
         public Task<SmtpEmailNotificationSendResult> SendAsync(
             SmtpEmailNotificationSendRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class FakePushNotificationSender : IPushNotificationSender
+    {
+        private readonly PushNotificationSendResult result;
+
+        public FakePushNotificationSender(PushNotificationSendResult result)
+        {
+            this.result = result;
+        }
+
+        public Task<PushNotificationSendResult> SendAsync(
+            PushNotificationSendRequest request,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(result);

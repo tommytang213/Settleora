@@ -268,8 +268,11 @@ state later, but they cannot assert server push token validity or ownership.
 
 ## Provider And Runtime Boundary
 
-A2 token lifecycle APIs do not approve provider sending. A3 provider runtime
-remains disabled/unconfigured by default until separately approved.
+A2 token lifecycle APIs do not approve provider sending. The current #634 A3
+Option A runtime foundation adds only an internal disabled/unconfigured
+provider-neutral send boundary. Real APNs/FCM sending, provider credentials,
+provider account setup, deployment/env values, mobile release configuration,
+hosted activation, admin/readout, and #371 deep links remain separate gates.
 
 Provider-send policy:
 
@@ -293,6 +296,28 @@ Provider-send policy:
 
 Provider acceptance is not proof the user saw a notification. In-app
 notification state and linked-resource authorization remain separate.
+
+## A3 Option A Token-Read Checkpoint
+
+The current repository includes an internal push send boundary that can read
+active `push_device_tokens` for one recipient and unprotect provider-usable
+token material only inside that send path. The default runtime remains disabled
+or unconfigured and does not call APNs, FCM, or any network provider.
+
+This checkpoint preserves the A2 protection boundary:
+
+- no API response, generated client, public/admin endpoint, log, report, docs
+  example, or test snapshot exposes raw tokens, protected blobs, token
+  fingerprints, device-installation hashes, provider credentials, or raw
+  provider payloads;
+- disabled/default startup does not require provider credentials or push HMAC
+  fingerprint configuration beyond the existing token registration/revocation
+  behavior;
+- disabled, unconfigured, and no-active-token runtime results are non-success
+  outcomes and are never represented as `sent` or `delivered`;
+- push payloads contain generic Settleora copy and opaque safe references only,
+  requiring clients to re-fetch notification details through authorized API
+  paths.
 
 ## Future A2 Stop Conditions
 
@@ -339,7 +364,7 @@ Future #634 implementation remains split:
 | --- | --- | --- |
 | Future A2 Option A | Store protected raw token material plus fingerprint and lifecycle metadata. | Allows later provider-send capability only if an approved protected-storage boundary exists or is implemented behind a separate explicit gate. |
 | Future A2 Option B | Store fingerprint and lifecycle metadata only, with no protected raw token secret. | Safer interim if protection is unavailable; cannot support actual provider send until a later protected-token migration/registration flow. |
-| Future A3 | Provider-neutral push send runtime. | Disabled/unconfigured by default; provider secrets, hosted activation, and APNs/FCM remain separate gates. |
+| A3 Option A | Provider-neutral push send runtime foundation. | Completed as disabled/unconfigured by default; provider secrets, hosted activation, and APNs/FCM remain separate gates. |
 | Future A4 | Mobile registration and permission UX. | Requires mobile/Figma/reference validation, generated-client availability, platform permission review, and separate mobile build/release gates. |
 
 #371 notification deep links remain separate and Figma/reference-gated.

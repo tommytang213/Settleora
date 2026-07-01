@@ -382,10 +382,15 @@ vocabulary. Admin-visible readouts may include the more specific categories
 above only when they do not expose secrets, provider internals, raw device
 tokens, private app identifiers, or sensitive deployment values.
 
-## A1 Provider And Runtime Posture
+## A1/A3 Provider And Runtime Posture
 
 A1 recommends a provider-neutral-first contract and data model with no real
-provider enabled by default.
+provider enabled by default. The current repository also includes the #634 A3
+Option A provider-neutral push runtime foundation: an internal push sender
+boundary, a disabled/unconfigured default provider, privacy-safe payload
+builder, and integration with the existing notification delivery-attempt/outbox
+processor. This A3 foundation is disabled by default and does not implement
+APNs or FCM sending.
 
 Rationale:
 
@@ -404,6 +409,14 @@ Rationale:
 Provider/runtime policy:
 
 - Runtime push sending remains disabled/unconfigured by default.
+- `Notifications:MobilePush:Enabled` defaults to false. Missing push provider
+  configuration does not block unrelated API startup or readiness.
+- The built-in provider performs no network calls, carries no provider
+  credentials, and returns a non-success `provider_unconfigured` outcome when
+  reached.
+- The outbox processor maps disabled, unconfigured, and no-active-token push
+  results to existing non-success delivery-attempt states; it never marks a
+  disabled/unconfigured push attempt as `sent` or `delivered`.
 - No APNs, FCM, Firebase, Expo, OneSignal, provider dashboard value, signing
   key, certificate, team ID, sender ID, app secret, `.env` value, or credential
   belongs in repo files, issue comments, PR bodies, logs, reports, docs
@@ -491,6 +504,35 @@ Default push payload shape should use:
 The app must fetch notification detail and linked business resources through
 authorized API paths after the user opens the notification. Push payloads are
 not authorization and are not source data.
+
+## A3 Option A Implementation Checkpoint
+
+The current repository includes the #634 A3 Option A provider-neutral push
+delivery runtime foundation. It adds only internal API/domain code:
+
+- provider-neutral `IPushNotificationSender` and `IPushNotificationProvider`
+  boundaries;
+- bounded push send request/result and provider feedback categories;
+- disabled/unconfigured default provider with no network calls and no
+  credentials;
+- privacy-safe payload builder with generic Settleora copy and only opaque safe
+  reference IDs;
+- existing delivery-attempt/outbox integration for the `mobile_push` channel;
+- active-token lookup and unprotect/decrypt of provider-usable token material
+  only inside the internal push send boundary.
+
+This checkpoint does not add public/admin readout, OpenAPI changes, generated
+clients, schema migrations, mobile code, mobile OS permission UI, #371 deep
+links, hosted scheduler/worker activation, APNs/FCM SDKs, provider credentials,
+provider account setup, deployment/env changes, or real provider sending.
+
+When disabled by default, push attempts complete as a truthful non-success
+`disabled` result. If explicitly enabled without active push tokens, the runtime
+returns a non-success no-active-token category mapped to `unconfigured` /
+`device_availability_unconfigured`. If the disabled built-in provider is
+reached, it returns `provider_unconfigured`. Future APNs/FCM adapters may report
+provider acceptance, but provider acceptance remains distinct from user
+delivery/read state.
 
 ## Mobile, Figma, And Deep-Link Posture
 
@@ -638,7 +680,7 @@ Recommended future slices:
 | Slice | Scope | Required gates |
 | --- | --- | --- |
 | A2 server-side token persistence/API foundation | Add the authenticated token register/revoke/rotate/stale-cleanup contract, additive schema, protected token storage or fingerprint-only metadata, safe lifecycle service, and generated clients. No provider sending. No mobile UI unless separately approved. | Schema/migration review, OpenAPI contract review, generated-client regeneration, auth/session/security review, [token protection design](PUSH_TOKEN_PROTECTION_DESIGN.md), docs/tests proving no raw token exposure. |
-| A3 provider-neutral push delivery runtime | Add disabled/unconfigured-by-default provider-neutral push sender over #629/#638/#641 foundations, safe payload rendering, provider feedback classification, no fake success, and no source business mutation. | Provider/runtime architecture approval, APNs/FCM provider decision, no secrets in repo/issues/logs, hosted activation gate, provider validation, delivery-state validation. |
+| A3 provider-neutral push delivery runtime | Completed as Option A disabled/unconfigured-by-default internal provider-neutral push sender over #629/#638/#641 foundations, safe payload rendering, provider feedback classification, no fake success, and no source business mutation. | Real APNs/FCM providers, secrets, hosted activation, mobile UI, admin/readout, and #371 deep links remain separate gates. |
 | A4 mobile app registration/permission UX | Add mobile OS permission flow, token registration/revocation calls, safe local app install identifier if approved, user-facing settings/readout, and mobile validation. | Figma/reference, mobile platform permission review, iOS/Android build/release config gate, generated-client availability from A2, mobile validation, #371 separate approval if deep links enter scope. |
 
 Do not create child issues from this document unless a future issue workflow
@@ -659,7 +701,7 @@ planning #634 follow-up work.
 | Schema/OpenAPI/generated clients | Remaining gate | Required for A2; no OpenAPI, generated-client, EF schema, or migration changes are approved by A1. |
 | Mobile/Figma | Remaining gate | Required for mobile permission/settings UI and actual app registration integration. |
 | APNs/FCM secrets/provider accounts | Remaining gate | No secrets or real provider setup are approved. |
-| Provider runtime/hosted activation | Remaining gate | A3 and hosted runtime activation remain separate and disabled/unconfigured by default until approved. |
+| Provider runtime/hosted activation | Partially complete / remaining gate | A3 Option A internal disabled/unconfigured runtime foundation is complete. Real provider adapters and hosted runtime activation remain separate and disabled/unconfigured by default until approved. |
 | Admin/global readout and policy | Remaining gate | #635 remains separate for admin/global notification policy API/readout. |
 | #371 notification deep links | Remaining gate | Remains separate and Figma/reference-gated. |
 | Auth/security-sensitive behavior | Remaining gate | Token registration must use authenticated sessions, but auth/session/security runtime changes require their own review. |

@@ -19,15 +19,18 @@ internal sealed class NotificationDeliveryOutboxProcessor : INotificationDeliver
     private readonly SettleoraDbContext dbContext;
     private readonly INotificationDeliveryAttemptLeaseService leaseService;
     private readonly ISmtpEmailNotificationSender smtpEmailSender;
+    private readonly IPushNotificationSender pushNotificationSender;
 
     public NotificationDeliveryOutboxProcessor(
         SettleoraDbContext dbContext,
         INotificationDeliveryAttemptLeaseService leaseService,
-        ISmtpEmailNotificationSender smtpEmailSender)
+        ISmtpEmailNotificationSender smtpEmailSender,
+        IPushNotificationSender pushNotificationSender)
     {
         this.dbContext = dbContext;
         this.leaseService = leaseService;
         this.smtpEmailSender = smtpEmailSender;
+        this.pushNotificationSender = pushNotificationSender;
     }
 
     public async Task<NotificationDeliveryOutboxProcessingResult> ProcessAsync(
@@ -111,6 +114,23 @@ internal sealed class NotificationDeliveryOutboxProcessor : INotificationDeliver
                 attempt.AttemptCount);
         }
 
+        if (string.Equals(attempt.Channel, NotificationChannels.MobilePush, StringComparison.Ordinal))
+        {
+            var pushResult = await pushNotificationSender.SendAsync(
+                PushNotificationSendRequest.FromDeliveryAttempt(attempt),
+                cancellationToken);
+
+            ApplyPushResult(attempt, pushResult, request.ProcessedAtUtc, request.RetryBackoff);
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            return NotificationDeliveryOutboxProcessingResult.ProcessedAttempt(
+                attempt.Id,
+                attempt.Status,
+                attempt.StatusReason,
+                attempt.NextAttemptAtUtc,
+                attempt.AttemptCount);
+        }
+
         attempt.Status = NotificationDeliveryAttemptStatuses.Queued;
         attempt.NextAttemptAtUtc = request.ProcessedAtUtc.Add(request.RetryBackoff);
         attempt.LeaseOwner = null;
@@ -183,6 +203,63 @@ internal sealed class NotificationDeliveryOutboxProcessor : INotificationDeliver
         {
             attempt.Status = NotificationDeliveryAttemptStatuses.Unconfigured;
             attempt.StatusReason = NotificationChannelDecisionReasons.ProviderUnconfigured;
+            return;
+        }
+
+        attempt.Status = NotificationDeliveryAttemptStatuses.Suppressed;
+        attempt.StatusReason = NotificationChannelDecisionReasons.UnsafeExternalContent;
+    }
+
+    private static void ApplyPushResult(
+        NotificationDeliveryAttempt attempt,
+        PushNotificationSendResult pushResult,
+        DateTimeOffset processedAtUtc,
+        TimeSpan retryBackoff)
+    {
+        attempt.LeaseOwner = null;
+        attempt.LeaseExpiresAtUtc = null;
+        attempt.UpdatedAtUtc = processedAtUtc;
+
+        if (pushResult.Accepted)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Queued;
+            attempt.NextAttemptAtUtc = null;
+            attempt.CompletedAtUtc = processedAtUtc;
+            attempt.RedactedProviderResultCategory = pushResult.Category;
+            return;
+        }
+
+        if (pushResult.Retryable)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Queued;
+            attempt.NextAttemptAtUtc = processedAtUtc.Add(retryBackoff);
+            attempt.CompletedAtUtc = null;
+            attempt.RedactedProviderResultCategory = null;
+            return;
+        }
+
+        attempt.NextAttemptAtUtc = null;
+        attempt.CompletedAtUtc = processedAtUtc;
+        attempt.RedactedProviderResultCategory = pushResult.Category;
+
+        if (pushResult.Disabled)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Disabled;
+            attempt.StatusReason = NotificationChannelDecisionReasons.DisabledByPolicy;
+            return;
+        }
+
+        if (pushResult.Unconfigured)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Unconfigured;
+            attempt.StatusReason = NotificationChannelDecisionReasons.ProviderUnconfigured;
+            return;
+        }
+
+        if (pushResult.NoActiveTokens)
+        {
+            attempt.Status = NotificationDeliveryAttemptStatuses.Unconfigured;
+            attempt.StatusReason = NotificationChannelDecisionReasons.DeviceAvailabilityUnconfigured;
             return;
         }
 
