@@ -24,7 +24,8 @@ info:
     TOTP enrollment, MFA challenges, recovery-code lifecycle, factor metadata,
     credential metadata, and current-account policy readouts,
     recurring bill template and forecast/draft-generation endpoints,
-    guarded current-user in-app notification inbox endpoints,
+    guarded current-user in-app notification inbox endpoints, guarded
+    current-user push device-token lifecycle endpoints,
     personal and group bill attachment attach/list/content/remove endpoints, and settlement balance projection read endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
@@ -8591,6 +8592,117 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/me/push-devices/current-token:
+    put:
+      summary: Register or replace current push device token
+      description: Registers or replaces the authenticated current app install's push provider token. The actor/account/profile/session are derived from the bearer session; request bodies cannot target another user. The raw token is accepted only as write-only request input and is protected server-side. The response returns safe lifecycle metadata only and excludes raw token material, protected blobs, fingerprints, provider payloads, provider credentials, auth/session tokens, storage internals, payment details, OCR text, and unrelated user data. This endpoint does not send push notifications, configure APNs/FCM, activate hosted workers, or create provider delivery attempts.
+      operationId: registerCurrentPushDeviceToken
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushDeviceTokenRegisterRequest"
+      responses:
+        "200":
+          description: Safe current push device-token lifecycle metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushDeviceTokenResponse"
+        "400":
+          description: The submitted push token registration request is invalid or conflicts with another authenticated owner.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: Push token protection or fingerprinting is not configured for this deployment.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    delete:
+      summary: Revoke current push device token
+      description: Idempotently revokes the authenticated current app install's active push token binding when it matches the supplied write-only token and device metadata. The actor/account/profile/session are derived from the bearer session; request bodies cannot target another user. The endpoint never returns raw token material, protected blobs, fingerprints, provider payloads, provider credentials, auth/session tokens, storage internals, payment details, OCR text, or unrelated user data.
+      operationId: revokeCurrentPushDeviceToken
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushDeviceTokenRevokeRequest"
+      responses:
+        "204":
+          description: Current token binding was revoked or was already unavailable for this authenticated session.
+        "400":
+          description: The submitted push token revocation request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: Push token protection or fingerprinting is not configured for this deployment.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/me/push-devices/current-session:
+    delete:
+      summary: Revoke current-session push tokens
+      description: Idempotently revokes active push token bindings owned by the authenticated current session. This endpoint accepts no request body and cannot target another account, profile, session, or device. It does not revoke auth sessions, send push notifications, configure providers, activate workers, or expose raw token material, protected blobs, fingerprints, provider payloads, provider credentials, auth/session tokens, storage internals, payment details, OCR text, or unrelated user data.
+      operationId: revokeCurrentSessionPushDeviceTokens
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "204":
+          description: Current-session push token bindings were revoked or were already unavailable.
+        "400":
+          description: The request included unsupported query fields or body content.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/notifications:
     get:
       summary: List current-user notifications
@@ -12245,6 +12357,161 @@ components:
         syncSecurity:
           type: boolean
           description: Required sync/security readout. If supplied, it must be true.
+    PushDeviceTokenRegisterRequest:
+      type: object
+      description: Write-only current-device push token registration request. The raw token is accepted only for transient protection/fingerprinting and must not be echoed in responses, logs, audit, examples, generated snapshots, or readouts. Client-supplied account, profile, session, user, role, provider credential, or provider payload fields are not accepted.
+      additionalProperties: false
+      required:
+        - platform
+        - provider
+        - token
+        - deviceInstallationId
+        - appBuildEnvironment
+        - permissionState
+      properties:
+        platform:
+          $ref: "#/components/schemas/PushDeviceTokenPlatform"
+        provider:
+          $ref: "#/components/schemas/PushDeviceTokenProvider"
+        token:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 4096
+          description: Raw APNs/FCM provider token accepted only as write-only request input. It is never returned by Settleora APIs.
+        deviceInstallationId:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: App-generated install identifier used only to derive an internal keyed hash. It must not be a hardware identifier, advertising ID, phone number, contact identifier, or cross-app tracker.
+        appBuildEnvironment:
+          $ref: "#/components/schemas/PushDeviceTokenAppBuildEnvironment"
+        permissionState:
+          $ref: "#/components/schemas/PushDeviceTokenPermissionState"
+        clientObservedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Optional client-observed token timestamp for support only. Server receipt time remains authoritative.
+    PushDeviceTokenRevokeRequest:
+      type: object
+      description: Write-only current-device push token revocation request. The token is used only to find the authenticated current-session binding by protected fingerprint and is never returned.
+      additionalProperties: false
+      required:
+        - platform
+        - provider
+        - token
+        - deviceInstallationId
+        - appBuildEnvironment
+      properties:
+        platform:
+          $ref: "#/components/schemas/PushDeviceTokenPlatform"
+        provider:
+          $ref: "#/components/schemas/PushDeviceTokenProvider"
+        token:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 4096
+          description: Raw APNs/FCM provider token accepted only as write-only request input for revocation matching. It is never returned by Settleora APIs.
+        deviceInstallationId:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: App-generated install identifier used only to derive an internal keyed hash for revocation matching.
+        appBuildEnvironment:
+          $ref: "#/components/schemas/PushDeviceTokenAppBuildEnvironment"
+    PushDeviceTokenResponse:
+      type: object
+      description: Safe current-user push token lifecycle response. It excludes raw tokens, protected token blobs, ciphertext, fingerprints, provider payloads, provider credentials, auth/session token material, storage internals, payment details, OCR text, and unrelated user data.
+      additionalProperties: false
+      required:
+        - id
+        - platform
+        - provider
+        - appBuildEnvironment
+        - permissionState
+        - status
+        - lastSeenAtUtc
+        - registeredAtUtc
+        - rotatedAtUtc
+        - revokedAtUtc
+        - staleAtUtc
+        - replacedPriorToken
+      properties:
+        id:
+          type: string
+          format: uuid
+        platform:
+          $ref: "#/components/schemas/PushDeviceTokenPlatform"
+        provider:
+          $ref: "#/components/schemas/PushDeviceTokenProvider"
+        appBuildEnvironment:
+          $ref: "#/components/schemas/PushDeviceTokenAppBuildEnvironment"
+        permissionState:
+          $ref: "#/components/schemas/PushDeviceTokenPermissionState"
+        status:
+          $ref: "#/components/schemas/PushDeviceTokenStatus"
+        lastSeenAtUtc:
+          type: string
+          format: date-time
+        registeredAtUtc:
+          type: string
+          format: date-time
+        rotatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        revokedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        staleAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        replacedPriorToken:
+          type: boolean
+    PushDeviceTokenPlatform:
+      type: string
+      description: Supported mobile push platform values for Day 1 token lifecycle registration.
+      enum:
+        - ios
+        - android
+    PushDeviceTokenProvider:
+      type: string
+      description: Provider family associated with the submitted mobile push token. Provider runtime remains a separate gate.
+      enum:
+        - apns
+        - fcm
+    PushDeviceTokenAppBuildEnvironment:
+      type: string
+      description: App/provider environment bucket used to avoid mixing development, staging, and production provider-token namespaces.
+      enum:
+        - development
+        - staging
+        - production
+    PushDeviceTokenPermissionState:
+      type: string
+      description: Bounded OS permission state reported by the current app install for lifecycle metadata only. It is not authorization.
+      enum:
+        - authorized
+        - provisional
+        - denied
+        - not_determined
+    PushDeviceTokenStatus:
+      type: string
+      description: Safe push token lifecycle status. Provider success/delivery states are intentionally excluded.
+      enum:
+        - active
+        - revoked
+        - superseded
+        - stale
+        - provider_invalid
     NotificationPreferenceResponse:
       type: object
       description: Safe current-user notification preference response. It excludes user profile IDs, auth/session fields, provider state, device tokens, payment details, storage/file internals, OCR text, and unrelated user data.

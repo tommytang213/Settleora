@@ -316,6 +316,21 @@ conditions are true:
   hosted activation, #371 deep links, admin/global policy/readout, public/admin
   exposure, or unrelated business runtime sneaks into A2.
 
+## A2 Option A Implementation Checkpoint
+
+The current repository now includes the #634 A2 Option A server-side token
+lifecycle API foundation. It uses a push-specific server protection boundary
+for stored token material, a configured HMAC fingerprint boundary for
+dedupe/correlation, authenticated current-user registration/revocation
+endpoints, and safe lifecycle response metadata only.
+
+This implementation checkpoint does not add APNs/FCM provider sending,
+provider credentials, hosted workers, mobile app registration UI, #371 deep
+links, admin/global notification policy readout, or provider-success states.
+Raw token material remains write-only request input and is not returned in API
+responses. Protected blobs and fingerprints remain internal persistence
+metadata and are not ordinary readout fields.
+
 ## Future Implementation Options
 
 Future #634 implementation remains split:

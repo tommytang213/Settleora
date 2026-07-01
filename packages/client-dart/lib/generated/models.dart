@@ -1983,6 +1983,222 @@ class NotificationPreferenceCategoryUpdate {
   }
 }
 
+/// Write-only current-device push token registration request. The raw token is accepted only for transient protection/fingerprinting and must not be echoed in responses, logs, audit, examples, generated snapshots, or readouts. Client-supplied account, profile, session, user, role, provider credential, or provider payload fields are not accepted.
+class PushDeviceTokenRegisterRequest {
+  static const Object _unsetClientObservedAtUtc = Object();
+
+  PushDeviceTokenRegisterRequest({
+    required this.platform,
+    required this.provider,
+    required this.token,
+    required this.deviceInstallationId,
+    required this.appBuildEnvironment,
+    required this.permissionState,
+    Object? clientObservedAtUtc = _unsetClientObservedAtUtc,
+  })
+      : clientObservedAtUtc = identical(clientObservedAtUtc, _unsetClientObservedAtUtc) ? null : clientObservedAtUtc as DateTime?,
+        _hasClientObservedAtUtc = !identical(clientObservedAtUtc, _unsetClientObservedAtUtc);
+
+  final PushDeviceTokenPlatform platform;
+  final PushDeviceTokenProvider provider;
+  /// Raw APNs/FCM provider token accepted only as write-only request input. It is never returned by Settleora APIs.
+  final String token;
+  /// App-generated install identifier used only to derive an internal keyed hash. It must not be a hardware identifier, advertising ID, phone number, contact identifier, or cross-app tracker.
+  final String deviceInstallationId;
+  final PushDeviceTokenAppBuildEnvironment appBuildEnvironment;
+  final PushDeviceTokenPermissionState permissionState;
+  /// Optional client-observed token timestamp for support only. Server receipt time remains authoritative.
+  final DateTime? clientObservedAtUtc;
+  final bool _hasClientObservedAtUtc;
+
+  factory PushDeviceTokenRegisterRequest.fromJson(JsonObject json) {
+    return PushDeviceTokenRegisterRequest(
+      platform: json["platform"] as String,
+      provider: json["provider"] as String,
+      token: json["token"] as String,
+      deviceInstallationId: json["deviceInstallationId"] as String,
+      appBuildEnvironment: json["appBuildEnvironment"] as String,
+      permissionState: json["permissionState"] as String,
+      clientObservedAtUtc: json.containsKey("clientObservedAtUtc")
+          ? json["clientObservedAtUtc"] == null ? null : DateTime.parse(json["clientObservedAtUtc"] as String)
+          : _unsetClientObservedAtUtc,
+    );
+  }
+
+  JsonObject toJson() {
+    final clientObservedAtUtcJsonValue = clientObservedAtUtc;
+
+    return {
+      "platform": platform,
+      "provider": provider,
+      "token": token,
+      "deviceInstallationId": deviceInstallationId,
+      "appBuildEnvironment": appBuildEnvironment,
+      "permissionState": permissionState,
+      if (_hasClientObservedAtUtc) "clientObservedAtUtc": clientObservedAtUtcJsonValue == null ? null : clientObservedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Write-only current-device push token revocation request. The token is used only to find the authenticated current-session binding by protected fingerprint and is never returned.
+class PushDeviceTokenRevokeRequest {
+  const PushDeviceTokenRevokeRequest({
+    required this.platform,
+    required this.provider,
+    required this.token,
+    required this.deviceInstallationId,
+    required this.appBuildEnvironment,
+  });
+
+  final PushDeviceTokenPlatform platform;
+  final PushDeviceTokenProvider provider;
+  /// Raw APNs/FCM provider token accepted only as write-only request input for revocation matching. It is never returned by Settleora APIs.
+  final String token;
+  /// App-generated install identifier used only to derive an internal keyed hash for revocation matching.
+  final String deviceInstallationId;
+  final PushDeviceTokenAppBuildEnvironment appBuildEnvironment;
+
+  factory PushDeviceTokenRevokeRequest.fromJson(JsonObject json) {
+    return PushDeviceTokenRevokeRequest(
+      platform: json["platform"] as String,
+      provider: json["provider"] as String,
+      token: json["token"] as String,
+      deviceInstallationId: json["deviceInstallationId"] as String,
+      appBuildEnvironment: json["appBuildEnvironment"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "platform": platform,
+      "provider": provider,
+      "token": token,
+      "deviceInstallationId": deviceInstallationId,
+      "appBuildEnvironment": appBuildEnvironment,
+    };
+  }
+}
+
+/// Safe current-user push token lifecycle response. It excludes raw tokens, protected token blobs, ciphertext, fingerprints, provider payloads, provider credentials, auth/session token material, storage internals, payment details, OCR text, and unrelated user data.
+class PushDeviceTokenResponse {
+  const PushDeviceTokenResponse({
+    required this.id,
+    required this.platform,
+    required this.provider,
+    required this.appBuildEnvironment,
+    required this.permissionState,
+    required this.status,
+    required this.lastSeenAtUtc,
+    required this.registeredAtUtc,
+    required this.rotatedAtUtc,
+    required this.revokedAtUtc,
+    required this.staleAtUtc,
+    required this.replacedPriorToken,
+  });
+
+  final String id;
+  final PushDeviceTokenPlatform platform;
+  final PushDeviceTokenProvider provider;
+  final PushDeviceTokenAppBuildEnvironment appBuildEnvironment;
+  final PushDeviceTokenPermissionState permissionState;
+  final PushDeviceTokenStatus status;
+  final DateTime lastSeenAtUtc;
+  final DateTime registeredAtUtc;
+  final DateTime? rotatedAtUtc;
+  final DateTime? revokedAtUtc;
+  final DateTime? staleAtUtc;
+  final bool replacedPriorToken;
+
+  factory PushDeviceTokenResponse.fromJson(JsonObject json) {
+    return PushDeviceTokenResponse(
+      id: json["id"] as String,
+      platform: json["platform"] as String,
+      provider: json["provider"] as String,
+      appBuildEnvironment: json["appBuildEnvironment"] as String,
+      permissionState: json["permissionState"] as String,
+      status: json["status"] as String,
+      lastSeenAtUtc: DateTime.parse(json["lastSeenAtUtc"] as String),
+      registeredAtUtc: DateTime.parse(json["registeredAtUtc"] as String),
+      rotatedAtUtc: json["rotatedAtUtc"] == null ? null : DateTime.parse(json["rotatedAtUtc"] as String),
+      revokedAtUtc: json["revokedAtUtc"] == null ? null : DateTime.parse(json["revokedAtUtc"] as String),
+      staleAtUtc: json["staleAtUtc"] == null ? null : DateTime.parse(json["staleAtUtc"] as String),
+      replacedPriorToken: json["replacedPriorToken"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final rotatedAtUtcJsonValue = rotatedAtUtc;
+    final revokedAtUtcJsonValue = revokedAtUtc;
+    final staleAtUtcJsonValue = staleAtUtc;
+
+    return {
+      "id": id,
+      "platform": platform,
+      "provider": provider,
+      "appBuildEnvironment": appBuildEnvironment,
+      "permissionState": permissionState,
+      "status": status,
+      "lastSeenAtUtc": lastSeenAtUtc.toUtc().toIso8601String(),
+      "registeredAtUtc": registeredAtUtc.toUtc().toIso8601String(),
+      "rotatedAtUtc": rotatedAtUtcJsonValue == null ? null : rotatedAtUtcJsonValue.toUtc().toIso8601String(),
+      "revokedAtUtc": revokedAtUtcJsonValue == null ? null : revokedAtUtcJsonValue.toUtc().toIso8601String(),
+      "staleAtUtc": staleAtUtcJsonValue == null ? null : staleAtUtcJsonValue.toUtc().toIso8601String(),
+      "replacedPriorToken": replacedPriorToken,
+    };
+  }
+}
+
+/// Supported mobile push platform values for Day 1 token lifecycle registration.
+typedef PushDeviceTokenPlatform = String;
+class PushDeviceTokenPlatformValues {
+  const PushDeviceTokenPlatformValues._();
+  static const PushDeviceTokenPlatform ios = "ios";
+  static const PushDeviceTokenPlatform android = "android";
+  static const Set<PushDeviceTokenPlatform> values = {ios, android};
+}
+
+/// Provider family associated with the submitted mobile push token. Provider runtime remains a separate gate.
+typedef PushDeviceTokenProvider = String;
+class PushDeviceTokenProviderValues {
+  const PushDeviceTokenProviderValues._();
+  static const PushDeviceTokenProvider apns = "apns";
+  static const PushDeviceTokenProvider fcm = "fcm";
+  static const Set<PushDeviceTokenProvider> values = {apns, fcm};
+}
+
+/// App/provider environment bucket used to avoid mixing development, staging, and production provider-token namespaces.
+typedef PushDeviceTokenAppBuildEnvironment = String;
+class PushDeviceTokenAppBuildEnvironmentValues {
+  const PushDeviceTokenAppBuildEnvironmentValues._();
+  static const PushDeviceTokenAppBuildEnvironment development = "development";
+  static const PushDeviceTokenAppBuildEnvironment staging = "staging";
+  static const PushDeviceTokenAppBuildEnvironment production = "production";
+  static const Set<PushDeviceTokenAppBuildEnvironment> values = {development, staging, production};
+}
+
+/// Bounded OS permission state reported by the current app install for lifecycle metadata only. It is not authorization.
+typedef PushDeviceTokenPermissionState = String;
+class PushDeviceTokenPermissionStateValues {
+  const PushDeviceTokenPermissionStateValues._();
+  static const PushDeviceTokenPermissionState authorized = "authorized";
+  static const PushDeviceTokenPermissionState provisional = "provisional";
+  static const PushDeviceTokenPermissionState denied = "denied";
+  static const PushDeviceTokenPermissionState notDetermined = "not_determined";
+  static const Set<PushDeviceTokenPermissionState> values = {authorized, provisional, denied, notDetermined};
+}
+
+/// Safe push token lifecycle status. Provider success/delivery states are intentionally excluded.
+typedef PushDeviceTokenStatus = String;
+class PushDeviceTokenStatusValues {
+  const PushDeviceTokenStatusValues._();
+  static const PushDeviceTokenStatus active = "active";
+  static const PushDeviceTokenStatus revoked = "revoked";
+  static const PushDeviceTokenStatus superseded = "superseded";
+  static const PushDeviceTokenStatus stale = "stale";
+  static const PushDeviceTokenStatus providerInvalid = "provider_invalid";
+  static const Set<PushDeviceTokenStatus> values = {active, revoked, superseded, stale, providerInvalid};
+}
+
 /// Safe current-user notification preference response. It excludes user profile IDs, auth/session fields, provider state, device tokens, payment details, storage/file internals, OCR text, and unrelated user data.
 class NotificationPreferenceResponse {
   const NotificationPreferenceResponse({

@@ -712,6 +712,88 @@ export interface NotificationPreferenceCategoryUpdate {
 }
 
 /**
+ * Write-only current-device push token registration request. The raw token is accepted only for transient protection/fingerprinting and must not be echoed in responses, logs, audit, examples, generated snapshots, or readouts. Client-supplied account, profile, session, user, role, provider credential, or provider payload fields are not accepted.
+ */
+export interface PushDeviceTokenRegisterRequest {
+  platform: PushDeviceTokenPlatform;
+  provider: PushDeviceTokenProvider;
+  /**
+   * Raw APNs/FCM provider token accepted only as write-only request input. It is never returned by Settleora APIs.
+   */
+  token: string;
+  /**
+   * App-generated install identifier used only to derive an internal keyed hash. It must not be a hardware identifier, advertising ID, phone number, contact identifier, or cross-app tracker.
+   */
+  deviceInstallationId: string;
+  appBuildEnvironment: PushDeviceTokenAppBuildEnvironment;
+  permissionState: PushDeviceTokenPermissionState;
+  /**
+   * Optional client-observed token timestamp for support only. Server receipt time remains authoritative.
+   */
+  clientObservedAtUtc?: string | null;
+}
+
+/**
+ * Write-only current-device push token revocation request. The token is used only to find the authenticated current-session binding by protected fingerprint and is never returned.
+ */
+export interface PushDeviceTokenRevokeRequest {
+  platform: PushDeviceTokenPlatform;
+  provider: PushDeviceTokenProvider;
+  /**
+   * Raw APNs/FCM provider token accepted only as write-only request input for revocation matching. It is never returned by Settleora APIs.
+   */
+  token: string;
+  /**
+   * App-generated install identifier used only to derive an internal keyed hash for revocation matching.
+   */
+  deviceInstallationId: string;
+  appBuildEnvironment: PushDeviceTokenAppBuildEnvironment;
+}
+
+/**
+ * Safe current-user push token lifecycle response. It excludes raw tokens, protected token blobs, ciphertext, fingerprints, provider payloads, provider credentials, auth/session token material, storage internals, payment details, OCR text, and unrelated user data.
+ */
+export interface PushDeviceTokenResponse {
+  id: string;
+  platform: PushDeviceTokenPlatform;
+  provider: PushDeviceTokenProvider;
+  appBuildEnvironment: PushDeviceTokenAppBuildEnvironment;
+  permissionState: PushDeviceTokenPermissionState;
+  status: PushDeviceTokenStatus;
+  lastSeenAtUtc: string;
+  registeredAtUtc: string;
+  rotatedAtUtc: string | null;
+  revokedAtUtc: string | null;
+  staleAtUtc: string | null;
+  replacedPriorToken: boolean;
+}
+
+/**
+ * Supported mobile push platform values for Day 1 token lifecycle registration.
+ */
+export type PushDeviceTokenPlatform = "ios" | "android";
+
+/**
+ * Provider family associated with the submitted mobile push token. Provider runtime remains a separate gate.
+ */
+export type PushDeviceTokenProvider = "apns" | "fcm";
+
+/**
+ * App/provider environment bucket used to avoid mixing development, staging, and production provider-token namespaces.
+ */
+export type PushDeviceTokenAppBuildEnvironment = "development" | "staging" | "production";
+
+/**
+ * Bounded OS permission state reported by the current app install for lifecycle metadata only. It is not authorization.
+ */
+export type PushDeviceTokenPermissionState = "authorized" | "provisional" | "denied" | "not_determined";
+
+/**
+ * Safe push token lifecycle status. Provider success/delivery states are intentionally excluded.
+ */
+export type PushDeviceTokenStatus = "active" | "revoked" | "superseded" | "stale" | "provider_invalid";
+
+/**
  * Safe current-user notification preference response. It excludes user profile IDs, auth/session fields, provider state, device tokens, payment details, storage/file internals, OCR text, and unrelated user data.
  */
 export interface NotificationPreferenceResponse {
