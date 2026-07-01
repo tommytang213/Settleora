@@ -1698,6 +1698,37 @@ class SettleoraApiClient {
     return ManualIncomeSourceResponse.fromJson(JsonObject.from(payload as Map));
   }
 
+  Future<void> revokeCurrentSessionPushDeviceTokens({required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      "/api/v1/me/push-devices/current-session",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
+  Future<PushDeviceTokenResponse> registerCurrentPushDeviceToken(PushDeviceTokenRegisterRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PUT",
+      "/api/v1/me/push-devices/current-token",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return PushDeviceTokenResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<void> revokeCurrentPushDeviceToken(PushDeviceTokenRevokeRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "DELETE",
+      "/api/v1/me/push-devices/current-token",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<InAppNotificationListResponse> listNotifications({InAppNotificationStatus? status, int? limit, DateTime? before, required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

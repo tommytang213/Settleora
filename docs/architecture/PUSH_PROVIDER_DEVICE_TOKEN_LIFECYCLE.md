@@ -704,14 +704,22 @@ resolved, paid, confirmed, reviewed, or acknowledged.
 ## Relationship To Follow-Ups
 
 This document now records the #634 A1 push token lifecycle architecture and
-contract design checkpoint. Earlier text prepared the original push provider
-policy slice; the current #634 A1 additions do not change runtime behavior.
+contract design checkpoint plus the later A2 Option A server-side token
+lifecycle API foundation. Earlier text prepared the original push provider
+policy slice; the A2 foundation adds only authenticated token lifecycle
+registration/revocation, protected token storage, internal fingerprints, and
+safe lifecycle metadata. It still does not add provider sending/runtime,
+APNs/FCM secrets, hosted activation, mobile permission UI, #371 deep links, or
+admin/global notification policy readouts.
 
 - #403 remains the broad notification parent.
 - #629, #632, #633, #638, and #641 are completed foundations only.
 - #635 admin/global notification policy API/readout remains separate.
 - #369 and #368 remain open for remaining Day 1 notification event-family
   runtime/source-state work.
+- #634 A2 Option A server-side token persistence/API foundation is implemented
+  as a protected-storage lifecycle foundation only; provider sending remains
+  separate.
 - #371 notification deep links/mobile UI remains separate and
   Figma/reference-gated.
 

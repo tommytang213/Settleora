@@ -274,7 +274,10 @@ public sealed class NotificationDeliveryOutboxProcessorTests
             typeof(NotificationDeliveryOutboxProcessor),
             [typeof(SettleoraDbContext), typeof(INotificationDeliveryAttemptLeaseService), typeof(ISmtpEmailNotificationSender)]);
         Assert.DoesNotContain(
-            typeof(NotificationDeliveryOutboxProcessor).Assembly.GetTypes().Select(type => type.Name),
+            typeof(NotificationDeliveryOutboxProcessor)
+                .GetConstructors()
+                .SelectMany(candidate => candidate.GetParameters())
+                .Select(parameterInfo => parameterInfo.ParameterType.Name),
             name => name.Contains("PushProvider", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("DeviceToken", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("Apns", StringComparison.OrdinalIgnoreCase)

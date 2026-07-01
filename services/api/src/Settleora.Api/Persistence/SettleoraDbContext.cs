@@ -83,6 +83,18 @@ public sealed class SettleoraDbContext : DbContext
     private const int AuthSecurityPolicySupportModeMaxLength = 32;
     private const int AuthSecurityPolicyEnforcementModeMaxLength = 32;
     private const int AuthSecurityPolicyChangeReasonCategoryMaxLength = 120;
+    private const int PushDeviceTokenPlatformMaxLength = PushDeviceTokenConstraints.PlatformMaxLength;
+    private const int PushDeviceTokenProviderMaxLength = PushDeviceTokenConstraints.ProviderMaxLength;
+    private const int PushDeviceTokenAppBuildEnvironmentMaxLength = PushDeviceTokenConstraints.AppBuildEnvironmentMaxLength;
+    private const int PushDeviceTokenPermissionStateMaxLength = PushDeviceTokenConstraints.PermissionStateMaxLength;
+    private const int PushDeviceTokenStatusMaxLength = PushDeviceTokenConstraints.StatusMaxLength;
+    private const int PushDeviceTokenStatusReasonMaxLength = PushDeviceTokenConstraints.StatusReasonMaxLength;
+    private const int PushDeviceTokenFingerprintMaxLength = PushDeviceTokenConstraints.TokenFingerprintMaxLength;
+    private const int PushDeviceTokenProtectedBlobMaxLength = PushDeviceTokenConstraints.ProtectedTokenBlobMaxLength;
+    private const int PushDeviceTokenProtectionKeyIdMaxLength = PushDeviceTokenConstraints.ProtectionKeyIdMaxLength;
+    private const int PushDeviceTokenProtectionPurposeMaxLength = PushDeviceTokenConstraints.ProtectionPurposeMaxLength;
+    private const int PushDeviceTokenDeviceInstallationHashMaxLength = PushDeviceTokenConstraints.DeviceInstallationHashMaxLength;
+    private const int PushDeviceTokenProviderFeedbackCategoryMaxLength = PushDeviceTokenConstraints.ProviderFeedbackCategoryMaxLength;
     private const int BillCsvImportSessionScopeMaxLength = 16;
     private const int BillCsvImportSessionStatusMaxLength = 32;
     private const int BillCsvImportSessionPayloadDigestMaxLength = 96;
@@ -143,6 +155,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<FileObject>(ConfigureFileObject);
         modelBuilder.Entity<InAppNotification>(ConfigureInAppNotification);
         modelBuilder.Entity<NotificationDeliveryAttempt>(ConfigureNotificationDeliveryAttempt);
+        modelBuilder.Entity<PushDeviceToken>(ConfigurePushDeviceToken);
         modelBuilder.Entity<UserNotificationPreference>(ConfigureUserNotificationPreference);
         modelBuilder.Entity<SyncOperation>(ConfigureSyncOperation);
         modelBuilder.Entity<SyncResourceVersion>(ConfigureSyncResourceVersion);
@@ -293,6 +306,234 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(session => session.GroupId)
             .HasConstraintName("fk_bill_csv_import_sessions_user_groups")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigurePushDeviceToken(EntityTypeBuilder<PushDeviceToken> entity)
+    {
+        entity.ToTable("push_device_tokens", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_platform",
+                "platform IN ('ios', 'android')");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_provider",
+                "provider IN ('apns', 'fcm')");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_app_build_environment",
+                "app_build_environment IN ('development', 'staging', 'production')");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_permission_state",
+                "permission_state IN ('authorized', 'provisional', 'denied', 'not_determined')");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_status",
+                "status IN ('active', 'revoked', 'superseded', 'stale', 'provider_invalid')");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_fingerprint_not_blank",
+                "length(btrim(token_fingerprint)) > 0");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_protected_blob_not_blank",
+                "length(btrim(protected_token_blob)) > 0");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_protection_key_id_not_blank",
+                "length(btrim(protection_key_id)) > 0");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_protection_purpose_not_blank",
+                "length(btrim(protection_purpose)) > 0");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_device_installation_hash_not_blank",
+                "length(btrim(device_installation_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_token_version_positive",
+                "token_version > 0");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_failure_count_non_negative",
+                "failure_count >= 0");
+            table.HasCheckConstraint(
+                "ck_push_device_tokens_provider_feedback_not_blank",
+                "provider_feedback_category IS NULL OR length(btrim(provider_feedback_category)) > 0");
+        });
+
+        entity.HasKey(token => token.Id);
+
+        entity.Property(token => token.Id)
+            .HasColumnName("id");
+
+        entity.Property(token => token.AuthAccountId)
+            .HasColumnName("auth_account_id")
+            .IsRequired();
+
+        entity.Property(token => token.UserProfileId)
+            .HasColumnName("user_profile_id")
+            .IsRequired();
+
+        entity.Property(token => token.AuthSessionId)
+            .HasColumnName("auth_session_id")
+            .IsRequired();
+
+        entity.Property(token => token.DeviceInstallationHash)
+            .HasColumnName("device_installation_hash")
+            .HasMaxLength(PushDeviceTokenDeviceInstallationHashMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.Platform)
+            .HasColumnName("platform")
+            .HasMaxLength(PushDeviceTokenPlatformMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.Provider)
+            .HasColumnName("provider")
+            .HasMaxLength(PushDeviceTokenProviderMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.AppBuildEnvironment)
+            .HasColumnName("app_build_environment")
+            .HasMaxLength(PushDeviceTokenAppBuildEnvironmentMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.TokenFingerprint)
+            .HasColumnName("token_fingerprint")
+            .HasMaxLength(PushDeviceTokenFingerprintMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.ProtectedTokenBlob)
+            .HasColumnName("protected_token_blob")
+            .HasMaxLength(PushDeviceTokenProtectedBlobMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.ProtectionKeyId)
+            .HasColumnName("protection_key_id")
+            .HasMaxLength(PushDeviceTokenProtectionKeyIdMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.ProtectionPurpose)
+            .HasColumnName("protection_purpose")
+            .HasMaxLength(PushDeviceTokenProtectionPurposeMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.TokenVersion)
+            .HasColumnName("token_version")
+            .IsRequired();
+
+        entity.Property(token => token.PermissionState)
+            .HasColumnName("permission_state")
+            .HasMaxLength(PushDeviceTokenPermissionStateMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.Status)
+            .HasColumnName("status")
+            .HasMaxLength(PushDeviceTokenStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(token => token.StatusReason)
+            .HasColumnName("status_reason")
+            .HasMaxLength(PushDeviceTokenStatusReasonMaxLength);
+
+        entity.Property(token => token.LastSeenAtUtc)
+            .HasColumnName("last_seen_at_utc")
+            .IsRequired();
+
+        entity.Property(token => token.RegisteredAtUtc)
+            .HasColumnName("registered_at_utc")
+            .IsRequired();
+
+        entity.Property(token => token.RotatedAtUtc)
+            .HasColumnName("rotated_at_utc");
+
+        entity.Property(token => token.RevokedAtUtc)
+            .HasColumnName("revoked_at_utc");
+
+        entity.Property(token => token.SupersededAtUtc)
+            .HasColumnName("superseded_at_utc");
+
+        entity.Property(token => token.StaleAtUtc)
+            .HasColumnName("stale_at_utc");
+
+        entity.Property(token => token.ProviderFeedbackCategory)
+            .HasColumnName("provider_feedback_category")
+            .HasMaxLength(PushDeviceTokenProviderFeedbackCategoryMaxLength);
+
+        entity.Property(token => token.FailureCount)
+            .HasColumnName("failure_count")
+            .IsRequired();
+
+        entity.Property(token => token.LastFailureAtUtc)
+            .HasColumnName("last_failure_at_utc");
+
+        entity.Property(token => token.ClientObservedAtUtc)
+            .HasColumnName("client_observed_at_utc");
+
+        entity.Property(token => token.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(token => token.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(token => new
+            {
+                token.TokenFingerprint,
+                token.Provider,
+                token.AppBuildEnvironment
+            })
+            .IsUnique()
+            .HasFilter("status = 'active'")
+            .HasDatabaseName("ux_push_device_tokens_active_fingerprint_provider_env");
+
+        entity.HasIndex(token => new
+            {
+                token.UserProfileId,
+                token.Platform,
+                token.Provider,
+                token.DeviceInstallationHash,
+                token.AppBuildEnvironment
+            })
+            .IsUnique()
+            .HasFilter("status = 'active'")
+            .HasDatabaseName("ux_push_device_tokens_active_user_device_provider_env");
+
+        entity.HasIndex(token => new
+            {
+                token.UserProfileId,
+                token.Status,
+                token.LastSeenAtUtc
+            })
+            .HasDatabaseName("ix_push_device_tokens_user_status_last_seen");
+
+        entity.HasIndex(token => new
+            {
+                token.AuthSessionId,
+                token.Status
+            })
+            .HasDatabaseName("ix_push_device_tokens_auth_session_status");
+
+        entity.HasIndex(token => new
+            {
+                token.Status,
+                token.StaleAtUtc
+            })
+            .HasDatabaseName("ix_push_device_tokens_status_stale_at");
+
+        entity.HasIndex(token => token.RevokedAtUtc)
+            .HasDatabaseName("ix_push_device_tokens_revoked_at_utc");
+
+        entity.HasOne(token => token.AuthAccount)
+            .WithMany()
+            .HasForeignKey(token => token.AuthAccountId)
+            .HasConstraintName("fk_push_device_tokens_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(token => token.UserProfile)
+            .WithMany()
+            .HasForeignKey(token => token.UserProfileId)
+            .HasConstraintName("fk_push_device_tokens_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(token => token.AuthSession)
+            .WithMany()
+            .HasForeignKey(token => token.AuthSessionId)
+            .HasConstraintName("fk_push_device_tokens_auth_sessions")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
