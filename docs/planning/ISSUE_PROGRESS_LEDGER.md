@@ -519,15 +519,17 @@ remain the source of truth.
 ### Issue #634 - Mobile push device-token API and provider-neutral delivery runtime
 
 - GitHub state/project status: issue `OPEN`; Project status `Blocked` by
-  GitHub/Project readback on 2026-07-01 after PR #650. A1 design, A2
-  token-protection design, the A2 server-side token lifecycle API foundation,
-  and the A3 Option A provider-neutral push runtime foundation branch
-  checkpoint are complete. #634 remains open because real APNs/FCM providers,
-  A4 mobile/Figma integration, APNs/FCM/provider setup, hosted activation,
-  admin/readout, #371 deep links, and related notification work remain
-  blocked/gated. Remaining MD must not be reduced to `0`.
+  GitHub/Project readback on 2026-07-01 after PR #650 and issue-comment
+  readback on 2026-07-01 after PR #652. A1 design, A2 token-protection
+  design, the A2 server-side token lifecycle API foundation, the A3 Option A
+  provider-neutral push runtime foundation, and the #634 mobile push
+  registration UX/readiness reference gate are complete. #634 remains open
+  because real APNs/FCM providers, Flutter token registration implementation,
+  APNs/FCM/provider setup, hosted activation, admin/readout, #371 deep links,
+  and related notification work remain blocked/gated. Remaining MD must not be
+  reduced to `0`.
 - Last verified at main SHA:
-  `1983832614394ed0dd8c8c6d4aab63e512e42b4b`.
+  `98dc4ab0e6ae7363b0d3638c3d17500c3a26f610`.
 - Completed PRs/slices:
   - PR #647, reviewed source head
     `837e51ccad71f79762ddd6b2b4035145d8497469`, merge SHA
@@ -546,6 +548,14 @@ remain the source of truth.
     runtime foundation over the existing #629/#638/#641 notification
     foundations. This branch is not a real APNs/FCM provider implementation and
     does not close #634.
+  - Branch `docs/mobile-push-registration-ux-design-gate-634-20260702`:
+    records the no-code mobile push registration UX/readiness reference gate in
+    `docs/design/mobile/MOBILE_PUSH_REGISTRATION_UX_REFERENCE.md`. This gate
+    defines permission timing, settings/readout states, token
+    registration/revocation UX, privacy-safe copy, provider/dependency posture,
+    mobile identity/signing readiness, and Figma/reference handoff. It does not
+    implement Flutter UI, generate Figma, change OpenAPI/generated clients, add
+    provider credentials, or close #634.
 - Completed A1/A2/A3 Option A scope:
   - Future current-user push token register/replace, revoke current token,
     revoke current-session tokens, revoke all current-user tokens, optional
@@ -598,6 +608,21 @@ remain the source of truth.
   - A3 Option A maps disabled, unconfigured, and no-active-token outcomes to
     existing safe non-success delivery-attempt states and never records fake
     `sent` or `delivered` success.
+  - Mobile push registration UX/readiness reference gate records that push
+    permission must not be requested on first launch, must require
+    authenticated server-mode context plus clear user intent, must expose
+    local-only/unsupported/disabled/unconfigured/readiness states before OS
+    prompting, must use only the existing authenticated current-user
+    push-device APIs for future token registration/revocation, and must keep
+    push copy generic with authorized re-fetch on open.
+  - The reference gate records that Firebase is not an approved required
+    product dependency unless Tommy explicitly approves it later, and keeps
+    direct APNs + direct FCM and FCM-with-APNs-linkage as future options only.
+  - The reference gate records non-secret mobile identity/signing readiness
+    checks for iOS bundle ID, Android package name, environment split, Apple
+    Developer/App Store Connect readiness, push capability/provisioning,
+    Codemagic/TestFlight/Android signing path, Firebase ownership if later
+    approved, and real-device/manual validation expectations.
   - A2 validation covered protection, auth/session binding, dedupe/idempotency,
     revocation, schema/migration, OpenAPI/client validation, no provider
     dependency, and token redaction.
@@ -640,7 +665,7 @@ remain the source of truth.
   - No APNs/FCM secrets, credentials, signing/release config, provider account
     setup, or deployment/env setup.
   - No mobile app code.
-  - No mobile OS permission/settings UI or Figma work.
+  - No mobile OS permission/settings UI implementation or Figma output.
   - No #371 deep links/navigation.
   - No hosted runtime activation, scheduler, queue consumer, or push sender
     worker beyond the existing internal outbox processor service boundary.
@@ -676,8 +701,9 @@ remain the source of truth.
 - Close/keep-open recommendation:
   - Keep #634 open/Blocked. A2 plus A3 Option A complete only the server-side
     token lifecycle foundation and disabled/unconfigured provider-neutral push
-    runtime foundation. Do not treat #634 as complete, and do not treat #403 as
-    complete.
+    runtime foundation, and the mobile push registration UX/readiness reference
+    is only a no-code gate. Do not treat #634 as complete, and do not treat
+    #403 as complete.
 - Last verified repo/report references:
   - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
   - `docs/architecture/PUSH_TOKEN_PROTECTION_DESIGN.md`
@@ -703,6 +729,8 @@ remain the source of truth.
     `/workspace/logs/settleora-codex-report-20260701-2032-push-token-a2-api-foundation-634-pr-merge.md`
     and
     `/workspace/logs/settleora-codex-report-20260701-2219-push-a3-provider-runtime-634-option-a.md`
+    and
+    `.codex/reports/settleora-codex-report-20260702-0005-mobile-push-registration-ux-design-gate-634.md`
 
 ### Issue #369 - Complete Day 1 in-app notification event coverage
 
