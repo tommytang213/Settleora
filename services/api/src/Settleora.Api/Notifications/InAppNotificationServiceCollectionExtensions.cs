@@ -8,6 +8,8 @@ internal static class InAppNotificationServiceCollectionExtensions
     {
         services.TryAddScoped<IInAppNotificationWriter, EfInAppNotificationWriter>();
         services.TryAddScoped<INotificationDeliveryAttemptRecorder, EfNotificationDeliveryAttemptRecorder>();
+        services.TryAddScoped<INotificationDeliveryAttemptLeaseService, EfNotificationDeliveryAttemptLeaseService>();
+        services.TryAddScoped<INotificationDeliveryOutboxProcessor, NotificationDeliveryOutboxProcessor>();
         services.TryAddSingleton<INotificationDecisionEnvelopeResolver, NotificationDecisionEnvelopeResolver>();
         return services;
     }

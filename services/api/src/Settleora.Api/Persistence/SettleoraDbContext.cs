@@ -1056,6 +1056,12 @@ public sealed class SettleoraDbContext : DbContext
                 "ck_notification_delivery_attempts_source_correlation_not_blank",
                 "source_correlation_id IS NULL OR length(btrim(source_correlation_id)) > 0");
             table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_lease_owner_not_blank",
+                "lease_owner IS NULL OR length(btrim(lease_owner)) > 0");
+            table.HasCheckConstraint(
+                "ck_notification_delivery_attempts_lease_pair",
+                "(lease_owner IS NULL) = (lease_expires_at_utc IS NULL)");
+            table.HasCheckConstraint(
                 "ck_notification_delivery_attempts_attempt_count_non_negative",
                 "attempt_count >= 0");
             table.HasCheckConstraint(
@@ -1121,6 +1127,16 @@ public sealed class SettleoraDbContext : DbContext
         entity.Property(attempt => attempt.AttemptCount)
             .HasColumnName("attempt_count")
             .IsRequired();
+
+        entity.Property(attempt => attempt.LeaseOwner)
+            .HasColumnName("lease_owner")
+            .HasMaxLength(NotificationDeliveryAttemptConstraints.LeaseOwnerMaxLength);
+
+        entity.Property(attempt => attempt.LeaseExpiresAtUtc)
+            .HasColumnName("lease_expires_at_utc");
+
+        entity.Property(attempt => attempt.LastAttemptedAtUtc)
+            .HasColumnName("last_attempted_at_utc");
 
         entity.Property(attempt => attempt.NextAttemptAtUtc)
             .HasColumnName("next_attempt_at_utc");
@@ -1193,6 +1209,14 @@ public sealed class SettleoraDbContext : DbContext
                 attempt.NextAttemptAtUtc
             })
             .HasDatabaseName("ix_notification_delivery_attempts_channel_status_next_attempt");
+
+        entity.HasIndex(attempt => new
+            {
+                attempt.Channel,
+                attempt.Status,
+                attempt.LeaseExpiresAtUtc
+            })
+            .HasDatabaseName("ix_notification_delivery_attempts_channel_status_lease_expires");
 
         entity.HasIndex(attempt => attempt.InAppNotificationId)
             .HasDatabaseName("ix_notification_delivery_attempts_in_app_notification_id");
