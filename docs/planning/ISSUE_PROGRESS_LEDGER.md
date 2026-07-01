@@ -215,16 +215,94 @@ remain the source of truth.
     and
     `/workspace/logs/settleora-codex-report-20260701-1325-notification-delivery-attempt-persistence-foundation-638-pr-merge.md`
 
+### Issue #641 - Notification delivery worker/outbox foundation
+
+- GitHub state/project status: issue `CLOSED`; Project status `Merged`,
+  `Progress %` `100`, `Initial MD` `2`, `Man-days Remaining` `0`,
+  `Actual Done Date` `2026-07-01`, and linked PR #642 by GitHub/Project
+  readback on 2026-07-01.
+- Last verified at main SHA:
+  `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`.
+- Completed PRs/slices:
+  - PR #642, reviewed source head
+    `e65ad69f7ecfc28f4d56d844e2d1a2c8ca927d69`, merge SHA
+    `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`: implemented the
+    approved Option A provider-neutral notification delivery worker/outbox
+    foundation over #638 `notification_delivery_attempts`.
+- Completed scope:
+  - Internal provider-neutral lease service and outbox processor service
+    boundaries.
+  - Lease-owner, lease-expiry, and last-attempt metadata for delivery
+    attempts.
+  - Retry/backoff handling through `next_attempt_at_utc`.
+  - Provider-neutral safe no-op processing for disabled, unconfigured,
+    cancelled, suppressed, expired, and other non-runnable attempts.
+  - Bounded pre-provider state transitions: expired queued attempts transition
+    only to `expired`; unsafe, source-invalid, or missing-recipient queued
+    attempts transition only to `suppressed`.
+  - DI registration for internal/future use only.
+  - Focused tests for schema, lease/claim behavior, retry/backoff,
+    idempotency, safe no-ops, provider/runtime absence, no source/in-app
+    mutation, and sensitive-field exclusions.
+- Migration/schema review:
+  - Additive-only review passed.
+  - `Up` adds nullable `last_attempted_at_utc`, nullable
+    `lease_expires_at_utc`, nullable `lease_owner`, one lease/status index,
+    and two lease consistency check constraints on
+    `notification_delivery_attempts`.
+  - `Down` removes only the new index, constraints, and columns.
+  - No destructive operation against existing business tables/columns.
+  - No raw provider payload, SMTP credential, push credential, device token,
+    storage path, object key, signed URL, local path, raw OCR/receipt text,
+    payment detail, private note, hidden bill detail, or unrelated sensitive
+    schema field was added.
+- Runtime activation review:
+  - No hosted background service, scheduler, queue consumer, RabbitMQ
+    consumer, cron, endpoint, notification-writer hook, provider adapter,
+    SMTP sending, push sending, device-token API/storage, deployment/env
+    behavior, or secret behavior was added.
+- Explicitly not complete:
+  - No SMTP sending/runtime/provider adapter under #632.
+  - No push sending/runtime/provider adapter or device-token API/storage under
+    #634.
+  - No provider secrets, environment, deployment, APNs, FCM, or SMTP
+    credentials.
+  - No real provider-result success states without a separately approved real
+    provider adapter.
+  - No admin/global notification policy API/readout under #635.
+  - No OpenAPI or generated-client changes.
+  - No mobile, web, or admin UI.
+  - No #371 deep links or navigation.
+  - No auth/session/security runtime or bypass policy.
+  - No direct source-business-table mutation by workers.
+  - No storage/file-byte behavior.
+  - No money, bill, split, settlement, payment, recurring, sync, OCR worker,
+    import, export, or restore authority.
+- Close/keep-open recommendation:
+  - Keep #641 closed as complete for the provider-neutral worker/outbox
+    foundation only.
+  - Do not treat #641 or PR #642 as completion of #633 or #403.
+- Last verified repo/report references:
+  - PR #642:
+    `https://github.com/tommytang213/Settleora/pull/642`
+  - Issue #641 completion comment:
+    `https://github.com/tommytang213/Settleora/issues/641#issuecomment-4851348342`
+  - Reports:
+    `/workspace/logs/settleora-codex-report-20260701-1450-notification-delivery-worker-outbox-foundation-641.md`
+    and
+    `/workspace/logs/settleora-codex-report-20260701-1444-notification-delivery-worker-outbox-foundation-641-pr-merge.md`
+
 ### Issue #633 - Notification delivery-state persistence and worker foundation
 
 - GitHub state/project status: issue `OPEN`; Project status
   `Needs Architecture Review`, `Initial MD` `2`, `Man-days Remaining` `2`,
   `Manual Gate` `Yes`, and `Validation Class` `openapi-client` by
-  GitHub/Project readback on 2026-07-01. PR #636 and PR #639 are merged, but
-  #633 remains open because worker/outbox, provider runtime, admin policy,
-  OpenAPI/readout, and UI completion remain separate gated work.
+  GitHub/Project readback on 2026-07-01. PR #636, PR #639, and PR #642 are
+  merged, but #633 remains open because provider runtime, hosted worker
+  activation, admin policy, OpenAPI/readout, UI/deep-link work, remaining
+  event-family runtime, and provider/deployment gates remain separate work.
 - Last verified at main SHA:
-  `de2a7a38fe902c71592fef62d26fab4a4797ca5a`.
+  `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`.
 - Completed PRs/slices:
   - PR #636, reviewed source head
     `bed8689325fc76dcf071970256df1da4f7ebe615`, merge SHA
@@ -236,6 +314,10 @@ remain the source of truth.
     `de2a7a38fe902c71592fef62d26fab4a4797ca5a`: completed the first
     approved provider-neutral delivery-attempt persistence/service foundation
     slice only.
+  - PR #642 / issue #641, reviewed source head
+    `e65ad69f7ecfc28f4d56d844e2d1a2c8ca927d69`, merge SHA
+    `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`: completed the approved
+    provider-neutral worker/outbox processing foundation slice only.
 - Completed scope:
   - Added
     `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`.
@@ -256,17 +338,25 @@ remain the source of truth.
     decisions.
   - Added only bounded pre-provider queued-attempt persistence behavior with
     no fake success and no in-app/source mutation.
+  - Added provider-neutral lease/claim and outbox processor service
+    boundaries over `notification_delivery_attempts`, with retry/backoff,
+    idempotent safe no-op handling, bounded pre-provider transitions, and no
+    hosted runtime activation.
 - Explicitly not complete:
-  - No delivery worker, queue, or outbox runtime.
   - No provider runtime, SMTP runtime under #632, push runtime/device-token
     storage under #634, or admin/global policy API/readout under #635.
+  - No hosted background service, scheduler, queue consumer, RabbitMQ
+    consumer, cron, endpoint, notification-writer hook, provider adapter, SMTP
+    sending, push sending, device-token API/storage, deployment/env behavior,
+    or secret behavior.
   - No OpenAPI contract or generated-client changes.
   - No mobile, web, admin UI, deep-link, or #371 work.
   - No provider secrets, environment, deployment, auth/session/security
     runtime, or bypass policy changes.
 - Remaining related work:
-  - Future worker/outbox processing remains separately scoped and must not be
-    inferred from #638.
+  - Future SMTP and push provider runtime, provider adapters, provider-result
+    success/failure classification, and hosted runtime activation remain
+    separate gated work and must not be inferred from #641.
   - Any external delivery-state API/readout requires separate
     OpenAPI/generated-client gates.
   - #403 remains open because #632/#633/#634/#635 implementation work remains
@@ -278,15 +368,17 @@ remain the source of truth.
   - #632/#634/#635 remain separate gated issues for SMTP runtime, push/device
     token/runtime, and admin/global policy API/readout.
 - Close/keep-open recommendation:
-  - Keep #633 open. PR #639 completes #638 only and must not be treated as
-    worker/outbox, SMTP, push, admin policy, OpenAPI/readout, UI, or provider
-    runtime completion.
+  - Keep #633 open. PR #642 completes #641 only and must not be treated as
+    SMTP, push, device-token, admin policy, OpenAPI/readout, UI/deep-link,
+    hosted runtime activation, or provider runtime completion.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
   - PR #636:
     `https://github.com/tommytang213/Settleora/pull/636`
   - PR #639:
     `https://github.com/tommytang213/Settleora/pull/639`
+  - PR #642:
+    `https://github.com/tommytang213/Settleora/pull/642`
   - Issue #633 merge checkpoint comment:
     `https://github.com/tommytang213/Settleora/issues/633#issuecomment-4846071136`
   - Reports:
@@ -295,6 +387,8 @@ remain the source of truth.
     `/workspace/logs/settleora-codex-report-20260701-0107-notification-delivery-state-worker-architecture-633-pr-merge.md`
     and
     `/workspace/logs/settleora-codex-report-20260701-1325-notification-delivery-attempt-persistence-foundation-638-pr-merge.md`
+    and
+    `/workspace/logs/settleora-codex-report-20260701-1444-notification-delivery-worker-outbox-foundation-641-pr-merge.md`
 
 ### Issue #369 - Complete Day 1 in-app notification event coverage
 
@@ -303,14 +397,19 @@ remain the source of truth.
   `Man-days Remaining` `2`, `Figma Required` `Yes`, `Manual Gate` `Yes` by
   GraphQL readback on 2026-06-30. GitHub issue remains `OPEN` and Project
   status remains `Needs Architecture Review` by readback on 2026-07-01 after
-  PR #639.
+  PR #642.
 - Parent epic readback: #368 is `OPEN`; Project status
   `Needs Architecture Review`, `Progress %` `33`, `Figma Required` `Yes`,
   `Manual Gate` `Yes`. GitHub issue #368 remains `OPEN` by readback on
   2026-07-01.
 - Last verified at main SHA:
-  `de2a7a38fe902c71592fef62d26fab4a4797ca5a`.
+  `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`.
 - Completed child slices now recorded:
+  - PR #642 / #641 completed only the provider-neutral worker/outbox
+    foundation over `notification_delivery_attempts`. It did not add SMTP
+    runtime, push runtime, provider adapters, device-token APIs/storage,
+    admin/global policy, OpenAPI/readout, UI, hosted runtime activation, or
+    deep links.
   - PR #639 / #638 completed only the provider-neutral delivery-attempt
     persistence/service foundation for eligible `email` and `mobile_push`
     decisions. It did not add worker/outbox processing, SMTP runtime, push
@@ -344,7 +443,7 @@ remain the source of truth.
   - Push/email provider delivery, provider workers, digests, delivery receipts,
     background delivery, admin/global policy, Day 1 notification acceptance,
     production readiness, release readiness, manual UI retest, and manual code
-    review are not completed by #626, #630, #636, or #639.
+    review are not completed by #626, #630, #636, #639, or #642.
 - Future gates requiring explicit approval:
   - #371 Figma/reference-gated notification deep links/mobile UI.
   - Auth/session/security policy before security-impactful notifications.
@@ -354,8 +453,9 @@ remain the source of truth.
   - Do not close #369 or mark it `100`. PR #626/#570 is one completed child
     runtime slice, PR #630/#629 is one internal foundation slice, PR #636/#633
     is one architecture slice, and PR #639/#638 is one provider-neutral
-    persistence/service foundation slice; none is full Day 1 notification
-    event-family acceptance.
+    persistence/service foundation slice, and PR #642/#641 is one
+    provider-neutral worker/outbox foundation slice; none is full Day 1
+    notification event-family acceptance.
 - Last verified repo/report references:
   - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
   - Issue #369 PR #626 progress comment:
@@ -367,9 +467,9 @@ remain the source of truth.
   `Needs Figma / Reference`, `Progress %` `80`, `Man-days Remaining` `1`,
   `Figma Required` `Yes`, `Manual Gate` `Yes` by GraphQL readback on
   2026-06-30 after PR #630. GitHub issue remains `OPEN` and Project status
-  remains `Needs Figma / Reference` by readback on 2026-07-01 after PR #639.
+  remains `Needs Figma / Reference` by readback on 2026-07-01 after PR #642.
 - Last verified at main SHA:
-  `de2a7a38fe902c71592fef62d26fab4a4797ca5a`.
+  `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`.
 - Completed docs/control child slices now recorded:
   - #448 is `CLOSED`; Project status `Merged`, `Progress %` `100`,
     `Man-days Remaining` `0`, linked PR #493 merged on 2026-06-24. It
@@ -393,6 +493,14 @@ remain the source of truth.
     UX/reference gate only through repo-tracked Day 1 UX/reference decisions
     and existing domain references.
 - Completed adjacent runtime slices that must not be redone:
+  - #641 / PR #642 completed only the provider-neutral
+    worker/outbox processing foundation over `notification_delivery_attempts`:
+    internal lease service and outbox processor boundaries, lease metadata,
+    retry/backoff handling, idempotent safe no-op behavior, bounded
+    pre-provider state transitions, and focused tests. It did not add hosted
+    runtime activation, SMTP runtime, push runtime, provider adapters,
+    device-token APIs/storage, admin/global policy, OpenAPI/readout, UI, or
+    deep links.
   - #638 / PR #639 completed only the provider-neutral
     `NotificationDeliveryAttempt` persistence/service foundation for eligible
     external-channel decisions. It did not add worker/outbox processing, SMTP
@@ -438,10 +546,13 @@ remain the source of truth.
     group/thread mute, channel capability checks, provider/device readiness,
     required/security-event bypass policy, and runtime wiring before provider
     delivery.
-  - Worker/outbox processing is not implemented. PR #636 documented the safe
-    future architecture, and PR #639 added only provider-neutral attempt
-    persistence/service foundation. Current in-app unread/read/archive state is
-    separate and must not be treated as provider delivery truth.
+  - Hosted worker runtime activation is not implemented. PR #642 added only
+    provider-neutral internal lease/outbox service boundaries and processing
+    rules, without a hosted background service, scheduler, queue consumer,
+    RabbitMQ consumer, cron, endpoint, notification-writer hook, provider
+    adapter, SMTP sending, push sending, device-token API/storage, deployment,
+    environment, or secret behavior. Current in-app unread/read/archive state
+    is separate and must not be treated as provider delivery truth.
   - Any external delivery-state API/readout requires a separate
     OpenAPI/generated-client gate.
   - Admin/global notification policy APIs and admin UI are not implemented.
@@ -463,11 +574,12 @@ remain the source of truth.
 - Close/keep-open recommendation:
   - Keep #403 open as a parent/split tracker. The original docs/control
     children #448-#452, the internal #629 foundation, the #633 architecture
-    review, and the #638 provider-neutral persistence/service foundation are
-    complete, but provider runtime, server-side preference resolution beyond
-    the foundation, worker/outbox processing, admin policy, device-token
-    lifecycle, and #371 implementation remain separate work and should be split
-    into focused implementation issues before any runtime starts.
+    review, the #638 provider-neutral persistence/service foundation, and the
+    #641 provider-neutral worker/outbox foundation are complete, but provider
+    runtime, hosted runtime activation, server-side preference resolution
+    beyond the foundation, admin policy, device-token lifecycle, and #371
+    implementation remain separate work and should be split into focused
+    implementation issues before any runtime starts.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md`
   - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
@@ -483,6 +595,8 @@ remain the source of truth.
     `/workspace/logs/settleora-codex-report-20260701-0107-notification-delivery-state-worker-architecture-633-pr-merge.md`
   - Report:
     `/workspace/logs/settleora-codex-report-20260701-1325-notification-delivery-attempt-persistence-foundation-638-pr-merge.md`
+  - Report:
+    `/workspace/logs/settleora-codex-report-20260701-1444-notification-delivery-worker-outbox-foundation-641-pr-merge.md`
 
 ### Issue #458 - User web auth/session shell and navigation foundation
 
