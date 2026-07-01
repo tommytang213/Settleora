@@ -39,6 +39,12 @@ public sealed class NotificationDeliveryAttempt
 
     public int AttemptCount { get; set; }
 
+    public string? LeaseOwner { get; set; }
+
+    public DateTimeOffset? LeaseExpiresAtUtc { get; set; }
+
+    public DateTimeOffset? LastAttemptedAtUtc { get; set; }
+
     public DateTimeOffset? NextAttemptAtUtc { get; set; }
 
     public DateTimeOffset? ExpiresAtUtc { get; set; }

@@ -25,6 +25,7 @@ public sealed class NotificationDeliveryAttemptSchemaFoundationTests
         Assert.Equal(120, NotificationDeliveryAttemptConstraints.StatusReasonMaxLength);
         Assert.Equal(160, NotificationDeliveryAttemptConstraints.IdempotencyKeyMaxLength);
         Assert.Equal(120, NotificationDeliveryAttemptConstraints.SourceCorrelationIdMaxLength);
+        Assert.Equal(120, NotificationDeliveryAttemptConstraints.LeaseOwnerMaxLength);
         Assert.Equal(120, NotificationDeliveryAttemptConstraints.RedactedProviderResultCategoryMaxLength);
 
         Assert.True(NotificationDeliveryAttemptStatuses.IsSupported(NotificationDeliveryAttemptStatuses.Queued));
@@ -58,6 +59,9 @@ public sealed class NotificationDeliveryAttemptSchemaFoundationTests
         AssertColumn(entity, storeObject, "IdempotencyKey", "idempotency_key", isNullable: false, NotificationDeliveryAttemptConstraints.IdempotencyKeyMaxLength);
         AssertColumn(entity, storeObject, "SourceCorrelationId", "source_correlation_id", isNullable: true, NotificationDeliveryAttemptConstraints.SourceCorrelationIdMaxLength);
         AssertColumn(entity, storeObject, "AttemptCount", "attempt_count", isNullable: false);
+        AssertColumn(entity, storeObject, "LeaseOwner", "lease_owner", isNullable: true, NotificationDeliveryAttemptConstraints.LeaseOwnerMaxLength);
+        AssertColumn(entity, storeObject, "LeaseExpiresAtUtc", "lease_expires_at_utc", isNullable: true);
+        AssertColumn(entity, storeObject, "LastAttemptedAtUtc", "last_attempted_at_utc", isNullable: true);
         AssertColumn(entity, storeObject, "NextAttemptAtUtc", "next_attempt_at_utc", isNullable: true);
         AssertColumn(entity, storeObject, "ExpiresAtUtc", "expires_at_utc", isNullable: true);
         AssertColumn(entity, storeObject, "CreatedAtUtc", "created_at_utc", isNullable: false);
@@ -71,6 +75,7 @@ public sealed class NotificationDeliveryAttemptSchemaFoundationTests
         AssertIndex(entity, "ux_notification_delivery_attempts_idempotency_key", ["IdempotencyKey"], isUnique: true);
         AssertIndex(entity, "ix_notification_delivery_attempts_recipient_channel_status", ["RecipientUserProfileId", "Channel", "Status", "CreatedAtUtc"], isUnique: false);
         AssertIndex(entity, "ix_notification_delivery_attempts_channel_status_next_attempt", ["Channel", "Status", "NextAttemptAtUtc"], isUnique: false);
+        AssertIndex(entity, "ix_notification_delivery_attempts_channel_status_lease_expires", ["Channel", "Status", "LeaseExpiresAtUtc"], isUnique: false);
 
         AssertForeignKey(entity, typeof(InAppNotification), ["InAppNotificationId"], DeleteBehavior.Restrict);
         AssertForeignKey(entity, typeof(UserProfile), ["RecipientUserProfileId"], DeleteBehavior.Restrict);
@@ -90,6 +95,8 @@ public sealed class NotificationDeliveryAttemptSchemaFoundationTests
         AssertCheckConstraint(entity, "ck_notification_delivery_attempts_status", "status IN ('not_applicable', 'disabled', 'unconfigured', 'deferred', 'queued', 'suppressed', 'cancelled', 'expired')");
         AssertCheckConstraint(entity, "ck_notification_delivery_attempts_no_provider_runtime_status", "status NOT IN ('attempting', 'sent', 'failed_transient', 'failed_permanent', 'delivered')");
         AssertCheckConstraint(entity, "ck_notification_delivery_attempts_attempt_count_non_negative", "attempt_count >= 0");
+        AssertCheckConstraint(entity, "ck_notification_delivery_attempts_lease_owner_not_blank", "lease_owner IS NULL OR length(btrim(lease_owner)) > 0");
+        AssertCheckConstraint(entity, "ck_notification_delivery_attempts_lease_pair", "(lease_owner IS NULL) = (lease_expires_at_utc IS NULL)");
 
         var columnNames = entity.GetProperties()
             .Select(property => property.GetColumnName(storeObject) ?? property.Name)
@@ -146,6 +153,55 @@ public sealed class NotificationDeliveryAttemptSchemaFoundationTests
             operation => operation.Name == "ux_notification_delivery_attempts_idempotency_key"
                 && operation.IsUnique
                 && operation.Columns.SequenceEqual(["idempotency_key"]));
+    }
+
+    [Fact]
+    public void NotificationDeliveryOutboxLeaseMigrationIsAdditiveOnly()
+    {
+        using var dbContext = CreateDbContext();
+        Assert.Contains(
+            dbContext.Database.GetMigrations(),
+            migration => migration.EndsWith("_AddNotificationDeliveryOutboxLeaseFoundation", StringComparison.Ordinal));
+
+        var migration = new AddNotificationDeliveryOutboxLeaseFoundation();
+        Assert.DoesNotContain(
+            migration.UpOperations,
+            operation => operation is DropTableOperation
+                or DropColumnOperation
+                or DropForeignKeyOperation
+                or DropIndexOperation
+                or AlterColumnOperation
+                or SqlOperation
+                or CreateTableOperation);
+
+        var addedColumns = migration.UpOperations.OfType<AddColumnOperation>().ToArray();
+        Assert.Equal(3, addedColumns.Length);
+        Assert.Contains(
+            addedColumns,
+            column => column.Table == "notification_delivery_attempts"
+                && column.Name == "lease_owner"
+                && column.IsNullable
+                && column.MaxLength == NotificationDeliveryAttemptConstraints.LeaseOwnerMaxLength);
+        Assert.Contains(
+            addedColumns,
+            column => column.Table == "notification_delivery_attempts"
+                && column.Name == "lease_expires_at_utc"
+                && column.IsNullable);
+        Assert.Contains(
+            addedColumns,
+            column => column.Table == "notification_delivery_attempts"
+                && column.Name == "last_attempted_at_utc"
+                && column.IsNullable);
+        Assert.Contains(
+            migration.UpOperations.OfType<CreateIndexOperation>(),
+            operation => operation.Table == "notification_delivery_attempts"
+                && operation.Name == "ix_notification_delivery_attempts_channel_status_lease_expires"
+                && operation.Columns.SequenceEqual(["channel", "status", "lease_expires_at_utc"]));
+        Assert.Contains(
+            migration.UpOperations.OfType<AddCheckConstraintOperation>(),
+            operation => operation.Table == "notification_delivery_attempts"
+                && operation.Name == "ck_notification_delivery_attempts_lease_pair"
+                && operation.Sql == "(lease_owner IS NULL) = (lease_expires_at_utc IS NULL)");
     }
 
     private static SettleoraDbContext CreateDbContext()
