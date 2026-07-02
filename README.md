@@ -69,6 +69,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Notification deep-link route policy](docs/architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
 - [Settlement residual review notification source policy](docs/architecture/SETTLEMENT_RESIDUAL_REVIEW_NOTIFICATION_SOURCE_POLICY.md)
 - [Sync notification source policy](docs/architecture/SYNC_NOTIFICATION_SOURCE_POLICY.md)
+- [Auth/session/security notification source policy](docs/architecture/AUTH_SESSION_SECURITY_NOTIFICATION_SOURCE_POLICY.md)
 - [OCR notification source-state review](docs/architecture/OCR_NOTIFICATION_SOURCE_STATE_REVIEW.md)
 - [OCR needs-review notification source policy](docs/architecture/OCR_NEEDS_REVIEW_NOTIFICATION_SOURCE_POLICY.md)
 - [SMTP email provider policy](docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md)

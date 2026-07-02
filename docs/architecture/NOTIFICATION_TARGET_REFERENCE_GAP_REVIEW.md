@@ -86,6 +86,12 @@ implemented notification families to authorized target re-fetch behavior and
 defines stale, missing, unauthorized, account-switched, offline, and resolved
 fallback states before Flutter deep-link work.
 
+[Auth/session/security notification source policy](AUTH_SESSION_SECURITY_NOTIFICATION_SOURCE_POLICY.md)
+is the follow-on #369 source-policy gate for auth/session/security events. It
+records that current auth/session/security runtime has real source states to
+review, but the notification model still lacks approved event semantics,
+recipient rules, and first-class auth/session/security targets.
+
 ## Remaining Target Needs
 
 The remaining #369 families need safe linked-resource IDs that are not all

@@ -59,15 +59,24 @@ source states, defers noisy automatic queue/retry notifications, and requires
 exact user-actionable source transitions before any future runtime event type
 is added.
 
+[Auth/session/security notification source policy](AUTH_SESSION_SECURITY_NOTIFICATION_SOURCE_POLICY.md)
+is the narrower #369 source-policy gate for auth, session, account,
+credential, MFA/passkey, recovery, and security-policy notifications. It
+records that current auth/session/security foundations are real, but runtime
+security notifications remain blocked until exact API-owned source transitions,
+recipient and self-notification rules, first-class safe targets, redaction, and
+manual auth-security gates are satisfied.
+
 OCR, sync/offline, and auth/session/security event constants or runtime writers
 must not be added by hiding target identity in `safeSummary`, overloading
 unrelated subject types, or relying only on opaque action URLs. OCR target IDs
 are now present, but OCR still needs the source-state gate satisfied before
 runtime. Sync has only the narrow persisted-conflict runtime slice. Auth/session
-security notifications need manual auth-security policy first, then safe
-target-reference design. Settlement residual-review notification runtime needs
-the residual source-policy gate above. Item claim/split notifications remain
-blocked on source claim runtime and #371/Figma/deep-link references.
+security notifications need the source-policy and manual auth-security gate
+above, then safe target-reference design. Settlement residual-review
+notification runtime needs the residual source-policy gate above. Item
+claim/split notifications remain blocked on source claim runtime and
+claim-specific money/Figma/manual gate posture.
 
 ## Current Completed Slices
 
@@ -156,16 +165,21 @@ than one broad event-coverage PR:
    [sync notification source policy](SYNC_NOTIFICATION_SOURCE_POLICY.md)
    defers noisy automatic queue/retry notifications and requires exact
    user-actionable source transitions before runtime.
-6. Security/session required-event review before any auth/session notification
-   runtime.
+6. Auth/session/security required-event review before any auth/session
+   notification runtime. Use
+   [auth/session/security notification source policy](AUTH_SESSION_SECURITY_NOTIFICATION_SOURCE_POLICY.md)
+   as the gate: current runtime is not implementation-ready until exact source
+   transitions, recipient/self-notification rules, first-class targets,
+   redaction, and manual auth-security approval exist.
 7. Schema/OpenAPI/generated-client enum expansion only when exact runtime event
    types are implemented and the target-reference gate is satisfied.
 8. API tests and acceptance evidence for every new event family slice.
 
-#371 remains open and Figma-gated for notification deep links/mobile UI.
-Deep-link work should route to authorized destination APIs and must avoid
-leaking record existence through stale, missing, or unauthorized notification
-targets.
+#371 is closed after the accepted notification-open/deep-link scope. Do not
+redo #371 work for remaining #369 source-policy slices. Future event families
+must still preserve the same route principle: notification opens re-fetch
+authorized destination APIs and avoid leaking record existence through stale,
+missing, or unauthorized notification targets.
 
 [Notification deep-link route policy](NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
 is the #371 docs/control route gate. It allows future mobile routing only for
