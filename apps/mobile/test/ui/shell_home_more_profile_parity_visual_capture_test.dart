@@ -4,7 +4,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/server_mode_shell.dart';
+import 'package:mobile/app/setup_screen.dart';
+import 'package:mobile/app/sign_in_screen.dart';
 import 'package:mobile/notifications/notification_repository.dart';
 import 'package:mobile/profile/profile_screen.dart';
 import 'package:mobile/settlements/settlement_repository.dart';
@@ -16,7 +19,7 @@ import '../profile_screen_test.dart' as profile;
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260703-0012-mobile-shell-settings-profile-polish-dev-only';
+    '/workspace/logs/settleora-visual-qa/20260703-0018-mobile-setup-signin-settings-polish-dev-only';
 
 void main() {
   testWidgets('captures shell home more profile parity visual evidence', (
@@ -212,6 +215,46 @@ void main() {
       profileCaptureKey,
       'profile-payment-390x844.png',
     );
+
+    const setupCaptureKey = Key('setup-mode-capture');
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: setupCaptureKey,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: SettleoraTheme.midnight(),
+          home: SettleoraSetupScreen(onSaveConfiguration: (_) async {}),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Settleora Setup'), findsOneWidget);
+    expect(find.byKey(const Key('setup-mode-choice')), findsOneWidget);
+    expect(find.byKey(const Key('setup-save')), findsOneWidget);
+    await _captureBoundary(tester, setupCaptureKey, 'setup-mode-390x844.png');
+
+    const signInCaptureKey = Key('sign-in-capture');
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: signInCaptureKey,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: SettleoraTheme.midnight(),
+          home: SettleoraSignInScreen(
+            serverBaseUri: Uri.parse('https://settleora.example/'),
+            onSignIn: (SettleoraSignInSubmission submission) async {},
+            onChangeServer: () {},
+            noticeMessage:
+                'Your session expired. Sign in again to continue with server records.',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Sign in to Settleora'), findsOneWidget);
+    expect(find.byKey(const Key('sign-in-identifier')), findsOneWidget);
+    expect(find.byKey(const Key('sign-in-submit')), findsOneWidget);
+    await _captureBoundary(tester, signInCaptureKey, 'sign-in-390x844.png');
   });
 }
 

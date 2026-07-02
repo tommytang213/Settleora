@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
+import '../ui/settleora_components.dart';
+import '../ui/settleora_theme.dart';
 import 'app_configuration.dart';
 
 class SettleoraSetupScreen extends StatefulWidget {
@@ -98,6 +101,7 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
   Widget build(BuildContext context) {
     final isServerMode = _selectedMode == SettleoraAppMode.server;
     final warning = isServerMode ? _lastValidation?.warningMessage : null;
+    final colors = context.settleoraColors;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settleora Setup')),
@@ -105,63 +109,124 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            scrollCacheExtent: const ScrollCacheExtent.pixels(5000),
+            padding: const EdgeInsets.fromLTRB(
+              SettleoraSpacing.md,
+              SettleoraSpacing.md,
+              SettleoraSpacing.md,
+              36,
+            ),
             children: [
-              Text(
-                'Choose how this device should start. Local data stays on this device; server collaboration starts only after server sign-in.',
-                style: Theme.of(context).textTheme.titleMedium,
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SettleoraCompactHeader(
+                      title: 'Choose your Settleora mode',
+                      subtitle:
+                          'Local data stays on this device. Server collaboration starts only after sign-in.',
+                      leadingIcon: Icons.shield_moon_outlined,
+                    ),
+                    const SizedBox(height: SettleoraSpacing.md),
+                    Wrap(
+                      spacing: SettleoraSpacing.xs,
+                      runSpacing: SettleoraSpacing.xs,
+                      children: const [
+                        StatusChip(
+                          label: 'Server checked',
+                          icon: Icons.verified_user_outlined,
+                          variant: StatusChipVariant.info,
+                          size: StatusChipSize.small,
+                        ),
+                        StatusChip(
+                          label: 'Local stays local',
+                          icon: Icons.phone_android_outlined,
+                          variant: StatusChipVariant.neutral,
+                          size: StatusChipSize.small,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              SegmentedButton<SettleoraAppMode>(
-                key: const Key('setup-mode-choice'),
-                segments: const [
-                  ButtonSegment(
-                    value: SettleoraAppMode.server,
-                    icon: Icon(Icons.cloud_outlined),
-                    label: Text('Connect'),
-                  ),
-                  ButtonSegment(
-                    value: SettleoraAppMode.local,
-                    icon: Icon(Icons.phone_android_outlined),
-                    label: Text('Local'),
-                  ),
-                ],
-                selected: {_selectedMode},
-                onSelectionChanged: _isSaving
-                    ? null
-                    : (selection) {
-                        setState(() {
-                          _selectedMode = selection.single;
-                          _lastValidation = null;
-                        });
-                      },
+              const SizedBox(height: SettleoraSpacing.sm),
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Device setup',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: SettleoraSpacing.xs),
+                    Text(
+                      'Choose how this device should start. Local data stays on this device; server collaboration starts only after server sign-in.',
+                      style: TextStyle(color: colors.textMuted),
+                    ),
+                    const SizedBox(height: SettleoraSpacing.md),
+                    SegmentedButton<SettleoraAppMode>(
+                      key: const Key('setup-mode-choice'),
+                      segments: const [
+                        ButtonSegment(
+                          value: SettleoraAppMode.server,
+                          icon: Icon(Icons.cloud_outlined),
+                          label: Text('Connect'),
+                        ),
+                        ButtonSegment(
+                          value: SettleoraAppMode.local,
+                          icon: Icon(Icons.phone_android_outlined),
+                          label: Text('Local'),
+                        ),
+                      ],
+                      selected: {_selectedMode},
+                      onSelectionChanged: _isSaving
+                          ? null
+                          : (selection) {
+                              setState(() {
+                                _selectedMode = selection.single;
+                                _lastValidation = null;
+                              });
+                            },
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: SettleoraSpacing.sm),
               if (isServerMode)
                 _ServerModeFormFields(
                   controller: _serverBaseUrlController,
                   enabled: !_isSaving,
+                  isSaving: _isSaving,
+                  onSave: _save,
                   warning: warning,
                   validator: _validateServerBaseUrl,
-                )
-              else
+                ),
+              if (!isServerMode) ...[
+                const SizedBox(height: SettleoraSpacing.md),
+                SizedBox(
+                  key: const Key('setup-save'),
+                  width: double.infinity,
+                  child: AppButton(
+                    label: 'Use Local Mode',
+                    onPressed: _isSaving ? null : _save,
+                    icon: Icons.check_circle_outline,
+                    expanded: true,
+                  ),
+                ),
+              ],
+              if (_isSaving) ...[
+                const SizedBox(height: SettleoraSpacing.sm),
+                const Center(
+                  child: SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ],
+              if (!isServerMode) ...[
+                const SizedBox(height: SettleoraSpacing.sm),
                 const _LocalModeNotice(),
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                key: const Key('setup-save'),
-                onPressed: _isSaving ? null : _save,
-                icon: _isSaving
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        isServerMode
-                            ? Icons.cloud_done_outlined
-                            : Icons.check_circle_outline,
-                      ),
-                label: Text(isServerMode ? 'Save Server' : 'Use Local Mode'),
-              ),
+              ],
             ],
           ),
         ),
@@ -174,63 +239,109 @@ class _ServerModeFormFields extends StatelessWidget {
   const _ServerModeFormFields({
     required this.controller,
     required this.enabled,
+    required this.isSaving,
+    required this.onSave,
     required this.warning,
     required this.validator,
   });
 
   final TextEditingController controller;
   final bool enabled;
+  final bool isSaving;
+  final VoidCallback onSave;
   final String? warning;
   final String? Function(String?) validator;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            key: const Key('setup-server-base-url'),
+            controller: controller,
+            enabled: enabled,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            textInputAction: TextInputAction.done,
+            validator: validator,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: 'Server base URL',
+              helperText:
+                  'HTTPS is recommended. HTTP is only for local development.',
+              prefixIcon: Icon(Icons.link_outlined),
+            ),
+          ),
+          const SizedBox(height: SettleoraSpacing.md),
+          SizedBox(
+            key: const Key('setup-save'),
+            width: double.infinity,
+            child: AppButton(
+              label: 'Save Server',
+              onPressed: isSaving ? null : onSave,
+              icon: Icons.cloud_done_outlined,
+              expanded: true,
+            ),
+          ),
+          const SizedBox(height: SettleoraSpacing.sm),
+          _CompactBoundaryText(
+            icon: Icons.verified_user_outlined,
+            text:
+                'Server mode requires sign-in. Access, collaboration, shared records, sync, and permissions are checked before changes are shown.',
+            color: colors.textMuted,
+          ),
+          const SizedBox(height: SettleoraSpacing.xs),
+          _CompactBoundaryText(
+            icon: Icons.swap_horiz_outlined,
+            text:
+                'Saving or changing a server clears saved session material for this configured server only. It does not upload local-only data, link accounts, create backups, or migrate records.',
+            color: colors.textMuted,
+          ),
+          if (warning != null) ...[
+            const SizedBox(height: SettleoraSpacing.sm),
+            SettleoraInlinePanel(
+              icon: Icons.developer_mode_outlined,
+              title: 'Development server',
+              message: warning!,
+              variant: SettleoraSurfaceVariant.warning,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactBoundaryText extends StatelessWidget {
+  const _CompactBoundaryText({
+    required this.icon,
+    required this.text,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextFormField(
-          key: const Key('setup-server-base-url'),
-          controller: controller,
-          enabled: enabled,
-          keyboardType: TextInputType.url,
-          autocorrect: false,
-          textInputAction: TextInputAction.done,
-          validator: validator,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            labelText: 'Server base URL',
-            helperText:
-                'HTTPS is recommended. HTTP is only for local development.',
-            prefixIcon: Icon(Icons.link_outlined),
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: SettleoraSpacing.xs),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: color, letterSpacing: 0),
           ),
         ),
-        const SizedBox(height: 10),
-        const _BoundaryNotice(
-          icon: Icons.verified_user_outlined,
-          message:
-              'Server mode requires sign-in. Access, collaboration, shared records, sync, and permissions are checked before changes are shown.',
-        ),
-        const SizedBox(height: 10),
-        const _BoundaryNotice(
-          icon: Icons.swap_horiz_outlined,
-          message:
-              'Saving or changing a server clears saved session material for this configured server only. It does not upload local-only data, link accounts, create backups, or migrate records.',
-        ),
-        if (warning != null) ...[
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.developer_mode_outlined,
-                color: Theme.of(context).colorScheme.primary,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: Text(warning!)),
-            ],
-          ),
-        ],
       ],
     );
   }
@@ -241,45 +352,12 @@ class _LocalModeNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Padding(
-        padding: EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.info_outline),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Local Mode is device-bound. It does not create or link a server account, shared groups, collaboration, server sync, server backup, import/export, cloud recovery, or automatic migration. Moving to server mode will be a future explicit guided flow.',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BoundaryNotice extends StatelessWidget {
-  const _BoundaryNotice({required this.icon, required this.message});
-
-  final IconData icon;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: Theme.of(context).colorScheme.primary, size: 20),
-        const SizedBox(width: 8),
-        Expanded(child: Text(message)),
-      ],
+    return const SettleoraInlinePanel(
+      icon: Icons.info_outline,
+      title: 'Local Mode',
+      message:
+          'Local Mode is device-bound. It does not create or link a server account, shared groups, collaboration, server sync, server backup, import/export, cloud recovery, or automatic migration. Moving to server mode will be a future explicit guided flow.',
+      variant: SettleoraSurfaceVariant.info,
     );
   }
 }

@@ -124,10 +124,29 @@ remain the source of truth.
     `profile-payment-390x844.png`. This evidence is
     `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
     manual visual approval is deferred.
+  - The `20260703-0018` development-only setup/sign-in/settings polish pass on
+    the same branch started from remote head
+    `f572cf9b591c33b9ba8df0fc14799e151797b788` and keeps the exact pushed
+    branch head in the matching Codex report and #672 issue comment because the
+    no-amend rule prevents recording a commit's own SHA inside the same commit.
+    This pass composes setup and sign-in with shared Settleora cards, compact
+    headers, inline/readout panels, and the existing Midnight visual evidence
+    theme while preserving setup choices, server URL validation, sign-in
+    validation, loading/error states, auth/session repository calls, change
+    server behavior, and server/local authority copy. It also regenerates the
+    existing shell/settings/profile evidence and adds setup/sign-in captures
+    under
+    `/workspace/logs/settleora-visual-qa/20260703-0018-mobile-setup-signin-settings-polish-dev-only/`
+    with `setup-mode-390x844.png`, `sign-in-390x844.png`,
+    `home-shell-390x844.png`, `more-hub-390x844.png`,
+    `more-settings-390x844.png`, and `profile-payment-390x844.png` plus the
+    existing `home-attention-390x844.png` capture. This evidence is
+    `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
+    manual visual approval remains deferred.
 - Remaining Day 1 work:
   - Manual Tommy visual approval for the Shell/Home/More/Profile child slice
-    before PR creation or merge; the latest `20260703-0012` settings/profile
-    polish follow-up is not approved yet.
+    before PR creation or merge; the latest `20260703-0018`
+    setup/sign-in/settings polish follow-up is not approved yet.
   - Bills/OCR/revision visual parity.
   - Groups/settle/notifications visual parity.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
