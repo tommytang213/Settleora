@@ -841,8 +841,10 @@ class FakeSyncGeneratedClient implements SettleoraSyncGeneratedClient {
   final api.SyncOperationResponse operationResponse;
   final api.SyncChangesResponse changesResponse;
   int submitCalls = 0;
+  int getCalls = 0;
   int listCalls = 0;
   String? lastAccessToken;
+  String? lastSyncOperationId;
   api.SyncOperationRequest? lastOperationRequest;
   int? lastSinceVersion;
   int? lastLimit;
@@ -856,6 +858,18 @@ class FakeSyncGeneratedClient implements SettleoraSyncGeneratedClient {
     submitCalls += 1;
     lastAccessToken = accessToken;
     lastOperationRequest = request;
+    _throwIfNeeded();
+    return operationResponse;
+  }
+
+  @override
+  Future<api.SyncOperationResponse> getSyncOperation(
+    String syncOperationId, {
+    required String accessToken,
+  }) async {
+    getCalls += 1;
+    lastAccessToken = accessToken;
+    lastSyncOperationId = syncOperationId;
     _throwIfNeeded();
     return operationResponse;
   }
@@ -913,6 +927,11 @@ class FakeSyncRepository implements SettleoraSyncRepository {
   }
 
   @override
+  Future<SettleoraSyncOperationResult> getOperation(String syncOperationId) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<SettleoraSyncChangeFeed> listChanges({
     int? sinceVersion,
     int? limit,
@@ -945,6 +964,11 @@ class BlockingSyncRepository implements SettleoraSyncRepository {
     submitCalls += 1;
     lastSubmittedItem = item;
     return _completer.future;
+  }
+
+  @override
+  Future<SettleoraSyncOperationResult> getOperation(String syncOperationId) {
+    throw UnimplementedError();
   }
 
   @override

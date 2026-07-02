@@ -8,10 +8,12 @@ import '../bills/bill_revision_repository.dart';
 import '../bills/bill_revision_review_screen.dart';
 import '../groups/group_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
+import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
 import '../recurring_bills/recurring_bill_repository.dart';
 import '../recurring_bills/recurring_bill_screen.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
+import '../sync/sync_repository.dart';
 import '../ui/settleora_components.dart';
 import 'notification_preferences.dart';
 import 'notification_repository.dart';
@@ -29,6 +31,7 @@ class SettleoraNotificationScreen extends StatefulWidget {
     this.billAttachmentFileInput,
     this.receiptOcrReviewRepository,
     this.billRevisionRepository,
+    this.syncRepository,
     this.preferences,
     this.onSessionEnded,
   });
@@ -43,6 +46,7 @@ class SettleoraNotificationScreen extends StatefulWidget {
   final SettleoraBillAttachmentFileInput? billAttachmentFileInput;
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? billRevisionRepository;
+  final SettleoraSyncRepository? syncRepository;
   final SettleoraNotificationPreferenceSettings? preferences;
   final Future<void> Function(String? noticeMessage)? onSessionEnded;
 
@@ -428,13 +432,36 @@ class _SettleoraNotificationScreenState
     });
 
     try {
+      final refreshedNotification = await _refreshNotificationForOpen(
+        notification,
+      );
+      final refreshedBillId = settleoraNotificationMetadataId(
+        refreshedNotification.expenseBillId,
+      );
+      final refreshedRevisionId = settleoraNotificationMetadataId(
+        refreshedNotification.expenseBillRevisionId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!refreshedNotification.hasBillRevisionReviewTarget ||
+          refreshedBillId == null ||
+          refreshedRevisionId == null) {
+        setState(() {
+          _actionFailure = _safeOpenFallbackFailure(
+            SettleoraNotificationOpenFallbackState.unsupported,
+          );
+        });
+        return;
+      }
+
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SettleoraBillRevisionReviewScreen(
             repository: billRevisionRepository,
-            billId: billId,
-            revisionId: revisionId,
-            billLabel: notification.displayTitle,
+            billId: refreshedBillId,
+            revisionId: refreshedRevisionId,
+            billLabel: refreshedNotification.displayTitle,
           ),
         ),
       );
@@ -442,7 +469,14 @@ class _SettleoraNotificationScreenState
         return;
       }
 
-      await _markOpenedNotificationRead(notification);
+      await _markOpenedNotificationRead(refreshedNotification);
+    } on SettleoraNotificationFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = failure;
+      });
     } finally {
       if (mounted) {
         setState(() {
@@ -474,13 +508,24 @@ class _SettleoraNotificationScreenState
         widget.recurringBillRepository != null;
   }
 
+  bool _canOpenReceiptOcrReview(SettleoraNotificationRow notification) {
+    return notification.hasReceiptOcrReviewTarget &&
+        widget.receiptOcrReviewRepository != null;
+  }
+
+  bool _canOpenSyncOperation(SettleoraNotificationRow notification) {
+    return notification.hasSyncOperationTarget && widget.syncRepository != null;
+  }
+
   bool _canOpenAnyTypedTarget(SettleoraNotificationRow notification) {
     return (widget.billRevisionRepository != null &&
             notification.hasBillRevisionReviewTarget) ||
         _canOpenGroupBill(notification) ||
         _canOpenPersonalBill(notification) ||
         _canOpenSettlement(notification) ||
-        _canOpenRecurringBill(notification);
+        _canOpenRecurringBill(notification) ||
+        _canOpenReceiptOcrReview(notification) ||
+        _canOpenSyncOperation(notification);
   }
 
   Future<void> _openGroupBill(SettleoraNotificationRow notification) async {
@@ -513,10 +558,35 @@ class _SettleoraNotificationScreenState
     });
 
     try {
-      final group = await groupRepository.getGroup(groupId);
+      final refreshedNotification = await _refreshNotificationForOpen(
+        notification,
+      );
+      final refreshedGroupId = settleoraNotificationMetadataId(
+        refreshedNotification.groupId,
+      );
+      final refreshedBillId = settleoraNotificationMetadataId(
+        refreshedNotification.expenseBillId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!refreshedNotification.hasGroupBillTarget ||
+          refreshedGroupId == null ||
+          refreshedBillId == null) {
+        setState(() {
+          _actionFailure = _safeOpenFallbackFailure(
+            SettleoraNotificationOpenFallbackState.unsupported,
+          );
+        });
+        return;
+      }
+
+      final group = await groupRepository.getGroup(refreshedGroupId);
       var participantDisplayNames = const <String, String>{};
       try {
-        final members = await groupRepository.listGroupMembers(groupId);
+        final members = await groupRepository.listGroupMembers(
+          refreshedGroupId,
+        );
         participantDisplayNames = _participantDisplayNamesFromMembers(members);
       } catch (_) {
         participantDisplayNames = const {};
@@ -534,9 +604,9 @@ class _SettleoraNotificationScreenState
             attachmentFileInput: widget.billAttachmentFileInput,
             receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
             revisionRepository: widget.billRevisionRepository,
-            groupId: groupId,
+            groupId: refreshedGroupId,
             groupName: group.displayName,
-            billId: billId,
+            billId: refreshedBillId,
             currentUserProfileId: currentUserProfileId,
             participantDisplayNames: participantDisplayNames,
           ),
@@ -546,7 +616,7 @@ class _SettleoraNotificationScreenState
         return;
       }
 
-      await _markOpenedNotificationRead(notification);
+      await _markOpenedNotificationRead(refreshedNotification);
     } catch (error) {
       if (!mounted) {
         return;
@@ -592,11 +662,30 @@ class _SettleoraNotificationScreenState
     });
 
     try {
+      final refreshedNotification = await _refreshNotificationForOpen(
+        notification,
+      );
+      final refreshedBillId = settleoraNotificationMetadataId(
+        refreshedNotification.expenseBillId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!refreshedNotification.hasPersonalBillTarget ||
+          refreshedBillId == null) {
+        setState(() {
+          _actionFailure = _safeOpenFallbackFailure(
+            SettleoraNotificationOpenFallbackState.unsupported,
+          );
+        });
+        return;
+      }
+
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SettleoraBillDetailScreen(
             repository: _NotificationHandoffBillRepository(billRepository),
-            billId: billId,
+            billId: refreshedBillId,
             attachmentRepository: widget.billAttachmentRepository,
             attachmentFileInput: widget.billAttachmentFileInput,
             receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
@@ -608,7 +697,7 @@ class _SettleoraNotificationScreenState
         return;
       }
 
-      await _markOpenedNotificationRead(notification);
+      await _markOpenedNotificationRead(refreshedNotification);
     } catch (error) {
       if (!mounted) {
         return;
@@ -661,11 +750,30 @@ class _SettleoraNotificationScreenState
     });
 
     try {
+      final refreshedNotification = await _refreshNotificationForOpen(
+        notification,
+      );
+      final refreshedSettlementRequestId = settleoraNotificationMetadataId(
+        refreshedNotification.settlementRequestId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!refreshedNotification.hasSettlementTarget ||
+          refreshedSettlementRequestId == null) {
+        setState(() {
+          _actionFailure = _safeOpenFallbackFailure(
+            SettleoraNotificationOpenFallbackState.unsupported,
+          );
+        });
+        return;
+      }
+
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SettleoraSettlementDetailScreen(
             repository: settlementRepository,
-            settlementId: settlementRequestId,
+            settlementId: refreshedSettlementRequestId,
             currentUserProfileId: currentUserProfileId,
           ),
         ),
@@ -674,7 +782,14 @@ class _SettleoraNotificationScreenState
         return;
       }
 
-      await _markOpenedNotificationRead(notification);
+      await _markOpenedNotificationRead(refreshedNotification);
+    } on SettleoraNotificationFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = failure;
+      });
     } finally {
       if (mounted) {
         setState(() {
@@ -707,11 +822,30 @@ class _SettleoraNotificationScreenState
     });
 
     try {
+      final refreshedNotification = await _refreshNotificationForOpen(
+        notification,
+      );
+      final refreshedTemplateId = settleoraNotificationMetadataId(
+        refreshedNotification.recurringBillTemplateId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!refreshedNotification.hasRecurringBillTarget ||
+          refreshedTemplateId == null) {
+        setState(() {
+          _actionFailure = _safeOpenFallbackFailure(
+            SettleoraNotificationOpenFallbackState.unsupported,
+          );
+        });
+        return;
+      }
+
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SettleoraRecurringBillDetailScreen(
             repository: recurringBillRepository,
-            templateId: templateId,
+            templateId: refreshedTemplateId,
           ),
         ),
       );
@@ -719,7 +853,14 @@ class _SettleoraNotificationScreenState
         return;
       }
 
-      await _markOpenedNotificationRead(notification);
+      await _markOpenedNotificationRead(refreshedNotification);
+    } on SettleoraNotificationFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = failure;
+      });
     } finally {
       if (mounted) {
         setState(() {
@@ -727,6 +868,192 @@ class _SettleoraNotificationScreenState
         });
       }
     }
+  }
+
+  Future<void> _openReceiptOcrReview(
+    SettleoraNotificationRow notification,
+  ) async {
+    if (_actingNotificationId != null ||
+        _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived ||
+        !_canOpenReceiptOcrReview(notification)) {
+      return;
+    }
+
+    final receiptOcrReviewRepository = widget.receiptOcrReviewRepository;
+    if (receiptOcrReviewRepository == null) {
+      return;
+    }
+
+    setState(() {
+      _actingNotificationId = notification.id;
+      _actionFailure = null;
+    });
+
+    try {
+      final refreshedNotification = await _refreshNotificationForOpen(
+        notification,
+      );
+      final billId = settleoraNotificationMetadataId(
+        refreshedNotification.expenseBillId,
+      );
+      final fileId = settleoraNotificationMetadataId(
+        refreshedNotification.receiptAttachmentFileId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!refreshedNotification.hasReceiptOcrReviewTarget ||
+          billId == null ||
+          fileId == null) {
+        setState(() {
+          _actionFailure = _safeOpenFallbackFailure(
+            SettleoraNotificationOpenFallbackState.unsupported,
+          );
+        });
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ReceiptOcrReviewDetailScreen.forRoute(
+            repository: receiptOcrReviewRepository,
+            route: ReceiptOcrReviewRoute(
+              billId: billId,
+              fileId: fileId,
+              groupId: settleoraNotificationMetadataId(
+                refreshedNotification.groupId,
+              ),
+            ),
+          ),
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      await _markOpenedNotificationRead(refreshedNotification);
+    } on SettleoraNotificationFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = failure;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _actingNotificationId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _openSyncOperation(SettleoraNotificationRow notification) async {
+    if (_actingNotificationId != null ||
+        _isMarkingAllRead ||
+        _isBulkMarkingVisibleRead ||
+        notification.status == SettleoraNotificationStatusValues.archived ||
+        !_canOpenSyncOperation(notification)) {
+      return;
+    }
+
+    final syncRepository = widget.syncRepository;
+    if (syncRepository == null) {
+      return;
+    }
+
+    setState(() {
+      _actingNotificationId = notification.id;
+      _actionFailure = null;
+    });
+
+    try {
+      final refreshedNotification = await _refreshNotificationForOpen(
+        notification,
+      );
+      final syncOperationId = settleoraNotificationMetadataId(
+        refreshedNotification.syncOperationId,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!refreshedNotification.hasSyncOperationTarget ||
+          syncOperationId == null) {
+        setState(() {
+          _actionFailure = _safeOpenFallbackFailure(
+            SettleoraNotificationOpenFallbackState.unsupported,
+          );
+        });
+        return;
+      }
+
+      final result = await syncRepository.getOperation(syncOperationId);
+      if (!mounted) {
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => _NotificationSyncOperationScreen(result: result),
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      await _markOpenedNotificationRead(refreshedNotification);
+    } on SettleoraNotificationFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = failure;
+      });
+    } on SettleoraSyncFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _actionFailure = _notificationFailureFromSyncOpen(failure);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _actingNotificationId = null;
+        });
+      }
+    }
+  }
+
+  Future<SettleoraNotificationRow> _refreshNotificationForOpen(
+    SettleoraNotificationRow notification,
+  ) async {
+    final notifications = await widget.repository.listNotifications(limit: 50);
+    if (!mounted) {
+      return notification;
+    }
+
+    setState(() {
+      _notifications = notifications;
+    });
+
+    for (final refreshed in notifications) {
+      if (refreshed.id == notification.id) {
+        if (refreshed.status == SettleoraNotificationStatusValues.archived) {
+          throw _safeOpenFallbackFailure(
+            SettleoraNotificationOpenFallbackState.archived,
+          );
+        }
+
+        return refreshed;
+      }
+    }
+
+    throw _safeOpenFallbackFailure(
+      SettleoraNotificationOpenFallbackState.missing,
+    );
   }
 
   Future<void> _endSession(SettleoraNotificationFailure failure) async {
@@ -970,6 +1297,12 @@ class _SettleoraNotificationScreenState
                           canOpenRecurringBill: _canOpenRecurringBill(
                             visibleNotifications[index],
                           ),
+                          canOpenReceiptOcrReview: _canOpenReceiptOcrReview(
+                            visibleNotifications[index],
+                          ),
+                          canOpenSyncOperation: _canOpenSyncOperation(
+                            visibleNotifications[index],
+                          ),
                           canRestore: canRestoreArchived,
                           hasOpenTarget: _hasAnyOpenTargetMetadata(
                             visibleNotifications[index],
@@ -995,6 +1328,12 @@ class _SettleoraNotificationScreenState
                           recurringOpenButtonKey: ValueKey(
                             'notification-open-recurring-$index',
                           ),
+                          receiptReviewOpenButtonKey: ValueKey(
+                            'notification-open-receipt-review-$index',
+                          ),
+                          syncOpenButtonKey: ValueKey(
+                            'notification-open-sync-$index',
+                          ),
                           detailsButtonKey: ValueKey(
                             'notification-details-$index',
                           ),
@@ -1017,6 +1356,11 @@ class _SettleoraNotificationScreenState
                               _openSettlement(visibleNotifications[index]),
                           onOpenRecurringBill: () =>
                               _openRecurringBill(visibleNotifications[index]),
+                          onOpenReceiptOcrReview: () => _openReceiptOcrReview(
+                            visibleNotifications[index],
+                          ),
+                          onOpenSyncOperation: () =>
+                              _openSyncOperation(visibleNotifications[index]),
                           onShowDetails: () => _showNotificationDetails(
                             visibleNotifications[index],
                             selectedFilter: _selectedFilter,
@@ -1086,7 +1430,7 @@ class _SummaryPanel extends StatelessWidget {
           children: [
             Row(
               children: [
-                const CircleAvatar(child: Icon(Icons.notifications_outlined)),
+                const CircleAvatar(child: Icon(Icons.inbox_outlined)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -1406,6 +1750,8 @@ class _NotificationTile extends StatelessWidget {
     required this.canOpenPersonalBill,
     required this.canOpenSettlement,
     required this.canOpenRecurringBill,
+    required this.canOpenReceiptOcrReview,
+    required this.canOpenSyncOperation,
     required this.canRestore,
     required this.hasOpenTarget,
     required this.isDisabled,
@@ -1415,6 +1761,8 @@ class _NotificationTile extends StatelessWidget {
     required this.personalBillOpenButtonKey,
     required this.settlementOpenButtonKey,
     required this.recurringOpenButtonKey,
+    required this.receiptReviewOpenButtonKey,
+    required this.syncOpenButtonKey,
     required this.detailsButtonKey,
     required this.markReadButtonKey,
     required this.archiveButtonKey,
@@ -1424,6 +1772,8 @@ class _NotificationTile extends StatelessWidget {
     required this.onOpenPersonalBill,
     required this.onOpenSettlement,
     required this.onOpenRecurringBill,
+    required this.onOpenReceiptOcrReview,
+    required this.onOpenSyncOperation,
     required this.onShowDetails,
     required this.onMarkRead,
     required this.onArchive,
@@ -1436,6 +1786,8 @@ class _NotificationTile extends StatelessWidget {
   final bool canOpenPersonalBill;
   final bool canOpenSettlement;
   final bool canOpenRecurringBill;
+  final bool canOpenReceiptOcrReview;
+  final bool canOpenSyncOperation;
   final bool canRestore;
   final bool hasOpenTarget;
   final bool isDisabled;
@@ -1445,6 +1797,8 @@ class _NotificationTile extends StatelessWidget {
   final Key personalBillOpenButtonKey;
   final Key settlementOpenButtonKey;
   final Key recurringOpenButtonKey;
+  final Key receiptReviewOpenButtonKey;
+  final Key syncOpenButtonKey;
   final Key detailsButtonKey;
   final Key markReadButtonKey;
   final Key archiveButtonKey;
@@ -1454,6 +1808,8 @@ class _NotificationTile extends StatelessWidget {
   final VoidCallback onOpenPersonalBill;
   final VoidCallback onOpenSettlement;
   final VoidCallback onOpenRecurringBill;
+  final VoidCallback onOpenReceiptOcrReview;
+  final VoidCallback onOpenSyncOperation;
   final VoidCallback onShowDetails;
   final VoidCallback onMarkRead;
   final VoidCallback onArchive;
@@ -1527,7 +1883,7 @@ class _NotificationTile extends StatelessWidget {
                   key: revisionOpenButtonKey,
                   onPressed: isDisabled ? null : onOpenBillRevision,
                   icon: const Icon(Icons.open_in_new_outlined),
-                  label: const Text('Open'),
+                  label: const Text('Review bill'),
                 ),
               ] else if (!isArchived && canOpenGroupBill) ...[
                 const SizedBox(height: 8),
@@ -1551,7 +1907,7 @@ class _NotificationTile extends StatelessWidget {
                   key: settlementOpenButtonKey,
                   onPressed: isDisabled ? null : onOpenSettlement,
                   icon: const Icon(Icons.account_balance_wallet_outlined),
-                  label: const Text('Open settlement'),
+                  label: const Text('Review settlement'),
                 ),
               ] else if (!isArchived && canOpenRecurringBill) ...[
                 const SizedBox(height: 8),
@@ -1559,12 +1915,28 @@ class _NotificationTile extends StatelessWidget {
                   key: recurringOpenButtonKey,
                   onPressed: isDisabled ? null : onOpenRecurringBill,
                   icon: const Icon(Icons.event_repeat_outlined),
-                  label: const Text('Open recurring'),
+                  label: const Text('Review bill'),
+                ),
+              ] else if (!isArchived && canOpenReceiptOcrReview) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: receiptReviewOpenButtonKey,
+                  onPressed: isDisabled ? null : onOpenReceiptOcrReview,
+                  icon: const Icon(Icons.document_scanner_outlined),
+                  label: const Text('Review receipt'),
+                ),
+              ] else if (!isArchived && canOpenSyncOperation) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: syncOpenButtonKey,
+                  onPressed: isDisabled ? null : onOpenSyncOperation,
+                  icon: const Icon(Icons.sync_problem_outlined),
+                  label: const Text('Review sync issue'),
                 ),
               ] else if (!isArchived && hasOpenTarget) ...[
                 const SizedBox(height: 8),
                 const Text(
-                  'This notification only points to a destination. It cannot be opened safely here without supported typed metadata and an authorized repository; use the related list or refresh after a supported destination is available.',
+                  'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
                 ),
               ],
             ],
@@ -1627,7 +1999,9 @@ class _NotificationTile extends StatelessWidget {
         canOpenGroupBill ||
         canOpenPersonalBill ||
         canOpenSettlement ||
-        canOpenRecurringBill;
+        canOpenRecurringBill ||
+        canOpenReceiptOcrReview ||
+        canOpenSyncOperation;
   }
 }
 
@@ -1811,6 +2185,76 @@ class _NotificationDetailSheet extends StatelessWidget {
   }
 }
 
+class _NotificationSyncOperationScreen extends StatelessWidget {
+  const _NotificationSyncOperationScreen({required this.result});
+
+  final SettleoraSyncOperationResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusLabel = _syncStatusLabel(result.status);
+    final safeMessage = _safeSyncMessage(result.safeMessage);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Sync issue')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+          children: [
+            SettleoraStatePanel(
+              icon: result.isConflict
+                  ? Icons.sync_problem_outlined
+                  : Icons.cloud_sync_outlined,
+              title: result.isSynced ? 'This item is up to date' : 'Sync issue',
+              message:
+                  'Settleora refreshed this sync issue through the current account before showing this readout.',
+              compact: true,
+            ),
+            const SizedBox(height: 12),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SettleoraStatusChip(
+                      label: statusLabel,
+                      icon: result.isConflict
+                          ? Icons.report_problem_outlined
+                          : Icons.sync_outlined,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      safeMessage ??
+                          'No additional action is available from this notification.',
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Retry, conflict resolution, and source changes stay with the authorized sync and bill flows. Opening or archiving this notification does not change source records.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.arrow_back_outlined),
+              label: const Text('Back to notifications'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NotificationHandoffBillRepository implements SettleoraBillRepository {
   const _NotificationHandoffBillRepository(this._delegate);
 
@@ -1985,6 +2429,99 @@ SettleoraNotificationFailure _notificationFailureFromBillOpen(Object error) {
   );
 }
 
+SettleoraNotificationFailure _notificationFailureFromSyncOpen(
+  SettleoraSyncFailure failure,
+) {
+  return SettleoraNotificationFailure(
+    kind: switch (failure.kind) {
+      SettleoraSyncFailureKind.sessionRequired =>
+        SettleoraNotificationFailureKind.sessionRequired,
+      SettleoraSyncFailureKind.sessionExpired =>
+        SettleoraNotificationFailureKind.sessionExpired,
+      SettleoraSyncFailureKind.denied =>
+        SettleoraNotificationFailureKind.denied,
+      SettleoraSyncFailureKind.unavailable =>
+        SettleoraNotificationFailureKind.unavailable,
+      SettleoraSyncFailureKind.conflict =>
+        SettleoraNotificationFailureKind.conflict,
+      SettleoraSyncFailureKind.validation =>
+        SettleoraNotificationFailureKind.validation,
+      SettleoraSyncFailureKind.retryable =>
+        SettleoraNotificationFailureKind.network,
+      SettleoraSyncFailureKind.server =>
+        SettleoraNotificationFailureKind.server,
+    },
+    message: _safeDestinationFailureMessage(
+      failure.message,
+      fallbackMessage:
+          'The sync issue is not available right now. Retry from Notifications after refreshing.',
+    ),
+    statusCode: failure.statusCode,
+  );
+}
+
+SettleoraNotificationFailure _safeOpenFallbackFailure(
+  SettleoraNotificationOpenFallbackState state,
+) {
+  return switch (state) {
+    SettleoraNotificationOpenFallbackState.missing =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.unavailable,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.archived =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.unavailable,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.unsupported =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.validation,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.signInRequired =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.sessionRequired,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.wrongAccount =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.denied,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.localOnly =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.unavailable,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.offline =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.network,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.stale =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.unavailable,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.unauthorized =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.denied,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.resolved =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.conflict,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+    SettleoraNotificationOpenFallbackState.providerUnconfigured =>
+      SettleoraNotificationFailure(
+        kind: SettleoraNotificationFailureKind.unavailable,
+        message: settleoraNotificationOpenFallbackMessage(state),
+      ),
+  };
+}
+
 SettleoraNotificationFailure _safeOpenReadFailure(Object error) {
   final failure = SettleoraNotificationFailure.from(error);
   return SettleoraNotificationFailure(
@@ -2115,6 +2652,12 @@ String _safeDestinationLabel(SettleoraNotificationRow notification) {
   }
   if (notification.hasRecurringBillTarget) {
     return 'Recurring bill';
+  }
+  if (notification.hasReceiptOcrReviewTarget) {
+    return 'Receipt review';
+  }
+  if (notification.hasSyncOperationTarget) {
+    return 'Sync issue';
   }
   if (settleoraNotificationMetadataId(notification.actionUrl) != null) {
     return 'Unsupported link';
@@ -2262,7 +2805,7 @@ IconData _priorityIcon(SettleoraNotificationPriority priority) {
       Icons.notification_important_outlined,
     SettleoraNotificationPriorityValues.attention =>
       Icons.priority_high_outlined,
-    _ => Icons.notifications_outlined,
+    _ => Icons.inbox_outlined,
   };
 }
 
@@ -2300,6 +2843,31 @@ DateTime? _latestNotificationUpdate(SettleoraNotificationRow notification) {
   return readAt.isAfter(archivedAt) ? readAt : archivedAt;
 }
 
+String _syncStatusLabel(SettleoraSyncOperationResultStatus status) {
+  return switch (status) {
+    SettleoraSyncOperationResultStatusValues.accepted => 'Synced',
+    SettleoraSyncOperationResultStatusValues.replayed => 'Already synced',
+    SettleoraSyncOperationResultStatusValues.rejected => 'Needs review',
+    SettleoraSyncOperationResultStatusValues.conflict => 'Needs review',
+    _ => 'Sync issue',
+  };
+}
+
+String? _safeSyncMessage(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+  if (_isUnsafeNotificationUiText(trimmed)) {
+    return null;
+  }
+  if (trimmed.length > 180) {
+    return '${trimmed.substring(0, 177)}...';
+  }
+
+  return trimmed;
+}
+
 SettleoraNotificationRow _copyNotificationRead(
   SettleoraNotificationRow notification,
 ) {
@@ -2323,6 +2891,9 @@ SettleoraNotificationRow _copyNotificationRead(
     settlementPaymentId: notification.settlementPaymentId,
     recurringBillTemplateId: notification.recurringBillTemplateId,
     recurringBillOccurrenceId: notification.recurringBillOccurrenceId,
+    receiptOcrReviewId: notification.receiptOcrReviewId,
+    receiptAttachmentFileId: notification.receiptAttachmentFileId,
+    syncOperationId: notification.syncOperationId,
     createdAtUtc: notification.createdAtUtc,
     readAtUtc: notification.readAtUtc ?? notification.createdAtUtc,
     archivedAtUtc: notification.archivedAtUtc,

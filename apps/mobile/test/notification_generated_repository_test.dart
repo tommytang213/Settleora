@@ -60,6 +60,9 @@ void main() {
         notifications.single.recurringBillOccurrenceId,
         _recurringOccurrenceId,
       );
+      expect(notifications.single.receiptOcrReviewId, _ocrReviewId);
+      expect(notifications.single.receiptAttachmentFileId, _receiptFileId);
+      expect(notifications.single.syncOperationId, _syncOperationId);
       expect(notifications.single.createdAtUtc.isUtc, isTrue);
       expect(client.lastStatus, 'unread');
       expect(client.lastLimit, 25);
@@ -355,6 +358,9 @@ api.InAppNotificationResponse sampleApiNotification({
     settlementPaymentId: _settlementPaymentId,
     recurringBillTemplateId: _recurringTemplateId,
     recurringBillOccurrenceId: _recurringOccurrenceId,
+    receiptOcrReviewId: _ocrReviewId,
+    receiptAttachmentFileId: _receiptFileId,
+    syncOperationId: _syncOperationId,
     createdAtUtc: _createdAtUtc,
     readAtUtc: status == api.InAppNotificationStatusValues.read
         ? _updatedAtUtc
@@ -370,6 +376,9 @@ const _settlementRequestId = '55555555-5555-5555-5555-555555555555';
 const _settlementPaymentId = '66666666-6666-6666-6666-666666666666';
 const _recurringTemplateId = '77777777-7777-7777-7777-777777777777';
 const _recurringOccurrenceId = '88888888-8888-8888-8888-888888888888';
+const _ocrReviewId = '99999999-9999-9999-9999-999999999999';
+const _receiptFileId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const _syncOperationId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const _hiddenBody = {'detail': 'internal-detail'};
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);

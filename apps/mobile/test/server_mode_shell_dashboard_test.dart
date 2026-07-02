@@ -303,6 +303,9 @@ void main() {
           settlementPaymentId: null,
           recurringBillTemplateId: null,
           recurringBillOccurrenceId: null,
+          receiptOcrReviewId: null,
+          receiptAttachmentFileId: null,
+          syncOperationId: null,
           createdAtUtc: DateTime.utc(2026, 6, 8),
           readAtUtc: null,
           archivedAtUtc: null,
@@ -2042,6 +2045,9 @@ SettleoraNotificationRow sampleNotification() {
     settlementPaymentId: null,
     recurringBillTemplateId: null,
     recurringBillOccurrenceId: null,
+    receiptOcrReviewId: null,
+    receiptAttachmentFileId: null,
+    syncOperationId: null,
     createdAtUtc: DateTime.utc(2026, 6, 7, 12),
     readAtUtc: null,
     archivedAtUtc: null,
@@ -2803,6 +2809,11 @@ class FakeSyncRepository implements SettleoraSyncRepository {
       );
     }
 
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSyncOperationResult> getOperation(String syncOperationId) {
     throw UnimplementedError();
   }
 

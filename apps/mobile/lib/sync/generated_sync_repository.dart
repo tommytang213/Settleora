@@ -13,6 +13,11 @@ abstract interface class SettleoraSyncGeneratedClient {
     required String accessToken,
   });
 
+  Future<api.SyncOperationResponse> getSyncOperation(
+    String syncOperationId, {
+    required String accessToken,
+  });
+
   Future<api.SyncChangesResponse> listSyncChanges({
     int? sinceVersion,
     int? limit,
@@ -32,6 +37,14 @@ class SettleoraGeneratedSyncClient implements SettleoraSyncGeneratedClient {
     required String accessToken,
   }) {
     return _client.submitSyncOperation(request, accessToken: accessToken);
+  }
+
+  @override
+  Future<api.SyncOperationResponse> getSyncOperation(
+    String syncOperationId, {
+    required String accessToken,
+  }) {
+    return _client.getSyncOperation(syncOperationId, accessToken: accessToken);
   }
 
   @override
@@ -119,6 +132,27 @@ class GeneratedSettleoraSyncRepository implements SettleoraSyncRepository {
         );
 
         return _mapChangeFeed(response);
+      } on SettleoraSyncFailure {
+        rethrow;
+      } catch (error) {
+        throw _mapFailure(error);
+      }
+    });
+  }
+
+  @override
+  Future<SettleoraSyncOperationResult> getOperation(
+    String syncOperationId,
+  ) async {
+    final trimmedSyncOperationId = _requiredSyncOperationId(syncOperationId);
+    return _withAccessToken((accessToken) async {
+      try {
+        final response = await _client.getSyncOperation(
+          trimmedSyncOperationId,
+          accessToken: accessToken,
+        );
+
+        return _mapOperationResult(response);
       } on SettleoraSyncFailure {
         rethrow;
       } catch (error) {
@@ -366,4 +400,17 @@ String? _boundedNullableResponseText(String? value, {required int maxLength}) {
   }
 
   return trimmed.substring(0, maxLength);
+}
+
+String _requiredSyncOperationId(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    throw const SettleoraSyncFailure(
+      kind: SettleoraSyncFailureKind.validation,
+      message: 'Choose a sync issue before opening it.',
+      safeErrorCode: 'invalid_sync_operation',
+    );
+  }
+
+  return trimmed;
 }

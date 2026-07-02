@@ -28,11 +28,17 @@ class SettleoraNotificationSubjectTypeValues {
   static const settlementRequest = 'settlement_request';
   static const settlementPayment = 'settlement_payment';
   static const recurringBillOccurrence = 'recurring_bill_occurrence';
+  static const syncOperation = 'sync_operation';
+  static const receiptOcrReview = 'receipt_ocr_review';
 }
 
 class SettleoraNotificationEventTypeValues {
   const SettleoraNotificationEventTypeValues._();
 
+  static const billSubmitted = 'bill.submitted';
+  static const billParticipantAccepted = 'bill.participant_accepted';
+  static const billParticipantRejected = 'bill.participant_rejected';
+  static const billConfirmed = 'bill.confirmed';
   static const billRevisionProposed = 'bill.revision_proposed';
   static const billRevisionResubmitted = 'bill.revision_resubmitted';
   static const billRevisionSubmitted = 'bill.revision_submitted';
@@ -41,6 +47,23 @@ class SettleoraNotificationEventTypeValues {
   static const billRevisionRejected = 'bill.revision_rejected';
   static const billRevisionPayerConfirmed = 'bill.revision_payer_confirmed';
   static const billRevisionApplied = 'bill.revision_applied';
+  static const settlementRequestCreated = 'settlement.request_created';
+  static const settlementPaymentMarkedPaid = 'settlement.payment_marked_paid';
+  static const settlementPaymentPartiallyPaid =
+      'settlement.payment_partially_paid';
+  static const settlementPaymentConfirmed = 'settlement.payment_confirmed';
+  static const settlementRequestDisputed = 'settlement.request_disputed';
+  static const settlementPaymentDisputed = 'settlement.payment_disputed';
+  static const settlementRequestCancelled = 'settlement.request_cancelled';
+  static const settlementPaymentCancelled = 'settlement.payment_cancelled';
+  static const settlementProofAttached = 'settlement.proof_attached';
+  static const settlementResidualReviewNeeded =
+      'settlement.residual_review_needed';
+  static const recurringBillDueSoon = 'recurring_bill.due_soon';
+  static const recurringBillDraftGenerated = 'recurring_bill.draft_generated';
+  static const ocrNeedsReview = 'ocr.needs_review';
+  static const syncConflictDetected = 'sync.conflict_detected';
+  static const syncOperationFailed = 'sync.operation_failed';
 
   static const billRevisionEvents = <SettleoraNotificationEventType>{
     billRevisionProposed,
@@ -51,6 +74,36 @@ class SettleoraNotificationEventTypeValues {
     billRevisionRejected,
     billRevisionPayerConfirmed,
     billRevisionApplied,
+  };
+
+  static const billWorkflowEvents = <SettleoraNotificationEventType>{
+    billSubmitted,
+    billParticipantAccepted,
+    billParticipantRejected,
+    billConfirmed,
+  };
+
+  static const settlementEvents = <SettleoraNotificationEventType>{
+    settlementRequestCreated,
+    settlementPaymentMarkedPaid,
+    settlementPaymentPartiallyPaid,
+    settlementPaymentConfirmed,
+    settlementRequestDisputed,
+    settlementPaymentDisputed,
+    settlementRequestCancelled,
+    settlementPaymentCancelled,
+    settlementProofAttached,
+    settlementResidualReviewNeeded,
+  };
+
+  static const recurringEvents = <SettleoraNotificationEventType>{
+    recurringBillDueSoon,
+    recurringBillDraftGenerated,
+  };
+
+  static const syncEvents = <SettleoraNotificationEventType>{
+    syncConflictDetected,
+    syncOperationFailed,
   };
 }
 
@@ -63,6 +116,49 @@ enum SettleoraNotificationFailureKind {
   validation,
   network,
   server,
+}
+
+enum SettleoraNotificationOpenFallbackState {
+  missing,
+  archived,
+  unsupported,
+  signInRequired,
+  wrongAccount,
+  localOnly,
+  offline,
+  stale,
+  unauthorized,
+  resolved,
+  providerUnconfigured,
+}
+
+String settleoraNotificationOpenFallbackMessage(
+  SettleoraNotificationOpenFallbackState state,
+) {
+  return switch (state) {
+    SettleoraNotificationOpenFallbackState.missing =>
+      'This notification is no longer available.',
+    SettleoraNotificationOpenFallbackState.archived =>
+      'This notification is archived. Restore it before opening from Notifications.',
+    SettleoraNotificationOpenFallbackState.unsupported =>
+      'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+    SettleoraNotificationOpenFallbackState.signInRequired =>
+      'Sign in to view this notification.',
+    SettleoraNotificationOpenFallbackState.wrongAccount =>
+      'This item is not available to this account.',
+    SettleoraNotificationOpenFallbackState.localOnly =>
+      'Connect to the server to refresh this notification.',
+    SettleoraNotificationOpenFallbackState.offline =>
+      'Connect to the server to refresh this notification. Cached notification details are not enough to open it.',
+    SettleoraNotificationOpenFallbackState.stale =>
+      'This notification is no longer available.',
+    SettleoraNotificationOpenFallbackState.unauthorized =>
+      'This item is not available to this account.',
+    SettleoraNotificationOpenFallbackState.resolved =>
+      'This item no longer needs action.',
+    SettleoraNotificationOpenFallbackState.providerUnconfigured =>
+      'Push notifications are off for this server. In-app notifications still work.',
+  };
 }
 
 class SettleoraNotificationFailure implements Exception {
@@ -136,6 +232,9 @@ class SettleoraNotificationRow {
     required this.settlementPaymentId,
     required this.recurringBillTemplateId,
     required this.recurringBillOccurrenceId,
+    required this.receiptOcrReviewId,
+    required this.receiptAttachmentFileId,
+    required this.syncOperationId,
     required this.createdAtUtc,
     required this.readAtUtc,
     required this.archivedAtUtc,
@@ -155,6 +254,9 @@ class SettleoraNotificationRow {
   final String? settlementPaymentId;
   final String? recurringBillTemplateId;
   final String? recurringBillOccurrenceId;
+  final String? receiptOcrReviewId;
+  final String? receiptAttachmentFileId;
+  final String? syncOperationId;
   final DateTime createdAtUtc;
   final DateTime? readAtUtc;
   final DateTime? archivedAtUtc;
@@ -172,6 +274,9 @@ class SettleoraNotificationRow {
 
   bool get hasGroupBillTarget {
     return !hasBillRevisionReviewTarget &&
+        SettleoraNotificationEventTypeValues.billWorkflowEvents.contains(
+          eventType,
+        ) &&
         subjectType == SettleoraNotificationSubjectTypeValues.expenseBill &&
         _nonEmptyId(groupId) != null &&
         _nonEmptyId(expenseBillId) != null;
@@ -180,6 +285,9 @@ class SettleoraNotificationRow {
   bool get hasPersonalBillTarget {
     return !hasBillRevisionReviewTarget &&
         !hasGroupBillTarget &&
+        SettleoraNotificationEventTypeValues.billWorkflowEvents.contains(
+          eventType,
+        ) &&
         subjectType == SettleoraNotificationSubjectTypeValues.expenseBill &&
         _nonEmptyId(expenseBillId) != null &&
         _nonEmptyId(groupId) == null;
@@ -190,13 +298,36 @@ class SettleoraNotificationRow {
                 SettleoraNotificationSubjectTypeValues.settlementRequest ||
             subjectType ==
                 SettleoraNotificationSubjectTypeValues.settlementPayment) &&
+        SettleoraNotificationEventTypeValues.settlementEvents.contains(
+          eventType,
+        ) &&
         _nonEmptyId(settlementRequestId) != null;
   }
 
   bool get hasRecurringBillTarget {
     return subjectType ==
             SettleoraNotificationSubjectTypeValues.recurringBillOccurrence &&
+        SettleoraNotificationEventTypeValues.recurringEvents.contains(
+          eventType,
+        ) &&
         _nonEmptyId(recurringBillTemplateId) != null;
+  }
+
+  bool get hasReceiptOcrReviewTarget {
+    return eventType == SettleoraNotificationEventTypeValues.ocrNeedsReview &&
+        subjectType ==
+            SettleoraNotificationSubjectTypeValues.receiptOcrReview &&
+        _nonEmptyId(expenseBillId) != null &&
+        _nonEmptyId(receiptAttachmentFileId) != null &&
+        _nonEmptyId(receiptOcrReviewId) != null;
+  }
+
+  bool get hasSyncOperationTarget {
+    return SettleoraNotificationEventTypeValues.syncEvents.contains(
+          eventType,
+        ) &&
+        subjectType == SettleoraNotificationSubjectTypeValues.syncOperation &&
+        _nonEmptyId(syncOperationId) != null;
   }
 
   bool get hasTypedOpenTarget =>
@@ -204,7 +335,9 @@ class SettleoraNotificationRow {
       hasGroupBillTarget ||
       hasPersonalBillTarget ||
       hasSettlementTarget ||
-      hasRecurringBillTarget;
+      hasRecurringBillTarget ||
+      hasReceiptOcrReviewTarget ||
+      hasSyncOperationTarget;
 
   String get displayTitle => settleoraNotificationEventLabel(eventType);
 
@@ -281,6 +414,8 @@ String settleoraNotificationSubjectTypeLabel(
       'Settlement payment',
     SettleoraNotificationSubjectTypeValues.recurringBillOccurrence =>
       'Recurring bill',
+    SettleoraNotificationSubjectTypeValues.syncOperation => 'Sync issue',
+    SettleoraNotificationSubjectTypeValues.receiptOcrReview => 'Receipt review',
     _ => _titleFromCode(subjectType),
   };
 }
@@ -291,10 +426,12 @@ String settleoraNotificationEventLabel(SettleoraNotificationEventType event) {
   }
 
   return switch (event) {
-    'bill.submitted' => 'Bill submitted',
-    'bill.participant_accepted' => 'Bill accepted',
-    'bill.participant_rejected' => 'Bill rejected',
-    'bill.confirmed' => 'Bill confirmed',
+    SettleoraNotificationEventTypeValues.billSubmitted => 'Bill submitted',
+    SettleoraNotificationEventTypeValues.billParticipantAccepted =>
+      'Bill accepted',
+    SettleoraNotificationEventTypeValues.billParticipantRejected =>
+      'Bill rejected',
+    SettleoraNotificationEventTypeValues.billConfirmed => 'Bill confirmed',
     SettleoraNotificationEventTypeValues.billRevisionProposed =>
       'Bill revision proposed',
     SettleoraNotificationEventTypeValues.billRevisionResubmitted =>
@@ -311,16 +448,33 @@ String settleoraNotificationEventLabel(SettleoraNotificationEventType event) {
       'Bill revision payer confirmed',
     SettleoraNotificationEventTypeValues.billRevisionApplied =>
       'Bill revision applied',
-    'settlement.request_created' => 'Settlement requested',
-    'settlement.payment_marked_paid' => 'Payment marked paid',
-    'settlement.payment_partially_paid' => 'Partial payment marked paid',
-    'settlement.payment_confirmed' => 'Payment confirmed',
-    'settlement.request_disputed' => 'Settlement disputed',
-    'settlement.payment_disputed' => 'Payment disputed',
-    'settlement.request_cancelled' => 'Settlement cancelled',
-    'settlement.payment_cancelled' => 'Payment cancelled',
-    'settlement.proof_attached' => 'Proof attached',
-    'recurring_bill.draft_generated' => 'Recurring draft generated',
+    SettleoraNotificationEventTypeValues.settlementRequestCreated =>
+      'Settlement requested',
+    SettleoraNotificationEventTypeValues.settlementPaymentMarkedPaid =>
+      'Payment marked paid',
+    SettleoraNotificationEventTypeValues.settlementPaymentPartiallyPaid =>
+      'Partial payment marked paid',
+    SettleoraNotificationEventTypeValues.settlementPaymentConfirmed =>
+      'Payment confirmed',
+    SettleoraNotificationEventTypeValues.settlementRequestDisputed =>
+      'Settlement disputed',
+    SettleoraNotificationEventTypeValues.settlementPaymentDisputed =>
+      'Payment disputed',
+    SettleoraNotificationEventTypeValues.settlementRequestCancelled =>
+      'Settlement cancelled',
+    SettleoraNotificationEventTypeValues.settlementPaymentCancelled =>
+      'Payment cancelled',
+    SettleoraNotificationEventTypeValues.settlementProofAttached =>
+      'Proof attached',
+    SettleoraNotificationEventTypeValues.settlementResidualReviewNeeded =>
+      'Settlement review',
+    SettleoraNotificationEventTypeValues.recurringBillDueSoon =>
+      'Recurring bill due soon',
+    SettleoraNotificationEventTypeValues.recurringBillDraftGenerated =>
+      'Recurring draft generated',
+    SettleoraNotificationEventTypeValues.ocrNeedsReview => 'Receipt review',
+    SettleoraNotificationEventTypeValues.syncConflictDetected => 'Sync issue',
+    SettleoraNotificationEventTypeValues.syncOperationFailed => 'Sync issue',
     _ => _titleFromCode(event.replaceAll('.', '_')),
   };
 }

@@ -482,6 +482,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       apiConfiguration,
       tokenProvider,
     );
+    final syncRepository = _defaultSyncRepositoryFactory(
+      apiConfiguration,
+      tokenProvider,
+    );
     final dataBackupService = SecureStorageLocalDataBackupService(
       secureStorage: widget.secureStorage,
       billSyncController: billSyncController,
@@ -507,6 +511,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       groupRepository: groupRepository,
       manualFinanceRepository: manualFinanceRepository,
       notificationRepository: notificationRepository,
+      syncRepository: syncRepository,
       reportRepository: reportRepository,
       profileRepository: profileRepository,
       billSyncController: billSyncController,

@@ -149,6 +149,8 @@ abstract interface class SettleoraSyncRepository {
     SettleoraSyncQueueItem item,
   );
 
+  Future<SettleoraSyncOperationResult> getOperation(String syncOperationId);
+
   Future<SettleoraSyncChangeFeed> listChanges({
     int? sinceVersion,
     int? limit,
