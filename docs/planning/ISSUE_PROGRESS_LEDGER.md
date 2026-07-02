@@ -26,9 +26,8 @@ remain the source of truth.
   updated by this docs/control task. Related issues #368, #403, #634, #635,
   and #371 were read back as `OPEN` before the policy edit.
 - Last verified at main SHA:
-  `0d65ff91252196034dde02b3a9fef8a66319596d` after PR #655 and before the
-  `feature/settlement-residual-review-needed-notification-369-20260702`
-  implementation branch.
+  `1766fe9962fe0b4f6d543e0d3aa4c87490e608cf` after PR #656 and before the
+  `docs/sync-notification-source-policy-369-20260702` docs/control branch.
 - Completed PRs/slices:
   - PR #654, merge SHA `d58c03753f16741fac0a572de16f1447711c6f64`:
     completed only the narrow `sync.operation_failed` in-app/provider-neutral
@@ -42,6 +41,9 @@ remain the source of truth.
     implements the narrow `settlement.residual_review_needed` runtime slice
     for successful debtor-created payment claims that persist pending
     receiver-confirmation residuals.
+  - Branch `docs/sync-notification-source-policy-369-20260702`: defines the
+    remaining sync queued/retry/resolved/conflict-resolution notification
+    source policy after `sync.conflict_detected` and `sync.operation_failed`.
 - Completed scope:
   - Records current residual facts: explicit same-currency underpayment and
     overpayment residual rows, `pending_receiver_confirmation` source state,
@@ -61,17 +63,38 @@ remain the source of truth.
   - Preserves debtor actor suppression, unrelated participant/admin
     suppression, privacy-safe payload exclusions, duplicate/replay no-op
     behavior, and read/archive source-state isolation.
+  - Records that current sync runtime has no server-side queued, retrying,
+    retry-failed, resolved, reopened, or resolution-applied source states.
+  - Defers noisy automatic `sync.operation_queued` and
+    `sync.operation_retrying` notifications unless a later policy/runtime
+    slice proves a specific transition is user-actionable and privacy-safe.
+  - Conditionally allows future `sync.operation_retry_failed`,
+    `sync.conflict_resolved`, and `sync.resolution_applied` only after exact
+    persisted source transitions exist; `sync.conflict_reopened` remains
+    deferred unless a real reopened source state exists.
+  - Confirms current `syncOperationId` plus the current-actor sync operation
+    read path is sufficient only for future events backed by a persisted
+    server `SyncOperation`; local queue, retry schedule, conflict-record, or
+    resolution-attempt targets need a future target/reference/API gate.
 - Explicitly not complete:
   - No debtor notification after receiver residual decision.
   - No broader settlement mismatch/review event runtime.
   - No provider send, mobile/deep-link, admin/global policy, settlement
     business schema, money, residual, allocation, payment, proof, balance
     projection, auth/security, deployment, CI, or secret change.
+  - No sync queued/resolved/retry/conflict-resolution runtime, event enum,
+    OpenAPI/generated-client, EF migration/check constraint, queue consumer,
+    scheduler, hosted worker, conflict-resolution implementation, mobile UI,
+    or #371 deep-link change.
 - Remaining Day 1 work:
   - Future debtor notification after receiver residual decisions only if a
     later policy names the event/source/recipient rules.
   - Broader settlement mismatch/review notifications remain blocked until
     broader settlement review source states exist.
+  - Runtime implementation for any remaining sync notification events remains
+    blocked until exact persisted source states and recipient/action semantics
+    exist. Ordinary queue/retry churn should stay local UI/readout rather than
+    notification noise.
   - #371 deep links, #635 admin/global policy/readout, #634 real push/provider
     and mobile work, OCR completed/failed, auth/session/security
     notifications, item claim/split notifications, and final Day 1 acceptance
@@ -83,7 +106,9 @@ remain the source of truth.
   - Keep #368, #403, #634, #635, and #371 open.
 - Last verified repo/report references:
   - `docs/architecture/SETTLEMENT_RESIDUAL_REVIEW_NOTIFICATION_SOURCE_POLICY.md`
+  - `docs/architecture/SYNC_NOTIFICATION_SOURCE_POLICY.md`
   - `/workspace/logs/settleora-codex-report-20260702-settlement-residual-review-notification-source-policy-369.md`
+  - `/workspace/logs/settleora-codex-report-20260702-sync-notification-source-policy-369.md`
 
 ### Issue #570 - OCR review in-app notification runtime
 
