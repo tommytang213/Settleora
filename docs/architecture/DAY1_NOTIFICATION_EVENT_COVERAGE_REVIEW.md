@@ -167,6 +167,14 @@ Deep-link work should route to authorized destination APIs and must avoid
 leaking record existence through stale, missing, or unauthorized notification
 targets.
 
+[Notification deep-link route policy](NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
+is the #371 docs/control route gate. It allows future mobile routing only for
+currently implemented event families after notification and linked-resource
+re-fetch, marks security/session and item-claim routes future/blocked, and
+defines privacy-safe fallback behavior for missing, stale, unauthorized,
+resolved, account-switched, and offline opens. It is not Flutter
+implementation or approved Figma output.
+
 Push/email delivery, provider workers, digest scheduling, background delivery,
 delivery receipts, and admin/global policy remain out of scope unless a future
 issue explicitly implements them.

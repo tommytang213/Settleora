@@ -110,6 +110,55 @@ remain the source of truth.
   - `/workspace/logs/settleora-codex-report-20260702-settlement-residual-review-notification-source-policy-369.md`
   - `/workspace/logs/settleora-codex-report-20260702-sync-notification-source-policy-369.md`
 
+### Issue #371 - Notification deep-link route policy gate
+
+- GitHub state/project status: issue `OPEN`; #368, #369, #403, #634, and
+  #635 were read back as `OPEN` for this docs/control task. Project field
+  mutation was not attempted.
+- Last verified at main SHA:
+  `d814d2a221b2335366bebbdb372f8e1c1c85fc71`.
+- Completed slice:
+  - Branch `docs/notification-deep-link-route-policy-371-20260702` defines
+    the #371 notification deep-link route/mobile navigation policy gate.
+- Completed scope:
+  - Defines that notification rows, push payloads, local cache, route state,
+    object URLs, and generated-client availability are not authorization.
+  - Requires opening a notification to re-fetch the notification detail and
+    then re-fetch the linked bill, settlement, recurring bill, OCR review, or
+    sync operation through authorized API paths.
+  - Maps current implemented event families to future route targets: bill
+    workflow/revision, settlement request/payment/proof/residual review,
+    recurring due/draft, OCR `ocr.needs_review`, and sync
+    `sync.conflict_detected` / `sync.operation_failed`.
+  - Marks security/auth/session, item-claim/split, broader settlement review,
+    OCR completed/failed, remaining sync queued/retry/resolved, provider,
+    digest, admin/global policy, push-token, and delivery-attempt routes as
+    future/blocked until source/runtime/target policies exist.
+  - Defines missing, archived, restored, deleted, unauthorized, group-membership
+    changed, resolved, retargeted, account-switched, sign-in-required, offline,
+    and server-unavailable fallback behavior without private existence leaks.
+  - Records privacy-safe external copy and mobile navigation posture, including
+    no first-launch prompt coupling and Figma/reference-gated Flutter
+    implementation.
+- Explicitly not complete:
+  - No Flutter/mobile code, Figma output, screenshots, route runtime,
+    navigation runtime, notification writer runtime, event enum, OpenAPI,
+    generated-client, EF migration/check constraint, auth/session/security
+    runtime, business-authority logic, provider sending, admin/global policy,
+    deployment/env/CI, Docker, or secret changes.
+- Remaining Day 1 work:
+  - Future Figma/reference states for notification deep-link opens.
+  - Future Flutter implementation and mobile navigation tests after reference
+    approval.
+  - Backend route/target tests only if a future implementation changes route
+    metadata, target APIs, OpenAPI, or notification behavior.
+- Close/keep-open recommendation:
+  - Keep #371 open. This is a docs/control gate and does not implement mobile
+    deep links or complete Day 1 notification acceptance.
+  - Keep #368, #369, #403, #634, and #635 open.
+- Last verified repo/report references:
+  - `docs/architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md`
+
 ### Issue #570 - OCR review in-app notification runtime
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,

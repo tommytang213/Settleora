@@ -80,6 +80,12 @@ is not authorization proof for a bill, settlement, recurring bill, OCR review,
 sync operation, file, auth session, audit event, provider delivery record, or
 policy record.
 
+[Notification deep-link route policy](NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
+is the follow-on #371 route/mobile navigation gate. It maps currently
+implemented notification families to authorized target re-fetch behavior and
+defines stale, missing, unauthorized, account-switched, offline, and resolved
+fallback states before Flutter deep-link work.
+
 ## Remaining Target Needs
 
 The remaining #369 families need safe linked-resource IDs that are not all

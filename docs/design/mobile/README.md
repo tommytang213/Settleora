@@ -11,6 +11,7 @@ This folder records approved mobile UI/UX design reference material for future S
 - [Mobile More and Settings reference V1](MOBILE_MORE_SETTINGS_REFERENCE_V1.md)
 - [Mobile Notifications reference V1](MOBILE_NOTIFICATIONS_REFERENCE_V1.md)
 - [Mobile Push Registration UX reference](MOBILE_PUSH_REGISTRATION_UX_REFERENCE.md)
+- [Notification deep-link route policy](../../architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
 - [Mobile Auth Security reference V1](MOBILE_AUTH_SECURITY_REFERENCE_V1.md)
 - [Mobile Privacy Vault reference V1](MOBILE_PRIVACY_VAULT_REFERENCE_V1.md)
 - [Mobile Web Bill Revision Diff reference V1](MOBILE_WEB_BILL_REVISION_DIFF_REFERENCE_V1.md)
