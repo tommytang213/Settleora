@@ -135,20 +135,35 @@ ship custom encryption, VPN behavior, or a non-exempt crypto feature. Revisit
 this declaration before adding custom crypto, non-standard encryption,
 VPN/tunneling behavior, or a new embedded crypto runtime.
 
-The iOS app does not currently declare
-`NSLocationWhenInUseUsageDescription` because Settleora has no current product
-feature that requests device location. The TestFlight 90683 warning was traced
-to `file_picker`'s optional iOS media picker dependency on
-`DKImagePickerController/PhotoGallery`; Settleora uses `file_picker` only for
-custom document attachment import, while receipt camera/photo-library import
-uses `image_picker`. The Podfile sets `Pod::PICKER_MEDIA = false` so the unused
-file-picker media path and its photo-gallery dependency are not compiled into
-the iOS app. If a future feature intentionally uses device location or a
-location-requiring media picker, add a truthful user-facing location purpose
-string as part of that feature review.
+The iOS app declares `NSLocationWhenInUseUsageDescription` even though
+Settleora has no product feature that tracks, records, tags, maps, or requests
+device location. App Store Connect can still raise warning 90683 when a linked
+iOS picker dependency graph references CoreLocation or location-capable media
+metadata APIs. The warning was traced to picker dependencies rather than to a
+Settleora location feature:
 
-After this metadata change, the next verification step is a fresh
-maintainer-approved `Mobile iOS internal TestFlight` upload and App Store
+- Settleora uses `file_picker` only for custom document attachment import.
+- Receipt camera/photo-library import uses `image_picker` with
+  `requestFullMetadata: false`.
+- `file_picker`'s CocoaPods podspec can include
+  `DKImagePickerController/PhotoGallery` for optional iOS media picking.
+- The Podfile sets `Pod::PICKER_MEDIA = false`, which disables that optional
+  file-picker media path for CocoaPods builds, but the processed App Store
+  Connect build still reported 90683 after a fresh upload.
+
+Because the app still depends on iOS picker packages and App Store Connect
+continued to detect a location-purpose requirement, the repo-side fallback is a
+truthful purpose string, not a fake location feature:
+
+```text
+Settleora does not track your location. If iOS asks, location access is only for system photo picker compatibility when selecting receipt images.
+```
+
+If a future feature intentionally uses device location, nearby stores, maps,
+merchant discovery, GPS receipts, automatic location tagging, or a
+location-requiring media picker, review and replace this purpose string as part
+of that feature. After this metadata change, the next verification step is a
+fresh maintainer-approved `Mobile iOS internal TestFlight` upload and App Store
 Connect processing check to confirm the encryption prompt and 90683 warning are
 cleared for the processed build.
 
