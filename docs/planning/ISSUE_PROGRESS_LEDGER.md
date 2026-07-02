@@ -110,15 +110,19 @@ remain the source of truth.
   - `/workspace/logs/settleora-codex-report-20260702-settlement-residual-review-notification-source-policy-369.md`
   - `/workspace/logs/settleora-codex-report-20260702-sync-notification-source-policy-369.md`
 
-### Issue #371 - Notification deep-link route policy gate
+### Issue #371 - Notification deep links / mobile notification-open behavior
 
-- GitHub state/project status: issue `OPEN`; #368, #369, #403, #634, and
-  #635 were read back as `OPEN` for this docs/control/mobile-reference task.
-  Project field mutation was not attempted.
+- GitHub state/project status: issue `OPEN` and closure-ready after final
+  acceptance; #368, #369, #403, #634, and #635 remain separate/open. Project
+  field mutation was not attempted.
 - Last verified at main SHA:
-  `210a1c53e32cbd7797212d62b8e358622ec29855` before branch
-  `docs/notification-open-tsx-reference-371-visual-consistency-recovery-20260702`.
+  `8b27a132aca6e6c52f602a940ef0d245ec46e9e5` after PR #663 and final
+  acceptance checkpoint.
 - Completed slices:
+  - PR #662, merge SHA `c5b2dae7d72cbd94da4437d19a0cdf5d30034723`,
+    accepted the repo-native TSX/mobile reference copy and chrome polish.
+  - PR #663, merge SHA `8b27a132aca6e6c52f602a940ef0d245ec46e9e5`,
+    accepted the Flutter notification-open/deep-link implementation.
   - Branch `docs/notification-deep-link-route-policy-371-20260702` defines
     the #371 notification deep-link route/mobile navigation policy gate.
   - Branch `docs/notification-open-mobile-reference-371-20260702` adds the
@@ -241,33 +245,32 @@ remain the source of truth.
     resolved/provider-unconfigured fallback copy, read/open/archive source
     mutation isolation, raw event-id suppression, and scroll-safe long
     notification rows.
+  - Final acceptance check returned `READY_TO_CLOSE_RECOMMENDATION` with no
+    remaining #371-specific gaps found.
 - Explicitly not complete:
   - No Figma Make/API usage, Figma output, screenshots, binary assets,
     notification writer runtime, event enum, OpenAPI, generated-client, EF
     migration/check constraint, auth/session/security runtime,
     business-authority logic, provider sending, admin/global policy,
     deployment/env/CI, Docker, or secret changes.
-  - Flutter implementation remains a first slice: final #371 acceptance still
-    requires PR review/merge, full mobile validation evidence, and any later
-    route/fallback polish approved by review.
+  - Provider-backed push flows, push registration, admin/global policy/readout,
+    backend notification event-family work, and broader notification epic work
+    remain separate outside #371.
 - Remaining Day 1 work:
-  - Tommy approval of exact Figma/screenshots/frames or the repo-native TSX
-    equivalent reference before Flutter implementation.
-  - Review and merge of the first Flutter implementation slice, followed by
-    any approved route/fallback polish.
+  - No remaining #371-specific work was found by the final acceptance check.
   - Backend route/target tests only if a future implementation changes route
     metadata, target APIs, OpenAPI, or notification behavior.
 - Close/keep-open recommendation:
-  - Keep #371 open. The first Flutter implementation slice exists, but #371
-    still needs PR review/merge, mobile validation review, and possible
-    follow-up route/fallback polish before final acceptance.
-  - Keep #368, #369, #403, #634, and #635 open.
+  - #371 is ready to close after the explicit final close comment/readback.
+  - Keep #368, #369, #403, #634, and #635 open/separate.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md`
   - `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_STATES_REFERENCE.md`
   - `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_FIGMA_REFERENCE_PACKAGE.md`
   - `docs/design/mobile/reference-tsx/notification-open/README.md`
   - `docs/design/mobile/reference-tsx/notification-open/NotificationOpenReference.tsx`
+  - `.codex/reports/settleora-codex-report-20260702-1705-notification-open-371-final-acceptance-check.md`
+  - `/workspace/logs/settleora-codex-report-20260702-1705-notification-open-371-final-acceptance-check.md`
 
 ### Issue #570 - OCR review in-app notification runtime
 
