@@ -217,6 +217,65 @@ public sealed class NotificationDeliveryAttemptRecorderTests
     }
 
     [Fact]
+    public async Task RecorderCanPersistSettlementResidualReviewNeededAttemptWithOnlySafeSettlementTargets()
+    {
+        await using var dbContext = CreateDbContext();
+        var recipientId = await SeedUserProfileAsync(dbContext, "Residual Review Recipient");
+        var actorId = await SeedUserProfileAsync(dbContext, "Residual Review Actor");
+        var settlementRequestId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var settlementPaymentId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var expenseBillId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var recorder = new EfNotificationDeliveryAttemptRecorder(dbContext);
+        var envelope = CreateEligibleEnvelope(
+            recipientId,
+            actorId,
+            groupId: null,
+            NotificationChannels.Email,
+            InAppNotificationEventTypes.SettlementResidualReviewNeeded,
+            InAppNotificationSubjectTypes.SettlementPayment);
+
+        var result = await recorder.RecordAsync(new NotificationDeliveryAttemptRecordRequest(
+            envelope,
+            NotificationChannels.Email,
+            "notification-attempt:settlement-residual-review-needed:1",
+            EvaluationTime,
+            SourceDomainEligible: true,
+            SourceCorrelationId: "settlement-residual-review-needed-source",
+            ExpenseBillId: expenseBillId,
+            SettlementRequestId: settlementRequestId,
+            SettlementPaymentId: settlementPaymentId));
+        await dbContext.SaveChangesAsync();
+
+        Assert.True(result.Created);
+        Assert.Equal(NotificationDeliveryAttemptStatuses.Queued, result.Status);
+        Assert.False(NotificationChannelDecisionStates.IsTerminalProviderSuccess(result.Status));
+        Assert.False(NotificationDeliveryAttemptStatuses.IsProviderRuntimeStatus(result.Status));
+
+        var attempt = Assert.Single(await dbContext.Set<NotificationDeliveryAttempt>().AsNoTracking().ToListAsync());
+        Assert.Equal(InAppNotificationEventTypes.SettlementResidualReviewNeeded, attempt.EventType);
+        Assert.Equal(InAppNotificationSubjectTypes.SettlementPayment, attempt.SubjectType);
+        Assert.Equal(settlementRequestId, attempt.SettlementRequestId);
+        Assert.Equal(settlementPaymentId, attempt.SettlementPaymentId);
+        Assert.Equal(expenseBillId, attempt.ExpenseBillId);
+        Assert.Null(attempt.CompletedAtUtc);
+        Assert.Null(attempt.RedactedProviderResultCategory);
+        Assert.Null(attempt.ReceiptOcrReviewId);
+        Assert.Null(attempt.ReceiptAttachmentFileId);
+        Assert.Null(attempt.SyncOperationId);
+
+        var columnNames = dbContext.Model.FindEntityType(typeof(NotificationDeliveryAttempt))!
+            .GetProperties()
+            .Select(property => property.GetColumnName())
+            .ToArray();
+        Assert.DoesNotContain(columnNames, name => name.Contains("payload", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("amount", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("payment_handle", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("proof", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("storage", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(columnNames, name => name.Contains("token", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task RecorderDoesNotMutateInAppInboxOrSourceBusinessState()
     {
         await using var dbContext = CreateDbContext();

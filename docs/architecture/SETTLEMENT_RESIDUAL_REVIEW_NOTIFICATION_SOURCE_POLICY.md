@@ -2,23 +2,25 @@
 
 ## Purpose
 
-This docs/control source-policy packet defines the safe future notification
-semantics for settlement residual, mismatch, and review handoffs under GitHub
-issue [#369](https://github.com/tommytang213/Settleora/issues/369) after PR
-[#654](https://github.com/tommytang213/Settleora/pull/654).
+This docs/control source-policy packet defines the safe notification semantics
+for the implemented settlement residual review handoff and remaining future
+settlement mismatch/review gates under GitHub issue
+[#369](https://github.com/tommytang213/Settleora/issues/369).
 
-This document does not implement runtime behavior. It does not add notification
-event constants, OpenAPI enums, generated clients, EF migrations, notification
-writers, API handlers, settlement status transitions, residual policies, money
+This document records the source-policy boundary used by the narrow
+`settlement.residual_review_needed` runtime slice. It does not authorize
+broader settlement mismatch/review notifications, debtor decision-result
+notifications, settlement status transitions, residual policies, money
 calculation, allocation behavior, balance projection behavior, payment
 confirmation behavior, proof behavior, storage behavior, provider delivery,
 mobile UI, deep links, Docker/deployment behavior, secrets, or issue closure.
 
 ## Decision
 
-Future pending receiver-confirmation residual handoffs should use a dedicated
-event such as `settlement.residual_review_needed` only when a later runtime
-task explicitly implements that narrow source transition.
+Pending receiver-confirmation residual handoffs use the dedicated
+`settlement.residual_review_needed` event only for the narrow implemented
+source transition: a successful debtor-created payment claim that persists a
+pending receiver-confirmation residual.
 
 Do not overload `settlement.payment_partially_paid` as the residual-review
 source event. The existing event remains the payment-claim/request-status
@@ -102,6 +104,7 @@ Current settlement notification coverage includes:
 - `settlement.request_cancelled`
 - `settlement.payment_cancelled`
 - `settlement.proof_attached`
+- `settlement.residual_review_needed`
 
 Current `settlement.payment_partially_paid` means a debtor-created payment
 claim leaves the settlement request partially covered by active payment
@@ -117,31 +120,38 @@ Current proof events are storage/privacy-sensitive proof handoffs. They must
 not describe proof contents, files, payment handles, QR contents, account
 numbers, storage paths, object keys, or provider internals.
 
+Current `settlement.residual_review_needed` means a debtor-created payment
+claim persisted a pending receiver-confirmation residual that the
+receiver/creditor must review through existing authorized settlement payment
+and residual confirmation APIs. It is not a payment-status replacement and does
+not expose residual amounts, residual reasons, payment details, proof contents,
+or storage internals.
+
 Current residual confirmation emits bounded settlement audit action
 `settlement.residual_confirmed`; it does not currently write an in-app
 notification. That audit action is not an in-app event type and must not be
 exposed as a notification without a future reviewed implementation.
 
-## Future Source Transitions
+## Source Transitions
 
-The only residual source transition that is ready enough for a future narrow
-notification implementation is:
+The only residual source transition currently implemented for residual-review
+notification runtime is:
 
 ```text
 debtor creates a settlement payment claim
 and that successful claim creates a pending receiver-confirmation residual
 ```
 
-Recommended future notification event:
+Notification event:
 
 ```text
 settlement.residual_review_needed
 ```
 
-The event should be written only after the payment claim and residual row are
-successfully accepted by the settlement API/domain flow. It should not fire for
-exact payments, ordinary partial payments without residual rows, failed writes,
-validation failures, unauthenticated/unauthorized requests, unsupported
+The event is written only after the payment claim and residual row are accepted
+by the settlement API/domain flow in the same successful save. It does not fire
+for exact payments, ordinary partial payments without residual rows, failed
+writes, validation failures, unauthenticated/unauthorized requests, unsupported
 residual policies, missing residual policy conflicts, duplicate/no-op paths, or
 residuals that are already resolved.
 
@@ -161,7 +171,7 @@ already classifies explicit residual policies.
 
 ## Recipient Policy
 
-For future `settlement.residual_review_needed`:
+For `settlement.residual_review_needed`:
 
 - Notify only the receiver/creditor for the debtor-created payment residual
   handoff.
@@ -181,8 +191,7 @@ residual, or balance behavior.
 
 ## Target And Reference Policy
 
-Future residual-review notifications should prefer existing safe settlement
-targets:
+Residual-review notifications use existing safe settlement targets:
 
 - `settlementRequestId`
 - `settlementPaymentId`
@@ -190,8 +199,8 @@ targets:
 - `expenseBillId` where already visible through the settlement request
 - route-like action URL to the existing authorized payment/request surface
 
-Do not add a residual-specific notification target ID unless the later design
-proves existing settlement payment/request targets are insufficient for the
+Do not add a residual-specific notification target ID unless a later design
+proves existing settlement payment/request targets are insufficient for a
 client to re-fetch and render the pending residual review through authorized
 API paths.
 
@@ -203,7 +212,7 @@ generated-client method is not authorization.
 
 ## Privacy-Safe Payload Policy
 
-Future residual-review notifications must use generic copy and safe IDs only.
+Residual-review notifications use generic copy and safe IDs only.
 External snippets should say only that a settlement payment update needs review
 or that a settlement update is available.
 
@@ -232,7 +241,7 @@ external snippet.
 
 ## Duplicate And Idempotency Policy
 
-Future runtime must not create duplicate residual-review notifications for the
+Runtime must not create duplicate residual-review notifications for the
 same pending residual handoff.
 
 Recommended idempotency shape for documentation purposes only:
@@ -257,14 +266,18 @@ read/archive must not create extra residual-review notifications.
 
 ## OpenAPI, Generated-Client, And Migration Implications
 
-This task intentionally changes none of these surfaces.
+The implemented runtime slice adds the public notification event enum value,
+regenerates web/Dart clients from OpenAPI, and widens only the notification
+event-type check constraints for `user_notifications` and
+`notification_delivery_attempts`. It does not add a public residual-specific
+target ID or alter settlement business schema.
 
-Future implementation requires OpenAPI and generated-client regeneration only
-if it adds a new public notification event enum value, response field, public
-target ID, route, or schema shape.
+Future implementations require OpenAPI and generated-client regeneration only
+if they add new public notification event enum values, response fields, public
+target IDs, routes, or schema shapes.
 
-Future implementation may require EF check-constraint migrations if adding a
-new notification event type to constrained notification/delivery-attempt
+Future implementation may require EF check-constraint migrations if adding
+another notification event type to constrained notification/delivery-attempt
 vocabularies. That migration should be limited to notification enum/constraint
 support and must not alter settlement business schema.
 
@@ -275,7 +288,7 @@ or residual policy behavior.
 
 ## Future Validation Expectations
 
-A future runtime slice for `settlement.residual_review_needed` should include:
+The runtime slice for `settlement.residual_review_needed` includes:
 
 - focused settlement payment claim/residual tests proving notification creation
   only when a successful debtor-created claim creates a pending
@@ -295,16 +308,17 @@ A future runtime slice for `settlement.residual_review_needed` should include:
   tokens, secrets, and unrelated user data;
 - authorized re-fetch tests proving notification visibility does not bypass
   settlement payment/request/residual authorization;
-- OpenAPI/client validation only if the event enum or public response shape
-  changes;
-- migration/check-constraint validation only if a new event type is added;
+- OpenAPI/client validation because the public event enum changed;
+- migration/check-constraint validation because the notification event type was
+  added;
 - `npm run validate:api-local` before PR/merge if runtime code changes.
 
 ## Remaining Gates
 
-- Runtime implementation for `settlement.residual_review_needed`, if approved.
-- OpenAPI/generated-client and EF constraint review only if a new public event
-  type or response shape is added.
+- Future debtor notification after receiver residual decisions, if a later
+  policy explicitly approves it.
+- Broader settlement mismatch/review notifications after exact source states
+  exist.
 - #371 notification deep links/mobile navigation.
 - #635 admin/global notification policy/readout.
 - #634 real push/provider/mobile work.
@@ -315,8 +329,8 @@ A future runtime slice for `settlement.residual_review_needed` should include:
 
 ## Non-Pass Statement
 
-#369, #368, #403, #634, #635, and #371 remain open. This document is a
-source-policy gate only. It does not complete settlement residual notification
-runtime, Day 1 notification event coverage, provider delivery, deep links,
+#369, #368, #403, #634, #635, and #371 remain open. This document records only
+the narrow residual-review handoff policy/runtime boundary. It does not
+complete all Day 1 notification event coverage, provider delivery, deep links,
 admin policy, push/mobile work, OCR worker events, auth/security notifications,
 item claim notifications, or final Day 1 acceptance.
