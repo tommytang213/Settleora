@@ -78,6 +78,18 @@ remain the source of truth.
     `/workspace/logs/settleora-visual-qa/20260702-2258-mobile-shell-home-more-profile-parity/`
     with `home-shell-390x844.png`, `home-attention-390x844.png`,
     `more-hub-390x844.png`, and `profile-payment-390x844.png`. This evidence
+    was manually reviewed as
+    `VISUAL_REVIEW_NEEDS_FOLLOWUP_BOTTOM_NAV_OVERLAP` because the Home
+    attention and More hub captures showed content clipped at the persistent
+    bottom nav boundary.
+  - The `20260702-2323` visual follow-up on the same branch increases shell
+    scroll bottom padding and updates the focused visual evidence harness to
+    capture Home attention, More lower sections, and Profile/payment content
+    only when the target content clears the bottom nav or viewport boundary.
+    Fresh follow-up evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260702-2323-mobile-shell-home-more-profile-visual-followup/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, and `profile-payment-390x844.png`. This evidence
     is `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR should be opened before explicit
     visual approval.
 - Remaining Day 1 work:

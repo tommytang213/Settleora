@@ -37,7 +37,7 @@ import '../ui/settleora_theme.dart';
 import 'auth_session_repository.dart';
 import 'local_data_backup.dart';
 
-const _serverShellRootScrollPadding = EdgeInsets.fromLTRB(16, 12, 16, 96);
+const _serverShellRootScrollPadding = EdgeInsets.fromLTRB(16, 12, 16, 148);
 
 typedef SettleoraSessionEndedCallback =
     Future<void> Function(String? noticeMessage);
@@ -2273,6 +2273,7 @@ class _DashboardOverviewContent extends StatelessWidget {
         else ...[
           if (overview.notificationSummary.urgentCount > 0)
             _DashboardActivityRow(
+              key: const Key('server-shell-urgent-activity-row'),
               title: 'Urgent activity',
               message:
                   '${overview.notificationSummary.urgentCount} notification${_plural(overview.notificationSummary.urgentCount)} need fast review',
@@ -2281,6 +2282,7 @@ class _DashboardOverviewContent extends StatelessWidget {
             ),
           if (overview.notificationSummary.attentionCount > 0)
             _DashboardActivityRow(
+              key: const Key('server-shell-attention-queue-row'),
               title: 'Attention queue',
               message:
                   '${overview.notificationSummary.attentionCount} item${_plural(overview.notificationSummary.attentionCount)} flagged for review',
@@ -2289,6 +2291,7 @@ class _DashboardOverviewContent extends StatelessWidget {
             ),
           if (overview.notificationSummary.unreadCount > 0)
             _DashboardActivityRow(
+              key: const Key('server-shell-notification-updates-row'),
               title: 'Notifications',
               message:
                   '${overview.notificationSummary.unreadCount} unread update${_plural(overview.notificationSummary.unreadCount)}',
@@ -2632,6 +2635,7 @@ class _DashboardBillRow extends StatelessWidget {
 
 class _DashboardActivityRow extends StatelessWidget {
   const _DashboardActivityRow({
+    super.key,
     required this.title,
     required this.message,
     required this.status,

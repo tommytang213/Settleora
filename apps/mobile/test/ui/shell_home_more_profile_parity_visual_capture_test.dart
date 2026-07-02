@@ -16,7 +16,7 @@ import '../profile_screen_test.dart' as profile;
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260702-2258-mobile-shell-home-more-profile-parity';
+    '/workspace/logs/settleora-visual-qa/20260702-2323-mobile-shell-home-more-profile-visual-followup';
 
 void main() {
   testWidgets('captures shell home more profile parity visual evidence', (
@@ -105,6 +105,19 @@ void main() {
       find.byKey(const Key('server-shell-recurring-drafts-action')),
       findsOneWidget,
     );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('server-shell-attention-queue-row')),
+      220,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('server-shell-home-scroll')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    _expectAboveBottomNav(
+      tester,
+      find.byKey(const Key('server-shell-attention-queue-row')),
+    );
     await _captureBoundary(
       tester,
       shellCaptureKey,
@@ -119,6 +132,19 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('server-shell-visual-preference-readout')),
+      260,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('server-shell-more-hub')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    _expectAboveBottomNav(
+      tester,
+      find.byKey(const Key('server-shell-visual-preference-readout')),
+    );
     await _captureBoundary(tester, shellCaptureKey, 'more-hub-390x844.png');
 
     const profileCaptureKey = Key('profile-payment-capture');
@@ -144,12 +170,33 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Payment Details'), findsOneWidget);
+    _expectVisibleInViewport(
+      tester,
+      find.byKey(const Key('profile-payment-summary')),
+    );
     await _captureBoundary(
       tester,
       profileCaptureKey,
       'profile-payment-390x844.png',
     );
   });
+}
+
+void _expectAboveBottomNav(WidgetTester tester, Finder contentFinder) {
+  final contentBottom = tester.getBottomLeft(contentFinder).dy;
+  final navTop = tester
+      .getTopLeft(find.byKey(const Key('server-shell-bottom-nav')))
+      .dy;
+
+  expect(contentBottom, lessThanOrEqualTo(navTop - 12));
+}
+
+void _expectVisibleInViewport(WidgetTester tester, Finder contentFinder) {
+  final contentRect = tester.getRect(contentFinder);
+  final viewportSize = tester.view.physicalSize / tester.view.devicePixelRatio;
+
+  expect(contentRect.top, greaterThanOrEqualTo(0));
+  expect(contentRect.bottom, lessThanOrEqualTo(viewportSize.height));
 }
 
 Future<void> _captureBoundary(
