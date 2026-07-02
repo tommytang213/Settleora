@@ -113,13 +113,16 @@ remain the source of truth.
 ### Issue #371 - Notification deep-link route policy gate
 
 - GitHub state/project status: issue `OPEN`; #368, #369, #403, #634, and
-  #635 were read back as `OPEN` for this docs/control task. Project field
-  mutation was not attempted.
+  #635 were read back as `OPEN` for this docs/control/mobile-reference task.
+  Project field mutation was not attempted.
 - Last verified at main SHA:
-  `d814d2a221b2335366bebbdb372f8e1c1c85fc71`.
-- Completed slice:
+  `40afe9babff51aade50b3312ef77a85f7db65a74` before branch
+  `docs/notification-open-mobile-reference-371-20260702`.
+- Completed slices:
   - Branch `docs/notification-deep-link-route-policy-371-20260702` defines
     the #371 notification deep-link route/mobile navigation policy gate.
+  - Branch `docs/notification-open-mobile-reference-371-20260702` adds the
+    #371 mobile notification-open states reference handoff.
 - Completed scope:
   - Defines that notification rows, push payloads, local cache, route state,
     object URLs, and generated-client availability are not authorization.
@@ -140,6 +143,20 @@ remain the source of truth.
   - Records privacy-safe external copy and mobile navigation posture, including
     no first-launch prompt coupling and Figma/reference-gated Flutter
     implementation.
+  - Adds `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_STATES_REFERENCE.md` as
+    the mobile reference handoff for opening notifications from in-app rows and
+    OS push/local notifications.
+  - Records product-facing state coverage for sign-in required, wrong account
+    or account switched, local-only mode, offline/server unavailable,
+    stale/missing targets, deleted/archived/restored targets, unauthorized or
+    group-membership-changed targets, already resolved/completed notifications,
+    retargeted notifications, loading, provider disabled/unconfigured readouts
+    separated from authorization, and notification-detail fallback.
+  - Adds privacy-safe copy and screenshot rules plus action-specific button
+    wording such as `Open bill`, `Review settlement`, `Review receipt`,
+    `View sync issue`, and `Back to notifications`.
+  - Adds a paste-ready future Figma/reference prompt and a future Flutter/test
+    readiness checklist while preserving server/API/domain authority.
 - Explicitly not complete:
   - No Flutter/mobile code, Figma output, screenshots, route runtime,
     navigation runtime, notification writer runtime, event enum, OpenAPI,
@@ -147,7 +164,8 @@ remain the source of truth.
     runtime, business-authority logic, provider sending, admin/global policy,
     deployment/env/CI, Docker, or secret changes.
 - Remaining Day 1 work:
-  - Future Figma/reference states for notification deep-link opens.
+  - Future approved Figma/screenshots/frames for notification-open states if
+    pixel-perfect approval is required before Flutter implementation.
   - Future Flutter implementation and mobile navigation tests after reference
     approval.
   - Backend route/target tests only if a future implementation changes route
@@ -158,6 +176,7 @@ remain the source of truth.
   - Keep #368, #369, #403, #634, and #635 open.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md`
+  - `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_STATES_REFERENCE.md`
 
 ### Issue #570 - OCR review in-app notification runtime
 
