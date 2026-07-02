@@ -301,6 +301,9 @@ Representative event types:
 - `sync.conflict_detected`
 - `sync.operation_failed`
 - `sync.conflict_resolved`
+- Future policy-only names such as `sync.operation_retry_failed`,
+  `sync.conflict_reopened`, and `sync.resolution_applied` only if exact
+  source transitions are later implemented and approved.
 
 Owning domain: sync acceptance/offline queue services.
 
@@ -327,6 +330,15 @@ Accepted operations, replay/idempotency reuse paths, conflict rows already
 covered by `sync.conflict_detected`, and invalid requests that do not persist a
 terminal sync operation row do not create `sync.operation_failed`
 notifications.
+
+Remaining sync source policy:
+[Sync notification source policy](SYNC_NOTIFICATION_SOURCE_POLICY.md) records
+that the current server runtime does not have queued, retrying, retry-failed,
+resolved, reopened, or resolution-applied source states. Day 1 should not add
+noisy automatic queue/retry notifications. Future events are allowed only for
+exact user-actionable source transitions, such as retry exhaustion requiring
+manual review or explicit conflict resolution, with current-actor recipient
+scoping and privacy-safe payloads.
 
 Read/archive/summary/digest impact: conflicts and failures count toward
 attention summaries. Read/archive does not resolve conflicts, retry operations,
