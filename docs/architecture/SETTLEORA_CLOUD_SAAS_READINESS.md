@@ -34,6 +34,14 @@ Live collaboration is supported only inside the same authority boundary. Day 4 C
 
 Federation and cross-server collaboration are Day 99+ possibilities only. They are explicitly out of scope for Day 4 Cloud v1 and must not be designed by accident through sync, storage, auth, or generated-client shortcuts.
 
+Future federation, public/private instance discovery, cross-instance
+collaboration, signed remote balance summaries, directory/relay posture,
+public-cloud resilience, provider-outage, and multi-tenant-readiness boundaries
+are captured in
+[Federated instance discovery and collaboration readiness](FEDERATED_INSTANCE_DISCOVERY_AND_COLLABORATION_READINESS.md).
+That document is a readiness packet only; it does not change the current Day 1
+through Day 3 focus or the Cloud v1 non-goals in this document.
+
 ## Data Movement And Sync
 
 Local-only, self-hosted, and Settleora Cloud data must not silently merge. Moving data between modes requires an explicit user-approved export, import, migration, or account/workspace linking flow with clear preview, validation, conflict handling, and audit expectations.
