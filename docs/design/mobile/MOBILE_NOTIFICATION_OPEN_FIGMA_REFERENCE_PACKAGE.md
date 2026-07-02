@@ -41,7 +41,7 @@ share components, but each state below must be visibly reviewable.
 
 | Frame | Required content | Primary actions |
 | --- | --- | --- |
-| Notification inbox and selected row | Notification Center with the approved top bell entry behavior, grouped rows, unread/read state, and one selected row entering a detail/open state. | `Open notification`, `Back` |
+| Notification inbox and selected row | Notification Center opened from the approved top bell/global entry point, with no duplicate bell in the Notification Center header, grouped rows, unread/read state, and one selected row entering a detail/open state. | `Open notification`, `Back` |
 | Notification detail loading and authorized re-fetch | Skeleton or progress state that shows the app is refreshing the notification and linked target through authorized paths before rendering details. | Safe back navigation only |
 | Bill workflow/revision open | Authorized bill or bill revision notification context using current product copy and no hidden line details. | `Open bill`, `Review bill`, `Back to notifications` |
 | Settlement request/payment/proof open | Authorized settlement request/payment/proof summary without proof contents, payment handles, QR contents, or payment-detail internals. | `Review settlement`, `Back to notifications` |
@@ -75,8 +75,11 @@ Security V1, and Mobile implementation guardrails V1.
 
 Do not invent a new visual language. Match the existing modern rounded fintech
 Settleora styling, spacing, type scale, visual rhythm, status chips, bottom
-sheets where useful, top bell notification entry, and stable Home / Bills /
-Groups / Settle / More bottom nav behavior. Use the dark mobile direction
+sheets where useful, top bell/global notification entry from ordinary app
+pages, and stable Home / Bills / Groups / Settle / More bottom nav behavior.
+Do not repeat the bell inside Notification Center or notification detail/open
+headers; use filters/options for Notification Center and back navigation plus a
+concise context title for detail/open frames. Use the dark mobile direction
 unless the approved reference explicitly says otherwise. Design scrollable
 states where content can overflow; do not let sticky actions or nav chrome
 cover content.
@@ -190,7 +193,8 @@ Tommy first-review checklist:
 - The visual language is Settleora's modern rounded fintech mobile direction,
   not a new brand, new nav model, or unrelated app pattern.
 - Bottom nav behavior remains `Home / Bills / Groups / Settle / More`, and
-  notifications remain reachable from the top bell/global affordance.
+  notifications remain reachable from the top bell/global affordance on
+  ordinary app pages without repeating a bell inside notification pages.
 - The design is acceptable for future Flutter implementation planning, or
   comments identify exact frame/copy changes required before implementation.
 

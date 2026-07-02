@@ -136,6 +136,12 @@ remain the source of truth.
     corrects that repo-native TSX package to visually align with the approved
     Settleora mobile shell, Notifications, More and Settings, Push
     Registration, Auth Security, and implementation guardrail references.
+  - Branch
+    `docs/notification-open-tsx-reference-371-visual-consistency-recovery-20260702`
+    also incorporates Tommy's partial visual review follow-up: the visual look
+    is acceptable as mobile app UI, but notification-center/detail frames must
+    not repeat the top bell affordance and visible phone-frame copy should be
+    product-facing rather than backend/architecture phrasing.
 - Completed scope:
   - Defines that notification rows, push payloads, local cache, route state,
     object URLs, and generated-client availability are not authorization.
@@ -190,6 +196,12 @@ remain the source of truth.
     arbitrary green gradient shell, square/flat card rhythm, and invented
     reference-board styling, while preserving all 18 #371 notification-open
     states and privacy/authority guardrails.
+  - Refines the repo-native TSX reference so Notification Center uses filter
+    chrome without a duplicate bell, notification detail/open frames use back
+    navigation plus concise context titles without a bell, and visible
+    phone-frame copy uses product phrases such as checking access, refreshing
+    latest details, reviewing bills/settlements/receipts/sync issues, signing
+    in, switching accounts, retrying, and returning to notifications.
 - Explicitly not complete:
   - No Flutter/mobile runtime code, Figma Make/API usage, Figma output,
     screenshots, binary assets, route runtime, navigation runtime,

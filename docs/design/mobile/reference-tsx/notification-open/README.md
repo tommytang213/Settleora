@@ -26,8 +26,8 @@ and Settings, Push Registration, Auth Security, and implementation guardrail
 references:
 
 - dark Settleora mobile canvas and phone chrome;
-- top bell/global notification affordance rather than a bottom notification
-  tab;
+- global notification affordance from ordinary app pages rather than a bottom
+  notification tab;
 - locked `Home / Bills / Groups / Settle / More` bottom navigation;
 - rounded cards, rows, chips, buttons, sheets, and spacing aligned with the
   approved mobile screenshots;
@@ -36,6 +36,20 @@ references:
 
 This is a visual consistency recovery only. It does not create new product
 scope or approve runtime implementation.
+
+## Notification Page Chrome Rule
+
+The top bell/global notification affordance remains valid on ordinary app
+pages as the entry point into Notifications. Notification Center and
+notification detail/open pages must not repeat that bell inside their own
+headers. Notification Center may use a filter/options affordance when needed;
+notification detail/open frames should use a back affordance and concise
+context title.
+
+The visible phone-frame copy should stay product-facing. It should say
+Settleora is checking access, refreshing the latest details, and showing only
+available actions without exposing backend terms, raw IDs, route details,
+provider details, storage locations, or developer diagnostics.
 
 ## Scope
 

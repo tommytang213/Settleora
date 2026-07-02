@@ -43,9 +43,9 @@ const frames: readonly NotificationOpenFrame[] = [
     id: "01-inbox-selected-row",
     navContext: "Home",
     tone: "action",
-    eyebrow: "Notification Center",
-    title: "Needs action",
-    body: "Grouped rows keep the top bell entry visible while the selected row opens a safe detail state.",
+    eyebrow: "Notifications",
+    title: "Notifications",
+    body: "Grouped rows make new, read, and selected notifications easy to scan. The page uses filters instead of repeating the entry icon.",
     status: "Selected row",
     rows: [
       {
@@ -67,7 +67,7 @@ const frames: readonly NotificationOpenFrame[] = [
         state: "Read"
       }
     ],
-    callout: "Rows are navigation hints only. Opening starts with a fresh current-user notification read.",
+    callout: "Rows help you navigate. Settleora still checks the latest details before showing private information.",
     primaryAction: "Open notification",
     secondaryAction: "Back"
   },
@@ -76,15 +76,15 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Home",
     tone: "loading",
     eyebrow: "Opening notification",
-    title: "Refreshing before details",
-    body: "Settleora refreshes the notification, then refreshes the linked target through an authorized resource read before showing detail or actions.",
+    title: "Checking access...",
+    body: "Refreshing the latest details securely before showing information or actions.",
     status: "Refreshing",
     details: [
-      { label: "Step 1", value: "Refresh current-user notification detail" },
-      { label: "Step 2", value: "Refresh linked resource for this account" },
-      { label: "Step 3", value: "Show only authorized details and actions" }
+      { label: "Step 1", value: "Check this notification for your account" },
+      { label: "Step 2", value: "Refresh the linked record" },
+      { label: "Step 3", value: "Show only available details and actions" }
     ],
-    callout: "Cached rows, push payloads, route state, object URLs, and generated-client availability are not authorization.",
+    callout: "A saved row or phone preview is only a hint. Settleora checks access again before showing details.",
     secondaryAction: "Back to notifications"
   },
   {
@@ -92,13 +92,13 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Bills",
     tone: "action",
     eyebrow: "Bill notification",
-    title: "Bill review is ready",
-    body: "The refreshed bill context can show the current workflow or revision state without exposing hidden line details, notes, or private reasons.",
+    title: "A bill needs review",
+    body: "Open the bill to review the latest update without exposing hidden line details, notes, or private reasons.",
     status: "Needs review",
     details: [
       { label: "Current state", value: "A bill update needs your review" },
       { label: "Visible context", value: "Group and status summary only" },
-      { label: "Authority", value: "Allowed actions come from the refreshed bill response" }
+      { label: "Actions", value: "Buttons appear only after Settleora checks the bill" }
     ],
     primaryAction: "Review bill",
     secondaryAction: "Back to notifications"
@@ -109,12 +109,12 @@ const frames: readonly NotificationOpenFrame[] = [
     tone: "action",
     eyebrow: "Settlement notification",
     title: "Settlement update",
-    body: "The refreshed settlement readout shows request, payment, or proof status without proof contents, payment handles, QR data, or account details.",
+    body: "Review the latest settlement status in Settleora without proof contents, payment handles, QR data, or account details.",
     status: "Review available",
     details: [
       { label: "Current state", value: "Settlement status changed" },
       { label: "Proof", value: "Metadata summary only when authorized" },
-      { label: "Actions", value: "No payment action appears until the target read allows it" }
+      { label: "Actions", value: "Payment actions appear only when available to this account" }
     ],
     primaryAction: "Review settlement",
     secondaryAction: "Back to notifications"
@@ -124,13 +124,13 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Settle",
     tone: "warning",
     eyebrow: "settlement.residual_review_needed",
-    title: "Review a settlement difference",
-    body: "The handoff shows a bounded current-status review prompt. It does not expose residual internals or use notification copy as money truth.",
+    title: "Review settlement difference",
+    body: "A payment update needs your review before it can be confirmed.",
     status: "Review needed",
     details: [
-      { label: "Current state", value: "A settlement difference needs receiver review" },
-      { label: "Privacy", value: "No external preview values or payment details" },
-      { label: "Authority", value: "The refreshed settlement response decides allowed review actions" }
+      { label: "Current state", value: "Review the latest settlement status" },
+      { label: "Privacy", value: "No preview amounts or payment details" },
+      { label: "Actions", value: "Review actions appear only after Settleora checks access" }
     ],
     primaryAction: "Review settlement",
     secondaryAction: "Back to notifications"
@@ -140,13 +140,13 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Bills",
     tone: "action",
     eyebrow: "Recurring bill",
-    title: "Recurring bill update",
-    body: "The refreshed recurring context can open a due-soon readout or generated draft without exposing raw template payloads.",
+    title: "Recurring bill ready",
+    body: "Review the draft before it becomes part of your records.",
     status: "Draft available",
     details: [
-      { label: "Current state", value: "Recurring bill has an update" },
-      { label: "Generated draft", value: "Open only after authorized bill refresh" },
-      { label: "Template", value: "No raw template JSON or hidden participant data" }
+      { label: "Current state", value: "A recurring bill draft is ready" },
+      { label: "Generated draft", value: "Open after Settleora checks the bill" },
+      { label: "Template", value: "No hidden participant data" }
     ],
     primaryAction: "Open bill",
     secondaryAction: "Back to notifications"
@@ -156,13 +156,13 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Bills",
     tone: "warning",
     eyebrow: "ocr.needs_review",
-    title: "Receipt review needed",
-    body: "The receipt assignment opens as a review prompt without raw OCR text, receipt contents, extracted item lines, file paths, or file bytes.",
+    title: "Receipt needs review",
+    body: "Check the receipt details before saving. The notification preview does not show receipt text, item lines, file locations, or file contents.",
     status: "Review receipt",
     details: [
       { label: "Current state", value: "Receipt review is assigned to this account" },
       { label: "Visible context", value: "Bill and receipt status summary only" },
-      { label: "Sensitive data", value: "Receipt text and file contents stay out of notification UI" }
+      { label: "Sensitive data", value: "Receipt text and files stay out of notification previews" }
     ],
     primaryAction: "Review receipt",
     secondaryAction: "Back to notifications"
@@ -172,13 +172,13 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "More",
     tone: "warning",
     eyebrow: "Sync notification",
-    title: "Sync needs attention",
-    body: "The current-actor sync readout avoids queued request bodies, local cache data, paths, hidden server data, and raw payloads.",
+    title: "Sync issue needs review",
+    body: "Some changes could not sync. Review what needs attention.",
     status: "Action needed",
     details: [
       { label: "Current state", value: "A sync issue needs review" },
-      { label: "Visible context", value: "Operation status and safe target label" },
-      { label: "Authority", value: "Retry or resolution controls require a refreshed allowed state" }
+      { label: "Visible context", value: "Status and safe record label" },
+      { label: "Actions", value: "Retry appears only when it is available" }
     ],
     primaryAction: "Review sync issue",
     secondaryAction: "Back to notifications"
@@ -189,11 +189,11 @@ const frames: readonly NotificationOpenFrame[] = [
     tone: "blocked",
     eyebrow: "Server account required",
     title: "Sign in to view this notification",
-    body: "The app must establish an authenticated server session before it can refresh the notification or linked target.",
+    body: "We'll check access after you sign in.",
     status: "Sign-in required",
     details: [
-      { label: "Before sign-in", value: "Do not show target details" },
-      { label: "After sign-in", value: "Refresh notification and target again" }
+      { label: "Before sign-in", value: "Details stay hidden" },
+      { label: "After sign-in", value: "Check this notification again" }
     ],
     primaryAction: "Sign in",
     secondaryAction: "Back to notifications"
@@ -203,13 +203,13 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "More",
     tone: "blocked",
     eyebrow: "Account changed",
-    title: "This item is not available to this account",
-    body: "Account mismatch copy stays generic and does not reveal whether a private bill, settlement, OCR review, proof, sync operation, or group exists.",
+    title: "This notification is not available for this account",
+    body: "Switch accounts or go back to notifications.",
     status: "Wrong account",
     sheetTitle: "Account options",
     sheetLines: [
       "Switch to the server account that received this notification.",
-      "Stay on this account and return to Notification Center."
+      "Stay on this account and return to notifications."
     ],
     primaryAction: "Switch account",
     secondaryAction: "Back to notifications"
@@ -219,12 +219,12 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "More",
     tone: "blocked",
     eyebrow: "Local-only mode",
-    title: "Connect a server account to refresh this notification",
-    body: "Server notification targets cannot open in local-only mode. The copy explains the server requirement without implying target existence.",
+    title: "Server notifications need a server account",
+    body: "Connect a server account to refresh this notification.",
     status: "Server required",
     details: [
-      { label: "Local data", value: "Not used as server authorization" },
-      { label: "Next step", value: "Connect server account before refresh" }
+      { label: "Local data", value: "Kept separate from server notifications" },
+      { label: "Next step", value: "Connect a server account before refresh" }
     ],
     primaryAction: "Connect server account",
     secondaryAction: "Back to notifications"
@@ -234,12 +234,12 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Home",
     tone: "offline",
     eyebrow: "Connection unavailable",
-    title: "Connect to the server to refresh this notification",
-    body: "The cached notification remains a retry hint only. Private target details are not rendered as current authorization while offline.",
+    title: "Can't refresh right now.",
+    body: "Reconnect and try again. Saved notification text is only a hint until Settleora checks the server.",
     status: "Offline",
     details: [
-      { label: "Cached row", value: "Hint only" },
-      { label: "Target detail", value: "Hidden until server refresh succeeds" }
+      { label: "Saved row", value: "Hint only" },
+      { label: "Details", value: "Hidden until refresh succeeds" }
     ],
     primaryAction: "Retry",
     secondaryAction: "Back to notifications"
@@ -250,11 +250,11 @@ const frames: readonly NotificationOpenFrame[] = [
     tone: "blocked",
     eyebrow: "No longer available",
     title: "This notification is no longer available",
-    body: "Missing notification or linked target states avoid naming private resources or confirming whether a private target still exists.",
+    body: "Open Settleora again or go back to notifications. This state avoids naming private records.",
     status: "Unavailable",
     details: [
       { label: "Safe copy", value: "Generic unavailable message" },
-      { label: "No leak", value: "No group, file, bill, settlement, or raw target identifiers" }
+      { label: "Privacy", value: "No group, file, bill, settlement, or hidden identifiers" }
     ],
     secondaryAction: "Back to notifications"
   },
@@ -262,13 +262,13 @@ const frames: readonly NotificationOpenFrame[] = [
     id: "14-archived-deleted-restored-target",
     navContext: "Bills",
     tone: "warning",
-    eyebrow: "Current target status",
-    title: "The item status changed",
-    body: "Archived or restored targets show current authorized status. Deleted or unavailable targets use generic unavailable copy.",
+    eyebrow: "Current status",
+    title: "The status changed",
+    body: "Archived or restored items show current status when available. Deleted or unavailable items use generic copy.",
     status: "Status changed",
     details: [
-      { label: "Archived", value: "Show current archived status if visible" },
-      { label: "Restored", value: "Show current restored status if visible" },
+      { label: "Archived", value: "Show current archived status when available" },
+      { label: "Restored", value: "Show current restored status when available" },
       { label: "Deleted", value: "Use generic unavailable copy" }
     ],
     primaryAction: "Open bill",
@@ -279,11 +279,11 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Groups",
     tone: "blocked",
     eyebrow: "Access changed",
-    title: "This item is not available to this account",
-    body: "Membership or authorization changes use the same non-enumerating fallback. The frame does not identify the private group or resource.",
+    title: "This notification is no longer available to this account",
+    body: "Membership or access changes use the same generic fallback. The screen does not identify a private group or record.",
     status: "Not available",
     details: [
-      { label: "Group membership", value: "Rechecked before display" },
+      { label: "Group membership", value: "Checked again before display" },
       { label: "Fallback", value: "No private existence confirmation" }
     ],
     secondaryAction: "Back to notifications"
@@ -293,11 +293,11 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Settle",
     tone: "success",
     eyebrow: "Resolved notification",
-    title: "This item no longer needs action",
-    body: "If the refreshed target is visible and complete, stale action buttons are removed while a current readout remains available.",
+    title: "Already handled",
+    body: "There's nothing else to do here.",
     status: "Resolved",
     details: [
-      { label: "Current state", value: "Action is already complete" },
+      { label: "Current state", value: "No action needed" },
       { label: "Removed actions", value: "No stale confirm, review, retry, or approve controls" }
     ],
     primaryAction: "Review settlement",
@@ -308,12 +308,12 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "More",
     tone: "settings",
     eyebrow: "Notification settings",
-    title: "Push notifications are off for this server",
-    body: "Push readiness is a settings/readout state. It is separate from notification-open authorization, and in-app notifications still work after authorized refresh.",
+    title: "Push notifications need server setup",
+    body: "In-app notifications still work.",
     status: "Push readout",
     details: [
-      { label: "Provider", value: "Disabled or setup required" },
-      { label: "In-app", value: "Still the source notification surface" },
+      { label: "Server setup", value: "Disabled or setup required" },
+      { label: "In-app", value: "Still available" },
       { label: "Permission prompt", value: "Do not ask until readiness and user intent exist" }
     ],
     primaryAction: "Notification settings",
@@ -324,13 +324,13 @@ const frames: readonly NotificationOpenFrame[] = [
     navContext: "Home",
     tone: "offline",
     eyebrow: "Notification detail",
-    title: "Open Settleora to view this notification",
-    body: "When the linked resource cannot open safely, the app can show only safe generic metadata from the refreshed notification response.",
+    title: "Notification details",
+    body: "Open Settleora again or try refreshing.",
     status: "Fallback",
     details: [
       { label: "Shown", value: "Notification title, category, time, and safe status" },
-      { label: "Hidden", value: "Private target details and raw route payloads" },
-      { label: "Next step", value: "Retry the authorized refresh when available" }
+      { label: "Hidden", value: "Private record details" },
+      { label: "Next step", value: "Retry when available" }
     ],
     primaryAction: "Retry",
     secondaryAction: "Back to notifications"
@@ -338,16 +338,16 @@ const frames: readonly NotificationOpenFrame[] = [
 ] as const;
 
 const authorityRules = [
-  "Refresh the current-user notification detail before rendering target context.",
-  "Refresh the linked bill, settlement, recurring bill, OCR review, or sync operation through its authorized resource path.",
-  "Treat notification rows, push payloads, local cache, route state, object URLs, and generated-client availability as hints only.",
-  "Use non-enumerating fallbacks for wrong account, authorization loss, missing targets, and membership changes."
+  "Check the notification before showing linked details.",
+  "Refresh the linked bill, settlement, recurring bill, receipt review, or sync issue before showing actions.",
+  "Treat saved rows, phone previews, and cached app state as hints only.",
+  "Use generic fallbacks for wrong account, lost access, missing records, and membership changes."
 ] as const;
 
 const privacyRules = [
   "No money values in external previews or lock-screen style copy.",
-  "No raw OCR text, receipt contents, extracted item lines, proof contents, payment handles, QR data, private notes, hidden bill details, raw IDs, storage paths, tokens, provider payloads, or developer diagnostics.",
-  "Read, archive, and open state remain inbox state only and never mutate source bills, settlements, OCR reviews, recurring drafts, sync operations, storage, audit, auth, or money truth."
+  "No raw receipt text, item lines, proof contents, payment handles, QR data, private notes, hidden bill details, hidden identifiers, storage locations, tokens, provider details, or developer diagnostics.",
+  "Read, archive, and open only change notification inbox state. They do not change bills, settlements, receipt reviews, recurring drafts, sync work, storage, audit, account, or money records."
 ] as const;
 
 const styles = `
@@ -535,7 +535,6 @@ const styles = `
   gap: 8px;
 }
 
-.bell,
 .filter-button {
   width: 42px;
   height: 42px;
@@ -556,22 +555,6 @@ const styles = `
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.bell {
-  position: relative;
-}
-
-.bell::after {
-  content: "";
-  position: absolute;
-  top: 8px;
-  right: 9px;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #f05d69;
-  border: 2px solid #182541;
 }
 
 .content {
@@ -861,12 +844,11 @@ function ToneClass({ tone }: { readonly tone: FrameTone }) {
   return `phone-screen tone-${tone}`;
 }
 
-type IconName = "back" | "bell" | "filter" | "home" | "bill" | "groups" | "settle" | "more";
+type IconName = "back" | "filter" | "home" | "bill" | "groups" | "settle" | "more";
 
 function Icon({ name }: { readonly name: IconName }) {
   const paths: Record<IconName, readonly string[]> = {
     back: ["M15 18l-6-6 6-6"],
-    bell: ["M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9", "M10 21h4"],
     filter: ["M4 7h16", "M7 12h10", "M10 17h4"],
     home: ["M4 11l8-7 8 7", "M6 10v10h12V10", "M10 20v-6h4v6"],
     bill: ["M7 3h8l3 3v15H7z", "M9 10h6", "M9 14h6", "M9 18h4"],
@@ -911,12 +893,11 @@ function FramePhone({ frame }: { readonly frame: NotificationOpenFrame }) {
             <span className="back-mark" aria-hidden="true"><Icon name="back" /></span>
             <span>{frame.id === "01-inbox-selected-row" ? "Notifications" : "Notification detail"}</span>
           </div>
-          <div className="top-actions">
-            <div className="bell" aria-label="Notifications"><Icon name="bell" /></div>
-            {frame.id === "01-inbox-selected-row" ? (
+          {frame.id === "01-inbox-selected-row" ? (
+            <div className="top-actions">
               <div className="filter-button" aria-label="Filter notifications"><Icon name="filter" /></div>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </header>
 
         <main className="content">

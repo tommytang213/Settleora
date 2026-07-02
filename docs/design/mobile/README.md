@@ -38,6 +38,14 @@ implementation guardrail references. It does not implement Flutter routes,
 runtime behavior, generated clients, API contracts, schema, provider delivery,
 or app assets.
 
+Notification page chrome rule for this package: ordinary app pages may keep the
+top bell/global notification entry point, but Notification Center and
+notification detail/open frames must not repeat a bell inside their own
+headers. Notification Center should use filter/options chrome when needed, and
+detail/open frames should use back navigation plus a concise context title.
+Visible phone-frame copy should remain product-facing rather than using backend
+or architecture terminology.
+
 ## Scope rules
 
 Figma screenshots, exports, and visual references are reference artifacts only. Future implementation must still obey the repository architecture, generated-client rules, API/domain authority boundaries, storage privacy rules, and money/settlement calculation authority.
