@@ -239,6 +239,18 @@ V1-aligned updates made in this branch:
   bill/OCR behavior, manual-finance account/income/archive behavior,
   repository contracts, persistence, OpenAPI, generated clients, schema,
   money authority, or backend/API behavior.
+- Mobile shared visual foundation now includes `SettleoraCompactHeader`,
+  `SettleoraListRow`, `SettleoraInlinePanel`, `SettleoraMoneyChip`,
+  `SettleoraBottomSheetFrame`, `showSettleoraBottomSheet`, and
+  `SettleoraDialogFrame` for repeated compact headers, reference-grade rows,
+  inline panels, amount chips, and sheet/dialog visual shells. The profile
+  screen now composes shared loading, state, section, row, card, inline panel,
+  and key-value primitives for mechanically equivalent account/payment/QR
+  visual shells. This records the 2026-07-02 22:04 HKT shared visual
+  foundation slice without changing profile or payment-detail repository calls,
+  navigation, save/cancel actions, session-ended handling, validation,
+  payment-detail authority, QR file behavior, OpenAPI, generated clients,
+  schema, money, storage, auth/session runtime, or backend/API behavior.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 

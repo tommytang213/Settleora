@@ -293,6 +293,57 @@ class MoneyText extends StatelessWidget {
 
 enum SettleoraSurfaceVariant { neutral, info, warning, danger, success }
 
+class SettleoraCompactHeader extends StatelessWidget {
+  const SettleoraCompactHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.leadingIcon,
+    this.trailing,
+  });
+
+  final String title;
+  final String? subtitle;
+  final IconData? leadingIcon;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (leadingIcon != null) ...[
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: colors.primarySoft,
+            foregroundColor: colors.primary,
+            child: Icon(leadingIcon, size: 20),
+          ),
+          const SizedBox(width: SettleoraSpacing.sm),
+        ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              if (subtitle != null) ...[
+                const SizedBox(height: SettleoraSpacing.xxs),
+                Text(subtitle!, style: TextStyle(color: colors.textMuted)),
+              ],
+            ],
+          ),
+        ),
+        if (trailing != null) ...[
+          const SizedBox(width: SettleoraSpacing.sm),
+          trailing!,
+        ],
+      ],
+    );
+  }
+}
+
 class SummaryCard extends StatelessWidget {
   const SummaryCard({
     super.key,
@@ -430,6 +481,320 @@ class StateCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class SettleoraMoneyChip extends StatelessWidget {
+  const SettleoraMoneyChip({
+    super.key,
+    required this.amount,
+    required this.currencyCode,
+    this.variant = StatusChipVariant.neutral,
+    this.icon,
+  });
+
+  final String amount;
+  final String currencyCode;
+  final StatusChipVariant variant;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final (background, foreground) = switch (variant) {
+      StatusChipVariant.success => (colors.successSoft, colors.onSuccessSoft),
+      StatusChipVariant.danger => (colors.dangerSoft, colors.onDangerSoft),
+      StatusChipVariant.warning => (colors.warningSoft, colors.onWarningSoft),
+      StatusChipVariant.info => (colors.infoSoft, colors.onInfoSoft),
+      StatusChipVariant.neutral => (colors.primarySoft, colors.textMuted),
+    };
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 15, color: foreground),
+              const SizedBox(width: 5),
+            ],
+            Flexible(
+              child: MoneyText(
+                amount: amount,
+                currencyCode: currencyCode,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SettleoraInlinePanel extends StatelessWidget {
+  const SettleoraInlinePanel({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.variant = SettleoraSurfaceVariant.neutral,
+    this.action,
+    this.children = const [],
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final SettleoraSurfaceVariant variant;
+  final Widget? action;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final theme = Theme.of(context);
+    final (background, foreground) = _surfaceColors(context, variant);
+
+    return AppCard(
+      color: background,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: colors.surface.withValues(alpha: 0.72),
+                foregroundColor: foreground,
+                child: Icon(icon, size: 20),
+              ),
+              const SizedBox(width: SettleoraSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: SettleoraSpacing.xxs),
+                    Text(message, style: TextStyle(color: foreground)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (children.isNotEmpty) ...[
+            const SizedBox(height: SettleoraSpacing.sm),
+            ...children,
+          ],
+          if (action != null) ...[
+            const SizedBox(height: SettleoraSpacing.sm),
+            Align(alignment: AlignmentDirectional.centerStart, child: action!),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class SettleoraListRow extends StatelessWidget {
+  const SettleoraListRow({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    this.leadingIcon,
+    this.trailing,
+    this.onTap,
+    this.backgroundColor,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData? leadingIcon;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final Color? backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: SettleoraSpacing.md,
+        vertical: 12,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (leadingIcon != null) ...[
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: colors.primarySoft,
+              foregroundColor: colors.primary,
+              child: Icon(leadingIcon, size: 20),
+            ),
+            const SizedBox(width: SettleoraSpacing.sm),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: SettleoraSpacing.xxs),
+                Text(subtitle, style: TextStyle(color: colors.textMuted)),
+              ],
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: SettleoraSpacing.sm),
+            trailing!,
+          ],
+          if (onTap != null) ...[
+            const SizedBox(width: SettleoraSpacing.xs),
+            Icon(Icons.chevron_right, color: colors.textSubtle),
+          ],
+        ],
+      ),
+    );
+
+    return AppCard(
+      color: backgroundColor,
+      padding: EdgeInsets.zero,
+      child: onTap == null
+          ? row
+          : InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+              child: row,
+            ),
+    );
+  }
+}
+
+class SettleoraBottomSheetFrame extends StatelessWidget {
+  const SettleoraBottomSheetFrame({
+    super.key,
+    required this.title,
+    required this.child,
+    this.subtitle,
+    this.actions = const [],
+  });
+
+  final String title;
+  final String? subtitle;
+  final Widget child;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          SettleoraSpacing.md,
+          SettleoraSpacing.xs,
+          SettleoraSpacing.md,
+          bottomInset + SettleoraSpacing.md,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SettleoraCompactHeader(title: title, subtitle: subtitle),
+            const SizedBox(height: SettleoraSpacing.md),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+              ),
+              child: SingleChildScrollView(child: child),
+            ),
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: SettleoraSpacing.md),
+              Wrap(
+                spacing: SettleoraSpacing.xs,
+                runSpacing: SettleoraSpacing.xs,
+                alignment: WrapAlignment.end,
+                children: actions,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<T?> showSettleoraBottomSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: builder,
+  );
+}
+
+class SettleoraDialogFrame extends StatelessWidget {
+  const SettleoraDialogFrame({
+    super.key,
+    required this.title,
+    required this.message,
+    required this.actions,
+    this.icon,
+    this.variant = SettleoraSurfaceVariant.neutral,
+  });
+
+  final String title;
+  final String message;
+  final List<Widget> actions;
+  final IconData? icon;
+  final SettleoraSurfaceVariant variant;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final (_, foreground) = _surfaceColors(context, variant);
+
+    return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+      ),
+      title: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: colors.primarySoft,
+              foregroundColor: foreground,
+              child: Icon(icon, size: 20),
+            ),
+            const SizedBox(width: SettleoraSpacing.sm),
+          ],
+          Expanded(child: Text(title)),
+        ],
+      ),
+      content: Text(message),
+      actions: actions,
     );
   }
 }

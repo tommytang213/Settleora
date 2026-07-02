@@ -20,6 +20,38 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #672 - Mobile Flutter V1 visual parity implementation slices
+
+- GitHub state/project status: issue `OPEN`; Project field mutation was not
+  attempted by this implementation task.
+- Last verified at main SHA:
+  `7ddce8b8eb115f7a2f4163f3c0cba64e5cb160a2` after PR #671 and before the
+  `feature/mobile-shared-visual-foundation-20260702` branch.
+- Created by branch:
+  `feature/mobile-shared-visual-foundation-20260702`.
+- Scope:
+  - Tracks shared component foundation plus shell/Home/More,
+    bills/OCR/revision, and groups/settle/notifications visual parity work
+    against merged mobile references.
+  - #371 remains closed and must not be redone without a concrete regression.
+  - Mobile visual parity only; no backend/API/OpenAPI/generated-client/schema,
+    money, storage, auth runtime, notification-open, TestFlight/App Store, or
+    deployment changes are authorized by this issue.
+- Current slice:
+  - First shared Flutter visual foundation implementation slice adds shared
+    visual primitives and migrates low-risk profile/settings-adjacent private
+    visual shells without changing repository calls, navigation, actions,
+    state handling, auth/session behavior, payment-detail authority, money,
+    storage, OpenAPI, generated clients, schema, or backend behavior.
+- Remaining Day 1 work:
+  - Shell/Home/More visual parity.
+  - Bills/OCR/revision visual parity.
+  - Groups/settle/notifications visual parity.
+  - Manual/Figma visual review and evidence for each child slice.
+- Close/keep-open recommendation:
+  - Keep #672 open as the umbrella tracker until child implementation slices
+    and manual/Figma gates are complete.
+
 ### Issue #369 - Day 1 in-app notification event-family coverage
 
 - GitHub state/project status: issue `OPEN`; Project field readback was not
