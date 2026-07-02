@@ -761,6 +761,7 @@ class SettleoraDialogFrame extends StatelessWidget {
     required this.actions,
     this.icon,
     this.variant = SettleoraSurfaceVariant.neutral,
+    this.child,
   });
 
   final String title;
@@ -768,6 +769,7 @@ class SettleoraDialogFrame extends StatelessWidget {
   final List<Widget> actions;
   final IconData? icon;
   final SettleoraSurfaceVariant variant;
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) {
@@ -775,6 +777,7 @@ class SettleoraDialogFrame extends StatelessWidget {
     final (_, foreground) = _surfaceColors(context, variant);
 
     return AlertDialog(
+      scrollable: child != null,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(SettleoraRadius.lg),
       ),
@@ -793,7 +796,17 @@ class SettleoraDialogFrame extends StatelessWidget {
           Expanded(child: Text(title)),
         ],
       ),
-      content: Text(message),
+      content: child == null
+          ? Text(message)
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(message),
+                const SizedBox(height: SettleoraSpacing.md),
+                child!,
+              ],
+            ),
       actions: actions,
     );
   }
@@ -1138,20 +1151,20 @@ class SettingsRow extends StatelessWidget {
                 Text(title, style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: SettleoraSpacing.xxs),
                 Text(subtitle, style: TextStyle(color: colors.textMuted)),
+                if (statusLabel != null) ...[
+                  const SizedBox(height: SettleoraSpacing.xs),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: StatusChip(
+                      label: statusLabel!,
+                      variant: statusVariant,
+                      size: StatusChipSize.small,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(width: SettleoraSpacing.sm),
-          if (statusLabel != null)
-            Flexible(
-              child: StatusChip(
-                label: statusLabel!,
-                variant: statusVariant,
-                size: StatusChipSize.small,
-              ),
-            ),
-          if (statusLabel != null && onTap != null)
-            const SizedBox(width: SettleoraSpacing.xs),
           if (onTap != null)
             Icon(Icons.chevron_right, color: colors.textSubtle),
         ],

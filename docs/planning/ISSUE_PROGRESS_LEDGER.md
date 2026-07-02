@@ -27,6 +27,9 @@ remain the source of truth.
 - Last verified at main SHA:
   `7ddce8b8eb115f7a2f4163f3c0cba64e5cb160a2` after PR #671 and before the
   `feature/mobile-shared-visual-foundation-20260702` branch.
+- Last child-slice checkpoint at base main SHA:
+  `154ed6787e1cb1b7f06fd1310ddeff724bd7b886` for branch
+  `feature/mobile-shell-home-more-profile-parity-672-20260702`.
 - Created by branch:
   `feature/mobile-shared-visual-foundation-20260702`.
 - Scope:
@@ -59,8 +62,27 @@ remain the source of truth.
     `VISUAL_APPROVED_WITH_FOLLOWUPS`. This approval keeps the first warm/beige
     visual evidence rejected, does not approve full app visual parity, and does
     not authorize silently switching the entire runtime app default theme.
+  - The Shell/Home/More/Profile child slice on branch
+    `feature/mobile-shell-home-more-profile-parity-672-20260702` migrates the
+    live authenticated shell first-impression surfaces toward the approved
+    Settleora Midnight references by using shared bottom-sheet/dialog frames,
+    shared list rows, inline panels, money chips, status chips, and tokenized
+    shell card styling for Home, attention/readout cards, More/settings rows,
+    data-safety preview shells, and profile/payment evidence. It preserves the
+    current global app default theme because a true selectable preset/runtime
+    theme system remains future work, and switching the full app default would
+    affect unrelated Bills, Groups, Settle, Notifications, OCR, recurring, and
+    report routes outside this child slice.
+  - Fresh visual evidence for the Shell/Home/More/Profile slice was generated
+    under
+    `/workspace/logs/settleora-visual-qa/20260702-2258-mobile-shell-home-more-profile-parity/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, and `profile-payment-390x844.png`. This evidence
+    is `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR should be opened before explicit
+    visual approval.
 - Remaining Day 1 work:
-  - Shell/Home/More visual parity.
+  - Manual Tommy visual approval for the Shell/Home/More/Profile child slice
+    before PR creation or merge.
   - Bills/OCR/revision visual parity.
   - Groups/settle/notifications visual parity.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,

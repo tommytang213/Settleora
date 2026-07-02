@@ -378,10 +378,13 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openCreateBillChooser() async {
-    final choice = await showModalBottomSheet<_CreateBillChoice>(
+    final choice = await showSettleoraBottomSheet<_CreateBillChoice>(
       context: context,
-      showDragHandle: true,
-      builder: (context) => const _CreateBillChooserSheet(),
+      builder: (context) => SettleoraBottomSheetFrame(
+        title: 'Create bill',
+        subtitle: 'Choose the bill type to start.',
+        child: const _CreateBillChooserSheet(),
+      ),
     );
 
     if (!mounted || choice == null) {
@@ -678,11 +681,12 @@ class _SettleoraAuthenticatedServerShellState
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Text(failure.title),
-        content: const Text(
-          'The server could not confirm current-session sign-out. Clear local session material on this device only? Server-side session revocation was not confirmed, so you may need to sign out from another device after connectivity returns.',
-        ),
+      builder: (context) => SettleoraDialogFrame(
+        icon: Icons.cloud_off_outlined,
+        variant: SettleoraSurfaceVariant.warning,
+        title: failure.title,
+        message:
+            'The server could not confirm current-session sign-out. Clear local session material on this device only? Server-side session revocation was not confirmed, so you may need to sign out from another device after connectivity returns.',
         actions: [
           TextButton(
             key: const Key('sign-out-local-cancel'),
@@ -705,11 +709,11 @@ class _SettleoraAuthenticatedServerShellState
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Sign out this device?'),
-        content: const Text(
-          'Normal sign-out asks the server to end the current session before this device clears its saved session material.',
-        ),
+      builder: (context) => SettleoraDialogFrame(
+        icon: Icons.logout_outlined,
+        title: 'Sign out this device?',
+        message:
+            'Normal sign-out asks the server to end the current session before this device clears its saved session material.',
         actions: [
           TextButton(
             key: const Key('sign-out-current-cancel'),
@@ -1090,93 +1094,25 @@ class _CreateBillChooserSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.settleoraColors;
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Create bill', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 6),
-            Text(
-              'Choose the bill type to start.',
-              style: TextStyle(color: colors.textMuted),
-            ),
-            const SizedBox(height: 14),
-            _CreateBillChoiceCard(
-              key: const Key('create-bill-choice-personal'),
-              icon: Icons.person_outline,
-              title: 'Personal bill',
-              subtitle: 'Track a bill for your own account.',
-              onTap: () =>
-                  Navigator.of(context).pop(_CreateBillChoice.personal),
-            ),
-            const SizedBox(height: 10),
-            _CreateBillChoiceCard(
-              key: const Key('create-bill-choice-group'),
-              icon: Icons.groups_outlined,
-              title: 'Group bill',
-              subtitle: 'Choose a group, then create a shared bill.',
-              onTap: () => Navigator.of(context).pop(_CreateBillChoice.group),
-            ),
-          ],
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SettleoraListRow(
+          key: const Key('create-bill-choice-personal'),
+          leadingIcon: Icons.person_outline,
+          title: 'Personal bill',
+          subtitle: 'Track a bill for your own account.',
+          onTap: () => Navigator.of(context).pop(_CreateBillChoice.personal),
         ),
-      ),
-    );
-  }
-}
-
-class _CreateBillChoiceCard extends StatelessWidget {
-  const _CreateBillChoiceCard({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.settleoraColors;
-
-    return AppCard(
-      padding: EdgeInsets.zero,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(SettleoraRadius.lg),
-        child: Padding(
-          padding: const EdgeInsets.all(SettleoraSpacing.md),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: colors.primarySoft,
-                foregroundColor: colors.primary,
-                child: Icon(icon),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 2),
-                    Text(subtitle, style: TextStyle(color: colors.textMuted)),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: colors.textSubtle),
-            ],
-          ),
+        const SizedBox(height: SettleoraSpacing.xs),
+        SettleoraListRow(
+          key: const Key('create-bill-choice-group'),
+          leadingIcon: Icons.groups_outlined,
+          title: 'Group bill',
+          subtitle: 'Choose a group, then create a shared bill.',
+          onTap: () => Navigator.of(context).pop(_CreateBillChoice.group),
         ),
-      ),
+      ],
     );
   }
 }
@@ -1328,7 +1264,7 @@ class _DashboardHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = context.settleoraColors;
     final overview = this.overview;
     final attentionCount = overview == null
         ? 0
@@ -1343,10 +1279,11 @@ class _DashboardHero extends StatelessWidget {
 
         return Container(
           key: const Key('server-shell-current-user'),
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          padding: const EdgeInsets.all(SettleoraSpacing.md),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(SettleoraRadius.xl),
+            border: Border.all(color: colors.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1356,8 +1293,8 @@ class _DashboardHero extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     CircleAvatar(
-                      backgroundColor: theme.colorScheme.primaryContainer,
-                      foregroundColor: theme.colorScheme.onPrimaryContainer,
+                      backgroundColor: colors.primarySoft,
+                      foregroundColor: colors.primary,
                       child: const Icon(Icons.person_outline),
                     ),
                   ],
@@ -1400,8 +1337,8 @@ class _DashboardHero extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     CircleAvatar(
-                      backgroundColor: theme.colorScheme.primaryContainer,
-                      foregroundColor: theme.colorScheme.onPrimaryContainer,
+                      backgroundColor: colors.primarySoft,
+                      foregroundColor: colors.primary,
                       child: const Icon(Icons.person_outline),
                     ),
                     const SizedBox(width: 12),
@@ -1443,18 +1380,23 @@ class _DashboardHero extends StatelessWidget {
                 children: [
                   _DashboardMetricChip(
                     icon: Icons.priority_high_outlined,
+                    variant: attentionCount == 0
+                        ? StatusChipVariant.success
+                        : StatusChipVariant.warning,
                     label: attentionCount == 0
                         ? 'No urgent items'
                         : '$attentionCount item${_plural(attentionCount)} to review',
                   ),
                   _DashboardMetricChip(
                     icon: Icons.receipt_long_outlined,
+                    variant: StatusChipVariant.info,
                     label: overview == null
                         ? 'Bills loading'
                         : '${overview.activePersonalBillCount} active bill${_plural(overview.activePersonalBillCount)}',
                   ),
                   _DashboardMetricChip(
                     icon: Icons.notifications_outlined,
+                    variant: StatusChipVariant.neutral,
                     label: overview == null
                         ? 'Activity loading'
                         : '${overview.notificationSummary.unreadCount} unread',
@@ -1678,14 +1620,13 @@ class _DashboardHeroTitle extends StatelessWidget {
           style: theme.textTheme.titleLarge,
         ),
         const SizedBox(height: 4),
-        Chip(
-          visualDensity: VisualDensity.compact,
-          avatar: const Icon(Icons.verified_user_outlined, size: 16),
-          label: Text(
-            defaultCurrency == null
-                ? 'Secure & synced'
-                : 'Secure & synced - $defaultCurrency',
-          ),
+        StatusChip(
+          icon: Icons.verified_user_outlined,
+          label: defaultCurrency == null
+              ? 'Secure & synced'
+              : 'Secure & synced - $defaultCurrency',
+          variant: StatusChipVariant.info,
+          size: StatusChipSize.small,
         ),
       ],
     );
@@ -1693,31 +1634,25 @@ class _DashboardHeroTitle extends StatelessWidget {
 }
 
 class _DashboardMetricChip extends StatelessWidget {
-  const _DashboardMetricChip({required this.icon, required this.label});
+  const _DashboardMetricChip({
+    required this.icon,
+    required this.label,
+    required this.variant,
+  });
 
   final IconData icon;
   final String label;
+  final StatusChipVariant variant;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 220),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18),
-            const SizedBox(width: 6),
-            Flexible(child: Text(label)),
-          ],
-        ),
+      child: StatusChip(
+        icon: icon,
+        label: label,
+        variant: variant,
+        size: StatusChipSize.small,
       ),
     );
   }
@@ -1740,17 +1675,20 @@ class _DashboardQuickActions extends StatelessWidget {
         builder: (context, constraints) {
           final isWide = constraints.maxWidth >= 620;
           final buttons = [
-            FilledButton.icon(
+            AppButton(
               key: const Key('server-shell-create-personal-bill'),
               onPressed: onCreateBill,
-              icon: const Icon(Icons.add),
-              label: const Text('Create bill'),
+              icon: Icons.add,
+              label: 'Create bill',
+              expanded: !isWide,
             ),
-            FilledButton.tonalIcon(
+            AppButton(
               key: const Key('server-shell-create-group'),
               onPressed: onCreateGroup,
-              icon: const Icon(Icons.group_add_outlined),
-              label: const Text('Create group'),
+              icon: Icons.group_add_outlined,
+              label: 'Create group',
+              variant: AppButtonVariant.soft,
+              expanded: !isWide,
             ),
           ];
 
@@ -1882,90 +1820,88 @@ class _DashboardDataSafetySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final colors = context.settleoraColors;
     final export = this.export;
 
     return _DashboardSection(
       title: 'Data safety',
-      child: Card(
+      child: AppCard(
         key: const Key('server-shell-data-safety-panel'),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Local backup', style: textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Text(
-                'Export covers mobile-owned local state only. It excludes session tokens, refresh credentials, passwords, server URLs, payment details, file bytes, storage paths, receipt/OCR/proof contents, and it is not a complete server backup.',
-                style: TextStyle(color: muted),
-              ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Local backup', style: textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              'Export covers mobile-owned local state only. It excludes session tokens, refresh credentials, passwords, server URLs, payment details, file bytes, storage paths, receipt/OCR/proof contents, and it is not a complete server backup.',
+              style: TextStyle(color: colors.textMuted),
+            ),
+            const SizedBox(height: 12),
+            const _ReadinessLine(
+              label: 'Scope',
+              value: 'App mode summary and the current mobile bill sync queue.',
+            ),
+            const _ReadinessLine(
+              label: 'Server mode',
+              value:
+                  'The API remains authoritative for collaboration, authorization, storage, audit, sync acceptance, money, and policy.',
+            ),
+            const _ReadinessLine(
+              label: 'Import',
+              value:
+                  'Validation and preview only; merge/replace restore is disabled until a guarded restore policy exists.',
+            ),
+            const _ReadinessLine(
+              label: 'CSV export',
+              value: 'Use server endpoints outside this local backup flow.',
+            ),
+            const _ReadinessLine(
+              label: 'CSV import',
+              value: 'Not handled here; imports cannot mutate bills or money.',
+            ),
+            const _ReadinessLine(
+              label: 'Migration/link',
+              value: 'Future explicit guided flow only; not a bypass.',
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  key: const Key('data-safety-build-export'),
+                  onPressed: isAvailable && !isBuildingBackup
+                      ? onBuildBackup
+                      : null,
+                  icon: isBuildingBackup
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_outlined),
+                  label: const Text('Generate backup JSON'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('data-safety-open-import-preview'),
+                  onPressed: isAvailable ? onPreviewImport : null,
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text('Preview import'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('data-safety-restore-disabled'),
+                  onPressed: null,
+                  icon: const Icon(Icons.restore_outlined),
+                  label: const Text('Restore disabled'),
+                ),
+              ],
+            ),
+            if (export != null) ...[
               const SizedBox(height: 12),
-              const _ReadinessLine(
-                label: 'Scope',
-                value:
-                    'App mode summary and the current mobile bill sync queue.',
-              ),
-              const _ReadinessLine(
-                label: 'Server mode',
-                value:
-                    'The API remains authoritative for collaboration, authorization, storage, audit, sync acceptance, money, and policy.',
-              ),
-              const _ReadinessLine(
-                label: 'Import',
-                value:
-                    'Validation and preview only; merge/replace restore is disabled until a guarded restore policy exists.',
-              ),
-              const _ReadinessLine(
-                label: 'CSV export',
-                value: 'Use server endpoints outside this local backup flow.',
-              ),
-              const _ReadinessLine(
-                label: 'CSV import',
-                value:
-                    'Not handled here; imports cannot mutate bills or money.',
-              ),
-              const _ReadinessLine(
-                label: 'Migration/link',
-                value: 'Future explicit guided flow only; not a bypass.',
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    key: const Key('data-safety-build-export'),
-                    onPressed: isAvailable && !isBuildingBackup
-                        ? onBuildBackup
-                        : null,
-                    icon: isBuildingBackup
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.download_outlined),
-                    label: const Text('Generate backup JSON'),
-                  ),
-                  OutlinedButton.icon(
-                    key: const Key('data-safety-open-import-preview'),
-                    onPressed: isAvailable ? onPreviewImport : null,
-                    icon: const Icon(Icons.upload_file_outlined),
-                    label: const Text('Preview import'),
-                  ),
-                  OutlinedButton.icon(
-                    key: const Key('data-safety-restore-disabled'),
-                    onPressed: null,
-                    icon: const Icon(Icons.restore_outlined),
-                    label: const Text('Restore disabled'),
-                  ),
-                ],
-              ),
-              if (export != null) ...[
-                const SizedBox(height: 12),
-                _DataBackupPreviewCard(preview: export.preview),
-                const SizedBox(height: 8),
-                ExpansionTile(
+              _DataBackupPreviewCard(preview: export.preview),
+              const SizedBox(height: 8),
+              Material(
+                type: MaterialType.transparency,
+                child: ExpansionTile(
                   key: const Key('data-safety-export-json'),
                   tilePadding: EdgeInsets.zero,
                   title: const Text('Generated backup JSON'),
@@ -1976,9 +1912,9 @@ class _DashboardDataSafetySection extends StatelessWidget {
                     ),
                   ],
                 ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -1994,63 +1930,57 @@ class _DataBackupPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final failure = preview.failureMessage;
     final generatedAt = preview.generatedAtUtc;
-    return DecoratedBox(
+    return AppCard(
       key: const Key('data-safety-preview-card'),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              preview.isValid ? 'Backup preview' : 'Backup invalid',
-              style: Theme.of(context).textTheme.titleSmall,
+      color: context.settleoraColors.primarySoft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            preview.isValid ? 'Backup preview' : 'Backup invalid',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 8),
+          if (failure != null)
+            Text(failure)
+          else ...[
+            _ReadinessLine(
+              label: 'Schema',
+              value: 'Version ${preview.schemaVersion}',
             ),
-            const SizedBox(height: 8),
-            if (failure != null)
-              Text(failure)
-            else ...[
-              _ReadinessLine(
-                label: 'Schema',
-                value: 'Version ${preview.schemaVersion}',
-              ),
-              _ReadinessLine(
-                label: 'Generated',
-                value: generatedAt == null
-                    ? 'Not provided'
-                    : _formatBackupUtcMinute(generatedAt),
-              ),
-              _ReadinessLine(
-                label: 'Sections',
-                value:
-                    '${preview.countFor('syncQueue')} sync queue item${_plural(preview.countFor('syncQueue'))}; ${preview.countFor('appConfiguration')} app configuration record${_plural(preview.countFor('appConfiguration'))}.',
-              ),
-              _ReadinessLine(
-                label: 'Restore mode',
-                value:
-                    '${preview.restoreMode}; restore apply is disabled in this build.',
-              ),
-              if (preview.warnings.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                for (final warning in preview.warnings)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.info_outline, size: 18),
-                        const SizedBox(width: 6),
-                        Expanded(child: Text(warning)),
-                      ],
-                    ),
+            _ReadinessLine(
+              label: 'Generated',
+              value: generatedAt == null
+                  ? 'Not provided'
+                  : _formatBackupUtcMinute(generatedAt),
+            ),
+            _ReadinessLine(
+              label: 'Sections',
+              value:
+                  '${preview.countFor('syncQueue')} sync queue item${_plural(preview.countFor('syncQueue'))}; ${preview.countFor('appConfiguration')} app configuration record${_plural(preview.countFor('appConfiguration'))}.',
+            ),
+            _ReadinessLine(
+              label: 'Restore mode',
+              value:
+                  '${preview.restoreMode}; restore apply is disabled in this build.',
+            ),
+            if (preview.warnings.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              for (final warning in preview.warnings)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.info_outline, size: 18),
+                      const SizedBox(width: 6),
+                      Expanded(child: Text(warning)),
+                    ],
                   ),
-              ],
+                ),
             ],
           ],
-        ),
+        ],
       ),
     );
   }
@@ -2097,19 +2027,30 @@ class _DataBackupImportPreviewDialogState
   Widget build(BuildContext context) {
     final preview = _preview;
 
-    return AlertDialog(
-      title: const Text('Preview backup import'),
-      content: SizedBox(
+    return SettleoraDialogFrame(
+      icon: Icons.upload_file_outlined,
+      title: 'Preview backup import',
+      message:
+          'Paste Settleora backup JSON to validate it before any restore. This build previews only and will not overwrite local or server-mode data.',
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        FilledButton.icon(
+          key: const Key('data-safety-preview-import'),
+          onPressed: _previewImport,
+          icon: const Icon(Icons.fact_check_outlined),
+          label: const Text('Preview'),
+        ),
+      ],
+      child: SizedBox(
         width: 420,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Paste Settleora backup JSON to validate it before any restore. This build previews only and will not overwrite local or server-mode data.',
-              ),
-              const SizedBox(height: 12),
               TextField(
                 key: const Key('data-safety-import-json'),
                 controller: _controller,
@@ -2128,18 +2069,6 @@ class _DataBackupImportPreviewDialogState
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
-        FilledButton.icon(
-          key: const Key('data-safety-preview-import'),
-          onPressed: _previewImport,
-          icon: const Icon(Icons.fact_check_outlined),
-          label: const Text('Preview'),
-        ),
-      ],
     );
   }
 }
@@ -2161,7 +2090,7 @@ class _ReadinessLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final muted = context.settleoraColors.textMuted;
 
     return Padding(
       padding: const EdgeInsets.only(top: 6),
@@ -2344,7 +2273,6 @@ class _DashboardOverviewContent extends StatelessWidget {
         else ...[
           if (overview.notificationSummary.urgentCount > 0)
             _DashboardActivityRow(
-              initials: '!',
               title: 'Urgent activity',
               message:
                   '${overview.notificationSummary.urgentCount} notification${_plural(overview.notificationSummary.urgentCount)} need fast review',
@@ -2353,7 +2281,6 @@ class _DashboardOverviewContent extends StatelessWidget {
             ),
           if (overview.notificationSummary.attentionCount > 0)
             _DashboardActivityRow(
-              initials: 'A',
               title: 'Attention queue',
               message:
                   '${overview.notificationSummary.attentionCount} item${_plural(overview.notificationSummary.attentionCount)} flagged for review',
@@ -2362,7 +2289,6 @@ class _DashboardOverviewContent extends StatelessWidget {
             ),
           if (overview.notificationSummary.unreadCount > 0)
             _DashboardActivityRow(
-              initials: 'N',
               title: 'Notifications',
               message:
                   '${overview.notificationSummary.unreadCount} unread update${_plural(overview.notificationSummary.unreadCount)}',
@@ -2439,13 +2365,12 @@ class _DashboardEmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
-      child: ListTile(
-        leading: Icon(Icons.inbox_outlined),
-        title: Text(
+    return const SettleoraInlinePanel(
+      icon: Icons.inbox_outlined,
+      title:
           'No overview items yet. Open a section below to create or review Day 1 records.',
-        ),
-      ),
+      message: 'Use quick actions or open a section when you are ready.',
+      variant: SettleoraSurfaceVariant.info,
     );
   }
 }
@@ -2455,13 +2380,11 @@ class _DashboardCalmCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
-      child: ListTile(
-        leading: Icon(Icons.check_circle_outline),
-        title: Text(
-          'Nothing urgent right now. Check recent activity or start a new bill when you are ready.',
-        ),
-      ),
+    return const SettleoraInlinePanel(
+      icon: Icons.check_circle_outline,
+      title: 'Nothing urgent right now',
+      message: 'Check recent activity or start a new bill when you are ready.',
+      variant: SettleoraSurfaceVariant.success,
     );
   }
 }
@@ -2485,31 +2408,16 @@ class _DashboardEmptySectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 2),
-                  Text(message),
-                ],
-              ),
-            ),
-            TextButton(
-              key: actionKey,
-              onPressed: onTap,
-              child: Text(actionLabel),
-            ),
-          ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: SettleoraSpacing.xs),
+      child: SettleoraInlinePanel(
+        icon: icon,
+        title: title,
+        message: message,
+        action: TextButton(
+          key: actionKey,
+          onPressed: onTap,
+          child: Text(actionLabel),
         ),
       ),
     );
@@ -2550,11 +2458,10 @@ class _DashboardSyncStatusCard extends StatelessWidget {
     ];
     final canRetry = snapshot.pendingCount > 0;
 
-    return Card(
+    return Padding(
       key: const Key('server-shell-sync-status-card'),
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.only(bottom: SettleoraSpacing.xs),
+      child: AppCard(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2635,35 +2542,18 @@ class _DashboardSettlementActionsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Padding(
       key: const Key('server-shell-settlement-actions'),
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.rule_outlined),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Review settlement actions',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 2),
-                  Text('$count request${_plural(count)} may need review'),
-                ],
-              ),
-            ),
-            TextButton(
-              key: const Key('server-shell-settlement-actions-review'),
-              onPressed: onTap,
-              child: const Text('Review'),
-            ),
-          ],
+      padding: const EdgeInsets.only(bottom: SettleoraSpacing.xs),
+      child: SettleoraInlinePanel(
+        icon: Icons.rule_outlined,
+        title: 'Review settlement actions',
+        message: '$count request${_plural(count)} may need review',
+        variant: SettleoraSurfaceVariant.warning,
+        action: TextButton(
+          key: const Key('server-shell-settlement-actions-review'),
+          onPressed: onTap,
+          child: const Text('Review'),
         ),
       ),
     );
@@ -2681,37 +2571,18 @@ class _DashboardRecurringDraftsAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Padding(
       key: const Key('server-shell-recurring-drafts-action'),
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.note_add_outlined),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Recurring drafts ready',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$count forecast item${_plural(count)} ready for draft review',
-                  ),
-                ],
-              ),
-            ),
-            TextButton(
-              key: const Key('server-shell-recurring-drafts-review'),
-              onPressed: onTap,
-              child: const Text('Review drafts'),
-            ),
-          ],
+      padding: const EdgeInsets.only(bottom: SettleoraSpacing.xs),
+      child: SettleoraInlinePanel(
+        icon: Icons.note_add_outlined,
+        title: 'Recurring drafts ready',
+        message: '$count forecast item${_plural(count)} ready for draft review',
+        variant: SettleoraSurfaceVariant.info,
+        action: TextButton(
+          key: const Key('server-shell-recurring-drafts-review'),
+          onPressed: onTap,
+          child: const Text('Review drafts'),
         ),
       ),
     );
@@ -2739,35 +2610,18 @@ class _DashboardBillRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.secondaryContainer,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            icon,
-            color: Theme.of(context).colorScheme.onSecondaryContainer,
-          ),
-        ),
-        title: Text(title),
-        subtitle: Text('$timing\n$metadata'),
-        isThreeLine: true,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: SettleoraSpacing.xs),
+      child: SettleoraListRow(
+        leadingIcon: icon,
+        title: title,
+        subtitle: '$timing\n$metadata',
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
           children: [
-            MoneyText(
-              amount: amount,
-              currencyCode: currencyCode,
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-            const Icon(Icons.chevron_right, size: 18),
+            SettleoraMoneyChip(amount: amount, currencyCode: currencyCode),
           ],
         ),
         onTap: onTap,
@@ -2778,14 +2632,12 @@ class _DashboardBillRow extends StatelessWidget {
 
 class _DashboardActivityRow extends StatelessWidget {
   const _DashboardActivityRow({
-    required this.initials,
     required this.title,
     required this.message,
     required this.status,
     required this.onTap,
   });
 
-  final String initials;
   final String title;
   final String message;
   final String status;
@@ -2793,19 +2645,19 @@ class _DashboardActivityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.tertiaryContainer,
-          foregroundColor: theme.colorScheme.onTertiaryContainer,
-          child: Text(initials),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: SettleoraSpacing.xs),
+      child: SettleoraListRow(
+        leadingIcon: Icons.notifications_outlined,
+        title: title,
+        subtitle: message,
+        trailing: StatusChip(
+          label: status,
+          size: StatusChipSize.small,
+          variant: status == 'Urgent'
+              ? StatusChipVariant.danger
+              : StatusChipVariant.info,
         ),
-        title: Text(title),
-        subtitle: Text(message),
-        trailing: Text(status, style: theme.textTheme.labelMedium),
         onTap: onTap,
       ),
     );
@@ -2856,20 +2708,13 @@ class _DashboardMonthRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(detail),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(value, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right),
-          ],
-        ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: SettleoraSpacing.xs),
+      child: SettleoraListRow(
+        leadingIcon: icon,
+        title: title,
+        subtitle: detail,
+        trailing: Text(value, style: Theme.of(context).textTheme.titleMedium),
         onTap: onTap,
       ),
     );
