@@ -4,6 +4,12 @@ platform :ios, '15.5'
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# Settleora uses file_picker only for custom document attachment import on iOS.
+# Receipt photo capture/library import uses image_picker, so keep file_picker's
+# media picker subdependency out of the iOS app and avoid unused photo-gallery
+# native symbols.
+Pod::PICKER_MEDIA = false
+
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,

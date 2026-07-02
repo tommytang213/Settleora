@@ -125,6 +125,33 @@ expanded output. Visual capture/screenshot-helper/screen-compare evidence
 remains available through `Mobile iOS visual evidence` without blocking the
 installable preview build path.
 
+## App Store Connect Compliance Metadata
+
+The iOS app declares `ITSAppUsesNonExemptEncryption=false` in
+`apps/mobile/ios/Runner/Info.plist`. Repo evidence for the mobile app shows only
+ordinary HTTPS/API transport, platform Keychain/secure storage, Flutter/iOS
+framework behavior, and dependency-level hashing/storage helpers; it does not
+ship custom encryption, VPN behavior, or a non-exempt crypto feature. Revisit
+this declaration before adding custom crypto, non-standard encryption,
+VPN/tunneling behavior, or a new embedded crypto runtime.
+
+The iOS app does not currently declare
+`NSLocationWhenInUseUsageDescription` because Settleora has no current product
+feature that requests device location. The TestFlight 90683 warning was traced
+to `file_picker`'s optional iOS media picker dependency on
+`DKImagePickerController/PhotoGallery`; Settleora uses `file_picker` only for
+custom document attachment import, while receipt camera/photo-library import
+uses `image_picker`. The Podfile sets `Pod::PICKER_MEDIA = false` so the unused
+file-picker media path and its photo-gallery dependency are not compiled into
+the iOS app. If a future feature intentionally uses device location or a
+location-requiring media picker, add a truthful user-facing location purpose
+string as part of that feature review.
+
+After this metadata change, the next verification step is a fresh
+maintainer-approved `Mobile iOS internal TestFlight` upload and App Store
+Connect processing check to confirm the encryption prompt and 90683 warning are
+cleared for the processed build.
+
 ## Manual Release Gate Checklist
 
 This checklist covers issue #383 under parent epic #380. It is a Day 1 mobile
