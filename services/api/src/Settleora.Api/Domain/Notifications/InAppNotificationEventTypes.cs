@@ -23,6 +23,7 @@ public static class InAppNotificationEventTypes
     public const string SettlementRequestCancelled = "settlement.request_cancelled";
     public const string SettlementPaymentCancelled = "settlement.payment_cancelled";
     public const string SettlementProofAttached = "settlement.proof_attached";
+    public const string SettlementResidualReviewNeeded = "settlement.residual_review_needed";
     public const string RecurringBillDueSoon = "recurring_bill.due_soon";
     public const string RecurringBillDraftGenerated = "recurring_bill.draft_generated";
     public const string SyncConflictDetected = "sync.conflict_detected";
@@ -52,6 +53,7 @@ public static class InAppNotificationEventTypes
         SettlementRequestCancelled,
         SettlementPaymentCancelled,
         SettlementProofAttached,
+        SettlementResidualReviewNeeded,
         RecurringBillDueSoon,
         RecurringBillDraftGenerated,
         SyncConflictDetected,

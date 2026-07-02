@@ -20,13 +20,15 @@ remain the source of truth.
 
 ## Current Checkpoints
 
-### Issue #369 - Settlement residual review notification source policy
+### Issue #369 - Settlement residual review notification runtime
 
 - GitHub state/project status: issue `OPEN`; Project field readback was not
   updated by this docs/control task. Related issues #368, #403, #634, #635,
   and #371 were read back as `OPEN` before the policy edit.
 - Last verified at main SHA:
-  `d58c03753f16741fac0a572de16f1447711c6f64` after PR #654.
+  `0d65ff91252196034dde02b3a9fef8a66319596d` after PR #655 and before the
+  `feature/settlement-residual-review-needed-notification-369-20260702`
+  implementation branch.
 - Completed PRs/slices:
   - PR #654, merge SHA `d58c03753f16741fac0a572de16f1447711c6f64`:
     completed only the narrow `sync.operation_failed` in-app/provider-neutral
@@ -35,32 +37,39 @@ remain the source of truth.
   - Branch
     `docs/settlement-residual-review-notification-source-policy-369-20260702`:
     adds the #369 settlement residual review notification source-policy gate.
-- Completed scope in this docs/control gate:
+  - Branch
+    `feature/settlement-residual-review-needed-notification-369-20260702`:
+    implements the narrow `settlement.residual_review_needed` runtime slice
+    for successful debtor-created payment claims that persist pending
+    receiver-confirmation residuals.
+- Completed scope:
   - Records current residual facts: explicit same-currency underpayment and
     overpayment residual rows, `pending_receiver_confirmation` source state,
     receiver residual confirmation route, dispute/cancellation neutralization,
     and confirmed-only balance projection effects.
   - Separates existing `settlement.payment_partially_paid` and
-    `settlement.payment_marked_paid` payment-claim notices from future residual
+    `settlement.payment_marked_paid` payment-claim notices from residual
     review semantics.
-  - Recommends future `settlement.residual_review_needed` only for successful
-    debtor-created payment claims that create pending receiver-confirmation
-    residuals.
-  - Defines receiver/creditor-only recipient policy, debtor actor suppression
-    on creation, unrelated participant/admin suppression, existing
-    settlement request/payment target reuse, privacy-safe payload exclusions,
-    duplicate/idempotency expectations, and future validation gates.
+  - Adds `settlement.residual_review_needed` to the notification event
+    vocabulary, OpenAPI enum, generated web/Dart clients, and notification
+    event-type check constraints.
+  - Writes one unread in-app/provider-neutral `settlement.residual_review_needed`
+    notification to the receiver/creditor only when the debtor-created payment
+    claim creates a pending receiver-confirmation residual.
+  - Reuses existing settlement payment/request target references and existing
+    authorized settlement payment read/residual confirmation APIs.
+  - Preserves debtor actor suppression, unrelated participant/admin
+    suppression, privacy-safe payload exclusions, duplicate/replay no-op
+    behavior, and read/archive source-state isolation.
 - Explicitly not complete:
-  - No settlement residual notification runtime.
-  - No notification event enum, OpenAPI, generated-client, EF migration, API
-    handler, notification writer, provider, mobile, deep-link, admin/global
-    policy, settlement business schema, money, residual, allocation, payment,
-    proof, balance projection, auth/security, deployment, CI, or secret change.
+  - No debtor notification after receiver residual decision.
+  - No broader settlement mismatch/review event runtime.
+  - No provider send, mobile/deep-link, admin/global policy, settlement
+    business schema, money, residual, allocation, payment, proof, balance
+    projection, auth/security, deployment, CI, or secret change.
 - Remaining Day 1 work:
-  - Future runtime implementation for the selected residual-review handoff, if
-    approved.
-  - OpenAPI/generated-client and EF constraint review only if adding the new
-    event type or public response shape later.
+  - Future debtor notification after receiver residual decisions only if a
+    later policy names the event/source/recipient rules.
   - Broader settlement mismatch/review notifications remain blocked until
     broader settlement review source states exist.
   - #371 deep links, #635 admin/global policy/readout, #634 real push/provider
@@ -68,8 +77,9 @@ remain the source of truth.
     notifications, item claim/split notifications, and final Day 1 acceptance
     remain open/gated.
 - Close/keep-open recommendation:
-  - Keep #369 open. This gate narrows future settlement residual notification
-    semantics but does not implement runtime coverage.
+  - Keep #369 open. This branch completes only the narrow pending residual
+    review handoff; it does not complete all Day 1 notification event-family
+    coverage.
   - Keep #368, #403, #634, #635, and #371 open.
 - Last verified repo/report references:
   - `docs/architecture/SETTLEMENT_RESIDUAL_REVIEW_NOTIFICATION_SOURCE_POLICY.md`
@@ -869,6 +879,20 @@ remain the source of truth.
     constraints; it does not implement queued/resolved/retry/conflict
     resolution, mobile/deep links, provider send, admin policy, or broader sync
     behavior.
+  - Branch
+    `feature/settlement-residual-review-needed-notification-369-20260702`
+    implements the narrow settlement residual-review notification slice:
+    successful debtor-created payment claims that persist pending
+    receiver-confirmation residuals write one unread
+    `settlement.residual_review_needed` in-app/provider-neutral notification
+    to the receiver/creditor, with existing settlement payment/request target
+    references, safe action URL, privacy-safe metadata, replay/no-op duplicate
+    prevention, and no residual amount/reason/payment/proof/storage details.
+    This branch updates OpenAPI/generated clients only for the notification
+    event enum and adds an EF migration that widens notification event-type
+    check constraints; it does not change settlement business schema, money,
+    residual policy, allocation, confirmation, balance projection, proof,
+    provider send, mobile/deep links, or admin policy behavior.
 - Remaining Day 1 work:
   - Future OCR `ocr.completed` and `ocr.failed` events require server OCR
     worker/job source states and safe recipient/action policy first.
@@ -879,8 +903,9 @@ remain the source of truth.
     gated.
   - Item claim/split/creator-review notification coverage remains blocked on
     source claim runtime and #371/Figma/deep-link references.
-  - Future settlement mismatch/residual/review event coverage remains separate
-    source-state work.
+  - Future settlement debtor notification after receiver residual decisions
+    and broader settlement mismatch/review event coverage remain separate
+    source-state/policy work.
   - Push/email provider delivery, provider workers, digests, delivery receipts,
     background delivery, admin/global policy, Day 1 notification acceptance,
     production readiness, release readiness, manual UI retest, and manual code
@@ -901,8 +926,10 @@ remain the source of truth.
     runtime foundation slice, PR #647/#649/#650 are #634 push-token lifecycle
     design/protection/API-foundation checkpoints, and
     `feature/sync-operation-failed-notification-369-20260702` is one narrow
-    `sync.operation_failed` implementation slice. None of these is full Day 1
-    notification event-family acceptance.
+    `sync.operation_failed` implementation slice, and
+    `feature/settlement-residual-review-needed-notification-369-20260702` is
+    one narrow settlement residual-review implementation slice. None of these
+    is full Day 1 notification event-family acceptance.
 - Last verified repo/report references:
   - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
   - Issue #369 PR #626 progress comment:

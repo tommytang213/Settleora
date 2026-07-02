@@ -199,8 +199,7 @@ Representative event types:
 - `settlement.request_created`
 - `settlement.payment_marked_paid`
 - `settlement.payment_partially_paid`
-- Future-only pending residual handoff, if implemented:
-  `settlement.residual_review_needed`
+- `settlement.residual_review_needed`
 - `settlement.payment_confirmed`
 - `settlement.request_disputed`
 - `settlement.payment_disputed`
@@ -246,12 +245,10 @@ exclude payment details.
 
 Residual-review source policy: current `settlement.payment_partially_paid`
 remains a payment-claim/request-status notice, not residual-review acceptance.
-Future pending receiver-confirmation residual notifications should use a
-dedicated event such as `settlement.residual_review_needed` only after the
-source-policy and runtime gates in
-[Settlement residual review notification source policy](SETTLEMENT_RESIDUAL_REVIEW_NOTIFICATION_SOURCE_POLICY.md)
-are satisfied. Broader mismatch/review events remain future-only until
-settlement review states exist.
+The implemented pending receiver-confirmation residual handoff uses the
+dedicated `settlement.residual_review_needed` event only after successful
+debtor-created payment claims create persisted pending residual rows. Broader
+mismatch/review events remain future-only until settlement review states exist.
 
 ### Recurring Bills
 

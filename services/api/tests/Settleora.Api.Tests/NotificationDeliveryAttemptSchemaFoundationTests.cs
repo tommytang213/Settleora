@@ -17,6 +17,9 @@ namespace Settleora.Api.Tests;
 
 public sealed class NotificationDeliveryAttemptSchemaFoundationTests
 {
+    private const string NotificationDeliveryAttemptEventTypeConstraintSql =
+        "event_type IN ('bill.submitted', 'bill.participant_accepted', 'bill.participant_rejected', 'bill.confirmed', 'bill.revision_proposed', 'bill.revision_resubmitted', 'bill.revision_submitted', 'bill.revision_withdrawn', 'bill.revision_approved', 'bill.revision_rejected', 'bill.revision_payer_confirmed', 'bill.revision_applied', 'settlement.request_created', 'settlement.payment_marked_paid', 'settlement.payment_partially_paid', 'settlement.payment_confirmed', 'settlement.request_disputed', 'settlement.payment_disputed', 'settlement.request_cancelled', 'settlement.payment_cancelled', 'settlement.proof_attached', 'settlement.residual_review_needed', 'recurring_bill.due_soon', 'recurring_bill.draft_generated', 'sync.conflict_detected', 'sync.operation_failed', 'ocr.needs_review')";
+
     [Fact]
     public void NotificationDeliveryAttemptConstantsRepresentPreProviderVocabulary()
     {
@@ -93,6 +96,7 @@ public sealed class NotificationDeliveryAttemptSchemaFoundationTests
 
         AssertCheckConstraint(entity, "ck_notification_delivery_attempts_channel", "channel IN ('email', 'mobile_push')");
         AssertCheckConstraint(entity, "ck_notification_delivery_attempts_status", "status IN ('not_applicable', 'disabled', 'unconfigured', 'deferred', 'queued', 'suppressed', 'cancelled', 'expired')");
+        AssertCheckConstraint(entity, "ck_notification_delivery_attempts_event_type", NotificationDeliveryAttemptEventTypeConstraintSql);
         AssertCheckConstraint(entity, "ck_notification_delivery_attempts_no_provider_runtime_status", "status NOT IN ('attempting', 'sent', 'failed_transient', 'failed_permanent', 'delivered')");
         AssertCheckConstraint(entity, "ck_notification_delivery_attempts_attempt_count_non_negative", "attempt_count >= 0");
         AssertCheckConstraint(entity, "ck_notification_delivery_attempts_lease_owner_not_blank", "lease_owner IS NULL OR length(btrim(lease_owner)) > 0");

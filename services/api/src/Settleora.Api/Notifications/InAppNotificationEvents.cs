@@ -147,6 +147,40 @@ internal static class InAppNotificationEvents
             cancellationToken);
     }
 
+    public static Task WriteSettlementResidualReviewNeededNotificationAsync(
+        IInAppNotificationWriter notificationWriter,
+        SettlementRequest settlementRequest,
+        SettlementPayment payment,
+        Guid actorUserProfileId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (actorUserProfileId != settlementRequest.DebtorUserProfileId
+            || payment.PaidByUserProfileId != settlementRequest.DebtorUserProfileId
+            || payment.ReceivedByUserProfileId != settlementRequest.CreditorUserProfileId
+            || settlementRequest.CreditorUserProfileId == actorUserProfileId)
+        {
+            return Task.CompletedTask;
+        }
+
+        return notificationWriter.WriteAsync(
+            new InAppNotificationWriteRequest(
+                settlementRequest.CreditorUserProfileId,
+                actorUserProfileId,
+                InAppNotificationEventTypes.SettlementResidualReviewNeeded,
+                InAppNotificationPriorities.Attention,
+                InAppNotificationSubjectTypes.SettlementPayment,
+                TitleKey(InAppNotificationEventTypes.SettlementResidualReviewNeeded),
+                MessageKey(InAppNotificationEventTypes.SettlementResidualReviewNeeded),
+                now,
+                ActionUrl: $"/api/v1/settlement-payments/{payment.Id:D}",
+                GroupId: settlementRequest.GroupId,
+                ExpenseBillId: settlementRequest.SourceExpenseBillId,
+                SettlementRequestId: settlementRequest.Id,
+                SettlementPaymentId: payment.Id),
+            cancellationToken);
+    }
+
     public static Task WriteSettlementProofAttachedNotificationAsync(
         IInAppNotificationWriter notificationWriter,
         Guid debtorUserProfileId,

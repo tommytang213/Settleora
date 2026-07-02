@@ -231,6 +231,16 @@ internal static class SettlementPaymentClaimEndpoints
             InAppNotificationPriorities.Attention,
             now,
             cancellationToken);
+        if (residual is not null && SettlementResidualRuntime.IsPendingResidual(residual))
+        {
+            await InAppNotificationEvents.WriteSettlementResidualReviewNeededNotificationAsync(
+                notificationWriter,
+                settlementRequest,
+                payment,
+                actor.UserProfileId,
+                now,
+                cancellationToken);
+        }
 
         try
         {

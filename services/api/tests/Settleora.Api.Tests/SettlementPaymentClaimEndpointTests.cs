@@ -393,6 +393,19 @@ public sealed class SettlementPaymentClaimEndpointTests : IClassFixture<WebAppli
         Assert.Equal(policy, residual.Policy);
         Assert.Equal(SettlementResidualStatuses.PendingReceiverConfirmation, residual.Status);
         Assert.Null(residual.ResolvedAtUtc);
+
+        var notifications = await ReadNotificationsAsync(testFactory);
+        Assert.Equal(
+            [InAppNotificationEventTypes.SettlementPaymentPartiallyPaid, InAppNotificationEventTypes.SettlementResidualReviewNeeded],
+            notifications.Select(notification => notification.EventType).Order(StringComparer.Ordinal).ToArray());
+        AssertResidualReviewNotification(
+            notifications.Single(notification => notification.EventType == InAppNotificationEventTypes.SettlementResidualReviewNeeded),
+            creditor.UserProfileId,
+            debtorSession.UserProfileId,
+            settlementId,
+            paymentId,
+            Assert.Single(persisted.Requests).SourceExpenseBillId!.Value,
+            groupId: null);
     }
 
     [Theory]
@@ -436,6 +449,181 @@ public sealed class SettlementPaymentClaimEndpointTests : IClassFixture<WebAppli
         Assert.Equal(0.25m, residual.Amount);
         Assert.Equal(SettlementResidualDirections.Overpayment, residual.Direction);
         Assert.Equal(policy, residual.Policy);
+
+        var notifications = await ReadNotificationsAsync(testFactory);
+        Assert.Equal(
+            [InAppNotificationEventTypes.SettlementPaymentMarkedPaid, InAppNotificationEventTypes.SettlementResidualReviewNeeded],
+            notifications.Select(notification => notification.EventType).Order(StringComparer.Ordinal).ToArray());
+        AssertResidualReviewNotification(
+            notifications.Single(notification => notification.EventType == InAppNotificationEventTypes.SettlementResidualReviewNeeded),
+            creditor.UserProfileId,
+            debtorSession.UserProfileId,
+            settlementId,
+            paymentId,
+            Assert.Single(persisted.Requests).SourceExpenseBillId!.Value,
+            groupId: null);
+    }
+
+    [Fact]
+    public async Task ResidualReviewNeededNotificationUsesCreditorOnlySafePayloadAuthorizedRefetchAndReadArchiveIsolation()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Residual Review Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Residual Review Creditor", InitialTimestamp.AddMinutes(1));
+        var creditorSession = await SeedSessionForAccountAsync(testFactory, testContext.TimeProvider, creditor);
+        var nonPartySession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Residual Review Non Party");
+        var settlementId = await SeedBasicSettlementAsync(testFactory, debtorSession.UserProfileId, creditor.UserProfileId);
+
+        using var client = testFactory.CreateClient();
+        var residualClaim = await CreateResidualPaymentClaimWithResidualAsync(
+            client,
+            settlementId,
+            debtorSession.RawSessionToken,
+            "25.25",
+            SettlementResidualPolicies.CreditForward);
+
+        var notifications = await ReadNotificationsAsync(testFactory);
+        Assert.Equal(2, notifications.Count);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == debtorSession.UserProfileId);
+        Assert.DoesNotContain(notifications, notification => notification.RecipientUserProfileId == nonPartySession.UserProfileId);
+        var residualNotification = Assert.Single(
+            notifications,
+            notification => notification.EventType == InAppNotificationEventTypes.SettlementResidualReviewNeeded);
+        AssertResidualReviewNotification(
+            residualNotification,
+            creditor.UserProfileId,
+            debtorSession.UserProfileId,
+            settlementId,
+            residualClaim.PaymentId,
+            Assert.Single((await ReadSettlementStateAsync(testFactory)).Requests).SourceExpenseBillId!.Value,
+            groupId: null);
+
+        using (var creditorReadRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            residualNotification.ActionUrl!,
+            creditorSession.RawSessionToken))
+        using (var creditorReadResponse = await client.SendAsync(creditorReadRequest))
+        {
+            var content = await creditorReadResponse.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, creditorReadResponse.StatusCode);
+            AssertSafePaymentResponseContent(content, HiddenMerchantName, HiddenItemName, HiddenPaymentHandle, HiddenStorageObjectKey);
+            using var payload = JsonDocument.Parse(content);
+            Assert.Equal(residualClaim.PaymentId, payload.RootElement.GetProperty("paymentId").GetGuid());
+            Assert.Equal(SettlementResidualStatuses.PendingReceiverConfirmation, Assert.Single(payload.RootElement.GetProperty("residuals").EnumerateArray()).GetProperty("status").GetString());
+        }
+
+        using (var unrelatedReadRequest = CreateBearerRequest(
+            HttpMethod.Get,
+            residualNotification.ActionUrl!,
+            nonPartySession.RawSessionToken))
+        using (var unrelatedReadResponse = await client.SendAsync(unrelatedReadRequest))
+        {
+            await AssertSettlementPaymentUnavailableProblemAsync(unrelatedReadResponse);
+        }
+
+        var beforeReadArchive = await ReadSettlementStateAsync(testFactory);
+        testContext.TimeProvider.SetUtcNow(ValidationTimestamp.AddMinutes(5));
+        using (var readNotificationRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/notifications/{residualNotification.Id:D}/read",
+            creditorSession.RawSessionToken))
+        using (var readNotificationResponse = await client.SendAsync(readNotificationRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, readNotificationResponse.StatusCode);
+        }
+
+        testContext.TimeProvider.SetUtcNow(ValidationTimestamp.AddMinutes(10));
+        using (var archiveNotificationRequest = CreateBearerRequest(
+            HttpMethod.Post,
+            $"/api/v1/notifications/{residualNotification.Id:D}/archive",
+            creditorSession.RawSessionToken))
+        using (var archiveNotificationResponse = await client.SendAsync(archiveNotificationRequest))
+        {
+            Assert.Equal(HttpStatusCode.OK, archiveNotificationResponse.StatusCode);
+        }
+
+        var afterReadArchive = await ReadSettlementStateAsync(testFactory);
+        Assert.Equal(beforeReadArchive.MutationCounts, afterReadArchive.MutationCounts);
+        Assert.Equal(
+            beforeReadArchive.Requests.Select(request => request.Status).ToArray(),
+            afterReadArchive.Requests.Select(request => request.Status).ToArray());
+        Assert.Equal(
+            beforeReadArchive.Payments.Select(payment => payment.Status).ToArray(),
+            afterReadArchive.Payments.Select(payment => payment.Status).ToArray());
+        Assert.Equal(
+            beforeReadArchive.Residuals.Select(residual => (residual.Status, residual.ResolvedAtUtc)).ToArray(),
+            afterReadArchive.Residuals.Select(residual => (residual.Status, residual.ResolvedAtUtc)).ToArray());
+    }
+
+    [Fact]
+    public async Task DuplicateResidualPaymentClaimReplayDoesNotCreateDuplicateResidualReviewNotification()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Residual Replay Debtor");
+        var creditor = await SeedAccountAsync(testFactory, "Residual Replay Creditor", InitialTimestamp.AddMinutes(1));
+        var settlementId = await SeedBasicSettlementAsync(testFactory, debtorSession.UserProfileId, creditor.UserProfileId);
+
+        using var client = testFactory.CreateClient();
+        await CreateResidualPaymentClaimWithResidualAsync(
+            client,
+            settlementId,
+            debtorSession.RawSessionToken,
+            "25.25",
+            SettlementResidualPolicies.CreditForward);
+        var beforeReplayCounts = await ReadMutationCountsAsync(testFactory);
+
+        using var replayRequest = CreateJsonBearerRequest(
+            HttpMethod.Post,
+            SettlementPaymentsPath(settlementId),
+            debtorSession.RawSessionToken,
+            """{"amount":"25.25","currency":"USD","paymentDate":"2026-05-08","proposedResidualPolicy":"credit_forward"}""");
+        using var replayResponse = await client.SendAsync(replayRequest);
+
+        await AssertSettlementPaymentConflictProblemAsync(replayResponse);
+        await AssertMutationCountsAsync(testFactory, beforeReplayCounts);
+        Assert.Single(
+            await ReadNotificationsAsync(testFactory),
+            notification => notification.EventType == InAppNotificationEventTypes.SettlementResidualReviewNeeded);
+    }
+
+    [Fact]
+    public async Task ResidualReviewNeededNotificationSuppressesSelfRecipientWhenResidualPartiesAreNotDistinct()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var debtorSession = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, "Residual Self Party");
+        var billId = await SeedBillAsync(
+            testFactory,
+            debtorSession.UserProfileId,
+            groupId: null,
+            [new ParticipantSeed(debtorSession.UserProfileId, 25m)],
+            [new PayerSeed(debtorSession.UserProfileId, 50m)],
+            InitialTimestamp);
+        var settlementId = await SeedSettlementRequestAsync(
+            testFactory,
+            billId,
+            groupId: null,
+            debtorSession.UserProfileId,
+            debtorSession.UserProfileId,
+            debtorSession.UserProfileId,
+            25m,
+            SettlementRequestStatuses.Requested,
+            InitialTimestamp.AddMinutes(1));
+
+        using var client = testFactory.CreateClient();
+        await CreateResidualPaymentClaimWithResidualAsync(
+            client,
+            settlementId,
+            debtorSession.RawSessionToken,
+            "25.25",
+            SettlementResidualPolicies.CreditForward);
+
+        Assert.DoesNotContain(
+            await ReadNotificationsAsync(testFactory),
+            notification => notification.EventType == InAppNotificationEventTypes.SettlementResidualReviewNeeded);
     }
 
     [Theory]
@@ -2843,6 +3031,63 @@ public sealed class SettlementPaymentClaimEndpointTests : IClassFixture<WebAppli
         Assert.DoesNotContain("merchant", lowerContent);
         Assert.DoesNotContain("item", lowerContent);
         Assert.DoesNotContain("ocr", lowerContent);
+    }
+
+    private static void AssertResidualReviewNotification(
+        InAppNotification notification,
+        Guid expectedRecipientUserProfileId,
+        Guid expectedActorUserProfileId,
+        Guid expectedSettlementRequestId,
+        Guid expectedSettlementPaymentId,
+        Guid expectedExpenseBillId,
+        Guid? groupId)
+    {
+        Assert.Equal(expectedRecipientUserProfileId, notification.RecipientUserProfileId);
+        Assert.Equal(expectedActorUserProfileId, notification.ActorUserProfileId);
+        Assert.Equal(InAppNotificationEventTypes.SettlementResidualReviewNeeded, notification.EventType);
+        Assert.Equal(InAppNotificationStatuses.Unread, notification.Status);
+        Assert.Equal(InAppNotificationPriorities.Attention, notification.Priority);
+        Assert.Equal(InAppNotificationSubjectTypes.SettlementPayment, notification.SubjectType);
+        Assert.Equal($"notifications.{InAppNotificationEventTypes.SettlementResidualReviewNeeded}.title", notification.TitleKey);
+        Assert.Equal($"notifications.{InAppNotificationEventTypes.SettlementResidualReviewNeeded}.message", notification.MessageKey);
+        Assert.Null(notification.SafeSummary);
+        Assert.Equal(groupId, notification.GroupId);
+        Assert.Equal(expectedExpenseBillId, notification.ExpenseBillId);
+        Assert.Null(notification.ExpenseBillRevisionId);
+        Assert.Equal(expectedSettlementRequestId, notification.SettlementRequestId);
+        Assert.Equal(expectedSettlementPaymentId, notification.SettlementPaymentId);
+        Assert.Null(notification.RecurringBillTemplateId);
+        Assert.Null(notification.RecurringBillOccurrenceId);
+        Assert.Null(notification.ReceiptOcrReviewId);
+        Assert.Null(notification.ReceiptAttachmentFileId);
+        Assert.Null(notification.SyncOperationId);
+        Assert.Equal($"/api/v1/settlement-payments/{expectedSettlementPaymentId:D}", notification.ActionUrl);
+        Assert.Null(notification.ReadAtUtc);
+        Assert.Null(notification.ArchivedAtUtc);
+
+        var safeContent = string.Join(
+            '\n',
+            notification.EventType,
+            notification.TitleKey,
+            notification.MessageKey,
+            notification.SafeSummary,
+            notification.ActionUrl);
+        Assert.DoesNotContain("24.5", safeContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("25.25", safeContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.25", safeContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.5", safeContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("remaining_balance", safeContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("carried_forward", safeContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("credit_forward", safeContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("waived", safeContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("payment_handle", safeContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("paymenthandle", safeContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("payment_note", safeContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("proof", safeContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("storage", safeContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("object_key", safeContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("token", safeContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ocr", safeContent, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void AssertBoundedPaymentAuditMetadata(
