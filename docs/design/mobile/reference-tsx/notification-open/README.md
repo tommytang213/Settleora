@@ -51,6 +51,13 @@ Settleora is checking access, refreshing the latest details, and showing only
 available actions without exposing backend terms, raw IDs, route details,
 provider details, storage locations, or developer diagnostics.
 
+The current copy-polished checkpoint keeps raw notification event names in
+reference metadata only. Phone-frame UI copy uses product labels such as
+`Settlement review`, `Receipt review`, and `Sync issue`, with actions such as
+`Review bill`, `Review settlement`, `Review receipt`, `Review sync issue`,
+`Retry`, `Sign in`, `Switch account`, `Notification settings`, and
+`Back to notifications`.
+
 ## Scope
 
 Use this reference to review:

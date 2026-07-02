@@ -142,6 +142,13 @@ remain the source of truth.
     is acceptable as mobile app UI, but notification-center/detail frames must
     not repeat the top bell affordance and visible phone-frame copy should be
     product-facing rather than backend/architecture phrasing.
+  - Branch
+    `docs/notification-open-tsx-reference-371-visual-consistency-recovery-20260702`
+    later applies the requested product-copy polish checkpoint: raw event names
+    stay in docs/reference metadata only, while visible phone-frame copy uses
+    product labels for settlement review, receipt review, sync issues, account,
+    offline, unavailable, already handled, push-readiness, and generic fallback
+    states.
 - Completed scope:
   - Defines that notification rows, push payloads, local cache, route state,
     object URLs, and generated-client availability are not authorization.
@@ -202,6 +209,11 @@ remain the source of truth.
     phone-frame copy uses product phrases such as checking access, refreshing
     latest details, reviewing bills/settlements/receipts/sync issues, signing
     in, switching accounts, retrying, and returning to notifications.
+  - Polishes the visible phone-frame copy so raw backend event strings such as
+    OCR, settlement residual, and sync event names do not appear as user-facing
+    labels; replaces debug-style labels such as visible context, shown/hidden,
+    and stale-action explanations with shorter product copy and specific
+    action labels.
 - Explicitly not complete:
   - No Flutter/mobile runtime code, Figma Make/API usage, Figma output,
     screenshots, binary assets, route runtime, navigation runtime,

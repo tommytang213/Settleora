@@ -45,10 +45,10 @@ share components, but each state below must be visibly reviewable.
 | Notification detail loading and authorized re-fetch | Skeleton or progress state that shows the app is refreshing the notification and linked target through authorized paths before rendering details. | Safe back navigation only |
 | Bill workflow/revision open | Authorized bill or bill revision notification context using current product copy and no hidden line details. | `Open bill`, `Review bill`, `Back to notifications` |
 | Settlement request/payment/proof open | Authorized settlement request/payment/proof summary without proof contents, payment handles, QR contents, or payment-detail internals. | `Review settlement`, `Back to notifications` |
-| `settlement.residual_review_needed` open | Authorized residual-review handoff that presents bounded current status without external money preview copy or private residual internals. | `Review settlement`, `Back to notifications` |
+| Settlement review open | Authorized residual-review handoff that presents bounded current status without external money preview copy or private residual internals. | `Review settlement`, `Back to notifications` |
 | Recurring due/draft generated open | Authorized recurring due or generated draft context with current status and no raw template payload. | `Open bill`, `Back to notifications` |
-| `ocr.needs_review` open | Receipt review assignment context without raw OCR text, receipt contents, extracted lines, file paths, or file bytes. | `Review receipt`, `Back to notifications` |
-| `sync.conflict_detected` / `sync.operation_failed` open | Current-actor sync issue readout that avoids raw queued payloads, request bodies, cache data, paths, or hidden server data. | `Review sync issue`, `Back to notifications` |
+| Receipt review open | Receipt review assignment context without raw OCR text, receipt contents, extracted lines, file paths, or file bytes. | `Review receipt`, `Back to notifications` |
+| Sync issue open | Current-actor sync issue readout that avoids raw queued payloads, request bodies, cache data, paths, or hidden server data. | `Review sync issue`, `Back to notifications` |
 | Sign-in required | User must sign in to a server account before notification or target detail is shown. | `Sign in`, `Back to notifications` |
 | Wrong account / account switched | Generic account-mismatch state that does not reveal target existence. | `Switch account`, `Back to notifications` |
 | Local-only mode fallback | Server notification target cannot open in local-only mode; copy explains server account requirement without implying target existence. | `Connect server account`, `Back to notifications` |
@@ -89,10 +89,10 @@ Build reviewable frames for:
 - notification detail loading / authorized re-fetch;
 - bill workflow/revision notification open;
 - settlement request/payment/proof notification open;
-- settlement.residual_review_needed notification open;
+- settlement review notification open;
 - recurring due / draft generated notification open;
-- ocr.needs_review notification open;
-- sync.conflict_detected and sync.operation_failed notification open;
+- receipt review notification open;
+- sync issue notification open;
 - sign-in required;
 - wrong account / account switched;
 - local-only mode fallback;
