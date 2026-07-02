@@ -39,6 +39,53 @@ void main() {
     expect(_contrastRatio(colors.surface, colors.textSubtle), greaterThan(4.5));
   });
 
+  test(
+    'midnight preset keeps approved dark reference token pairs readable',
+    () {
+      const colors = SettleoraColors.midnight;
+      final primaryHue = HSVColor.fromColor(colors.primary).hue;
+      final canvasHue = HSVColor.fromColor(colors.canvas).hue;
+
+      expect(primaryHue, inInclusiveRange(30, 45));
+      expect(canvasHue, inInclusiveRange(205, 225));
+      expect(_contrastRatio(colors.canvas, colors.text), greaterThan(12));
+      expect(_contrastRatio(colors.surface, colors.text), greaterThan(10));
+      expect(_contrastRatio(colors.surface, colors.textMuted), greaterThan(7));
+      expect(
+        _contrastRatio(colors.surface, colors.textSubtle),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.primary, colors.onPrimary),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.primarySoft, colors.primary),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.accentSoft, colors.accent),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.successSoft, colors.onSuccessSoft),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.warningSoft, colors.onWarningSoft),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.dangerSoft, colors.onDangerSoft),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.infoSoft, colors.onInfoSoft),
+        greaterThan(4.5),
+      );
+    },
+  );
+
   testWidgets('shared Settleora UI primitives render stable labels', (
     tester,
   ) async {

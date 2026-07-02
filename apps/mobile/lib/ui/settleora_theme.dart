@@ -68,6 +68,29 @@ class SettleoraColors extends ThemeExtension<SettleoraColors> {
     textSubtle: Color(0xFF6B7280),
   );
 
+  static const midnight = SettleoraColors(
+    canvas: Color(0xFF07111F),
+    surface: Color(0xFF121C2E),
+    primary: Color(0xFFE8A94D),
+    onPrimary: Color(0xFF111827),
+    primarySoft: Color(0xFF253049),
+    accent: Color(0xFF7FA7FF),
+    accentSoft: Color(0xFF1A2742),
+    successSoft: Color(0xFF15382F),
+    onSuccessSoft: Color(0xFF72E0B3),
+    warningSoft: Color(0xFF3B2C17),
+    onWarningSoft: Color(0xFFE8A94D),
+    dangerSoft: Color(0xFF3A1C2A),
+    onDangerSoft: Color(0xFFFF6B86),
+    infoSoft: Color(0xFF172844),
+    onInfoSoft: Color(0xFF9DBBFF),
+    border: Color(0xFF2A3853),
+    borderStrong: Color(0xFF3B4F73),
+    text: Color(0xFFF8FAFC),
+    textMuted: Color(0xFFB4C3DC),
+    textSubtle: Color(0xFF7F92B2),
+  );
+
   @override
   SettleoraColors copyWith({
     Color? canvas,
@@ -166,9 +189,22 @@ abstract final class SettleoraRadius {
 abstract final class SettleoraTheme {
   static ThemeData light() {
     final colors = SettleoraColors.light;
+    return _build(colors, Brightness.light, Typography.blackMountainView);
+  }
+
+  static ThemeData midnight() {
+    final colors = SettleoraColors.midnight;
+    return _build(colors, Brightness.dark, Typography.whiteMountainView);
+  }
+
+  static ThemeData _build(
+    SettleoraColors colors,
+    Brightness brightness,
+    TextTheme baseTextTheme,
+  ) {
     final scheme = ColorScheme.fromSeed(
       seedColor: colors.primary,
-      brightness: Brightness.light,
+      brightness: brightness,
       primary: colors.primary,
       onPrimary: colors.onPrimary,
       surface: colors.surface,
@@ -176,7 +212,7 @@ abstract final class SettleoraTheme {
       outline: colors.borderStrong,
       outlineVariant: colors.border,
     );
-    final textTheme = Typography.blackMountainView.apply(
+    final textTheme = baseTextTheme.apply(
       bodyColor: colors.text,
       displayColor: colors.text,
     );
@@ -185,7 +221,7 @@ abstract final class SettleoraTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: colors.canvas,
-      extensions: const [SettleoraColors.light],
+      extensions: [colors],
       textTheme: textTheme.copyWith(
         headlineSmall: textTheme.headlineSmall?.copyWith(
           fontWeight: FontWeight.w800,
@@ -234,6 +270,8 @@ abstract final class SettleoraTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colors.surface,
+        labelStyle: TextStyle(color: colors.textMuted),
+        hintStyle: TextStyle(color: colors.textSubtle),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(SettleoraRadius.md),
           borderSide: BorderSide(color: colors.border),

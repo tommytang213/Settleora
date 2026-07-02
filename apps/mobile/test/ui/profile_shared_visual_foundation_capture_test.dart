@@ -10,7 +10,7 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260702-2204-mobile-shared-visual-foundation';
+    '/workspace/logs/settleora-visual-qa/20260702-2224-mobile-shared-visual-foundation-theme-correction';
 
 void main() {
   testWidgets('captures profile shared visual foundation evidence', (
@@ -29,7 +29,7 @@ void main() {
         key: captureKey,
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: SettleoraTheme.light(),
+          theme: SettleoraTheme.midnight(),
           home: const Scaffold(
             body: SafeArea(
               child: SingleChildScrollView(

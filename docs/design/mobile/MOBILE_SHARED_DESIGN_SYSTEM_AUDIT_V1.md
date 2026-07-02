@@ -251,6 +251,14 @@ V1-aligned updates made in this branch:
   navigation, save/cancel actions, session-ended handling, validation,
   payment-detail authority, QR file behavior, OpenAPI, generated clients,
   schema, money, storage, auth/session runtime, or backend/API behavior.
+- Tommy manually rejected the first 2026-07-02 22:04 profile/shared-foundation
+  capture as `VISUAL_REJECTED_THEME_MISMATCH` because it still read as a
+  generic warm/light Material screen. The 2026-07-02 22:24 HKT correction adds
+  an explicit `Settleora Midnight` token preset and points the
+  profile/shared-foundation visual evidence at that approved More/Profile
+  reference language. The global `SettleoraTheme.light()` app default is not
+  changed because `MOBILE_DESIGN_REFERENCE_V1.md` treats Midnight as a curated
+  preset reference, not an authorized silent app-wide default switch.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 

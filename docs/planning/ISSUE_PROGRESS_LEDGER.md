@@ -43,6 +43,16 @@ remain the source of truth.
     visual shells without changing repository calls, navigation, actions,
     state handling, auth/session behavior, payment-detail authority, money,
     storage, OpenAPI, generated clients, schema, or backend behavior.
+  - Tommy manually rejected the first profile/shared-foundation visual evidence
+    from `20260702-2204-mobile-shared-visual-foundation` as
+    `VISUAL_REJECTED_THEME_MISMATCH` because the capture still looked like a
+    generic warm/light Material screen with beige canvas, white cards, a blue
+    info panel, and orange/blue icons.
+  - The `20260702-2224` follow-up adds an explicit `Settleora Midnight` shared
+    token preset and regenerates the profile/shared-foundation proof against
+    the approved dark More/Profile reference language. It does not switch the
+    global app default theme, add runtime theme selection, or change profile
+    repository/action behavior.
 - Remaining Day 1 work:
   - Shell/Home/More visual parity.
   - Bills/OCR/revision visual parity.
