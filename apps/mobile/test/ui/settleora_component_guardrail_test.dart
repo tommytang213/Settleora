@@ -39,6 +39,53 @@ void main() {
     expect(_contrastRatio(colors.surface, colors.textSubtle), greaterThan(4.5));
   });
 
+  test(
+    'midnight preset keeps approved dark reference token pairs readable',
+    () {
+      const colors = SettleoraColors.midnight;
+      final primaryHue = HSVColor.fromColor(colors.primary).hue;
+      final canvasHue = HSVColor.fromColor(colors.canvas).hue;
+
+      expect(primaryHue, inInclusiveRange(30, 45));
+      expect(canvasHue, inInclusiveRange(205, 225));
+      expect(_contrastRatio(colors.canvas, colors.text), greaterThan(12));
+      expect(_contrastRatio(colors.surface, colors.text), greaterThan(10));
+      expect(_contrastRatio(colors.surface, colors.textMuted), greaterThan(7));
+      expect(
+        _contrastRatio(colors.surface, colors.textSubtle),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.primary, colors.onPrimary),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.primarySoft, colors.primary),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.accentSoft, colors.accent),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.successSoft, colors.onSuccessSoft),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.warningSoft, colors.onWarningSoft),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.dangerSoft, colors.onDangerSoft),
+        greaterThan(4.5),
+      );
+      expect(
+        _contrastRatio(colors.infoSoft, colors.onInfoSoft),
+        greaterThan(4.5),
+      );
+    },
+  );
+
   testWidgets('shared Settleora UI primitives render stable labels', (
     tester,
   ) async {
@@ -164,6 +211,39 @@ void main() {
                       currencyCode: 'HKD',
                     ),
                   ],
+                ),
+                const SettleoraCompactHeader(
+                  leadingIcon: Icons.account_circle_outlined,
+                  title: 'Compact header',
+                  subtitle: 'Screen-owned context copy',
+                ),
+                const SettleoraListRow(
+                  key: Key('component-list-row'),
+                  leadingIcon: Icons.person_outline,
+                  title: 'Profile row',
+                  subtitle: 'Signed in - HKD',
+                ),
+                const SettleoraMoneyChip(
+                  amount: '128.00',
+                  currencyCode: 'HKD',
+                  variant: StatusChipVariant.info,
+                ),
+                const SettleoraInlinePanel(
+                  icon: Icons.privacy_tip_outlined,
+                  title: 'Inline panel',
+                  message: 'Reusable panel copy stays product-facing.',
+                  variant: SettleoraSurfaceVariant.info,
+                ),
+                const SettleoraBottomSheetFrame(
+                  title: 'Sheet shell',
+                  subtitle: 'Safe scrolling content',
+                  child: Text('Sheet body'),
+                ),
+                const SettleoraDialogFrame(
+                  icon: Icons.archive_outlined,
+                  title: 'Dialog shell',
+                  message: 'Confirm the visible action before continuing.',
+                  actions: [TextButton(onPressed: null, child: Text('Close'))],
                 ),
                 const SettleoraStatePanel(
                   icon: Icons.notifications_none_outlined,
@@ -299,10 +379,29 @@ void main() {
     expect(find.text('Detail'), findsOneWidget);
     expect(find.text('Left aligned detail'), findsOneWidget);
     expect(find.text('Balance'), findsOneWidget);
-    expect(find.text('128.00 HKD'), findsOneWidget);
+    expect(find.text('128.00 HKD'), findsWidgets);
     expect(find.text('Custom compact state'), findsOneWidget);
     expect(
       find.text('Compact padding can preserve screen spacing.'),
+      findsOneWidget,
+    );
+    expect(find.text('Compact header'), findsOneWidget);
+    expect(find.text('Screen-owned context copy'), findsOneWidget);
+    expect(find.byKey(const Key('component-list-row')), findsOneWidget);
+    expect(find.text('Profile row'), findsOneWidget);
+    expect(find.text('Signed in - HKD'), findsOneWidget);
+    expect(find.text('128.00 HKD'), findsWidgets);
+    expect(find.text('Inline panel'), findsOneWidget);
+    expect(
+      find.text('Reusable panel copy stays product-facing.'),
+      findsOneWidget,
+    );
+    expect(find.text('Sheet shell'), findsOneWidget);
+    expect(find.text('Safe scrolling content'), findsOneWidget);
+    expect(find.text('Sheet body'), findsOneWidget);
+    expect(find.text('Dialog shell'), findsOneWidget);
+    expect(
+      find.text('Confirm the visible action before continuing.'),
       findsOneWidget,
     );
     expect(find.byKey(const Key('component-settings-row')), findsOneWidget);

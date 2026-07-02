@@ -239,6 +239,35 @@ V1-aligned updates made in this branch:
   bill/OCR behavior, manual-finance account/income/archive behavior,
   repository contracts, persistence, OpenAPI, generated clients, schema,
   money authority, or backend/API behavior.
+- Mobile shared visual foundation now includes `SettleoraCompactHeader`,
+  `SettleoraListRow`, `SettleoraInlinePanel`, `SettleoraMoneyChip`,
+  `SettleoraBottomSheetFrame`, `showSettleoraBottomSheet`, and
+  `SettleoraDialogFrame` for repeated compact headers, reference-grade rows,
+  inline panels, amount chips, and sheet/dialog visual shells. The profile
+  screen now composes shared loading, state, section, row, card, inline panel,
+  and key-value primitives for mechanically equivalent account/payment/QR
+  visual shells. This records the 2026-07-02 22:04 HKT shared visual
+  foundation slice without changing profile or payment-detail repository calls,
+  navigation, save/cancel actions, session-ended handling, validation,
+  payment-detail authority, QR file behavior, OpenAPI, generated clients,
+  schema, money, storage, auth/session runtime, or backend/API behavior.
+- Tommy manually rejected the first 2026-07-02 22:04 profile/shared-foundation
+  capture as `VISUAL_REJECTED_THEME_MISMATCH` because it still read as a
+  generic warm/light Material screen. The 2026-07-02 22:24 HKT correction adds
+  an explicit `Settleora Midnight` token preset and points the
+  profile/shared-foundation visual evidence at that approved More/Profile
+  reference language. The global `SettleoraTheme.light()` app default is not
+  changed because `MOBILE_DESIGN_REFERENCE_V1.md` treats Midnight as a curated
+  preset reference, not an authorized silent app-wide default switch.
+- Tommy manually reviewed the corrected 2026-07-02 22:24 HKT visual evidence
+  at
+  `/workspace/logs/settleora-visual-qa/20260702-2224-mobile-shared-visual-foundation-theme-correction/profile-shared-visual-foundation-390x844.png`
+  and approved this shared foundation slice as
+  `VISUAL_APPROVED_WITH_FOLLOWUPS`. This approval preserves the first warm
+  capture as rejected, does not approve full app visual parity, does not
+  authorize a silent global runtime theme default switch, and leaves followups
+  for spacing, section rhythm, dense bills/OCR/settlement usage, and future
+  theme/preset behavior.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 

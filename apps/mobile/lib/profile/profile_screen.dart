@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/auth_session_repository.dart';
+import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
 import 'profile_repository.dart';
 
@@ -327,7 +328,9 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
         child: Builder(
           builder: (context) {
             if (_isLoading) {
-              return const _LoadingPanel();
+              return const SettleoraLoadingPanel(
+                label: 'Loading account details',
+              );
             }
 
             if (loadFailure != null) {
@@ -362,7 +365,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                   const SizedBox(height: 12),
                   const _AccountPrivacyBoundaryReadout(),
                   const SizedBox(height: 20),
-                  _Section(
+                  SettleoraSection(
                     title: 'Profile',
                     children: [
                       TextField(
@@ -412,7 +415,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _Section(
+                  SettleoraSection(
                     title: 'Payment Details',
                     children: [
                       _PaymentDetailsSummary(details: paymentDetails),
@@ -577,82 +580,51 @@ class _PaymentDetailsSummary extends StatelessWidget {
     return Semantics(
       container: true,
       label: 'Payment details summary',
-      child: DecoratedBox(
+      child: AppCard(
         key: const Key('profile-payment-summary'),
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.payments_outlined,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          hasTextDetails
-                              ? 'Payment details on file'
-                              : 'No payment details yet',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          hasTextDetails
-                              ? settleoraPaymentDetailsVisibilityDescription(
-                                  visibility,
-                                )
-                              : 'Blank or cleared payment fields mean there is no payment text to show.',
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SettleoraCompactHeader(
+              leadingIcon: Icons.payments_outlined,
+              title: hasTextDetails
+                  ? 'Payment details on file'
+                  : 'No payment details yet',
+              subtitle: hasTextDetails
+                  ? settleoraPaymentDetailsVisibilityDescription(visibility)
+                  : 'Blank or cleared payment fields mean there is no payment text to show.',
+            ),
+            const SizedBox(height: 12),
+            _PaymentSummaryRow(
+              label: 'Method',
+              value: method ?? 'Not set',
+              isEmpty: method == null,
+            ),
+            _PaymentSummaryRow(
+              label: 'Handle',
+              value: handle ?? 'Not set',
+              isEmpty: handle == null,
+            ),
+            if (note != null)
+              _PaymentSummaryRow(label: 'Note', value: note)
+            else
+              const _PaymentSummaryRow(
+                label: 'Note',
+                value: 'Not set',
+                isEmpty: true,
               ),
-              const SizedBox(height: 12),
-              _PaymentSummaryRow(
-                label: 'Method',
-                value: method ?? 'Not set',
-                isEmpty: method == null,
-              ),
-              _PaymentSummaryRow(
-                label: 'Handle',
-                value: handle ?? 'Not set',
-                isEmpty: handle == null,
-              ),
-              if (note != null)
-                _PaymentSummaryRow(label: 'Note', value: note)
-              else
-                const _PaymentSummaryRow(
-                  label: 'Note',
-                  value: 'Not set',
-                  isEmpty: true,
-                ),
-              _PaymentSummaryRow(
-                label: 'Visibility',
-                value: settleoraPaymentDetailsVisibilityLabel(visibility),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                details.isConfigured
-                    ? 'Access is checked before these details are shown.'
-                    : 'This is the default visibility for payment details that are not configured yet.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
+            _PaymentSummaryRow(
+              label: 'Visibility',
+              value: settleoraPaymentDetailsVisibilityLabel(visibility),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              details.isConfigured
+                  ? 'Access is checked before these details are shown.'
+                  : 'This is the default visibility for payment details that are not configured yet.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ),
       ),
     );
@@ -678,23 +650,16 @@ class _PaymentSummaryRow extends StatelessWidget {
           : Theme.of(context).colorScheme.onSurface,
     );
 
-    return Padding(
+    return SettleoraKeyValueRow(
+      label: label,
+      labelWidth: 78,
+      spacing: 10,
       padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 78,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Expanded(child: Text(value, style: valueStyle)),
-        ],
+      labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
+      valueAlignment: Alignment.centerLeft,
+      value: Text(value, style: valueStyle),
     );
   }
 }
@@ -710,21 +675,13 @@ class _SignedInSummary extends StatelessWidget {
     final displayCurrency =
         profile.defaultCurrency ?? currentUser.defaultCurrency;
 
-    return DecoratedBox(
+    return SettleoraListRow(
       key: const Key('profile-summary'),
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-        title: Text(profile.displayName),
-        subtitle: Text(
-          displayCurrency == null
-              ? 'Signed in'
-              : 'Signed in - $displayCurrency',
-        ),
-      ),
+      leadingIcon: Icons.person_outline,
+      title: profile.displayName,
+      subtitle: displayCurrency == null
+          ? 'Signed in'
+          : 'Signed in - $displayCurrency',
     );
   }
 }
@@ -734,33 +691,13 @@ class _AccountPrivacyBoundaryReadout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-
-    return DecoratedBox(
+    return SettleoraInlinePanel(
       key: const Key('profile-account-boundary-readout'),
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.privacy_tip_outlined,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Account and profile details are shown only after sign-in. Refresh if something looks stale before sharing payment information.',
-                style: TextStyle(color: muted),
-              ),
-            ),
-          ],
-        ),
-      ),
+      icon: Icons.privacy_tip_outlined,
+      title: 'Account visibility',
+      message:
+          'Account and profile details are shown only after sign-in. Refresh if something looks stale before sharing payment information.',
+      variant: SettleoraSurfaceVariant.info,
     );
   }
 }
@@ -774,25 +711,16 @@ class _QrStatus extends StatelessWidget {
   Widget build(BuildContext context) {
     final qrFile = details.qrFile;
 
-    return DecoratedBox(
+    return SettleoraListRow(
       key: const Key('profile-qr-status'),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        leading: Icon(
-          qrFile == null
-              ? Icons.qr_code_2_outlined
-              : Icons.check_circle_outline,
-        ),
-        title: Text(qrFile == null ? 'QR not linked' : 'QR available'),
-        subtitle: Text(
-          qrFile == null
-              ? 'No QR payment image is linked yet.'
-              : '${qrFile.contentType} - ${_formatSize(qrFile.sizeBytes)} - updated ${_formatTimestamp(qrFile.updatedAtUtc)}.',
-        ),
-      ),
+      leadingIcon: qrFile == null
+          ? Icons.qr_code_2_outlined
+          : Icons.check_circle_outline,
+      title: qrFile == null ? 'QR not linked' : 'QR available',
+      subtitle: qrFile == null
+          ? 'No QR payment image is linked yet.'
+          : '${qrFile.contentType} - ${_formatSize(qrFile.sizeBytes)} - updated ${_formatTimestamp(qrFile.updatedAtUtc)}.',
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
     );
   }
 }
@@ -830,80 +758,23 @@ class _FailurePanel extends StatelessWidget {
         failure.kind == SettleoraProfileFailureKind.sessionRequired ||
         failure.kind == SettleoraProfileFailureKind.sessionExpired;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              requiresSignIn ? Icons.lock_outline : Icons.cloud_off_outlined,
-              size: 42,
-              color: Theme.of(context).colorScheme.primary,
+    return SettleoraStatePanel(
+      icon: requiresSignIn ? Icons.lock_outline : Icons.cloud_off_outlined,
+      title: failure.title,
+      message: failure.message,
+      action: requiresSignIn && onSessionEnded != null
+          ? FilledButton.icon(
+              key: const Key('profile-sign-in-required'),
+              onPressed: onSessionEnded,
+              icon: const Icon(Icons.login_outlined),
+              label: const Text('Sign In'),
+            )
+          : OutlinedButton.icon(
+              key: const Key('profile-retry'),
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
             ),
-            const SizedBox(height: 14),
-            Text(
-              failure.title,
-              style: Theme.of(context).textTheme.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 6),
-            Text(failure.message, textAlign: TextAlign.center),
-            const SizedBox(height: 14),
-            if (requiresSignIn && onSessionEnded != null)
-              FilledButton.icon(
-                key: const Key('profile-sign-in-required'),
-                onPressed: onSessionEnded,
-                icon: const Icon(Icons.login_outlined),
-                label: const Text('Sign In'),
-              )
-            else
-              OutlinedButton.icon(
-                key: const Key('profile-retry'),
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LoadingPanel extends StatelessWidget {
-  const _LoadingPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 14),
-          Text('Loading account details'),
-        ],
-      ),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
-
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 10),
-        ...children,
-      ],
     );
   }
 }

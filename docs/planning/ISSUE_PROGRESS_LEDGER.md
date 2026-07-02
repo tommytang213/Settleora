@@ -20,6 +20,56 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #672 - Mobile Flutter V1 visual parity implementation slices
+
+- GitHub state/project status: issue `OPEN`; Project field mutation was not
+  attempted by this implementation task.
+- Last verified at main SHA:
+  `7ddce8b8eb115f7a2f4163f3c0cba64e5cb160a2` after PR #671 and before the
+  `feature/mobile-shared-visual-foundation-20260702` branch.
+- Created by branch:
+  `feature/mobile-shared-visual-foundation-20260702`.
+- Scope:
+  - Tracks shared component foundation plus shell/Home/More,
+    bills/OCR/revision, and groups/settle/notifications visual parity work
+    against merged mobile references.
+  - #371 remains closed and must not be redone without a concrete regression.
+  - Mobile visual parity only; no backend/API/OpenAPI/generated-client/schema,
+    money, storage, auth runtime, notification-open, TestFlight/App Store, or
+    deployment changes are authorized by this issue.
+- Current slice:
+  - First shared Flutter visual foundation implementation slice adds shared
+    visual primitives and migrates low-risk profile/settings-adjacent private
+    visual shells without changing repository calls, navigation, actions,
+    state handling, auth/session behavior, payment-detail authority, money,
+    storage, OpenAPI, generated clients, schema, or backend behavior.
+  - Tommy manually rejected the first profile/shared-foundation visual evidence
+    from `20260702-2204-mobile-shared-visual-foundation` as
+    `VISUAL_REJECTED_THEME_MISMATCH` because the capture still looked like a
+    generic warm/light Material screen with beige canvas, white cards, a blue
+    info panel, and orange/blue icons.
+  - The `20260702-2224` follow-up adds an explicit `Settleora Midnight` shared
+    token preset and regenerates the profile/shared-foundation proof against
+    the approved dark More/Profile reference language. It does not switch the
+    global app default theme, add runtime theme selection, or change profile
+    repository/action behavior.
+  - Tommy manually reviewed the corrected `20260702-2224` visual evidence at
+    `/workspace/logs/settleora-visual-qa/20260702-2224-mobile-shared-visual-foundation-theme-correction/profile-shared-visual-foundation-390x844.png`
+    and approved this shared visual foundation slice as
+    `VISUAL_APPROVED_WITH_FOLLOWUPS`. This approval keeps the first warm/beige
+    visual evidence rejected, does not approve full app visual parity, and does
+    not authorize silently switching the entire runtime app default theme.
+- Remaining Day 1 work:
+  - Shell/Home/More visual parity.
+  - Bills/OCR/revision visual parity.
+  - Groups/settle/notifications visual parity.
+  - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
+    and future theme/preset behavior.
+  - Manual/Figma visual review and evidence for each later child slice.
+- Close/keep-open recommendation:
+  - Keep #672 open as the umbrella tracker until child implementation slices
+    and manual/Figma gates are complete.
+
 ### Issue #369 - Day 1 in-app notification event-family coverage
 
 - GitHub state/project status: issue `OPEN`; Project field readback was not
