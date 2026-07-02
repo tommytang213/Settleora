@@ -169,6 +169,7 @@ Future mobile behavior must follow the approved mobile references:
 
 - [Mobile design reference V1](../design/mobile/MOBILE_DESIGN_REFERENCE_V1.md)
 - [Mobile Notifications reference V1](../design/mobile/MOBILE_NOTIFICATIONS_REFERENCE_V1.md)
+- [Mobile Notification Open States reference](../design/mobile/MOBILE_NOTIFICATION_OPEN_STATES_REFERENCE.md)
 - [Mobile More and Settings reference V1](../design/mobile/MOBILE_MORE_SETTINGS_REFERENCE_V1.md)
 - [Mobile Push Registration UX reference](../design/mobile/MOBILE_PUSH_REGISTRATION_UX_REFERENCE.md)
 
@@ -199,7 +200,22 @@ notification re-fetch, target-family mapping for already-supported event
 families, authorized target re-fetch, and fallback states. Mobile navigation
 tests are required only when Flutter code changes exist.
 
-## Future Figma/Reference Handoff
+## Mobile Reference Handoff
+
+[Mobile Notification Open States reference](../design/mobile/MOBILE_NOTIFICATION_OPEN_STATES_REFERENCE.md)
+is the #371 mobile reference handoff for notification-open and deep-link
+states. It records the required product states for in-app row taps, OS
+push/local notification opens, sign-in required, account switched, local-only
+mode, offline/server unavailable, stale/missing/deleted/archived/restored
+targets, unauthorized or membership-changed targets, resolved/completed
+notifications, retargeted notifications, loading, provider disabled or
+unconfigured readouts, and notification-detail fallback.
+
+That reference is still not Flutter implementation, backend route behavior,
+OpenAPI/generated-client change, or pixel-perfect Figma approval. Exact
+screenshots/frames remain a later approval gate before mobile code.
+
+## Future Figma/Reference Prompt
 
 Use this prompt for a future Figma/reference task. It is a prompt only, not an
 approved Figma output or pixel-perfect screen claim:
