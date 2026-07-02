@@ -51,6 +51,12 @@ This document is not a pixel-perfect Figma approval. Do not claim exact Figma
 approval until approved screenshots/frames are later added under
 `docs/design/mobile/assets/` and linked from this reference.
 
+[Mobile Notification Open Figma reference package](MOBILE_NOTIFICATION_OPEN_FIGMA_REFERENCE_PACKAGE.md)
+is the focused #371 package for generating and reviewing exact
+notification-open frames before Flutter implementation is scoped. It adds the
+frame inventory, paste-ready designer prompt, UX/privacy guardrails, and review
+checklists for Figma/reference approval.
+
 ## Supported Route Families
 
 Future reference frames and Flutter work may cover only these current route

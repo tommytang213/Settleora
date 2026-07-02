@@ -116,13 +116,17 @@ remain the source of truth.
   #635 were read back as `OPEN` for this docs/control/mobile-reference task.
   Project field mutation was not attempted.
 - Last verified at main SHA:
-  `40afe9babff51aade50b3312ef77a85f7db65a74` before branch
-  `docs/notification-open-mobile-reference-371-20260702`.
+  `97f84be892d98edb4ea698a30cea069890616039` before branch
+  `docs/notification-open-figma-reference-package-371-20260702`.
 - Completed slices:
   - Branch `docs/notification-deep-link-route-policy-371-20260702` defines
     the #371 notification deep-link route/mobile navigation policy gate.
   - Branch `docs/notification-open-mobile-reference-371-20260702` adds the
     #371 mobile notification-open states reference handoff.
+  - Branch
+    `docs/notification-open-figma-reference-package-371-20260702` adds the
+    focused #371 Figma/reference package for exact notification-open frame
+    generation and review.
 - Completed scope:
   - Defines that notification rows, push payloads, local cache, route state,
     object URLs, and generated-client availability are not authorization.
@@ -157,6 +161,13 @@ remain the source of truth.
     `View sync issue`, and `Back to notifications`.
   - Adds a paste-ready future Figma/reference prompt and a future Flutter/test
     readiness checklist while preserving server/API/domain authority.
+  - Adds
+    `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_FIGMA_REFERENCE_PACKAGE.md`
+    as the Figma/reference review package with exact frame inventory,
+    paste-ready Figma Make/designer prompt, UX/copy guardrails,
+    privacy/safety restrictions, Tommy first-review checklist, Assistant
+    second-review checklist, export evidence expectations, and the future
+    Flutter implementation boundary.
 - Explicitly not complete:
   - No Flutter/mobile code, Figma output, screenshots, route runtime,
     navigation runtime, notification writer runtime, event enum, OpenAPI,
@@ -164,8 +175,8 @@ remain the source of truth.
     runtime, business-authority logic, provider sending, admin/global policy,
     deployment/env/CI, Docker, or secret changes.
 - Remaining Day 1 work:
-  - Future approved Figma/screenshots/frames for notification-open states if
-    pixel-perfect approval is required before Flutter implementation.
+  - Tommy approval of exact Figma/screenshots/frames or an explicitly approved
+    equivalent reference before Flutter implementation.
   - Future Flutter implementation and mobile navigation tests after reference
     approval.
   - Backend route/target tests only if a future implementation changes route
@@ -177,6 +188,7 @@ remain the source of truth.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md`
   - `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_STATES_REFERENCE.md`
+  - `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_FIGMA_REFERENCE_PACKAGE.md`
 
 ### Issue #570 - OCR review in-app notification runtime
 
