@@ -57,6 +57,13 @@ notification-open frames before Flutter implementation is scoped. It adds the
 frame inventory, paste-ready designer prompt, UX/privacy guardrails, and review
 checklists for Figma/reference approval.
 
+[Notification Open TSX reference package](reference-tsx/notification-open/README.md)
+is the repo-native, Figma-token-free equivalent review artifact for the same
+frame inventory. It provides a static TSX component at
+`reference-tsx/notification-open/NotificationOpenReference.tsx` that Tommy can
+review without Figma Make, Figma API access, Figma screenshots, imported Figma
+tokens, or binary design assets.
+
 ## Supported Route Families
 
 Future reference frames and Flutter work may cover only these current route
@@ -292,7 +299,9 @@ Later tests will be needed for:
 
 Remaining blockers:
 
-- #371 Figma/reference approval for exact notification-open frames.
+- #371 review approval for exact notification-open frames, now available as
+  either approved Figma/screenshots or the equivalent repo-native TSX reference
+  package.
 - Auth/session/security policy before security-event routes.
 - Source event availability for future route families.
 - #634 for real push provider/mobile registration behavior.

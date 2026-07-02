@@ -27,6 +27,13 @@ Use this package with:
 - [Mobile implementation guardrails V1](MOBILE_IMPLEMENTATION_GUARDRAILS_V1.md)
 - [Notification deep-link route policy](../../architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
 
+Figma Make/token usage is not required for #371 review. The repo-native
+[Notification Open TSX reference package](reference-tsx/notification-open/README.md)
+is an equivalent Figma-token-free review path for the frame inventory below.
+It uses static TSX and local CSS only; it is not Flutter implementation, Figma
+output, generated design source, API behavior, route metadata, OpenAPI,
+generated-client, schema, provider, or runtime authority.
+
 ## Exact Frame Inventory
 
 Create one coherent Figma/reference set that covers these frames. Frames may
@@ -215,8 +222,8 @@ Figma/export evidence expectations:
 
 Conditions before Flutter implementation can be scoped:
 
-- Tommy approves these exact frames/screenshots or explicitly approves an
-  equivalent reference.
+- Tommy approves these exact frames/screenshots or explicitly approves the
+  equivalent repo-native TSX reference package.
 - #371 remains open but has a clear approved Figma/reference gate for the next
   implementation slice.
 - A future Flutter task scopes only notification-open/deep-link UI/navigation
