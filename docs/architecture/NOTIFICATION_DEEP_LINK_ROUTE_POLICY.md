@@ -280,5 +280,7 @@ No OpenAPI or generated-client changes are required by this policy. Do not add
 route metadata contracts, generated-client fields, event enum values, or public
 response shapes unless a future route metadata contract is explicitly approved.
 
-#371 must remain open after this docs/control gate. It remains Figma/reference
-gated before Flutter route implementation and runtime acceptance.
+#371 is now closed after the accepted notification-open/deep-link scope. Future
+event families must keep this policy's authorization and fallback rules, but
+they must not redo #371 work unless a new issue explicitly scopes a new route
+family.

@@ -20,14 +20,15 @@ remain the source of truth.
 
 ## Current Checkpoints
 
-### Issue #369 - Settlement residual review notification runtime
+### Issue #369 - Day 1 in-app notification event-family coverage
 
 - GitHub state/project status: issue `OPEN`; Project field readback was not
-  updated by this docs/control task. Related issues #368, #403, #634, #635,
-  and #371 were read back as `OPEN` before the policy edit.
+  updated by this docs/control task. Related issues #368, #403, #634, and #635
+  were read back as `OPEN`; #371 was read back as `CLOSED` after PR #664.
 - Last verified at main SHA:
-  `1766fe9962fe0b4f6d543e0d3aa4c87490e608cf` after PR #656 and before the
-  `docs/sync-notification-source-policy-369-20260702` docs/control branch.
+  `2da7de49d0b5ee662dac8ea36199a6e03fdf6e87` after PR #664 and before the
+  `docs/auth-session-security-notification-source-policy-369-20260702`
+  docs/control branch.
 - Completed PRs/slices:
   - PR #654, merge SHA `d58c03753f16741fac0a572de16f1447711c6f64`:
     completed only the narrow `sync.operation_failed` in-app/provider-neutral
@@ -44,6 +45,17 @@ remain the source of truth.
   - Branch `docs/sync-notification-source-policy-369-20260702`: defines the
     remaining sync queued/retry/resolved/conflict-resolution notification
     source policy after `sync.conflict_detected` and `sync.operation_failed`.
+  - Branch
+    `docs/auth-session-security-notification-source-policy-369-20260702`:
+    defines the auth/session/security notification source-policy gate. It
+    records current auth/session/security runtime facts and blocks security
+    notification runtime until exact source transitions, recipient and
+    self-notification rules, first-class target references, redaction, and
+    manual auth-security approval exist.
+  - PR #664, merge SHA `2da7de49d0b5ee662dac8ea36199a6e03fdf6e87`, finalized
+    #371 ledger hygiene and issue close posture after accepted notification
+    open/deep-link work. #371 is now closed and should not be redone under
+    #369.
 - Completed scope:
   - Records current residual facts: explicit same-currency underpayment and
     overpayment residual rows, `pending_receiver_confirmation` source state,
@@ -76,6 +88,19 @@ remain the source of truth.
     read path is sufficient only for future events backed by a persisted
     server `SyncOperation`; local queue, retry schedule, conflict-record, or
     resolution-attempt targets need a future target/reference/API gate.
+  - Records current auth/session/security facts: real auth account, identity,
+    credential, session, refresh/session-family, auth audit, MFA/passkey,
+    recovery-code, and auth security policy foundations exist, and public
+    sign-in/refresh/current-user/sign-out/session-list/revocation runtime
+    exists. However, notification event constants, subject types, first-class
+    auth targets, security recipient/suppression rules, and runtime writers do
+    not exist.
+  - Blocks `security.session_new_device` / `security.new_session`,
+    `security.session_revoked`, `security.all_sessions_revoked`,
+    credential-change/reset/rotation events, account status events,
+    role/policy-change events, suspicious session/replay, and failed-sign-in
+    alerts until source-event semantics and manual auth-security policy are
+    reviewed.
 - Explicitly not complete:
   - No debtor notification after receiver residual decision.
   - No broader settlement mismatch/review event runtime.
@@ -86,6 +111,10 @@ remain the source of truth.
     OpenAPI/generated-client, EF migration/check constraint, queue consumer,
     scheduler, hosted worker, conflict-resolution implementation, mobile UI,
     or #371 deep-link change.
+  - No auth/session/security notification runtime, event enum, target columns,
+    OpenAPI/generated-client, EF migration/check constraint, security route,
+    MFA/passkey/credential/session behavior, admin/global policy, provider
+    delivery, or UI change.
 - Remaining Day 1 work:
   - Future debtor notification after receiver residual decisions only if a
     later policy names the event/source/recipient rules.
@@ -95,30 +124,38 @@ remain the source of truth.
     blocked until exact persisted source states and recipient/action semantics
     exist. Ordinary queue/retry churn should stay local UI/readout rather than
     notification noise.
-  - #371 deep links, #635 admin/global policy/readout, #634 real push/provider
-    and mobile work, OCR completed/failed, auth/session/security
-    notifications, item claim/split notifications, and final Day 1 acceptance
-    remain open/gated.
+  - Auth/session/security notification runtime remains blocked until exact
+    API-owned source transitions, first-class safe targets, recipient and
+    actor-self policy, redaction, and manual auth-security approval exist.
+  - #635 admin/global policy/readout, #634 real push/provider and mobile work,
+    OCR completed/failed, item claim/split notifications, and final Day 1
+    notification acceptance remain open/gated.
+  - #371 is closed for notification-open/deep-link scope after PR #664; do not
+    reopen or redo #371 work for remaining #369 source-policy slices.
 - Close/keep-open recommendation:
-  - Keep #369 open. This branch completes only the narrow pending residual
-    review handoff; it does not complete all Day 1 notification event-family
-    coverage.
-  - Keep #368, #403, #634, #635, and #371 open.
+  - Keep #369 open. This branch completes only the auth/session/security
+    source-policy gate; it does not complete runtime coverage or Day 1
+    notification acceptance.
+  - Keep #368, #403, #634, and #635 open. Keep #371 closed.
 - Last verified repo/report references:
   - `docs/architecture/SETTLEMENT_RESIDUAL_REVIEW_NOTIFICATION_SOURCE_POLICY.md`
   - `docs/architecture/SYNC_NOTIFICATION_SOURCE_POLICY.md`
+  - `docs/architecture/AUTH_SESSION_SECURITY_NOTIFICATION_SOURCE_POLICY.md`
   - `/workspace/logs/settleora-codex-report-20260702-settlement-residual-review-notification-source-policy-369.md`
   - `/workspace/logs/settleora-codex-report-20260702-sync-notification-source-policy-369.md`
 
 ### Issue #371 - Notification deep links / mobile notification-open behavior
 
-- GitHub state/project status: issue `OPEN` and closure-ready after final
-  acceptance; #368, #369, #403, #634, and #635 remain separate/open. Project
-  field mutation was not attempted.
+- GitHub state/project status: issue `CLOSED` after final close checkpoint;
+  #368, #369, #403, #634, and #635 remain separate/open. Project field mutation
+  was not attempted by this docs/control task.
 - Last verified at main SHA:
-  `8b27a132aca6e6c52f602a940ef0d245ec46e9e5` after PR #663 and final
-  acceptance checkpoint.
+  `2da7de49d0b5ee662dac8ea36199a6e03fdf6e87` after PR #664 and final close
+  checkpoint.
 - Completed slices:
+  - PR #664, merge SHA `2da7de49d0b5ee662dac8ea36199a6e03fdf6e87`, finalized
+    issue progress ledger closure-ready state and closed #371 after the final
+    close comment.
   - PR #662, merge SHA `c5b2dae7d72cbd94da4437d19a0cdf5d30034723`,
     accepted the repo-native TSX/mobile reference copy and chrome polish.
   - PR #663, merge SHA `8b27a132aca6e6c52f602a940ef0d245ec46e9e5`,
@@ -261,7 +298,7 @@ remain the source of truth.
   - Backend route/target tests only if a future implementation changes route
     metadata, target APIs, OpenAPI, or notification behavior.
 - Close/keep-open recommendation:
-  - #371 is ready to close after the explicit final close comment/readback.
+  - Keep #371 closed. Do not redo notification-open/deep-link work under #369.
   - Keep #368, #369, #403, #634, and #635 open/separate.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md`
@@ -384,8 +421,8 @@ remain the source of truth.
   - #369 remains open for remaining Day 1 notification event-family runtime and
     source-state work.
   - #368 remains open as the notification epic.
-  - #371 remains open and Figma/reference-gated for notification deep
-    links/mobile UI.
+  - #371 is now closed after PR #664 for notification-open/deep-link scope;
+    do not redo it under #629/#403/#369 work.
 - Close/keep-open recommendation:
   - Keep #629 closed as complete for the internal decision-envelope foundation
     only. Do not treat #629 or PR #630 as completion of #403 or #369.
@@ -607,12 +644,13 @@ remain the source of truth.
 - Remaining related work:
   - #403 remains open because #632 completed only the disabled-by-default SMTP
     runtime foundation; push/device-token runtime (#634), admin/global
-    policy/readout (#635), #371 deep links/mobile UI, hosted runtime
+    policy/readout (#635), future route-family extensions after closed #371,
+    hosted runtime
     activation, recipient-email source/policy, OpenAPI/readout, and remaining
     notification work remain gated.
   - #369 remains open because #632 closure is provider runtime foundation
     only, not full Day 1 notification event-family acceptance.
-  - #634/#635/#368/#371 remain open.
+  - #634/#635/#368 remain open; #371 is closed after PR #664.
   - #629/#633/#638/#641/#632 remain closed/Merged as completed
     foundations/slices.
 - Close/keep-open recommendation:
@@ -735,7 +773,8 @@ remain the source of truth.
     delivery-state foundation only, not full Day 1 notification event-family
     acceptance.
   - #368 remains open as the notification epic.
-  - #371 remains open and Figma/reference-gated.
+  - #371 is closed after PR #664; future route-family extensions require
+    separate scope but should not redo #371.
   - #634/#635 remain separate gated issues for push/device-token runtime and
     admin/global policy API/readout.
   - #632/#638/#641/#629 remain closed/Merged as completed foundations/slices.
@@ -830,7 +869,8 @@ remain the source of truth.
   - Mobile/Figma posture, including a required Figma/reference gate for mobile
     OS permission/settings UI and separate mobile validation/release gates for
     actual app integration.
-  - #371 notification deep links kept separate and Figma/reference-gated.
+  - #371 notification deep links kept separate from push provider work; #371 is
+    now closed after PR #664.
   - Recommended A2/A3/A4 future implementation split: A2 server-side token
     persistence/API foundation, A3 provider-neutral push delivery runtime, and
     A4 mobile app registration/permission UX.
@@ -943,11 +983,12 @@ remain the source of truth.
     server-side token lifecycle foundation and disabled/unconfigured
     provider-neutral push runtime foundation, while real APNs/FCM providers,
     A4 mobile/Figma, APNs/FCM secrets/provider account setup, hosted
-    activation, admin/readout, #371 deep links, recipient/policy/runtime
+    activation, admin/readout, future route-family extensions after closed
+    #371, recipient/policy/runtime
     wiring, and remaining notification work remain gated.
   - #369 remains open because #634 A2/A3 Option A are push token/runtime
     foundations only, not full Day 1 notification event-family acceptance.
-  - #635, #368, and #371 remain open.
+  - #635 and #368 remain open; #371 is closed after PR #664.
   - #629, #632, #633, #638, and #641 remain closed/Merged as completed
     foundations/slices.
 - Close/keep-open recommendation:
@@ -992,13 +1033,15 @@ remain the source of truth.
   GraphQL readback on 2026-06-30. GitHub issue remains `OPEN` and Project
   status remains `Needs Architecture Review` by readback on 2026-07-01 after
   PR #650 and by issue readback on 2026-07-02 before the
-  `sync.operation_failed` implementation branch report.
+  `sync.operation_failed` implementation branch report. Issue readback before
+  `docs/auth-session-security-notification-source-policy-369-20260702` showed
+  #369 still `OPEN`; related #371 is now `CLOSED` after PR #664.
 - Parent epic readback: #368 is `OPEN`; Project status
   `Needs Architecture Review`, `Progress %` `33`, `Figma Required` `Yes`,
   `Manual Gate` `Yes`. GitHub issue #368 remains `OPEN` by readback on
   2026-07-01.
 - Last verified at main SHA:
-  `1c94fda04dfcea282bc15f6d06a83ce5cb7faaef`.
+  `2da7de49d0b5ee662dac8ea36199a6e03fdf6e87`.
 - Completed child slices now recorded:
   - #634 / PR #647 completed the A1 push token lifecycle
     architecture/contract design checkpoint. PR #649 completed the A2
@@ -1080,16 +1123,29 @@ remain the source of truth.
     check constraints; it does not change settlement business schema, money,
     residual policy, allocation, confirmation, balance projection, proof,
     provider send, mobile/deep links, or admin policy behavior.
+  - Branch
+    `docs/auth-session-security-notification-source-policy-369-20260702`
+    adds the auth/session/security notification source-policy gate. It records
+    that current auth/session/security runtime has real API-owned session,
+    credential, refresh/session-family, MFA/passkey, recovery-code, security
+    policy, and auth audit foundations, but security notification runtime is
+    not implementation-ready because event semantics, event constants,
+    first-class targets, recipient/self-notification policy, redaction,
+    authorized re-fetch paths, and manual auth-security approval are missing.
 - Remaining Day 1 work:
   - Future OCR `ocr.completed` and `ocr.failed` events require server OCR
     worker/job source states and safe recipient/action policy first.
   - Remaining sync notification events such as queued, conflict resolved, retry
     behavior, conflict resolution behavior, mobile deep links/UI, and broad
     offline-sync expansion remain future work.
-  - Auth/session/security notification runtime remains manual auth-security
-    gated.
+  - Auth/session/security notification runtime remains blocked behind the
+    manual auth-security source-policy and target-reference gates. Do not
+    infer security notifications from profile display, current-user/session
+    display, cached mobile session lists, local-only mode, generated-client
+    availability, or generic auth audit rows without reviewed event semantics.
   - Item claim/split/creator-review notification coverage remains blocked on
-    source claim runtime and #371/Figma/deep-link references.
+    source claim runtime and #349/#350 money/Figma/manual gate posture unless
+    separately approved in the repo.
   - Future settlement debtor notification after receiver residual decisions
     and broader settlement mismatch/review event coverage remain separate
     source-state/policy work.
@@ -1099,8 +1155,10 @@ remain the source of truth.
     review are not completed by #626, #630, #636, #639, #642, #643, #644,
     #645, #647, #649, or #650.
 - Future gates requiring explicit approval:
-  - #371 Figma/reference-gated notification deep links/mobile UI.
-  - Auth/session/security policy before security-impactful notifications.
+  - #371 notification-open/deep-link scope is closed after PR #664 and should
+    not be redone.
+  - Auth/session/security source-policy, target-reference design, and manual
+    auth-security approval before security-impactful notifications.
   - OpenAPI/generated-client/schema/runtime work only for exact implemented
     event types with reviewed source states and safe targets.
 - Close/keep-open recommendation:
@@ -1115,10 +1173,13 @@ remain the source of truth.
     `feature/sync-operation-failed-notification-369-20260702` is one narrow
     `sync.operation_failed` implementation slice, and
     `feature/settlement-residual-review-needed-notification-369-20260702` is
-    one narrow settlement residual-review implementation slice. None of these
-    is full Day 1 notification event-family acceptance.
+    one narrow settlement residual-review implementation slice, and
+    `docs/auth-session-security-notification-source-policy-369-20260702` is
+    one auth/session/security docs/control gate. None of these is full Day 1
+    notification event-family acceptance.
 - Last verified repo/report references:
   - `docs/architecture/DAY1_NOTIFICATION_EVENT_COVERAGE_REVIEW.md`
+  - `docs/architecture/AUTH_SESSION_SECURITY_NOTIFICATION_SOURCE_POLICY.md`
   - Issue #369 PR #626 progress comment:
     `https://github.com/tommytang213/Settleora/issues/369#issuecomment-4844221960`
   - Branch report:
@@ -1261,14 +1322,15 @@ remain the source of truth.
     server-side token lifecycle foundation and disabled/unconfigured
     provider-neutral push runtime foundation; real APNs/FCM providers, A4
     mobile/Figma, APNs/FCM secrets/provider account setup, hosted activation,
-    admin/readout, #371 deep links, and remaining notification work stay
-    open/gated.
+    admin/readout, future route-family extensions after closed #371, and
+    remaining notification work stay open/gated.
   - Any external delivery-state API/readout requires a separate
     OpenAPI/generated-client gate.
   - Admin/global notification policy APIs and admin UI are not implemented.
-  - Notification deep-link/mobile UI implementation remains #371 and is still
-    open/Figma-reference-gated even though #452 closed the UX/reference
-    planning gate.
+  - Notification deep-link/mobile UI implementation for current supported
+    families is complete and #371 is closed after PR #664. Future route-family
+    extensions remain separately gated if new event families need mobile
+    handling.
   - Real push provider adapters, admin/global policy, mobile registration/UI,
     deep-link, hosted activation, recipient-email source/policy, and provider
     runtime expansion work remains separate and gated.

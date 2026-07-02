@@ -410,6 +410,14 @@ Validation expectation: tests prove secret redaction, safe generic external
 snippets, audit/source separation, and authorization recheck for session/account
 detail screens.
 
+Source-policy gate:
+[Auth/session/security notification source policy](AUTH_SESSION_SECURITY_NOTIFICATION_SOURCE_POLICY.md)
+records that current auth/session/security foundations are real, but this event
+family is not runtime-ready. Future implementation requires exact API-owned
+source transitions, recipient and actor-self rules, first-class auth/session
+targets, redaction, authorized security/session re-fetch paths, and manual
+auth-security approval before event constants or writers are added.
+
 ### OCR Review
 
 Representative event types:
