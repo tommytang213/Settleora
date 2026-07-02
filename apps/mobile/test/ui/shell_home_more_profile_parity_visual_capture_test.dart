@@ -165,6 +165,15 @@ void main() {
       find.byKey(const Key('notification-preference-panel')),
       findsOneWidget,
     );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('server-shell-data-safety-panel')),
+      240,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('server-shell-more-settings-detail')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
     await _captureBoundary(
       tester,
       shellCaptureKey,
