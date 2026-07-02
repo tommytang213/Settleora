@@ -17,6 +17,26 @@ generated clients, Figma tokens, binary assets, or Flutter code. It uses static
 data objects and local CSS to show the complete notification-open frame
 inventory for product/design review.
 
+## Visual Consistency Recovery
+
+This package was corrected after the initial TSX reference was found to feel
+visually detached from the approved Settleora mobile references. The current
+preview intentionally follows the existing mobile-shell, Notifications, More
+and Settings, Push Registration, Auth Security, and implementation guardrail
+references:
+
+- dark Settleora mobile canvas and phone chrome;
+- top bell/global notification affordance rather than a bottom notification
+  tab;
+- locked `Home / Bills / Groups / Settle / More` bottom navigation;
+- rounded cards, rows, chips, buttons, sheets, and spacing aligned with the
+  approved mobile screenshots;
+- notification-center style rows, filters, selected state, and detail/fallback
+  states instead of a standalone documentation-board visual system.
+
+This is a visual consistency recovery only. It does not create new product
+scope or approve runtime implementation.
+
 ## Scope
 
 Use this reference to review:

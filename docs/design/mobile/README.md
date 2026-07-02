@@ -32,8 +32,11 @@ Static repo-native TSX references live under `docs/design/mobile/reference-tsx/`
 The #371 notification-open package at
 `reference-tsx/notification-open/NotificationOpenReference.tsx` is a
 Figma-token-free review artifact for the notification-open frame inventory. It
-does not implement Flutter routes, runtime behavior, generated clients, API
-contracts, schema, provider delivery, or app assets.
+has been visually recovered to align with the approved mobile shell,
+Notifications, More and Settings, Push Registration, Auth Security, and
+implementation guardrail references. It does not implement Flutter routes,
+runtime behavior, generated clients, API contracts, schema, provider delivery,
+or app assets.
 
 ## Scope rules
 
