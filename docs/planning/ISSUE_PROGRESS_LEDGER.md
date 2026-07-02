@@ -53,11 +53,19 @@ remain the source of truth.
     the approved dark More/Profile reference language. It does not switch the
     global app default theme, add runtime theme selection, or change profile
     repository/action behavior.
+  - Tommy manually reviewed the corrected `20260702-2224` visual evidence at
+    `/workspace/logs/settleora-visual-qa/20260702-2224-mobile-shared-visual-foundation-theme-correction/profile-shared-visual-foundation-390x844.png`
+    and approved this shared visual foundation slice as
+    `VISUAL_APPROVED_WITH_FOLLOWUPS`. This approval keeps the first warm/beige
+    visual evidence rejected, does not approve full app visual parity, and does
+    not authorize silently switching the entire runtime app default theme.
 - Remaining Day 1 work:
   - Shell/Home/More visual parity.
   - Bills/OCR/revision visual parity.
   - Groups/settle/notifications visual parity.
-  - Manual/Figma visual review and evidence for each child slice.
+  - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
+    and future theme/preset behavior.
+  - Manual/Figma visual review and evidence for each later child slice.
 - Close/keep-open recommendation:
   - Keep #672 open as the umbrella tracker until child implementation slices
     and manual/Figma gates are complete.

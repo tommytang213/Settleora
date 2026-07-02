@@ -259,6 +259,15 @@ V1-aligned updates made in this branch:
   reference language. The global `SettleoraTheme.light()` app default is not
   changed because `MOBILE_DESIGN_REFERENCE_V1.md` treats Midnight as a curated
   preset reference, not an authorized silent app-wide default switch.
+- Tommy manually reviewed the corrected 2026-07-02 22:24 HKT visual evidence
+  at
+  `/workspace/logs/settleora-visual-qa/20260702-2224-mobile-shared-visual-foundation-theme-correction/profile-shared-visual-foundation-390x844.png`
+  and approved this shared foundation slice as
+  `VISUAL_APPROVED_WITH_FOLLOWUPS`. This approval preserves the first warm
+  capture as rejected, does not approve full app visual parity, does not
+  authorize a silent global runtime theme default switch, and leaves followups
+  for spacing, section rhythm, dense bills/OCR/settlement usage, and future
+  theme/preset behavior.
 
 ## Remaining Money/Date Field Audit - 2026-06-22 19:21 HKT
 
