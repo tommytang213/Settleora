@@ -40,6 +40,13 @@ notifications, read/archive state, summaries, and delivery readouts; clients do
 not become authorization, money, settlement, storage, sync, audit, or business
 state authority.
 
+[Notification deep-link route policy](NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
+defines the #371 route/mobile navigation gate for opening notifications. It
+requires notification detail re-fetch plus linked-resource re-fetch through
+authorized API paths, defines supported targets for currently implemented event
+families, and keeps security/session and item-claim routes blocked until their
+source/runtime/target policies exist.
+
 ## Safe Event Envelope
 
 Every notification event family uses this control shape:
