@@ -116,8 +116,8 @@ remain the source of truth.
   #635 were read back as `OPEN` for this docs/control/mobile-reference task.
   Project field mutation was not attempted.
 - Last verified at main SHA:
-  `97f84be892d98edb4ea698a30cea069890616039` before branch
-  `docs/notification-open-figma-reference-package-371-20260702`.
+  `9180c2498829b5768f36627c74117696ef02f82f` before branch
+  `docs/notification-open-tsx-reference-371-20260702`.
 - Completed slices:
   - Branch `docs/notification-deep-link-route-policy-371-20260702` defines
     the #371 notification deep-link route/mobile navigation policy gate.
@@ -127,6 +127,10 @@ remain the source of truth.
     `docs/notification-open-figma-reference-package-371-20260702` adds the
     focused #371 Figma/reference package for exact notification-open frame
     generation and review.
+  - Branch `docs/notification-open-tsx-reference-371-20260702` adds the
+    repo-native TSX equivalent reference package for reviewing the same
+    notification-open frame inventory without Figma Make, Figma API, Figma
+    screenshots, imported tokens, or binary assets.
 - Completed scope:
   - Defines that notification rows, push payloads, local cache, route state,
     object URLs, and generated-client availability are not authorization.
@@ -168,14 +172,23 @@ remain the source of truth.
     privacy/safety restrictions, Tommy first-review checklist, Assistant
     second-review checklist, export evidence expectations, and the future
     Flutter implementation boundary.
+  - Adds
+    `docs/design/mobile/reference-tsx/notification-open/NotificationOpenReference.tsx`
+    as a static, componentized, Figma-token-free equivalent reference with
+    phone-frame TSX/CSS, frame index, and data objects covering notification
+    inbox selection, authorized re-fetch loading, bill, settlement, residual
+    review, recurring, OCR, sync, sign-in, account switch, local-only, offline,
+    stale/missing, archived/deleted/restored, unauthorized or membership
+    changed, resolved/completed, push-readiness, and generic fallback states.
 - Explicitly not complete:
-  - No Flutter/mobile code, Figma output, screenshots, route runtime,
-    navigation runtime, notification writer runtime, event enum, OpenAPI,
-    generated-client, EF migration/check constraint, auth/session/security
-    runtime, business-authority logic, provider sending, admin/global policy,
+  - No Flutter/mobile runtime code, Figma Make/API usage, Figma output,
+    screenshots, binary assets, route runtime, navigation runtime,
+    notification writer runtime, event enum, OpenAPI, generated-client, EF
+    migration/check constraint, auth/session/security runtime,
+    business-authority logic, provider sending, admin/global policy,
     deployment/env/CI, Docker, or secret changes.
 - Remaining Day 1 work:
-  - Tommy approval of exact Figma/screenshots/frames or an explicitly approved
+  - Tommy approval of exact Figma/screenshots/frames or the repo-native TSX
     equivalent reference before Flutter implementation.
   - Future Flutter implementation and mobile navigation tests after reference
     approval.
@@ -189,6 +202,8 @@ remain the source of truth.
   - `docs/architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md`
   - `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_STATES_REFERENCE.md`
   - `docs/design/mobile/MOBILE_NOTIFICATION_OPEN_FIGMA_REFERENCE_PACKAGE.md`
+  - `docs/design/mobile/reference-tsx/notification-open/README.md`
+  - `docs/design/mobile/reference-tsx/notification-open/NotificationOpenReference.tsx`
 
 ### Issue #570 - OCR review in-app notification runtime
 

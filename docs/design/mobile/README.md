@@ -12,6 +12,7 @@ This folder records approved mobile UI/UX design reference material for future S
 - [Mobile Notifications reference V1](MOBILE_NOTIFICATIONS_REFERENCE_V1.md)
 - [Mobile Notification Open States reference](MOBILE_NOTIFICATION_OPEN_STATES_REFERENCE.md)
 - [Mobile Notification Open Figma reference package](MOBILE_NOTIFICATION_OPEN_FIGMA_REFERENCE_PACKAGE.md)
+- [Notification Open TSX reference package](reference-tsx/notification-open/README.md)
 - [Mobile Push Registration UX reference](MOBILE_PUSH_REGISTRATION_UX_REFERENCE.md)
 - [Notification deep-link route policy](../../architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
 - [Mobile Auth Security reference V1](MOBILE_AUTH_SECURITY_REFERENCE_V1.md)
@@ -26,6 +27,13 @@ This folder records approved mobile UI/UX design reference material for future S
 - [Admin web reference V1](../web/WEB_ADMIN_REFERENCE_V1.md)
 
 Screenshot assets for each approved slice live under `docs/design/mobile/assets/<slice>-v1/`, such as `mobile-shell-v1/`, `bills-ocr-v1/`, `groups-v1/`, `settle-v1/`, `more-settings-v1/`, `notifications-v1/`, `auth-security-v1/`, `privacy-vault-v1/`, `bill-revision-diff-v1/`, and `ocr-tax-discount-fee-refund-v1/`, when those assets have been manually exported and approved.
+
+Static repo-native TSX references live under `docs/design/mobile/reference-tsx/`.
+The #371 notification-open package at
+`reference-tsx/notification-open/NotificationOpenReference.tsx` is a
+Figma-token-free review artifact for the notification-open frame inventory. It
+does not implement Flutter routes, runtime behavior, generated clients, API
+contracts, schema, provider delivery, or app assets.
 
 ## Scope rules
 
