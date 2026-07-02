@@ -1972,103 +1972,132 @@ class _DashboardDataSafetySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final colors = context.settleoraColors;
     final export = this.export;
 
-    return _DashboardSection(
+    return SettleoraSection(
       title: 'Data safety',
-      child: AppCard(
-        key: const Key('server-shell-data-safety-panel'),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Local backup', style: textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
+      children: [
+        SettleoraInlinePanel(
+          key: const Key('server-shell-data-safety-panel'),
+          icon: Icons.inventory_2_outlined,
+          title: 'Local backup',
+          message:
               'Export covers mobile-owned local state only. It excludes session tokens, refresh credentials, passwords, server URLs, payment details, file bytes, storage paths, receipt/OCR/proof contents, and it is not a complete server backup.',
-              style: TextStyle(color: colors.textMuted),
-            ),
-            const SizedBox(height: 12),
-            const _ReadinessLine(
-              label: 'Scope',
-              value: 'App mode summary and the current mobile bill sync queue.',
-            ),
-            const _ReadinessLine(
-              label: 'Server mode',
-              value:
-                  'The API remains authoritative for collaboration, authorization, storage, audit, sync acceptance, money, and policy.',
-            ),
-            const _ReadinessLine(
-              label: 'Import',
-              value:
-                  'Validation and preview only; merge/replace restore is disabled until a guarded restore policy exists.',
-            ),
-            const _ReadinessLine(
-              label: 'CSV export',
-              value: 'Use server endpoints outside this local backup flow.',
-            ),
-            const _ReadinessLine(
-              label: 'CSV import',
-              value: 'Not handled here; imports cannot mutate bills or money.',
-            ),
-            const _ReadinessLine(
-              label: 'Migration/link',
-              value: 'Future explicit guided flow only; not a bypass.',
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+          action: StatusChip(
+            label: isAvailable ? 'Preview only' : 'Unavailable',
+            variant: isAvailable
+                ? StatusChipVariant.warning
+                : StatusChipVariant.neutral,
+            size: StatusChipSize.small,
+          ),
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                FilledButton.icon(
-                  key: const Key('data-safety-build-export'),
-                  onPressed: isAvailable && !isBuildingBackup
-                      ? onBuildBackup
-                      : null,
-                  icon: isBuildingBackup
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.download_outlined),
-                  label: const Text('Generate backup JSON'),
+                Text('Readouts', style: textTheme.titleSmall),
+                const SizedBox(height: SettleoraSpacing.xs),
+                const SettleoraKeyValueText(
+                  label: 'Scope',
+                  value:
+                      'App mode summary and the current mobile bill sync queue.',
+                  labelWidth: 104,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
                 ),
-                OutlinedButton.icon(
-                  key: const Key('data-safety-open-import-preview'),
-                  onPressed: isAvailable ? onPreviewImport : null,
-                  icon: const Icon(Icons.upload_file_outlined),
-                  label: const Text('Preview import'),
+                const SettleoraKeyValueText(
+                  label: 'Server mode',
+                  value:
+                      'The API remains authoritative for collaboration, authorization, storage, audit, sync acceptance, money, and policy.',
+                  labelWidth: 104,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
                 ),
-                OutlinedButton.icon(
-                  key: const Key('data-safety-restore-disabled'),
-                  onPressed: null,
-                  icon: const Icon(Icons.restore_outlined),
-                  label: const Text('Restore disabled'),
+                const SettleoraKeyValueText(
+                  label: 'Import',
+                  value:
+                      'Validation and preview only; merge/replace restore is disabled until a guarded restore policy exists.',
+                  labelWidth: 104,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
                 ),
-              ],
-            ),
-            if (export != null) ...[
-              const SizedBox(height: 12),
-              _DataBackupPreviewCard(preview: export.preview),
-              const SizedBox(height: 8),
-              Material(
-                type: MaterialType.transparency,
-                child: ExpansionTile(
-                  key: const Key('data-safety-export-json'),
-                  tilePadding: EdgeInsets.zero,
-                  title: const Text('Generated backup JSON'),
+                const SettleoraKeyValueText(
+                  label: 'CSV export',
+                  value: 'Use server endpoints outside this local backup flow.',
+                  labelWidth: 104,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
+                ),
+                const SettleoraKeyValueText(
+                  label: 'CSV import',
+                  value:
+                      'Not handled here; imports cannot mutate bills or money.',
+                  labelWidth: 104,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
+                ),
+                const SettleoraKeyValueText(
+                  label: 'Migration/link',
+                  value: 'Future explicit guided flow only; not a bypass.',
+                  labelWidth: 104,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
+                ),
+                const SizedBox(height: SettleoraSpacing.sm),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    SelectableText(
-                      export.encodedJson,
-                      key: const Key('data-safety-export-json-text'),
+                    FilledButton.icon(
+                      key: const Key('data-safety-build-export'),
+                      onPressed: isAvailable && !isBuildingBackup
+                          ? onBuildBackup
+                          : null,
+                      icon: isBuildingBackup
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.download_outlined),
+                      label: const Text('Generate backup JSON'),
+                    ),
+                    OutlinedButton.icon(
+                      key: const Key('data-safety-open-import-preview'),
+                      onPressed: isAvailable ? onPreviewImport : null,
+                      icon: const Icon(Icons.upload_file_outlined),
+                      label: const Text('Preview import'),
+                    ),
+                    OutlinedButton.icon(
+                      key: const Key('data-safety-restore-disabled'),
+                      onPressed: null,
+                      icon: const Icon(Icons.restore_outlined),
+                      label: const Text('Restore disabled'),
                     ),
                   ],
                 ),
-              ),
-            ],
+                if (export != null) ...[
+                  const SizedBox(height: SettleoraSpacing.sm),
+                  _DataBackupPreviewCard(preview: export.preview),
+                  const SizedBox(height: SettleoraSpacing.xs),
+                  Material(
+                    type: MaterialType.transparency,
+                    child: ExpansionTile(
+                      key: const Key('data-safety-export-json'),
+                      tilePadding: EdgeInsets.zero,
+                      title: const Text('Generated backup JSON'),
+                      children: [
+                        SelectableText(
+                          export.encodedJson,
+                          key: const Key('data-safety-export-json-text'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
-      ),
+      ],
     );
   }
 }
@@ -2082,58 +2111,67 @@ class _DataBackupPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final failure = preview.failureMessage;
     final generatedAt = preview.generatedAtUtc;
-    return AppCard(
+    return SettleoraInlinePanel(
       key: const Key('data-safety-preview-card'),
-      color: context.settleoraColors.primarySoft,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            preview.isValid ? 'Backup preview' : 'Backup invalid',
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
-          const SizedBox(height: 8),
-          if (failure != null)
-            Text(failure)
-          else ...[
-            _ReadinessLine(
-              label: 'Schema',
-              value: 'Version ${preview.schemaVersion}',
-            ),
-            _ReadinessLine(
-              label: 'Generated',
-              value: generatedAt == null
-                  ? 'Not provided'
-                  : _formatBackupUtcMinute(generatedAt),
-            ),
-            _ReadinessLine(
-              label: 'Sections',
-              value:
-                  '${preview.countFor('syncQueue')} sync queue item${_plural(preview.countFor('syncQueue'))}; ${preview.countFor('appConfiguration')} app configuration record${_plural(preview.countFor('appConfiguration'))}.',
-            ),
-            _ReadinessLine(
-              label: 'Restore mode',
-              value:
-                  '${preview.restoreMode}; restore apply is disabled in this build.',
-            ),
-            if (preview.warnings.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              for (final warning in preview.warnings)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.info_outline, size: 18),
-                      const SizedBox(width: 6),
-                      Expanded(child: Text(warning)),
-                    ],
+      icon: preview.isValid ? Icons.check_circle_outline : Icons.error_outline,
+      title: preview.isValid ? 'Backup preview' : 'Backup invalid',
+      message: preview.isValid
+          ? 'Generated content can be inspected here before anything leaves the app.'
+          : 'Preview failed before any restore or data mutation.',
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (failure != null)
+              Text(failure)
+            else ...[
+              SettleoraKeyValueText(
+                label: 'Schema',
+                value: 'Version ${preview.schemaVersion}',
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
+              ),
+              SettleoraKeyValueText(
+                label: 'Generated',
+                value: generatedAt == null
+                    ? 'Not provided'
+                    : _formatBackupUtcMinute(generatedAt),
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
+              ),
+              SettleoraKeyValueText(
+                label: 'Sections',
+                value:
+                    '${preview.countFor('syncQueue')} sync queue item${_plural(preview.countFor('syncQueue'))}; ${preview.countFor('appConfiguration')} app configuration record${_plural(preview.countFor('appConfiguration'))}.',
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
+              ),
+              SettleoraKeyValueText(
+                label: 'Restore mode',
+                value:
+                    '${preview.restoreMode}; restore apply is disabled in this build.',
+                valueAlignment: Alignment.centerLeft,
+                valueTextAlign: TextAlign.start,
+              ),
+              if (preview.warnings.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                for (final warning in preview.warnings)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.info_outline, size: 18),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(warning)),
+                      ],
+                    ),
                   ),
-                ),
+              ],
             ],
           ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -2232,39 +2270,6 @@ String _formatBackupUtcMinute(DateTime value) {
       '${utc.day.toString().padLeft(2, '0')} '
       '${utc.hour.toString().padLeft(2, '0')}:'
       '${utc.minute.toString().padLeft(2, '0')} UTC';
-}
-
-class _ReadinessLine extends StatelessWidget {
-  const _ReadinessLine({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final muted = context.settleoraColors.textMuted;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 132,
-            child: Text(
-              label,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
-          Expanded(
-            child: Text(value, style: TextStyle(color: muted)),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _DashboardSection extends StatelessWidget {

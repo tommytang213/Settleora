@@ -108,10 +108,26 @@ remain the source of truth.
     `profile-payment-390x844.png`. This evidence is
     `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
     manual visual approval is deferred.
+  - The `20260703-0012` development polish pass on the same branch rechecked
+    that the root More tab remains a concise grouped hub with navigation/readout
+    rows only, then tightened the App settings data-safety section by composing
+    the local backup and generated-backup preview readouts with shared
+    `SettleoraSection`, `SettleoraInlinePanel`, and
+    `SettleoraKeyValueText` primitives. It preserved notification preference
+    behavior, local backup/import-preview behavior, unsupported appearance
+    readouts, product copy, profile/payment repository calls, QR metadata
+    behavior, and the global runtime app default theme. Fresh development
+    evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260703-0012-mobile-shell-settings-profile-polish-dev-only/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, `more-settings-390x844.png`, and
+    `profile-payment-390x844.png`. This evidence is
+    `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
+    manual visual approval is deferred.
 - Remaining Day 1 work:
   - Manual Tommy visual approval for the Shell/Home/More/Profile child slice
-    before PR creation or merge; the latest `20260702-2336` More/settings
-    hierarchy follow-up is not approved yet.
+    before PR creation or merge; the latest `20260703-0012` settings/profile
+    polish follow-up is not approved yet.
   - Bills/OCR/revision visual parity.
   - Groups/settle/notifications visual parity.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,

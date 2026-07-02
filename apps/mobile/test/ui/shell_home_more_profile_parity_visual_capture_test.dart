@@ -16,7 +16,7 @@ import '../profile_screen_test.dart' as profile;
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260702-2336-mobile-shell-more-settings-hub-followup';
+    '/workspace/logs/settleora-visual-qa/20260703-0012-mobile-shell-settings-profile-polish-dev-only';
 
 void main() {
   testWidgets('captures shell home more profile parity visual evidence', (
