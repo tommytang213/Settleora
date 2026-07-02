@@ -10,6 +10,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 
 - [Program architecture](PROGRAM_ARCHITECTURE.md)
 - [Settleora Cloud SaaS readiness](docs/architecture/SETTLEORA_CLOUD_SAAS_READINESS.md)
+- [Federated instance discovery and collaboration readiness](docs/architecture/FEDERATED_INSTANCE_DISCOVERY_AND_COLLABORATION_READINESS.md)
 - [MVP Day 1 scope](docs/prd/MVP_DAY1_SCOPE.md)
 - [Day 1 UX reference decisions](docs/planning/DAY1_UX_REFERENCE_DECISIONS.md)
 - [Design references](docs/design/)
