@@ -92,9 +92,26 @@ remain the source of truth.
     `more-hub-390x844.png`, and `profile-payment-390x844.png`. This evidence
     is `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR should be opened before explicit
     visual approval.
+  - Tommy reviewed the `20260702-2323` refreshed Home/More/Profile evidence and
+    requested that the settings/config-like content not live directly under the
+    More root. The `20260702-2336` development follow-up on the same branch
+    keeps More as a concise hub by moving notification preference controls,
+    delivery timing readouts, local/server mode authority readouts, sync/security
+    required readouts, unsupported appearance/theme readouts, and local
+    backup/import-preview controls behind an App settings detail route/surface.
+    Root More now keeps only grouped navigation/readout rows for Account,
+    Security and privacy, App, Activity and records, and Data and sync. Fresh
+    development evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260702-2336-mobile-shell-more-settings-hub-followup/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, `more-settings-390x844.png`, and
+    `profile-payment-390x844.png`. This evidence is
+    `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
+    manual visual approval is deferred.
 - Remaining Day 1 work:
   - Manual Tommy visual approval for the Shell/Home/More/Profile child slice
-    before PR creation or merge.
+    before PR creation or merge; the latest `20260702-2336` More/settings
+    hierarchy follow-up is not approved yet.
   - Bills/OCR/revision visual parity.
   - Groups/settle/notifications visual parity.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,

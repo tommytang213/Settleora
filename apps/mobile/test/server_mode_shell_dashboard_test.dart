@@ -130,6 +130,29 @@ void main() {
 
     expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
     expect(find.text('Data, import, and export'), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-data-safety-panel')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('notification-preference-panel')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('server-shell-visual-preference-readout')),
+      findsNothing,
+    );
+
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('server-shell-more-settings-detail')),
+      findsOneWidget,
+    );
+    expect(find.text('App settings'), findsWidgets);
+    expect(find.text('Notifications and delivery'), findsOneWidget);
+    expect(find.text('Mode and sync boundary'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('server-shell-data-safety-panel')),
@@ -319,6 +342,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
+    expect(find.text('Notification settings'), findsNothing);
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('server-shell-more-settings-detail')),
+      findsOneWidget,
+    );
     expect(find.text('Notification settings'), findsOneWidget);
 
     await tester.scrollUntilVisible(
@@ -335,6 +365,9 @@ void main() {
 
     await scrollToAndTap(tester, const Key('notification-preferences-bills'));
 
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
     await ensureAndTap(tester, const Key('server-shell-more-notifications'));
 
     expect(find.text('Settlement row.'), findsOneWidget);
@@ -582,7 +615,7 @@ void main() {
     await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
     await tester.pumpAndSettle();
     final finalReadout = find.byKey(
-      const Key('server-shell-visual-preference-readout'),
+      const Key('server-shell-more-data-readout'),
     );
     await scrollShellToBottom(
       tester,

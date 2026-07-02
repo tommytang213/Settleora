@@ -107,10 +107,8 @@ class _SettleoraAuthenticatedServerShellState
   _SettleoraDashboardOverview? _overview;
   _SettleoraDashboardFailure? _overviewFailure;
   SettleoraBillSyncSnapshot? _billSyncSnapshot;
-  SettleoraLocalDataBackupExport? _latestBackupExport;
   int _overviewLoadVersion = 0;
   SettleoraNavDestination _selectedDestination = SettleoraNavDestination.home;
-  bool _isBuildingBackup = false;
   SettleoraNotificationPreferenceSettings _notificationPreferences =
       SettleoraNotificationPreferenceSettings.defaults();
 
@@ -540,53 +538,16 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
-  Future<void> _buildLocalBackupExport() async {
-    if (_isBuildingBackup) {
-      return;
-    }
-
-    setState(() {
-      _isBuildingBackup = true;
-    });
-
-    try {
-      final service = widget.dataBackupService;
-      if (service == null) {
-        _showSnackBar('Backup export is unavailable in this build.');
-        return;
-      }
-
-      final export = await service.buildExport(currentUser: widget.currentUser);
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _latestBackupExport = export;
-      });
-      _showSnackBar(
-        'Backup JSON generated. Save it manually; file sharing is not wired in this build.',
-      );
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      _showSnackBar('Backup export is unavailable right now.');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isBuildingBackup = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _openImportPreview() async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) =>
-          _DataBackupImportPreviewDialog(service: widget.dataBackupService),
+  Future<void> _openAppSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _AppSettingsScreen(
+          currentUser: widget.currentUser,
+          initialNotificationPreferences: _notificationPreferences,
+          onNotificationPreferencesChanged: _setNotificationPreferences,
+          dataBackupService: widget.dataBackupService,
+        ),
+      ),
     );
   }
 
@@ -955,8 +916,18 @@ class _SettleoraAuthenticatedServerShellState
                       ),
                       const SizedBox(height: 16),
                       _MoreHubSection(
-                        title: 'Activity and records',
+                        title: 'App',
                         children: [
+                          SettingsRow(
+                            key: const Key('server-shell-more-settings'),
+                            icon: Icons.settings_outlined,
+                            title: 'App settings',
+                            subtitle:
+                                'Notification preferences, appearance readouts, mode, and local data tools.',
+                            statusLabel: 'Settings',
+                            statusVariant: StatusChipVariant.info,
+                            onTap: _openAppSettings,
+                          ),
                           SettingsRow(
                             key: const Key('server-shell-more-notifications'),
                             icon: Icons.notifications_outlined,
@@ -965,6 +936,23 @@ class _SettleoraAuthenticatedServerShellState
                                 'Open the notification center and review queue.',
                             onTap: _openNotifications,
                           ),
+                          SettingsRow(
+                            key: const Key(
+                              'server-shell-more-appearance-readout',
+                            ),
+                            icon: Icons.palette_outlined,
+                            title: 'Appearance',
+                            subtitle:
+                                'Theme and visual preference details live in App settings.',
+                            statusLabel: 'Readout',
+                            onTap: _openAppSettings,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _MoreHubSection(
+                        title: 'Activity and records',
+                        children: [
                           SettingsRow(
                             key: const Key('server-shell-receipt-reviews'),
                             icon: Icons.receipt_long_outlined,
@@ -997,65 +985,27 @@ class _SettleoraAuthenticatedServerShellState
                       const SizedBox(height: 16),
                       _MoreHubSection(
                         title: 'Data and sync',
-                        children: const [
+                        children: [
                           SettingsRow(
-                            key: Key('server-shell-more-mode-readout'),
+                            key: const Key('server-shell-more-mode-readout'),
                             icon: Icons.cloud_sync_outlined,
                             title: 'Local and server mode',
                             subtitle:
-                                'Server mode is active here. The API remains authoritative for shared data and sync acceptance.',
+                                'Server mode readouts and authority boundaries live in App settings.',
                             statusLabel: 'Server mode',
                             statusVariant: StatusChipVariant.info,
+                            onTap: _openAppSettings,
                           ),
                           SettingsRow(
-                            key: Key('server-shell-more-data-readout'),
+                            key: const Key('server-shell-more-data-readout'),
                             icon: Icons.inventory_2_outlined,
                             title: 'Data, import, and export',
                             subtitle:
-                                'Backup JSON generation and import preview are available below when this build includes local backup support.',
+                                'Open App settings for backup JSON generation and import preview readouts.',
                             statusLabel: 'Preview only',
+                            onTap: _openAppSettings,
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 12),
-                      _DashboardDataSafetySection(
-                        export: _latestBackupExport,
-                        isBuildingBackup: _isBuildingBackup,
-                        isAvailable: widget.dataBackupService != null,
-                        onBuildBackup: _buildLocalBackupExport,
-                        onPreviewImport: _openImportPreview,
-                      ),
-                      const SizedBox(height: 16),
-                      _MoreHubSection(
-                        title: 'Preferences',
-                        children: const [
-                          SettingsRow(
-                            key: Key('server-shell-more-notification-settings'),
-                            icon: Icons.tune_outlined,
-                            title: 'Notification settings',
-                            subtitle:
-                                'Mobile-local readouts filter this device only; persisted server notification preferences are not wired yet.',
-                            statusLabel: 'Local',
-                            statusVariant: StatusChipVariant.warning,
-                          ),
-                          SettingsRow(
-                            key: Key('server-shell-more-appearance-readout'),
-                            icon: Icons.palette_outlined,
-                            title: 'Appearance and theme',
-                            subtitle:
-                                'Current mobile appearance uses built-in tokens; custom theme presets are readout-only here.',
-                            statusLabel: 'Readout',
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      SettleoraNotificationPreferencePanel(
-                        settings: _notificationPreferences,
-                        onChanged: _setNotificationPreferences,
-                      ),
-                      const SizedBox(height: 16),
-                      const VisualPreferenceUnsupportedReadout(
-                        key: Key('server-shell-visual-preference-readout'),
                       ),
                     ],
                   ),
@@ -1797,6 +1747,208 @@ class _MoreHubSection extends StatelessWidget {
             children[index],
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _AppSettingsScreen extends StatefulWidget {
+  const _AppSettingsScreen({
+    required this.currentUser,
+    required this.initialNotificationPreferences,
+    required this.onNotificationPreferencesChanged,
+    required this.dataBackupService,
+  });
+
+  final SettleoraCurrentUser currentUser;
+  final SettleoraNotificationPreferenceSettings initialNotificationPreferences;
+  final ValueChanged<SettleoraNotificationPreferenceSettings>
+  onNotificationPreferencesChanged;
+  final SettleoraLocalDataBackupService? dataBackupService;
+
+  @override
+  State<_AppSettingsScreen> createState() => _AppSettingsScreenState();
+}
+
+class _AppSettingsScreenState extends State<_AppSettingsScreen> {
+  late SettleoraNotificationPreferenceSettings _notificationPreferences;
+  SettleoraLocalDataBackupExport? _latestBackupExport;
+  bool _isBuildingBackup = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _notificationPreferences = widget.initialNotificationPreferences;
+  }
+
+  void _setNotificationPreferences(
+    SettleoraNotificationPreferenceSettings preferences,
+  ) {
+    setState(() {
+      _notificationPreferences = preferences;
+    });
+    widget.onNotificationPreferencesChanged(preferences);
+  }
+
+  Future<void> _buildLocalBackupExport() async {
+    if (_isBuildingBackup) {
+      return;
+    }
+
+    setState(() {
+      _isBuildingBackup = true;
+    });
+
+    try {
+      final service = widget.dataBackupService;
+      if (service == null) {
+        _showSnackBar('Backup export is unavailable in this build.');
+        return;
+      }
+
+      final export = await service.buildExport(currentUser: widget.currentUser);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _latestBackupExport = export;
+      });
+      _showSnackBar(
+        'Backup JSON generated. Save it manually; file sharing is not wired in this build.',
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      _showSnackBar('Backup export is unavailable right now.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBuildingBackup = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openImportPreview() async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) =>
+          _DataBackupImportPreviewDialog(service: widget.dataBackupService),
+    );
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('App settings')),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final maxWidth = constraints.maxWidth >= 560
+                ? 430.0
+                : double.infinity;
+
+            return ListView(
+              key: const Key('server-shell-more-settings-detail'),
+              padding: _serverShellRootScrollPadding,
+              children: [
+                Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxWidth),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const SettleoraCompactHeader(
+                          leadingIcon: Icons.settings_outlined,
+                          title: 'App settings',
+                          subtitle:
+                              'Notification preferences, mode readouts, appearance, and local data tools.',
+                          trailing: StatusChip(
+                            label: 'Readout',
+                            variant: StatusChipVariant.info,
+                            size: StatusChipSize.small,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _MoreHubSection(
+                          title: 'Notifications and delivery',
+                          children: [
+                            const SettingsRow(
+                              key: Key(
+                                'server-shell-more-notification-settings',
+                              ),
+                              icon: Icons.tune_outlined,
+                              title: 'Notification settings',
+                              subtitle:
+                                  'Mobile-local readouts filter this device only; persisted server notification preferences are not wired yet.',
+                              statusLabel: 'Local',
+                              statusVariant: StatusChipVariant.warning,
+                            ),
+                            SettleoraNotificationPreferencePanel(
+                              settings: _notificationPreferences,
+                              onChanged: _setNotificationPreferences,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _MoreHubSection(
+                          title: 'Mode and sync boundary',
+                          children: const [
+                            SettingsRow(
+                              key: Key('server-shell-settings-mode-readout'),
+                              icon: Icons.cloud_sync_outlined,
+                              title: 'Local and server mode',
+                              subtitle:
+                                  'Server mode is active here. The API remains authoritative for shared data and sync acceptance.',
+                              statusLabel: 'Server mode',
+                              statusVariant: StatusChipVariant.info,
+                            ),
+                            SettingsRow(
+                              key: Key(
+                                'server-shell-settings-sync-required-readout',
+                              ),
+                              icon: Icons.verified_user_outlined,
+                              title: 'Sync and security required',
+                              subtitle:
+                                  'Shared bills, groups, settlements, storage access, audit, and session validity remain server-authoritative.',
+                              statusLabel: 'Server',
+                              statusVariant: StatusChipVariant.warning,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const VisualPreferenceUnsupportedReadout(
+                          key: Key('server-shell-visual-preference-readout'),
+                        ),
+                        const SizedBox(height: 16),
+                        _DashboardDataSafetySection(
+                          export: _latestBackupExport,
+                          isBuildingBackup: _isBuildingBackup,
+                          isAvailable: widget.dataBackupService != null,
+                          onBuildBackup: _buildLocalBackupExport,
+                          onPreviewImport: _openImportPreview,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

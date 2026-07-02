@@ -16,7 +16,7 @@ import '../profile_screen_test.dart' as profile;
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260702-2323-mobile-shell-home-more-profile-visual-followup';
+    '/workspace/logs/settleora-visual-qa/20260702-2336-mobile-shell-more-settings-hub-followup';
 
 void main() {
   testWidgets('captures shell home more profile parity visual evidence', (
@@ -132,9 +132,17 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
-    await tester.scrollUntilVisible(
+    expect(
+      find.byKey(const Key('notification-preference-panel')),
+      findsNothing,
+    );
+    expect(
       find.byKey(const Key('server-shell-visual-preference-readout')),
-      260,
+      findsNothing,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('server-shell-more-data-readout')),
+      220,
       scrollable: find.descendant(
         of: find.byKey(const Key('server-shell-more-hub')),
         matching: find.byType(Scrollable),
@@ -143,9 +151,25 @@ void main() {
     await tester.pumpAndSettle();
     _expectAboveBottomNav(
       tester,
-      find.byKey(const Key('server-shell-visual-preference-readout')),
+      find.byKey(const Key('server-shell-more-data-readout')),
     );
     await _captureBoundary(tester, shellCaptureKey, 'more-hub-390x844.png');
+
+    await tester.tap(find.byKey(const Key('server-shell-more-data-readout')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('server-shell-more-settings-detail')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('notification-preference-panel')),
+      findsOneWidget,
+    );
+    await _captureBoundary(
+      tester,
+      shellCaptureKey,
+      'more-settings-390x844.png',
+    );
 
     const profileCaptureKey = Key('profile-payment-capture');
     await tester.pumpWidget(
