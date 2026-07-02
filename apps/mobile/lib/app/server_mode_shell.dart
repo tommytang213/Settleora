@@ -30,6 +30,7 @@ import '../reports/monthly_report_screen.dart';
 import '../reports/report_repository.dart';
 import '../settlements/settlement_list_screen.dart';
 import '../settlements/settlement_repository.dart';
+import '../sync/sync_repository.dart';
 import '../sync/sync_queue_processor.dart';
 import '../ui/settleora_components.dart';
 import '../ui/settleora_theme.dart';
@@ -58,6 +59,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.groupRepository,
     this.manualFinanceRepository,
     required this.notificationRepository,
+    this.syncRepository,
     required this.reportRepository,
     required this.profileRepository,
     required this.billSyncController,
@@ -81,6 +83,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraGroupRepository groupRepository;
   final SettleoraManualFinanceRepository? manualFinanceRepository;
   final SettleoraNotificationRepository notificationRepository;
+  final SettleoraSyncRepository? syncRepository;
   final SettleoraMonthlyReportRepository reportRepository;
   final SettleoraProfileRepository profileRepository;
   final SettleoraBillSyncController billSyncController;
@@ -410,6 +413,7 @@ class _SettleoraAuthenticatedServerShellState
         billAttachmentFileInput: widget.billAttachmentFileInput,
         receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
         billRevisionRepository: widget.billRevisionRepository,
+        syncRepository: widget.syncRepository,
         preferences: _notificationPreferences,
         onSessionEnded: widget.onSessionEnded,
       ),

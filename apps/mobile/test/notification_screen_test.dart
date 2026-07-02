@@ -71,6 +71,39 @@ void main() {
     );
   });
 
+  test('notification open fallback copy stays product-facing and safe', () {
+    final expectedCopy = {
+      SettleoraNotificationOpenFallbackState.signInRequired:
+          'Sign in to view this notification.',
+      SettleoraNotificationOpenFallbackState.wrongAccount:
+          'This item is not available to this account.',
+      SettleoraNotificationOpenFallbackState.localOnly:
+          'Connect to the server to refresh this notification.',
+      SettleoraNotificationOpenFallbackState.offline:
+          'Connect to the server to refresh this notification. Cached notification details are not enough to open it.',
+      SettleoraNotificationOpenFallbackState.stale:
+          'This notification is no longer available.',
+      SettleoraNotificationOpenFallbackState.unauthorized:
+          'This item is not available to this account.',
+      SettleoraNotificationOpenFallbackState.resolved:
+          'This item no longer needs action.',
+      SettleoraNotificationOpenFallbackState.providerUnconfigured:
+          'Push notifications are off for this server. In-app notifications still work.',
+      SettleoraNotificationOpenFallbackState.unsupported:
+          'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+    };
+
+    for (final entry in expectedCopy.entries) {
+      final copy = settleoraNotificationOpenFallbackMessage(entry.key);
+      expect(copy, entry.value);
+      expect(copy, isNot(contains('/api/')));
+      expect(copy, isNot(contains(_notificationId)));
+      expect(copy, isNot(contains('token=')));
+      expect(copy, isNot(contains('ocr.needs_review')));
+      expect(copy, isNot(contains('settlement.residual_review_needed')));
+    }
+  });
+
   testWidgets('notification screen shows loading and loaded content', (
     tester,
   ) async {
@@ -1101,7 +1134,7 @@ void main() {
     );
     expect(
       find.text(
-        'This notification only points to a destination. It cannot be opened safely here without supported typed metadata and an authorized repository; use the related list or refresh after a supported destination is available.',
+        'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
       ),
       findsOneWidget,
     );
@@ -1625,7 +1658,7 @@ void main() {
         find.byKey(const ValueKey('notification-open-settlement-0')),
         findsOneWidget,
       );
-      expect(find.text('Open settlement'), findsOneWidget);
+      expect(find.text('Review settlement'), findsOneWidget);
 
       await tapVisibleNotificationControl(
         tester,
@@ -1740,7 +1773,7 @@ void main() {
         find.byKey(const ValueKey('notification-open-recurring-0')),
         findsOneWidget,
       );
-      expect(find.text('Open recurring'), findsOneWidget);
+      expect(find.text('Review bill'), findsOneWidget);
 
       await tapVisibleNotificationControl(
         tester,
@@ -1847,7 +1880,7 @@ void main() {
       expect(repository.markReadCalls, 1);
       expect(repository.lastNotificationId, _notificationId);
       expect(repository.summaryCalls, 2);
-      expect(repository.listCalls, 2);
+      expect(repository.listCalls, 3);
       expect(find.text('Unread (0)'), findsOneWidget);
       expect(find.text('Actionable (0)'), findsOneWidget);
       expect(find.text('Unread: 0'), findsOneWidget);
@@ -1993,6 +2026,157 @@ void main() {
     },
   );
 
+  testWidgets('notification center does not duplicate the global bell', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.notifications_outlined), findsNothing);
+    expect(
+      find.byKey(const Key('server-shell-notifications-header')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('receipt review notifications refresh and open review detail', (
+    tester,
+  ) async {
+    final ocrRepository = FakeReceiptOcrReviewRepository();
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: SettleoraNotificationEventTypeValues.ocrNeedsReview,
+          subjectType: SettleoraNotificationSubjectTypeValues.receiptOcrReview,
+          expenseBillId: _billId,
+          receiptOcrReviewId: _ocrReviewId,
+          receiptAttachmentFileId: _receiptFileId,
+          safeSummary: 'A receipt needs review.',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          receiptOcrReviewRepository: ocrRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Receipt review'), findsWidgets);
+    expect(find.text('Review receipt'), findsOneWidget);
+
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-open-receipt-review-0'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(ocrRepository.getReviewCalls, 1);
+    expect(ocrRepository.lastRoute?.billId, _billId);
+    expect(ocrRepository.lastRoute?.fileId, _receiptFileId);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(repository.markReadCalls, 1);
+    expect(visibleText(tester), isNot(contains('ocr.needs_review')));
+    expect(visibleText(tester), isNot(contains(_ocrReviewId)));
+    expect(visibleText(tester), isNot(contains(_receiptFileId)));
+  });
+
+  testWidgets('sync notifications refresh and show bounded sync readout', (
+    tester,
+  ) async {
+    final syncRepository = FakeSyncRepository();
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: SettleoraNotificationEventTypeValues.syncConflictDetected,
+          subjectType: SettleoraNotificationSubjectTypeValues.syncOperation,
+          syncOperationId: _syncOperationId,
+          safeSummary: 'Sync needs attention.',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          syncRepository: syncRepository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sync issue'), findsWidgets);
+    expect(find.text('Review sync issue'), findsOneWidget);
+
+    await tapVisibleNotificationControl(
+      tester,
+      const ValueKey('notification-open-sync-0'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(syncRepository.getOperationCalls, 1);
+    expect(syncRepository.lastSyncOperationId, _syncOperationId);
+    expect(
+      find.text('Review the latest server state before retrying.'),
+      findsOneWidget,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(repository.markReadCalls, 1);
+    expect(visibleText(tester), isNot(contains('sync.conflict_detected')));
+    expect(visibleText(tester), isNot(contains(_syncOperationId)));
+  });
+
+  testWidgets('future and unsupported route families show safe fallback copy', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(
+          eventType: 'security.session_revoked',
+          subjectType: 'auth_session',
+          actionUrl: '/api/v1/auth/sessions/private?token=secret',
+          safeSummary: 'Account attention needed.',
+        ),
+        sampleNotification(
+          id: 'claim-row',
+          eventType: 'bill.item_claim_requested',
+          subjectType: SettleoraNotificationSubjectTypeValues.expenseBill,
+          expenseBillId: _billId,
+          safeSummary: 'Bill item needs review.',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettleoraNotificationScreen(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+      ),
+      findsWidgets,
+    );
+    expect(visibleText(tester), isNot(contains('security.session_revoked')));
+    expect(visibleText(tester), isNot(contains('bill.item_claim_requested')));
+    expect(visibleText(tester), isNot(contains('/api/v1/auth')));
+    expect(visibleText(tester), isNot(contains(_billId)));
+  });
+
   testWidgets('already-read notifications open without marking read again', (
     tester,
   ) async {
@@ -2023,7 +2207,7 @@ void main() {
 
     expect(repository.markReadCalls, 0);
     expect(repository.summaryCalls, 1);
-    expect(repository.listCalls, 1);
+    expect(repository.listCalls, 2);
   });
 
   testWidgets(
@@ -2102,7 +2286,7 @@ void main() {
     );
     expect(
       find.text(
-        'This notification only points to a destination. It cannot be opened safely here without supported typed metadata and an authorized repository; use the related list or refresh after a supported destination is available.',
+        'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
       ),
       findsOneWidget,
     );
@@ -2352,7 +2536,7 @@ void main() {
     expect(find.text('Priority'), findsOneWidget);
     expect(
       find.text(
-        'This notification only points to a destination. It cannot be opened safely here without supported typed metadata and an authorized repository; use the related list or refresh after a supported destination is available.',
+        'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
       ),
       findsOneWidget,
     );
@@ -2895,6 +3079,10 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
 }
 
 class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
+  int getReviewCalls = 0;
+  ReceiptOcrReviewRoute? lastRoute;
+  ReceiptOcrReviewFailure? getReviewFailure;
+
   @override
   Future<List<ReceiptOcrReviewSummary>> listReviews({
     ReceiptOcrReviewStatus? status,
@@ -2905,8 +3093,33 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
   }
 
   @override
-  Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) {
-    throw UnimplementedError();
+  Future<ReceiptOcrReviewDetail> getReview(ReceiptOcrReviewRoute route) async {
+    getReviewCalls += 1;
+    lastRoute = route;
+    final failure = getReviewFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return ReceiptOcrReviewDetail(
+      id: _ocrReviewId,
+      billId: route.billId,
+      fileId: route.fileId,
+      groupId: route.groupId,
+      status: ReceiptOcrReviewStatusValues.provisional,
+      source: ReceiptOcrReviewSourceValues.onDevice,
+      merchantText: null,
+      receiptIssuedAtUtc: null,
+      currency: null,
+      subtotalAmount: null,
+      taxAmount: null,
+      serviceChargeAmount: null,
+      discountAmount: null,
+      grandTotalAmount: null,
+      lines: const [],
+      createdAtUtc: _createdAtUtc,
+      updatedAtUtc: _updatedAtUtc,
+    );
   }
 
   @override
@@ -3444,11 +3657,39 @@ class MemorySyncQueueStore extends SettleoraSyncQueueStore {
 }
 
 class FakeSyncRepository implements SettleoraSyncRepository {
+  int getOperationCalls = 0;
+  String? lastSyncOperationId;
+  SettleoraSyncFailure? getOperationFailure;
+  SettleoraSyncOperationResult operationResult =
+      const SettleoraSyncOperationResult(
+        operationId: _syncOperationId,
+        status: SettleoraSyncOperationResultStatusValues.conflict,
+        resourceType: SettleoraSyncResourceTypeValues.expenseBill,
+        resourceId: null,
+        resultingVersion: null,
+        safeErrorCode: 'sync_conflict',
+        safeMessage: 'Review the latest server state before retrying.',
+      );
+
   @override
   Future<SettleoraSyncOperationResult> submitOperation(
     SettleoraSyncQueueItem item,
   ) {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<SettleoraSyncOperationResult> getOperation(
+    String syncOperationId,
+  ) async {
+    getOperationCalls += 1;
+    lastSyncOperationId = syncOperationId;
+    final failure = getOperationFailure;
+    if (failure != null) {
+      throw failure;
+    }
+
+    return operationResult;
   }
 
   @override
@@ -3504,6 +3745,9 @@ SettleoraNotificationRow sampleNotification({
   String? settlementPaymentId,
   String? recurringBillTemplateId,
   String? recurringBillOccurrenceId,
+  String? receiptOcrReviewId,
+  String? receiptAttachmentFileId,
+  String? syncOperationId,
   String safeSummary = 'Dinner bill is ready.',
   DateTime? readAtUtc,
   DateTime? archivedAtUtc,
@@ -3523,6 +3767,9 @@ SettleoraNotificationRow sampleNotification({
     settlementPaymentId: settlementPaymentId,
     recurringBillTemplateId: recurringBillTemplateId,
     recurringBillOccurrenceId: recurringBillOccurrenceId,
+    receiptOcrReviewId: receiptOcrReviewId,
+    receiptAttachmentFileId: receiptAttachmentFileId,
+    syncOperationId: syncOperationId,
     createdAtUtc: _createdAtUtc,
     readAtUtc: readAtUtc,
     archivedAtUtc: archivedAtUtc,
@@ -3669,6 +3916,9 @@ SettleoraNotificationRow _copyNotification(
     settlementPaymentId: row.settlementPaymentId,
     recurringBillTemplateId: row.recurringBillTemplateId,
     recurringBillOccurrenceId: row.recurringBillOccurrenceId,
+    receiptOcrReviewId: row.receiptOcrReviewId,
+    receiptAttachmentFileId: row.receiptAttachmentFileId,
+    syncOperationId: row.syncOperationId,
     createdAtUtc: row.createdAtUtc,
     readAtUtc: readAtUtc ?? row.readAtUtc,
     archivedAtUtc: clearArchivedAtUtc
@@ -3733,5 +3983,8 @@ const _settlementId = '77777777-7777-7777-7777-777777777777';
 const _paymentId = '88888888-8888-8888-8888-888888888888';
 const _recurringTemplateId = '99999999-9999-9999-9999-999999999999';
 const _recurringOccurrenceId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const _ocrReviewId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const _receiptFileId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const _syncOperationId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 final _createdAtUtc = DateTime.utc(2026, 5, 18, 9);
 final _updatedAtUtc = DateTime.utc(2026, 5, 18, 10);

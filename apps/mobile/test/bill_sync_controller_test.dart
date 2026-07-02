@@ -239,6 +239,11 @@ class FakeSyncRepository implements SettleoraSyncRepository {
   }
 
   @override
+  Future<SettleoraSyncOperationResult> getOperation(String syncOperationId) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<SettleoraSyncChangeFeed> listChanges({
     int? sinceVersion,
     int? limit,

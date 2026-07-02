@@ -149,6 +149,10 @@ remain the source of truth.
     product labels for settlement review, receipt review, sync issues, account,
     offline, unavailable, already handled, push-readiness, and generic fallback
     states.
+  - Branch `feature/notification-open-flutter-deeplink-371-20260702` implements
+    the first Flutter notification-open/deep-link slice for the existing mobile
+    Notification Center without backend, OpenAPI, generated-client, provider,
+    schema, deployment, auth/security runtime, or money-authority changes.
 - Completed scope:
   - Defines that notification rows, push payloads, local cache, route state,
     object URLs, and generated-client availability are not authorization.
@@ -214,23 +218,49 @@ remain the source of truth.
     labels; replaces debug-style labels such as visible context, shown/hidden,
     and stale-action explanations with shorter product copy and specific
     action labels.
+  - Adds mobile notification-open route-family resolution for currently
+    supported bill workflow/revision, settlement request/payment/proof/residual
+    review, recurring due/draft, `ocr.needs_review`, and
+    `sync.conflict_detected` / `sync.operation_failed` families using typed
+    notification metadata only.
+  - Updates the Flutter Notification Center to refresh the current notification
+    row before opening a linked target, then re-fetch linked bill, settlement,
+    recurring, OCR review, or sync-operation data through the current mobile
+    repository/API seams before showing linked details or actions.
+  - Keeps future/blocked auth/session/security, item claim/split,
+    OCR completed/failed, remaining sync queued/retry/resolved/reopened,
+    broader settlement mismatch/review, provider/digest/admin/global
+    policy/readout, push-token/device-token, and delivery-attempt routes on
+    product-facing unsupported fallback copy.
+  - Removes duplicate bell iconography from Notification Center content while
+    preserving the global top notification affordance on ordinary app screens
+    and the existing `Home / Bills / Groups / Settle / More` shell.
+  - Adds focused Flutter coverage for no duplicate Notification Center bell,
+    supported route-family action mapping, OCR/sync opens, unsupported/future
+    fallbacks, named sign-in/account/local-only/offline/stale/unauthorized/
+    resolved/provider-unconfigured fallback copy, read/open/archive source
+    mutation isolation, raw event-id suppression, and scroll-safe long
+    notification rows.
 - Explicitly not complete:
-  - No Flutter/mobile runtime code, Figma Make/API usage, Figma output,
-    screenshots, binary assets, route runtime, navigation runtime,
+  - No Figma Make/API usage, Figma output, screenshots, binary assets,
     notification writer runtime, event enum, OpenAPI, generated-client, EF
     migration/check constraint, auth/session/security runtime,
     business-authority logic, provider sending, admin/global policy,
     deployment/env/CI, Docker, or secret changes.
+  - Flutter implementation remains a first slice: final #371 acceptance still
+    requires PR review/merge, full mobile validation evidence, and any later
+    route/fallback polish approved by review.
 - Remaining Day 1 work:
   - Tommy approval of exact Figma/screenshots/frames or the repo-native TSX
     equivalent reference before Flutter implementation.
-  - Future Flutter implementation and mobile navigation tests after reference
-    approval.
+  - Review and merge of the first Flutter implementation slice, followed by
+    any approved route/fallback polish.
   - Backend route/target tests only if a future implementation changes route
     metadata, target APIs, OpenAPI, or notification behavior.
 - Close/keep-open recommendation:
-  - Keep #371 open. This is a docs/control gate and does not implement mobile
-    deep links or complete Day 1 notification acceptance.
+  - Keep #371 open. The first Flutter implementation slice exists, but #371
+    still needs PR review/merge, mobile validation review, and possible
+    follow-up route/fallback polish before final acceptance.
   - Keep #368, #369, #403, #634, and #635 open.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md`
