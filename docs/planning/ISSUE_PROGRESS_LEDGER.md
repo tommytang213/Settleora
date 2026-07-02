@@ -116,8 +116,8 @@ remain the source of truth.
   #635 were read back as `OPEN` for this docs/control/mobile-reference task.
   Project field mutation was not attempted.
 - Last verified at main SHA:
-  `9180c2498829b5768f36627c74117696ef02f82f` before branch
-  `docs/notification-open-tsx-reference-371-20260702`.
+  `210a1c53e32cbd7797212d62b8e358622ec29855` before branch
+  `docs/notification-open-tsx-reference-371-visual-consistency-recovery-20260702`.
 - Completed slices:
   - Branch `docs/notification-deep-link-route-policy-371-20260702` defines
     the #371 notification deep-link route/mobile navigation policy gate.
@@ -131,6 +131,24 @@ remain the source of truth.
     repo-native TSX equivalent reference package for reviewing the same
     notification-open frame inventory without Figma Make, Figma API, Figma
     screenshots, imported tokens, or binary assets.
+  - Branch
+    `docs/notification-open-tsx-reference-371-visual-consistency-recovery-20260702`
+    corrects that repo-native TSX package to visually align with the approved
+    Settleora mobile shell, Notifications, More and Settings, Push
+    Registration, Auth Security, and implementation guardrail references.
+  - Branch
+    `docs/notification-open-tsx-reference-371-visual-consistency-recovery-20260702`
+    also incorporates Tommy's partial visual review follow-up: the visual look
+    is acceptable as mobile app UI, but notification-center/detail frames must
+    not repeat the top bell affordance and visible phone-frame copy should be
+    product-facing rather than backend/architecture phrasing.
+  - Branch
+    `docs/notification-open-tsx-reference-371-visual-consistency-recovery-20260702`
+    later applies the requested product-copy polish checkpoint: raw event names
+    stay in docs/reference metadata only, while visible phone-frame copy uses
+    product labels for settlement review, receipt review, sync issues, account,
+    offline, unavailable, already handled, push-readiness, and generic fallback
+    states.
 - Completed scope:
   - Defines that notification rows, push payloads, local cache, route state,
     object URLs, and generated-client availability are not authorization.
@@ -180,6 +198,22 @@ remain the source of truth.
     review, recurring, OCR, sync, sign-in, account switch, local-only, offline,
     stale/missing, archived/deleted/restored, unauthorized or membership
     changed, resolved/completed, push-readiness, and generic fallback states.
+  - Recovers the TSX visual language away from the initial standalone
+    documentation-board look by removing the fake brand-mark treatment,
+    arbitrary green gradient shell, square/flat card rhythm, and invented
+    reference-board styling, while preserving all 18 #371 notification-open
+    states and privacy/authority guardrails.
+  - Refines the repo-native TSX reference so Notification Center uses filter
+    chrome without a duplicate bell, notification detail/open frames use back
+    navigation plus concise context titles without a bell, and visible
+    phone-frame copy uses product phrases such as checking access, refreshing
+    latest details, reviewing bills/settlements/receipts/sync issues, signing
+    in, switching accounts, retrying, and returning to notifications.
+  - Polishes the visible phone-frame copy so raw backend event strings such as
+    OCR, settlement residual, and sync event names do not appear as user-facing
+    labels; replaces debug-style labels such as visible context, shown/hidden,
+    and stale-action explanations with shorter product copy and specific
+    action labels.
 - Explicitly not complete:
   - No Flutter/mobile runtime code, Figma Make/API usage, Figma output,
     screenshots, binary assets, route runtime, navigation runtime,
