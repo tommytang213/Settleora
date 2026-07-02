@@ -215,6 +215,12 @@ That reference is still not Flutter implementation, backend route behavior,
 OpenAPI/generated-client change, or pixel-perfect Figma approval. Exact
 screenshots/frames remain a later approval gate before mobile code.
 
+[Mobile Notification Open Figma reference package](../design/mobile/MOBILE_NOTIFICATION_OPEN_FIGMA_REFERENCE_PACKAGE.md)
+is the focused #371 package for Tommy/designer review of exact notification-open
+frames. It defines the required frame inventory, paste-ready Figma/designer
+prompt, UX/privacy guardrails, acceptance checklists, export evidence
+expectations, and future Flutter implementation boundary.
+
 ## Future Figma/Reference Prompt
 
 Use this prompt for a future Figma/reference task. It is a prompt only, not an
