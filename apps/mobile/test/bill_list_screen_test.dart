@@ -122,7 +122,7 @@ void main() {
     expect(find.text('Add another receipt'), findsOneWidget);
     expect(
       find.text(
-        'Receipt selected. It uploads after save; OCR review remains provisional.',
+        'Receipt selected. Save the bill, then review the receipt suggestions before applying them.',
       ),
       findsOneWidget,
     );
@@ -507,7 +507,7 @@ void main() {
       find.byKey(const Key('saved-ocr-review-context-label')),
       findsOneWidget,
     );
-    expect(find.text('Provisional review'), findsOneWidget);
+    expect(find.text('Receipt review'), findsOneWidget);
     expect(find.text('Receipt totals'), findsOneWidget);
     expect(find.text('Review receipt lines'), findsOneWidget);
     expect(find.text('2 lines'), findsOneWidget);
@@ -4496,7 +4496,10 @@ void main() {
     expect(find.text('Archived (1)'), findsOneWidget);
     expect(find.text('Corner Market'), findsOneWidget);
     expect(find.text('Train Tickets'), findsOneWidget);
-    expect(find.text('1 item - 1 participant - 1 payer'), findsWidgets);
+    expect(
+      find.textContaining('1 item - 1 participant - 1 payer'),
+      findsWidgets,
+    );
     expect(
       find.text('Open to review details or add attachments.'),
       findsOneWidget,
@@ -4699,7 +4702,7 @@ void main() {
     expect(find.text('Review before save'), findsOneWidget);
     expect(
       find.text(
-        'Local form checklist only. The server still validates the saved bill.',
+        'Check the required details before saving. Final bill rules are checked again when you save.',
       ),
       findsOneWidget,
     );
@@ -4765,7 +4768,7 @@ void main() {
     expect(find.text('1 attachment'), findsOneWidget);
     expect(
       find.text(
-        'Attachments are selected for upload after bill creation. Receipt OCR stays provisional until reviewed.',
+        'Attachments are ready to upload after bill creation. Review receipt suggestions before applying them.',
       ),
       findsOneWidget,
     );
@@ -8290,6 +8293,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.text('Sign in before syncing pending changes.'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
       find.text('Sign in before syncing pending changes.'),
       findsOneWidget,
@@ -8424,11 +8432,23 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Corner Market'));
+    await tester.scrollUntilVisible(
+      find.text('Open').first,
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('Open').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open').first);
     await tester.pumpAndSettle();
 
     expect(repository.getCalls, 1);
     expect(find.text('Items'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.text('Milk'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Milk'), findsOneWidget);
     expect(find.text('Participants'), findsOneWidget);
     expect(_moneyText('10.80', 'USD'), findsWidgets);
@@ -8478,7 +8498,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('bill-detail-search')), findsOneWidget);
-    expect(find.text('5 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('5 of 5 bill details visible.'), findsOneWidget);
     expect(find.text('Milk'), findsOneWidget);
     expect(find.text('Coffee beans'), findsOneWidget);
 
@@ -8488,7 +8508,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('1 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('1 of 5 bill details visible.'), findsOneWidget);
     expect(find.text('Coffee beans'), findsOneWidget);
     expect(find.text('Milk'), findsNothing);
     expect(find.text('Participants'), findsOneWidget);
@@ -8535,7 +8555,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('bill-detail-search')), '5.25');
     await tester.pumpAndSettle();
 
-    expect(find.text('1 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('1 of 5 bill details visible.'), findsOneWidget);
     expect(find.text('Participant 2'), findsOneWidget);
     expect(find.text('Participant 1'), findsNothing);
     expect(find.text('Milk'), findsNothing);
@@ -8593,14 +8613,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('1 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('1 of 5 bill details visible.'), findsOneWidget);
     expect(find.text('Service Charge'), findsOneWidget);
     expect(find.text('Milk'), findsNothing);
 
     await tester.tap(find.byKey(const Key('bill-detail-clear-filters')));
     await tester.pumpAndSettle();
 
-    expect(find.text('5 of 5 loaded detail rows visible.'), findsOneWidget);
+    expect(find.text('5 of 5 bill details visible.'), findsOneWidget);
     expect(find.text('Milk'), findsOneWidget);
     expect(find.text('Participants'), findsWidgets);
     expect(find.text('Payers'), findsWidgets);
@@ -8644,7 +8664,7 @@ void main() {
     expect(find.text('No matching detail rows'), findsOneWidget);
     expect(
       find.text(
-        'No already-loaded bill detail rows match these local filters. Clear filters to review every loaded server row before responding.',
+        'No bill details match these filters. Clear filters to review the full bill.',
       ),
       findsOneWidget,
     );
@@ -8687,16 +8707,21 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('2 of 2 loaded server rows visible.'), findsOneWidget);
+    expect(find.text('2 of 2 loaded rows visible.'), findsOneWidget);
     expect(
       find.text(
-        'Personal bill report filters use already-loaded server rows on this device. Mobile displays server bill and reconciliation metadata only.',
+        'Search and filters only change what is shown here. Bill totals and status stay exactly as loaded.',
       ),
       findsOneWidget,
     );
-    expect(find.text('Reconciled'), findsOneWidget);
+    expect(find.textContaining('Reconciled'), findsOneWidget);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -360));
+    await tester.pumpAndSettle();
+    expect(find.text('Future Status Bill'), findsOneWidget);
     expect(
-      find.text('Other status: Provider Pending Manual Review With Ext...'),
+      find.textContaining(
+        'Other status: Provider Pending Manual Review With Ext...',
+      ),
       findsOneWidget,
     );
 
@@ -8709,8 +8734,16 @@ void main() {
     );
     expect(
       find.text(
-        'Reconciliation is server-provided record metadata, not bank statement matching.',
+        'Reviewed against the server record metadata for this loaded bill.',
       ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Future Status Bill'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Other status: Provider Pending Manual Review With Ext...'),
       findsOneWidget,
     );
     expect(
@@ -8750,9 +8783,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Other status'), findsOneWidget);
+    expect(find.textContaining('Other status'), findsOneWidget);
 
-    await tester.tap(find.text('Corner Market'));
+    await tester.tap(find.text('Open').first);
     await tester.pumpAndSettle();
 
     final visible = visibleText(tester).toLowerCase();
@@ -9893,10 +9926,10 @@ void main() {
         find.byKey(const Key('bill-detail-saved-ocr-discovery')),
         findsOneWidget,
       );
-      expect(find.text('Saved provisional OCR reviews'), findsOneWidget);
+      expect(find.text('Receipt review ready'), findsOneWidget);
       expect(
         find.text(
-          'One receipt attachment can open its saved provisional OCR review directly.',
+          'One receipt has saved suggestions ready to review before draft apply.',
         ),
         findsOneWidget,
       );
@@ -10037,7 +10070,7 @@ void main() {
     );
     expect(
       find.text(
-        'One receipt attachment can open its saved provisional OCR review directly.',
+        'One receipt has saved suggestions ready to review before draft apply.',
       ),
       findsOneWidget,
     );
@@ -10052,6 +10085,10 @@ void main() {
     expect(visibleText(tester), isNot(contains('card number')));
     expect(visibleText(tester), isNot(contains('raw OCR full text')));
 
+    await tester.ensureVisible(
+      find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.byKey(const Key('bill-detail-saved-ocr-discovery-open')),
     );
@@ -10256,7 +10293,7 @@ void main() {
     );
     expect(
       find.text(
-        'Multiple receipt attachments can have saved provisional OCR reviews. Choose the matching receipt attachment before applying draft changes.',
+        'Multiple receipts have saved suggestions. Choose the receipt you want to review.',
       ),
       findsOneWidget,
     );
@@ -10534,7 +10571,7 @@ void main() {
       );
       expect(
         find.text(
-          'Saved provisional OCR reviews can be opened from a receipt attachment when one is available.',
+          'Saved receipt suggestions can be opened from a receipt attachment when one is available.',
         ),
         findsOneWidget,
       );

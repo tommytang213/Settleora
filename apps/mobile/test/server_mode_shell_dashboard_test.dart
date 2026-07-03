@@ -486,6 +486,9 @@ void main() {
 
     await tester.tap(bottomNavDestination(const Key('bottom-nav-bills')));
     await tester.pumpAndSettle();
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -360));
+    await tester.pumpAndSettle();
+    expect(find.text('Corner Market'), findsOneWidget);
     await tester.tap(find.text('Corner Market'));
     await tester.pumpAndSettle();
 
