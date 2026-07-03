@@ -2144,15 +2144,18 @@ remain the source of truth.
 
 - GitHub state/project status: issue `OPEN` by live issue readback on
   2026-07-03 HKT during branch
-  `docs/notification-635-admin-global-policy-readout-20260703`. Project field
+  `docs/notification-635-child-issue-breakdown-20260703`. Project field
   mutation was not attempted.
 - Last verified at main SHA:
-  `7d371c33a8317e64d1df289f8318b2712fb6926d` after PR #682.
-- Current docs/control branch:
+  `573801c447d2b4bd2eccb84a7f5713235190d87d` after PR #683.
+- Completed PRs/slices:
+  - PR #683, merge SHA
+    `573801c447d2b4bd2eccb84a7f5713235190d87d`: merged the
+    admin/global notification policy docs/control readout.
+- Completed docs/control scope:
   - Adds `docs/architecture/ADMIN_GLOBAL_NOTIFICATION_POLICY.md`.
   - Updates `docs/architecture/README.md`.
   - Updates this ledger.
-- Completed scope:
   - Defines admin/global policy as the deployment/admin cap over in-app, email,
     and mobile push channels.
   - Preserves in-app as the Day 1 baseline where an event is supported,
@@ -2176,6 +2179,19 @@ remain the source of truth.
   - Recommends future child tasks for policy model/schema/API, OpenAPI and
     generated clients, admin/user readout references, provider readiness
     integration, audit tests, and final acceptance.
+- Child issues created/reused on 2026-07-03 HKT:
+  - #684 `Admin notification policy schema and API design`:
+    `https://github.com/tommytang213/Settleora/issues/684`.
+  - #685 `Admin and user notification policy readout UX reference`:
+    `https://github.com/tommytang213/Settleora/issues/685`.
+  - #686 `Notification provider readiness integration policy`:
+    `https://github.com/tommytang213/Settleora/issues/686`.
+  - #687 `Notification policy resolution runtime wiring`:
+    `https://github.com/tommytang213/Settleora/issues/687`.
+  - #688 `Notification policy audit and redaction coverage`:
+    `https://github.com/tommytang213/Settleora/issues/688`.
+  - #689 `Admin notification policy final acceptance`:
+    `https://github.com/tommytang213/Settleora/issues/689`.
 - Remaining Day 1 work:
   - Policy schema/API implementation.
   - OpenAPI/generated-client contracts.
@@ -2200,6 +2216,7 @@ remain the source of truth.
 - Close/keep-open recommendation:
   - Keep #635 open. This branch makes later implementation ready to split, but
     it does not implement the policy API or readout.
+  - Runtime remains blocked until the relevant #635 child gates clear.
   - Keep #368, #369, #403, and #634 open.
   - Keep #371, #570, #575, #672, and #679 closed unless a separate concrete
     regression or approved follow-up scope is filed.
@@ -2209,6 +2226,8 @@ remain the source of truth.
   - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
   - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
   - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
+  - `.codex/reports/settleora-codex-report-20260703-2215-notification-635-admin-global-policy-readout.md`
+  - `.codex/reports/settleora-codex-report-20260703-2225-notification-635-admin-global-policy-readout-pr-merge.md`
 
 ### Issue #458 - User web auth/session shell and navigation foundation
 
