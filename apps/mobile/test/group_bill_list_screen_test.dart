@@ -502,7 +502,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('group-bill-list-search')), findsOneWidget);
-    expect(find.text('6 of 6 loaded server rows visible.'), findsOneWidget);
+    expect(find.text('6 of 6 loaded rows visible.'), findsOneWidget);
     expect(
       find.text(
         'Group bill filters use already-loaded visible server rows for this group route only. This is the current bounded group bill workspace, not authorization, a complete group dashboard, or financial truth.',
@@ -530,7 +530,7 @@ void main() {
     );
 
     expect(find.text('No matching group bills'), findsOneWidget);
-    expect(find.text('0 of 6 loaded server rows visible.'), findsOneWidget);
+    expect(find.text('0 of 6 loaded rows visible.'), findsOneWidget);
     expect(
       find.text(
         'No already-loaded visible group bills match this local search and filter. Clear filters to review loaded server rows; no-match is not authorization, server search, or complete group workspace truth.',

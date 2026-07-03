@@ -511,6 +511,87 @@ remain the source of truth.
     provider/push/email/admin/global policy semantics, #371 notification-open/
     deep-link redo, deployment, runtime theme default switching, theme picker,
     theme persistence, or Figma API changes.
+  - The `20260703-1830` development-only Bills list/detail/create visual parity
+    child slice on branch
+    `feature/mobile-bills-list-detail-create-visual-parity-672-20260703`
+    started from `origin/main` at
+    `6cd629dd8265b8f5dadce636beed51729126e13b`. The no-amend rule prevents
+    recording this commit's own final SHA inside the same ledger commit, so the
+    final task branch head is recorded in the matching Codex report. This pass
+    keeps scope presentation-only and improves the current Flutter Bills
+    first-viewport hierarchy: the personal Bills list now opens with a
+    `Bills dashboard` card, bill counts, review/archive state, clearer primary
+    create/scan actions, and bill summary rows that emphasize amount, status,
+    next step, and honest loaded metadata. Bill detail now leads with a
+    next-step panel for items, people, and payers before the existing loaded
+    bill details, and create-bill/saved-receipt OCR copy now uses product-facing
+    review language without changing receipt apply behavior. This pass also
+    updates reachable saved OCR-in-bill readouts and focused tests for the
+    affected list/detail/create surfaces. It preserves bill repositories,
+    routing, archive/restore behavior, saved OCR review/open/apply behavior,
+    OCR extraction/runtime, receipt storage/file-byte behavior, money/split/
+    settlement/payment authority, bill status transitions, API/OpenAPI/
+    generated-client/schema/backend boundaries, auth/session/security runtime,
+    deployment, and the global runtime app default theme.
+  - Fresh Bills list/detail/create evidence for the `20260703-1830` slice was
+    generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1830-mobile-bills-list-detail-create-visual-parity-dev-only/`
+    with `bills-list-or-dashboard-390x844.png`,
+    `bill-detail-390x844.png`, `bill-create-or-edit-390x844.png`, and
+    `bill-saved-ocr-readout-390x844.png`. All captures are nonblank 390x844
+    PNGs generated with `SettleoraTheme.midnight()`. Validation passed:
+    `npm ci`, `npm run validate:docs`, `npm run validate:scaffold`,
+    `flutter pub get`, `flutter analyze`,
+    `flutter test test/ui/settleora_component_guardrail_test.dart`,
+    `flutter test test/bill_list_screen_test.dart`,
+    `flutter test test/group_bill_list_screen_test.dart`,
+    `flutter test test/server_mode_shell_dashboard_test.dart --name "bottom nav switches from bill detail to Groups"`,
+    `flutter test test/ui/mobile_bills_list_detail_create_parity_visual_capture_test.dart`,
+    and full `flutter test` with 812 passing tests. This evidence is
+    `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR, merge, or push has been performed.
+    Project fields were not mutated. #672 should remain open for review,
+    explicit PR/merge gates for approved child slices, remaining OCR capture/
+    processing and advanced receipt review polish, future spacing/rhythm
+    follow-ups, and any runtime/payment/storage/money/OCR/theme gates. #371
+    remains closed and was not touched or reopened.
+  - Tommy reviewed the `20260703-1830` Bills list/detail/create evidence and
+    rejected it as not PR-ready because the create-bill sticky `Save bill`
+    footer sat too close to the item form area, the Bills dashboard filter copy
+    still sounded implementation-facing, and the Bills app bar showed
+    duplicate-looking sync/refresh affordances. The `20260703-1840`
+    development-only follow-up continues the same local task branch from
+    `54777034412d40b6eac9d845a7bf806333661dbd`, keeps the existing bill detail
+    and saved OCR review surfaces stable, increases create-bill scroll bottom
+    padding with focused visual/test coverage for sticky-footer clearance,
+    shortens the Bills dashboard filter copy to product-facing language, and
+    keeps one app-bar refresh action while preserving the existing Sync queue
+    panel `Sync` action. Fresh follow-up evidence is generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1840-mobile-bills-list-create-visual-followup-dev-only/`
+    with `bills-list-or-dashboard-390x844.png`,
+    `bill-detail-390x844.png`, `bill-create-or-edit-390x844.png`,
+    `bill-create-items-safe-footer-390x844.png`, and
+    `bill-saved-ocr-readout-390x844.png`. Final validation, final branch head,
+    and push status are recorded in the matching Codex report. #672 should
+    remain open for Tommy visual review and any explicit PR/merge gate. #371
+    remains closed and was not touched or reopened.
+  - Tommy/Assistant manually approved the `20260703-1840` Bills
+    list/detail/create follow-up evidence for this bounded child slice as
+    `VISUAL_APPROVED_WITH_FOLLOWUPS`. The reviewed source head before this
+    approval checkpoint is `a4a6489db934d5a0c23a5073292e33ec78a21e6e` on
+    branch `feature/mobile-bills-list-detail-create-visual-parity-672-20260703`.
+    Approved evidence is under
+    `/workspace/logs/settleora-visual-qa/20260703-1840-mobile-bills-list-create-visual-followup-dev-only/`
+    with `bills-list-or-dashboard-390x844.png`,
+    `bill-detail-390x844.png`, `bill-create-or-edit-390x844.png`,
+    `bill-create-items-safe-footer-390x844.png`, and
+    `bill-saved-ocr-readout-390x844.png`. This approval is limited to the
+    bounded Bills list/detail/create visual parity child slice under #672. It
+    does not close #672, does not approve full mobile Flutter visual parity,
+    OCR capture/processing states, advanced tax/discount/fee/refund review
+    runtime, future spacing/rhythm follow-ups, runtime theme switching, theme
+    picker/persistence, backend/API/OpenAPI/generated-client/schema/money/
+    storage/security/OCR runtime changes, or #371 notification-open/deep-link
+    redo.
 - Remaining Day 1 work:
   - PR/merge gate for the approved Bills/OCR/revision development evidence.
   - PR/merge gate for the approved Groups/Settle/Notifications development

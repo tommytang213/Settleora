@@ -836,20 +836,9 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
         title: const Text('Bills'),
         actions: [
           IconButton(
-            key: const Key('bill-list-sync'),
-            onPressed: _isLoading || _isSyncing ? null : () => _flushQueue(),
-            tooltip: 'Sync pending work',
-            icon: _isSyncing
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync_outlined),
-          ),
-          IconButton(
             key: const Key('bill-list-refresh'),
             onPressed: _isLoading ? null : _load,
-            tooltip: 'Refresh',
+            tooltip: 'Refresh bills',
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -872,6 +861,13 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 112),
                 children: [
                   _BillsListHeader(
+                    totalCount: _bills.length,
+                    needsReviewCount: _personalFilterCount(
+                      _PersonalBillListFilter.needsReview,
+                    ),
+                    archivedCount: _personalFilterCount(
+                      _PersonalBillListFilter.archived,
+                    ),
                     onCreateBill: _isLoading ? null : _openCreateBill,
                     onScanReceipt:
                         widget.attachmentFileInput != null &&
@@ -920,7 +916,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                       loadedCount: _bills.length,
                       visibleCount: visibleBills.length,
                       readoutScope:
-                          'Personal bill report filters use already-loaded server rows on this device. Mobile displays server bill and reconciliation metadata only.',
+                          'Showing loaded bills only. Totals and status are unchanged.',
                       selectedFilter: _selectedFilter,
                       filters: _PersonalBillListFilter.values,
                       labelForFilter: (filter) =>
@@ -1031,10 +1027,16 @@ extension _PersonalBillListFilterText on _PersonalBillListFilter {
 
 class _BillsListHeader extends StatelessWidget {
   const _BillsListHeader({
+    required this.totalCount,
+    required this.needsReviewCount,
+    required this.archivedCount,
     required this.onCreateBill,
     required this.onScanReceipt,
   });
 
+  final int totalCount;
+  final int needsReviewCount;
+  final int archivedCount;
   final VoidCallback? onCreateBill;
   final VoidCallback? onScanReceipt;
 
@@ -1043,36 +1045,99 @@ class _BillsListHeader extends StatelessWidget {
     final colors = context.settleoraColors;
 
     return AppCard(
-      padding: const EdgeInsets.all(SettleoraSpacing.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      padding: const EdgeInsets.all(SettleoraSpacing.lg),
+      color: colors.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          CircleAvatar(
-            radius: 19,
-            backgroundColor: colors.accentSoft,
-            foregroundColor: colors.accent,
-            child: const Icon(Icons.receipt_long_rounded, size: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: colors.accentSoft,
+                foregroundColor: colors.accent,
+                child: const Icon(Icons.receipt_long_rounded, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bills dashboard',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      totalCount == 0
+                          ? 'Create a bill manually or start from a receipt.'
+                          : 'Review totals, receipt work, and bill status from one place.',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: colors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: AppButton(
-              key: const Key('bill-list-create'),
-              label: 'Create bill',
-              icon: Icons.add_rounded,
-              onPressed: onCreateBill,
-              expanded: true,
-            ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              StatusChip(
+                label: _pluralCount(totalCount, 'bill'),
+                icon: Icons.list_alt_outlined,
+                variant: StatusChipVariant.info,
+                size: StatusChipSize.small,
+              ),
+              StatusChip(
+                label: needsReviewCount == 0
+                    ? 'Nothing needs review'
+                    : '${_pluralCount(needsReviewCount, 'bill')} need review',
+                icon: needsReviewCount == 0
+                    ? Icons.check_circle_outline
+                    : Icons.priority_high_outlined,
+                variant: needsReviewCount == 0
+                    ? StatusChipVariant.success
+                    : StatusChipVariant.warning,
+                size: StatusChipSize.small,
+              ),
+              if (archivedCount > 0)
+                StatusChip(
+                  label: _pluralCount(archivedCount, 'archived bill'),
+                  icon: Icons.inventory_2_outlined,
+                  variant: StatusChipVariant.neutral,
+                  size: StatusChipSize.small,
+                ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: AppButton(
-              key: const Key('bill-list-scan-receipt'),
-              label: 'Scan receipt',
-              icon: Icons.document_scanner_outlined,
-              variant: AppButtonVariant.secondary,
-              onPressed: onScanReceipt,
-              expanded: true,
-            ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: AppButton(
+                  key: const Key('bill-list-create'),
+                  label: 'Create bill',
+                  icon: Icons.add_rounded,
+                  onPressed: onCreateBill,
+                  expanded: true,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: AppButton(
+                  key: const Key('bill-list-scan-receipt'),
+                  label: 'Scan receipt',
+                  icon: Icons.document_scanner_outlined,
+                  variant: AppButtonVariant.secondary,
+                  onPressed: onScanReceipt,
+                  expanded: true,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -2192,7 +2257,7 @@ class _SettleoraPersonalBillCreateScreenState
           child: Form(
             key: _formKey,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 176),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -2466,9 +2531,9 @@ class _CreateBillHeader extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       hasReceiptAttachment
-                          ? 'Receipt selected. It uploads after save; OCR review remains provisional.'
+                          ? 'Receipt selected. Save the bill, then review the receipt suggestions before applying them.'
                           : canAddReceipt
-                          ? 'Enter details manually, or add a receipt now for review-first OCR handoff after save.'
+                          ? 'Enter details manually, or add a receipt to start from scanned suggestions.'
                           : 'Manual entry is available. Receipt reading can be added after save.',
                       style: Theme.of(
                         context,
@@ -3983,7 +4048,7 @@ class _PersonalBillCreateReviewChecklist extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Local form checklist only. The server still validates the saved bill.',
+                'Check the required details before saving. Final bill rules are checked again when you save.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),
@@ -4022,7 +4087,7 @@ class _PersonalBillCreateReviewChecklist extends StatelessWidget {
               _ReviewChecklistHint(
                 text: attachmentCount == 0
                     ? 'No attachments selected.'
-                    : 'Attachments are selected for upload after bill creation. Receipt OCR stays provisional until reviewed.',
+                    : 'Attachments are ready to upload after bill creation. Review receipt suggestions before applying them.',
                 isReady: attachmentCount > 0,
               ),
               if (isAttachmentRetryActive)
@@ -5393,7 +5458,7 @@ class _BillListDiscoveryControls<T extends Enum> extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          '$visibleCount of $loadedCount loaded server rows visible.',
+          '$visibleCount of $loadedCount loaded rows visible.',
           key: Key('$keyPrefix-visible-count'),
           style: Theme.of(context).textTheme.bodyMedium,
         ),
@@ -12465,7 +12530,7 @@ class _SavedReceiptOcrReviewDiscoveryCardState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Saved provisional OCR reviews',
+                  'Receipt review ready',
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(height: 4),
@@ -12512,11 +12577,11 @@ class _SavedReceiptOcrReviewDiscoveryCardState
       _SavedReceiptOcrDiscoveryAction.unavailable =>
         'Saved OCR review actions are unavailable until receipt OCR review support is loaded. Receipt attachments and manual bill editing remain available.',
       _SavedReceiptOcrDiscoveryAction.open =>
-        'One receipt attachment can open its saved provisional OCR review directly.',
+        'One receipt has saved suggestions ready to review before draft apply.',
       _SavedReceiptOcrDiscoveryAction.choose =>
-        'Multiple receipt attachments can have saved provisional OCR reviews. Choose the matching receipt attachment before applying draft changes.',
+        'Multiple receipts have saved suggestions. Choose the receipt you want to review.',
       _SavedReceiptOcrDiscoveryAction.guidanceOnly =>
-        'Saved provisional OCR reviews can be opened from a receipt attachment when one is available.',
+        'Saved receipt suggestions can be opened from a receipt attachment when one is available.',
     };
   }
 }
@@ -12559,7 +12624,7 @@ Future<_ReviewableReceiptOcrRoute?> _showSavedReceiptOcrReviewChooser({
               ),
               const SizedBox(height: 6),
               Text(
-                'Open the saved provisional OCR review for one receipt attachment. This does not apply OCR data to the bill.',
+                'Open one receipt review. Nothing is applied to the bill until you preview and confirm it.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 8),
@@ -13506,7 +13571,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Provisional review',
+                'Receipt review',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
@@ -13533,7 +13598,7 @@ class _SavedReceiptOcrReviewContent extends StatelessWidget {
                 _KeyValueText(label: 'Currency', value: review.currency!),
               const SizedBox(height: 8),
               Text(
-                'Review data is provisional. Opening it here does not change bill items, splits, settlements, payments, files, or receipt evidence.',
+                'These receipt suggestions are saved for review. Preview before applying anything to this draft bill.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: context.settleoraColors.textMuted,
                 ),
@@ -14408,6 +14473,10 @@ class _BillSummaryTile extends StatelessWidget {
         : Icons.archive_outlined;
     final nextStepLabel = _personalBillNextStepLabel(bill);
     final needsReview = _billNeedsReview(bill);
+    final archiveLabel = settleoraBillArchiveStateLabel(bill.archiveState);
+    final reconciliationLabel = _safeBillReconciliationStatusLabel(
+      bill.reconciliationStatus,
+    );
 
     return Semantics(
       container: true,
@@ -14469,52 +14538,16 @@ class _BillSummaryTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    StatusChip(
-                      label: 'Personal',
-                      icon: Icons.person_outline,
-                      variant: StatusChipVariant.info,
-                      size: StatusChipSize.small,
-                    ),
-                    StatusChip(
-                      label: _billCountSummary(bill),
-                      icon: Icons.group_outlined,
-                      size: StatusChipSize.small,
-                    ),
-                    StatusChip(
-                      label: settleoraBillArchiveStateLabel(bill.archiveState),
-                      icon: bill.isArchived
-                          ? Icons.inventory_2_outlined
-                          : Icons.check_circle_outline,
-                      variant: bill.isArchived
-                          ? StatusChipVariant.neutral
-                          : StatusChipVariant.success,
-                      size: StatusChipSize.small,
-                    ),
-                    StatusChip(
-                      label: _safeBillReconciliationStatusLabel(
-                        bill.reconciliationStatus,
-                      ),
-                      icon: Icons.fact_check_outlined,
-                      variant: StatusChipVariant.neutral,
-                      size: StatusChipSize.small,
-                    ),
-                    if (syncItem != null)
-                      StatusChip(
-                        label:
-                            '${settleoraBillSyncOperationLabel(syncItem)} - ${settleoraBillSyncStateLabel(syncItem)}',
-                        icon: _syncIcon(syncItem.state),
-                        variant:
-                            syncItem.state ==
-                                SettleoraSyncQueueItemStateValues.conflict
-                            ? StatusChipVariant.warning
-                            : StatusChipVariant.info,
-                        size: StatusChipSize.small,
-                      ),
-                  ],
+                SettleoraInlinePanel(
+                  icon: needsReview
+                      ? Icons.priority_high_outlined
+                      : Icons.receipt_long_outlined,
+                  title: nextStepLabel,
+                  message:
+                      '${_billCountSummary(bill)}. $archiveLabel. $reconciliationLabel.',
+                  variant: needsReview
+                      ? SettleoraSurfaceVariant.warning
+                      : SettleoraSurfaceVariant.info,
                 ),
                 if (syncItem?.safeMessage != null) ...[
                   const SizedBox(height: 10),
@@ -14524,14 +14557,42 @@ class _BillSummaryTile extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        nextStepLabel,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.textMuted,
-                        ),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          StatusChip(
+                            label: 'Personal',
+                            icon: Icons.person_outline,
+                            variant: StatusChipVariant.info,
+                            size: StatusChipSize.small,
+                          ),
+                          if (syncItem != null)
+                            StatusChip(
+                              label:
+                                  '${settleoraBillSyncOperationLabel(syncItem)} - ${settleoraBillSyncStateLabel(syncItem)}',
+                              icon: _syncIcon(syncItem.state),
+                              variant:
+                                  syncItem.state ==
+                                      SettleoraSyncQueueItemStateValues.conflict
+                                  ? StatusChipVariant.warning
+                                  : StatusChipVariant.info,
+                              size: StatusChipSize.small,
+                            ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 8),
+                    TextButton.icon(
+                      onPressed: bill.isArchived ? null : onTap,
+                      icon: const Icon(Icons.chevron_right_rounded),
+                      label: const Text('Open'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: colors.primary,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
                     IconButton(
                       key: bill.isArchived
                           ? restoreButtonKey
@@ -14547,6 +14608,15 @@ class _BillSummaryTile extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (hasOpenOperation) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Queued work is in progress for this bill.',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: colors.textMuted),
+                  ),
+                ],
               ],
             ),
           ),
@@ -15489,7 +15559,7 @@ class _BillDetailDiscoveryControls extends StatelessWidget {
         selectedFilter != _BillDetailFilter.all;
 
     return _Section(
-      title: 'Find rows',
+      title: 'Find bill details',
       children: [
         TextField(
           key: const Key('bill-detail-search'),
@@ -15521,7 +15591,7 @@ class _BillDetailDiscoveryControls extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                '$visibleCount of $loadedCount loaded detail rows visible.',
+                '$visibleCount of $loadedCount bill details visible.',
                 key: const Key('bill-detail-visible-count'),
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
@@ -15537,7 +15607,7 @@ class _BillDetailDiscoveryControls extends StatelessWidget {
         if (hasFilters) ...[
           const SizedBox(height: 6),
           Text(
-            'Search and filters hide already-loaded server detail rows locally only. Mobile displays server bill and reconciliation metadata; it does not decide financial truth or authorization.',
+            'Search and filters only change what is visible on this screen.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -15555,7 +15625,7 @@ class _BillDetailFilteredEmpty extends StatelessWidget {
       icon: Icons.search_off,
       title: 'No matching detail rows',
       message:
-          'No already-loaded bill detail rows match these local filters. Clear filters to review every loaded server row before responding.',
+          'No bill details match these filters. Clear filters to review the full bill.',
       compact: true,
     );
   }
@@ -15572,10 +15642,11 @@ class _BillDetailHeader extends StatelessWidget {
     final reconciliationNote = _safeBillReconciliationNote(
       bill.reconciliationNote,
     );
+    final needsReview = _billDetailNeedsReview(bill);
 
     return AppCard(
       padding: const EdgeInsets.all(SettleoraSpacing.lg),
-      color: _billDetailNeedsReview(bill) ? colors.warningSoft : colors.surface,
+      color: needsReview ? colors.warningSoft : colors.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -15596,6 +15667,18 @@ class _BillDetailHeader extends StatelessWidget {
                 textAlign: TextAlign.end,
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          SettleoraInlinePanel(
+            icon: needsReview
+                ? Icons.priority_high_outlined
+                : Icons.check_circle_outline,
+            title: _billDetailNextStepLabel(bill),
+            message:
+                '${_pluralCount(bill.items.length, 'item')}. ${_pluralCount(bill.participants.length, 'person')}. ${_pluralCount(bill.payers.length, 'payer')}.',
+            variant: needsReview
+                ? SettleoraSurfaceVariant.warning
+                : SettleoraSurfaceVariant.info,
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -15623,11 +15706,6 @@ class _BillDetailHeader extends StatelessWidget {
                 size: StatusChipSize.small,
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Reconciliation is server-provided record metadata, not bank statement matching.',
-            style: Theme.of(context).textTheme.bodySmall,
           ),
           if (reconciliationNote != null) ...[
             const SizedBox(height: 12),
@@ -17016,6 +17094,19 @@ String _personalBillNextStepLabel(SettleoraBillSummary bill) {
     'finalized' => 'Finalized bill. Settlement remains separate.',
     'cancelled' => 'Cancelled bill. Details remain read-only here.',
     _ => 'Open for bill details.',
+  };
+}
+
+String _billDetailNextStepLabel(SettleoraBillDetail bill) {
+  return switch (bill.status) {
+    'draft' => 'Review the draft before sharing or updating it.',
+    'pending_confirmation' => 'This bill is waiting for confirmation.',
+    'needs_review' => 'Review details before taking the next action.',
+    'rejected' => 'Review what changed before you continue.',
+    'confirmed' => 'Confirmed bill. Review items, people, and payers here.',
+    'finalized' => 'Finalized bill. Details are shown for reference.',
+    'cancelled' => 'Cancelled bill. Details remain available here.',
+    _ => 'Review items, people, and payers for this bill.',
   };
 }
 
