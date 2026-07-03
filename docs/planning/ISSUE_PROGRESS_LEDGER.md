@@ -487,14 +487,38 @@ remain the source of truth.
     recorded in the matching Codex report. This evidence is
     `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge has been performed. Project
     fields were not mutated.
+  - Tommy manually reviewed the `20260703-1745` Groups/Settle/Notifications
+    evidence and approved this bounded child slice as
+    `VISUAL_APPROVED_WITH_SMALL_FOLLOWUPS`. The approved source head before the
+    PR/merge approval checkpoint is
+    `2b842fe868ba9d40c98f775c9d9ffa3436a85ae4` on branch
+    `feature/mobile-groups-settle-notifications-visual-parity-672-20260703`.
+    Approved evidence is under
+    `/workspace/logs/settleora-visual-qa/20260703-1745-mobile-groups-settle-ux-polish-dev-only/`
+    with `groups-list-or-dashboard-390x844.png`,
+    `settle-dashboard-or-list-390x844.png`,
+    `settlement-detail-or-payment-390x844.png`,
+    `notifications-center-390x844.png`, and
+    `notification-detail-or-review-390x844.png`. Known non-blocking visual
+    follow-ups are notification detail safety note / received timestamp spacing
+    polish and hiding zero-value settlement chips when they are not useful.
+    This approval is limited to the bounded Groups/Settle/Notifications visual
+    parity child slice under #672. It does not close #672, does not approve
+    full mobile Flutter visual parity, and does not authorize backend/API/
+    OpenAPI/generated-client/schema, auth/session/security runtime, storage/
+    file-byte, settlement money/state authority, payment workflow, proof
+    authorization, group membership/runtime permissions, notification runtime/
+    provider/push/email/admin/global policy semantics, #371 notification-open/
+    deep-link redo, deployment, runtime theme default switching, theme picker,
+    theme persistence, or Figma API changes.
 - Remaining Day 1 work:
   - PR/merge gate for the approved Bills/OCR/revision development evidence.
+  - PR/merge gate for the approved Groups/Settle/Notifications development
+    evidence.
   - Remaining Bills/OCR/revision depth after this child slice: broader bills
     list/detail/create/add-bill sheet parity, richer saved OCR in-bill detail,
     OCR capture/processing states, and advanced tax/discount/fee/refund review
     remain separately gated against existing runtime only.
-  - Manual visual review for the current Groups/Settle UX polish evidence; no
-    PR/merge gate should start before explicit approval.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
     and future theme/preset behavior.
   - Manual/Figma visual review and evidence for each later child slice.
