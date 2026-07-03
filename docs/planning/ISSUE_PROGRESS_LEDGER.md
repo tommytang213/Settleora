@@ -2275,6 +2275,73 @@ remain the source of truth.
     deployment/env/CI, Figma output, screenshots, binary assets, or issue
     closure.
 
+- #686 provider-readiness policy gate checkpoint on
+  `docs/notification-686-provider-readiness-policy-gate-20260703`:
+  - Base main SHA:
+    `a857a6368b367f5914c49be7740e8057c81402e9` after PR #691.
+  - Adds
+    `docs/architecture/NOTIFICATION_PROVIDER_READINESS_POLICY.md` and links it
+    from `docs/architecture/README.md`.
+  - Defines provider readiness as a bounded signal into admin/global
+    notification policy, not delivery success and not authority for event
+    creation, recipient authorization, money truth, storage access, OCR
+    acceptance, sync acceptance, auth/session state, or audit truth.
+  - Defines design-level readiness states: `unsupported`, `disabled`,
+    `unconfigured`, `configured`, `degraded`, `failing`, `rate_limited`,
+    `maintenance`, `unknown`, and `ready`. Only `ready` permits a normal
+    external attempt by default; `configured` is not enough by itself to claim
+    attempts are allowed.
+  - Records SMTP/email, APNs/iOS push, FCM/Android push, and in-app baseline
+    boundaries. In-app is not an external provider-readiness state and remains
+    the Day 1 baseline where an event is supported, eligible, authorized, and
+    safe.
+  - Inserts provider readiness into the future #635/#684 resolver after
+    event support/content safety and admin/global channel caps, and before
+    security/money external redaction policy, user preference, group mute,
+    quiet-hours/digest, and device/platform availability.
+  - Records source-of-truth boundaries: API/domain owns effective policy
+    resolution; provider config/secrets are never exposed through policy
+    readout; deployment/operator config may determine configured/unconfigured
+    state without leaking values; user preferences, group mute, quiet-hours,
+    device state, generated clients, browser cache, and mobile cache cannot
+    invent provider readiness.
+  - Defines product-facing and operator-facing readout semantics for
+    unsupported, disabled, unconfigured, degraded, failing, deferred, queued,
+    sent/attempted, and failed states without exposing secrets, tokens,
+    private hostnames where sensitive, provider payloads, credentials, raw
+    provider errors, payment details, OCR text, storage internals,
+    auth/session data, or hidden bill data.
+  - Defines future failure/retry posture for transient failure, permanent
+    failure, rate limits, invalid recipient/device token, provider
+    unavailable, queued/deferred attempts, idempotency/readout expectations,
+    and audit-safe error categories.
+  - Records self-hosted posture: external providers default to disabled or
+    unconfigured until intentionally configured; missing external providers do
+    not fail startup by themselves; TrueNAS/Docker-friendly warnings/readouts
+    stay product-facing and non-secret; hosted activation and real provider
+    secrets remain manual/deployment gates.
+  - Recommends future split ordering: readiness config/readout design
+    acceptance, secret/config-loading design if needed, SMTP readiness/readout
+    adapter without sending, APNs/FCM readiness/readout adapter tied to #634
+    without token handling unless #634 approves it, policy resolver
+    integration through #687, audit/redaction through #688, and final
+    acceptance through #689.
+  - Records future test plan for provider state mapping, blocking
+    unconfigured providers, admin disabled cap precedence, preference/group/
+    quiet-hours narrowing only, device-state narrowing only, cache/generated
+    client non-authority, secret/token redaction, safe failure
+    classification, in-app baseline preservation, and unchanged #371 behavior.
+  - #686 remains open pending design review/PR merge and later implementation
+    acceptance unless the close rule is clearly satisfied. #635 and #634
+    remain open. Runtime remains blocked. Keep #371 closed.
+  - This docs/design branch does not implement SMTP/APNs/FCM runtime, provider
+    SDKs, device-token handling, secrets/config files, deployment/env/CI,
+    mobile release/signing, API runtime, schema/migrations, OpenAPI/generated
+    clients, admin UI, mobile UI, notification constants/writers/provider
+    delivery, auth/session/security runtime, money/settlement/storage/OCR/sync
+    behavior, #371 notification-open behavior, #672/#679 state changes, Figma
+    output, screenshots, binary assets, or issue closure.
+
 ### Issue #458 - User web auth/session shell and navigation foundation
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,
