@@ -10,6 +10,7 @@ configuration, or secrets.
 
 ## Reference Index
 
+- [Notification design references](notifications/README.md)
 - [Mobile design references](mobile/README.md)
 - [User web reference V1](web/WEB_USER_REFERENCE_V1.md)
 - [Admin web reference V1](web/WEB_ADMIN_REFERENCE_V1.md)

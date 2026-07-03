@@ -2342,6 +2342,62 @@ remain the source of truth.
     behavior, #371 notification-open behavior, #672/#679 state changes, Figma
     output, screenshots, binary assets, or issue closure.
 
+- #685 notification policy readout UX reference checkpoint on
+  `docs/notification-685-policy-readout-ux-reference-20260704`:
+  - Base main SHA:
+    `d1c37256da4b416964c1b1afef58a9ee8806b96a` after PR #692.
+  - Adds
+    `docs/design/notifications/NOTIFICATION_POLICY_READOUT_UX_REFERENCE.md`,
+    adds `docs/design/notifications/README.md`, and links the notification
+    design folder from `docs/design/README.md`.
+  - Defines this packet as a non-authorizing UX/reference gate only. It does
+    not approve runtime API, schema/migrations, OpenAPI/generated clients,
+    admin/user/mobile/web UI implementation, provider sending, provider
+    secrets, device-token handling, deployment, CI, or Figma API output.
+  - Covers admin/operator global policy readouts, user settings readouts,
+    mobile notification settings/readouts, user web settings/readouts,
+    notification detail/error/explanation surfaces, and empty/degraded/
+    disabled states.
+  - Defines product-facing matrix guidance for `unsupported`, `disabled`,
+    `unconfigured`, `configured`, `ready`, `degraded`, `failing`,
+    `rate_limited`, `maintenance`, `unknown`, `muted`,
+    `quiet_hours_deferred`, `digest_deferred`, `device_unavailable`,
+    `token_missing`, `queued`, `sent_or_attempted`, `failed_transient`,
+    `failed_permanent`, `blocked_by_admin_policy`,
+    `blocked_by_security_policy`, `blocked_by_privacy_policy`,
+    `blocked_by_user_preference`, and `blocked_by_group_preference`.
+  - Records copy rules: no raw enum strings as primary UI copy, no raw provider
+    failure codes in user copy, no normal-user "backend/client/server" debug
+    wording except self-hosted "this server" product copy where appropriate,
+    action-specific button labels, non-blaming unavailable states, in-app
+    fallback where eligible, and no implied external delivery success without
+    provider confirmation.
+  - Records redaction boundaries for SMTP/APNs/FCM secrets, private hostnames
+    where sensitive, raw device tokens, protected token blobs, provider
+    payloads/errors, rendered external bodies when unauthorized, payment
+    details, OCR/receipt text, storage internals, auth/session data, hidden
+    bill data, private notes, and unrelated recipient/user data.
+  - Defines admin versus normal-user distinction: admins may see bounded
+    non-secret readiness/policy categories and setup/review actions; users see
+    effective availability and preference actions only where allowed.
+  - Defines reference-only mobile/web/admin layout guidance and accessibility
+    expectations compatible with Settleora V1 mobile, user-web, and admin-web
+    references.
+  - Recommends future split ordering: manual review, optional Figma/reference,
+    API/readout contract from #684, provider readiness readout from #686,
+    separate UI implementation slices, accessibility/copy review, #688
+    audit/redaction cross-check, and #689 final acceptance.
+  - #685 remains open pending review/PR merge and future UI/reference
+    acceptance unless the close rule is clearly satisfied. #635 remains open.
+    #684 and #686 remain open. Runtime remains blocked. Keep #371 closed.
+  - This docs/design branch does not implement runtime API, schema/migrations,
+    OpenAPI/generated clients, admin UI, user web UI, mobile UI, provider
+    sending, SMTP/APNs/FCM runtime, secrets/config files, device-token
+    handling, auth/session/security runtime, money/settlement/storage/OCR/sync
+    behavior, #371 notification-open behavior, #672/#679 state changes,
+    deployment/env/CI, Figma output, screenshots, binary assets, or issue
+    closure.
+
 ### Issue #458 - User web auth/session shell and navigation foundation
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,
