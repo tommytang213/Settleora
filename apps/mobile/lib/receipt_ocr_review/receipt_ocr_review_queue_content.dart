@@ -434,8 +434,8 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
                               const SizedBox(height: 3),
                               Text(
                                 issueCount > 0
-                                    ? '$issueCount review checkpoint(s) before applying'
-                                    : 'Open the receipt to preview and confirm.',
+                                    ? _queueReviewReason(review)
+                                    : 'Review before applying to the draft.',
                                 style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
                                       color: Theme.of(
@@ -456,18 +456,17 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _QueueMetaColumn(
-                        label: 'Receipt data',
+                        label: 'Receipt source',
                         value: [
                           source,
-                          '${review.lineCount} lines',
-                          ?currency,
+                          '${review.lineCount} line${review.lineCount == 1 ? '' : 's'}',
                         ].join(' • '),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: _QueueMetaColumn(
-                        label: 'Updated',
+                        label: 'Last updated',
                         value: _formatQueueDate(review.updatedAtUtc),
                         alignEnd: true,
                       ),
@@ -480,8 +479,8 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
                     Expanded(
                       child: Text(
                         currency == null
-                            ? 'Currency is not ready on this queue item.'
-                            : 'Currency candidate: $currency',
+                            ? 'Total not confirmed'
+                            : 'Detected currency: $currency',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
@@ -571,6 +570,28 @@ String _queueAttentionText(ReceiptOcrReviewSummary review) {
   }
 
   return 'Reviewed receipt ready to open';
+}
+
+String _queueReviewReason(ReceiptOcrReviewSummary review) {
+  final reasons = <String>[];
+  if (review.status == ReceiptOcrReviewStatusValues.provisional) {
+    reasons.add('needs review');
+  }
+  if (review.lineCount <= 0) {
+    reasons.add('no receipt lines');
+  }
+  if (_displayCurrencyCandidate(review.currency) == null) {
+    reasons.add('total or currency not confirmed');
+  }
+
+  if (reasons.isEmpty) {
+    return 'Review before applying to the draft.';
+  }
+
+  final formatted = reasons.length == 1
+      ? reasons.single
+      : '${reasons.take(reasons.length - 1).join(', ')} and ${reasons.last}';
+  return 'Action needed: $formatted.';
 }
 
 String _formatQueueDate(DateTime value) {

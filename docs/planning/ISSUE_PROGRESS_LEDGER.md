@@ -286,6 +286,27 @@ remain the source of truth.
     `flutter test test/ui/bills_ocr_revision_parity_visual_capture_test.dart`,
     and full `flutter test` with 810 passing tests. This evidence is
     `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge has been performed.
+  - Tommy reviewed the `20260703-1320` Bills/OCR/revision evidence and found
+    the direction improved but not PR-ready because OCR queue/review still felt
+    too system-like, queue cards needed clearer receipt/action/value hierarchy,
+    and revision/proposal copy still had backend/server wording. The
+    `20260703-1348` development-only follow-up on the same branch keeps the
+    scope presentation-only and makes the first viewport friendlier: OCR queue
+    cards now use product-facing receipt source, detected currency or total-not-
+    confirmed, line count, last-updated, action-needed, and `Review receipt`
+    labels; OCR detail uses `Preview changes`, `Draft update`, and
+    apply-to-draft copy without server-preview wording; revision review avoids
+    raw revision IDs in the first header and emphasizes `Your share changes by`
+    plus `Payer needs confirmation`; proposal save copy says saving sends the
+    proposal for review and does not change the bill yet. No OCR extraction/
+    runtime, apply behavior, money/split/settlement logic, API/OpenAPI/
+    generated-client/schema, auth/session/security, storage/file-byte,
+    notification-open, deployment, or runtime theme behavior changed. Fresh
+    evidence is expected under
+    `/workspace/logs/settleora-visual-qa/20260703-1348-mobile-bills-ocr-revision-friendly-polish-dev-only/`
+    with the same four OCR/revision PNG artifacts. This checkpoint is
+    `READY_FOR_TOMMY_VISUAL_REVIEW` after validation and push; no PR or merge
+    is part of this dev-only task.
 - Remaining Day 1 work:
   - Tommy/manual visual review for the Bills/OCR/revision development evidence,
     plus follow-up polish if requested before PR/merge.

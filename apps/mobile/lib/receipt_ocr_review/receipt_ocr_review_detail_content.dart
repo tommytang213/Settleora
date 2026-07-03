@@ -944,7 +944,7 @@ class _ReceiptOcrReviewAttentionPanel extends StatelessWidget {
         : previewFailure != null
         ? 'Preview needs attention'
         : preview == null
-        ? 'Preview before applying'
+        ? 'Preview changes'
         : preview.canApply
         ? 'Safe to apply after review'
         : 'Apply is blocked';
@@ -956,11 +956,11 @@ class _ReceiptOcrReviewAttentionPanel extends StatelessWidget {
         ? 'Fix the preview issue before applying to the draft.'
         : preview == null
         ? issues.isEmpty
-              ? 'Receipt data is present. Preview shows whether the draft update is allowed.'
-              : 'Fix or confirm the highlighted receipt data, then preview apply.'
+              ? 'Preview the receipt changes before updating the draft bill.'
+              : 'Fix or confirm the highlighted receipt data, then preview changes.'
         : preview.canApply
-        ? 'Preview passed with ${preview.summary.linesWithProposedTotalCount} proposed line(s).'
-        : 'Preview returned ${preview.blockedReasons.length} blocking reason(s).';
+        ? 'Preview is ready with ${preview.summary.linesWithProposedTotalCount} proposed line(s).'
+        : '${preview.blockedReasons.length} item(s) need review before apply.';
 
     return SettleoraInlinePanel(
       icon: preview?.canApply == false || issues.isNotEmpty
@@ -1193,7 +1193,7 @@ class _ReceiptOcrReviewLinesState extends State<_ReceiptOcrReviewLines> {
       return const _StatePanel(
         icon: Icons.format_list_bulleted,
         title: 'No receipt lines',
-        message: 'Apply is blocked until the server receives reviewed lines.',
+        message: 'Apply is blocked until this receipt has reviewed lines.',
         compact: true,
       );
     }
@@ -1542,7 +1542,7 @@ class _ApplyPreviewSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Apply preview', style: Theme.of(context).textTheme.titleMedium),
+        Text('Draft update', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -1564,7 +1564,7 @@ class _ApplyPreviewSection extends StatelessWidget {
                         )
                       : _previewReceiptOcrReviewApplyLabel,
                   enabled: !actionsBlocked,
-                  child: const Text('Preview apply'),
+                  child: const Text('Preview changes'),
                 ),
               ),
             ),
@@ -1644,7 +1644,7 @@ class _PreviewSummary extends StatelessWidget {
                 Text(
                   preview.canApply
                       ? 'Ready for confirmation'
-                      : 'Blocked by server preview',
+                      : 'Review needed before apply',
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
               ],

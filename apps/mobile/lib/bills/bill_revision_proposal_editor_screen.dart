@@ -522,8 +522,8 @@ class _EditorSummaryPanel extends StatelessWidget {
               : Icons.report_problem_outlined,
           title: hasTotal ? 'Save sends for review' : 'Total required',
           message: mode == SettleoraBillRevisionProposalEditorMode.revise
-              ? 'Save replaces this proposal after server validation. Previous approvals do not carry over.'
-              : 'Save creates a proposal for server validation and review; it does not apply the bill.',
+              ? 'Save sends a replacement for review. It does not change the bill yet, and previous approvals do not carry over.'
+              : 'Save sends this proposal for review. It does not change the bill yet.',
           variant: hasTotal
               ? SettleoraSurfaceVariant.info
               : SettleoraSurfaceVariant.danger,
@@ -755,7 +755,7 @@ class _LocalPreviewPanel extends StatelessWidget {
       icon: Icons.visibility_outlined,
       children: [
         Text(
-          'This preview helps you review the proposal before saving. The saved review screen shows the final result people will approve.',
+          'Check the proposal before saving. The review screen will show what people need to approve.',
         ),
       ],
     );

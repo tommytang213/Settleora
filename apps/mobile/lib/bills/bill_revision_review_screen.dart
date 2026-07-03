@@ -593,7 +593,9 @@ class _RevisionHeader extends StatelessWidget {
               Expanded(
                 child: SettleoraCompactHeader(
                   title: billLabel,
-                  subtitle: 'Revision ${_shortId(revision.id)}',
+                  subtitle: revision.groupId == null
+                      ? 'Personal bill revision'
+                      : 'Group bill revision',
                   leadingIcon: Icons.receipt_long_outlined,
                 ),
               ),
@@ -650,19 +652,18 @@ class _RevisionDecisionPanel extends StatelessWidget {
     final action = _primaryRevisionAction(revision);
 
     return _Section(
-      title: 'Review decision',
+      title: 'Your decision',
       icon: Icons.fact_check_outlined,
       children: [
         Text(
           changeCount == 0
-              ? 'No changed-only rows were returned. Review the full bill before acting.'
-              : '$changeCount changed item(s) need your decision.',
+              ? 'Review the full bill before choosing what happens next.'
+              : '$changeCount change${changeCount == 1 ? '' : 's'} need your review.',
           style: Theme.of(context).textTheme.titleSmall,
         ),
         const SizedBox(height: 12),
-        _DecisionTextRow(label: 'Revision', value: _shortId(revision.id)),
         _DecisionMoneyRow(
-          label: 'Your share change',
+          label: 'Your share changes by',
           value: impact.deltaShare,
           emptyLabel: impact.affectedByRevision
               ? 'No delta returned'
@@ -670,7 +671,9 @@ class _RevisionDecisionPanel extends StatelessWidget {
         ),
         if (payerImpact != null)
           _DecisionMoneyRow(
-            label: 'Payer change',
+            label: payerImpact.requiresPayerConfirmation
+                ? 'Payer needs confirmation'
+                : 'Payer changes by',
             value: payerImpact.deltaContribution,
             emptyLabel: payerImpact.requiresPayerConfirmation
                 ? 'Confirmation needed'
@@ -688,33 +691,6 @@ class _RevisionDecisionPanel extends StatelessWidget {
               : SettleoraSurfaceVariant.info,
         ),
       ],
-    );
-  }
-}
-
-class _DecisionTextRow extends StatelessWidget {
-  const _DecisionTextRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          Text(value, textAlign: TextAlign.end),
-        ],
-      ),
     );
   }
 }
@@ -781,9 +757,9 @@ _RevisionPrimaryAction _primaryRevisionAction(SettleoraBillRevision revision) {
   }
   if (revision.canConfirmPayer) {
     return const _RevisionPrimaryAction(
-      title: 'Next action: confirm payer impact',
+      title: 'Next action: confirm payer',
       message:
-          'Your payer confirmation is required before this revision can move forward.',
+          'Confirm the payer change before this revision can move forward.',
       isBlocked: false,
     );
   }
@@ -797,8 +773,7 @@ _RevisionPrimaryAction _primaryRevisionAction(SettleoraBillRevision revision) {
   if (revision.canApply) {
     return const _RevisionPrimaryAction(
       title: 'Next action: apply approved revision',
-      message:
-          'Apply updates the active bill using the approved server result.',
+      message: 'Apply the approved changes to the active bill.',
       isBlocked: false,
     );
   }
@@ -817,9 +792,8 @@ _RevisionPrimaryAction _primaryRevisionAction(SettleoraBillRevision revision) {
     );
   }
   return const _RevisionPrimaryAction(
-    title: 'Waiting on review state',
-    message:
-        'The server did not return an action that is available to this viewer.',
+    title: 'Waiting for review',
+    message: 'No action is available for you right now.',
     isBlocked: true,
   );
 }
@@ -1636,7 +1610,7 @@ class _PayerConfirmationPanel extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             _BodyText(
-              'The server says payer role or contribution confirmation is required before this revision can be applied.',
+              'Confirm the payer role or contribution before this revision can be applied.',
             ),
             const SizedBox(height: 8),
             _KeyValueText(
@@ -1952,14 +1926,6 @@ List<SettleoraBillRevisionChange> _changesForUserAndScopes(
 
 String _formatTimestamp(DateTime value) {
   return value.toLocal().toString().split('.').first;
-}
-
-String _shortId(String value) {
-  if (value.length <= 8) {
-    return value;
-  }
-
-  return value.substring(0, 8);
 }
 
 String _titleFromCode(String code) {
