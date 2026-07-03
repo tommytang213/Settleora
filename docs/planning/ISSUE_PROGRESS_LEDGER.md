@@ -329,13 +329,196 @@ remain the source of truth.
     total-lower helper copy can avoid backend-ish validation wording in a
     future copy pass, and full bills list/detail/create parity remains a later
     child slice.
+  - The `20260703-1422` development-only Groups/Settle/Notifications visual
+    parity child slice on branch
+    `feature/mobile-groups-settle-notifications-visual-parity-672-20260703`
+    started from `origin/main` at
+    `51fb0baeed84586e5ef44e53c4a407966ac45f27` after PR #675. Completed scope
+    is presentation-only migration of existing Groups, Settle, and
+    Notifications runtime surfaces toward the approved Settleora Midnight
+    direction: shared list rows and cards for group/member readouts, clearer
+    settlement balance/request/payment/detail hierarchy using existing loaded
+    values only, and shared card/bottom-sheet treatment for notification list
+    and detail readouts. It preserves group repositories/actions, settlement
+    payment/proof/status authority and money calculations, notification open/
+    deep-link behavior from #371, push/provider/admin/global policy states,
+    API/OpenAPI/generated-client/schema/backend boundaries, auth/session/
+    security behavior, storage/file-byte behavior, deployment, and the global
+    runtime app default theme.
+  - Fresh development evidence for the Groups/Settle/Notifications slice was
+    generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1422-mobile-groups-settle-notifications-visual-parity-dev-only/`
+    with `groups-list-or-dashboard-390x844.png`,
+    `settle-dashboard-or-list-390x844.png`,
+    `settlement-detail-or-payment-390x844.png`,
+    `notifications-center-390x844.png`, and
+    `notification-detail-or-review-390x844.png`. All captures are 390x844 PNGs,
+    nonblank, and generated with `SettleoraTheme.midnight()`. Validation
+    passed: `npm ci`, `npm run validate:docs`,
+    `npm run validate:scaffold`, `flutter pub get`, `flutter analyze`,
+    `flutter test test/ui/settleora_component_guardrail_test.dart`,
+    `flutter test test/group_list_screen_test.dart
+    test/settlement_list_screen_test.dart test/notification_screen_test.dart`,
+    `flutter test test/ui/groups_settle_notifications_parity_visual_capture_test.dart`,
+    and full `flutter test` with 811 passing tests. This evidence is
+    `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge has been performed.
+    Project fields were not mutated.
+  - Tommy manually reviewed the `20260703-1422` Groups/Settle/Notifications
+    evidence and rejected it as not PR-ready because Notifications felt too
+    wordy/debug-like, several screens still felt difficult for normal public use,
+    and visible backend/API/architecture-style explanations remained in normal
+    UI. The `20260703-1550` development-only UX simplification follow-up on
+    branch
+    `feature/mobile-groups-settle-notifications-visual-parity-672-20260703`
+    started from previous branch head
+    `9a7755d6d035fd3c88b19ff847b8939df5e2ea48` with `origin/main` at
+    `51fb0baeed84586e5ef44e53c4a407966ac45f27`. The no-amend rule prevents
+    recording this commit's own final SHA inside the same ledger commit, so the
+    final task branch head is recorded in the matching Codex report. This pass
+    keeps the scope presentation-only and simplifies public-facing copy and
+    hierarchy: notification center/detail now use concise product sections such
+    as Inbox, Unread, Needs attention, Review, What happened, What you can do,
+    Status, Linked item, and Safety note; Groups now emphasizes accessible
+    groups, search, role, status, and membership status without route/dashboard
+    authorization explanations; Settlements now emphasizes You owe/You're owed,
+    remaining amount, pending payments, and plain next actions. It preserves
+    notification list/filter/read/archive/restore/mark-read behavior and #371
+    open/deep-link behavior, group list/detail/create/member actions and
+    repository behavior, settlement state authority, payment/proof workflows,
+    repository calls, money calculations, API/OpenAPI/generated-client/schema,
+    auth/session/security runtime, storage/file-byte behavior, deployment, and
+    the global runtime app default theme.
+  - Fresh UX simplification evidence for the Groups/Settle/Notifications slice
+    was generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1550-mobile-groups-settle-notifications-ux-simplification-dev-only/`
+    with `groups-list-or-dashboard-390x844.png` (61037 bytes),
+    `settle-dashboard-or-list-390x844.png` (73589 bytes),
+    `settlement-detail-or-payment-390x844.png` (75112 bytes),
+    `notifications-center-390x844.png` (66624 bytes), and
+    `notification-detail-or-review-390x844.png` (76436 bytes). All captures are
+    390x844 PNGs and generated with `SettleoraTheme.midnight()`. Validation
+    passed: `npm ci`, `npm run validate:docs`, `npm run validate:scaffold`,
+    `flutter pub get`, `flutter analyze`,
+    `flutter test test/ui/settleora_component_guardrail_test.dart`,
+    `flutter test test/group_list_screen_test.dart
+    test/settlement_list_screen_test.dart test/notification_screen_test.dart`,
+    `flutter test test/ui/groups_settle_notifications_parity_visual_capture_test.dart`,
+    and full `flutter test` with 811 passing tests. The existing test harness
+    warning about unspecified tag `visual` on the guardrail helper test remains
+    non-fatal. This evidence is `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge
+    has been performed. Project fields were not mutated.
+  - Tommy reviewed the `20260703-1550` evidence and said the Notifications
+    Center/detail still felt compressed and not convenient enough for normal
+    public users, while Groups and Settlements were acceptable enough for now.
+    The `20260703-1714` development-only density follow-up on branch
+    `feature/mobile-groups-settle-notifications-visual-parity-672-20260703`
+    started from previous branch head
+    `7fe79a3f3a79eb9a0670adbc6bd80af5f9dfb803` with `origin/main` at
+    `51fb0baeed84586e5ef44e53c4a407966ac45f27`. The no-amend rule prevents
+    recording this commit's own final SHA inside the same ledger commit, so the
+    final task branch head is recorded in the matching Codex report. This pass
+    keeps scope to Notifications UI/test evidence and the ledger: Notification
+    Center cards now use a roomier vertical layout with full-width title/message
+    treatment, one clear primary action where a typed target can open, and
+    quieter top-right secondary inbox actions; the visible bulk-read control is
+    a compact inline row instead of a large boxed panel. The notification
+    detail sheet now prioritizes `What happened`, `What you can do`,
+    `Linked item`, and `Safety note` instead of dense key-value/debug-style
+    status rows, and uses concise safety copy: `We recheck access before
+    opening details.` It preserves notification list/filter/read/archive/
+    restore/mark-read behavior, #371 notification-open/deep-link behavior,
+    notification runtime/provider/push/email/admin/global policy semantics,
+    API/OpenAPI/generated-client/schema, auth/session/security runtime,
+    settlement/payment/money authority, storage/file-byte behavior,
+    deployment, and the global runtime app default theme.
+  - Fresh density follow-up evidence for the notification-focused pass was
+    generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1714-mobile-notifications-center-density-followup-dev-only/`
+    with the grouped visual-capture harness artifacts
+    `groups-list-or-dashboard-390x844.png`,
+    `settle-dashboard-or-list-390x844.png`,
+    `settlement-detail-or-payment-390x844.png`,
+    `notifications-center-390x844.png`, and
+    `notification-detail-or-review-390x844.png`. The follow-up scope was
+    Notifications Center/detail only; Groups/Settlements were regenerated for
+    visual continuity and were not intentionally redesigned. All captures are
+    390x844 PNGs and generated with `SettleoraTheme.midnight()`. Focused
+    validation during implementation passed:
+    `flutter test test/notification_screen_test.dart` with 64 passing tests and
+    `flutter test test/ui/groups_settle_notifications_parity_visual_capture_test.dart`
+    with 1 passing test. Full required validation is recorded in the matching
+    Codex report. This evidence is `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or
+    merge has been performed. Project fields were not mutated.
+  - Tommy reviewed the `20260703-1714` continuity evidence and requested a
+    public-user UX polish pass focused on Groups and Settlements while leaving
+    the improved Notifications Center alone unless required for continuity.
+    The `20260703-1745` development-only polish pass on branch
+    `feature/mobile-groups-settle-notifications-visual-parity-672-20260703`
+    started from expected branch head
+    `96caaf1b455983c611775a1d6af3128ebbbd7b99` with `origin/main` at
+    `51fb0baeed84586e5ef44e53c4a407966ac45f27`. It keeps scope to Groups,
+    Settlements, visual-capture continuity, focused tests, and this ledger:
+    group cards now use product-facing phrases such as `You are the owner`,
+    `You are a member`, `Active group`, and `Removed from new activity` while
+    preserving role/status chips and existing search/filter behavior. The
+    settlement dashboard keeps server-provided balance fields but prioritizes
+    `Remaining`, `Pending payments`, and `Paid`, moving low-frequency residual
+    readouts into calmer chips and replacing stale/technical refresh copy with
+    `Refresh if anything looks out of date.` Settlement detail sections now
+    emphasize `Next step`, `What this includes`, `Included bills`, and
+    `Payment details`, fix the singular grammar to `1 needs confirmation`, and
+    use friendlier safety copy before settlement actions. This pass does not
+    change settlement calculations, payment workflow, proof authorization,
+    group membership/runtime permissions, repository calls, API/OpenAPI/
+    generated-client/schema, notification-open/deep-link #371 behavior,
+    notification runtime/provider/push/email/admin/global policy semantics,
+    auth/session/security runtime, storage/file-byte behavior, deployment,
+    or the global runtime app default theme.
+  - Fresh UX polish evidence for the Groups/Settle pass is generated by the
+    grouped visual-capture harness under
+    `/workspace/logs/settleora-visual-qa/20260703-1745-mobile-groups-settle-ux-polish-dev-only/`
+    with `groups-list-or-dashboard-390x844.png`,
+    `settle-dashboard-or-list-390x844.png`,
+    `settlement-detail-or-payment-390x844.png`,
+    `notifications-center-390x844.png`, and
+    `notification-detail-or-review-390x844.png`. The notification artifacts are
+    continuity-only unless the final report states otherwise. All captures use
+    `SettleoraTheme.midnight()`. Final validation and the final commit SHA are
+    recorded in the matching Codex report. This evidence is
+    `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge has been performed. Project
+    fields were not mutated.
+  - Tommy manually reviewed the `20260703-1745` Groups/Settle/Notifications
+    evidence and approved this bounded child slice as
+    `VISUAL_APPROVED_WITH_SMALL_FOLLOWUPS`. The approved source head before the
+    PR/merge approval checkpoint is
+    `2b842fe868ba9d40c98f775c9d9ffa3436a85ae4` on branch
+    `feature/mobile-groups-settle-notifications-visual-parity-672-20260703`.
+    Approved evidence is under
+    `/workspace/logs/settleora-visual-qa/20260703-1745-mobile-groups-settle-ux-polish-dev-only/`
+    with `groups-list-or-dashboard-390x844.png`,
+    `settle-dashboard-or-list-390x844.png`,
+    `settlement-detail-or-payment-390x844.png`,
+    `notifications-center-390x844.png`, and
+    `notification-detail-or-review-390x844.png`. Known non-blocking visual
+    follow-ups are notification detail safety note / received timestamp spacing
+    polish and hiding zero-value settlement chips when they are not useful.
+    This approval is limited to the bounded Groups/Settle/Notifications visual
+    parity child slice under #672. It does not close #672, does not approve
+    full mobile Flutter visual parity, and does not authorize backend/API/
+    OpenAPI/generated-client/schema, auth/session/security runtime, storage/
+    file-byte, settlement money/state authority, payment workflow, proof
+    authorization, group membership/runtime permissions, notification runtime/
+    provider/push/email/admin/global policy semantics, #371 notification-open/
+    deep-link redo, deployment, runtime theme default switching, theme picker,
+    theme persistence, or Figma API changes.
 - Remaining Day 1 work:
   - PR/merge gate for the approved Bills/OCR/revision development evidence.
+  - PR/merge gate for the approved Groups/Settle/Notifications development
+    evidence.
   - Remaining Bills/OCR/revision depth after this child slice: broader bills
     list/detail/create/add-bill sheet parity, richer saved OCR in-bill detail,
     OCR capture/processing states, and advanced tax/discount/fee/refund review
     remain separately gated against existing runtime only.
-  - Groups/settle/notifications visual parity.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
     and future theme/preset behavior.
   - Manual/Figma visual review and evidence for each later child slice.

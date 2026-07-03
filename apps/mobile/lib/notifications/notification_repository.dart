@@ -141,7 +141,7 @@ String settleoraNotificationOpenFallbackMessage(
     SettleoraNotificationOpenFallbackState.archived =>
       'This notification is archived. Restore it before opening from Notifications.',
     SettleoraNotificationOpenFallbackState.unsupported =>
-      'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+      'This item cannot be opened here yet. Refresh or check the related section.',
     SettleoraNotificationOpenFallbackState.signInRequired =>
       'Sign in to view this notification.',
     SettleoraNotificationOpenFallbackState.wrongAccount =>

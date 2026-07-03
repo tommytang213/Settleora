@@ -67,8 +67,8 @@ void main() {
       const ValueKey('notification-details-0'),
     );
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
-    expect(find.byType(SettleoraKeyValueText), findsWidgets);
-    expect(find.text('Navigation safety'), findsOneWidget);
+    expect(find.byType(SettleoraSection), findsWidgets);
+    expect(find.text('Safety note'), findsOneWidget);
     await _captureBoundary(
       tester,
       captureKey,

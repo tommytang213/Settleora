@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../bills/bill_attachment_file_input.dart';
 import '../bills/bill_attachment_repository.dart';
@@ -9,6 +10,7 @@ import '../receipt_ocr_capture/receipt_image_intake.dart';
 import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../ui/settleora_components.dart';
+import '../ui/settleora_theme.dart';
 import 'group_repository.dart';
 
 class SettleoraGroupListScreen extends StatefulWidget {
@@ -316,6 +318,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
+                scrollCacheExtent: const ScrollCacheExtent.pixels(10000),
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
                   if (actionFailure != null) ...[
@@ -329,7 +332,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                       title: 'No groups',
                       message: widget.openGroupBillCreateOnPick
                           ? 'Create a group first, then pick it to start a group bill.'
-                          : 'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
+                          : 'Groups you can access will appear here. Create a group to start sharing bills.',
                       action: FilledButton.icon(
                         key: const Key('group-list-empty-create'),
                         onPressed: _isCreating ? null : _createGroup,
@@ -356,7 +359,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                         icon: Icons.filter_alt_off_outlined,
                         title: 'No matching groups',
                         message:
-                            'No loaded visible groups match these filters. Clear filters to review your available groups.',
+                            'No groups match this search. Clear filters to review your groups.',
                         compact: true,
                       )
                     else
@@ -843,6 +846,7 @@ class _SettleoraGroupDetailScreenState
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
+                scrollCacheExtent: const ScrollCacheExtent.pixels(10000),
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                 children: [
                   _GroupDetailHeader(group: group),
@@ -950,7 +954,7 @@ class _SettleoraGroupDetailScreenState
                             icon: Icons.person_search_outlined,
                             title: 'No matching members',
                             message:
-                                'No loaded visible members match these filters. Clear filters to review available group members.',
+                                'No members match this search. Clear filters to review group members.',
                             compact: true,
                           )
                         else
@@ -981,7 +985,6 @@ class _SettleoraGroupDetailScreenState
                     ],
                   ),
                   const SizedBox(height: 14),
-                  const _GroupWorkspaceReadinessCard(),
                 ],
               ),
             );
@@ -1012,53 +1015,15 @@ class _GroupBillsHandoffCard extends StatelessWidget {
       key: const Key('group-detail-bills-handoff'),
       child: ListTile(
         leading: const Icon(Icons.receipt_long_outlined),
-        title: const Text('Shared bill workspace'),
+        title: const Text('Group bills'),
         subtitle: Text(
-          '$memberCount loaded member${_plural(memberCount)} - Open group bills for $safeName.',
+          '$memberCount member${_plural(memberCount)} in $safeName.',
         ),
         trailing: FilledButton.icon(
           key: const Key('group-detail-bills'),
           onPressed: onOpenGroupBills,
           icon: const Icon(Icons.arrow_forward),
           label: const Text('Open'),
-        ),
-      ),
-    );
-  }
-}
-
-class _GroupWorkspaceReadinessCard extends StatelessWidget {
-  const _GroupWorkspaceReadinessCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-
-    return Card(
-      key: const Key('group-detail-workspace-readiness'),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Group workspace readiness', style: textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              'This group detail plus group bills is the current mobile group workspace. Group summaries, balances, reports, and settings are coming later.',
-              style: TextStyle(color: muted),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Use the main navigation for settlements, recurring bills, notifications, receipt reviews, reports, and sync status. Details are refreshed before actions, and local labels or filters do not grant access.',
-              style: TextStyle(color: muted),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Unsupported for now: saved group dashboard layouts, per-group dashboard defaults, saved dashboard profiles, dashboard personalization persistence, and saved cross-surface search/filter views.',
-              style: TextStyle(color: muted),
-            ),
-          ],
         ),
       ),
     );
@@ -1125,7 +1090,7 @@ class _MemberDiscoveryControls extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Showing $visibleCount of ${members.length} loaded members',
+                'Showing $visibleCount of ${members.length} members',
                 key: const Key('group-member-visible-count'),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1143,7 +1108,7 @@ class _MemberDiscoveryControls extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Member search and filters narrow loaded visible rows only. Member labels and hidden controls are not permission signals.',
+          'Search by name, role, or status.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1217,7 +1182,7 @@ class _GroupDiscoveryControls extends StatelessWidget {
           onChanged: onSearchChanged,
           textInputAction: TextInputAction.search,
           decoration: InputDecoration(
-            labelText: 'Search groups',
+            labelText: 'Search by group name',
             border: const OutlineInputBorder(),
             prefixIcon: const Icon(Icons.search),
             suffixIcon: searchController.text.trim().isEmpty
@@ -1238,7 +1203,7 @@ class _GroupDiscoveryControls extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Showing $visibleCount of ${groups.length} loaded groups',
+                'Groups you can access: $visibleCount of ${groups.length}',
                 key: const Key('group-list-visible-count'),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1256,7 +1221,7 @@ class _GroupDiscoveryControls extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Group search and filters narrow loaded visible rows only. Group labels, route state, and dashboard visibility are not authorization.',
+          'Search by group name, role, or status.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1299,26 +1264,95 @@ class _GroupSummaryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
+    final roleLabel = settleoraGroupRoleLabel(group.currentUserRole);
+    final statusLabel = settleoraGroupMembershipStatusLabel(
+      group.currentUserStatus,
+    );
+    final rolePhrase = _currentUserRolePhrase(group.currentUserRole);
+    final statusPhrase = _currentUserStatusPhrase(group.currentUserStatus);
+
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: InkWell(
         onTap: onTap,
-        leading: const CircleAvatar(child: Icon(Icons.groups_outlined)),
-        title: Text(
-          group.displayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+        child: Padding(
+          padding: EdgeInsets.all(SettleoraSpacing.md),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: colors.primarySoft,
+                foregroundColor: colors.primary,
+                child: const Icon(Icons.groups_outlined, size: 20),
+              ),
+              SizedBox(width: SettleoraSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.displayName,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    SizedBox(height: SettleoraSpacing.xxs),
+                    Text(
+                      '$rolePhrase. $statusPhrase.',
+                      style: TextStyle(color: colors.textMuted),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        StatusChip(
+                          label: roleLabel,
+                          icon: Icons.badge_outlined,
+                          size: StatusChipSize.small,
+                        ),
+                        StatusChip(
+                          label: statusLabel,
+                          icon: Icons.verified_user_outlined,
+                          variant:
+                              group.currentUserStatus ==
+                                  SettleoraGroupMembershipStatusValues.active
+                              ? StatusChipVariant.success
+                              : StatusChipVariant.neutral,
+                          size: StatusChipSize.small,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: SettleoraSpacing.xs),
+              Icon(Icons.chevron_right, color: colors.textSubtle),
+            ],
+          ),
         ),
-        subtitle: Text(
-          '${settleoraGroupRoleLabel(group.currentUserRole)} - ${settleoraGroupMembershipStatusLabel(group.currentUserStatus)}',
-        ),
-        trailing: const Icon(Icons.chevron_right),
       ),
     );
   }
+}
+
+String _currentUserRolePhrase(SettleoraGroupRole role) {
+  return switch (role) {
+    SettleoraGroupRoleValues.owner => 'You are the owner',
+    SettleoraGroupRoleValues.member => 'You are a member',
+    _ => 'Your role is ${settleoraGroupRoleLabel(role).toLowerCase()}',
+  };
+}
+
+String _currentUserStatusPhrase(SettleoraGroupMembershipStatus status) {
+  return switch (status) {
+    SettleoraGroupMembershipStatusValues.active => 'Active group',
+    SettleoraGroupMembershipStatusValues.removed => 'Removed from new activity',
+    _ =>
+      'Status is ${settleoraGroupMembershipStatusLabel(status).toLowerCase()}',
+  };
 }
 
 class _GroupDetailHeader extends StatelessWidget {
@@ -1367,49 +1401,40 @@ class _MemberTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-        title: Text(
-          member.safeDisplayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${settleoraGroupRoleLabel(member.role)} - ${settleoraGroupMembershipStatusLabel(member.status)}',
-        ),
-        trailing: isBusy
-            ? const SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : PopupMenuButton<String>(
-                key: menuKey,
-                tooltip: 'Member actions',
-                onSelected: (value) {
-                  switch (value) {
-                    case SettleoraGroupRoleValues.owner:
-                    case SettleoraGroupRoleValues.member:
-                      onUpdateRole(value);
-                    case 'remove':
-                      onRemove();
-                  }
-                },
-                itemBuilder: (context) => [
-                  for (final role in SettleoraGroupRoleValues.values)
-                    PopupMenuItem(
-                      value: role,
-                      enabled: role != member.role,
-                      child: Text('Make ${settleoraGroupRoleLabel(role)}'),
-                    ),
-                  const PopupMenuItem(value: 'remove', child: Text('Remove')),
-                ],
-              ),
-      ),
+    final roleLabel = settleoraGroupRoleLabel(member.role);
+    final statusLabel = settleoraGroupMembershipStatusLabel(member.status);
+
+    return SettleoraListRow(
+      title: member.safeDisplayName,
+      subtitle: '$roleLabel - $statusLabel',
+      leadingIcon: Icons.person_outline,
+      trailing: isBusy
+          ? const SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : PopupMenuButton<String>(
+              key: menuKey,
+              tooltip: 'Member actions',
+              onSelected: (value) {
+                switch (value) {
+                  case SettleoraGroupRoleValues.owner:
+                  case SettleoraGroupRoleValues.member:
+                    onUpdateRole(value);
+                  case 'remove':
+                    onRemove();
+                }
+              },
+              itemBuilder: (context) => [
+                for (final role in SettleoraGroupRoleValues.values)
+                  PopupMenuItem(
+                    value: role,
+                    enabled: role != member.role,
+                    child: Text('Make ${settleoraGroupRoleLabel(role)}'),
+                  ),
+                const PopupMenuItem(value: 'remove', child: Text('Remove')),
+              ],
+            ),
     );
   }
 }

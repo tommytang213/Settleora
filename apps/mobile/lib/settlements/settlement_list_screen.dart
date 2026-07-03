@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
+import '../ui/settleora_theme.dart';
 import 'settlement_repository.dart';
 
 class SettleoraSettlementListScreen extends StatefulWidget {
@@ -154,6 +156,7 @@ class _SettleoraSettlementListScreenState
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
+                scrollCacheExtent: const ScrollCacheExtent.pixels(10000),
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
                   _SettlementDiscoveryControls(
@@ -252,80 +255,73 @@ class _SettlementLandingSummary extends StatelessWidget {
         .length;
     final openRequestCount = requests.where(_isOpenRequest).length;
 
-    return Card(
+    return AppCard(
       key: const Key('settlement-list-landing-summary'),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.handshake_outlined),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Settle landing',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Review balances, settlement requests, and payment actions from this screen.',
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                SettleoraStatusChip(
-                  label:
-                      '$openBalanceCount open balance${_plural(openBalanceCount)}',
-                  icon: Icons.account_balance_wallet_outlined,
-                ),
-                SettleoraStatusChip(
-                  label: needsActionCount == 1
-                      ? '1 needing action'
-                      : '$needsActionCount needing action',
-                  icon: Icons.rule_outlined,
-                ),
-                SettleoraStatusChip(
-                  label:
-                      '$openRequestCount open request${_plural(openRequestCount)}',
-                  icon: Icons.request_quote_outlined,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.end,
-              children: [
-                OutlinedButton.icon(
-                  key: const Key('settlement-list-summary-all'),
-                  onPressed: onShowAll,
-                  icon: const Icon(Icons.list_alt_outlined),
-                  label: const Text('All settlements'),
-                ),
-                FilledButton.icon(
-                  key: const Key('settlement-list-summary-needs-action'),
-                  onPressed: onShowNeedsAction,
-                  icon: const Icon(Icons.rule_outlined),
-                  label: const Text('Needs action'),
-                ),
-              ],
-            ),
-          ],
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SettleoraCompactHeader(
+            title: 'Settle',
+            subtitle: 'What needs paying, confirming, or review',
+            leadingIcon: Icons.handshake_outlined,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              StatusChip(
+                label:
+                    '$openBalanceCount open balance${_plural(openBalanceCount)}',
+                icon: Icons.account_balance_wallet_outlined,
+                variant: openBalanceCount == 0
+                    ? StatusChipVariant.success
+                    : StatusChipVariant.info,
+              ),
+              StatusChip(
+                label: needsActionCount == 1
+                    ? '1 needing action'
+                    : '$needsActionCount needing action',
+                icon: Icons.rule_outlined,
+                variant: needsActionCount == 0
+                    ? StatusChipVariant.success
+                    : StatusChipVariant.warning,
+              ),
+              StatusChip(
+                label:
+                    '$openRequestCount open request${_plural(openRequestCount)}',
+                icon: Icons.request_quote_outlined,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            needsActionCount > 0
+                ? 'Start with settlements that need action, then review balances.'
+                : 'No settlement needs action right now. Review balances or payment history below.',
+            style: TextStyle(color: context.settleoraColors.textMuted),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                key: const Key('settlement-list-summary-all'),
+                onPressed: onShowAll,
+                icon: const Icon(Icons.list_alt_outlined),
+                label: const Text('All settlements'),
+              ),
+              FilledButton.icon(
+                key: const Key('settlement-list-summary-needs-action'),
+                onPressed: onShowNeedsAction,
+                icon: const Icon(Icons.rule_outlined),
+                label: const Text('Needs action'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -658,7 +654,7 @@ class _SettleoraSettlementDetailScreenState
         }
 
         _showSnackBar(
-          '$successMessage Refresh failed. Use Refresh to reload server state before repeating any settlement action.',
+          '$successMessage Refresh failed. Use Refresh before repeating any settlement action.',
         );
       }
     } catch (error) {
@@ -798,6 +794,7 @@ class _SettleoraSettlementDetailScreenState
                 _paymentSearchQuery.isNotEmpty;
 
             return ListView(
+              scrollCacheExtent: const ScrollCacheExtent.pixels(10000),
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
                 _RequestHeader(
@@ -809,7 +806,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'request-cancel',
                     title: 'Cancel settlement?',
                     message:
-                        'This asks the API to cancel the requested settlement if no payment has been recorded. The loaded role and status only guide this button; the server decides authorization, status, audit, and money.',
+                        'Cancel this settlement only if no payment has been sent. Refresh first if anything looks out of date.',
                     confirmLabel: 'Cancel settlement',
                     successMessage: 'Settlement cancelled.',
                     operation: () async {
@@ -878,7 +875,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'payment-confirm-${payment.id}',
                     title: 'Confirm receipt?',
                     message:
-                        'Confirm only if you received this payment. Access, settlement state, residual handling, and audit details are checked before the confirmation is saved.',
+                        'Confirm only if you received this payment. Refresh first if anything looks out of date.',
                     confirmLabel: 'Confirm receipt',
                     successMessage: 'Payment confirmed.',
                     operation: () async {
@@ -891,7 +888,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'payment-cancel-${payment.id}',
                     title: 'Cancel payment claim?',
                     message:
-                        'This asks the API to cancel your marked-paid claim. The loaded payer role only guides this button; the server decides whether the transition is allowed.',
+                        'Cancel this marked-paid claim if you have not sent the payment or need to correct it.',
                     confirmLabel: 'Cancel claim',
                     successMessage: 'Payment cancelled.',
                     operation: () async {
@@ -917,7 +914,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'residual-confirm-${residual.id}',
                     title: 'Confirm residual?',
                     message:
-                        'Confirm this remaining amount handling only if it matches what you agreed. Access, settlement state, and audit details are checked before the confirmation is saved.',
+                        'Confirm this remaining amount only if it matches what you agreed. Refresh first if anything looks out of date.',
                     confirmLabel: 'Confirm residual',
                     successMessage: 'Residual confirmed.',
                     operation: () async {
@@ -1032,7 +1029,7 @@ class _SettlementDiscoveryControls extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'Balances remain unfiltered totals.',
+          'Balances stay visible while you filter payments.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1096,93 +1093,113 @@ class _BalanceTile extends StatelessWidget {
       balance.direction,
     );
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        leading: Icon(
-          balance.direction ==
-                  SettleoraSettlementBalanceDirectionValues.incoming
-              ? Icons.south_west_outlined
-              : Icons.north_east_outlined,
-        ),
-        title: Text('$direction balance'),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SettleoraCompactHeader(
+            title: '$direction balance',
+            subtitle:
+                balance.direction ==
+                    SettleoraSettlementBalanceDirectionValues.incoming
+                ? "You're owed"
+                : 'You owe',
+            leadingIcon:
+                balance.direction ==
+                    SettleoraSettlementBalanceDirectionValues.incoming
+                ? Icons.south_west_outlined
+                : Icons.north_east_outlined,
+          ),
+          const SizedBox(height: 10),
+          SettleoraKeyValueMoneyText(
+            label: 'Remaining',
+            amount: balance.remainingUnclaimedAmount,
+            currencyCode: balance.currency,
+          ),
+          SettleoraKeyValueMoneyText(
+            label: 'Pending payments',
+            amount: balance.pendingClaimedAmount,
+            currencyCode: balance.currency,
+          ),
+          SettleoraKeyValueMoneyText(
+            label: 'Paid',
+            amount: balance.confirmedClearedAmount,
+            currencyCode: balance.currency,
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
             children: [
-              SettleoraKeyValueMoneyText(
-                label: 'Selected lines',
-                amount: balance.selectedLineAmount,
-                currencyCode: balance.currency,
+              SettleoraStatusChip(
+                label: '${balance.requestCount} requests',
+                icon: Icons.receipt_long_outlined,
               ),
-              SettleoraKeyValueMoneyText(
-                label: 'Remaining',
-                amount: balance.remainingUnclaimedAmount,
-                currencyCode: balance.currency,
+              SettleoraStatusChip(
+                label: '${balance.lineCount} bills',
+                icon: Icons.format_list_bulleted,
               ),
-              SettleoraKeyValueMoneyText(
-                label: 'Pending',
-                amount: balance.pendingClaimedAmount,
-                currencyCode: balance.currency,
+              SettleoraStatusChip(
+                label: '${balance.pendingPaymentCount} pending payments',
+                icon: Icons.pending_actions_outlined,
               ),
-              SettleoraKeyValueMoneyText(
-                label: 'Cleared',
-                amount: balance.confirmedClearedAmount,
-                currencyCode: balance.currency,
+              SettleoraStatusChip(
+                label: '${balance.confirmedPaymentCount} confirmed payments',
+                icon: Icons.verified_outlined,
               ),
-              SettleoraKeyValueMoneyText(
-                label: 'Confirmed residual',
-                amount: balance.confirmedRemainingResidualAmount,
-                currencyCode: balance.currency,
-              ),
-              SettleoraKeyValueMoneyText(
-                label: 'Waived residual',
-                amount: balance.waivedResidualAmount,
-                currencyCode: balance.currency,
-              ),
-              SettleoraKeyValueMoneyText(
-                label: 'Credit residual',
-                amount: balance.creditResidualAmount,
-                currencyCode: balance.currency,
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  SettleoraStatusChip(
-                    label: '${balance.requestCount} requests',
-                    icon: Icons.receipt_long_outlined,
-                  ),
-                  SettleoraStatusChip(
-                    label: '${balance.lineCount} lines',
-                    icon: Icons.format_list_bulleted,
-                  ),
-                  SettleoraStatusChip(
-                    label: '${balance.pendingPaymentCount} pending payments',
-                    icon: Icons.pending_actions_outlined,
-                  ),
-                  SettleoraStatusChip(
-                    label:
-                        '${balance.confirmedPaymentCount} confirmed payments',
-                    icon: Icons.verified_outlined,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Balance rows show the latest loaded projection. Refresh before acting if anything looks stale.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+              if (_amountStringLooksNonZero(
+                balance.confirmedRemainingResidualAmount,
+              ))
+                _BalanceResidualChip(
+                  label: 'Remaining review',
+                  amount: balance.confirmedRemainingResidualAmount,
+                  currency: balance.currency,
                 ),
-              ),
+              if (_amountStringLooksNonZero(balance.waivedResidualAmount))
+                _BalanceResidualChip(
+                  label: 'Waived',
+                  amount: balance.waivedResidualAmount,
+                  currency: balance.currency,
+                ),
+              if (_amountStringLooksNonZero(balance.creditResidualAmount))
+                _BalanceResidualChip(
+                  label: 'Credit',
+                  amount: balance.creditResidualAmount,
+                  currency: balance.currency,
+                ),
             ],
           ),
-        ),
+          const SizedBox(height: 6),
+          Text(
+            'Refresh if anything looks out of date.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class _BalanceResidualChip extends StatelessWidget {
+  const _BalanceResidualChip({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    return StatusChip(
+      label: '$label ${_money(amount, currency)}',
+      icon: Icons.rule_outlined,
+      variant: StatusChipVariant.info,
+      size: StatusChipSize.small,
     );
   }
 }
@@ -1209,7 +1226,7 @@ class _RequestSection extends StatelessWidget {
               icon: Icons.search_off_outlined,
               title: 'No matching settlements',
               message:
-                  'No loaded settlement requests match this local search and filter. Clear filters to review loaded rows; no-match is not a server search, authorization result, or settlement truth.',
+                  'No settlements match this search. Clear filters to review your settlements.',
               compact: true,
             ),
           ],
@@ -1259,38 +1276,51 @@ class _RequestTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        key: ValueKey('settlement-request-tile-$index'),
+    final amountLabel = '${request.amount} ${request.currency}';
+    return AppCard(
+      key: ValueKey('settlement-request-tile-$index'),
+      padding: EdgeInsets.zero,
+      child: InkWell(
         onTap: onTap,
-        leading: const Icon(Icons.request_quote_outlined),
-        title: MoneyText(
-          amount: request.amount,
-          currencyCode: request.currency,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 6,
+        borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
             children: [
-              SettleoraStatusChip(
-                label: settleoraSettlementRequestStatusLabel(request.status),
-                icon: Icons.assignment_outlined,
+              const Icon(Icons.request_quote_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      amountLabel,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        SettleoraStatusChip(
+                          label: settleoraSettlementRequestStatusLabel(
+                            request.status,
+                          ),
+                          icon: Icons.assignment_outlined,
+                        ),
+                        SettleoraStatusChip(
+                          label: '${request.lines.length} lines',
+                          icon: Icons.format_list_bulleted,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              SettleoraStatusChip(
-                label: '${request.lines.length} lines',
-                icon: Icons.format_list_bulleted,
-              ),
+              const Icon(Icons.chevron_right),
             ],
           ),
         ),
-        trailing: const Icon(Icons.chevron_right),
       ),
     );
   }
@@ -1322,89 +1352,88 @@ class _RequestHeader extends StatelessWidget {
     final canDispute = request.canDisputeFor(currentUserProfileId);
     final hasActions = canMarkPaid || canCancel || canDispute;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        MoneyText(
-          amount: request.amount,
-          currencyCode: request.currency,
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 10),
-        SettleoraKeyValueText(
-          label: 'Status',
-          value: settleoraSettlementRequestStatusLabel(request.status),
-        ),
-        SettleoraKeyValueMoneyText(
-          label: 'Selected total',
-          amount: request.amount,
-          currencyCode: request.currency,
-        ),
-        SettleoraKeyValueText(
-          label: 'Requested',
-          value: _formatTimestamp(request.requestedAtUtc),
-        ),
-        SettleoraKeyValueText(label: 'Lines', value: '${request.lines.length}'),
-        const SizedBox(height: 8),
-        Text(
-          'Actions shown here use the latest loaded status. Access, settlement state, audit, and money are checked again before changes are saved.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SettleoraCompactHeader(
+            title: _requestRoleLabel(
+              request: request,
+              currentUserProfileId: currentUserProfileId,
+            ),
+            subtitle: settleoraSettlementRequestStatusLabel(request.status),
+            leadingIcon: Icons.request_quote_outlined,
+            trailing: SettleoraMoneyChip(
+              amount: request.amount,
+              currencyCode: request.currency,
+              variant: canMarkPaid
+                  ? StatusChipVariant.warning
+                  : StatusChipVariant.info,
+            ),
           ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Selected total is the request amount for the loaded lines. Actual paid amounts are shown separately on payment claims.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-        if (hasActions) ...[
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (canMarkPaid)
-                FilledButton.icon(
-                  key: const Key('settlement-request-mark-paid'),
-                  onPressed: busyAction == null ? onMarkPaid : null,
-                  icon: busyAction == 'request-mark-paid'
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.payments_outlined),
-                  label: const Text('Mark paid'),
-                ),
-              if (canCancel)
-                OutlinedButton.icon(
-                  key: const Key('settlement-request-cancel'),
-                  onPressed: busyAction == null ? onCancel : null,
-                  icon: busyAction == 'request-cancel'
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.close_outlined),
-                  label: const Text('Cancel'),
-                ),
-              if (canDispute)
-                OutlinedButton.icon(
-                  key: const Key('settlement-request-dispute'),
-                  onPressed: busyAction == null ? onDispute : null,
-                  icon: busyAction == 'request-dispute'
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.report_problem_outlined),
-                  label: const Text('Dispute'),
-                ),
-            ],
+          SettleoraKeyValueText(
+            label: 'Requested',
+            value: _formatTimestamp(request.requestedAtUtc),
           ),
+          SettleoraKeyValueText(
+            label: 'Lines',
+            value: '${request.lines.length}',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Refresh if anything looks out of date before you act.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (hasActions) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (canMarkPaid)
+                  FilledButton.icon(
+                    key: const Key('settlement-request-mark-paid'),
+                    onPressed: busyAction == null ? onMarkPaid : null,
+                    icon: busyAction == 'request-mark-paid'
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.payments_outlined),
+                    label: const Text('Mark as paid'),
+                  ),
+                if (canCancel)
+                  OutlinedButton.icon(
+                    key: const Key('settlement-request-cancel'),
+                    onPressed: busyAction == null ? onCancel : null,
+                    icon: busyAction == 'request-cancel'
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.close_outlined),
+                    label: const Text('Cancel'),
+                  ),
+                if (canDispute)
+                  OutlinedButton.icon(
+                    key: const Key('settlement-request-dispute'),
+                    onPressed: busyAction == null ? onDispute : null,
+                    icon: busyAction == 'request-dispute'
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.report_problem_outlined),
+                    label: const Text('Dispute amount'),
+                  ),
+              ],
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
@@ -1481,7 +1510,7 @@ _LifecycleGuidance _lifecycleState({
               icon: Icons.north_east_outlined,
               title: 'You are expected to pay',
               message:
-                  'Use the counterparty payment details, then mark this settlement paid after sending payment. The claim is checked and recorded in the audit trail.',
+                  'Pay this person, then mark it as paid. Dispute if the amount looks wrong.',
               chips: const ['Payment needed', 'Mark paid available'],
             )
           : _LifecycleGuidance(
@@ -1591,19 +1620,21 @@ class _DetailReviewSummarySection extends StatelessWidget {
         : 'Not configured';
 
     return SettleoraSection(
-      title: 'Review Summary',
+      title: 'What this includes',
       children: [
         _GuidancePanel(
           icon: Icons.fact_check_outlined,
-          title: 'Loaded settlement facts',
+          title: 'Settlement overview',
           message:
-              '${settleoraSettlementRequestStatusLabel(request.status)} - $roleLabel. Mobile shows loaded API rows and does not expand baskets, decide eligibility, or calculate settlement totals.',
+              '${settleoraSettlementRequestStatusLabel(request.status)} - $roleLabel.',
           chips: [
             '${request.lines.length} lines',
             '${payments.length} payments',
             '$residualCount residuals',
             if (pendingResidualCount > 0)
-              '$pendingResidualCount need confirmation'
+              pendingResidualCount == 1
+                  ? '1 needs confirmation'
+                  : '$pendingResidualCount need confirmation'
             else
               'No residual review',
             'Payment details $paymentDetailsStatus',
@@ -1638,12 +1669,12 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
 
     if (details == null && failure == null) {
       return const SettleoraSection(
-        title: 'Counterparty Payment Details',
+        title: 'Payment details',
         children: [
           SettleoraStatePanel(
             icon: Icons.account_balance_outlined,
             title: 'No payment details',
-            message: 'No settlement counterparty details are available.',
+            message: 'No payment details are available for this settlement.',
             compact: true,
           ),
         ],
@@ -1652,7 +1683,7 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
 
     if (failure != null) {
       return SettleoraSection(
-        title: 'Counterparty Payment Details',
+        title: 'Payment details',
         children: [
           SettleoraStatePanel(
             icon: Icons.visibility_off_outlined,
@@ -1666,7 +1697,7 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
 
     if (details == null || !details.isConfigured) {
       return const SettleoraSection(
-        title: 'Counterparty Payment Details',
+        title: 'Payment details',
         children: [
           SettleoraStatePanel(
             icon: Icons.account_balance_outlined,
@@ -1679,13 +1710,13 @@ class _CounterpartyPaymentDetailsSection extends StatelessWidget {
     }
 
     return SettleoraSection(
-      title: 'Counterparty Payment Details',
+      title: 'Payment details',
       children: [
         _GuidancePanel(
           icon: Icons.verified_user_outlined,
-          title: 'Settlement-scoped visibility',
+          title: 'Payment instructions',
           message:
-              'Only people involved in an eligible settlement can see these payment details. QR payment bytes are not shown here.',
+              'Use these details to pay this person, then mark the settlement paid.',
           chips: [
             'Relationship-backed',
             _fallback(details.visibilityApplied, 'Verified'),
@@ -1734,11 +1765,11 @@ class _RequestLinesSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (totalLineCount == 0) {
       return const SettleoraSection(
-        title: 'Request Lines',
+        title: 'Included bills',
         children: [
           SettleoraStatePanel(
             icon: Icons.format_list_bulleted,
-            title: 'No request lines',
+            title: 'No included bills',
             message: 'No selected settlement lines are visible.',
             compact: true,
           ),
@@ -1747,7 +1778,7 @@ class _RequestLinesSection extends StatelessWidget {
     }
 
     return SettleoraSection(
-      title: 'Request Lines',
+      title: 'Included bills',
       trailing: Text(
         '${lines.length} of $totalLineCount',
         style: Theme.of(context).textTheme.bodySmall,
@@ -1755,11 +1786,10 @@ class _RequestLinesSection extends StatelessWidget {
       children: [
         _GuidancePanel(
           icon: Icons.format_list_bulleted,
-          title: 'Loaded selected scope',
-          message:
-              'These are the selected request lines returned by the API. Mobile filters only loaded rows on this device and does not expand baskets or decide line eligibility.',
+          title: 'Bills in this settlement',
+          message: 'These are the bills included in this settlement.',
           chips: [
-            '$totalLineCount loaded lines',
+            '$totalLineCount bills',
             if (hasActiveDiscovery) '${lines.length} visible after filter',
           ],
         ),
@@ -1778,7 +1808,7 @@ class _RequestLinesSection extends StatelessWidget {
             icon: Icons.search_off_outlined,
             title: 'No matching request lines',
             message:
-                'No loaded request lines match this local filter. Clear the filter to restore the rows already returned by the API.',
+                'No bills match this search. Clear the filter to review the settlement lines.',
             compact: true,
           )
         else
@@ -1904,11 +1934,10 @@ class _PaymentsSection extends StatelessWidget {
       children: [
         _GuidancePanel(
           icon: Icons.filter_alt_outlined,
-          title: 'Loaded payment filters',
-          message:
-              'Payment and residual filters hide only already-loaded rows on this device. They do not authorize, mutate, calculate, allocate, or reconcile settlement data.',
+          title: 'Payment records',
+          message: 'Filter payment records and remaining-amount reviews.',
           chips: [
-            '$totalPaymentCount loaded payments',
+            '$totalPaymentCount payments',
             if (hasActiveDiscovery) '${payments.length} visible after filter',
           ],
         ),
@@ -1945,7 +1974,7 @@ class _PaymentsSection extends StatelessWidget {
             icon: Icons.search_off_outlined,
             title: 'No matching payments',
             message:
-                'No loaded payments or residuals match this local filter. Clear filters to restore rows already returned by the API.',
+                'No payments match this search. Clear filters to review payment records.',
             compact: true,
           )
         else
@@ -2056,7 +2085,7 @@ class _PaymentTile extends StatelessWidget {
             if (confirmBlockedByResidual) ...[
               const SizedBox(height: 8),
               Text(
-                'Receipt confirmation is blocked until pending receiver-confirmation residuals are resolved by the API.',
+                'Review the remaining amount before confirming receipt.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -2066,7 +2095,7 @@ class _PaymentTile extends StatelessWidget {
                     SettleoraSettlementPaymentStatusValues.markedPaid) ...[
               const SizedBox(height: 8),
               Text(
-                'Waiting for the receiver to confirm this actual paid amount against the server-selected request lines.',
+                'Waiting for the receiver to confirm this payment.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -2088,7 +2117,7 @@ class _PaymentTile extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.check_outlined),
-                      label: const Text('Confirm'),
+                      label: const Text('Confirm receipt'),
                     ),
                   if (canCancel)
                     OutlinedButton.icon(
@@ -2143,7 +2172,7 @@ class _AllocationList extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(top: 3),
           child: Text(
-            'Allocation rows show clearing details for the loaded selected lines.',
+            'Clearing details for the selected bills.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -2234,7 +2263,7 @@ class _ResidualList extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.check_outlined),
-                      label: const Text('Confirm'),
+                      label: const Text('Confirm remaining'),
                     ),
                 ],
               ),
@@ -2320,7 +2349,7 @@ class _MarkPaymentPaidDialogState extends State<_MarkPaymentPaidDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Mark paid only after sending payment. Access, settlement state, residual handling, audit, and money are checked before the claim is saved.',
+              'Pay this person first, then mark it as paid. Refresh first if anything looks out of date.',
             ),
             const SizedBox(height: 14),
             MoneyAmountCurrencyField(
@@ -2365,7 +2394,7 @@ class _MarkPaymentPaidDialogState extends State<_MarkPaymentPaidDialog> {
         FilledButton(
           key: const Key('settlement-mark-paid-submit'),
           onPressed: _submit,
-          child: const Text('Mark paid'),
+          child: const Text('Mark as paid'),
         ),
       ],
     );
@@ -2431,9 +2460,12 @@ class _GuidancePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: colors.surface,
+        border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
@@ -2468,7 +2500,12 @@ class _GuidancePanel extends StatelessWidget {
                 runSpacing: 6,
                 children: [
                   for (final chip in chips)
-                    SettleoraStatusChip(label: chip, icon: Icons.info_outline),
+                    StatusChip(
+                      label: chip,
+                      icon: Icons.info_outline,
+                      variant: StatusChipVariant.info,
+                      size: StatusChipSize.small,
+                    ),
                   ...chipWidgets,
                 ],
               ),
@@ -2590,21 +2627,21 @@ String _settlementActionFailureMessage(Object error) {
   final failure = SettleoraSettlementFailure.from(error);
   return switch (failure.kind) {
     SettleoraSettlementFailureKind.sessionRequired =>
-      'Sign in before asking the API to change this settlement.',
+      'Sign in before changing this settlement.',
     SettleoraSettlementFailureKind.sessionExpired =>
       'Your session expired. Sign in again before changing this settlement.',
     SettleoraSettlementFailureKind.denied =>
-      'The API did not allow this settlement action for the current account.',
+      'This settlement action is not available for the current account.',
     SettleoraSettlementFailureKind.unavailable =>
       'This settlement action is no longer available. Refresh before trying again.',
     SettleoraSettlementFailureKind.conflict =>
-      'The settlement changed on the server. Refresh before trying again.',
+      'The settlement changed. Refresh before trying again.',
     SettleoraSettlementFailureKind.validation =>
-      'The API rejected this settlement action. Refresh and review the loaded state before trying again.',
+      'This settlement action could not be saved. Refresh and review the current state before trying again.',
     SettleoraSettlementFailureKind.network =>
-      'The API could not be reached. The loaded settlement state was kept; retry when the connection is back.',
+      'Settleora could not be reached. Retry when the connection is back.',
     SettleoraSettlementFailureKind.server =>
-      'The API could not complete this settlement action right now. The loaded settlement state was kept.',
+      'Settleora could not complete this settlement action right now.',
   };
 }
 
