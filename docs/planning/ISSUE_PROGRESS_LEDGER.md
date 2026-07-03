@@ -554,6 +554,26 @@ remain the source of truth.
     processing and advanced receipt review polish, future spacing/rhythm
     follow-ups, and any runtime/payment/storage/money/OCR/theme gates. #371
     remains closed and was not touched or reopened.
+  - Tommy reviewed the `20260703-1830` Bills list/detail/create evidence and
+    rejected it as not PR-ready because the create-bill sticky `Save bill`
+    footer sat too close to the item form area, the Bills dashboard filter copy
+    still sounded implementation-facing, and the Bills app bar showed
+    duplicate-looking sync/refresh affordances. The `20260703-1840`
+    development-only follow-up continues the same local task branch from
+    `54777034412d40b6eac9d845a7bf806333661dbd`, keeps the existing bill detail
+    and saved OCR review surfaces stable, increases create-bill scroll bottom
+    padding with focused visual/test coverage for sticky-footer clearance,
+    shortens the Bills dashboard filter copy to product-facing language, and
+    keeps one app-bar refresh action while preserving the existing Sync queue
+    panel `Sync` action. Fresh follow-up evidence is generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1840-mobile-bills-list-create-visual-followup-dev-only/`
+    with `bills-list-or-dashboard-390x844.png`,
+    `bill-detail-390x844.png`, `bill-create-or-edit-390x844.png`,
+    `bill-create-items-safe-footer-390x844.png`, and
+    `bill-saved-ocr-readout-390x844.png`. Final validation, final branch head,
+    and push status are recorded in the matching Codex report. #672 should
+    remain open for Tommy visual review and any explicit PR/merge gate. #371
+    remains closed and was not touched or reopened.
 - Remaining Day 1 work:
   - PR/merge gate for the approved Bills/OCR/revision development evidence.
   - PR/merge gate for the approved Groups/Settle/Notifications development

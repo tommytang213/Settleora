@@ -8709,11 +8709,12 @@ void main() {
 
     expect(find.text('2 of 2 loaded rows visible.'), findsOneWidget);
     expect(
-      find.text(
-        'Search and filters only change what is shown here. Bill totals and status stay exactly as loaded.',
-      ),
+      find.text('Showing loaded bills only. Totals and status are unchanged.'),
       findsOneWidget,
     );
+    expect(find.byKey(const Key('bill-list-refresh')), findsOneWidget);
+    expect(find.byTooltip('Refresh bills'), findsOneWidget);
+    expect(find.byKey(const Key('bill-list-sync')), findsNothing);
     expect(find.textContaining('Reconciled'), findsOneWidget);
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -360));
     await tester.pumpAndSettle();

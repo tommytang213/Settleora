@@ -13,7 +13,7 @@ import '../bill_list_screen_test.dart' as bills;
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260703-1830-mobile-bills-list-detail-create-visual-parity-dev-only';
+    '/workspace/logs/settleora-visual-qa/20260703-1840-mobile-bills-list-create-visual-followup-dev-only';
 
 const _billId = '11111111-1111-1111-1111-111111111111';
 const _fileId = '22222222-2222-2222-2222-222222222222';
@@ -121,6 +121,33 @@ void main() {
         'bill-create-or-edit-390x844.png',
       );
 
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-name-0')),
+        'Oat milk',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-quantity-0')),
+        '1',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('personal-bill-item-unit-amount-0')),
+        '42.00',
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('personal-bill-create-review-checklist')),
+      );
+      await tester.pumpAndSettle();
+      _expectClearsStickySaveFooter(
+        tester,
+        find.byKey(const Key('personal-bill-create-review-checklist')),
+      );
+      await _captureBoundary(
+        tester,
+        createKey,
+        'bill-create-items-safe-footer-390x844.png',
+      );
+
       final route = ReceiptOcrReviewRoute(billId: _billId, fileId: _fileId);
       const savedOcrKey = Key('bill-saved-ocr-readout-capture');
       await tester.pumpWidget(
@@ -162,6 +189,20 @@ void main() {
         'bill-saved-ocr-readout-390x844.png',
       );
     },
+  );
+}
+
+void _expectClearsStickySaveFooter(WidgetTester tester, Finder target) {
+  final targetBottom = tester.getBottomLeft(target).dy;
+  final footerTop = tester
+      .getTopLeft(find.byKey(const Key('personal-bill-save')))
+      .dy;
+
+  expect(
+    targetBottom,
+    lessThanOrEqualTo(footerTop - 16),
+    reason:
+        'The create-bill scrolled content should clear the sticky Save bill footer.',
   );
 }
 

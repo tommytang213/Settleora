@@ -836,20 +836,9 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
         title: const Text('Bills'),
         actions: [
           IconButton(
-            key: const Key('bill-list-sync'),
-            onPressed: _isLoading || _isSyncing ? null : () => _flushQueue(),
-            tooltip: 'Sync pending work',
-            icon: _isSyncing
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync_outlined),
-          ),
-          IconButton(
             key: const Key('bill-list-refresh'),
             onPressed: _isLoading ? null : _load,
-            tooltip: 'Refresh',
+            tooltip: 'Refresh bills',
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -927,7 +916,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                       loadedCount: _bills.length,
                       visibleCount: visibleBills.length,
                       readoutScope:
-                          'Search and filters only change what is shown here. Bill totals and status stay exactly as loaded.',
+                          'Showing loaded bills only. Totals and status are unchanged.',
                       selectedFilter: _selectedFilter,
                       filters: _PersonalBillListFilter.values,
                       labelForFilter: (filter) =>
@@ -2268,7 +2257,7 @@ class _SettleoraPersonalBillCreateScreenState
           child: Form(
             key: _formKey,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 176),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
