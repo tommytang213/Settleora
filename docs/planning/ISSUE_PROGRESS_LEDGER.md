@@ -574,6 +574,24 @@ remain the source of truth.
     and push status are recorded in the matching Codex report. #672 should
     remain open for Tommy visual review and any explicit PR/merge gate. #371
     remains closed and was not touched or reopened.
+  - Tommy/Assistant manually approved the `20260703-1840` Bills
+    list/detail/create follow-up evidence for this bounded child slice as
+    `VISUAL_APPROVED_WITH_FOLLOWUPS`. The reviewed source head before this
+    approval checkpoint is `a4a6489db934d5a0c23a5073292e33ec78a21e6e` on
+    branch `feature/mobile-bills-list-detail-create-visual-parity-672-20260703`.
+    Approved evidence is under
+    `/workspace/logs/settleora-visual-qa/20260703-1840-mobile-bills-list-create-visual-followup-dev-only/`
+    with `bills-list-or-dashboard-390x844.png`,
+    `bill-detail-390x844.png`, `bill-create-or-edit-390x844.png`,
+    `bill-create-items-safe-footer-390x844.png`, and
+    `bill-saved-ocr-readout-390x844.png`. This approval is limited to the
+    bounded Bills list/detail/create visual parity child slice under #672. It
+    does not close #672, does not approve full mobile Flutter visual parity,
+    OCR capture/processing states, advanced tax/discount/fee/refund review
+    runtime, future spacing/rhythm follow-ups, runtime theme switching, theme
+    picker/persistence, backend/API/OpenAPI/generated-client/schema/money/
+    storage/security/OCR runtime changes, or #371 notification-open/deep-link
+    redo.
 - Remaining Day 1 work:
   - PR/merge gate for the approved Bills/OCR/revision development evidence.
   - PR/merge gate for the approved Groups/Settle/Notifications development
