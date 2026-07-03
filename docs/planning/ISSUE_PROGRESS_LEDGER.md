@@ -25,8 +25,8 @@ remain the source of truth.
 - GitHub state/project status: issue `OPEN`; Project field mutation was not
   attempted by this implementation task.
 - Last verified at main SHA:
-  `7ddce8b8eb115f7a2f4163f3c0cba64e5cb160a2` after PR #671 and before the
-  `feature/mobile-shared-visual-foundation-20260702` branch.
+  `0a29bba4d76446f641a40d916bae9242c6769996` after PR #677 during the
+  `docs/mobile-672-acceptance-readout-audit-20260703` docs/control audit.
 - Last child-slice checkpoint at base main SHA:
   `154ed6787e1cb1b7f06fd1310ddeff724bd7b886` for branch
   `feature/mobile-shell-home-more-profile-parity-672-20260702`.
@@ -592,25 +592,70 @@ remain the source of truth.
     picker/persistence, backend/API/OpenAPI/generated-client/schema/money/
     storage/security/OCR runtime changes, or #371 notification-open/deep-link
     redo.
+- Post-PR #677 audit checkpoint:
+  - GitHub readback on 2026-07-03 HKT verified #672 remains `OPEN`, #371
+    remains `CLOSED`, and PRs #673, #674, #675, #676, and #677 are merged.
+  - PR #673, merge SHA `154ed6787e1cb1b7f06fd1310ddeff724bd7b886`,
+    completed the shared mobile visual foundation slice with approved evidence
+    at
+    `/workspace/logs/settleora-visual-qa/20260702-2224-mobile-shared-visual-foundation-theme-correction/`.
+  - PR #674, merge SHA `fd5719cec82f8ea44c3f7af857cba904a34b6ad2`,
+    completed the Shell/Home/More/App settings/Profile/Setup/Sign-in visual
+    parity slice with approved evidence at
+    `/workspace/logs/settleora-visual-qa/20260703-1110-mobile-shell-home-setup-signin-copy-followup-dev-only/`.
+  - PR #675, merge SHA `51fb0baeed84586e5ef44e53c4a407966ac45f27`,
+    completed the Bills/OCR/revision visual hierarchy slice with approved
+    evidence at
+    `/workspace/logs/settleora-visual-qa/20260703-1348-mobile-bills-ocr-revision-friendly-polish-dev-only/`.
+  - PR #676, merge SHA `6cd629dd8265b8f5dadce636beed51729126e13b`,
+    completed the Groups/Settle/Notifications visual hierarchy slice with
+    approved evidence at
+    `/workspace/logs/settleora-visual-qa/20260703-1745-mobile-groups-settle-ux-polish-dev-only/`.
+  - PR #677, merge SHA `0a29bba4d76446f641a40d916bae9242c6769996`,
+    completed the Bills list/detail/create visual parity slice with approved
+    evidence at
+    `/workspace/logs/settleora-visual-qa/20260703-1840-mobile-bills-list-create-visual-followup-dev-only/`.
+  - All verified #672 PRs were visual/presentation/test/ledger scoped only.
+    They did not authorize backend/API/OpenAPI/generated-client/schema,
+    auth/session/security runtime, storage/file-byte behavior, money/
+    settlement/payment/bill calculation authority, OCR extraction/runtime/apply
+    behavior, sync runtime behavior, notification runtime/provider/push/email/
+    admin/global policy behavior, #371 notification-open/deep-link redo,
+    Docker/deployment/env/CI/signing/TestFlight/App Store metadata, runtime
+    theme default switching, theme picker/persistence, Figma API output, or
+    binary design asset commits.
 - Remaining Day 1 work:
-  - PR/merge gate for the approved Bills/OCR/revision development evidence.
-  - PR/merge gate for the approved Groups/Settle/Notifications development
-    evidence.
-  - Remaining Bills/OCR/revision depth after this child slice: broader bills
-    list/detail/create/add-bill sheet parity, richer saved OCR in-bill detail,
-    OCR capture/processing states, and advanced tax/discount/fee/refund review
-    remain separately gated against existing runtime only.
-  - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
-    and future theme/preset behavior.
-  - Manual/Figma visual review and evidence for each later child slice.
+  - No currently approved #672 child implementation slice is waiting for a
+    PR/merge gate after PR #677.
+  - Remaining real gates are acceptance/readout and future cleanup decisions:
+    whether to close #672 after a narrow acceptance/readout PR/merge gate, or
+    keep #672 open only long enough to split minor copy/spacing/rhythm cleanup
+    into separate follow-up issues.
+  - Known non-blocking visual follow-ups after the merged slices include
+    spacing/section rhythm, dense bills/OCR/settlement usage polish,
+    notification detail safety-note / received-timestamp spacing, hiding
+    zero-value settlement chips where not useful, friendlier OCR/revision copy
+    such as `Action needed: needs review.`, and future theme/preset behavior.
+  - OCR capture/processing states, advanced tax/discount/fee/refund review,
+    push/provider/admin notification policy, auth security/privacy vault,
+    import/export/backup runtime, and runtime theme picker/default-theme
+    behavior remain separate future gated work and should not be treated as
+    missing visual child slices unless a new bounded task explicitly approves
+    them against existing runtime.
+  - Manual/Figma visual review and evidence remain required for any later child
+    slice or cleanup PR that changes material mobile presentation.
   - Runtime/payment/storage/money/OCR gates remain required for any behavior
     beyond visual presentation, including OCR extraction/runtime changes,
     receipt storage/file-byte changes, API/OpenAPI/generated-client/schema
     changes, settlement/payment/bill calculation authority, and runtime theme
     picker/default-theme behavior.
 - Close/keep-open recommendation:
-  - Keep #672 open as the umbrella tracker until child implementation slices
-    and manual/Figma gates are complete.
+  - Keep #672 open for now, but the post-#677 evidence supports treating the
+    intended approved child implementation slices as complete except minor
+    cleanup/readout issues. Recommended next action is a narrow #672
+    acceptance/readout PR/merge gate, or a separate future cleanup issue for
+    copy/spacing/rhythm while keeping runtime/OCR/money/theme/security/storage
+    gates separate. Do not close #672 automatically from this audit.
 
 ### Issue #369 - Day 1 in-app notification event-family coverage
 
