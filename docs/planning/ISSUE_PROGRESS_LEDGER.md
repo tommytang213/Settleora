@@ -307,9 +307,30 @@ remain the source of truth.
     with the same four OCR/revision PNG artifacts. This checkpoint is
     `READY_FOR_TOMMY_VISUAL_REVIEW` after validation and push; no PR or merge
     is part of this dev-only task.
+  - Tommy/Assistant manually approved the `20260703-1348` Bills/OCR/revision
+    evidence for this bounded child slice as `VISUAL_APPROVED_WITH_FOLLOWUPS`.
+    The reviewed source head before approval checkpoint is
+    `a9dfa1a5d1b4901976a962bbfc1c4dfbefa73930` on branch
+    `feature/mobile-bills-ocr-revision-visual-parity-672-20260703`. Approved
+    evidence is under
+    `/workspace/logs/settleora-visual-qa/20260703-1348-mobile-bills-ocr-revision-friendly-polish-dev-only/`
+    with `ocr-review-queue-390x844.png`, `ocr-review-detail-390x844.png`,
+    `bill-revision-review-390x844.png`, and
+    `bill-revision-proposal-390x844.png`. This approval is limited to the
+    bounded Bills/OCR/revision visual parity child slice under #672. It does
+    not close #672 and does not approve full mobile Flutter visual parity,
+    broader bills list/detail/create parity, saved OCR in-bill detail beyond
+    current touched surfaces, OCR capture/processing states, advanced
+    tax/discount/fee/refund review runtime, groups/settle/notifications
+    parity, runtime theme selection/persistence, backend/API/OpenAPI/
+    generated-client/schema/money/storage/security/OCR runtime changes, or
+    #371 notification-open/deep-link redo. Known non-blocking follow-ups:
+    `Action needed: needs review.` can become friendlier copy later, proposal
+    total-lower helper copy can avoid backend-ish validation wording in a
+    future copy pass, and full bills list/detail/create parity remains a later
+    child slice.
 - Remaining Day 1 work:
-  - Tommy/manual visual review for the Bills/OCR/revision development evidence,
-    plus follow-up polish if requested before PR/merge.
+  - PR/merge gate for the approved Bills/OCR/revision development evidence.
   - Remaining Bills/OCR/revision depth after this child slice: broader bills
     list/detail/create/add-bill sheet parity, richer saved OCR in-bill detail,
     OCR capture/processing states, and advanced tax/discount/fee/refund review
