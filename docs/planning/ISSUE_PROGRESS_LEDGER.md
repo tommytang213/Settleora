@@ -407,6 +407,48 @@ remain the source of truth.
     warning about unspecified tag `visual` on the guardrail helper test remains
     non-fatal. This evidence is `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge
     has been performed. Project fields were not mutated.
+  - Tommy reviewed the `20260703-1550` evidence and said the Notifications
+    Center/detail still felt compressed and not convenient enough for normal
+    public users, while Groups and Settlements were acceptable enough for now.
+    The `20260703-1714` development-only density follow-up on branch
+    `feature/mobile-groups-settle-notifications-visual-parity-672-20260703`
+    started from previous branch head
+    `7fe79a3f3a79eb9a0670adbc6bd80af5f9dfb803` with `origin/main` at
+    `51fb0baeed84586e5ef44e53c4a407966ac45f27`. The no-amend rule prevents
+    recording this commit's own final SHA inside the same ledger commit, so the
+    final task branch head is recorded in the matching Codex report. This pass
+    keeps scope to Notifications UI/test evidence and the ledger: Notification
+    Center cards now use a roomier vertical layout with full-width title/message
+    treatment, one clear primary action where a typed target can open, and
+    quieter top-right secondary inbox actions; the visible bulk-read control is
+    a compact inline row instead of a large boxed panel. The notification
+    detail sheet now prioritizes `What happened`, `What you can do`,
+    `Linked item`, and `Safety note` instead of dense key-value/debug-style
+    status rows, and uses concise safety copy: `We recheck access before
+    opening details.` It preserves notification list/filter/read/archive/
+    restore/mark-read behavior, #371 notification-open/deep-link behavior,
+    notification runtime/provider/push/email/admin/global policy semantics,
+    API/OpenAPI/generated-client/schema, auth/session/security runtime,
+    settlement/payment/money authority, storage/file-byte behavior,
+    deployment, and the global runtime app default theme.
+  - Fresh density follow-up evidence for the notification-focused pass was
+    generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1714-mobile-notifications-center-density-followup-dev-only/`
+    with the grouped visual-capture harness artifacts
+    `groups-list-or-dashboard-390x844.png`,
+    `settle-dashboard-or-list-390x844.png`,
+    `settlement-detail-or-payment-390x844.png`,
+    `notifications-center-390x844.png`, and
+    `notification-detail-or-review-390x844.png`. The follow-up scope was
+    Notifications Center/detail only; Groups/Settlements were regenerated for
+    visual continuity and were not intentionally redesigned. All captures are
+    390x844 PNGs and generated with `SettleoraTheme.midnight()`. Focused
+    validation during implementation passed:
+    `flutter test test/notification_screen_test.dart` with 64 passing tests and
+    `flutter test test/ui/groups_settle_notifications_parity_visual_capture_test.dart`
+    with 1 passing test. Full required validation is recorded in the matching
+    Codex report. This evidence is `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or
+    merge has been performed. Project fields were not mutated.
 - Remaining Day 1 work:
   - PR/merge gate for the approved Bills/OCR/revision development evidence.
   - Remaining Bills/OCR/revision depth after this child slice: broader bills

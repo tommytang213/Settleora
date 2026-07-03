@@ -17,7 +17,7 @@ import '../notification_screen_test.dart' as notifications;
 import '../settlement_list_screen_test.dart' as settlements;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260703-1550-mobile-groups-settle-notifications-ux-simplification-dev-only';
+    '/workspace/logs/settleora-visual-qa/20260703-1714-mobile-notifications-center-density-followup-dev-only';
 
 void main() {
   testWidgets('captures groups settle notifications visual parity evidence', (
@@ -191,6 +191,8 @@ Future<void> _captureNotificationsCenter(WidgetTester tester) async {
         home: SettleoraNotificationScreen(
           repository: repository,
           currentUserProfileId: '33333333-3333-3333-3333-333333333333',
+          settlementRepository: settlements.FakeSettlementRepository(),
+          syncRepository: notifications.FakeSyncRepository(),
         ),
       ),
     ),
@@ -228,6 +230,7 @@ Future<void> _captureNotificationDetail(WidgetTester tester) async {
         home: SettleoraNotificationScreen(
           repository: repository,
           currentUserProfileId: '33333333-3333-3333-3333-333333333333',
+          settlementRepository: settlements.FakeSettlementRepository(),
         ),
       ),
     ),

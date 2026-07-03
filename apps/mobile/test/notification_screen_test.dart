@@ -2230,8 +2230,11 @@ void main() {
       expect(visibleText(tester), isNot(contains(_billId)));
       expect(visibleText(tester), isNot(contains('token=secret')));
 
-      final openButton = tester.widget<OutlinedButton>(
-        find.byKey(const ValueKey('notification-open-personal-bill-0')),
+      final openButton = tester.widget<FilledButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey('notification-open-personal-bill-0')),
+          matching: find.byType(FilledButton),
+        ),
       );
       expect(openButton.onPressed, isNotNull);
     },
@@ -2300,9 +2303,7 @@ void main() {
     );
 
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
-    expect(find.text('Status'), findsOneWidget);
     expect(find.text('Unread'), findsWidgets);
-    expect(find.text('Received'), findsOneWidget);
     expect(find.text('What happened'), findsOneWidget);
     expect(find.text('Personal bill ready.'), findsWidgets);
     expect(find.text('What you can do'), findsOneWidget);
@@ -2312,15 +2313,12 @@ void main() {
     );
     expect(find.text('Linked item'), findsOneWidget);
     expect(find.text('Personal bill'), findsOneWidget);
-    expect(find.text('Open status'), findsOneWidget);
-    expect(find.text('Ready to open from this device.'), findsOneWidget);
+    expect(find.text('Ready to open.'), findsOneWidget);
     expect(find.text('Safety note'), findsOneWidget);
     expect(
-      find.text('We refresh access before opening details.'),
-      findsWidgets,
+      find.textContaining('We recheck access before opening details.'),
+      findsOneWidget,
     );
-    expect(find.text('Inbox view'), findsOneWidget);
-    expect(find.text('Bills'), findsOneWidget);
     expect(repository.markReadCalls, 0);
     expect(billRepository.getPersonalCalls, 0);
 
@@ -2362,7 +2360,6 @@ void main() {
     expect(find.text('Settlement needs review.'), findsWidgets);
     expect(find.text('Linked item'), findsOneWidget);
     expect(find.text('Settlement'), findsOneWidget);
-    expect(find.text('Open status'), findsOneWidget);
     expect(find.text('Sign in or refresh before opening.'), findsOneWidget);
     expect(renderedNotificationUiText(tester), isNot(contains(_settlementId)));
     expect(repository.markReadCalls, 0);
@@ -2399,7 +2396,6 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Notification'), findsWidgets);
-      expect(find.text('Status'), findsWidgets);
       expect(find.text('What happened'), findsWidgets);
       expect(find.text('Unsupported link'), findsOneWidget);
       expect(
@@ -2456,7 +2452,7 @@ void main() {
 
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
     expect(find.text('Archived'), findsWidgets);
-    expect(find.text('Updated'), findsOneWidget);
+    expect(find.textContaining('updated'), findsOneWidget);
     expect(find.text('Personal bill'), findsOneWidget);
     expect(
       find.text('Archived; restore before opening from Notifications.'),

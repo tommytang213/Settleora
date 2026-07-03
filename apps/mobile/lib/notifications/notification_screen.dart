@@ -1363,7 +1363,6 @@ class _SettleoraNotificationScreenState
                               _openSyncOperation(visibleNotifications[index]),
                           onShowDetails: () => _showNotificationDetails(
                             visibleNotifications[index],
-                            selectedFilter: _selectedFilter,
                           ),
                           onMarkRead: () => _markNotificationRead(
                             visibleNotifications[index],
@@ -1384,9 +1383,8 @@ class _SettleoraNotificationScreenState
   }
 
   Future<void> _showNotificationDetails(
-    SettleoraNotificationRow notification, {
-    required _NotificationFilter selectedFilter,
-  }) async {
+    SettleoraNotificationRow notification,
+  ) async {
     final canOpenTypedTarget =
         notification.status != SettleoraNotificationStatusValues.archived &&
         _canOpenAnyTypedTarget(notification);
@@ -1394,7 +1392,6 @@ class _SettleoraNotificationScreenState
       context: context,
       builder: (context) => _NotificationDetailSheet(
         notification: notification,
-        selectedFilterLabel: selectedFilter.label,
         canOpenTypedTarget: canOpenTypedTarget,
         hasOpenTargetMetadata: _hasAnyOpenTargetMetadata(notification),
       ),
@@ -1704,33 +1701,31 @@ class _VisibleBulkActionsPanel extends StatelessWidget {
         ? '1 unread notification in $selectedFilterLabel'
         : '$visibleUnreadCount unread notifications in $selectedFilterLabel';
 
-    return DecoratedBox(
+    return Padding(
       key: const Key('notification-visible-bulk-actions'),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        child: Row(
-          children: [
-            Expanded(child: Text('$description.')),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              key: const Key('notification-mark-visible-read'),
-              onPressed: visibleUnreadCount > 0 && !isBusy
-                  ? onMarkVisibleRead
-                  : null,
-              icon: isMarkingVisibleRead
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.mark_email_read_outlined),
-              label: const Text('Mark read'),
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              description,
+              style: Theme.of(context).textTheme.bodySmall,
             ),
-          ],
-        ),
+          ),
+          TextButton.icon(
+            key: const Key('notification-mark-visible-read'),
+            onPressed: visibleUnreadCount > 0 && !isBusy
+                ? onMarkVisibleRead
+                : null,
+            icon: isMarkingVisibleRead
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.mark_email_read_outlined),
+            label: const Text('Mark read'),
+          ),
+        ],
       ),
     );
   }
@@ -1813,127 +1808,55 @@ class _NotificationTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isArchived =
         notification.status == SettleoraNotificationStatusValues.archived;
+    final primaryAction = _primaryAction(isArchived);
+    final openStateLabel = !isArchived && _canOpenFromTile
+        ? 'Open'
+        : hasOpenTarget
+        ? 'Review later'
+        : 'Inbox only';
+    final bodyStyle = Theme.of(context).textTheme.bodyMedium;
+    final mutedStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    );
 
     return AppCard(
-      padding: EdgeInsets.zero,
-      child: ListTile(
-        leading: CircleAvatar(
-          child: Icon(_priorityIcon(notification.priority)),
-        ),
-        title: Text(
-          notification.displayTitle,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Column(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(notification.displaySummary),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  SettleoraStatusChip(
-                    label: settleoraNotificationStatusLabel(
-                      notification.status,
-                    ),
-                    icon: Icons.mark_email_read_outlined,
-                  ),
-                  if (!isArchived && _canOpenFromTile)
-                    const SettleoraStatusChip(
-                      label: 'Open',
-                      icon: Icons.open_in_new_outlined,
-                    )
-                  else if (hasOpenTarget)
-                    const SettleoraStatusChip(
-                      label: 'Review later',
-                      icon: Icons.block_outlined,
-                    ),
-                ],
+              CircleAvatar(
+                radius: 18,
+                child: Icon(_priorityIcon(notification.priority), size: 19),
               ),
-              const SizedBox(height: 6),
-              Text('Received ${_formatTimestamp(notification.createdAtUtc)}'),
-              if (!isArchived && canOpenBillRevision) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: revisionOpenButtonKey,
-                  onPressed: isDisabled ? null : onOpenBillRevision,
-                  icon: const Icon(Icons.open_in_new_outlined),
-                  label: const Text('Review bill'),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      notification.displayTitle,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Received ${_formatTimestamp(notification.createdAtUtc)}',
+                      style: mutedStyle,
+                    ),
+                  ],
                 ),
-              ] else if (!isArchived && canOpenGroupBill) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: groupBillOpenButtonKey,
-                  onPressed: isDisabled ? null : onOpenGroupBill,
-                  icon: const Icon(Icons.receipt_long_outlined),
-                  label: const Text('Open bill'),
-                ),
-              ] else if (!isArchived && canOpenPersonalBill) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: personalBillOpenButtonKey,
-                  onPressed: isDisabled ? null : onOpenPersonalBill,
-                  icon: const Icon(Icons.receipt_outlined),
-                  label: const Text('Open bill'),
-                ),
-              ] else if (!isArchived && canOpenSettlement) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: settlementOpenButtonKey,
-                  onPressed: isDisabled ? null : onOpenSettlement,
-                  icon: const Icon(Icons.account_balance_wallet_outlined),
-                  label: const Text('Review settlement'),
-                ),
-              ] else if (!isArchived && canOpenRecurringBill) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: recurringOpenButtonKey,
-                  onPressed: isDisabled ? null : onOpenRecurringBill,
-                  icon: const Icon(Icons.event_repeat_outlined),
-                  label: const Text('Review bill'),
-                ),
-              ] else if (!isArchived && canOpenReceiptOcrReview) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: receiptReviewOpenButtonKey,
-                  onPressed: isDisabled ? null : onOpenReceiptOcrReview,
-                  icon: const Icon(Icons.document_scanner_outlined),
-                  label: const Text('Review receipt'),
-                ),
-              ] else if (!isArchived && canOpenSyncOperation) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  key: syncOpenButtonKey,
-                  onPressed: isDisabled ? null : onOpenSyncOperation,
-                  icon: const Icon(Icons.sync_problem_outlined),
-                  label: const Text('Review sync issue'),
-                ),
-              ] else if (!isArchived && hasOpenTarget) ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'This item cannot be opened here yet. Refresh or check the related section.',
-                ),
-              ],
-            ],
-          ),
-        ),
-        trailing: SizedBox(
-          width: 152,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
+              ),
               IconButton(
                 key: detailsButtonKey,
                 tooltip: 'Notification details',
                 onPressed: isDisabled ? null : onShowDetails,
                 icon: const Icon(Icons.info_outline),
               ),
-              if (isArchived)
+              if (isArchived) ...[
                 IconButton(
                   key: restoreButtonKey,
                   tooltip: 'Restore',
@@ -1944,8 +1867,8 @@ class _NotificationTile extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.unarchive_outlined),
-                )
-              else ...[
+                ),
+              ] else ...[
                 IconButton(
                   key: markReadButtonKey,
                   tooltip: 'Mark read',
@@ -1968,9 +1891,106 @@ class _NotificationTile extends StatelessWidget {
               ],
             ],
           ),
-        ),
+          const SizedBox(height: 8),
+          Text(
+            notification.displaySummary,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: bodyStyle,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              SettleoraStatusChip(
+                label: settleoraNotificationStatusLabel(notification.status),
+                icon: Icons.mark_email_read_outlined,
+              ),
+              SettleoraStatusChip(
+                label: openStateLabel,
+                icon: _canOpenFromTile
+                    ? Icons.open_in_new_outlined
+                    : Icons.info_outline,
+              ),
+            ],
+          ),
+          if (primaryAction != null) ...[
+            const SizedBox(height: 10),
+            primaryAction,
+          ] else if (!isArchived && hasOpenTarget) ...[
+            const SizedBox(height: 8),
+            Text(
+              'This item cannot be opened here yet. Refresh or check the related section.',
+              style: mutedStyle,
+            ),
+          ],
+        ],
       ),
     );
+  }
+
+  Widget? _primaryAction(bool isArchived) {
+    if (isArchived) {
+      return null;
+    }
+    if (canOpenBillRevision) {
+      return _NotificationPrimaryAction(
+        key: revisionOpenButtonKey,
+        onPressed: isDisabled ? null : onOpenBillRevision,
+        icon: Icons.open_in_new_outlined,
+        label: 'Review bill',
+      );
+    }
+    if (canOpenGroupBill) {
+      return _NotificationPrimaryAction(
+        key: groupBillOpenButtonKey,
+        onPressed: isDisabled ? null : onOpenGroupBill,
+        icon: Icons.receipt_long_outlined,
+        label: 'Open bill',
+      );
+    }
+    if (canOpenPersonalBill) {
+      return _NotificationPrimaryAction(
+        key: personalBillOpenButtonKey,
+        onPressed: isDisabled ? null : onOpenPersonalBill,
+        icon: Icons.receipt_outlined,
+        label: 'Open bill',
+      );
+    }
+    if (canOpenSettlement) {
+      return _NotificationPrimaryAction(
+        key: settlementOpenButtonKey,
+        onPressed: isDisabled ? null : onOpenSettlement,
+        icon: Icons.account_balance_wallet_outlined,
+        label: 'Review settlement',
+      );
+    }
+    if (canOpenRecurringBill) {
+      return _NotificationPrimaryAction(
+        key: recurringOpenButtonKey,
+        onPressed: isDisabled ? null : onOpenRecurringBill,
+        icon: Icons.event_repeat_outlined,
+        label: 'Review bill',
+      );
+    }
+    if (canOpenReceiptOcrReview) {
+      return _NotificationPrimaryAction(
+        key: receiptReviewOpenButtonKey,
+        onPressed: isDisabled ? null : onOpenReceiptOcrReview,
+        icon: Icons.document_scanner_outlined,
+        label: 'Review receipt',
+      );
+    }
+    if (canOpenSyncOperation) {
+      return _NotificationPrimaryAction(
+        key: syncOpenButtonKey,
+        onPressed: isDisabled ? null : onOpenSyncOperation,
+        icon: Icons.sync_problem_outlined,
+        label: 'Review sync issue',
+      );
+    }
+    return null;
   }
 
   bool get _canOpenFromTile {
@@ -1984,16 +2004,39 @@ class _NotificationTile extends StatelessWidget {
   }
 }
 
+class _NotificationPrimaryAction extends StatelessWidget {
+  const _NotificationPrimaryAction({
+    super.key,
+    required this.onPressed,
+    required this.icon,
+    required this.label,
+  });
+
+  final VoidCallback? onPressed;
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        label: Text(label),
+      ),
+    );
+  }
+}
+
 class _NotificationDetailSheet extends StatelessWidget {
   const _NotificationDetailSheet({
     required this.notification,
-    required this.selectedFilterLabel,
     required this.canOpenTypedTarget,
     required this.hasOpenTargetMetadata,
   });
 
   final SettleoraNotificationRow notification;
-  final String selectedFilterLabel;
   final bool canOpenTypedTarget;
   final bool hasOpenTargetMetadata;
 
@@ -2008,7 +2051,12 @@ class _NotificationDetailSheet extends StatelessWidget {
       canOpenTypedTarget: canOpenTypedTarget,
       hasOpenTargetMetadata: hasOpenTargetMetadata,
     );
-    final detailLabelStyle = Theme.of(context).textTheme.labelLarge;
+    final statusLabel = settleoraNotificationStatusLabel(notification.status);
+    final nextStep = isArchived
+        ? 'Restore it if you need it back in your inbox.'
+        : canOpenTypedTarget
+        ? 'Open the linked item for the next step.'
+        : 'Refresh the inbox if this looks stale, or check the related section.';
 
     return SettleoraBottomSheetFrame(
       title: notification.displayTitle,
@@ -2017,91 +2065,48 @@ class _NotificationDetailSheet extends StatelessWidget {
         key: const Key('notification-detail-sheet'),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SettleoraKeyValueText(
-            label: 'What happened',
-            value: notification.displaySummary,
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
+          _NotificationDetailSection(
+            title: 'What happened',
+            child: Text(notification.displaySummary),
           ),
-          SettleoraKeyValueText(
-            label: 'Status',
-            value: settleoraNotificationStatusLabel(notification.status),
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
-          ),
-          SettleoraKeyValueText(
-            label: 'What you can do',
-            value: isArchived
-                ? 'Restore it if you need it back in your inbox.'
-                : canOpenTypedTarget
-                ? 'Open the linked item for the next step.'
-                : 'Review this inbox item, then refresh if it looks stale.',
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
-          ),
-          SettleoraKeyValueText(
-            label: 'Received',
-            value: _formatTimestamp(notification.createdAtUtc),
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
-          ),
-          if (updatedAt != null)
-            SettleoraKeyValueText(
-              label: 'Updated',
-              value: _formatTimestamp(updatedAt),
-              labelWidth: 120,
-              padding: const EdgeInsets.symmetric(vertical: 5),
-              labelStyle: detailLabelStyle,
-              valueAlignment: Alignment.centerLeft,
-              valueTextAlign: TextAlign.start,
+          const SizedBox(height: 14),
+          _NotificationDetailSection(
+            title: 'What you can do',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(nextStep),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    SettleoraStatusChip(
+                      label: statusLabel,
+                      icon: Icons.mark_email_read_outlined,
+                    ),
+                    SettleoraStatusChip(
+                      label: destinationStatus,
+                      icon: canOpenTypedTarget
+                          ? Icons.open_in_new_outlined
+                          : Icons.info_outline,
+                    ),
+                  ],
+                ),
+              ],
             ),
-          SettleoraKeyValueText(
-            label: 'Linked item',
-            value: destinationLabel,
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
           ),
-          SettleoraKeyValueText(
-            label: 'Open status',
-            value: destinationStatus,
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
+          const SizedBox(height: 14),
+          _NotificationDetailSection(
+            title: 'Linked item',
+            child: Text(destinationLabel),
           ),
-          SettleoraKeyValueText(
-            label: 'Inbox view',
-            value: selectedFilterLabel,
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
-          ),
-          SettleoraKeyValueText(
-            label: 'Safety note',
-            value: 'We refresh access before opening details.',
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
+          const SizedBox(height: 14),
+          _NotificationDetailSection(
+            title: 'Safety note',
+            child: Text(
+              'We recheck access before opening details. Received ${_formatTimestamp(notification.createdAtUtc)}${updatedAt == null ? '' : '; updated ${_formatTimestamp(updatedAt)}'}.',
+            ),
           ),
           if (isArchived)
             const Padding(
@@ -2111,6 +2116,18 @@ class _NotificationDetailSheet extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _NotificationDetailSection extends StatelessWidget {
+  const _NotificationDetailSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SettleoraSection(title: title, children: [child]);
   }
 }
 
@@ -2604,7 +2621,7 @@ String _safeDestinationStatus(
     return 'Archived; restore before opening from Notifications.';
   }
   if (canOpenTypedTarget) {
-    return 'Ready to open from this device.';
+    return 'Ready to open.';
   }
   if (notification.hasTypedOpenTarget) {
     return 'Sign in or refresh before opening.';
