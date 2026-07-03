@@ -251,6 +251,41 @@ remain the source of truth.
     `DEV_FOLLOWUP_READY_NOT_APPROVED`; the previous failure was report/export
     compaction after validation, not a validation failure. No PR or merge has
     been performed.
+  - Tommy reviewed the latest Bills/OCR/revision evidence and rejected it as
+    `VISUAL_REJECTED_UX_FLOW_AND_INFORMATION_HIERARCHY` because the OCR queue
+    still read like metadata-chip collections, the detail/review/proposal
+    surfaces exposed technical facts without enough user journey, and the first
+    viewport did not make attention, amount/change, next action, or blocked
+    state obvious enough. The `20260703-1320` development-only follow-up on
+    branch `feature/mobile-bills-ocr-revision-visual-parity-672-20260703`
+    started from head `b158c4641556bfcc3c56d90abd847a0bd3e3a15a` and keeps the
+    scope presentation-only. OCR queue cards now lead with merchant/scope,
+    review reason, checkpoint count, receipt source/line/currency metadata,
+    updated date, and one primary `Review receipt` action. OCR detail now leads
+    with receipt total/context and a preview/apply attention panel before the
+    lower structured totals and line review. Bill revision review now leads
+    with a decision panel for what changed, viewer share delta, payer impact,
+    and available/blocked next action. The proposal editor now starts with a
+    guided proposal overview, participant/payer summary, and short save
+    consequence copy. No OCR extraction/runtime, apply behavior, money/split/
+    settlement logic, API/OpenAPI/generated-client/schema, auth/session/
+    security, storage/file-byte, notification-open, deployment, or runtime theme
+    behavior changed. Fresh evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1320-mobile-bills-ocr-revision-ux-density-followup-dev-only/`
+    with `ocr-review-queue-390x844.png`, `ocr-review-detail-390x844.png`,
+    `bill-revision-review-390x844.png`, and
+    `bill-revision-proposal-390x844.png`. The captures are nonblank and do not
+    show content hidden under bottom navigation. Validation passed after a
+    focused OCR detail copy fix: `npm ci`, `npm run validate:docs`,
+    `npm run validate:scaffold`, `flutter pub get`, `flutter analyze`,
+    `flutter test test/ui/settleora_component_guardrail_test.dart`,
+    `flutter test test/bill_list_screen_test.dart`,
+    `flutter test test/bill_revision_review_screen_test.dart
+    test/bill_revision_proposal_editor_screen_test.dart
+    test/receipt_ocr_review_screen_test.dart`,
+    `flutter test test/ui/bills_ocr_revision_parity_visual_capture_test.dart`,
+    and full `flutter test` with 810 passing tests. This evidence is
+    `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge has been performed.
 - Remaining Day 1 work:
   - Tommy/manual visual review for the Bills/OCR/revision development evidence,
     plus follow-up polish if requested before PR/merge.

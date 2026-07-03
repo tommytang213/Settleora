@@ -498,6 +498,8 @@ class _SettleoraBillRevisionReviewScreenState
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
+                // ignore: deprecated_member_use
+                cacheExtent: 10000,
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                 children: [
                   if (_isLoading) ...[
@@ -517,8 +519,14 @@ class _SettleoraBillRevisionReviewScreenState
                     _TerminalRevisionNotice(revision: revision),
                     const SizedBox(height: 14),
                   ],
+                  _RevisionDecisionPanel(revision: revision),
+                  const SizedBox(height: 14),
                   _FinancialImpactPanel(
                     impact: revision.reviewContext.viewerFinancialImpact,
+                  ),
+                  const SizedBox(height: 14),
+                  _LimitationsPanel(
+                    limitations: revision.reviewContext.limitations,
                   ),
                   const SizedBox(height: 14),
                   _BaselinePanel(contextData: revision.reviewContext),
@@ -540,10 +548,6 @@ class _SettleoraBillRevisionReviewScreenState
                   else
                     _FullBillView(revision: revision),
                   const SizedBox(height: 18),
-                  _LimitationsPanel(
-                    limitations: revision.reviewContext.limitations,
-                  ),
-                  const SizedBox(height: 14),
                   _RevisionActionArea(
                     revision: revision,
                     isActing: _isActing,
@@ -607,36 +611,250 @@ class _RevisionHeader extends StatelessWidget {
             caption: 'Updated ${_formatTimestamp(revision.updatedAtUtc)}',
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
+          Row(
             children: [
-              _SoftChip(
-                label: _shortId(revision.id),
-                icon: Icons.change_circle_outlined,
+              Expanded(
+                child: _HeaderFact(
+                  label: 'Bill context',
+                  value: revision.groupId == null
+                      ? 'Personal bill'
+                      : 'Group bill',
+                ),
               ),
-              _SoftChip(
-                label: 'Bill ${_shortId(revision.billId)}',
-                icon: Icons.link_outlined,
-              ),
-              _SoftChip(
-                label: revision.groupId == null
-                    ? 'Personal bill'
-                    : 'Group bill',
-                icon: Icons.group_outlined,
-              ),
-              _SoftChip(
-                label: '${revision.participants.length} participants',
-                icon: Icons.people_outline,
-              ),
-              _SoftChip(
-                label: '${revision.payers.length} payer rows',
-                icon: Icons.account_balance_wallet_outlined,
+              const SizedBox(width: 12),
+              Expanded(
+                child: _HeaderFact(
+                  label: 'Participants',
+                  value: '${revision.participants.length}',
+                  alignEnd: true,
+                ),
               ),
             ],
           ),
         ],
       ),
+    );
+  }
+}
+
+class _RevisionDecisionPanel extends StatelessWidget {
+  const _RevisionDecisionPanel({required this.revision});
+
+  final SettleoraBillRevision revision;
+
+  @override
+  Widget build(BuildContext context) {
+    final changeCount = revision.reviewContext.changes.length;
+    final impact = revision.reviewContext.viewerFinancialImpact;
+    final payerImpact = impact.payerImpact;
+    final action = _primaryRevisionAction(revision);
+
+    return _Section(
+      title: 'Review decision',
+      icon: Icons.fact_check_outlined,
+      children: [
+        Text(
+          changeCount == 0
+              ? 'No changed-only rows were returned. Review the full bill before acting.'
+              : '$changeCount changed item(s) need your decision.',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 12),
+        _DecisionTextRow(label: 'Revision', value: _shortId(revision.id)),
+        _DecisionMoneyRow(
+          label: 'Your share change',
+          value: impact.deltaShare,
+          emptyLabel: impact.affectedByRevision
+              ? 'No delta returned'
+              : 'No direct change',
+        ),
+        if (payerImpact != null)
+          _DecisionMoneyRow(
+            label: 'Payer change',
+            value: payerImpact.deltaContribution,
+            emptyLabel: payerImpact.requiresPayerConfirmation
+                ? 'Confirmation needed'
+                : 'No payer change',
+          ),
+        const SizedBox(height: 10),
+        SettleoraInlinePanel(
+          icon: action.isBlocked
+              ? Icons.block_outlined
+              : Icons.arrow_forward_outlined,
+          title: action.title,
+          message: action.message,
+          variant: action.isBlocked
+              ? SettleoraSurfaceVariant.danger
+              : SettleoraSurfaceVariant.info,
+        ),
+      ],
+    );
+  }
+}
+
+class _DecisionTextRow extends StatelessWidget {
+  const _DecisionTextRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Text(value, textAlign: TextAlign.end),
+        ],
+      ),
+    );
+  }
+}
+
+class _DecisionMoneyRow extends StatelessWidget {
+  const _DecisionMoneyRow({
+    required this.label,
+    required this.value,
+    required this.emptyLabel,
+  });
+
+  final String label;
+  final SettleoraBillRevisionMoneyValue? value;
+  final String emptyLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          if (value == null)
+            Text(emptyLabel, textAlign: TextAlign.end)
+          else
+            MoneyText(
+              amount: value!.amount,
+              currencyCode: value!.currency,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RevisionPrimaryAction {
+  const _RevisionPrimaryAction({
+    required this.title,
+    required this.message,
+    required this.isBlocked,
+  });
+
+  final String title;
+  final String message;
+  final bool isBlocked;
+}
+
+_RevisionPrimaryAction _primaryRevisionAction(SettleoraBillRevision revision) {
+  if (revision.canApprove) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: approve or reject',
+      message:
+          'Review the comparison, then approve this revision or keep the original bill.',
+      isBlocked: false,
+    );
+  }
+  if (revision.canConfirmPayer) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: confirm payer impact',
+      message:
+          'Your payer confirmation is required before this revision can move forward.',
+      isBlocked: false,
+    );
+  }
+  if (revision.canSubmit) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: submit for review',
+      message: 'Submit when the proposed total and participant rows are ready.',
+      isBlocked: false,
+    );
+  }
+  if (revision.canApply) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: apply approved revision',
+      message:
+          'Apply updates the active bill using the approved server result.',
+      isBlocked: false,
+    );
+  }
+  if (revision.canRevise) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: revise proposal',
+      message: 'Create a replacement proposal if the current one is not right.',
+      isBlocked: false,
+    );
+  }
+  if (revision.isTerminal) {
+    return const _RevisionPrimaryAction(
+      title: 'No action available',
+      message: 'This revision is already in a final state.',
+      isBlocked: true,
+    );
+  }
+  return const _RevisionPrimaryAction(
+    title: 'Waiting on review state',
+    message:
+        'The server did not return an action that is available to this viewer.',
+    isBlocked: true,
+  );
+}
+
+class _HeaderFact extends StatelessWidget {
+  const _HeaderFact({
+    required this.label,
+    required this.value,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ],
     );
   }
 }

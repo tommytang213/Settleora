@@ -37,6 +37,10 @@ void main() {
         tester.getSemantics(find.text('Changed').first).label,
         contains('Changed'),
       );
+
+      await tester.drag(find.byType(ListView), const Offset(0, -700));
+      await tester.pumpAndSettle();
+
       expect(find.text('Limitations'), findsOneWidget);
       expect(
         find.text('Last View Without Approval Or Rejection Not Persisted'),
@@ -70,6 +74,9 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
     await tester.pumpAndSettle();
 
     expect(find.text('Full bill review'), findsOneWidget);

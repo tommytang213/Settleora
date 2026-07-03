@@ -140,6 +140,14 @@ class _ReceiptOcrReviewReadOnlyContent extends StatelessWidget {
           children: [
             _ReceiptOcrReviewHeader(review: review),
             const SizedBox(height: 14),
+            _ReceiptOcrReviewAttentionPanel(
+              review: review,
+              preview: preview,
+              previewFailure: previewFailure,
+              applyResult: applyResult,
+              applyFailure: applyFailure,
+            ),
+            const SizedBox(height: 14),
             _ApplyPreviewSection(
               isLoadingPreview: isLoadingPreview,
               isApplying: isApplying,
@@ -888,38 +896,172 @@ class _ReceiptOcrReviewHeader extends StatelessWidget {
               ),
               const SizedBox(height: 12),
             ],
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                _SoftChip(label: scope, icon: Icons.group_outlined),
-                _SoftChip(
-                  label: receiptOcrReviewSourceLabel(review.source),
-                  icon: Icons.document_scanner,
-                ),
-                _SoftChip(
-                  label: '${review.lines.length} lines',
-                  icon: Icons.format_list_bulleted,
-                ),
-                if (currency != null)
-                  _SoftChip(label: currency, icon: Icons.payments_outlined),
-                _SoftChip(
-                  label: review.receiptIssuedAtUtc == null
-                      ? 'Date needs review'
-                      : _formatDate(review.receiptIssuedAtUtc!),
-                  icon: Icons.event_available_outlined,
-                ),
-                _SoftChip(
-                  label: _receiptReadinessLabel(review),
-                  icon: Icons.fact_check_outlined,
-                ),
-              ],
+            _ReceiptContextGrid(
+              firstLabel: 'Bill context',
+              firstValue: scope,
+              secondLabel: 'Receipt source',
+              secondValue: receiptOcrReviewSourceLabel(review.source),
+            ),
+            const SizedBox(height: 8),
+            _ReceiptContextGrid(
+              firstLabel: 'Receipt date',
+              firstValue: review.receiptIssuedAtUtc == null
+                  ? 'Needs review'
+                  : _formatDate(review.receiptIssuedAtUtc!),
+              secondLabel: 'Loaded lines',
+              secondValue: '${review.lines.length} lines',
             ),
           ],
         ),
       ),
     );
   }
+}
+
+class _ReceiptOcrReviewAttentionPanel extends StatelessWidget {
+  const _ReceiptOcrReviewAttentionPanel({
+    required this.review,
+    required this.preview,
+    required this.previewFailure,
+    required this.applyResult,
+    required this.applyFailure,
+  });
+
+  final ReceiptOcrReviewDetail review;
+  final ReceiptOcrReviewApplyPreview? preview;
+  final ReceiptOcrReviewFailure? previewFailure;
+  final ReceiptOcrReviewApplyResult? applyResult;
+  final ReceiptOcrReviewFailure? applyFailure;
+
+  @override
+  Widget build(BuildContext context) {
+    final issues = _receiptAttentionIssues(review);
+    final preview = this.preview;
+    final title = applyResult != null
+        ? 'Draft update complete'
+        : applyFailure != null
+        ? 'Apply did not finish'
+        : previewFailure != null
+        ? 'Preview needs attention'
+        : preview == null
+        ? 'Preview before applying'
+        : preview.canApply
+        ? 'Safe to apply after review'
+        : 'Apply is blocked';
+    final message = applyResult != null
+        ? 'The draft bill was updated from this reviewed receipt.'
+        : applyFailure != null
+        ? 'Review the error, refresh if needed, then preview again.'
+        : previewFailure != null
+        ? 'Fix the preview issue before applying to the draft.'
+        : preview == null
+        ? issues.isEmpty
+              ? 'Receipt data is present. Preview shows whether the draft update is allowed.'
+              : 'Fix or confirm the highlighted receipt data, then preview apply.'
+        : preview.canApply
+        ? 'Preview passed with ${preview.summary.linesWithProposedTotalCount} proposed line(s).'
+        : 'Preview returned ${preview.blockedReasons.length} blocking reason(s).';
+
+    return SettleoraInlinePanel(
+      icon: preview?.canApply == false || issues.isNotEmpty
+          ? Icons.report_problem_outlined
+          : Icons.fact_check_outlined,
+      title: title,
+      message: [
+        message,
+        if (issues.isNotEmpty) 'Needs attention: ${issues.join(', ')}.',
+      ].join(' '),
+      variant: preview?.canApply == false || applyFailure != null
+          ? SettleoraSurfaceVariant.danger
+          : SettleoraSurfaceVariant.info,
+    );
+  }
+}
+
+class _ReceiptContextGrid extends StatelessWidget {
+  const _ReceiptContextGrid({
+    required this.firstLabel,
+    required this.firstValue,
+    required this.secondLabel,
+    required this.secondValue,
+  });
+
+  final String firstLabel;
+  final String firstValue;
+  final String secondLabel;
+  final String secondValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _ReceiptContextValue(label: firstLabel, value: firstValue),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _ReceiptContextValue(
+            label: secondLabel,
+            value: secondValue,
+            alignEnd: true,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReceiptContextValue extends StatelessWidget {
+  const _ReceiptContextValue({
+    required this.label,
+    required this.value,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ],
+    );
+  }
+}
+
+List<String> _receiptAttentionIssues(ReceiptOcrReviewDetail review) {
+  final issues = <String>[];
+  if (review.currency == null || review.currency!.trim().isEmpty) {
+    issues.add('currency');
+  }
+  if (review.grandTotalAmount == null || review.grandTotalAmount!.isEmpty) {
+    issues.add('receipt total');
+  }
+  if (review.lines.isEmpty) {
+    issues.add('receipt lines');
+  } else if (review.lines.any((line) => _lineTotalValue(line) == null)) {
+    issues.add('line totals');
+  }
+  return issues;
 }
 
 String _receiptReadinessLabel(ReceiptOcrReviewDetail review) {

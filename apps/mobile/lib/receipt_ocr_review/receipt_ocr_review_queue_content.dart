@@ -371,6 +371,8 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
     final currency = _displayCurrencyCandidate(review.currency);
     final status = receiptOcrReviewStatusLabel(review.status);
     final source = receiptOcrReviewSourceLabel(review.source);
+    final attention = _queueAttentionText(review);
+    final issueCount = _queueIssueCount(review);
 
     return Semantics(
       button: true,
@@ -390,47 +392,103 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.receipt_long_outlined),
-                    const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        merchant,
-                        style: Theme.of(context).textTheme.titleMedium,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      child: SettleoraCompactHeader(
+                        title: merchant,
+                        subtitle: scope,
+                        leadingIcon: Icons.receipt_long_outlined,
                       ),
                     ),
                     const SizedBox(width: 10),
                     _StatusChip(label: status),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    _SoftChip(label: scope, icon: Icons.group_outlined),
-                    _SoftChip(label: source, icon: Icons.document_scanner),
-                    _SoftChip(
-                      label: '${review.lineCount} lines',
-                      icon: Icons.format_list_bulleted,
+                const SizedBox(height: 12),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          issueCount > 0
+                              ? Icons.report_problem_outlined
+                              : Icons.fact_check_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                attention,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                issueCount > 0
+                                    ? '$issueCount review checkpoint(s) before applying'
+                                    : 'Open the receipt to preview and confirm.',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    if (currency != null)
-                      _SoftChip(label: currency, icon: Icons.payments_outlined),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: _QueueMetaRow(
-                        icon: Icons.event_available_outlined,
-                        label: 'Updated',
-                        value: _formatQueueDate(review.updatedAtUtc),
+                      child: _QueueMetaColumn(
+                        label: 'Receipt data',
+                        value: [
+                          source,
+                          '${review.lineCount} lines',
+                          ?currency,
+                        ].join(' • '),
                       ),
                     ),
                     const SizedBox(width: 10),
-                    TextButton.icon(
+                    Expanded(
+                      child: _QueueMetaColumn(
+                        label: 'Updated',
+                        value: _formatQueueDate(review.updatedAtUtc),
+                        alignEnd: true,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        currency == null
+                            ? 'Currency is not ready on this queue item.'
+                            : 'Currency candidate: $currency',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    FilledButton.icon(
                       onPressed: onTap,
                       icon: const Icon(Icons.rate_review_outlined),
                       label: const Text('Review receipt'),
@@ -446,44 +504,73 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
   }
 }
 
-class _QueueMetaRow extends StatelessWidget {
-  const _QueueMetaRow({
-    required this.icon,
+class _QueueMetaColumn extends StatelessWidget {
+  const _QueueMetaColumn({
     required this.label,
     required this.value,
+    this.alignEnd = false,
   });
 
-  final IconData icon;
   final String label;
   final String value;
+  final bool alignEnd;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
       children: [
-        Icon(
-          icon,
-          size: 16,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(width: 6),
         Text(
-          '$label: ',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
-        Expanded(
-          child: Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+          style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
     );
   }
+}
+
+int _queueIssueCount(ReceiptOcrReviewSummary review) {
+  var count = 0;
+  if (review.status == ReceiptOcrReviewStatusValues.provisional) {
+    count += 1;
+  }
+  if (review.lineCount <= 0) {
+    count += 1;
+  }
+  if (_displayCurrencyCandidate(review.currency) == null) {
+    count += 1;
+  }
+  return count;
+}
+
+String _queueAttentionText(ReceiptOcrReviewSummary review) {
+  if (review.status == ReceiptOcrReviewStatusValues.provisional) {
+    if (review.lineCount <= 0) {
+      return 'Needs review: no receipt lines yet';
+    }
+    if (_displayCurrencyCandidate(review.currency) == null) {
+      return 'Needs review: confirm currency';
+    }
+    return 'Needs review before apply';
+  }
+
+  if (review.lineCount <= 0) {
+    return 'Review saved data before applying';
+  }
+
+  return 'Reviewed receipt ready to open';
 }
 
 String _formatQueueDate(DateTime value) {
