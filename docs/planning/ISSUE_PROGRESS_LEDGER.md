@@ -329,6 +329,40 @@ remain the source of truth.
     total-lower helper copy can avoid backend-ish validation wording in a
     future copy pass, and full bills list/detail/create parity remains a later
     child slice.
+  - The `20260703-1422` development-only Groups/Settle/Notifications visual
+    parity child slice on branch
+    `feature/mobile-groups-settle-notifications-visual-parity-672-20260703`
+    started from `origin/main` at
+    `51fb0baeed84586e5ef44e53c4a407966ac45f27` after PR #675. Completed scope
+    is presentation-only migration of existing Groups, Settle, and
+    Notifications runtime surfaces toward the approved Settleora Midnight
+    direction: shared list rows and cards for group/member readouts, clearer
+    settlement balance/request/payment/detail hierarchy using existing loaded
+    values only, and shared card/bottom-sheet treatment for notification list
+    and detail readouts. It preserves group repositories/actions, settlement
+    payment/proof/status authority and money calculations, notification open/
+    deep-link behavior from #371, push/provider/admin/global policy states,
+    API/OpenAPI/generated-client/schema/backend boundaries, auth/session/
+    security behavior, storage/file-byte behavior, deployment, and the global
+    runtime app default theme.
+  - Fresh development evidence for the Groups/Settle/Notifications slice was
+    generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1422-mobile-groups-settle-notifications-visual-parity-dev-only/`
+    with `groups-list-or-dashboard-390x844.png`,
+    `settle-dashboard-or-list-390x844.png`,
+    `settlement-detail-or-payment-390x844.png`,
+    `notifications-center-390x844.png`, and
+    `notification-detail-or-review-390x844.png`. All captures are 390x844 PNGs,
+    nonblank, and generated with `SettleoraTheme.midnight()`. Validation
+    passed: `npm ci`, `npm run validate:docs`,
+    `npm run validate:scaffold`, `flutter pub get`, `flutter analyze`,
+    `flutter test test/ui/settleora_component_guardrail_test.dart`,
+    `flutter test test/group_list_screen_test.dart
+    test/settlement_list_screen_test.dart test/notification_screen_test.dart`,
+    `flutter test test/ui/groups_settle_notifications_parity_visual_capture_test.dart`,
+    and full `flutter test` with 811 passing tests. This evidence is
+    `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge has been performed.
+    Project fields were not mutated.
 - Remaining Day 1 work:
   - PR/merge gate for the approved Bills/OCR/revision development evidence.
   - Remaining Bills/OCR/revision depth after this child slice: broader bills

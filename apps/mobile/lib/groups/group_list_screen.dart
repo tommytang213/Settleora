@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../bills/bill_attachment_file_input.dart';
 import '../bills/bill_attachment_repository.dart';
@@ -316,6 +317,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
+                scrollCacheExtent: const ScrollCacheExtent.pixels(10000),
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
                   if (actionFailure != null) ...[
@@ -843,6 +845,7 @@ class _SettleoraGroupDetailScreenState
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
+                scrollCacheExtent: const ScrollCacheExtent.pixels(10000),
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                 children: [
                   _GroupDetailHeader(group: group),
@@ -1036,7 +1039,7 @@ class _GroupWorkspaceReadinessCard extends StatelessWidget {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
 
     return Card(
-      key: const Key('group-detail-workspace-readiness'),
+      key: Key('group-detail-workspace-readiness'),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1299,24 +1302,38 @@ class _GroupSummaryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
+    final roleLabel = settleoraGroupRoleLabel(group.currentUserRole);
+    final statusLabel = settleoraGroupMembershipStatusLabel(
+      group.currentUserStatus,
+    );
+
+    return SettleoraListRow(
+      title: group.displayName,
+      subtitle: 'Your role: $roleLabel. Membership: $statusLabel.',
+      leadingIcon: Icons.groups_outlined,
+      trailing: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        alignment: WrapAlignment.end,
+        children: [
+          StatusChip(
+            label: roleLabel,
+            icon: Icons.badge_outlined,
+            size: StatusChipSize.small,
+          ),
+          StatusChip(
+            label: statusLabel,
+            icon: Icons.verified_user_outlined,
+            variant:
+                group.currentUserStatus ==
+                    SettleoraGroupMembershipStatusValues.active
+                ? StatusChipVariant.success
+                : StatusChipVariant.neutral,
+            size: StatusChipSize.small,
+          ),
+        ],
       ),
-      child: ListTile(
-        onTap: onTap,
-        leading: const CircleAvatar(child: Icon(Icons.groups_outlined)),
-        title: Text(
-          group.displayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${settleoraGroupRoleLabel(group.currentUserRole)} - ${settleoraGroupMembershipStatusLabel(group.currentUserStatus)}',
-        ),
-        trailing: const Icon(Icons.chevron_right),
-      ),
+      onTap: onTap,
     );
   }
 }
@@ -1367,49 +1384,40 @@ class _MemberTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-        title: Text(
-          member.safeDisplayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${settleoraGroupRoleLabel(member.role)} - ${settleoraGroupMembershipStatusLabel(member.status)}',
-        ),
-        trailing: isBusy
-            ? const SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : PopupMenuButton<String>(
-                key: menuKey,
-                tooltip: 'Member actions',
-                onSelected: (value) {
-                  switch (value) {
-                    case SettleoraGroupRoleValues.owner:
-                    case SettleoraGroupRoleValues.member:
-                      onUpdateRole(value);
-                    case 'remove':
-                      onRemove();
-                  }
-                },
-                itemBuilder: (context) => [
-                  for (final role in SettleoraGroupRoleValues.values)
-                    PopupMenuItem(
-                      value: role,
-                      enabled: role != member.role,
-                      child: Text('Make ${settleoraGroupRoleLabel(role)}'),
-                    ),
-                  const PopupMenuItem(value: 'remove', child: Text('Remove')),
-                ],
-              ),
-      ),
+    final roleLabel = settleoraGroupRoleLabel(member.role);
+    final statusLabel = settleoraGroupMembershipStatusLabel(member.status);
+
+    return SettleoraListRow(
+      title: member.safeDisplayName,
+      subtitle: '$roleLabel - $statusLabel',
+      leadingIcon: Icons.person_outline,
+      trailing: isBusy
+          ? const SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : PopupMenuButton<String>(
+              key: menuKey,
+              tooltip: 'Member actions',
+              onSelected: (value) {
+                switch (value) {
+                  case SettleoraGroupRoleValues.owner:
+                  case SettleoraGroupRoleValues.member:
+                    onUpdateRole(value);
+                  case 'remove':
+                    onRemove();
+                }
+              },
+              itemBuilder: (context) => [
+                for (final role in SettleoraGroupRoleValues.values)
+                  PopupMenuItem(
+                    value: role,
+                    enabled: role != member.role,
+                    child: Text('Make ${settleoraGroupRoleLabel(role)}'),
+                  ),
+                const PopupMenuItem(value: 'remove', child: Text('Remove')),
+              ],
+            ),
     );
   }
 }

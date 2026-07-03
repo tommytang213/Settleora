@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../bills/bill_attachment_file_input.dart';
 import '../bills/bill_attachment_repository.dart';
@@ -1212,6 +1213,7 @@ class _SettleoraNotificationScreenState
             return RefreshIndicator(
               onRefresh: () => _load(showBlockingLoading: false),
               child: ListView(
+                scrollCacheExtent: const ScrollCacheExtent.pixels(10000),
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
                   _SummaryPanel(
@@ -1390,10 +1392,8 @@ class _SettleoraNotificationScreenState
     final canOpenTypedTarget =
         notification.status != SettleoraNotificationStatusValues.archived &&
         _canOpenAnyTypedTarget(notification);
-    await showModalBottomSheet<void>(
+    await showSettleoraBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (context) => _NotificationDetailSheet(
         notification: notification,
         selectedFilterLabel: selectedFilter.label,
@@ -1820,11 +1820,8 @@ class _NotificationTile extends StatelessWidget {
     final isArchived =
         notification.status == SettleoraNotificationStatusValues.archived;
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return AppCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         leading: CircleAvatar(
           child: Icon(_priorityIcon(notification.priority)),
@@ -2031,155 +2028,132 @@ class _NotificationDetailSheet extends StatelessWidget {
     );
     final detailLabelStyle = Theme.of(context).textTheme.labelLarge;
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-          child: Column(
-            key: const Key('notification-detail-sheet'),
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    child: Icon(_priorityIcon(notification.priority)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      notification.displayTitle,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              SettleoraKeyValueText(
-                label: 'Summary',
-                value: notification.displaySummary,
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Event',
-                value: settleoraNotificationEventLabel(notification.eventType),
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Priority',
-                value: settleoraNotificationPriorityLabel(
-                  notification.priority,
-                ),
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Status',
-                value: settleoraNotificationStatusLabel(notification.status),
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Type',
-                value: settleoraNotificationSubjectTypeLabel(
-                  notification.subjectType,
-                ),
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Received',
-                value: _formatTimestamp(notification.createdAtUtc),
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              if (updatedAt != null)
-                SettleoraKeyValueText(
-                  label: 'Updated',
-                  value: _formatTimestamp(updatedAt),
-                  labelWidth: 120,
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  labelStyle: detailLabelStyle,
-                  valueAlignment: Alignment.centerLeft,
-                  valueTextAlign: TextAlign.start,
-                ),
-              SettleoraKeyValueText(
-                label: 'Destination',
-                value: destinationLabel,
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Destination status',
-                value: destinationStatus,
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Navigation safety',
-                value:
-                    'Raw links, notification IDs, and linked-resource IDs are routing hints only. Settleora opens only supported typed destinations.',
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Current filter',
-                value: selectedFilterLabel,
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              SettleoraKeyValueText(
-                label: 'Authority',
-                value:
-                    'The destination API re-checks access and current state before linked details or actions are shown.',
-                labelWidth: 120,
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                labelStyle: detailLabelStyle,
-                valueAlignment: Alignment.centerLeft,
-                valueTextAlign: TextAlign.start,
-              ),
-              if (isArchived)
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    'Archived notifications do not open automatically.',
-                  ),
-                ),
-            ],
+    return SettleoraBottomSheetFrame(
+      title: notification.displayTitle,
+      subtitle: notification.displaySummary,
+      child: Column(
+        key: const Key('notification-detail-sheet'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SettleoraKeyValueText(
+            label: 'Summary',
+            value: notification.displaySummary,
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
           ),
-        ),
+          SettleoraKeyValueText(
+            label: 'Event',
+            value: settleoraNotificationEventLabel(notification.eventType),
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          SettleoraKeyValueText(
+            label: 'Priority',
+            value: settleoraNotificationPriorityLabel(notification.priority),
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          SettleoraKeyValueText(
+            label: 'Status',
+            value: settleoraNotificationStatusLabel(notification.status),
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          SettleoraKeyValueText(
+            label: 'Type',
+            value: settleoraNotificationSubjectTypeLabel(
+              notification.subjectType,
+            ),
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          SettleoraKeyValueText(
+            label: 'Received',
+            value: _formatTimestamp(notification.createdAtUtc),
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          if (updatedAt != null)
+            SettleoraKeyValueText(
+              label: 'Updated',
+              value: _formatTimestamp(updatedAt),
+              labelWidth: 120,
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              labelStyle: detailLabelStyle,
+              valueAlignment: Alignment.centerLeft,
+              valueTextAlign: TextAlign.start,
+            ),
+          SettleoraKeyValueText(
+            label: 'Destination',
+            value: destinationLabel,
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          SettleoraKeyValueText(
+            label: 'Destination status',
+            value: destinationStatus,
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          SettleoraKeyValueText(
+            label: 'Navigation safety',
+            value:
+                'Raw links, notification IDs, and linked-resource IDs are routing hints only. Settleora opens only supported typed destinations.',
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          SettleoraKeyValueText(
+            label: 'Current filter',
+            value: selectedFilterLabel,
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          SettleoraKeyValueText(
+            label: 'Authority',
+            value:
+                'The destination API re-checks access and current state before linked details or actions are shown.',
+            labelWidth: 120,
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            labelStyle: detailLabelStyle,
+            valueAlignment: Alignment.centerLeft,
+            valueTextAlign: TextAlign.start,
+          ),
+          if (isArchived)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('Archived notifications do not open automatically.'),
+            ),
+        ],
       ),
     );
   }
