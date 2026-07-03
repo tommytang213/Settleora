@@ -603,8 +603,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('server-shell-sign-out')));
+    await scrollToShellTile(tester, const Key('server-shell-sessions'));
+    await tester.tap(find.byKey(const Key('server-shell-sessions')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('session-list-sign-out-current')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Sign out this device?'), findsOneWidget);
     expect(
       find.textContaining('asks the server to end the current session'),
@@ -643,13 +647,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('server-shell-sign-out')));
+    await scrollToShellTile(tester, const Key('server-shell-sessions'));
+    await tester.tap(find.byKey(const Key('server-shell-sessions')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('session-list-sign-out-current')));
     await tester.pump();
     await tester.tap(
-      find.byKey(const Key('server-shell-sign-out')),
+      find.byKey(const Key('session-list-sign-out-current')),
       warnIfMissed: false,
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Sign out this device?'), findsOneWidget);
     expect(authRepository.signOutCurrentCalls, 0);
@@ -657,14 +665,14 @@ void main() {
     await tester.tap(find.byKey(const Key('sign-out-current-confirm')));
     await tester.pump();
     await tester.tap(
-      find.byKey(const Key('server-shell-sign-out')),
+      find.byKey(const Key('session-list-sign-out-current')),
       warnIfMissed: false,
     );
     await tester.pump();
 
     expect(authRepository.signOutCurrentCalls, 1);
-    final signOutButton = tester.widget<IconButton>(
-      find.byKey(const Key('server-shell-sign-out')),
+    final signOutButton = tester.widget<OutlinedButton>(
+      find.byKey(const Key('session-list-sign-out-current')),
     );
     expect(signOutButton.onPressed, isNull);
     expect(storage.session, isNotNull);
@@ -703,8 +711,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('server-shell-sign-out')));
+      await scrollToShellTile(tester, const Key('server-shell-sessions'));
+      await tester.tap(find.byKey(const Key('server-shell-sessions')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('session-list-sign-out-current')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.byKey(const Key('sign-out-current-confirm')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
@@ -846,10 +858,13 @@ void main() {
       );
       expect(find.text('Current'), findsOneWidget);
       expect(
-        find.textContaining('use the main sign-out flow for this session'),
+        find.textContaining('use Sign Out This Device above'),
         findsOneWidget,
       );
-      expect(find.byIcon(Icons.logout_outlined), findsOneWidget);
+      expect(
+        find.byKey(const Key('session-list-sign-out-current')),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('session-revoke-0')), findsNothing);
       expect(
         visibleText(tester),
@@ -984,6 +999,11 @@ void main() {
 
       expect(authRepository.revokeSessionCalls, 1);
       expect(authRepository.listSessionsCalls, 2);
+      await tester.scrollUntilVisible(
+        find.text('Tablet'),
+        180,
+        scrollable: verticalScrollable().first,
+      );
       expect(find.text('This device'), findsOneWidget);
       expect(find.text('Tablet'), findsOneWidget);
       expect(

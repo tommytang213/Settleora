@@ -19,7 +19,7 @@ import '../profile_screen_test.dart' as profile;
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260703-0018-mobile-setup-signin-settings-polish-dev-only';
+    '/workspace/logs/settleora-visual-qa/20260703-1046-mobile-shell-profile-copy-nav-followup-dev-only';
 
 void main() {
   testWidgets('captures shell home more profile parity visual evidence', (
@@ -93,6 +93,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('server-shell-current-user')), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-notifications-appbar')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('server-shell-sign-out')), findsNothing);
     await _captureBoundary(tester, shellCaptureKey, 'home-shell-390x844.png');
 
     await tester.scrollUntilVisible(
@@ -206,6 +211,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Payment Details'), findsOneWidget);
+    expect(find.text('Bank transfer details'), findsWidgets);
     _expectVisibleInViewport(
       tester,
       find.byKey(const Key('profile-payment-summary')),

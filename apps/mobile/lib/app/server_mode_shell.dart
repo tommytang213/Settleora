@@ -99,8 +99,6 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
 
 class _SettleoraAuthenticatedServerShellState
     extends State<SettleoraAuthenticatedServerShell> {
-  bool _isSigningOut = false;
-  bool _isConfirmingSignOut = false;
   bool _isLoadingOverview = true;
   bool _isFlushingBillSync = false;
   Future<void>? _overviewLoadFuture;
@@ -551,148 +549,6 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
-  Future<void> _signOutCurrentSession() async {
-    if (_isSigningOut || _isConfirmingSignOut) {
-      return;
-    }
-
-    setState(() {
-      _isConfirmingSignOut = true;
-    });
-
-    final confirmed = await _confirmCurrentSignOut();
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _isConfirmingSignOut = false;
-    });
-
-    if (!confirmed) {
-      return;
-    }
-
-    setState(() {
-      _isSigningOut = true;
-    });
-
-    try {
-      final accessToken = await _readAccessToken();
-      if (accessToken == null) {
-        await widget.onSessionEnded('Your session has expired. Sign in again.');
-        return;
-      }
-
-      await widget.authRepository.signOutCurrentSession(
-        accessToken: accessToken,
-      );
-      await widget.onSessionEnded('Signed out.');
-    } on SettleoraAuthFailure catch (failure) {
-      if (!mounted) {
-        return;
-      }
-
-      if (failure.kind == SettleoraAuthFailureKind.sessionExpired) {
-        await widget.onSessionEnded(failure.message);
-        return;
-      }
-
-      if (failure.kind == SettleoraAuthFailureKind.network ||
-          failure.kind == SettleoraAuthFailureKind.server) {
-        final shouldClear = await _confirmLocalSignOut(failure);
-        if (shouldClear) {
-          await widget.onSessionEnded(
-            'Signed out on this device. The server may still show this session until it can be revoked.',
-          );
-        }
-        return;
-      }
-
-      _showSnackBar(failure.message);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSigningOut = false;
-        });
-      }
-    }
-  }
-
-  Future<String?> _readAccessToken() async {
-    try {
-      final accessToken = await widget.accessTokenProvider.accessToken();
-      final trimmed = accessToken?.trim();
-      if (trimmed == null || trimmed.isEmpty) {
-        return null;
-      }
-
-      return trimmed;
-    } on SettleoraAuthFailure {
-      rethrow;
-    } catch (_) {
-      throw const SettleoraAuthFailure(
-        kind: SettleoraAuthFailureKind.server,
-        message: 'Session management is unavailable right now.',
-      );
-    }
-  }
-
-  Future<bool> _confirmLocalSignOut(SettleoraAuthFailure failure) async {
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => SettleoraDialogFrame(
-        icon: Icons.cloud_off_outlined,
-        variant: SettleoraSurfaceVariant.warning,
-        title: failure.title,
-        message:
-            'The server could not confirm current-session sign-out. Clear local session material on this device only? Server-side session revocation was not confirmed, so you may need to sign out from another device after connectivity returns.',
-        actions: [
-          TextButton(
-            key: const Key('sign-out-local-cancel'),
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep Session'),
-          ),
-          FilledButton(
-            key: const Key('sign-out-local-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Sign Out Here'),
-          ),
-        ],
-      ),
-    );
-
-    return result ?? false;
-  }
-
-  Future<bool> _confirmCurrentSignOut() async {
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => SettleoraDialogFrame(
-        icon: Icons.logout_outlined,
-        title: 'Sign out this device?',
-        message:
-            'Normal sign-out asks the server to end the current session before this device clears its saved session material.',
-        actions: [
-          TextButton(
-            key: const Key('sign-out-current-cancel'),
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('sign-out-current-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Sign Out'),
-          ),
-        ],
-      ),
-    );
-
-    return result ?? false;
-  }
-
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(
       context,
@@ -713,17 +569,10 @@ class _SettleoraAuthenticatedServerShellState
               title: const Text('Settleora'),
               actions: [
                 IconButton(
-                  key: const Key('server-shell-sign-out'),
-                  tooltip: 'Sign out',
-                  onPressed: (_isSigningOut || _isConfirmingSignOut)
-                      ? null
-                      : _signOutCurrentSession,
-                  icon: _isSigningOut
-                      ? const SizedBox.square(
-                          dimension: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.logout_outlined),
+                  key: const Key('server-shell-notifications-appbar'),
+                  tooltip: 'Notifications',
+                  onPressed: _openNotifications,
+                  icon: const Icon(Icons.notifications_outlined),
                 ),
               ],
             )
@@ -1980,9 +1829,9 @@ class _DashboardDataSafetySection extends StatelessWidget {
         SettleoraInlinePanel(
           key: const Key('server-shell-data-safety-panel'),
           icon: Icons.inventory_2_outlined,
-          title: 'Local backup',
+          title: 'Back up this device',
           message:
-              'Export covers mobile-owned local state only. It excludes session tokens, refresh credentials, passwords, server URLs, payment details, file bytes, storage paths, receipt/OCR/proof contents, and it is not a complete server backup.',
+              'Create a local file you can keep for this device. It helps preserve mobile-only state, but it is not a full server backup.',
           action: StatusChip(
             label: isAvailable ? 'Preview only' : 'Unavailable',
             variant: isAvailable
@@ -1994,50 +1843,34 @@ class _DashboardDataSafetySection extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('Readouts', style: textTheme.titleSmall),
+                Text('What is included', style: textTheme.titleSmall),
                 const SizedBox(height: SettleoraSpacing.xs),
                 const SettleoraKeyValueText(
-                  label: 'Scope',
+                  label: 'Includes',
+                  value: 'Local app data and queued mobile-owned changes.',
+                  labelWidth: 104,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
+                ),
+                const SettleoraKeyValueText(
+                  label: 'Does not include',
                   value:
-                      'App mode summary and the current mobile bill sync queue.',
+                      'Passwords, session tokens, server-only records, or receipt/proof file contents.',
                   labelWidth: 104,
                   valueAlignment: Alignment.centerLeft,
                   valueTextAlign: TextAlign.start,
                 ),
                 const SettleoraKeyValueText(
-                  label: 'Server mode',
+                  label: 'Restore',
+                  value: 'Preview only until a guarded restore flow exists.',
+                  labelWidth: 104,
+                  valueAlignment: Alignment.centerLeft,
+                  valueTextAlign: TextAlign.start,
+                ),
+                const SettleoraKeyValueText(
+                  label: 'Server data',
                   value:
-                      'The API remains authoritative for collaboration, authorization, storage, audit, sync acceptance, money, and policy.',
-                  labelWidth: 104,
-                  valueAlignment: Alignment.centerLeft,
-                  valueTextAlign: TextAlign.start,
-                ),
-                const SettleoraKeyValueText(
-                  label: 'Import',
-                  value:
-                      'Validation and preview only; merge/replace restore is disabled until a guarded restore policy exists.',
-                  labelWidth: 104,
-                  valueAlignment: Alignment.centerLeft,
-                  valueTextAlign: TextAlign.start,
-                ),
-                const SettleoraKeyValueText(
-                  label: 'CSV export',
-                  value: 'Use server endpoints outside this local backup flow.',
-                  labelWidth: 104,
-                  valueAlignment: Alignment.centerLeft,
-                  valueTextAlign: TextAlign.start,
-                ),
-                const SettleoraKeyValueText(
-                  label: 'CSV import',
-                  value:
-                      'Not handled here; imports cannot mutate bills or money.',
-                  labelWidth: 104,
-                  valueAlignment: Alignment.centerLeft,
-                  valueTextAlign: TextAlign.start,
-                ),
-                const SettleoraKeyValueText(
-                  label: 'Migration/link',
-                  value: 'Future explicit guided flow only; not a bypass.',
+                      'Shared records still come from the server in server mode.',
                   labelWidth: 104,
                   valueAlignment: Alignment.centerLeft,
                   valueTextAlign: TextAlign.start,
@@ -2917,6 +2750,8 @@ class SettleoraSessionListScreen extends StatefulWidget {
 class _SettleoraSessionListScreenState
     extends State<SettleoraSessionListScreen> {
   bool _isLoading = true;
+  bool _isConfirmingSignOutCurrent = false;
+  bool _isSigningOutCurrent = false;
   bool _isConfirmingSignOutAll = false;
   bool _isSigningOutAll = false;
   String? _confirmingRevokeSessionId;
@@ -3172,6 +3007,132 @@ class _SettleoraSessionListScreenState
     }
   }
 
+  Future<void> _signOutCurrent() async {
+    if (_isSigningOutCurrent || _isConfirmingSignOutCurrent) {
+      return;
+    }
+
+    setState(() {
+      _isConfirmingSignOutCurrent = true;
+    });
+
+    final confirmed = await _confirmCurrentSignOut();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isConfirmingSignOutCurrent = false;
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    setState(() {
+      _isSigningOutCurrent = true;
+      _failure = null;
+    });
+
+    try {
+      final accessToken = await _readAccessToken();
+      if (accessToken == null) {
+        await _endSession('Your session has expired. Sign in again.');
+        return;
+      }
+
+      await widget.authRepository.signOutCurrentSession(
+        accessToken: accessToken,
+      );
+      await _endSession('Signed out.');
+    } on SettleoraAuthFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+
+      if (failure.kind == SettleoraAuthFailureKind.sessionExpired) {
+        await _endSession(failure.message);
+        return;
+      }
+
+      if (failure.kind == SettleoraAuthFailureKind.network ||
+          failure.kind == SettleoraAuthFailureKind.server) {
+        final shouldClear = await _confirmLocalSignOut(failure);
+        if (shouldClear) {
+          await _endSession(
+            'Signed out on this device. The server may still show this session until it can be revoked.',
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        _failure = failure;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSigningOutCurrent = false;
+        });
+      }
+    }
+  }
+
+  Future<bool> _confirmCurrentSignOut() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SettleoraDialogFrame(
+        icon: Icons.logout_outlined,
+        title: 'Sign out this device?',
+        message:
+            'Normal sign-out asks the server to end the current session before this device clears its saved session material.',
+        actions: [
+          TextButton(
+            key: const Key('sign-out-current-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('sign-out-current-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+
+    return result ?? false;
+  }
+
+  Future<bool> _confirmLocalSignOut(SettleoraAuthFailure failure) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SettleoraDialogFrame(
+        icon: Icons.cloud_off_outlined,
+        variant: SettleoraSurfaceVariant.warning,
+        title: failure.title,
+        message:
+            'The server could not confirm current-session sign-out. Clear local session material on this device only? Server-side session revocation was not confirmed, so you may need to sign out from another device after connectivity returns.',
+        actions: [
+          TextButton(
+            key: const Key('sign-out-local-cancel'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep Session'),
+          ),
+          FilledButton(
+            key: const Key('sign-out-local-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Sign Out Here'),
+          ),
+        ],
+      ),
+    );
+
+    return result ?? false;
+  }
+
   Future<bool> _confirm({
     required String title,
     required String message,
@@ -3229,6 +3190,21 @@ class _SettleoraSessionListScreenState
                   _SessionInlineFailure(failure: failure, onRetry: _load),
                   const SizedBox(height: 12),
                 ],
+                OutlinedButton.icon(
+                  key: const Key('session-list-sign-out-current'),
+                  onPressed:
+                      (_isSigningOutCurrent || _isConfirmingSignOutCurrent)
+                      ? null
+                      : _signOutCurrent,
+                  icon: _isSigningOutCurrent
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.logout_outlined),
+                  label: const Text('Sign Out This Device'),
+                ),
+                const SizedBox(height: 8),
                 OutlinedButton.icon(
                   key: const Key('session-list-sign-out-all'),
                   onPressed: (_isSigningOutAll || _isConfirmingSignOutAll)
@@ -3294,8 +3270,7 @@ class _SessionTile extends StatelessWidget {
             'Issued: ${_formatTimestamp(session.issuedAtUtc)}',
             'Expires: ${_formatTimestamp(session.expiresAtUtc)}',
             if (lastSeen != null) 'Last seen: ${_formatTimestamp(lastSeen)}',
-            if (session.isCurrent)
-              'Protected: use the main sign-out flow for this session.',
+            if (session.isCurrent) 'Protected: use Sign Out This Device above.',
           ].join('\n'),
         ),
         trailing: session.isCurrent

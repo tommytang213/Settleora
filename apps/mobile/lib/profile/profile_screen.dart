@@ -311,6 +311,7 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
     final profile = _profile;
     final paymentDetails = _paymentDetails;
     final loadFailure = _loadFailure;
+    final paymentCopy = _paymentMethodCopy(_paymentMethodController.text);
 
     return Scaffold(
       appBar: AppBar(
@@ -451,9 +452,10 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         textInputAction: TextInputAction.next,
                         maxLength: _paymentHandleMaxLength,
                         maxLengthEnforcement: MaxLengthEnforcement.none,
-                        decoration: const InputDecoration(
-                          labelText: 'Payment handle',
-                          border: OutlineInputBorder(),
+                        decoration: InputDecoration(
+                          labelText: paymentCopy.detailLabel,
+                          helperText: paymentCopy.detailHelper,
+                          border: const OutlineInputBorder(),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -463,9 +465,10 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         maxLines: 3,
                         maxLength: _paymentNoteMaxLength,
                         maxLengthEnforcement: MaxLengthEnforcement.none,
-                        decoration: const InputDecoration(
-                          labelText: 'Payment note',
-                          border: OutlineInputBorder(),
+                        decoration: InputDecoration(
+                          labelText: paymentCopy.noteLabel,
+                          helperText: paymentCopy.noteHelper,
+                          border: const OutlineInputBorder(),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -569,6 +572,7 @@ class _PaymentDetailsSummary extends StatelessWidget {
     final method = _trimToNull(details.preferredMethodLabel);
     final handle = _trimToNull(details.paymentHandle);
     final note = _trimToNull(details.paymentNote);
+    final copy = _paymentMethodCopy(method);
     final hasTextDetails = method != null || handle != null || note != null;
     final visibility =
         SettleoraPaymentDetailsVisibilityValues.values.contains(
@@ -601,15 +605,15 @@ class _PaymentDetailsSummary extends StatelessWidget {
               isEmpty: method == null,
             ),
             _PaymentSummaryRow(
-              label: 'Handle',
+              label: copy.summaryDetailLabel,
               value: handle ?? 'Not set',
               isEmpty: handle == null,
             ),
             if (note != null)
-              _PaymentSummaryRow(label: 'Note', value: note)
+              _PaymentSummaryRow(label: copy.summaryNoteLabel, value: note)
             else
-              const _PaymentSummaryRow(
-                label: 'Note',
+              _PaymentSummaryRow(
+                label: copy.summaryNoteLabel,
                 value: 'Not set',
                 isEmpty: true,
               ),
@@ -809,7 +813,7 @@ SettleoraProfileFailure? _validatePaymentDetails({
   if (paymentHandle != null && paymentHandle.length > _paymentHandleMaxLength) {
     return const SettleoraProfileFailure(
       kind: SettleoraProfileFailureKind.validation,
-      message: 'Payment handle must be 320 characters or fewer.',
+      message: 'Payment details must be 320 characters or fewer.',
     );
   }
 
@@ -837,4 +841,121 @@ String? _trimToNull(String? value) {
   }
 
   return trimmed;
+}
+
+_PaymentMethodCopy _paymentMethodCopy(String? methodLabel) {
+  final normalized = methodLabel?.trim().toLowerCase();
+
+  return switch (normalized) {
+    'bank transfer' => const _PaymentMethodCopy(
+      detailLabel: 'Bank transfer details',
+      detailHelper:
+          'Use account, bank, or payee details that a settlement counterparty needs.',
+      noteLabel: 'Transfer note',
+      noteHelper: 'Optional reference, memo, or transfer instructions.',
+      summaryDetailLabel: 'Details',
+      summaryNoteLabel: 'Transfer note',
+    ),
+    'fps' => const _PaymentMethodCopy(
+      detailLabel: 'FPS ID',
+      detailHelper: 'Phone, email, FPS ID, or account alias.',
+      noteLabel: 'FPS note',
+      noteHelper: 'Optional payment reference or instructions.',
+      summaryDetailLabel: 'FPS ID',
+      summaryNoteLabel: 'Note',
+    ),
+    'payme' => const _PaymentMethodCopy(
+      detailLabel: 'PayMe handle or link',
+      detailHelper: 'PayMe username, phone, or payment link.',
+      noteLabel: 'PayMe note',
+      noteHelper: 'Optional reference or payer instructions.',
+      summaryDetailLabel: 'PayMe',
+      summaryNoteLabel: 'Note',
+    ),
+    'wise' => const _PaymentMethodCopy(
+      detailLabel: 'Wise details',
+      detailHelper: 'Wise tag, email, or transfer detail for counterparties.',
+      noteLabel: 'Wise note',
+      noteHelper: 'Optional transfer reference or currency instructions.',
+      summaryDetailLabel: 'Wise',
+      summaryNoteLabel: 'Note',
+    ),
+    'revolut' => const _PaymentMethodCopy(
+      detailLabel: 'Revolut tag',
+      detailHelper: 'Revolut username, phone, or payment link.',
+      noteLabel: 'Revolut note',
+      noteHelper: 'Optional reference or payer instructions.',
+      summaryDetailLabel: 'Revolut',
+      summaryNoteLabel: 'Note',
+    ),
+    'venmo' => const _PaymentMethodCopy(
+      detailLabel: 'Venmo username',
+      detailHelper: 'Venmo username, phone, or payment link.',
+      noteLabel: 'Venmo note',
+      noteHelper: 'Optional memo or payer instructions.',
+      summaryDetailLabel: 'Venmo',
+      summaryNoteLabel: 'Note',
+    ),
+    'paypal' => const _PaymentMethodCopy(
+      detailLabel: 'PayPal email or link',
+      detailHelper: 'PayPal email, username, or payment link.',
+      noteLabel: 'PayPal note',
+      noteHelper: 'Optional reference or payer instructions.',
+      summaryDetailLabel: 'PayPal',
+      summaryNoteLabel: 'Note',
+    ),
+    'cash' => const _PaymentMethodCopy(
+      detailLabel: 'Cash instructions',
+      detailHelper: 'Short handoff or meet-up instructions.',
+      noteLabel: 'Cash note',
+      noteHelper: 'Optional change, timing, or handoff note.',
+      summaryDetailLabel: 'Instructions',
+      summaryNoteLabel: 'Cash note',
+    ),
+    'octopus' || 'alipay' || 'wechat pay' => const _PaymentMethodCopy(
+      detailLabel: 'Payment ID or instructions',
+      detailHelper: 'ID, phone, link, or short instructions for this method.',
+      noteLabel: 'Payment note',
+      noteHelper: 'Optional payer instructions.',
+      summaryDetailLabel: 'Details',
+      summaryNoteLabel: 'Note',
+    ),
+    null || '' => const _PaymentMethodCopy(
+      detailLabel: 'Payment details',
+      detailHelper: 'Add an ID, account detail, link, or instruction.',
+      noteLabel: 'Payment note',
+      noteHelper:
+          'Optional instructions for eligible settlement counterparties.',
+      summaryDetailLabel: 'Details',
+      summaryNoteLabel: 'Note',
+    ),
+    _ => const _PaymentMethodCopy(
+      detailLabel: 'Payment details',
+      detailHelper:
+          'Add the ID, account detail, link, or instruction for this method.',
+      noteLabel: 'Payment note',
+      noteHelper:
+          'Optional instructions for eligible settlement counterparties.',
+      summaryDetailLabel: 'Details',
+      summaryNoteLabel: 'Note',
+    ),
+  };
+}
+
+class _PaymentMethodCopy {
+  const _PaymentMethodCopy({
+    required this.detailLabel,
+    required this.detailHelper,
+    required this.noteLabel,
+    required this.noteHelper,
+    required this.summaryDetailLabel,
+    required this.summaryNoteLabel,
+  });
+
+  final String detailLabel;
+  final String detailHelper;
+  final String noteLabel;
+  final String noteHelper;
+  final String summaryDetailLabel;
+  final String summaryNoteLabel;
 }
