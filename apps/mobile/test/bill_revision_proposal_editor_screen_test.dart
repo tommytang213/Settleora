@@ -5,47 +5,56 @@ import 'package:mobile/bills/bill_revision_repository.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
-  testWidgets(
-    'editor shows local preview and validates before repository call',
-    (tester) async {
-      await useLargeSurface(tester);
-      final repository = FakeBillRevisionRepository(
-        revision: sampleRevision(canRevise: true),
-      );
+  testWidgets('editor shows local preview and validates before repository call', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRevisionRepository(
+      revision: sampleRevision(canRevise: true),
+    );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SettleoraBillRevisionProposalEditorScreen.revise(
-            repository: repository,
-            revision: sampleRevision(canRevise: true),
-            billLabel: 'Corner Market',
-          ),
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillRevisionProposalEditorScreen.revise(
+          repository: repository,
+          revision: sampleRevision(canRevise: true),
+          billLabel: 'Corner Market',
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('Local preview'), findsOneWidget);
-      expect(find.text('Unsupported in this editor'), findsOneWidget);
-      expect(find.text('Item-level edits'), findsOneWidget);
-      expect(find.text('Receipt or OCR review'), findsOneWidget);
-      expect(find.byType(MoneyInput), findsNWidgets(3));
-      expect(find.byType(MoneyAmountCurrencyField), findsNothing);
+    expect(find.text('Save sends for review'), findsOneWidget);
+    expect(
+      find.text(
+        'Save sends a replacement for review. It does not change the bill yet, and previous approvals do not carry over.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Check the proposal before saving. The review screen will show what people need to approve.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Local preview'), findsOneWidget);
+    expect(find.text('Unsupported in this editor'), findsOneWidget);
+    expect(find.text('Item-level edits'), findsOneWidget);
+    expect(find.text('Receipt or OCR review'), findsOneWidget);
+    expect(find.byType(MoneyInput), findsNWidgets(3));
+    expect(find.byType(MoneyAmountCurrencyField), findsNothing);
 
-      await tester.enterText(
-        find.byKey(const Key('proposal-total-amount')),
-        '',
-      );
-      await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
-      await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('proposal-total-amount')), '');
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
 
-      expect(
-        find.text('Enter a proposal total amount before saving.'),
-        findsOneWidget,
-      );
-      expect(repository.getCalls, 0);
-      expect(repository.reviseCalls, 0);
-    },
-  );
+    expect(
+      find.text('Enter a proposal total amount before saving.'),
+      findsOneWidget,
+    );
+    expect(repository.getCalls, 0);
+    expect(repository.reviseCalls, 0);
+  });
 
   testWidgets('revise save refreshes capability and sends supported fields', (
     tester,

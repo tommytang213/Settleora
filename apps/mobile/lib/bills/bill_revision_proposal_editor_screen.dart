@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
 import 'bill_revision_repository.dart';
 
@@ -334,74 +335,85 @@ class _SettleoraBillRevisionProposalEditorScreenState
         ],
       ),
       body: SafeArea(
-        child: ListView(
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-          children: [
-            if (_isSaving) ...[
-              const LinearProgressIndicator(),
-              const SizedBox(height: 12),
-            ],
-            if (_validationMessage != null) ...[
-              _InlineValidationMessage(message: _validationMessage!),
-              const SizedBox(height: 12),
-            ],
-            if (_failure != null) ...[
-              _InlineFailure(failure: _failure!),
-              const SizedBox(height: 12),
-            ],
-            _EditorSummaryPanel(billLabel: widget.billLabel, mode: widget.mode),
-            const SizedBox(height: 14),
-            _Section(
-              title: 'Proposal total',
-              icon: Icons.payments_outlined,
-              children: [
-                MoneyInput(
-                  amountKey: const Key('proposal-total-amount'),
-                  currencyKey: const Key('proposal-total-currency'),
-                  amountController: _totalAmountController,
-                  currencyValue: _totalCurrencyController.text,
-                  onCurrencyChanged: (currency) {
-                    setState(() {
-                      _totalCurrencyController.text = currency ?? '';
-                    });
-                  },
-                  amountLabel: 'Total amount',
-                  currencyLabel: 'Total currency',
-                  enabled: !_isSaving,
-                ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_isSaving) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 12),
               ],
-            ),
-            const SizedBox(height: 14),
-            _Section(
-              title: 'Participant shares',
-              icon: Icons.group_outlined,
-              children: [
-                for (var index = 0; index < _participants.length; index += 1)
-                  _ParticipantRowEditor(
-                    index: index,
-                    row: _participants[index],
+              if (_validationMessage != null) ...[
+                _InlineValidationMessage(message: _validationMessage!),
+                const SizedBox(height: 12),
+              ],
+              if (_failure != null) ...[
+                _InlineFailure(failure: _failure!),
+                const SizedBox(height: 12),
+              ],
+              _EditorSummaryPanel(
+                billLabel: widget.billLabel,
+                mode: widget.mode,
+                totalAmount: _totalAmountController.text,
+                totalCurrency: _totalCurrencyController.text,
+                participantCount: _participants.length,
+                payerCount: _payers.length,
+              ),
+              const SizedBox(height: 14),
+              _Section(
+                title: 'Proposal total',
+                icon: Icons.payments_outlined,
+                children: [
+                  MoneyInput(
+                    amountKey: const Key('proposal-total-amount'),
+                    currencyKey: const Key('proposal-total-currency'),
+                    amountController: _totalAmountController,
+                    currencyValue: _totalCurrencyController.text,
+                    onCurrencyChanged: (currency) {
+                      setState(() {
+                        _totalCurrencyController.text = currency ?? '';
+                      });
+                    },
+                    amountLabel: 'Total amount',
+                    currencyLabel: 'Total currency',
                     enabled: !_isSaving,
                   ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _Section(
-              title: 'Payer contributions',
-              icon: Icons.account_balance_wallet_outlined,
-              children: [
-                for (var index = 0; index < _payers.length; index += 1)
-                  _PayerRowEditor(
-                    index: index,
-                    row: _payers[index],
-                    enabled: !_isSaving,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            const _LocalPreviewPanel(),
-            const SizedBox(height: 14),
-            const _UnsupportedDetailsPanel(),
-          ],
+                ],
+              ),
+              const SizedBox(height: 14),
+              _Section(
+                title: 'Participant shares',
+                icon: Icons.group_outlined,
+                children: [
+                  for (var index = 0; index < _participants.length; index += 1)
+                    _ParticipantRowEditor(
+                      index: index,
+                      row: _participants[index],
+                      enabled: !_isSaving,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _Section(
+                title: 'Payer contributions',
+                icon: Icons.account_balance_wallet_outlined,
+                children: [
+                  for (var index = 0; index < _payers.length; index += 1)
+                    _PayerRowEditor(
+                      index: index,
+                      row: _payers[index],
+                      enabled: !_isSaving,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const _LocalPreviewPanel(),
+              const SizedBox(height: 14),
+              const _UnsupportedDetailsPanel(),
+            ],
+          ),
         ),
       ),
     );
@@ -443,34 +455,174 @@ class _PayerEditorRow {
 }
 
 class _EditorSummaryPanel extends StatelessWidget {
-  const _EditorSummaryPanel({required this.billLabel, required this.mode});
+  const _EditorSummaryPanel({
+    required this.billLabel,
+    required this.mode,
+    required this.totalAmount,
+    required this.totalCurrency,
+    required this.participantCount,
+    required this.payerCount,
+  });
 
   final String billLabel;
   final SettleoraBillRevisionProposalEditorMode mode;
+  final String totalAmount;
+  final String totalCurrency;
+  final int participantCount;
+  final int payerCount;
 
   @override
   Widget build(BuildContext context) {
+    final normalizedCurrency =
+        settleoraNormalizeCurrencyCode(totalCurrency) ?? totalCurrency.trim();
+    final hasTotal =
+        totalAmount.trim().isNotEmpty && normalizedCurrency.trim().isNotEmpty;
+
     return _Section(
-      title: 'Proposal editor',
+      title: 'Proposal overview',
       icon: Icons.edit_note_outlined,
       children: [
-        _KeyValueText(label: 'Bill', value: billLabel),
-        _KeyValueText(
-          label: 'Mode',
-          value: mode == SettleoraBillRevisionProposalEditorMode.revise
-              ? 'Revise existing proposal'
-              : 'Create draft proposal',
+        Text(
+          billLabel,
+          style: Theme.of(context).textTheme.titleMedium,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: 6),
-        const Text(
-          'Settleora will check final totals, participant shares, payer contributions, permissions, and current bill state before saving.',
+        const SizedBox(height: 10),
+        _ProposalTotalHero(
+          amount: totalAmount,
+          currency: normalizedCurrency,
+          caption: mode == SettleoraBillRevisionProposalEditorMode.revise
+              ? 'Replacement proposal'
+              : 'Draft proposal',
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _ProposalFactValue(
+                label: 'Participant shares',
+                value: participantCount.toString(),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ProposalFactValue(
+                label: 'Payer rows',
+                value: payerCount.toString(),
+                alignEnd: true,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SettleoraInlinePanel(
+          icon: hasTotal
+              ? Icons.verified_user_outlined
+              : Icons.report_problem_outlined,
+          title: hasTotal ? 'Save sends for review' : 'Total required',
+          message: mode == SettleoraBillRevisionProposalEditorMode.revise
+              ? 'Save sends a replacement for review. It does not change the bill yet, and previous approvals do not carry over.'
+              : 'Save sends this proposal for review. It does not change the bill yet.',
+          variant: hasTotal
+              ? SettleoraSurfaceVariant.info
+              : SettleoraSurfaceVariant.danger,
         ),
         if (mode == SettleoraBillRevisionProposalEditorMode.revise) ...[
-          const SizedBox(height: 8),
-          const Text(
-            'Saving a replacement supersedes this proposal. Previous approvals on this proposal do not carry over.',
+          const SizedBox(height: 12),
+          const SettleoraInlinePanel(
+            icon: Icons.change_circle_outlined,
+            title: 'Replacement review',
+            message:
+                'Saving replaces this proposal. Previous approvals do not carry over.',
+            variant: SettleoraSurfaceVariant.info,
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _ProposalTotalHero extends StatelessWidget {
+  const _ProposalTotalHero({
+    required this.amount,
+    required this.currency,
+    required this.caption,
+  });
+
+  final String amount;
+  final String currency;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Icon(Icons.payments_outlined),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    caption,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  MoneyText(
+                    amount: amount,
+                    currencyCode: currency,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProposalFactValue extends StatelessWidget {
+  const _ProposalFactValue({
+    required this.label,
+    required this.value,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
       ],
     );
   }
@@ -565,34 +717,28 @@ class _MoneyRowEditor extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Text('Profile ${_shortId(profileId)}'),
-              const SizedBox(height: 10),
-              MoneyInput(
-                amountKey: amountKey,
-                currencyKey: currencyKey,
-                amountController: amountController,
-                currencyValue: currencyController.text,
-                onCurrencyChanged: onCurrencyChanged,
-                amountLabel: amountLabel,
-                currencyLabel: currencyLabel,
-                enabled: enabled,
-              ),
-            ],
-          ),
+      child: AppCard(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SettleoraCompactHeader(
+              title: title,
+              subtitle: 'Profile ${_shortId(profileId)}',
+              leadingIcon: Icons.person_outline,
+            ),
+            const SizedBox(height: 10),
+            MoneyInput(
+              amountKey: amountKey,
+              currencyKey: currencyKey,
+              amountController: amountController,
+              currencyValue: currencyController.text,
+              onCurrencyChanged: onCurrencyChanged,
+              amountLabel: amountLabel,
+              currencyLabel: currencyLabel,
+              enabled: enabled,
+            ),
+          ],
         ),
       ),
     );
@@ -609,7 +755,7 @@ class _LocalPreviewPanel extends StatelessWidget {
       icon: Icons.visibility_outlined,
       children: [
         Text(
-          'This preview helps you review the proposal before saving. The saved review screen shows the final result people will approve.',
+          'Check the proposal before saving. The review screen will show what people need to approve.',
         ),
       ],
     );
@@ -668,63 +814,18 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return AppCard(
+      padding: const EdgeInsets.all(14),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, size: 22),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-              ],
-            ),
+            SettleoraCompactHeader(title: title, leadingIcon: icon),
             const SizedBox(height: 10),
             ...children,
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _KeyValueText extends StatelessWidget {
-  const _KeyValueText({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 96,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(value, textAlign: TextAlign.end)),
-        ],
       ),
     );
   }
@@ -737,32 +838,11 @@ class _InlineValidationMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.report_problem_outlined,
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: Icons.report_problem_outlined,
+      title: 'Review required',
+      message: message,
+      variant: SettleoraSurfaceVariant.danger,
     );
   }
 }
@@ -774,44 +854,11 @@ class _InlineFailure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.sync_problem_outlined,
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    failure.title,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    failure.message,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: Icons.sync_problem_outlined,
+      title: failure.title,
+      message: failure.message,
+      variant: SettleoraSurfaceVariant.danger,
     );
   }
 }

@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
 
-import '../ui/settleora_components.dart' show MoneyText;
+import '../ui/settleora_components.dart'
+    show
+        AppCard,
+        MoneyText,
+        SettleoraCompactHeader,
+        SettleoraInlinePanel,
+        SettleoraKeyValueMoneyText,
+        SettleoraKeyValueText,
+        SettleoraLoadingPanel,
+        SettleoraStatePanel,
+        SettleoraSurfaceVariant;
 import 'bill_revision_proposal_editor_screen.dart';
 import 'bill_revision_repository.dart';
 
@@ -488,6 +498,8 @@ class _SettleoraBillRevisionReviewScreenState
             return RefreshIndicator(
               onRefresh: _load,
               child: ListView(
+                // ignore: deprecated_member_use
+                cacheExtent: 10000,
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                 children: [
                   if (_isLoading) ...[
@@ -507,8 +519,14 @@ class _SettleoraBillRevisionReviewScreenState
                     _TerminalRevisionNotice(revision: revision),
                     const SizedBox(height: 14),
                   ],
+                  _RevisionDecisionPanel(revision: revision),
+                  const SizedBox(height: 14),
                   _FinancialImpactPanel(
                     impact: revision.reviewContext.viewerFinancialImpact,
+                  ),
+                  const SizedBox(height: 14),
+                  _LimitationsPanel(
+                    limitations: revision.reviewContext.limitations,
                   ),
                   const SizedBox(height: 14),
                   _BaselinePanel(contextData: revision.reviewContext),
@@ -530,14 +548,6 @@ class _SettleoraBillRevisionReviewScreenState
                   else
                     _FullBillView(revision: revision),
                   const SizedBox(height: 18),
-                  _CategorySummaryPanel(
-                    summaries: revision.reviewContext.changeSummary,
-                  ),
-                  const SizedBox(height: 14),
-                  _LimitationsPanel(
-                    limitations: revision.reviewContext.limitations,
-                  ),
-                  const SizedBox(height: 18),
                   _RevisionActionArea(
                     revision: revision,
                     isActing: _isActing,
@@ -550,6 +560,10 @@ class _SettleoraBillRevisionReviewScreenState
                     onConfirmPayer: _confirmPayer,
                     onApply: _apply,
                     onRevise: _openReviseEditor,
+                  ),
+                  const SizedBox(height: 18),
+                  _CategorySummaryPanel(
+                    summaries: revision.reviewContext.changeSummary,
                   ),
                 ],
               ),
@@ -573,25 +587,248 @@ class _RevisionHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(billLabel, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          _KeyValueText(
-            label: 'Revision',
-            value: settleoraBillRevisionStatusLabel(revision.status),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: SettleoraCompactHeader(
+                  title: billLabel,
+                  subtitle: revision.groupId == null
+                      ? 'Personal bill revision'
+                      : 'Group bill revision',
+                  leadingIcon: Icons.receipt_long_outlined,
+                ),
+              ),
+              const SizedBox(width: 10),
+              _RevisionStatusPill(
+                label: settleoraBillRevisionStatusLabel(revision.status),
+              ),
+            ],
           ),
-          _KeyValueText(label: 'Bill', value: _shortId(revision.billId)),
-          _KeyValueText(label: 'Revision ID', value: _shortId(revision.id)),
-          _KeyValueMoneyText(
-            label: 'Total',
+          const SizedBox(height: 14),
+          _MoneyHero(
+            label: 'Proposed bill total',
             amount: revision.totalAmount,
             currency: revision.totalCurrency,
+            caption: 'Updated ${_formatTimestamp(revision.updatedAtUtc)}',
           ),
-          _KeyValueText(
-            label: 'Updated',
-            value: _formatTimestamp(revision.updatedAtUtc),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _HeaderFact(
+                  label: 'Bill context',
+                  value: revision.groupId == null
+                      ? 'Personal bill'
+                      : 'Group bill',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _HeaderFact(
+                  label: 'Participants',
+                  value: '${revision.participants.length}',
+                  alignEnd: true,
+                ),
+              ),
+            ],
           ),
         ],
       ),
+    );
+  }
+}
+
+class _RevisionDecisionPanel extends StatelessWidget {
+  const _RevisionDecisionPanel({required this.revision});
+
+  final SettleoraBillRevision revision;
+
+  @override
+  Widget build(BuildContext context) {
+    final changeCount = revision.reviewContext.changes.length;
+    final impact = revision.reviewContext.viewerFinancialImpact;
+    final payerImpact = impact.payerImpact;
+    final action = _primaryRevisionAction(revision);
+
+    return _Section(
+      title: 'Your decision',
+      icon: Icons.fact_check_outlined,
+      children: [
+        Text(
+          changeCount == 0
+              ? 'Review the full bill before choosing what happens next.'
+              : '$changeCount change${changeCount == 1 ? '' : 's'} need your review.',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 12),
+        _DecisionMoneyRow(
+          label: 'Your share changes by',
+          value: impact.deltaShare,
+          emptyLabel: impact.affectedByRevision
+              ? 'No delta returned'
+              : 'No direct change',
+        ),
+        if (payerImpact != null)
+          _DecisionMoneyRow(
+            label: payerImpact.requiresPayerConfirmation
+                ? 'Payer needs confirmation'
+                : 'Payer changes by',
+            value: payerImpact.deltaContribution,
+            emptyLabel: payerImpact.requiresPayerConfirmation
+                ? 'Confirmation needed'
+                : 'No payer change',
+          ),
+        const SizedBox(height: 10),
+        SettleoraInlinePanel(
+          icon: action.isBlocked
+              ? Icons.block_outlined
+              : Icons.arrow_forward_outlined,
+          title: action.title,
+          message: action.message,
+          variant: action.isBlocked
+              ? SettleoraSurfaceVariant.danger
+              : SettleoraSurfaceVariant.info,
+        ),
+      ],
+    );
+  }
+}
+
+class _DecisionMoneyRow extends StatelessWidget {
+  const _DecisionMoneyRow({
+    required this.label,
+    required this.value,
+    required this.emptyLabel,
+  });
+
+  final String label;
+  final SettleoraBillRevisionMoneyValue? value;
+  final String emptyLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          if (value == null)
+            Text(emptyLabel, textAlign: TextAlign.end)
+          else
+            MoneyText(
+              amount: value!.amount,
+              currencyCode: value!.currency,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RevisionPrimaryAction {
+  const _RevisionPrimaryAction({
+    required this.title,
+    required this.message,
+    required this.isBlocked,
+  });
+
+  final String title;
+  final String message;
+  final bool isBlocked;
+}
+
+_RevisionPrimaryAction _primaryRevisionAction(SettleoraBillRevision revision) {
+  if (revision.canApprove) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: approve or reject',
+      message:
+          'Review the comparison, then approve this revision or keep the original bill.',
+      isBlocked: false,
+    );
+  }
+  if (revision.canConfirmPayer) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: confirm payer',
+      message:
+          'Confirm the payer change before this revision can move forward.',
+      isBlocked: false,
+    );
+  }
+  if (revision.canSubmit) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: submit for review',
+      message: 'Submit when the proposed total and participant rows are ready.',
+      isBlocked: false,
+    );
+  }
+  if (revision.canApply) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: apply approved revision',
+      message: 'Apply the approved changes to the active bill.',
+      isBlocked: false,
+    );
+  }
+  if (revision.canRevise) {
+    return const _RevisionPrimaryAction(
+      title: 'Next action: revise proposal',
+      message: 'Create a replacement proposal if the current one is not right.',
+      isBlocked: false,
+    );
+  }
+  if (revision.isTerminal) {
+    return const _RevisionPrimaryAction(
+      title: 'No action available',
+      message: 'This revision is already in a final state.',
+      isBlocked: true,
+    );
+  }
+  return const _RevisionPrimaryAction(
+    title: 'Waiting for review',
+    message: 'No action is available for you right now.',
+    isBlocked: true,
+  );
+}
+
+class _HeaderFact extends StatelessWidget {
+  const _HeaderFact({
+    required this.label,
+    required this.value,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      ],
     );
   }
 }
@@ -609,51 +846,209 @@ class _FinancialImpactPanel extends StatelessWidget {
       title: 'Financial impact',
       icon: Icons.payments_outlined,
       children: [
-        _KeyValueText(
-          label: 'Your status',
-          value: impact.affectedByRevision
-              ? 'Server marked you as affected'
-              : 'Server marked no direct impact',
-        ),
-        _KeyValueOptionalMoneyText(
-          label: 'Previous share',
-          money: impact.previousShare,
-          fallback: 'No safe previous share',
-        ),
-        _KeyValueOptionalMoneyText(
-          label: 'Proposed share',
-          money: impact.proposedShare,
-          fallback: 'Not applicable',
-        ),
-        _KeyValueOptionalMoneyText(
-          label: 'Delta',
-          money: impact.deltaShare,
-          fallback: 'No safe delta',
+        _ImpactHeroRow(
+          previous: impact.previousShare,
+          proposed: impact.proposedShare,
+          delta: impact.deltaShare,
+          caption: impact.affectedByRevision
+              ? 'Your share changes in this proposal'
+              : 'No direct share change was returned for you',
         ),
         if (payerImpact != null) ...[
-          const SizedBox(height: 8),
-          _KeyValueText(
-            label: 'Payer status',
-            value: payerImpact.requiresPayerConfirmation
+          const SizedBox(height: 12),
+          _ImpactHeroRow(
+            title: 'Payer impact',
+            previous: payerImpact.previousContribution,
+            proposed: payerImpact.proposedContribution,
+            delta: payerImpact.deltaContribution,
+            caption: payerImpact.requiresPayerConfirmation
                 ? 'Payer confirmation required'
-                : 'Payer confirmation not required',
-          ),
-          _KeyValueOptionalMoneyText(
-            label: 'Payer previous',
-            money: payerImpact.previousContribution,
-            fallback: 'No safe previous contribution',
-          ),
-          _KeyValueOptionalMoneyText(
-            label: 'Payer proposed',
-            money: payerImpact.proposedContribution,
-            fallback: 'Not applicable',
-          ),
-          _KeyValueOptionalMoneyText(
-            label: 'Payer delta',
-            money: payerImpact.deltaContribution,
-            fallback: 'No safe delta',
+                : 'No payer confirmation required',
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _RevisionStatusPill extends StatelessWidget {
+  const _RevisionStatusPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MoneyHero extends StatelessWidget {
+  const _MoneyHero({
+    required this.label,
+    required this.amount,
+    required this.currency,
+    this.caption,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+  final String? caption;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 5),
+            MoneyText(
+              amount: amount,
+              currencyCode: currency,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            if (caption != null) ...[
+              const SizedBox(height: 4),
+              Text(caption!, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImpactHeroRow extends StatelessWidget {
+  const _ImpactHeroRow({
+    this.title = 'Your share',
+    required this.previous,
+    required this.proposed,
+    required this.delta,
+    required this.caption,
+  });
+
+  final String title;
+  final SettleoraBillRevisionMoneyValue? previous;
+  final SettleoraBillRevisionMoneyValue? proposed;
+  final SettleoraBillRevisionMoneyValue? delta;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    final delta = this.delta;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SettleoraCompactHeader(
+              title: title,
+              subtitle: caption,
+              leadingIcon: Icons.trending_up_outlined,
+            ),
+            const SizedBox(height: 12),
+            if (delta != null)
+              _MoneyHero(
+                label: 'Delta',
+                amount: delta.amount,
+                currency: delta.currency,
+              )
+            else
+              const _BodyText('No safe delta was returned for this viewer.'),
+            const SizedBox(height: 10),
+            _ImpactMiniGrid(previous: previous, proposed: proposed),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImpactMiniGrid extends StatelessWidget {
+  const _ImpactMiniGrid({required this.previous, required this.proposed});
+
+  final SettleoraBillRevisionMoneyValue? previous;
+  final SettleoraBillRevisionMoneyValue? proposed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _ImpactMiniValue(label: 'Previous', value: previous),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _ImpactMiniValue(label: 'Proposed', value: proposed),
+        ),
+      ],
+    );
+  }
+}
+
+class _ImpactMiniValue extends StatelessWidget {
+  const _ImpactMiniValue({required this.label, required this.value});
+
+  final String label;
+  final SettleoraBillRevisionMoneyValue? value;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = this.value;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 4),
+        if (value == null)
+          Text('Not returned', style: Theme.of(context).textTheme.bodyMedium)
+        else
+          MoneyText(
+            amount: value.amount,
+            currencyCode: value.currency,
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
       ],
     );
   }
@@ -1215,7 +1610,7 @@ class _PayerConfirmationPanel extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             _BodyText(
-              'The server says payer role or contribution confirmation is required before this revision can be applied.',
+              'Confirm the payer role or contribution before this revision can be applied.',
             ),
             const SizedBox(height: 8),
             _KeyValueText(
@@ -1335,23 +1730,12 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Panel(
+    return AppCard(
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-            ],
-          ),
+          SettleoraCompactHeader(title: title, leadingIcon: icon),
           const SizedBox(height: 10),
           ...children,
         ],
@@ -1367,13 +1751,7 @@ class _Panel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(padding: const EdgeInsets.all(14), child: child),
-    );
+    return AppCard(padding: const EdgeInsets.all(14), child: child);
   }
 }
 
@@ -1385,25 +1763,7 @@ class _KeyValueText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 132,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(value, textAlign: TextAlign.end)),
-        ],
-      ),
-    );
+    return SettleoraKeyValueText(label: label, value: value, labelWidth: 132);
   }
 }
 
@@ -1420,56 +1780,11 @@ class _KeyValueMoneyText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 132,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: MoneyText(
-              amount: amount,
-              currencyCode: currency,
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.end,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _KeyValueOptionalMoneyText extends StatelessWidget {
-  const _KeyValueOptionalMoneyText({
-    required this.label,
-    required this.money,
-    required this.fallback,
-  });
-
-  final String label;
-  final SettleoraBillRevisionMoneyValue? money;
-  final String fallback;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = money;
-    if (value == null) {
-      return _KeyValueText(label: label, value: fallback);
-    }
-    return _KeyValueMoneyText(
+    return SettleoraKeyValueMoneyText(
       label: label,
-      amount: value.amount,
-      currency: value.currency,
+      amount: amount,
+      currencyCode: currency,
+      labelWidth: 132,
     );
   }
 }
@@ -1509,44 +1824,11 @@ class _InlineRevisionFailure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              _failureIcon(failure.kind),
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    failure.title,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    failure.message,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: _failureIcon(failure.kind),
+      title: failure.title,
+      message: failure.message,
+      variant: SettleoraSurfaceVariant.danger,
     );
   }
 }
@@ -1558,22 +1840,11 @@ class _InlineNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.info_outline),
-            const SizedBox(width: 10),
-            Expanded(child: Text(message)),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: Icons.info_outline,
+      title: 'Revision status',
+      message: message,
+      variant: SettleoraSurfaceVariant.info,
     );
   }
 }
@@ -1586,33 +1857,14 @@ class _RevisionFailurePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _failureIcon(failure.kind),
-              size: 42,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(height: 14),
-            Text(
-              failure.title,
-              style: Theme.of(context).textTheme.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 6),
-            Text(failure.message, textAlign: TextAlign.center),
-            const SizedBox(height: 14),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
+    return SettleoraStatePanel(
+      icon: _failureIcon(failure.kind),
+      title: failure.title,
+      message: failure.message,
+      action: OutlinedButton.icon(
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh),
+        label: const Text('Retry'),
       ),
     );
   }
@@ -1623,16 +1875,7 @@ class _RevisionLoadingPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 14),
-          Text('Loading revision review'),
-        ],
-      ),
-    );
+    return const SettleoraLoadingPanel(label: 'Loading revision review');
   }
 }
 
@@ -1683,14 +1926,6 @@ List<SettleoraBillRevisionChange> _changesForUserAndScopes(
 
 String _formatTimestamp(DateTime value) {
   return value.toLocal().toString().split('.').first;
-}
-
-String _shortId(String value) {
-  if (value.length <= 8) {
-    return value;
-  }
-
-  return value.substring(0, 8);
 }
 
 String _titleFromCode(String code) {

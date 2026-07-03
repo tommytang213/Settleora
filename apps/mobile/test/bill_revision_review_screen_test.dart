@@ -26,6 +26,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.text('Your decision'), findsOneWidget);
+      expect(find.text('Your share changes by'), findsOneWidget);
+      expect(find.text('Payer needs confirmation'), findsOneWidget);
+      expect(find.textContaining('Revision 333333'), findsNothing);
       expect(find.text('Financial impact'), findsOneWidget);
       expect(find.byType(MoneyText), findsWidgets);
       expect(find.text('10.00 USD'), findsWidgets);
@@ -37,6 +41,10 @@ void main() {
         tester.getSemantics(find.text('Changed').first).label,
         contains('Changed'),
       );
+
+      await tester.drag(find.byType(ListView), const Offset(0, -700));
+      await tester.pumpAndSettle();
+
       expect(find.text('Limitations'), findsOneWidget);
       expect(
         find.text('Last View Without Approval Or Rejection Not Persisted'),
@@ -70,6 +78,9 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
     await tester.pumpAndSettle();
 
     expect(find.text('Full bill review'), findsOneWidget);
@@ -309,7 +320,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('14.50 USD'), findsWidgets);
-    expect(find.text(_replacementRevisionId.substring(0, 8)), findsOneWidget);
+    expect(find.textContaining('Personal bill revision'), findsWidgets);
   });
 
   testWidgets('revise action stops when refreshed capability denies', (

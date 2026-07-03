@@ -1239,12 +1239,12 @@ void main() {
     expect(find.text('Milk'), findsOneWidget);
 
     final previewApplyButton = find
-        .widgetWithText(OutlinedButton, 'Preview apply')
+        .widgetWithText(OutlinedButton, 'Preview changes')
         .last;
     await tester.tap(previewApplyButton);
     await tester.pumpAndSettle();
 
-    expect(find.text('Blocked by server preview'), findsOneWidget);
+    expect(find.text('Review needed before apply'), findsOneWidget);
     expect(find.text('Currency mismatch'), findsOneWidget);
 
     final applyButton = tester.widget<FilledButton>(
@@ -1272,7 +1272,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final previewApplyButton = find
-        .widgetWithText(OutlinedButton, 'Preview apply')
+        .widgetWithText(OutlinedButton, 'Preview changes')
         .last;
     await tester.tap(previewApplyButton);
     await tester.pumpAndSettle();

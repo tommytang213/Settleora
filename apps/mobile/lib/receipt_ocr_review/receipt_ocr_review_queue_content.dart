@@ -145,41 +145,45 @@ class _ReceiptOcrReviewSummaryList extends StatelessWidget {
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: onRefresh,
-      child: ListView(
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
-        children: [
-          if (isRefreshing) ...[
-            const LinearProgressIndicator(),
-            const SizedBox(height: 12),
-          ],
-          if (failure != null) ...[
-            _QueueFailureBanner(failure: failure!, onRetry: onRetry),
-            const SizedBox(height: 12),
-          ],
-          _ReceiptOcrReviewDiscoveryControls(
-            discovery: discovery,
-            searchController: searchController,
-            onSearchChanged: onSearchChanged,
-            onFilterSelected: onFilterSelected,
-            onClearDiscovery: onClearDiscovery,
-          ),
-          const SizedBox(height: 12),
-          if (reviews.isEmpty)
-            _StatePanel(
-              icon: Icons.search_off_outlined,
-              title: 'No matching receipt reviews',
-              message:
-                  'Adjust the search or filters to show loaded receipt reviews.',
-            )
-          else
-            for (var index = 0; index < reviews.length; index++) ...[
-              if (index > 0) const SizedBox(height: 12),
-              _ReceiptOcrReviewSummaryTile(
-                review: reviews[index],
-                onTap: () => onOpenReview(reviews[index]),
-              ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (isRefreshing) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 12),
             ],
-        ],
+            if (failure != null) ...[
+              _QueueFailureBanner(failure: failure!, onRetry: onRetry),
+              const SizedBox(height: 12),
+            ],
+            _ReceiptOcrReviewDiscoveryControls(
+              discovery: discovery,
+              searchController: searchController,
+              onSearchChanged: onSearchChanged,
+              onFilterSelected: onFilterSelected,
+              onClearDiscovery: onClearDiscovery,
+            ),
+            const SizedBox(height: 12),
+            if (reviews.isEmpty)
+              _StatePanel(
+                icon: Icons.search_off_outlined,
+                title: 'No matching receipt reviews',
+                message:
+                    'Adjust the search or filters to show loaded receipt reviews.',
+              )
+            else
+              for (var index = 0; index < reviews.length; index++) ...[
+                if (index > 0) const SizedBox(height: 12),
+                _ReceiptOcrReviewSummaryTile(
+                  review: reviews[index],
+                  onTap: () => onOpenReview(reviews[index]),
+                ),
+              ],
+          ],
+        ),
       ),
     );
   }
@@ -341,42 +345,12 @@ class _QueueFailureBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.error),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              _failureIcon(failure.kind),
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    failure.title,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(_safeReceiptOcrReviewFailureDisplayMessage(failure)),
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: _ReceiptOcrReviewRetryButton(onRetry: onRetry),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: _failureIcon(failure.kind),
+      title: failure.title,
+      message: _safeReceiptOcrReviewFailureDisplayMessage(failure),
+      variant: SettleoraSurfaceVariant.danger,
+      action: _ReceiptOcrReviewRetryButton(onRetry: onRetry),
     );
   }
 }
@@ -395,38 +369,233 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
     final merchant = review.merchantText ?? 'Receipt review';
     final scope = review.groupId == null ? 'Personal bill' : 'Group bill';
     final currency = _displayCurrencyCandidate(review.currency);
+    final status = receiptOcrReviewStatusLabel(review.status);
+    final source = receiptOcrReviewSourceLabel(review.source);
+    final attention = _queueAttentionText(review);
+    final issueCount = _queueIssueCount(review);
 
     return Semantics(
       button: true,
       excludeSemantics: true,
       label: _receiptOcrReviewSummarySemanticLabel(review),
       onTap: onTap,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 10,
-          ),
-          leading: const Icon(Icons.receipt_long_outlined),
-          title: Text(merchant, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 6,
+      child: AppCard(
+        padding: const EdgeInsets.all(12),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
-                _SoftChip(label: scope),
-                _SoftChip(label: '${review.lineCount} lines'),
-                if (currency != null) _SoftChip(label: currency),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: SettleoraCompactHeader(
+                        title: merchant,
+                        subtitle: scope,
+                        leadingIcon: Icons.receipt_long_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _StatusChip(label: status),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          issueCount > 0
+                              ? Icons.report_problem_outlined
+                              : Icons.fact_check_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                attention,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                issueCount > 0
+                                    ? _queueReviewReason(review)
+                                    : 'Review before applying to the draft.',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _QueueMetaColumn(
+                        label: 'Receipt source',
+                        value: [
+                          source,
+                          '${review.lineCount} line${review.lineCount == 1 ? '' : 's'}',
+                        ].join(' • '),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _QueueMetaColumn(
+                        label: 'Last updated',
+                        value: _formatQueueDate(review.updatedAtUtc),
+                        alignEnd: true,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        currency == null
+                            ? 'Total not confirmed'
+                            : 'Detected currency: $currency',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    FilledButton.icon(
+                      onPressed: onTap,
+                      icon: const Icon(Icons.rate_review_outlined),
+                      label: const Text('Review receipt'),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: onTap,
         ),
       ),
     );
   }
+}
+
+class _QueueMetaColumn extends StatelessWidget {
+  const _QueueMetaColumn({
+    required this.label,
+    required this.value,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String value;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+}
+
+int _queueIssueCount(ReceiptOcrReviewSummary review) {
+  var count = 0;
+  if (review.status == ReceiptOcrReviewStatusValues.provisional) {
+    count += 1;
+  }
+  if (review.lineCount <= 0) {
+    count += 1;
+  }
+  if (_displayCurrencyCandidate(review.currency) == null) {
+    count += 1;
+  }
+  return count;
+}
+
+String _queueAttentionText(ReceiptOcrReviewSummary review) {
+  if (review.status == ReceiptOcrReviewStatusValues.provisional) {
+    if (review.lineCount <= 0) {
+      return 'Needs review: no receipt lines yet';
+    }
+    if (_displayCurrencyCandidate(review.currency) == null) {
+      return 'Needs review: confirm currency';
+    }
+    return 'Needs review before apply';
+  }
+
+  if (review.lineCount <= 0) {
+    return 'Review saved data before applying';
+  }
+
+  return 'Reviewed receipt ready to open';
+}
+
+String _queueReviewReason(ReceiptOcrReviewSummary review) {
+  final reasons = <String>[];
+  if (review.status == ReceiptOcrReviewStatusValues.provisional) {
+    reasons.add('needs review');
+  }
+  if (review.lineCount <= 0) {
+    reasons.add('no receipt lines');
+  }
+  if (_displayCurrencyCandidate(review.currency) == null) {
+    reasons.add('total or currency not confirmed');
+  }
+
+  if (reasons.isEmpty) {
+    return 'Review before applying to the draft.';
+  }
+
+  final formatted = reasons.length == 1
+      ? reasons.single
+      : '${reasons.take(reasons.length - 1).join(', ')} and ${reasons.last}';
+  return 'Action needed: $formatted.';
+}
+
+String _formatQueueDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year}-$month-$day';
 }

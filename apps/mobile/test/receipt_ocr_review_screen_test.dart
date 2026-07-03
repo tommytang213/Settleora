@@ -291,6 +291,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text(merchantCandidate), findsOneWidget);
+      expect(find.text('Receipt source'), findsWidgets);
+      expect(find.text('Last updated'), findsWidgets);
+      expect(find.text('Detected currency: USD'), findsOneWidget);
+      expect(find.text('Review receipt'), findsWidgets);
+      expect(visibleText(tester), isNot(contains('Currency candidate')));
+      expect(visibleText(tester), isNot(contains('checkpoint')));
       expect(
         find.bySemanticsLabel(RegExp('Open personal bill receipt review')),
         findsOneWidget,
@@ -508,7 +514,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Corner Market'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
       await tester.pumpAndSettle();
@@ -904,8 +910,11 @@ void main() {
       expect(find.byType(MoneyText), findsWidgets);
       expect(find.text('Review receipt lines'), findsOneWidget);
       expect(find.text('Milk'), findsOneWidget);
-      expect(find.text('Apply preview'), findsOneWidget);
-      expect(find.text('Preview apply'), findsOneWidget);
+      expect(find.text('Draft update'), findsOneWidget);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Preview changes'),
+        findsOneWidget,
+      );
       expect(find.text('Apply to draft'), findsOneWidget);
       expect(visibleText(tester).toLowerCase(), isNot(contains('candidate')));
       expect(find.byTooltip('Edit receipt review'), findsOneWidget);
@@ -1150,7 +1159,7 @@ void main() {
       expect(find.text('Receipt totals'), findsOneWidget);
       expect(find.text('No receipt lines'), findsOneWidget);
       expect(
-        find.text('Apply is blocked until the server receives reviewed lines.'),
+        find.text('Apply is blocked until this receipt has reviewed lines.'),
         findsOneWidget,
       );
       expect(find.byKey(const Key('receipt-review-line-search')), findsNothing);
@@ -1253,7 +1262,7 @@ void main() {
 
       await pumpDetail(tester, repository: repository, route: route);
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
       await tester.pump();
 
       expect(repository.previewCalls, 1);
@@ -1329,7 +1338,7 @@ void main() {
 
       await pumpDetail(tester, repository: repository, route: route);
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
       await tester.pumpAndSettle();
 
       expect(find.text('Warnings'), findsOneWidget);
@@ -1436,7 +1445,7 @@ void main() {
           ),
           findsOneWidget,
         );
-        expect(find.text('Apply preview'), findsOneWidget);
+        expect(find.text('Draft update'), findsOneWidget);
       },
     );
 
@@ -1486,7 +1495,7 @@ void main() {
       await pumpDetail(tester, repository: repository, route: route);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
       await tester.pump();
 
       expect(repository.previewCalls, 1);
@@ -1495,7 +1504,7 @@ void main() {
       expect(repository.lastPreviewRoute?.fileId, _fileId);
       expectOutlinedButtonEnabled(
         tester,
-        find.widgetWithText(OutlinedButton, 'Preview apply'),
+        find.widgetWithText(OutlinedButton, 'Preview changes'),
         isFalse,
       );
       expectIconButtonEnabled(
@@ -1510,7 +1519,7 @@ void main() {
       );
 
       await tester.tap(
-        find.widgetWithText(OutlinedButton, 'Preview apply'),
+        find.widgetWithText(OutlinedButton, 'Preview changes'),
         warnIfMissed: false,
       );
       await tester.pump();
@@ -1544,7 +1553,7 @@ void main() {
       expect(repository.applyCalls, 1);
       expectOutlinedButtonEnabled(
         tester,
-        find.widgetWithText(OutlinedButton, 'Preview apply'),
+        find.widgetWithText(OutlinedButton, 'Preview changes'),
         isFalse,
       );
       expectFilledButtonEnabled(
@@ -1579,7 +1588,7 @@ void main() {
 
       await pumpDetail(tester, repository: repository, route: route);
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
@@ -1619,7 +1628,7 @@ void main() {
       await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined));
       await tester.pumpAndSettle();
 
-      expect(find.text('Preview apply'), findsNothing);
+      expect(find.text('Preview changes'), findsNothing);
       expect(find.text('Apply to draft'), findsNothing);
       await tester.enterText(
         editableTextForKey(const Key('receipt-review-edit-merchant')),
@@ -1686,7 +1695,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Updated Merchant'), findsOneWidget);
-      expect(find.text('Preview apply'), findsOneWidget);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Preview changes'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('blocks invalid edited candidate values before save', (
@@ -1755,7 +1767,7 @@ void main() {
 
       await pumpDetail(tester, repository: repository, route: route);
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview apply'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Preview changes'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Apply to draft'));
       await tester.pumpAndSettle();
