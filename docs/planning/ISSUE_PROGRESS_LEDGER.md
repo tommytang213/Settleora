@@ -2398,6 +2398,96 @@ remain the source of truth.
     deployment/env/CI, Figma output, screenshots, binary assets, or issue
     closure.
 
+- #687 notification policy resolver wiring design gate checkpoint on
+  `docs/notification-687-policy-resolver-wiring-design-gate-20260704`:
+  - Base main SHA:
+    `e29de98d7d9ff791f19f85c501de31571fd0bce6` after PR #694.
+  - Adds
+    `docs/architecture/NOTIFICATION_POLICY_RESOLVER_WIRING_DESIGN.md` and
+    links it from `docs/architecture/README.md`.
+  - Defines this packet as a non-authorizing docs/design control gate for
+    future resolver wiring only. It does not authorize runtime resolver code,
+    API endpoints, schema/migrations, OpenAPI/generated clients, provider
+    sending, provider secrets, device-token handling, admin/user/mobile UI,
+    deployment, CI, production audit plumbing, notification constants/writers,
+    or #371 behavior.
+  - Records future resolver ownership: API/domain owns effective notification
+    policy resolution; clients may display readouts only; workers and provider
+    adapters cannot mutate core business tables or invent notification-policy
+    decisions; provider readiness is an input only; user/group preferences can
+    narrow optional delivery only; admin/global policy plus security, money,
+    and privacy rules remain authoritative.
+  - Defines design-level input groups only: event type/family and source
+    state, actor/request context, recipient authorization and group
+    membership, content safety/privacy class, admin/global caps, event-family
+    overrides, provider readiness, user preferences, group/thread preference
+    or mute, quiet-hours/digest/defer/expiry, device/platform availability,
+    audit/redaction policy version, and idempotency/correlation context. These
+    are not approved schema fields, DTOs, EF entities, OpenAPI schemas, or
+    generated-client contracts.
+  - Reconciles resolver precedence as: event support/eligibility/source
+    ownership/recipient authorization/content safety; admin/global channel,
+    event-family, timing, and sensitivity caps; provider readiness;
+    security/money required in-app or external redaction rules; user
+    preference; group/default/thread preference or mute; quiet-hours, digest,
+    deferral, and expiry; device/platform and worker/outbox availability; then
+    audit/redaction category generation. Earlier blocks short-circuit later
+    external delivery while preserving in-app where safe and eligible.
+  - Defines conceptual future outputs only, including effective channel
+    decision, decision/readout/audit category, external attempt eligibility,
+    defer/queue/expiry category, provider readiness category used, safe
+    user/admin explanation keys, redaction policy version, policy reference,
+    and idempotency/correlation reference. These are not OpenAPI or generated
+    client contracts.
+  - Records channel semantics for in-app baseline, email, mobile push, SMS
+    unsupported Day 1, future digest/deferred delivery, unsupported/
+    unconfigured/disabled/degraded/failing/rate-limited provider states,
+    token/device unavailable categories, policy blocks, quiet-hours/digest
+    deferral, and attempted versus confirmed delivery.
+  - Integrates #688 audit/redaction posture: no raw payload storage; redact
+    before logs, audit, readouts, reports, comments, screenshots, tests,
+    fixtures, metrics, and traces; normalize resolver/provider/token/device
+    states into safe categories; forbid secrets, device tokens, provider
+    payloads, raw OCR/receipt text, storage internals, payment details, hidden
+    bill data, private notes, and auth/session data.
+  - Records future dependency gates before runtime: #684 schema/API
+    implementation approval, OpenAPI/generated-client gate if contracts
+    change, #686 provider readiness implementation or safe input contract,
+    #688 audit/redaction implementation strategy, manual admin/security
+    review, #634 approval for device-token/provider interaction, accepted #685
+    readout reference, and Figma/UI gates before surfaces use resolver
+    outputs.
+  - Records future test plan for precedence/order, admin cap non-widening,
+    security/money required in-app behavior, provider readiness no-fake-success
+    behavior, provider unavailable states, quiet-hours/digest deferral,
+    device/token push-only narrowing, block categories, idempotency/
+    correlation, audit/redaction safety, API authorization if endpoints exist,
+    OpenAPI/generated-client validation if contracts exist, and unchanged #371
+    notification-open/deep-link regressions.
+  - Records rollout posture: fail closed for external delivery when unknown,
+    preserve safe in-app baseline, do not fail app startup due to missing
+    optional providers, do not turn unconfigured providers into normal-user
+    runtime exceptions, keep self-hosted deployments safe by default, and
+    never produce fake success states.
+  - Recommends future split ordering: manual review of this packet, then a
+    small API/domain resolver skeleton behind feature-neutral tests if
+    approved, schema/API/OpenAPI tasks only after #684 implementation gate,
+    provider readiness adapter after #686 gate, audit/redaction tests after
+    #688 gate, readout surfaces after UI/API gates, and final acceptance
+    through #689.
+  - #687 should remain open pending review/PR merge and future implementation
+    acceptance unless the close rule is clearly satisfied. #635 remains open.
+    #684, #686, and #688 remain open unless separately satisfied. #685 remains
+    closed unless a concrete reference regression exists. Runtime remains
+    blocked. Keep #371 closed.
+  - This docs/design branch does not implement runtime resolver code, API
+    endpoints, schema/migrations, OpenAPI/generated clients, admin UI, user
+    web UI, mobile UI, provider sending, SMTP/APNs/FCM runtime, secrets/config
+    files, device-token handling, auth/session/security runtime, money/
+    settlement/storage/OCR/sync behavior, #371 notification-open behavior,
+    #672/#679 state changes, deployment/env/CI, Figma output, screenshots,
+    binary assets, production audit plumbing, or issue closure.
+
 - #688 audit/redaction coverage gate checkpoint on
   `docs/notification-688-audit-redaction-coverage-gate-20260704`:
   - Base main SHA:
