@@ -414,8 +414,7 @@ class MoneyInput extends StatelessWidget {
               enabled: enabled,
               isLoading: isLoading,
               validator: currencyValidator,
-              helperText:
-                  'Currency stays explicit; the server validates final money rules.',
+              helperText: 'Currency stays explicit before review.',
             ),
           ],
         ],

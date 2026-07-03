@@ -1213,7 +1213,7 @@ class _ChangedOnlyView extends StatelessWidget {
         icon: Icons.filter_alt_outlined,
         children: [
           _BodyText(
-            'Changed-only review is unavailable because the server did not select a safe prior baseline for this viewer.',
+            'Changed-only review is not available for this proposal. Use full bill review to check the current details.',
           ),
         ],
       );
@@ -1452,7 +1452,7 @@ class _RevisionActionArea extends StatelessWidget {
           _BodyText(
             revision.canApprove
                 ? 'You are approving the proposed amount and calculation shown for this pending revision.'
-                : 'No pending approval basis was returned for this viewer. This client will not fabricate approval fields.',
+                : 'Approval is not available for this proposal right now. Refresh before trying again.',
           ),
           const SizedBox(height: 10),
           Wrap(

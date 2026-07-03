@@ -2452,7 +2452,7 @@ void main() {
 
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
     expect(find.text('Archived'), findsWidgets);
-    expect(find.textContaining('updated'), findsOneWidget);
+    expect(find.text('Updated'), findsOneWidget);
     expect(find.text('Personal bill'), findsOneWidget);
     expect(
       find.text('Archived; restore before opening from Notifications.'),

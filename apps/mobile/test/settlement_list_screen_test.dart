@@ -44,6 +44,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expectMoneyText('10.00', 'USD');
+    await scrollTo(tester, find.text('What this includes'));
+    expect(find.text('1 payment'), findsOneWidget);
+    expect(find.text('1 payments'), findsNothing);
+    expect(find.text('1 residual'), findsOneWidget);
+    expect(find.text('1 residuals'), findsNothing);
     await scrollTo(tester, find.text('Payment details'));
     expect(find.text('Payment details'), findsOneWidget);
     expect(find.text('Bank transfer'), findsOneWidget);
@@ -637,7 +642,7 @@ void main() {
     expect(find.textContaining('Credit 0.75 USD'), findsOneWidget);
     expect(find.text('3 bills'), findsOneWidget);
     expect(find.text('2 pending payments'), findsOneWidget);
-    expect(find.text('1 confirmed payments'), findsOneWidget);
+    expect(find.text('1 confirmed payment'), findsOneWidget);
     expect(
       find.textContaining('Refresh if anything looks out of date.'),
       findsOneWidget,

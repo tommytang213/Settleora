@@ -17,7 +17,7 @@ import '../notification_screen_test.dart' as notifications;
 import '../settlement_list_screen_test.dart' as settlements;
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260703-1745-mobile-groups-settle-ux-polish-dev-only';
+    '/workspace/logs/settleora-visual-qa/20260703-2120-mobile-visual-polish-followups-679-copy-fix-dev-only';
 
 void main() {
   testWidgets('captures groups settle notifications visual parity evidence', (

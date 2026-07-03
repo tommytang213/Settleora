@@ -37,8 +37,8 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text('Local preview'), findsOneWidget);
-    expect(find.text('Unsupported in this editor'), findsOneWidget);
+    expect(find.text('Review before saving'), findsOneWidget);
+    expect(find.text('Not included here'), findsOneWidget);
     expect(find.text('Item-level edits'), findsOneWidget);
     expect(find.text('Receipt or OCR review'), findsOneWidget);
     expect(find.byType(MoneyInput), findsNWidgets(3));

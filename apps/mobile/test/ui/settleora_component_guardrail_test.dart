@@ -547,10 +547,7 @@ void main() {
     expect(find.text('Bill amount'), findsOneWidget);
     expect(find.text('JPY'), findsOneWidget);
     expect(find.text('Bill currency'), findsOneWidget);
-    expect(
-      find.textContaining('server validates final money rules'),
-      findsOneWidget,
-    );
+    expect(find.text('Currency stays explicit before review.'), findsOneWidget);
 
     final editableAmountField = tester.widget<EditableText>(
       find.descendant(
