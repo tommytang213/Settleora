@@ -1767,6 +1767,27 @@ remain the source of truth.
   - Close/keep-open recommendation: keep #369, #368, #403, #634, and #635
     open; keep #371, #570, #575, #672, and #679 closed unless a concrete
     regression or newly approved follow-up scope is filed separately.
+- #635 admin/global policy readout checkpoint on
+  `docs/notification-635-admin-global-policy-readout-20260703`:
+  - Verified `origin/main` is
+    `7d371c33a8317e64d1df289f8318b2712fb6926d`, the PR #682 merge commit,
+    before starting the #635 readout branch.
+  - Live issue readback during the branch showed #368 `OPEN`, #369 `OPEN`,
+    #403 `OPEN`, #634 `OPEN`, and #635 `OPEN`; #371 `CLOSED`, #570 `CLOSED`,
+    #575 `CLOSED`, #672 `CLOSED`, and #679 `CLOSED`.
+  - Added `docs/architecture/ADMIN_GLOBAL_NOTIFICATION_POLICY.md` as a
+    docs/control policy readout for global channel caps, provider readiness
+    states, security/money force-in-app and external-channel policy, quiet
+    hours/digest/group mute boundaries, policy precedence, authorization and
+    audit requirements, product-facing readout behavior, and implementation
+    split planning.
+  - This is not runtime implementation and does not add notification event
+    constants, writers, schema, OpenAPI/generated clients, provider sending,
+    admin UI, mobile UI, secrets, deployment, auth/session/security runtime,
+    money/settlement/storage/OCR/sync behavior, or #371 deep-link behavior.
+  - #635 remains open. Future #635 implementation remains blocked until manual
+    admin/security, schema/migration, OpenAPI/generated-client, provider,
+    audit, and UI/Figma gates are cleared in focused child tasks.
 - Completed child slices now recorded:
   - #634 / PR #647 completed the A1 push token lifecycle
     architecture/contract design checkpoint. PR #649 completed the A2
@@ -2081,12 +2102,22 @@ remain the source of truth.
     preference resolution beyond the foundation, admin policy, and #371
     implementation remain separate work and should be split into focused
     implementation issues before runtime expansion starts.
+- Current #635 readout checkpoint:
+  - Branch `docs/notification-635-admin-global-policy-readout-20260703`
+    adds `docs/architecture/ADMIN_GLOBAL_NOTIFICATION_POLICY.md` and links it
+    from the architecture index.
+  - It defines only the admin/global notification policy design and readout
+    gate. It does not complete #403, #635, #634, #369, or #368.
+  - Future #403/#635 work still needs separate manual admin/security,
+    schema/migration, OpenAPI/generated-client, provider/secrets/deployment,
+    audit, and UI/Figma gates before runtime or admin exposure work.
 - Last verified repo/report references:
   - `docs/architecture/NOTIFICATION_EVENT_TAXONOMY.md`
   - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
   - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
   - `docs/architecture/NOTIFICATION_PREFERENCE_RESOLUTION_MODEL.md`
   - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
+  - `docs/architecture/ADMIN_GLOBAL_NOTIFICATION_POLICY.md`
   - `docs/planning/DAY1_UX_REFERENCE_DECISIONS.md`
   - Report:
     `/workspace/logs/settleora-codex-report-20260630-2228-notification-day1-provider-remaining-gates-split-403-369.md`
@@ -2108,6 +2139,76 @@ remain the source of truth.
     `/workspace/logs/settleora-codex-report-20260701-1951-push-token-a2-api-foundation-634-option-a.md`
   - Report:
     `/workspace/logs/settleora-codex-report-20260701-2032-push-token-a2-api-foundation-634-pr-merge.md`
+
+### Issue #635 - Admin global notification policy API and readout
+
+- GitHub state/project status: issue `OPEN` by live issue readback on
+  2026-07-03 HKT during branch
+  `docs/notification-635-admin-global-policy-readout-20260703`. Project field
+  mutation was not attempted.
+- Last verified at main SHA:
+  `7d371c33a8317e64d1df289f8318b2712fb6926d` after PR #682.
+- Current docs/control branch:
+  - Adds `docs/architecture/ADMIN_GLOBAL_NOTIFICATION_POLICY.md`.
+  - Updates `docs/architecture/README.md`.
+  - Updates this ledger.
+- Completed scope:
+  - Defines admin/global policy as the deployment/admin cap over in-app, email,
+    and mobile push channels.
+  - Preserves in-app as the Day 1 baseline where an event is supported,
+    eligible, authorized, and safe.
+  - Records that email and push are optional attempts only when admin/provider
+    policy, provider readiness, content safety, and user preference allow them.
+  - Records that user and group preferences cannot widen admin/global policy.
+  - Defines provider readiness and delivery/readout states such as
+    `unsupported`, `unconfigured`, `disabled`, `muted`, `deferred`, `queued`,
+    `sent`, and `failed`, and keeps `delivered` unavailable without future
+    provider receipt semantics.
+  - Defines precedence: event eligibility and content safety; admin/provider
+    cap; explicit security/required/money policy; user preference; group mute;
+    quiet-hours/digest; device/platform/provider availability.
+  - Defines admin/owner authorization and audit requirements for future
+    policy reads/updates, including redaction boundaries for provider secrets,
+    device tokens, auth/session details, raw OCR/receipt text, storage
+    internals, payment details, private notes, and hidden bill details.
+  - Defines product-facing admin/user/mobile/web readout behavior without
+    exposing backend/provider internals or implying delivery success.
+  - Recommends future child tasks for policy model/schema/API, OpenAPI and
+    generated clients, admin/user readout references, provider readiness
+    integration, audit tests, and final acceptance.
+- Remaining Day 1 work:
+  - Policy schema/API implementation.
+  - OpenAPI/generated-client contracts.
+  - Admin/user/mobile/web readout UI references and implementation.
+  - Provider readiness integration and real provider activation gates.
+  - Audit/redaction tests and authorization tests.
+  - Final #635 acceptance after runtime work.
+- Future gates requiring explicit approval:
+  - Manual admin/security approval for reads/mutations and
+    security/money-critical bypass behavior.
+  - Schema/migration gate.
+  - OpenAPI/generated-client gate.
+  - Provider/secrets/deployment gate for SMTP/APNs/FCM or hosted activation.
+  - UI/Figma gate for admin/user/mobile/web readouts.
+  - Audit/security gate for policy-change logging and redaction.
+- Non-goals confirmed for this branch:
+  - No runtime API, schema, migration, OpenAPI, generated-client, provider
+    sending, SMTP/APNs/FCM secrets, admin web exposure, mobile permission UX,
+    auth/session/security runtime, money/settlement/storage/OCR/sync behavior,
+    #371 deep-link behavior, deployment/env/CI, Figma output, screenshots, or
+    binary assets.
+- Close/keep-open recommendation:
+  - Keep #635 open. This branch makes later implementation ready to split, but
+    it does not implement the policy API or readout.
+  - Keep #368, #369, #403, and #634 open.
+  - Keep #371, #570, #575, #672, and #679 closed unless a separate concrete
+    regression or approved follow-up scope is filed.
+- Last verified repo/report references:
+  - `docs/architecture/ADMIN_GLOBAL_NOTIFICATION_POLICY.md`
+  - `docs/architecture/NOTIFICATION_PREFERENCE_RESOLUTION_MODEL.md`
+  - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
+  - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
+  - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
 
 ### Issue #458 - User web auth/session shell and navigation foundation
 
