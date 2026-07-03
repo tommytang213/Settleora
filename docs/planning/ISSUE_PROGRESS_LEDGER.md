@@ -2222,12 +2222,58 @@ remain the source of truth.
     regression or approved follow-up scope is filed.
 - Last verified repo/report references:
   - `docs/architecture/ADMIN_GLOBAL_NOTIFICATION_POLICY.md`
+  - `docs/architecture/ADMIN_NOTIFICATION_POLICY_SCHEMA_API_DESIGN.md`
   - `docs/architecture/NOTIFICATION_PREFERENCE_RESOLUTION_MODEL.md`
   - `docs/architecture/NOTIFICATION_DELIVERY_STATE_WORKER_FOUNDATION.md`
   - `docs/architecture/SMTP_EMAIL_PROVIDER_POLICY.md`
   - `docs/architecture/PUSH_PROVIDER_DEVICE_TOKEN_LIFECYCLE.md`
   - `.codex/reports/settleora-codex-report-20260703-2215-notification-635-admin-global-policy-readout.md`
   - `.codex/reports/settleora-codex-report-20260703-2225-notification-635-admin-global-policy-readout-pr-merge.md`
+
+- #684 schema/API design gate checkpoint on
+  `docs/notification-684-schema-api-design-gate-20260703`:
+  - Base main SHA:
+    `1a7798dadfc9b8dd0395de603e3062131b600fc1` after PR #690.
+  - Adds
+    `docs/architecture/ADMIN_NOTIFICATION_POLICY_SCHEMA_API_DESIGN.md` and
+    links it from `docs/architecture/README.md`.
+  - Defines future persistence concepts only, including a
+    `notification_global_policy` policy root,
+    `notification_event_policy_overrides`, and bounded policy audit metadata.
+    These are design-level names only, not approved EF entities, table names,
+    migration names, OpenAPI schema names, or generated-client contracts.
+  - Defines the future API/domain service boundary: API owns policy reads,
+    writes, validation, authorization, resolver composition, and product-facing
+    readouts; user/group preferences can narrow policy only; provider
+    readiness cannot be invented by preferences or device state.
+  - Designs future OpenAPI endpoint families without editing OpenAPI:
+    `GET /api/v1/admin/notification-policy`,
+    `PUT/PATCH /api/v1/admin/notification-policy`,
+    `GET /api/v1/notification-policy/readout`, and an optional bounded
+    provider-readiness readout endpoint with no secret configuration exposure.
+  - Records owner/admin mutation requirements, current-user readout boundaries,
+    audit events for reads/writes where appropriate, and redaction rules for
+    SMTP/APNs/FCM secrets, provider payloads, raw device tokens, raw
+    OCR/receipt text, storage internals, payment details, private notes,
+    hidden bill data, and auth/session secret material.
+  - Records future migration/rollout safety: explicit EF migrations only, no
+    production startup auto-migration, in-app baseline enabled where supported,
+    external channels disabled/unconfigured until configured, no silent
+    widening of delivery, no fake provider success, and self-hosted
+    TrueNAS/Docker-compatible degrade behavior.
+  - Records the future test plan and implementation split: schema/API
+    implementation behind manual/admin/security/schema/OpenAPI gates, then
+    OpenAPI/generated clients, resolver/runtime wiring, #685 UI readout gate,
+    #686 provider readiness integration, #688 audit/redaction coverage, and
+    #689 final acceptance.
+  - #684 should remain open pending design review/PR merge and later
+    implementation. #635 remains open. Runtime remains blocked.
+  - This docs/design branch does not implement runtime API, schema/migrations,
+    OpenAPI/generated clients, admin UI, provider sending, provider secrets,
+    auth/session/security runtime, money/settlement/storage/OCR/sync behavior,
+    notification constants/writers, #371 notification-open behavior,
+    deployment/env/CI, Figma output, screenshots, binary assets, or issue
+    closure.
 
 ### Issue #458 - User web auth/session shell and navigation foundation
 
