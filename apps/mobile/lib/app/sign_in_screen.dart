@@ -131,17 +131,12 @@ class _SettleoraSignInScreenState extends State<SettleoraSignInScreen> {
                     const SettleoraCompactHeader(
                       title: 'Sign in to Settleora',
                       subtitle:
-                          'Unlock shared records, sync, and account data through your configured server.',
+                          'Use your server account to sync bills, groups, and settlements.',
                       leadingIcon: Icons.lock_outline,
                     ),
                     const SizedBox(height: SettleoraSpacing.sm),
                     Text(
-                      'Server authentication is required before collaboration, shared records, sync acceptance, or account data are available.',
-                      style: TextStyle(color: colors.textMuted),
-                    ),
-                    const SizedBox(height: SettleoraSpacing.xs),
-                    Text(
-                      'Changing server configuration clears saved session material for that configured server only. It does not migrate local data, upload records, link accounts, or create a backup.',
+                      'Change server clears this device session only.',
                       style: TextStyle(color: colors.textSubtle),
                     ),
                   ],
@@ -151,7 +146,7 @@ class _SettleoraSignInScreenState extends State<SettleoraSignInScreen> {
                 const SizedBox(height: SettleoraSpacing.sm),
                 _StatusMessage(
                   icon: Icons.info_outline,
-                  title: 'Sign in required',
+                  title: 'Session expired',
                   message: notice,
                 ),
               ],

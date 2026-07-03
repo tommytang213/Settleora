@@ -19,8 +19,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Settleora Setup'), findsOneWidget);
-    expect(find.text('Connect'), findsOneWidget);
-    expect(find.text('Local'), findsOneWidget);
+    expect(find.text('Connect to server'), findsOneWidget);
+    expect(find.text('Use local mode'), findsOneWidget);
   });
 
   testWidgets('setup saves local mode without creating a server repository', (
@@ -40,7 +40,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Local'));
+    await tester.tap(find.text('Use local mode'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('setup-save')));
     await tester.pumpAndSettle();
@@ -103,17 +103,18 @@ void main() {
     expect(find.byKey(const Key('sign-in-identifier')), findsOneWidget);
     expect(find.byKey(const Key('sign-in-password')), findsOneWidget);
     expect(
-      find.textContaining('Server authentication is required'),
+      find.textContaining('Use your server account to sync bills'),
       findsOneWidget,
     );
     expect(
-      find.textContaining('collaboration, shared records, sync acceptance'),
+      find.textContaining('Change server clears this device session only'),
       findsOneWidget,
     );
-    expect(find.textContaining('does not migrate local data'), findsOneWidget);
-    expect(find.textContaining('upload records'), findsOneWidget);
-    expect(find.textContaining('link accounts'), findsOneWidget);
-    expect(find.textContaining('create a backup'), findsOneWidget);
+    expect(find.textContaining('sync acceptance'), findsNothing);
+    expect(find.textContaining('does not migrate local data'), findsNothing);
+    expect(find.textContaining('upload records'), findsNothing);
+    expect(find.textContaining('link accounts'), findsNothing);
+    expect(find.textContaining('create a backup'), findsNothing);
     expect(visibleText(tester), isNot(contains('https://settleora.example')));
     expect(find.text('Receipt Reviews'), findsNothing);
   });
@@ -127,30 +128,24 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.textContaining('server collaboration starts only'),
+        find.textContaining('Connect to a server to sync'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('Server mode requires sign-in'),
+        find.textContaining('Use the server address from your Settleora admin'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('Access, collaboration, shared records, sync'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('shared records'), findsOneWidget);
-      expect(find.textContaining('permissions'), findsOneWidget);
-      expect(
-        find.textContaining('Saving or changing a server clears saved session'),
+        find.textContaining('Connect to your Settleora server'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('It does not upload local-only data'),
+        find.textContaining('Changing server signs out this device only'),
         findsOneWidget,
       );
-      expect(find.textContaining('link accounts'), findsOneWidget);
-      expect(find.textContaining('create backups'), findsOneWidget);
-      expect(find.textContaining('migrate records'), findsOneWidget);
+      expect(find.textContaining('migrate records'), findsNothing);
+      expect(find.textContaining('sync acceptance'), findsNothing);
+      expect(find.textContaining('collaboration boundary'), findsNothing);
     },
   );
 

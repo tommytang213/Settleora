@@ -1119,9 +1119,9 @@ class _DashboardHero extends StatelessWidget {
                     ),
                     IconButton(
                       key: const Key('server-shell-notifications-header'),
-                      tooltip: 'Notifications',
+                      tooltip: 'Notification inbox',
                       onPressed: onOpenNotifications,
-                      icon: const Icon(Icons.notifications_outlined),
+                      icon: const Icon(Icons.inbox_outlined),
                     ),
                     IconButton(
                       key: const Key('server-shell-profile'),
@@ -1160,9 +1160,9 @@ class _DashboardHero extends StatelessWidget {
                     ),
                     IconButton(
                       key: const Key('server-shell-notifications-header'),
-                      tooltip: 'Notifications',
+                      tooltip: 'Notification inbox',
                       onPressed: onOpenNotifications,
-                      icon: const Icon(Icons.notifications_outlined),
+                      icon: const Icon(Icons.inbox_outlined),
                     ),
                     IconButton(
                       key: const Key('server-shell-profile'),
@@ -1194,7 +1194,7 @@ class _DashboardHero extends StatelessWidget {
                         : '${overview.activePersonalBillCount} active bill${_plural(overview.activePersonalBillCount)}',
                   ),
                   _DashboardMetricChip(
-                    icon: Icons.notifications_outlined,
+                    icon: Icons.mark_email_unread_outlined,
                     variant: StatusChipVariant.neutral,
                     label: overview == null
                         ? 'Activity loading'
@@ -2264,6 +2264,7 @@ class _DashboardOverviewContent extends StatelessWidget {
           if (overview.notificationSummary.urgentCount > 0)
             _DashboardActivityRow(
               key: const Key('server-shell-urgent-activity-row'),
+              icon: Icons.assignment_late_outlined,
               title: 'Urgent activity',
               message:
                   '${overview.notificationSummary.urgentCount} notification${_plural(overview.notificationSummary.urgentCount)} need fast review',
@@ -2273,6 +2274,7 @@ class _DashboardOverviewContent extends StatelessWidget {
           if (overview.notificationSummary.attentionCount > 0)
             _DashboardActivityRow(
               key: const Key('server-shell-attention-queue-row'),
+              icon: Icons.fact_check_outlined,
               title: 'Attention queue',
               message:
                   '${overview.notificationSummary.attentionCount} item${_plural(overview.notificationSummary.attentionCount)} flagged for review',
@@ -2282,7 +2284,8 @@ class _DashboardOverviewContent extends StatelessWidget {
           if (overview.notificationSummary.unreadCount > 0)
             _DashboardActivityRow(
               key: const Key('server-shell-notification-updates-row'),
-              title: 'Notifications',
+              icon: Icons.inbox_outlined,
+              title: 'Inbox updates',
               message:
                   '${overview.notificationSummary.unreadCount} unread update${_plural(overview.notificationSummary.unreadCount)}',
               status: 'Unread',
@@ -2290,7 +2293,7 @@ class _DashboardOverviewContent extends StatelessWidget {
             ),
           _DashboardInlineActionRow(
             key: const Key('server-shell-notifications'),
-            icon: Icons.notifications_outlined,
+            icon: Icons.inbox_outlined,
             label: 'Open notifications',
             onTap: onOpenNotifications,
           ),
@@ -2626,12 +2629,14 @@ class _DashboardBillRow extends StatelessWidget {
 class _DashboardActivityRow extends StatelessWidget {
   const _DashboardActivityRow({
     super.key,
+    required this.icon,
     required this.title,
     required this.message,
     required this.status,
     required this.onTap,
   });
 
+  final IconData icon;
   final String title;
   final String message;
   final String status;
@@ -2642,7 +2647,7 @@ class _DashboardActivityRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: SettleoraSpacing.xs),
       child: SettleoraListRow(
-        leadingIcon: Icons.notifications_outlined,
+        leadingIcon: icon,
         title: title,
         subtitle: message,
         trailing: StatusChip(

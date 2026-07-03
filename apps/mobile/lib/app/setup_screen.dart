@@ -124,7 +124,7 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                     const SettleoraCompactHeader(
                       title: 'Choose your Settleora mode',
                       subtitle:
-                          'Local data stays on this device. Server collaboration starts only after sign-in.',
+                          'Connect to a server to sync, or keep this device local.',
                       leadingIcon: Icons.shield_moon_outlined,
                     ),
                     const SizedBox(height: SettleoraSpacing.md),
@@ -160,7 +160,7 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                     ),
                     const SizedBox(height: SettleoraSpacing.xs),
                     Text(
-                      'Choose how this device should start. Local data stays on this device; server collaboration starts only after server sign-in.',
+                      'Choose how this device should start.',
                       style: TextStyle(color: colors.textMuted),
                     ),
                     const SizedBox(height: SettleoraSpacing.md),
@@ -170,12 +170,12 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                         ButtonSegment(
                           value: SettleoraAppMode.server,
                           icon: Icon(Icons.cloud_outlined),
-                          label: Text('Connect'),
+                          label: Text('Connect to server'),
                         ),
                         ButtonSegment(
                           value: SettleoraAppMode.local,
                           icon: Icon(Icons.phone_android_outlined),
-                          label: Text('Local'),
+                          label: Text('Use local mode'),
                         ),
                       ],
                       selected: {_selectedMode},
@@ -207,7 +207,7 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                   key: const Key('setup-save'),
                   width: double.infinity,
                   child: AppButton(
-                    label: 'Use Local Mode',
+                    label: 'Use local mode',
                     onPressed: _isSaving ? null : _save,
                     icon: Icons.check_circle_outline,
                     expanded: true,
@@ -271,8 +271,7 @@ class _ServerModeFormFields extends StatelessWidget {
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               labelText: 'Server base URL',
-              helperText:
-                  'HTTPS is recommended. HTTP is only for local development.',
+              helperText: 'Use the server address from your Settleora admin.',
               prefixIcon: Icon(Icons.link_outlined),
             ),
           ),
@@ -290,15 +289,13 @@ class _ServerModeFormFields extends StatelessWidget {
           const SizedBox(height: SettleoraSpacing.sm),
           _CompactBoundaryText(
             icon: Icons.verified_user_outlined,
-            text:
-                'Server mode requires sign-in. Access, collaboration, shared records, sync, and permissions are checked before changes are shown.',
+            text: 'Connect to your Settleora server to sync and share bills.',
             color: colors.textMuted,
           ),
           const SizedBox(height: SettleoraSpacing.xs),
           _CompactBoundaryText(
             icon: Icons.swap_horiz_outlined,
-            text:
-                'Saving or changing a server clears saved session material for this configured server only. It does not upload local-only data, link accounts, create backups, or migrate records.',
+            text: 'Changing server signs out this device only.',
             color: colors.textMuted,
           ),
           if (warning != null) ...[
@@ -354,9 +351,9 @@ class _LocalModeNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     return const SettleoraInlinePanel(
       icon: Icons.info_outline,
-      title: 'Local Mode',
+      title: 'Use local mode',
       message:
-          'Local Mode is device-bound. It does not create or link a server account, shared groups, collaboration, server sync, server backup, import/export, cloud recovery, or automatic migration. Moving to server mode will be a future explicit guided flow.',
+          'Keep data on this device only. Sharing and server backup are unavailable.',
       variant: SettleoraSurfaceVariant.info,
     );
   }
