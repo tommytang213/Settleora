@@ -806,7 +806,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'request-cancel',
                     title: 'Cancel settlement?',
                     message:
-                        'Cancel this settlement only if no payment has been sent. We refresh settlement details before saving actions.',
+                        'Cancel this settlement only if no payment has been sent. Refresh first if anything looks out of date.',
                     confirmLabel: 'Cancel settlement',
                     successMessage: 'Settlement cancelled.',
                     operation: () async {
@@ -875,7 +875,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'payment-confirm-${payment.id}',
                     title: 'Confirm receipt?',
                     message:
-                        'Confirm only if you received this payment. We refresh settlement details before saving actions.',
+                        'Confirm only if you received this payment. Refresh first if anything looks out of date.',
                     confirmLabel: 'Confirm receipt',
                     successMessage: 'Payment confirmed.',
                     operation: () async {
@@ -914,7 +914,7 @@ class _SettleoraSettlementDetailScreenState
                     actionKey: 'residual-confirm-${residual.id}',
                     title: 'Confirm residual?',
                     message:
-                        'Confirm this remaining amount only if it matches what you agreed. We refresh settlement details before saving actions.',
+                        'Confirm this remaining amount only if it matches what you agreed. Refresh first if anything looks out of date.',
                     confirmLabel: 'Confirm residual',
                     successMessage: 'Residual confirmed.',
                     operation: () async {
@@ -1126,21 +1126,7 @@ class _BalanceTile extends StatelessWidget {
             amount: balance.confirmedClearedAmount,
             currencyCode: balance.currency,
           ),
-          SettleoraKeyValueMoneyText(
-            label: 'Confirmed residual',
-            amount: balance.confirmedRemainingResidualAmount,
-            currencyCode: balance.currency,
-          ),
-          SettleoraKeyValueMoneyText(
-            label: 'Waived residual',
-            amount: balance.waivedResidualAmount,
-            currencyCode: balance.currency,
-          ),
-          SettleoraKeyValueMoneyText(
-            label: 'Credit residual',
-            amount: balance.creditResidualAmount,
-            currencyCode: balance.currency,
-          ),
+          const SizedBox(height: 6),
           Wrap(
             spacing: 8,
             runSpacing: 6,
@@ -1161,17 +1147,59 @@ class _BalanceTile extends StatelessWidget {
                 label: '${balance.confirmedPaymentCount} confirmed payments',
                 icon: Icons.verified_outlined,
               ),
+              if (_amountStringLooksNonZero(
+                balance.confirmedRemainingResidualAmount,
+              ))
+                _BalanceResidualChip(
+                  label: 'Remaining review',
+                  amount: balance.confirmedRemainingResidualAmount,
+                  currency: balance.currency,
+                ),
+              if (_amountStringLooksNonZero(balance.waivedResidualAmount))
+                _BalanceResidualChip(
+                  label: 'Waived',
+                  amount: balance.waivedResidualAmount,
+                  currency: balance.currency,
+                ),
+              if (_amountStringLooksNonZero(balance.creditResidualAmount))
+                _BalanceResidualChip(
+                  label: 'Credit',
+                  amount: balance.creditResidualAmount,
+                  currency: balance.currency,
+                ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
-            'Refresh before acting if anything looks stale.',
+            'Refresh if anything looks out of date.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _BalanceResidualChip extends StatelessWidget {
+  const _BalanceResidualChip({
+    required this.label,
+    required this.amount,
+    required this.currency,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    return StatusChip(
+      label: '$label ${_money(amount, currency)}',
+      icon: Icons.rule_outlined,
+      variant: StatusChipVariant.info,
+      size: StatusChipSize.small,
     );
   }
 }
@@ -1354,7 +1382,7 @@ class _RequestHeader extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'We refresh settlement details before saving actions.',
+            'Refresh if anything looks out of date before you act.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -1592,11 +1620,11 @@ class _DetailReviewSummarySection extends StatelessWidget {
         : 'Not configured';
 
     return SettleoraSection(
-      title: 'Status',
+      title: 'What this includes',
       children: [
         _GuidancePanel(
           icon: Icons.fact_check_outlined,
-          title: 'Settlement status',
+          title: 'Settlement overview',
           message:
               '${settleoraSettlementRequestStatusLabel(request.status)} - $roleLabel.',
           chips: [
@@ -1604,7 +1632,9 @@ class _DetailReviewSummarySection extends StatelessWidget {
             '${payments.length} payments',
             '$residualCount residuals',
             if (pendingResidualCount > 0)
-              '$pendingResidualCount need confirmation'
+              pendingResidualCount == 1
+                  ? '1 needs confirmation'
+                  : '$pendingResidualCount need confirmation'
             else
               'No residual review',
             'Payment details $paymentDetailsStatus',
@@ -1735,11 +1765,11 @@ class _RequestLinesSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (totalLineCount == 0) {
       return const SettleoraSection(
-        title: 'Request Lines',
+        title: 'Included bills',
         children: [
           SettleoraStatePanel(
             icon: Icons.format_list_bulleted,
-            title: 'No request lines',
+            title: 'No included bills',
             message: 'No selected settlement lines are visible.',
             compact: true,
           ),
@@ -1748,7 +1778,7 @@ class _RequestLinesSection extends StatelessWidget {
     }
 
     return SettleoraSection(
-      title: 'Request Lines',
+      title: 'Included bills',
       trailing: Text(
         '${lines.length} of $totalLineCount',
         style: Theme.of(context).textTheme.bodySmall,
@@ -1756,7 +1786,7 @@ class _RequestLinesSection extends StatelessWidget {
       children: [
         _GuidancePanel(
           icon: Icons.format_list_bulleted,
-          title: 'Included bills',
+          title: 'Bills in this settlement',
           message: 'These are the bills included in this settlement.',
           chips: [
             '$totalLineCount bills',
@@ -2319,7 +2349,7 @@ class _MarkPaymentPaidDialogState extends State<_MarkPaymentPaidDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Pay this person first, then mark it as paid. We refresh settlement details before saving actions.',
+              'Pay this person first, then mark it as paid. Refresh first if anything looks out of date.',
             ),
             const SizedBox(height: 14),
             MoneyAmountCurrencyField(
@@ -2430,9 +2460,12 @@ class _GuidancePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: colors.surface,
+        border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
@@ -2467,7 +2500,12 @@ class _GuidancePanel extends StatelessWidget {
                 runSpacing: 6,
                 children: [
                   for (final chip in chips)
-                    SettleoraStatusChip(label: chip, icon: Icons.info_outline),
+                    StatusChip(
+                      label: chip,
+                      icon: Icons.info_outline,
+                      variant: StatusChipVariant.info,
+                      size: StatusChipSize.small,
+                    ),
                   ...chipWidgets,
                 ],
               ),

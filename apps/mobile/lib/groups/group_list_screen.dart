@@ -10,6 +10,7 @@ import '../receipt_ocr_capture/receipt_image_intake.dart';
 import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../ui/settleora_components.dart';
+import '../ui/settleora_theme.dart';
 import 'group_repository.dart';
 
 class SettleoraGroupListScreen extends StatefulWidget {
@@ -1267,36 +1268,91 @@ class _GroupSummaryTile extends StatelessWidget {
     final statusLabel = settleoraGroupMembershipStatusLabel(
       group.currentUserStatus,
     );
+    final rolePhrase = _currentUserRolePhrase(group.currentUserRole);
+    final statusPhrase = _currentUserStatusPhrase(group.currentUserStatus);
 
-    return SettleoraListRow(
-      title: group.displayName,
-      subtitle: 'Role: $roleLabel. Status: $statusLabel.',
-      leadingIcon: Icons.groups_outlined,
-      trailing: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        alignment: WrapAlignment.end,
-        children: [
-          StatusChip(
-            label: roleLabel,
-            icon: Icons.badge_outlined,
-            size: StatusChipSize.small,
+    final colors = context.settleoraColors;
+
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+        child: Padding(
+          padding: EdgeInsets.all(SettleoraSpacing.md),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: colors.primarySoft,
+                foregroundColor: colors.primary,
+                child: const Icon(Icons.groups_outlined, size: 20),
+              ),
+              SizedBox(width: SettleoraSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.displayName,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    SizedBox(height: SettleoraSpacing.xxs),
+                    Text(
+                      '$rolePhrase. $statusPhrase.',
+                      style: TextStyle(color: colors.textMuted),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        StatusChip(
+                          label: roleLabel,
+                          icon: Icons.badge_outlined,
+                          size: StatusChipSize.small,
+                        ),
+                        StatusChip(
+                          label: statusLabel,
+                          icon: Icons.verified_user_outlined,
+                          variant:
+                              group.currentUserStatus ==
+                                  SettleoraGroupMembershipStatusValues.active
+                              ? StatusChipVariant.success
+                              : StatusChipVariant.neutral,
+                          size: StatusChipSize.small,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: SettleoraSpacing.xs),
+              Icon(Icons.chevron_right, color: colors.textSubtle),
+            ],
           ),
-          StatusChip(
-            label: statusLabel,
-            icon: Icons.verified_user_outlined,
-            variant:
-                group.currentUserStatus ==
-                    SettleoraGroupMembershipStatusValues.active
-                ? StatusChipVariant.success
-                : StatusChipVariant.neutral,
-            size: StatusChipSize.small,
-          ),
-        ],
+        ),
       ),
-      onTap: onTap,
     );
   }
+}
+
+String _currentUserRolePhrase(SettleoraGroupRole role) {
+  return switch (role) {
+    SettleoraGroupRoleValues.owner => 'You are the owner',
+    SettleoraGroupRoleValues.member => 'You are a member',
+    _ => 'Your role is ${settleoraGroupRoleLabel(role).toLowerCase()}',
+  };
+}
+
+String _currentUserStatusPhrase(SettleoraGroupMembershipStatus status) {
+  return switch (status) {
+    SettleoraGroupMembershipStatusValues.active => 'Active group',
+    SettleoraGroupMembershipStatusValues.removed => 'Removed from new activity',
+    _ =>
+      'Status is ${settleoraGroupMembershipStatusLabel(status).toLowerCase()}',
+  };
 }
 
 class _GroupDetailHeader extends StatelessWidget {

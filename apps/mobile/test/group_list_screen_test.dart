@@ -157,8 +157,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Trip Crew'), findsOneWidget);
+    expect(find.textContaining('You are the owner'), findsWidgets);
+    expect(find.textContaining('Active group'), findsWidgets);
     expect(find.text('Dinner Club'), findsOneWidget);
+    expect(find.textContaining('You are a member'), findsOneWidget);
     expect(find.text('Archive Team'), findsOneWidget);
+    expect(find.textContaining('Removed from new activity'), findsOneWidget);
 
     await tester.enterText(find.byKey(const Key('group-list-search')), 'club');
     await tester.pumpAndSettle();

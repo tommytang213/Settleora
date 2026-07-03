@@ -47,8 +47,8 @@ void main() {
     await scrollTo(tester, find.text('Payment details'));
     expect(find.text('Payment details'), findsOneWidget);
     expect(find.text('Bank transfer'), findsOneWidget);
-    await scrollTo(tester, find.text('Request Lines'));
-    expect(find.text('Request Lines'), findsOneWidget);
+    await scrollTo(tester, find.text('Included bills'));
+    expect(find.text('Included bills'), findsOneWidget);
     expectMoneyText('10.00', 'USD');
     expect(find.text('Open'), findsWidgets);
     await scrollTo(tester, find.text('Payments'));
@@ -469,7 +469,7 @@ void main() {
     expect(find.text('Mark settlement paid?'), findsOneWidget);
     expect(
       find.text(
-        'Pay this person first, then mark it as paid. We refresh settlement details before saving actions.',
+        'Pay this person first, then mark it as paid. Refresh first if anything looks out of date.',
       ),
       findsOneWidget,
     );
@@ -589,14 +589,14 @@ void main() {
       currentUserProfileId: _creditorUserProfileId,
     );
 
-    expect(find.text('Status'), findsOneWidget);
-    expect(find.text('Settlement status'), findsOneWidget);
+    expect(find.text('What this includes'), findsOneWidget);
+    expect(find.text('Settlement overview'), findsOneWidget);
     expect(find.textContaining('Requested - You receive'), findsOneWidget);
     expect(find.text('2 lines'), findsOneWidget);
     expect(find.text('Selected total'), findsWidgets);
     expectMoneyText('22.00', 'USD');
     expect(find.text('2 payments'), findsOneWidget);
-    expect(find.text('1 need confirmation'), findsOneWidget);
+    expect(find.text('1 needs confirmation'), findsOneWidget);
     expect(find.text('Payment details Available'), findsOneWidget);
     expect(find.textContaining(_settlementId), findsNothing);
   });
@@ -632,18 +632,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Remaining'), findsOneWidget);
-    expect(find.text('Confirmed residual'), findsOneWidget);
-    expect(find.text('1.50 USD'), findsOneWidget);
-    expectMoneyText('1.50', 'USD');
-    expect(find.text('Waived residual'), findsOneWidget);
-    expect(find.text('0.25 USD'), findsOneWidget);
-    expect(find.text('Credit residual'), findsOneWidget);
-    expect(find.text('0.75 USD'), findsOneWidget);
+    expect(find.textContaining('Remaining review 1.50 USD'), findsOneWidget);
+    expect(find.textContaining('Waived 0.25 USD'), findsOneWidget);
+    expect(find.textContaining('Credit 0.75 USD'), findsOneWidget);
     expect(find.text('3 bills'), findsOneWidget);
     expect(find.text('2 pending payments'), findsOneWidget);
     expect(find.text('1 confirmed payments'), findsOneWidget);
     expect(
-      find.textContaining('Refresh before acting if anything looks stale'),
+      find.textContaining('Refresh if anything looks out of date.'),
       findsOneWidget,
     );
   });
@@ -951,7 +947,7 @@ void main() {
     expect(find.text('Confirm receipt?'), findsOneWidget);
     expect(
       find.text(
-        'Confirm only if you received this payment. We refresh settlement details before saving actions.',
+        'Confirm only if you received this payment. Refresh first if anything looks out of date.',
       ),
       findsOneWidget,
     );
@@ -1130,7 +1126,7 @@ void main() {
     );
 
     expect(
-      find.text('We refresh settlement details before saving actions.'),
+      find.text('Refresh if anything looks out of date before you act.'),
       findsOneWidget,
     );
     await scrollTo(tester, find.text('No action needed'));
