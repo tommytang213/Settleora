@@ -2398,6 +2398,82 @@ remain the source of truth.
     deployment/env/CI, Figma output, screenshots, binary assets, or issue
     closure.
 
+- #688 audit/redaction coverage gate checkpoint on
+  `docs/notification-688-audit-redaction-coverage-gate-20260704`:
+  - Base main SHA:
+    `2649f0cacefbb26d223f0fcf9e97834a97ffef1c` after PR #693.
+  - Adds
+    `docs/architecture/NOTIFICATION_POLICY_AUDIT_REDACTION_COVERAGE.md` and
+    links it from `docs/architecture/README.md`.
+  - Defines this packet as a non-authorizing docs/security/control coverage
+    gate for future audit/redaction requirements only. It does not authorize
+    runtime API, schema/migrations, OpenAPI/generated clients, provider
+    sending, secrets, device-token handling, admin/mobile/user-web UI,
+    deployment, CI, production audit plumbing, notification constants/writers,
+    or #371 behavior.
+  - Covers future admin/global policy reads and mutations, current-user
+    effective policy readouts, provider-readiness readouts, degraded/failing/
+    maintenance/rate-limited readouts, resolver decisions, later delivery
+    attempt result categories, notification detail explanations,
+    admin/operator diagnostics, logs, metrics, reports, CI artifacts, issue
+    comments, screenshots, and test fixtures.
+  - Records design-level safe category candidates such as `policy_read`,
+    `policy_updated`, `policy_denied`, provider readiness categories,
+    delivery deferred/queued/attempted/failure categories, admin/security/
+    privacy/user/group preference block categories, `token_missing`, and
+    `device_unavailable`.
+  - Defines a forbidden-data matrix covering SMTP/API/app passwords, APNs/FCM
+    credentials, private keys/certificates/team IDs where sensitive, raw or
+    reversible device tokens, provider payloads and raw provider errors,
+    unauthorized rendered external bodies, auth/session secrets, raw
+    OCR/receipt text/images/storage keys, storage internals, payment details,
+    private notes, hidden bill/settlement details, unauthorized recipient
+    lists, private hostnames/ports where sensitive, and unrelated user data.
+  - Defines future redaction/normalization requirements: non-reversible
+    identifiers, short purpose-bound token fingerprints only if approved, safe
+    provider error categories, URL/host classification before display,
+    category/state/action event payload reduction, explicit allow-listing for
+    money/security/OCR/storage/auth/payment fields, admin readout redaction,
+    and debug-mode redaction by default.
+  - Records authorization expectations for owner/admin policy mutation audit,
+    admin/operator read authorization, current-user effective-state readouts,
+    denial auditing without existence leakage, and the rule that policy audit
+    does not replace money/settlement/bill/OCR/sync/storage/auth/security
+    source-domain audit.
+  - Defines conceptual audit fields only: opaque actor/admin ID, action
+    category, policy ID/version if approved, channel/event-family category,
+    safe readiness category, decision category, timestamp, request correlation
+    ID, redaction policy version, and result category. Raw payload storage is
+    forbidden.
+  - Records future test plan for redaction helpers, policy read/update audit,
+    forbidden-field absence in admin/user readouts, provider-readiness
+    redaction, resolver categories, UI copy snapshots if surfaces exist,
+    negative raw OCR/storage/payment/auth/session tests, log/audit fixture
+    tests, OpenAPI/generated-client contract tests when contracts exist, and
+    #371 regression preservation.
+  - Records self-hosted posture: Docker/TrueNAS logs safe by default, debug mode
+    cannot dump secrets/raw provider payloads without a future explicit
+    local-only diagnostic gate, provider unconfigured/disabled/degraded/failing
+    states use safe categories, and missing external provider config is a
+    readout category rather than a fatal startup condition by itself.
+  - Recommends future sequence: manual/security review, redaction helper/design
+    implementation if approved, audit event schema/API after #684, provider
+    readiness redaction tests after #686, UX/readout snapshots after #685
+    surfaces exist, resolver audit hooks after #687, and final acceptance
+    through #689.
+  - #688 should remain open pending review/PR merge and future implementation
+    acceptance unless the close rule is clearly satisfied. #635 remains open.
+    #684 and #686 remain open unless separately satisfied. #685 is closed and
+    should not be reopened without a concrete reference regression. Runtime
+    remains blocked. Keep #371 closed.
+  - This docs/security branch does not implement runtime API, schema/migrations,
+    OpenAPI/generated clients, admin UI, user web UI, mobile UI, provider
+    sending, SMTP/APNs/FCM runtime, secrets/config files, device-token
+    handling, auth/session/security runtime, money/settlement/storage/OCR/sync
+    behavior, #371 notification-open behavior, #672/#679 state changes,
+    deployment/env/CI, Figma output, screenshots, binary assets, production
+    audit plumbing, or issue closure.
+
 ### Issue #458 - User web auth/session shell and navigation foundation
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,
