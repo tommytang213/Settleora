@@ -25,8 +25,8 @@ remain the source of truth.
 - GitHub state/project status: issue `OPEN`; Project field mutation was not
   attempted by this implementation task.
 - Last verified at main SHA:
-  `0a29bba4d76446f641a40d916bae9242c6769996` after PR #677 during the
-  `docs/mobile-672-acceptance-readout-audit-20260703` docs/control audit.
+  `914d1fe0a7ed42f4ce1f193db518b7ddc047d2c8` after PR #678 and before the
+  `docs/mobile-672-followup-split-close-20260703` docs/control close handoff.
 - Last child-slice checkpoint at base main SHA:
   `154ed6787e1cb1b7f06fd1310ddeff724bd7b886` for branch
   `feature/mobile-shell-home-more-profile-parity-672-20260702`.
@@ -624,13 +624,31 @@ remain the source of truth.
     Docker/deployment/env/CI/signing/TestFlight/App Store metadata, runtime
     theme default switching, theme picker/persistence, Figma API output, or
     binary design asset commits.
+- Post-PR #678 close handoff:
+  - PR #678, merge SHA `914d1fe0a7ed42f4ce1f193db518b7ddc047d2c8`,
+    completed the #672 acceptance/readout ledger audit and confirmed PRs
+    #673, #674, #675, #676, and #677 were merged.
+  - Follow-up issue #679,
+    <https://github.com/tommytang213/Settleora/issues/679>, tracks the
+    remaining minor mobile copy/spacing/rhythm polish split out from #672.
+  - Final #672 decision: the child visual parity implementation slices are
+    complete through PRs #673-#677, the post-child audit was merged in PR #678,
+    and minor visual polish is split to #679. #672 may be closed after the
+    `docs/mobile-672-followup-split-close-20260703` docs/control PR merges.
+  - #371 remains closed and untouched; do not reopen or redo notification-open/
+    deep-link behavior under #672 or #679 without a separate concrete
+    regression and approved gate.
+  - Runtime/API/security/money/storage/OCR/theme/deployment gates remain
+    separate and are not part of #679. #679 is presentation-only unless a
+    future approved split issue explicitly gates broader behavior.
+  - Project field updates are not mutated by this ledger entry when tooling is
+    unavailable or ambiguous; report any skipped project/status updates in the
+    task report.
 - Remaining Day 1 work:
   - No currently approved #672 child implementation slice is waiting for a
-    PR/merge gate after PR #677.
-  - Remaining real gates are acceptance/readout and future cleanup decisions:
-    whether to close #672 after a narrow acceptance/readout PR/merge gate, or
-    keep #672 open only long enough to split minor copy/spacing/rhythm cleanup
-    into separate follow-up issues.
+    PR/merge gate after PR #678.
+  - Minor copy/spacing/rhythm cleanup is split to #679 instead of keeping #672
+    open as an umbrella.
   - Known non-blocking visual follow-ups after the merged slices include
     spacing/section rhythm, dense bills/OCR/settlement usage polish,
     notification detail safety-note / received-timestamp spacing, hiding
@@ -650,12 +668,10 @@ remain the source of truth.
     changes, settlement/payment/bill calculation authority, and runtime theme
     picker/default-theme behavior.
 - Close/keep-open recommendation:
-  - Keep #672 open for now, but the post-#677 evidence supports treating the
-    intended approved child implementation slices as complete except minor
-    cleanup/readout issues. Recommended next action is a narrow #672
-    acceptance/readout PR/merge gate, or a separate future cleanup issue for
-    copy/spacing/rhythm while keeping runtime/OCR/money/theme/security/storage
-    gates separate. Do not close #672 automatically from this audit.
+  - Close #672 as completed after the
+    `docs/mobile-672-followup-split-close-20260703` docs/control PR merges,
+    provided #679 exists, #371 remains closed, validation/CI pass, and the diff
+    remains limited to this ledger.
 
 ### Issue #369 - Day 1 in-app notification event-family coverage
 
