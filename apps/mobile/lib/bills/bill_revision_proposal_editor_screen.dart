@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
 import 'bill_revision_repository.dart';
 
@@ -565,34 +566,28 @@ class _MoneyRowEditor extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Text('Profile ${_shortId(profileId)}'),
-              const SizedBox(height: 10),
-              MoneyInput(
-                amountKey: amountKey,
-                currencyKey: currencyKey,
-                amountController: amountController,
-                currencyValue: currencyController.text,
-                onCurrencyChanged: onCurrencyChanged,
-                amountLabel: amountLabel,
-                currencyLabel: currencyLabel,
-                enabled: enabled,
-              ),
-            ],
-          ),
+      child: AppCard(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SettleoraCompactHeader(
+              title: title,
+              subtitle: 'Profile ${_shortId(profileId)}',
+              leadingIcon: Icons.person_outline,
+            ),
+            const SizedBox(height: 10),
+            MoneyInput(
+              amountKey: amountKey,
+              currencyKey: currencyKey,
+              amountController: amountController,
+              currencyValue: currencyController.text,
+              onCurrencyChanged: onCurrencyChanged,
+              amountLabel: amountLabel,
+              currencyLabel: currencyLabel,
+              enabled: enabled,
+            ),
+          ],
         ),
       ),
     );
@@ -668,29 +663,14 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return AppCard(
+      padding: const EdgeInsets.all(14),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, size: 22),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-              ],
-            ),
+            SettleoraCompactHeader(title: title, leadingIcon: icon),
             const SizedBox(height: 10),
             ...children,
           ],
@@ -708,25 +688,7 @@ class _KeyValueText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 96,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(value, textAlign: TextAlign.end)),
-        ],
-      ),
-    );
+    return SettleoraKeyValueText(label: label, value: value, labelWidth: 96);
   }
 }
 
@@ -737,32 +699,11 @@ class _InlineValidationMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.report_problem_outlined,
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: Icons.report_problem_outlined,
+      title: 'Review required',
+      message: message,
+      variant: SettleoraSurfaceVariant.danger,
     );
   }
 }
@@ -774,44 +715,11 @@ class _InlineFailure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.sync_problem_outlined,
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    failure.title,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    failure.message,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: Icons.sync_problem_outlined,
+      title: failure.title,
+      message: failure.message,
+      variant: SettleoraSurfaceVariant.danger,
     );
   }
 }

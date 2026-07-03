@@ -187,12 +187,60 @@ remain the source of truth.
     `origin/main` expected at
     `154ed6787e1cb1b7f06fd1310ddeff724bd7b886`. #672 remains open during and
     after this gate.
+  - PR #674 merged the bounded Shell/Home/More/App settings/Profile/Setup/
+    Sign-in visual parity child slice to `main` at
+    `fd5719cec82f8ea44c3f7af857cba904a34b6ad2`. This approval remains limited
+    to that child slice and does not approve full mobile visual parity,
+    Bills/OCR/revision visual parity, Groups/Settle/Notifications visual
+    parity, runtime theme switching, or theme picker/persistence.
+  - The `20260703-1208` development-only Bills/OCR/revision visual parity
+    child slice on branch
+    `feature/mobile-bills-ocr-revision-visual-parity-672-20260703` started
+    from `origin/main` at `fd5719cec82f8ea44c3f7af857cba904a34b6ad2`.
+    Completed scope is presentation-only migration of selected high-visibility
+    existing Bills/OCR/revision surfaces toward the approved Settleora Midnight
+    direction: shared state/loading/sync panels in bills, shared card/header/
+    key-value/inline panels for bill revision review and proposal editor
+    shells, and shared OCR review queue card/error treatment. It also adds
+    focused visual evidence capture for reachable OCR queue/detail and bill
+    revision review/proposal surfaces. It preserves bill repositories,
+    attachment/OCR review request construction, OCR apply/preview behavior,
+    bill revision lifecycle behavior, settlement/payment/money authority,
+    storage/file-byte behavior, API/OpenAPI/generated-client/schema/backend
+    boundaries, #371 notification-open behavior, and the global runtime app
+    default theme.
+  - Fresh development evidence for the Bills/OCR/revision slice was generated
+    under
+    `/workspace/logs/settleora-visual-qa/20260703-1208-mobile-bills-ocr-revision-visual-parity-dev-only/`
+    with `ocr-review-queue-390x844.png`, `ocr-review-detail-390x844.png`,
+    `bill-revision-review-390x844.png`, and
+    `bill-revision-proposal-390x844.png`. This evidence is
+    `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR or merge has been performed.
+    Validation passed: `npm ci`, `npm run validate:docs`,
+    `npm run validate:scaffold`, `flutter pub get`, `flutter analyze`,
+    `flutter test test/ui/settleora_component_guardrail_test.dart`,
+    `flutter test test/bill_list_screen_test.dart`,
+    `flutter test test/bill_revision_review_screen_test.dart
+    test/bill_revision_proposal_editor_screen_test.dart
+    test/receipt_ocr_review_screen_test.dart`,
+    `flutter test test/ui/bills_ocr_revision_parity_visual_capture_test.dart`,
+    and full `flutter test` with 810 passing tests.
 - Remaining Day 1 work:
-  - Bills/OCR/revision visual parity.
+  - Tommy/manual visual review for the Bills/OCR/revision development evidence,
+    plus follow-up polish if requested before PR/merge.
+  - Remaining Bills/OCR/revision depth after this child slice: broader bills
+    list/detail/create/add-bill sheet parity, richer saved OCR in-bill detail,
+    OCR capture/processing states, and advanced tax/discount/fee/refund review
+    remain separately gated against existing runtime only.
   - Groups/settle/notifications visual parity.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
     and future theme/preset behavior.
   - Manual/Figma visual review and evidence for each later child slice.
+  - Runtime/payment/storage/money/OCR gates remain required for any behavior
+    beyond visual presentation, including OCR extraction/runtime changes,
+    receipt storage/file-byte changes, API/OpenAPI/generated-client/schema
+    changes, settlement/payment/bill calculation authority, and runtime theme
+    picker/default-theme behavior.
 - Close/keep-open recommendation:
   - Keep #672 open as the umbrella tracker until child implementation slices
     and manual/Figma gates are complete.

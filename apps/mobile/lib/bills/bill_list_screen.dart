@@ -16365,21 +16365,11 @@ class _SyncNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            const Icon(Icons.info_outline),
-            const SizedBox(width: 10),
-            Expanded(child: Text(message)),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: Icons.info_outline,
+      title: 'Sync update',
+      message: message,
+      variant: SettleoraSurfaceVariant.info,
     );
   }
 }
@@ -16422,40 +16412,14 @@ class _StatePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: compact ? 28 : 42,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        SizedBox(height: compact ? 8 : 14),
-        Text(
-          title,
-          style: compact
-              ? Theme.of(context).textTheme.titleMedium
-              : Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 6),
-        Text(message, textAlign: TextAlign.center),
-        if (action != null) ...[const SizedBox(height: 14), action!],
-      ],
-    );
-
-    if (compact) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: content,
-        ),
-      );
-    }
-
-    return Center(
-      child: Padding(padding: const EdgeInsets.all(24), child: content),
+    return SettleoraStatePanel(
+      icon: icon,
+      title: title,
+      message: message,
+      action: action,
+      compact: compact,
+      compactAlignment: Alignment.centerLeft,
+      compactPadding: const EdgeInsets.symmetric(vertical: 12),
     );
   }
 }
@@ -16467,16 +16431,7 @@ class _LoadingPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 14),
-          Text(label),
-        ],
-      ),
-    );
+    return SettleoraLoadingPanel(label: label);
   }
 }
 

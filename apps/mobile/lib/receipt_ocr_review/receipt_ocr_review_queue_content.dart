@@ -341,42 +341,12 @@ class _QueueFailureBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.error),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              _failureIcon(failure.kind),
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    failure.title,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(_safeReceiptOcrReviewFailureDisplayMessage(failure)),
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: _ReceiptOcrReviewRetryButton(onRetry: onRetry),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    return SettleoraInlinePanel(
+      icon: _failureIcon(failure.kind),
+      title: failure.title,
+      message: _safeReceiptOcrReviewFailureDisplayMessage(failure),
+      variant: SettleoraSurfaceVariant.danger,
+      action: _ReceiptOcrReviewRetryButton(onRetry: onRetry),
     );
   }
 }
@@ -401,30 +371,35 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
       excludeSemantics: true,
       label: _receiptOcrReviewSummarySemanticLabel(review),
       onTap: onTap,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 10,
-          ),
-          leading: const Icon(Icons.receipt_long_outlined),
-          title: Text(merchant, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
-                _SoftChip(label: scope),
-                _SoftChip(label: '${review.lineCount} lines'),
-                if (currency != null) _SoftChip(label: currency),
-              ],
+      child: AppCard(
+        padding: EdgeInsets.zero,
+        child: Material(
+          type: MaterialType.transparency,
+          child: ListTile(
+            onTap: onTap,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
             ),
+            leading: const Icon(Icons.receipt_long_outlined),
+            title: Text(merchant, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _StatusChip(
+                    label: receiptOcrReviewStatusLabel(review.status),
+                  ),
+                  _SoftChip(label: scope),
+                  _SoftChip(label: '${review.lineCount} lines'),
+                  if (currency != null) _SoftChip(label: currency),
+                ],
+              ),
+            ),
+            trailing: const Icon(Icons.chevron_right),
           ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: onTap,
         ),
       ),
     );
