@@ -1695,6 +1695,78 @@ remain the source of truth.
   2026-07-01.
 - Last verified at main SHA:
   `2da7de49d0b5ee662dac8ea36199a6e03fdf6e87`.
+- Current remaining-gates checkpoint on 2026-07-03 HKT:
+  - Verified `origin/main` is
+    `503d29530a4d317f937edab383a248e47050f776`, the PR #681 merge commit, and
+    it includes the expected #681 visual-polish merge after PR #680 closed #672.
+  - Live issue readback: #368 `OPEN`, #369 `OPEN`, #403 `OPEN`, #634 `OPEN`,
+    and #635 `OPEN`; #371 `CLOSED` after PR #664 and must not be redone without
+    a concrete regression; #570 `CLOSED` after PR #626 and #575 `CLOSED` after
+    PR #576, which is consistent with current docs/runtime because only
+    `ocr.needs_review` assignment/runtime is complete while `ocr.completed` and
+    `ocr.failed` remain blocked; #672 `CLOSED` after PR #680; #679 `CLOSED`
+    after PR #681.
+  - Completed notification event-family/runtime/control slices verified by
+    merged PRs include: recurring due-soon PR #560
+    `12bbdbdf1f00912589dea5d38d9d2ac5949af440`; notification preferences
+    PR #561 `0ed5547a230cbad1f4dbb366d9c873dca38099df`; coverage review
+    PR #562 `40bf0d7aaa294221a272143376afcd963228ccae`; settlement coverage
+    PR #563 `99b2c6b2112a44ffada671da1294aca2481213a8`; bill workflow
+    PR #564 `52667ccdf8447157b265a61ed4ec6993b3a8faa7`; bill revision PR #565
+    `ea2560cb2648f8890a6c185f7296e389b473a2c6`; recurring draft-generated
+    PR #566 `25a519530821fd611f3b6bd2ddbbfa8d96cf9c54`; target-reference
+    docs/control PR #567 `7cb283612cd8e5d5a95e7e8ecfeebba1fc572358` and
+    OCR/sync target-reference runtime PR #569
+    `64351208be72558329547cdd1fc415005c9be075`; sync conflict PR #572
+    `04e8a18bbf2ef280845cf6978638bec949e597c0`; OCR source-state/policy
+    PRs #573 `ce808da646146a5177444caff4702f1c645da994`, #574
+    `d755e00efb0db386ace386ed136af66aa79c3b30`, #576
+    `21c55062a8b7c49a7058e2fbc879b3c5c79bc822`, and #626
+    `ecbabe1bfe432deb8b10617ac59395f338c05b0b`; decision/delivery/provider
+    foundations PR #630 `34caca01a6a746f08b1892134a9510b9265cb645`, #636
+    `94f71c96446780966bec7cefc415c0ee6bbdd54e`, #639
+    `de2a7a38fe902c71592fef62d26fab4a4797ca5a`, #642
+    `8b4ac6361a84065aefb01b6bb1fe827ef0fd752d`, #645
+    `39d1d669cc55988da31d4c5b76800c3f29aa4e83`, #647
+    `7898d8f75008474a6bc1aff6d0a02552291f2bc4`, #649
+    `200d608da2b2b6ebb8d0d80cfd67ad58e9715414`, #650
+    `1983832614394ed0dd8c8c6d4aab63e512e42b4b`, #652
+    `98dc4ab0e6ae7363b0d3638c3d17500c3a26f610`, and #653
+    `1c94fda04dfcea282bc15f6d06a83ce5cb7faaef`; sync operation failed
+    PR #654 `d58c03753f16741fac0a572de16f1447711c6f64`; settlement residual
+    review PR #656 `1766fe9962fe0b4f6d543e0d3aa4c87490e608cf`; remaining sync
+    source-policy PR #657 `d814d2a221b2335366bebbdb372f8e1c1c85fc71`; #371
+    route/open implementation and close PRs #658
+    `40afe9babff51aade50b3312ef77a85f7db65a74`, #663
+    `8b27a132aca6e6c52f602a940ef0d245ec46e9e5`, and #664
+    `2da7de49d0b5ee662dac8ea36199a6e03fdf6e87`; auth/session/security
+    source-policy PR #665 `e98f6b880b4e87980ec747532783492fc3869d0f`.
+  - Remaining gates by category:
+    in-app event constants/writers/tests have no currently safe small runtime
+    slice unless a future source-state/manual gate first approves exact source
+    transitions and safe targets; source-state/design gaps remain for
+    `ocr.completed`/`ocr.failed`, remaining sync queued/retry/resolved flows,
+    auth/session/security events, item claim/split/creator-review, and broader
+    settlement mismatch/review or debtor residual-decision notifications;
+    OpenAPI/generated-client/schema changes are allowed only as part of a
+    later exact runtime slice with reviewed source states; #371 mobile
+    notification-open/deep-link work is closed; #634 push/provider/device-token
+    work remains open/Blocked for real APNs/FCM providers, provider secrets,
+    hosted activation, mobile registration/permission UX, feedback cleanup, and
+    release/deployment gates; #635 admin/global policy/readout remains open;
+    auth/session/security notification runtime remains blocked by manual
+    auth-security and target-reference gates; final Day 1 notification
+    acceptance/release readiness, manual UI retest, and manual code review are
+    not complete.
+  - Recommended next action: do not start a runtime notification slice from
+    #369 solely because the issue is open. The next safe path is a docs/design/
+    decision gate for the highest-priority remaining blocked family, preferably
+    auth/session/security target-reference plus manual auth-security approval,
+    or a #635 admin/global policy/readout decision if operator policy should
+    gate provider work first.
+  - Close/keep-open recommendation: keep #369, #368, #403, #634, and #635
+    open; keep #371, #570, #575, #672, and #679 closed unless a concrete
+    regression or newly approved follow-up scope is filed separately.
 - Completed child slices now recorded:
   - #634 / PR #647 completed the A1 push token lifecycle
     architecture/contract design checkpoint. PR #649 completed the A2
