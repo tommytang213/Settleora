@@ -370,7 +370,7 @@ void main() {
 
     expect(find.text('Settlement row.'), findsOneWidget);
     expect(find.text('Dinner bill is ready.'), findsNothing);
-    expect(find.textContaining('1 loaded non-critical row'), findsOneWidget);
+    expect(find.textContaining('1 lower-priority item hidden'), findsOneWidget);
   });
 
   testWidgets('bottom nav uses canonical M2 labels on Home', (tester) async {

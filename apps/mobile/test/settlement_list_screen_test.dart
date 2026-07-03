@@ -32,9 +32,7 @@ void main() {
     expect(find.text('Settlements'), findsOneWidget);
     expect(find.text('Outgoing balance'), findsOneWidget);
     expect(find.text('7.50 USD'), findsOneWidget);
-    expect(find.text('10.00 USD'), findsOneWidget);
     expectMoneyText('7.50', 'USD');
-    expectMoneyText('10.00', 'USD');
     expect(repository.listBalancesCalls, 1);
     expect(repository.listRequestsCalls, 1);
 
@@ -46,8 +44,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expectMoneyText('10.00', 'USD');
-    await scrollTo(tester, find.text('Counterparty Payment Details'));
-    expect(find.text('Counterparty Payment Details'), findsOneWidget);
+    await scrollTo(tester, find.text('Payment details'));
+    expect(find.text('Payment details'), findsOneWidget);
     expect(find.text('Bank transfer'), findsOneWidget);
     await scrollTo(tester, find.text('Request Lines'));
     expect(find.text('Request Lines'), findsOneWidget);
@@ -60,9 +58,7 @@ void main() {
     expect(find.text('Allocation 1'), findsOneWidget);
     expectMoneyText('7.50', 'USD');
     expect(
-      find.text(
-        'Receipt confirmation is blocked until pending receiver-confirmation residuals are resolved by the API.',
-      ),
+      find.text('Review the remaining amount before confirming receipt.'),
       findsOneWidget,
     );
     expect(repository.getRequestCalls, 1);
@@ -115,7 +111,7 @@ void main() {
       tester,
       find.byKey(const Key('settlement-list-landing-summary')),
     );
-    expect(find.text('Settle landing'), findsOneWidget);
+    expect(find.text('Settle'), findsOneWidget);
     expect(find.text('1 needing action'), findsOneWidget);
 
     await tester.tap(
@@ -420,7 +416,7 @@ void main() {
     expect(find.text('No matching settlements'), findsOneWidget);
     expect(
       find.text(
-        'No loaded settlement requests match this local search and filter. Clear filters to review loaded rows; no-match is not a server search, authorization result, or settlement truth.',
+        'No settlements match this search. Clear filters to review your settlements.',
       ),
       findsOneWidget,
     );
@@ -473,7 +469,7 @@ void main() {
     expect(find.text('Mark settlement paid?'), findsOneWidget);
     expect(
       find.text(
-        'Mark paid only after sending payment. Access, settlement state, residual handling, audit, and money are checked before the claim is saved.',
+        'Pay this person first, then mark it as paid. We refresh settlement details before saving actions.',
       ),
       findsOneWidget,
     );
@@ -523,7 +519,7 @@ void main() {
       expect(find.text('10.00 USD'), findsWidgets);
       expect(
         find.text(
-          'Payment marked paid. Refresh failed. Use Refresh to reload server state before repeating any settlement action.',
+          'Payment marked paid. Refresh failed. Use Refresh before repeating any settlement action.',
         ),
         findsOneWidget,
       );
@@ -559,7 +555,7 @@ void main() {
       expect(find.text('10.00 USD'), findsWidgets);
       expect(
         find.text(
-          'The API could not complete this settlement action right now. The loaded settlement state was kept.',
+          'Settleora could not complete this settlement action right now.',
         ),
         findsOneWidget,
       );
@@ -593,15 +589,9 @@ void main() {
       currentUserProfileId: _creditorUserProfileId,
     );
 
-    expect(find.text('Review Summary'), findsOneWidget);
-    expect(find.text('Loaded settlement facts'), findsOneWidget);
+    expect(find.text('Status'), findsOneWidget);
+    expect(find.text('Settlement status'), findsOneWidget);
     expect(find.textContaining('Requested - You receive'), findsOneWidget);
-    expect(
-      find.textContaining(
-        'does not expand baskets, decide eligibility, or calculate settlement totals',
-      ),
-      findsOneWidget,
-    );
     expect(find.text('2 lines'), findsOneWidget);
     expect(find.text('Selected total'), findsWidgets);
     expectMoneyText('22.00', 'USD');
@@ -641,9 +631,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Selected lines'), findsOneWidget);
-    expect(find.text('22.00 USD'), findsOneWidget);
-    expectMoneyText('22.00', 'USD');
+    expect(find.text('Remaining'), findsOneWidget);
     expect(find.text('Confirmed residual'), findsOneWidget);
     expect(find.text('1.50 USD'), findsOneWidget);
     expectMoneyText('1.50', 'USD');
@@ -651,7 +639,7 @@ void main() {
     expect(find.text('0.25 USD'), findsOneWidget);
     expect(find.text('Credit residual'), findsOneWidget);
     expect(find.text('0.75 USD'), findsOneWidget);
-    expect(find.text('3 lines'), findsOneWidget);
+    expect(find.text('3 bills'), findsOneWidget);
     expect(find.text('2 pending payments'), findsOneWidget);
     expect(find.text('1 confirmed payments'), findsOneWidget);
     expect(
@@ -687,11 +675,11 @@ void main() {
     expectMoneyText('12.00', 'EUR');
     expect(find.text('Closed'), findsOneWidget);
     expect(find.text('No matching request lines'), findsNothing);
-    expect(find.text('Loaded selected scope'), findsOneWidget);
-    expect(find.text('2 loaded lines'), findsOneWidget);
+    expect(find.text('Included bills'), findsOneWidget);
+    expect(find.text('2 bills'), findsOneWidget);
     expect(find.text('1 visible after filter'), findsOneWidget);
     expect(
-      find.textContaining('does not expand baskets or decide line eligibility'),
+      find.textContaining('These are the bills included in this settlement.'),
       findsOneWidget,
     );
 
@@ -703,10 +691,7 @@ void main() {
 
     expectMoneyText('12.00', 'EUR', findsNothing);
     expect(find.text('No matching request lines'), findsOneWidget);
-    expect(
-      find.textContaining('Clear the filter to restore the rows'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('No bills match this search'), findsOneWidget);
     expect(find.text('No request lines'), findsNothing);
   });
 
@@ -752,19 +737,19 @@ void main() {
 
       expect(find.text('2.50 USD'), findsNothing);
       expect(find.text('8.00 EUR'), findsWidgets);
-      expect(find.text('Loaded payment filters'), findsOneWidget);
-      expect(find.text('2 loaded payments'), findsOneWidget);
+      expect(find.text('Payment records'), findsOneWidget);
+      expect(find.text('2 payments'), findsOneWidget);
       expect(find.text('1 visible after filter'), findsOneWidget);
       expect(
         find.textContaining(
-          'They do not authorize, mutate, calculate, allocate, or reconcile',
+          'Filter payment records and remaining-amount reviews.',
         ),
         findsOneWidget,
       );
       expect(find.text('Actual paid'), findsOneWidget);
       expect(find.text('Allocation 1'), findsOneWidget);
       expect(
-        find.textContaining('clearing details for the loaded selected lines'),
+        find.textContaining('Clearing details for the selected bills.'),
         findsOneWidget,
       );
       expect(find.text('Underpayment / Remaining Balance'), findsOneWidget);
@@ -816,7 +801,7 @@ void main() {
 
     expect(find.text('No matching payments'), findsOneWidget);
     expect(
-      find.textContaining('Clear filters to restore rows'),
+      find.textContaining('No payments match this search'),
       findsOneWidget,
     );
     expect(find.text('No payments'), findsNothing);
@@ -836,12 +821,12 @@ void main() {
       currentUserProfileId: _debtorUserProfileId,
     );
 
-    await scrollTo(tester, find.text('Counterparty Payment Details'));
+    await scrollTo(tester, find.text('Payment details'));
 
-    expect(find.text('Settlement-scoped visibility'), findsOneWidget);
+    expect(find.text('Payment instructions'), findsOneWidget);
     expect(
       find.textContaining(
-        'Only people involved in an eligible settlement can see these payment details',
+        'Use these details to pay this person, then mark the settlement paid.',
       ),
       findsOneWidget,
     );
@@ -966,11 +951,11 @@ void main() {
     expect(find.text('Confirm receipt?'), findsOneWidget);
     expect(
       find.text(
-        'Confirm only if you received this payment. Access, settlement state, residual handling, and audit details are checked before the confirmation is saved.',
+        'Confirm only if you received this payment. We refresh settlement details before saving actions.',
       ),
       findsOneWidget,
     );
-    await tester.tap(find.text('Confirm receipt'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm receipt').last);
     await tester.pumpAndSettle();
 
     expect(repository.confirmPaymentCalls, 1);
@@ -1003,7 +988,7 @@ void main() {
     expect(find.text('Cancel payment claim?'), findsOneWidget);
     expect(
       find.text(
-        'This asks the API to cancel your marked-paid claim. The loaded payer role only guides this button; the server decides whether the transition is allowed.',
+        'Cancel this marked-paid claim if you have not sent the payment or need to correct it.',
       ),
       findsOneWidget,
     );
@@ -1081,7 +1066,7 @@ void main() {
     await scrollTo(tester, confirm);
     await tester.tap(confirm);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Confirm receipt'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm receipt').last);
     await tester.pump();
 
     expect(repository.confirmPaymentCalls, 1);
@@ -1145,9 +1130,7 @@ void main() {
     );
 
     expect(
-      find.text(
-        'Actions shown here use the latest loaded status. Access, settlement state, audit, and money are checked again before changes are saved.',
-      ),
+      find.text('We refresh settlement details before saving actions.'),
       findsOneWidget,
     );
     await scrollTo(tester, find.text('No action needed'));

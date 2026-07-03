@@ -331,7 +331,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                       title: 'No groups',
                       message: widget.openGroupBillCreateOnPick
                           ? 'Create a group first, then pick it to start a group bill.'
-                          : 'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
+                          : 'Groups you can access will appear here. Create a group to start sharing bills.',
                       action: FilledButton.icon(
                         key: const Key('group-list-empty-create'),
                         onPressed: _isCreating ? null : _createGroup,
@@ -358,7 +358,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
                         icon: Icons.filter_alt_off_outlined,
                         title: 'No matching groups',
                         message:
-                            'No loaded visible groups match these filters. Clear filters to review your available groups.',
+                            'No groups match this search. Clear filters to review your groups.',
                         compact: true,
                       )
                     else
@@ -953,7 +953,7 @@ class _SettleoraGroupDetailScreenState
                             icon: Icons.person_search_outlined,
                             title: 'No matching members',
                             message:
-                                'No loaded visible members match these filters. Clear filters to review available group members.',
+                                'No members match this search. Clear filters to review group members.',
                             compact: true,
                           )
                         else
@@ -984,7 +984,6 @@ class _SettleoraGroupDetailScreenState
                     ],
                   ),
                   const SizedBox(height: 14),
-                  const _GroupWorkspaceReadinessCard(),
                 ],
               ),
             );
@@ -1015,53 +1014,15 @@ class _GroupBillsHandoffCard extends StatelessWidget {
       key: const Key('group-detail-bills-handoff'),
       child: ListTile(
         leading: const Icon(Icons.receipt_long_outlined),
-        title: const Text('Shared bill workspace'),
+        title: const Text('Group bills'),
         subtitle: Text(
-          '$memberCount loaded member${_plural(memberCount)} - Open group bills for $safeName.',
+          '$memberCount member${_plural(memberCount)} in $safeName.',
         ),
         trailing: FilledButton.icon(
           key: const Key('group-detail-bills'),
           onPressed: onOpenGroupBills,
           icon: const Icon(Icons.arrow_forward),
           label: const Text('Open'),
-        ),
-      ),
-    );
-  }
-}
-
-class _GroupWorkspaceReadinessCard extends StatelessWidget {
-  const _GroupWorkspaceReadinessCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-
-    return Card(
-      key: Key('group-detail-workspace-readiness'),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Group workspace readiness', style: textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              'This group detail plus group bills is the current mobile group workspace. Group summaries, balances, reports, and settings are coming later.',
-              style: TextStyle(color: muted),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Use the main navigation for settlements, recurring bills, notifications, receipt reviews, reports, and sync status. Details are refreshed before actions, and local labels or filters do not grant access.',
-              style: TextStyle(color: muted),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Unsupported for now: saved group dashboard layouts, per-group dashboard defaults, saved dashboard profiles, dashboard personalization persistence, and saved cross-surface search/filter views.',
-              style: TextStyle(color: muted),
-            ),
-          ],
         ),
       ),
     );
@@ -1128,7 +1089,7 @@ class _MemberDiscoveryControls extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Showing $visibleCount of ${members.length} loaded members',
+                'Showing $visibleCount of ${members.length} members',
                 key: const Key('group-member-visible-count'),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1146,7 +1107,7 @@ class _MemberDiscoveryControls extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Member search and filters narrow loaded visible rows only. Member labels and hidden controls are not permission signals.',
+          'Search by name, role, or status.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1220,7 +1181,7 @@ class _GroupDiscoveryControls extends StatelessWidget {
           onChanged: onSearchChanged,
           textInputAction: TextInputAction.search,
           decoration: InputDecoration(
-            labelText: 'Search groups',
+            labelText: 'Search by group name',
             border: const OutlineInputBorder(),
             prefixIcon: const Icon(Icons.search),
             suffixIcon: searchController.text.trim().isEmpty
@@ -1241,7 +1202,7 @@ class _GroupDiscoveryControls extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Showing $visibleCount of ${groups.length} loaded groups',
+                'Groups you can access: $visibleCount of ${groups.length}',
                 key: const Key('group-list-visible-count'),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1259,7 +1220,7 @@ class _GroupDiscoveryControls extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Group search and filters narrow loaded visible rows only. Group labels, route state, and dashboard visibility are not authorization.',
+          'Search by group name, role, or status.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1309,7 +1270,7 @@ class _GroupSummaryTile extends StatelessWidget {
 
     return SettleoraListRow(
       title: group.displayName,
-      subtitle: 'Your role: $roleLabel. Membership: $statusLabel.',
+      subtitle: 'Role: $roleLabel. Status: $statusLabel.',
       leadingIcon: Icons.groups_outlined,
       trailing: Wrap(
         spacing: 6,

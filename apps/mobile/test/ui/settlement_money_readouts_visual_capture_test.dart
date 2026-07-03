@@ -57,7 +57,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(_moneyText('22.00', 'USD'), findsWidgets);
+    expect(_moneyText('10.00', 'USD'), findsWidgets);
+    expect(_moneyText('8.00', 'USD'), findsWidgets);
+    expect(_moneyText('4.00', 'USD'), findsWidgets);
     await _captureBoundary(
       tester,
       listKey,

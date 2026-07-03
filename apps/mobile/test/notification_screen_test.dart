@@ -90,7 +90,7 @@ void main() {
       SettleoraNotificationOpenFallbackState.providerUnconfigured:
           'Push notifications are off for this server. In-app notifications still work.',
       SettleoraNotificationOpenFallbackState.unsupported:
-          'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+          'This item cannot be opened here yet. Refresh or check the related section.',
     };
 
     for (final entry in expectedCopy.entries) {
@@ -123,17 +123,12 @@ void main() {
 
     expect(find.byKey(const Key('notification-summary')), findsOneWidget);
     expect(find.text('Unread: 1'), findsOneWidget);
-    expect(find.text('Attention: 1'), findsOneWidget);
+    expect(find.text('Needs attention: 1'), findsOneWidget);
     expect(
-      find.text(
-        'API summary counts are server-authoritative; Mark All Read asks the API and this button is only UI guidance.',
-      ),
+      find.text('We refresh access before opening details.'),
       findsOneWidget,
     );
-    expect(
-      find.textContaining('Local filters only hide loaded rows'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Showing 1 of 1 in All'), findsOneWidget);
     expect(find.text('Bill submitted'), findsOneWidget);
     expect(find.text('Dinner bill is ready.'), findsOneWidget);
     expect(visibleText(tester), isNot(contains(_notificationId)));
@@ -194,7 +189,7 @@ void main() {
       expect(find.text('Settlement row.'), findsOneWidget);
       expect(find.text('Bill row.'), findsNothing);
       expect(find.text('Archived row.'), findsNothing);
-      expect(find.textContaining('1 loaded non-critical row'), findsOneWidget);
+      expect(find.textContaining('1 lower-priority item'), findsOneWidget);
       expect(repository.archiveCalls, 0);
 
       await tapNotificationFilter(tester, 'archived');
@@ -259,12 +254,12 @@ void main() {
     expect(find.text('All (4)'), findsOneWidget);
     expect(find.text('Unread (3)'), findsOneWidget);
     expect(find.text('Read (1)'), findsOneWidget);
-    expect(find.text('Attention (1)'), findsOneWidget);
+    expect(find.text('Needs attention (1)'), findsOneWidget);
     expect(find.text('Urgent (1)'), findsOneWidget);
     expect(find.text('Bills (1)'), findsOneWidget);
     expect(find.text('Settlements (1)'), findsOneWidget);
     expect(find.text('Recurring (2)'), findsOneWidget);
-    expect(find.text('Actionable (2)'), findsOneWidget);
+    expect(find.text('Review (2)'), findsOneWidget);
     expect(find.text('Archived (0)'), findsOneWidget);
 
     await tapNotificationFilter(tester, 'urgent');
@@ -357,11 +352,11 @@ void main() {
 
     expect(find.text('All (1)'), findsOneWidget);
     expect(find.text('Unread (1)'), findsOneWidget);
-    expect(find.text('Attention (1)'), findsOneWidget);
+    expect(find.text('Needs attention (1)'), findsOneWidget);
     expect(find.text('Urgent (0)'), findsOneWidget);
     expect(find.text('Bills (0)'), findsOneWidget);
     expect(find.text('Settlements (1)'), findsOneWidget);
-    expect(find.text('Actionable (1)'), findsOneWidget);
+    expect(find.text('Review (1)'), findsOneWidget);
     expect(find.text('Archived (1)'), findsOneWidget);
 
     await tapNotificationFilter(tester, 'bills');
@@ -466,7 +461,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.markAllReadCalls, 1);
-    expect(find.text('Mark-all-read request sent to the API.'), findsOneWidget);
+    expect(find.text('All notifications marked read.'), findsOneWidget);
     expect(find.text('Unread: 0'), findsOneWidget);
     expect(find.text('Read'), findsWidgets);
 
@@ -477,7 +472,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.archiveCalls, 1);
-    expect(find.text('Notification archived through the API.'), findsOneWidget);
+    expect(find.text('Notification archived.'), findsOneWidget);
     expect(find.text('No matching notifications'), findsOneWidget);
     expect(find.text('All (0)'), findsOneWidget);
     expect(find.text('Archived (1)'), findsOneWidget);
@@ -539,7 +534,7 @@ void main() {
       expect(repository.listCalls, 2);
       expect(
         find.text(
-          'Notification was archived through the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+          'Notification was archived, but the inbox could not refresh. Use Refresh before repeating actions.',
         ),
         findsOneWidget,
       );
@@ -649,7 +644,7 @@ void main() {
 
       expect(repository.markAllReadCalls, 1);
       expectSelectedFilter(tester, 'actionable');
-      expect(find.text('Actionable (0)'), findsOneWidget);
+      expect(find.text('Review (0)'), findsOneWidget);
       expect(find.text('Unread: 0'), findsOneWidget);
       expect(find.text('No matching notifications'), findsOneWidget);
 
@@ -701,9 +696,7 @@ void main() {
       expect(find.text('Already read bill.'), findsOneWidget);
       expect(find.text('Hidden settlement.'), findsNothing);
       expect(
-        find.textContaining(
-          '1 currently visible loaded unread notification in Bills',
-        ),
+        find.textContaining('1 unread notification in Bills'),
         findsOneWidget,
       );
 
@@ -713,17 +706,12 @@ void main() {
       expect(repository.markReadCalls, 1);
       expect(repository.markReadIds, ['notification-bill-visible']);
       expectSelectedFilter(tester, 'bills');
-      expect(
-        find.text('Visible loaded notifications marked read through the API.'),
-        findsOneWidget,
-      );
+      expect(find.text('Visible notifications marked read.'), findsOneWidget);
       expect(find.text('Unread (1)'), findsOneWidget);
       expect(find.text('Read (2)'), findsOneWidget);
       expect(find.text('Bills (2)'), findsOneWidget);
       expect(
-        find.textContaining(
-          '0 currently visible loaded unread notifications in Bills',
-        ),
+        find.textContaining('0 unread notifications in Bills'),
         findsOneWidget,
       );
 
@@ -754,12 +742,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining(
-        '1 currently visible loaded unread notification in All',
-      ),
-      findsOneWidget,
-    );
+    expect(find.textContaining('1 unread notification in All'), findsOneWidget);
     await tester.tap(find.byKey(const Key('notification-mark-visible-read')));
     await tester.pumpAndSettle();
 
@@ -771,9 +754,7 @@ void main() {
     await tapNotificationFilter(tester, 'archived');
     expect(find.text('Archived one.'), findsOneWidget);
     expect(
-      find.textContaining(
-        '0 currently visible loaded unread notifications in Archived',
-      ),
+      find.textContaining('0 unread notifications in Archived'),
       findsOneWidget,
     );
 
@@ -809,9 +790,7 @@ void main() {
       expectSelectedFilter(tester, 'unread');
       expect(find.text('Unread (2)'), findsOneWidget);
       expect(
-        find.textContaining(
-          '2 currently visible loaded unread notifications in Unread',
-        ),
+        find.textContaining('2 unread notifications in Unread'),
         findsOneWidget,
       );
 
@@ -826,9 +805,7 @@ void main() {
       expect(find.text('Unread: 0'), findsOneWidget);
       expect(find.text('No unread notifications'), findsOneWidget);
       expect(
-        find.textContaining(
-          '0 currently visible loaded unread notifications in Unread',
-        ),
+        find.textContaining('0 unread notifications in Unread'),
         findsOneWidget,
       );
     },
@@ -1134,7 +1111,7 @@ void main() {
     );
     expect(
       find.text(
-        'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+        'This item cannot be opened here yet. Refresh or check the related section.',
       ),
       findsOneWidget,
     );
@@ -1350,7 +1327,7 @@ void main() {
     expect(find.text('Corner Market'), findsNothing);
     expect(
       find.text(
-        'The bill destination is unavailable. Refresh notifications or open the related list to retry.',
+        'The linked bill is unavailable. Refresh notifications or open the related list to retry.',
       ),
       findsOneWidget,
     );
@@ -1395,7 +1372,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Bills (2)'), findsOneWidget);
-    expect(find.text('Actionable (1)'), findsOneWidget);
+    expect(find.text('Review (1)'), findsOneWidget);
 
     await tapNotificationFilter(tester, 'actionable');
 
@@ -1870,7 +1847,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Unread (1)'), findsOneWidget);
-      expect(find.text('Actionable (1)'), findsOneWidget);
+      expect(find.text('Review (1)'), findsOneWidget);
 
       await openNotificationAndReturn(
         tester,
@@ -1882,7 +1859,7 @@ void main() {
       expect(repository.summaryCalls, 2);
       expect(repository.listCalls, 3);
       expect(find.text('Unread (0)'), findsOneWidget);
-      expect(find.text('Actionable (0)'), findsOneWidget);
+      expect(find.text('Review (0)'), findsOneWidget);
       expect(find.text('Unread: 0'), findsOneWidget);
       expect(find.text('Read'), findsWidgets);
     },
@@ -1916,7 +1893,7 @@ void main() {
 
       expect(repository.markReadCalls, 1);
       expect(find.text('Unread (0)'), findsOneWidget);
-      expect(find.text('Actionable (0)'), findsOneWidget);
+      expect(find.text('Review (0)'), findsOneWidget);
     },
   );
 
@@ -1952,7 +1929,7 @@ void main() {
 
       expect(repository.markReadCalls, 1);
       expect(find.text('Unread (0)'), findsOneWidget);
-      expect(find.text('Actionable (0)'), findsOneWidget);
+      expect(find.text('Review (0)'), findsOneWidget);
     },
   );
 
@@ -1987,7 +1964,7 @@ void main() {
 
       expect(repository.markReadCalls, 1);
       expect(find.text('Unread (0)'), findsOneWidget);
-      expect(find.text('Actionable (0)'), findsOneWidget);
+      expect(find.text('Review (0)'), findsOneWidget);
     },
   );
 
@@ -2022,7 +1999,7 @@ void main() {
 
       expect(repository.markReadCalls, 1);
       expect(find.text('Unread (0)'), findsOneWidget);
-      expect(find.text('Actionable (0)'), findsOneWidget);
+      expect(find.text('Review (0)'), findsOneWidget);
     },
   );
 
@@ -2167,7 +2144,7 @@ void main() {
 
     expect(
       find.text(
-        'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+        'This item cannot be opened here yet. Refresh or check the related section.',
       ),
       findsWidgets,
     );
@@ -2286,7 +2263,7 @@ void main() {
     );
     expect(
       find.text(
-        'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+        'This item cannot be opened here yet. Refresh or check the related section.',
       ),
       findsOneWidget,
     );
@@ -2323,36 +2300,26 @@ void main() {
     );
 
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
-    expect(find.text('Event'), findsOneWidget);
-    expect(find.text('Bill submitted'), findsWidgets);
-    expect(find.text('Priority'), findsOneWidget);
-    expect(find.text('Attention'), findsWidgets);
     expect(find.text('Status'), findsOneWidget);
     expect(find.text('Unread'), findsWidgets);
-    expect(find.text('Type'), findsOneWidget);
-    expect(find.text('Bill'), findsWidgets);
     expect(find.text('Received'), findsOneWidget);
-    expect(find.text('Summary'), findsOneWidget);
+    expect(find.text('What happened'), findsOneWidget);
     expect(find.text('Personal bill ready.'), findsWidgets);
-    expect(find.text('Destination'), findsOneWidget);
+    expect(find.text('What you can do'), findsOneWidget);
+    expect(
+      find.text('Open the linked item for the next step.'),
+      findsOneWidget,
+    );
+    expect(find.text('Linked item'), findsOneWidget);
     expect(find.text('Personal bill'), findsOneWidget);
-    expect(find.text('Destination status'), findsOneWidget);
+    expect(find.text('Open status'), findsOneWidget);
     expect(find.text('Ready to open from this device.'), findsOneWidget);
-    expect(find.text('Navigation safety'), findsOneWidget);
+    expect(find.text('Safety note'), findsOneWidget);
     expect(
-      find.text(
-        'Raw links, notification IDs, and linked-resource IDs are routing hints only. Settleora opens only supported typed destinations.',
-      ),
-      findsOneWidget,
+      find.text('We refresh access before opening details.'),
+      findsWidgets,
     );
-    expect(find.text('Authority'), findsOneWidget);
-    expect(
-      find.text(
-        'The destination API re-checks access and current state before linked details or actions are shown.',
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Current filter'), findsOneWidget);
+    expect(find.text('Inbox view'), findsOneWidget);
     expect(find.text('Bills'), findsOneWidget);
     expect(repository.markReadCalls, 0);
     expect(billRepository.getPersonalCalls, 0);
@@ -2391,17 +2358,12 @@ void main() {
     );
 
     expect(find.byKey(const Key('notification-detail-sheet')), findsOneWidget);
-    expect(find.text('Summary'), findsOneWidget);
+    expect(find.text('What happened'), findsOneWidget);
     expect(find.text('Settlement needs review.'), findsWidgets);
-    expect(find.text('Destination'), findsOneWidget);
+    expect(find.text('Linked item'), findsOneWidget);
     expect(find.text('Settlement'), findsOneWidget);
-    expect(find.text('Destination status'), findsOneWidget);
-    expect(
-      find.text(
-        'Supported destination, but the current app context cannot open it.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Open status'), findsOneWidget);
+    expect(find.text('Sign in or refresh before opening.'), findsOneWidget);
     expect(renderedNotificationUiText(tester), isNot(contains(_settlementId)));
     expect(repository.markReadCalls, 0);
   });
@@ -2437,13 +2399,11 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Notification'), findsWidgets);
-      expect(find.text('Priority'), findsWidgets);
-      expect(find.text('Notification type'), findsWidgets);
+      expect(find.text('Status'), findsWidgets);
+      expect(find.text('What happened'), findsWidgets);
       expect(find.text('Unsupported link'), findsOneWidget);
       expect(
-        find.text(
-          'Related destination metadata is present, but it is not safe to open here.',
-        ),
+        find.text('Linked item is not available here yet.'),
         findsOneWidget,
       );
       expect(renderedNotificationUiText(tester), isNot(contains('/api/v1')));
@@ -2532,11 +2492,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Notification'), findsOneWidget);
-    expect(find.text('Notification type'), findsWidgets);
-    expect(find.text('Priority'), findsOneWidget);
+    expect(find.text('Review later'), findsOneWidget);
     expect(
       find.text(
-        'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+        'This item cannot be opened here yet. Refresh or check the related section.',
       ),
       findsOneWidget,
     );

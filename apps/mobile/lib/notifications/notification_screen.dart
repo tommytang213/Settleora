@@ -136,10 +136,10 @@ class _SettleoraNotificationScreenState
       }
 
       _replaceNotification(updated);
-      _showSnackBar('Notification marked read through the API.');
+      _showSnackBar('Notification marked read.');
       await _refreshAfterMutation(
         refreshFailureMessage:
-            'Notification was marked read through the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+            'Notification was marked read, but the inbox could not refresh. Use Refresh before repeating actions.',
       );
     } catch (error) {
       if (!mounted) {
@@ -183,10 +183,10 @@ class _SettleoraNotificationScreenState
       }
 
       _markLoadedNotificationsRead(updatedSummary);
-      _showSnackBar('Mark-all-read request sent to the API.');
+      _showSnackBar('All notifications marked read.');
       await _refreshAfterMutation(
         refreshFailureMessage:
-            'Mark all read was sent to the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+            'Mark all read was saved, but the inbox could not refresh. Use Refresh before repeating actions.',
       );
     } catch (error) {
       if (!mounted) {
@@ -247,12 +247,10 @@ class _SettleoraNotificationScreenState
       }
 
       _replaceNotifications(updatedRows);
-      _showSnackBar(
-        'Visible loaded notifications marked read through the API.',
-      );
+      _showSnackBar('Visible notifications marked read.');
       await _refreshAfterMutation(
         refreshFailureMessage:
-            'Visible loaded notifications were marked read through the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+            'Visible notifications were marked read, but the inbox could not refresh. Use Refresh before repeating actions.',
       );
     } catch (error) {
       if (!mounted) {
@@ -298,10 +296,10 @@ class _SettleoraNotificationScreenState
       }
 
       _replaceNotification(updated);
-      _showSnackBar('Notification archived through the API.');
+      _showSnackBar('Notification archived.');
       await _refreshAfterMutation(
         refreshFailureMessage:
-            'Notification was archived through the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+            'Notification was archived, but the inbox could not refresh. Use Refresh before repeating actions.',
       );
     } catch (error) {
       if (!mounted) {
@@ -352,10 +350,10 @@ class _SettleoraNotificationScreenState
       }
 
       _replaceNotification(updated);
-      _showSnackBar('Notification restore request sent to the API.');
+      _showSnackBar('Notification restored.');
       await _refreshAfterMutation(
         refreshFailureMessage:
-            'Notification restore was sent to the API, but the inbox could not refresh. Use Refresh to reload server state before repeating actions.',
+            'Notification was restored, but the inbox could not refresh. Use Refresh before repeating actions.',
       );
     } catch (error) {
       if (!mounted) {
@@ -393,7 +391,7 @@ class _SettleoraNotificationScreenState
 
       await _refreshAfterMutation(
         refreshFailureMessage:
-            'Notification was opened and its read update was sent, but the inbox could not refresh. Use Refresh to reload server state.',
+            'Notification was opened, but the inbox could not refresh. Use Refresh to reload.',
       );
     } catch (error) {
       if (!mounted) {
@@ -1238,7 +1236,7 @@ class _SettleoraNotificationScreenState
                     },
                   ),
                   const SizedBox(height: 8),
-                  _LoadedFilterScopeNote(
+                  _InboxScopeNote(
                     loadedCount: preferenceVisibleNotifications.length,
                     suppressedCount: suppressedCount,
                     visibleCount: visibleNotifications.length,
@@ -1264,9 +1262,9 @@ class _SettleoraNotificationScreenState
                     const _EmptyNotifications()
                   else if (preferenceVisibleNotifications.isEmpty)
                     const _EmptyNotifications(
-                      title: 'No visible notifications',
+                      title: 'Nothing visible',
                       message:
-                          'Notification preferences are suppressing loaded non-critical rows. Hidden rows stay in the inbox and can reappear when preferences change.',
+                          'Your notification settings are hiding lower-priority items. They stay in your inbox.',
                     )
                   else if (visibleNotifications.isEmpty)
                     _EmptyNotifications(
@@ -1449,13 +1447,13 @@ class _SummaryPanel extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.done_all_outlined),
-                  label: const Text('Mark All Read'),
+                  label: const Text('Mark all read'),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
-              'API summary counts are server-authoritative; Mark All Read asks the API and this button is only UI guidance.',
+              'We refresh access before opening details.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
@@ -1469,7 +1467,7 @@ class _SummaryPanel extends StatelessWidget {
                   icon: Icons.mark_email_unread_outlined,
                 ),
                 SettleoraCountChip(
-                  label: 'Attention',
+                  label: 'Needs attention',
                   count: summary.attentionCount,
                   icon: Icons.priority_high_outlined,
                 ),
@@ -1491,12 +1489,12 @@ enum _NotificationFilter {
   all('All'),
   unread('Unread'),
   read('Read'),
-  attention('Attention'),
+  attention('Needs attention'),
   urgent('Urgent'),
   bills('Bills'),
   settlements('Settlements'),
   recurring('Recurring'),
-  actionable('Actionable'),
+  actionable('Review'),
   archived('Archived');
 
   const _NotificationFilter(this.label);
@@ -1645,8 +1643,8 @@ class _NotificationFilterBar extends StatelessWidget {
   }
 }
 
-class _LoadedFilterScopeNote extends StatelessWidget {
-  const _LoadedFilterScopeNote({
+class _InboxScopeNote extends StatelessWidget {
+  const _InboxScopeNote({
     required this.loadedCount,
     required this.suppressedCount,
     required this.visibleCount,
@@ -1663,20 +1661,20 @@ class _LoadedFilterScopeNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final archivedCopy = selectedFilter == _NotificationFilter.archived
-        ? 'The Archived filter is the only filter that shows archived loaded rows.'
-        : 'Active filters exclude archived rows unless Archived is selected.';
+        ? 'Archived items are shown here.'
+        : 'Archived items are hidden from this view.';
     return Column(
       key: const Key('notification-preference-suppression-note'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Showing $visibleCount of $loadedCount preference-visible loaded rows for $selectedFilterLabel. Local filters only hide loaded rows; clearing filters restores loaded rows, not new server truth. $archivedCopy',
+          'Showing $visibleCount of $loadedCount in $selectedFilterLabel. $archivedCopy',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         if (suppressedCount > 0) ...[
           const SizedBox(height: 4),
           Text(
-            '$suppressedCount loaded non-critical row${_plural(suppressedCount)} hidden by notification preferences; hidden rows are not deleted or archived.',
+            '$suppressedCount lower-priority item${_plural(suppressedCount)} hidden by notification settings.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -1703,8 +1701,8 @@ class _VisibleBulkActionsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final description = visibleUnreadCount == 1
-        ? '1 currently visible loaded unread notification in $selectedFilterLabel'
-        : '$visibleUnreadCount currently visible loaded unread notifications in $selectedFilterLabel';
+        ? '1 unread notification in $selectedFilterLabel'
+        : '$visibleUnreadCount unread notifications in $selectedFilterLabel';
 
     return DecoratedBox(
       key: const Key('notification-visible-bulk-actions'),
@@ -1716,11 +1714,7 @@ class _VisibleBulkActionsPanel extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Row(
           children: [
-            Expanded(
-              child: Text(
-                '$description; status is checked before changes are shown.',
-              ),
-            ),
+            Expanded(child: Text('$description.')),
             const SizedBox(width: 12),
             OutlinedButton.icon(
               key: const Key('notification-mark-visible-read'),
@@ -1733,7 +1727,7 @@ class _VisibleBulkActionsPanel extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.mark_email_read_outlined),
-              label: const Text('Mark Visible Read'),
+              label: const Text('Mark read'),
             ),
           ],
         ),
@@ -1848,26 +1842,14 @@ class _NotificationTile extends StatelessWidget {
                     ),
                     icon: Icons.mark_email_read_outlined,
                   ),
-                  SettleoraStatusChip(
-                    label: settleoraNotificationPriorityLabel(
-                      notification.priority,
-                    ),
-                    icon: Icons.flag_outlined,
-                  ),
-                  SettleoraStatusChip(
-                    label: settleoraNotificationSubjectTypeLabel(
-                      notification.subjectType,
-                    ),
-                    icon: Icons.link_outlined,
-                  ),
                   if (!isArchived && _canOpenFromTile)
                     const SettleoraStatusChip(
-                      label: 'Openable',
+                      label: 'Open',
                       icon: Icons.open_in_new_outlined,
                     )
                   else if (hasOpenTarget)
                     const SettleoraStatusChip(
-                      label: 'Not safely openable',
+                      label: 'Review later',
                       icon: Icons.block_outlined,
                     ),
                 ],
@@ -1933,7 +1915,7 @@ class _NotificationTile extends StatelessWidget {
               ] else if (!isArchived && hasOpenTarget) ...[
                 const SizedBox(height: 8),
                 const Text(
-                  'This notification cannot be opened safely here yet. Refresh notifications or use the related section if it is available to this account.',
+                  'This item cannot be opened here yet. Refresh or check the related section.',
                 ),
               ],
             ],
@@ -2036,26 +2018,8 @@ class _NotificationDetailSheet extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SettleoraKeyValueText(
-            label: 'Summary',
+            label: 'What happened',
             value: notification.displaySummary,
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
-          ),
-          SettleoraKeyValueText(
-            label: 'Event',
-            value: settleoraNotificationEventLabel(notification.eventType),
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
-          ),
-          SettleoraKeyValueText(
-            label: 'Priority',
-            value: settleoraNotificationPriorityLabel(notification.priority),
             labelWidth: 120,
             padding: const EdgeInsets.symmetric(vertical: 5),
             labelStyle: detailLabelStyle,
@@ -2072,10 +2036,12 @@ class _NotificationDetailSheet extends StatelessWidget {
             valueTextAlign: TextAlign.start,
           ),
           SettleoraKeyValueText(
-            label: 'Type',
-            value: settleoraNotificationSubjectTypeLabel(
-              notification.subjectType,
-            ),
+            label: 'What you can do',
+            value: isArchived
+                ? 'Restore it if you need it back in your inbox.'
+                : canOpenTypedTarget
+                ? 'Open the linked item for the next step.'
+                : 'Review this inbox item, then refresh if it looks stale.',
             labelWidth: 120,
             padding: const EdgeInsets.symmetric(vertical: 5),
             labelStyle: detailLabelStyle,
@@ -2102,7 +2068,7 @@ class _NotificationDetailSheet extends StatelessWidget {
               valueTextAlign: TextAlign.start,
             ),
           SettleoraKeyValueText(
-            label: 'Destination',
+            label: 'Linked item',
             value: destinationLabel,
             labelWidth: 120,
             padding: const EdgeInsets.symmetric(vertical: 5),
@@ -2111,7 +2077,7 @@ class _NotificationDetailSheet extends StatelessWidget {
             valueTextAlign: TextAlign.start,
           ),
           SettleoraKeyValueText(
-            label: 'Destination status',
+            label: 'Open status',
             value: destinationStatus,
             labelWidth: 120,
             padding: const EdgeInsets.symmetric(vertical: 5),
@@ -2120,17 +2086,7 @@ class _NotificationDetailSheet extends StatelessWidget {
             valueTextAlign: TextAlign.start,
           ),
           SettleoraKeyValueText(
-            label: 'Navigation safety',
-            value:
-                'Raw links, notification IDs, and linked-resource IDs are routing hints only. Settleora opens only supported typed destinations.',
-            labelWidth: 120,
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            labelStyle: detailLabelStyle,
-            valueAlignment: Alignment.centerLeft,
-            valueTextAlign: TextAlign.start,
-          ),
-          SettleoraKeyValueText(
-            label: 'Current filter',
+            label: 'Inbox view',
             value: selectedFilterLabel,
             labelWidth: 120,
             padding: const EdgeInsets.symmetric(vertical: 5),
@@ -2139,9 +2095,8 @@ class _NotificationDetailSheet extends StatelessWidget {
             valueTextAlign: TextAlign.start,
           ),
           SettleoraKeyValueText(
-            label: 'Authority',
-            value:
-                'The destination API re-checks access and current state before linked details or actions are shown.',
+            label: 'Safety note',
+            value: 'We refresh access before opening details.',
             labelWidth: 120,
             padding: const EdgeInsets.symmetric(vertical: 5),
             labelStyle: detailLabelStyle,
@@ -2209,7 +2164,7 @@ class _NotificationSyncOperationScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Retry, conflict resolution, and source changes stay with the authorized sync and bill flows. Opening or archiving this notification does not change source records.',
+                      'Retry and conflict resolution stay in the sync and bill screens. Opening or archiving this notification does not change source records.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -2320,7 +2275,7 @@ Object _safeBillDestinationFailure(Object error) {
       message: _safeDestinationFailureMessage(
         error.message,
         fallbackMessage:
-            'The bill destination is unavailable. Refresh notifications or open the related list to retry.',
+            'The linked bill is unavailable. Refresh notifications or open the related list to retry.',
       ),
       statusCode: error.statusCode,
     );
@@ -2353,7 +2308,7 @@ SettleoraNotificationFailure _notificationFailureFromGroupOpen(Object error) {
       message: _safeDestinationFailureMessage(
         error.message,
         fallbackMessage:
-            'The bill destination is unavailable. Refresh notifications or open the related list to retry.',
+            'The linked bill is unavailable. Refresh notifications or open the related list to retry.',
       ),
       statusCode: error.statusCode,
     );
@@ -2390,7 +2345,7 @@ SettleoraNotificationFailure _notificationFailureFromBillOpen(Object error) {
       message: _safeDestinationFailureMessage(
         error.message,
         fallbackMessage:
-            'The bill destination is unavailable. Refresh notifications or open the related list to retry.',
+            'The linked bill is unavailable. Refresh notifications or open the related list to retry.',
       ),
       statusCode: error.statusCode,
     );
@@ -2652,13 +2607,13 @@ String _safeDestinationStatus(
     return 'Ready to open from this device.';
   }
   if (notification.hasTypedOpenTarget) {
-    return 'Supported destination, but the current app context cannot open it.';
+    return 'Sign in or refresh before opening.';
   }
   if (hasOpenTargetMetadata) {
-    return 'Related destination metadata is present, but it is not safe to open here.';
+    return 'Linked item is not available here yet.';
   }
 
-  return 'No supported destination metadata is available.';
+  return 'No linked item is available.';
 }
 
 String _emptyTitleForFilter(_NotificationFilter filter) {
@@ -2672,16 +2627,13 @@ String _emptyTitleForFilter(_NotificationFilter filter) {
 
 String _emptyMessageForFilter(_NotificationFilter filter) {
   return switch (filter) {
-    _NotificationFilter.unread =>
-      'No loaded unread rows match. Refresh to ask the API for current notification state.',
-    _NotificationFilter.read =>
-      'No loaded read rows match. Clearing filters restores already-loaded rows only.',
+    _NotificationFilter.unread => 'No unread notifications match this view.',
+    _NotificationFilter.read => 'No read notifications match this view.',
     _NotificationFilter.archived =>
-      'Archived loaded rows appear only in this filter. Refresh to ask the API for current notification state.',
+      'Archived notifications appear here after you archive them.',
     _NotificationFilter.actionable =>
-      'No currently loaded unread rows have a supported action. Notification metadata is not permission.',
-    _ =>
-      'No loaded rows match this local filter. Clearing filters restores already-loaded rows only.',
+      'No unread notifications need review right now.',
+    _ => 'No notifications match this view.',
   };
 }
 

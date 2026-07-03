@@ -37,7 +37,7 @@ void main() {
     expect(find.text('No groups'), findsOneWidget);
     expect(
       find.text(
-        'Groups visible to this account will appear here. Create a group to start a shared bill flow.',
+        'Groups you can access will appear here. Create a group to start sharing bills.',
       ),
       findsOneWidget,
     );
@@ -163,7 +163,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('group-list-search')), 'club');
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded groups'), findsOneWidget);
+    expect(find.text('Groups you can access: 1 of 3'), findsOneWidget);
     expect(find.text('Dinner Club'), findsOneWidget);
     expect(find.text('Trip Crew'), findsNothing);
     expect(find.text('Archive Team'), findsNothing);
@@ -198,7 +198,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded groups'), findsOneWidget);
+    expect(find.text('Groups you can access: 1 of 3'), findsOneWidget);
     expect(find.text('Dinner Club'), findsOneWidget);
     expect(find.text('Trip Crew'), findsNothing);
     expect(find.text('Archive Team'), findsNothing);
@@ -231,7 +231,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded groups'), findsOneWidget);
+    expect(find.text('Groups you can access: 1 of 3'), findsOneWidget);
     expect(find.text('Dinner Club'), findsOneWidget);
     expect(find.text('Trip Crew'), findsNothing);
     expect(find.text('Archive Team'), findsNothing);
@@ -264,13 +264,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded groups'), findsOneWidget);
+    expect(find.text('Groups you can access: 1 of 3'), findsOneWidget);
     expect(find.text('Archive Team'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('group-list-clear-filters')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 3 of 3 loaded groups'), findsOneWidget);
+    expect(find.text('Groups you can access: 3 of 3'), findsOneWidget);
     expect(find.text('Trip Crew'), findsOneWidget);
     expect(find.text('Dinner Club'), findsOneWidget);
     expect(find.text('Archive Team'), findsOneWidget);
@@ -312,7 +312,7 @@ void main() {
     expect(find.text('No matching groups'), findsOneWidget);
     expect(
       find.text(
-        'No loaded visible groups match these filters. Clear filters to review your available groups.',
+        'No groups match this search. Clear filters to review your groups.',
       ),
       findsOneWidget,
     );
@@ -341,37 +341,29 @@ void main() {
     expect(repository.getCalls, 1);
     expect(repository.listMemberCalls, 1);
     expect(find.byKey(const Key('group-detail-bills-handoff')), findsOneWidget);
-    expect(find.text('Shared bill workspace'), findsOneWidget);
-    expect(
-      find.textContaining('1 loaded member - Open group bills for Trip Crew.'),
-      findsOneWidget,
-    );
+    expect(find.text('Group bills'), findsOneWidget);
+    expect(find.textContaining('1 member in Trip Crew.'), findsOneWidget);
     expect(find.text('Members'), findsOneWidget);
     expect(find.text('Taylor'), findsOneWidget);
     expect(visibleText(tester), isNot(contains(_profileId)));
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('group-detail-workspace-readiness')),
-      260,
-      scrollable: find.byType(Scrollable).first,
-    );
     expect(
       find.byKey(const Key('group-detail-workspace-readiness')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('Group workspace readiness'), findsOneWidget);
+    expect(find.text('Group workspace readiness'), findsNothing);
     expect(
       find.textContaining(
         'This group detail plus group bills is the current mobile group workspace.',
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.textContaining('Details are refreshed before actions'),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.textContaining('Unsupported for now: saved group dashboard layouts'),
-      findsOneWidget,
+      findsNothing,
     );
   });
 
@@ -431,7 +423,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('group-member-search')), 'mor');
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded members'), findsOneWidget);
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
     expect(find.text('Morgan'), findsOneWidget);
     expect(find.text('Taylor'), findsNothing);
     expect(find.text('Casey'), findsNothing);
@@ -470,7 +462,7 @@ void main() {
     await tester.tap(ownerFilter);
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded members'), findsOneWidget);
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
     expect(find.text('Taylor'), findsOneWidget);
     expect(find.text('Morgan'), findsNothing);
     expect(find.text('Casey'), findsNothing);
@@ -508,7 +500,7 @@ void main() {
     await tester.tap(removedFilter);
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded members'), findsOneWidget);
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
     expect(find.text('Casey'), findsOneWidget);
     expect(find.text('Taylor'), findsNothing);
     expect(find.text('Morgan'), findsNothing);
@@ -554,7 +546,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('group-member-search')), 'mor');
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded members'), findsOneWidget);
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
     expect(find.text('Morgan'), findsOneWidget);
     expect(find.text('Taylor'), findsNothing);
     expect(find.text('Casey'), findsNothing);
@@ -594,7 +586,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 1 of 3 loaded members'), findsOneWidget);
+    expect(find.text('Showing 1 of 3 members'), findsOneWidget);
     expect(find.text('Casey'), findsOneWidget);
 
     final clearFilters = find.byKey(const Key('group-member-clear-filters'));
@@ -603,7 +595,7 @@ void main() {
     await tester.tap(clearFilters);
     await tester.pumpAndSettle();
 
-    expect(find.text('Showing 3 of 3 loaded members'), findsOneWidget);
+    expect(find.text('Showing 3 of 3 members'), findsOneWidget);
     expect(find.text('Taylor'), findsOneWidget);
     expect(find.text('Morgan'), findsOneWidget);
     expect(find.text('Casey'), findsOneWidget);
@@ -672,7 +664,7 @@ void main() {
     expect(find.text('No matching members'), findsOneWidget);
     expect(
       find.text(
-        'No loaded visible members match these filters. Clear filters to review available group members.',
+        'No members match this search. Clear filters to review group members.',
       ),
       findsOneWidget,
     );
