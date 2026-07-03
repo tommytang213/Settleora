@@ -159,10 +159,35 @@ remain the source of truth.
     `sign-in-390x844.png`. This evidence is
     `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
     manual visual approval remains deferred.
+  - The `20260703-1110` development-only follow-up on the same branch started
+    from remote head `b6088e707b4a75359fc8d780f8862eac5c3d1358` and addresses
+    Tommy's Home duplicate bell cleanup plus setup/sign-in copy simplification.
+    It keeps notification center routing/readout behavior, setup choices,
+    server URL validation, local/server mode behavior, sign-in validation,
+    auth/session repository calls, More/App settings/Profile payment accepted
+    areas, the global runtime app default theme, and all
+    API/OpenAPI/generated-client/schema/backend boundaries unchanged. Fresh
+    development evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1110-mobile-shell-home-setup-signin-copy-followup-dev-only/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, `more-settings-390x844.png`,
+    `profile-payment-390x844.png`, `setup-mode-390x844.png`, and
+    `sign-in-390x844.png`.
+  - Tommy manually reviewed the `20260703-1110` Shell/Home/More/App
+    settings/Profile/Setup/Sign-in evidence and approved this bounded child
+    slice as `VISUAL_APPROVED_WITH_FOLLOWUPS`. This approval is only for the
+    bounded Shell/Home/More/App settings/Profile/Setup/Sign-in visual parity
+    child slice under #672. It does not approve full mobile visual parity, does
+    not close #672, does not approve Bills/OCR/revision visual parity, does not
+    approve Groups/Settle/Notifications visual parity, and does not authorize
+    runtime theme switching or a theme picker.
+  - PR/merge gate started from reviewed source head
+    `d45c7fdd2f752f696a791fc653fa237324763737` on branch
+    `feature/mobile-shell-home-more-profile-parity-672-20260702`, with starting
+    `origin/main` expected at
+    `154ed6787e1cb1b7f06fd1310ddeff724bd7b886`. #672 remains open during and
+    after this gate.
 - Remaining Day 1 work:
-  - Manual Tommy visual approval for the Shell/Home/More/Profile child slice
-    before PR creation or merge; the latest `20260703-1046`
-    profile-copy/nav follow-up is not approved yet.
   - Bills/OCR/revision visual parity.
   - Groups/settle/notifications visual parity.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
