@@ -12,4 +12,3 @@ deployment changes, Figma API output, or secrets.
 ## References
 
 - [Notification policy readout UX reference](NOTIFICATION_POLICY_READOUT_UX_REFERENCE.md)
-
