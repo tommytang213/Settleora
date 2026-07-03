@@ -145,41 +145,45 @@ class _ReceiptOcrReviewSummaryList extends StatelessWidget {
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: onRefresh,
-      child: ListView(
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
-        children: [
-          if (isRefreshing) ...[
-            const LinearProgressIndicator(),
-            const SizedBox(height: 12),
-          ],
-          if (failure != null) ...[
-            _QueueFailureBanner(failure: failure!, onRetry: onRetry),
-            const SizedBox(height: 12),
-          ],
-          _ReceiptOcrReviewDiscoveryControls(
-            discovery: discovery,
-            searchController: searchController,
-            onSearchChanged: onSearchChanged,
-            onFilterSelected: onFilterSelected,
-            onClearDiscovery: onClearDiscovery,
-          ),
-          const SizedBox(height: 12),
-          if (reviews.isEmpty)
-            _StatePanel(
-              icon: Icons.search_off_outlined,
-              title: 'No matching receipt reviews',
-              message:
-                  'Adjust the search or filters to show loaded receipt reviews.',
-            )
-          else
-            for (var index = 0; index < reviews.length; index++) ...[
-              if (index > 0) const SizedBox(height: 12),
-              _ReceiptOcrReviewSummaryTile(
-                review: reviews[index],
-                onTap: () => onOpenReview(reviews[index]),
-              ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (isRefreshing) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 12),
             ],
-        ],
+            if (failure != null) ...[
+              _QueueFailureBanner(failure: failure!, onRetry: onRetry),
+              const SizedBox(height: 12),
+            ],
+            _ReceiptOcrReviewDiscoveryControls(
+              discovery: discovery,
+              searchController: searchController,
+              onSearchChanged: onSearchChanged,
+              onFilterSelected: onFilterSelected,
+              onClearDiscovery: onClearDiscovery,
+            ),
+            const SizedBox(height: 12),
+            if (reviews.isEmpty)
+              _StatePanel(
+                icon: Icons.search_off_outlined,
+                title: 'No matching receipt reviews',
+                message:
+                    'Adjust the search or filters to show loaded receipt reviews.',
+              )
+            else
+              for (var index = 0; index < reviews.length; index++) ...[
+                if (index > 0) const SizedBox(height: 12),
+                _ReceiptOcrReviewSummaryTile(
+                  review: reviews[index],
+                  onTap: () => onOpenReview(reviews[index]),
+                ),
+              ],
+          ],
+        ),
       ),
     );
   }
@@ -365,6 +369,8 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
     final merchant = review.merchantText ?? 'Receipt review';
     final scope = review.groupId == null ? 'Personal bill' : 'Group bill';
     final currency = _displayCurrencyCandidate(review.currency);
+    final status = receiptOcrReviewStatusLabel(review.status);
+    final source = receiptOcrReviewSourceLabel(review.source);
 
     return Semantics(
       button: true,
@@ -372,36 +378,116 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
       label: _receiptOcrReviewSummarySemanticLabel(review),
       onTap: onTap,
       child: AppCard(
-        padding: EdgeInsets.zero,
+        padding: const EdgeInsets.all(12),
         child: Material(
           type: MaterialType.transparency,
-          child: ListTile(
+          child: InkWell(
             onTap: onTap,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 8,
+            borderRadius: BorderRadius.circular(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.receipt_long_outlined),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        merchant,
+                        style: Theme.of(context).textTheme.titleMedium,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _StatusChip(label: status),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    _SoftChip(label: scope, icon: Icons.group_outlined),
+                    _SoftChip(label: source, icon: Icons.document_scanner),
+                    _SoftChip(
+                      label: '${review.lineCount} lines',
+                      icon: Icons.format_list_bulleted,
+                    ),
+                    if (currency != null)
+                      _SoftChip(label: currency, icon: Icons.payments_outlined),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _QueueMetaRow(
+                        icon: Icons.event_available_outlined,
+                        label: 'Updated',
+                        value: _formatQueueDate(review.updatedAtUtc),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    TextButton.icon(
+                      onPressed: onTap,
+                      icon: const Icon(Icons.rate_review_outlined),
+                      label: const Text('Review receipt'),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            leading: const Icon(Icons.receipt_long_outlined),
-            title: Text(merchant, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  _StatusChip(
-                    label: receiptOcrReviewStatusLabel(review.status),
-                  ),
-                  _SoftChip(label: scope),
-                  _SoftChip(label: '${review.lineCount} lines'),
-                  if (currency != null) _SoftChip(label: currency),
-                ],
-              ),
-            ),
-            trailing: const Icon(Icons.chevron_right),
           ),
         ),
       ),
     );
   }
+}
+
+class _QueueMetaRow extends StatelessWidget {
+  const _QueueMetaRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 16,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          '$label: ',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _formatQueueDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year}-$month-$day';
 }

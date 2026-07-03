@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../ui/settleora_components.dart'
     show
         AppCard,
+        MoneyText,
         SettleoraCompactHeader,
         SettleoraInlinePanel,
         SettleoraKeyValueMoneyText,
@@ -539,14 +540,10 @@ class _SettleoraBillRevisionReviewScreenState
                   else
                     _FullBillView(revision: revision),
                   const SizedBox(height: 18),
-                  _CategorySummaryPanel(
-                    summaries: revision.reviewContext.changeSummary,
-                  ),
-                  const SizedBox(height: 14),
                   _LimitationsPanel(
                     limitations: revision.reviewContext.limitations,
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
                   _RevisionActionArea(
                     revision: revision,
                     isActing: _isActing,
@@ -559,6 +556,10 @@ class _SettleoraBillRevisionReviewScreenState
                     onConfirmPayer: _confirmPayer,
                     onApply: _apply,
                     onRevise: _openReviseEditor,
+                  ),
+                  const SizedBox(height: 18),
+                  _CategorySummaryPanel(
+                    summaries: revision.reviewContext.changeSummary,
                   ),
                 ],
               ),
@@ -582,22 +583,57 @@ class _RevisionHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(billLabel, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          _KeyValueText(
-            label: 'Revision',
-            value: settleoraBillRevisionStatusLabel(revision.status),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: SettleoraCompactHeader(
+                  title: billLabel,
+                  subtitle: 'Revision ${_shortId(revision.id)}',
+                  leadingIcon: Icons.receipt_long_outlined,
+                ),
+              ),
+              const SizedBox(width: 10),
+              _RevisionStatusPill(
+                label: settleoraBillRevisionStatusLabel(revision.status),
+              ),
+            ],
           ),
-          _KeyValueText(label: 'Bill', value: _shortId(revision.billId)),
-          _KeyValueText(label: 'Revision ID', value: _shortId(revision.id)),
-          _KeyValueMoneyText(
-            label: 'Total',
+          const SizedBox(height: 14),
+          _MoneyHero(
+            label: 'Proposed bill total',
             amount: revision.totalAmount,
             currency: revision.totalCurrency,
+            caption: 'Updated ${_formatTimestamp(revision.updatedAtUtc)}',
           ),
-          _KeyValueText(
-            label: 'Updated',
-            value: _formatTimestamp(revision.updatedAtUtc),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _SoftChip(
+                label: _shortId(revision.id),
+                icon: Icons.change_circle_outlined,
+              ),
+              _SoftChip(
+                label: 'Bill ${_shortId(revision.billId)}',
+                icon: Icons.link_outlined,
+              ),
+              _SoftChip(
+                label: revision.groupId == null
+                    ? 'Personal bill'
+                    : 'Group bill',
+                icon: Icons.group_outlined,
+              ),
+              _SoftChip(
+                label: '${revision.participants.length} participants',
+                icon: Icons.people_outline,
+              ),
+              _SoftChip(
+                label: '${revision.payers.length} payer rows',
+                icon: Icons.account_balance_wallet_outlined,
+              ),
+            ],
           ),
         ],
       ),
@@ -618,51 +654,209 @@ class _FinancialImpactPanel extends StatelessWidget {
       title: 'Financial impact',
       icon: Icons.payments_outlined,
       children: [
-        _KeyValueText(
-          label: 'Your status',
-          value: impact.affectedByRevision
-              ? 'Server marked you as affected'
-              : 'Server marked no direct impact',
-        ),
-        _KeyValueOptionalMoneyText(
-          label: 'Previous share',
-          money: impact.previousShare,
-          fallback: 'No safe previous share',
-        ),
-        _KeyValueOptionalMoneyText(
-          label: 'Proposed share',
-          money: impact.proposedShare,
-          fallback: 'Not applicable',
-        ),
-        _KeyValueOptionalMoneyText(
-          label: 'Delta',
-          money: impact.deltaShare,
-          fallback: 'No safe delta',
+        _ImpactHeroRow(
+          previous: impact.previousShare,
+          proposed: impact.proposedShare,
+          delta: impact.deltaShare,
+          caption: impact.affectedByRevision
+              ? 'Your share changes in this proposal'
+              : 'No direct share change was returned for you',
         ),
         if (payerImpact != null) ...[
-          const SizedBox(height: 8),
-          _KeyValueText(
-            label: 'Payer status',
-            value: payerImpact.requiresPayerConfirmation
+          const SizedBox(height: 12),
+          _ImpactHeroRow(
+            title: 'Payer impact',
+            previous: payerImpact.previousContribution,
+            proposed: payerImpact.proposedContribution,
+            delta: payerImpact.deltaContribution,
+            caption: payerImpact.requiresPayerConfirmation
                 ? 'Payer confirmation required'
-                : 'Payer confirmation not required',
-          ),
-          _KeyValueOptionalMoneyText(
-            label: 'Payer previous',
-            money: payerImpact.previousContribution,
-            fallback: 'No safe previous contribution',
-          ),
-          _KeyValueOptionalMoneyText(
-            label: 'Payer proposed',
-            money: payerImpact.proposedContribution,
-            fallback: 'Not applicable',
-          ),
-          _KeyValueOptionalMoneyText(
-            label: 'Payer delta',
-            money: payerImpact.deltaContribution,
-            fallback: 'No safe delta',
+                : 'No payer confirmation required',
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _RevisionStatusPill extends StatelessWidget {
+  const _RevisionStatusPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MoneyHero extends StatelessWidget {
+  const _MoneyHero({
+    required this.label,
+    required this.amount,
+    required this.currency,
+    this.caption,
+  });
+
+  final String label;
+  final String amount;
+  final String currency;
+  final String? caption;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 5),
+            MoneyText(
+              amount: amount,
+              currencyCode: currency,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            if (caption != null) ...[
+              const SizedBox(height: 4),
+              Text(caption!, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImpactHeroRow extends StatelessWidget {
+  const _ImpactHeroRow({
+    this.title = 'Your share',
+    required this.previous,
+    required this.proposed,
+    required this.delta,
+    required this.caption,
+  });
+
+  final String title;
+  final SettleoraBillRevisionMoneyValue? previous;
+  final SettleoraBillRevisionMoneyValue? proposed;
+  final SettleoraBillRevisionMoneyValue? delta;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    final delta = this.delta;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SettleoraCompactHeader(
+              title: title,
+              subtitle: caption,
+              leadingIcon: Icons.trending_up_outlined,
+            ),
+            const SizedBox(height: 12),
+            if (delta != null)
+              _MoneyHero(
+                label: 'Delta',
+                amount: delta.amount,
+                currency: delta.currency,
+              )
+            else
+              const _BodyText('No safe delta was returned for this viewer.'),
+            const SizedBox(height: 10),
+            _ImpactMiniGrid(previous: previous, proposed: proposed),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImpactMiniGrid extends StatelessWidget {
+  const _ImpactMiniGrid({required this.previous, required this.proposed});
+
+  final SettleoraBillRevisionMoneyValue? previous;
+  final SettleoraBillRevisionMoneyValue? proposed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _ImpactMiniValue(label: 'Previous', value: previous),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _ImpactMiniValue(label: 'Proposed', value: proposed),
+        ),
+      ],
+    );
+  }
+}
+
+class _ImpactMiniValue extends StatelessWidget {
+  const _ImpactMiniValue({required this.label, required this.value});
+
+  final String label;
+  final SettleoraBillRevisionMoneyValue? value;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = this.value;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 4),
+        if (value == null)
+          Text('Not returned', style: Theme.of(context).textTheme.bodyMedium)
+        else
+          MoneyText(
+            amount: value.amount,
+            currencyCode: value.currency,
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
       ],
     );
   }
@@ -1399,31 +1593,6 @@ class _KeyValueMoneyText extends StatelessWidget {
       amount: amount,
       currencyCode: currency,
       labelWidth: 132,
-    );
-  }
-}
-
-class _KeyValueOptionalMoneyText extends StatelessWidget {
-  const _KeyValueOptionalMoneyText({
-    required this.label,
-    required this.money,
-    required this.fallback,
-  });
-
-  final String label;
-  final SettleoraBillRevisionMoneyValue? money;
-  final String fallback;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = money;
-    if (value == null) {
-      return _KeyValueText(label: label, value: fallback);
-    }
-    return _KeyValueMoneyText(
-      label: label,
-      amount: value.amount,
-      currency: value.currency,
     );
   }
 }

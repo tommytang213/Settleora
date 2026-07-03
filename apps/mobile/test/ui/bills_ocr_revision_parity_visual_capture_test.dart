@@ -12,7 +12,7 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260703-1208-mobile-bills-ocr-revision-visual-parity-dev-only';
+    '/workspace/logs/settleora-visual-qa/20260703-1248-mobile-bills-ocr-revision-info-density-followup-recovery';
 
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _revisionId = '33333333-3333-3333-3333-333333333333';

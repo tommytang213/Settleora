@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../ui/settleora_components.dart'
-    show AppCard, SettleoraInlinePanel, SettleoraSurfaceVariant, MoneyText;
+    show
+        AppCard,
+        MoneyText,
+        SettleoraCompactHeader,
+        SettleoraInlinePanel,
+        SettleoraSurfaceVariant;
 import '../ui/settleora_form_fields.dart';
 import 'receipt_ocr_review_repository.dart';
 

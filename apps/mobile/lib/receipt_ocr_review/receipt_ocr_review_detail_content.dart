@@ -133,36 +133,39 @@ class _ReceiptOcrReviewReadOnlyContent extends StatelessWidget {
       label:
           '$_receiptOcrReviewDetailLabel. '
           '$_provisionalReceiptOcrReviewSemanticLabel',
-      child: ListView(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-        children: [
-          _ReceiptOcrReviewHeader(review: review),
-          const SizedBox(height: 20),
-          if (_hasAnyReviewCandidate(review)) ...[
-            _ReceiptOcrReviewTotals(review: review),
-            const SizedBox(height: 20),
-            _ReceiptOcrReviewLines(lines: review.lines),
-          ] else
-            const _StatePanel(
-              icon: Icons.receipt_long_outlined,
-              title: 'No OCR result',
-              message:
-                  'No reviewed OCR suggestions are saved for this receipt yet.',
-              compact: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _ReceiptOcrReviewHeader(review: review),
+            const SizedBox(height: 14),
+            _ApplyPreviewSection(
+              isLoadingPreview: isLoadingPreview,
+              isApplying: isApplying,
+              actionsBlocked: actionsBlocked,
+              preview: preview,
+              previewFailure: previewFailure,
+              applyResult: applyResult,
+              applyFailure: applyFailure,
+              onPreview: onPreview,
+              onApply: onApply,
             ),
-          const SizedBox(height: 20),
-          _ApplyPreviewSection(
-            isLoadingPreview: isLoadingPreview,
-            isApplying: isApplying,
-            actionsBlocked: actionsBlocked,
-            preview: preview,
-            previewFailure: previewFailure,
-            applyResult: applyResult,
-            applyFailure: applyFailure,
-            onPreview: onPreview,
-            onApply: onApply,
-          ),
-        ],
+            const SizedBox(height: 20),
+            if (_hasAnyReviewCandidate(review)) ...[
+              _ReceiptOcrReviewTotals(review: review),
+              const SizedBox(height: 20),
+              _ReceiptOcrReviewLines(lines: review.lines),
+            ] else
+              const _StatePanel(
+                icon: Icons.receipt_long_outlined,
+                title: 'No OCR result',
+                message:
+                    'No reviewed OCR suggestions are saved for this receipt yet.',
+                compact: true,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -818,49 +821,121 @@ class _ReceiptOcrReviewHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final merchant = review.merchantText ?? 'Receipt review';
     final scope = review.groupId == null ? 'Personal bill' : 'Group bill';
+    final currency = review.currency?.trim().toUpperCase();
+    final grandTotal = review.grandTotalAmount;
 
     return Semantics(
       container: true,
       label: _headerOcrCandidatesSemanticLabel,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  merchant,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+      child: AppCard(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    merchant,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (grandTotal != null && currency != null) ...[
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.payments_outlined),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Receipt total',
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                            const SizedBox(height: 2),
+                            MoneyText(
+                              amount: grandTotal,
+                              currencyCode: currency,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
-              _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
+              const SizedBox(height: 12),
             ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _SoftChip(label: scope),
-              _SoftChip(label: receiptOcrReviewSourceLabel(review.source)),
-              if (review.currency != null) _SoftChip(label: review.currency!),
-            ],
-          ),
-          if (review.receiptIssuedAtUtc != null) ...[
-            const SizedBox(height: 12),
-            _KeyValueText(
-              label: 'Receipt date',
-              value: _formatDate(review.receiptIssuedAtUtc!),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                _SoftChip(label: scope, icon: Icons.group_outlined),
+                _SoftChip(
+                  label: receiptOcrReviewSourceLabel(review.source),
+                  icon: Icons.document_scanner,
+                ),
+                _SoftChip(
+                  label: '${review.lines.length} lines',
+                  icon: Icons.format_list_bulleted,
+                ),
+                if (currency != null)
+                  _SoftChip(label: currency, icon: Icons.payments_outlined),
+                _SoftChip(
+                  label: review.receiptIssuedAtUtc == null
+                      ? 'Date needs review'
+                      : _formatDate(review.receiptIssuedAtUtc!),
+                  icon: Icons.event_available_outlined,
+                ),
+                _SoftChip(
+                  label: _receiptReadinessLabel(review),
+                  icon: Icons.fact_check_outlined,
+                ),
+              ],
             ),
           ],
-        ],
+        ),
       ),
     );
   }
+}
+
+String _receiptReadinessLabel(ReceiptOcrReviewDetail review) {
+  if (review.currency == null || review.currency!.trim().isEmpty) {
+    return 'Missing currency';
+  }
+  if (review.grandTotalAmount == null || review.grandTotalAmount!.isEmpty) {
+    return 'Missing total';
+  }
+  if (review.lines.isEmpty) {
+    return 'No lines';
+  }
+  if (review.lines.any((line) => _lineTotalValue(line) == null)) {
+    return 'Line totals need review';
+  }
+  return 'Ready to preview';
 }
 
 class _ReceiptOcrReviewTotals extends StatelessWidget {
@@ -890,21 +965,25 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
     return Semantics(
       container: true,
       label: _totalOcrCandidatesSemanticLabel,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Receipt totals',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          for (final row in rows)
-            _KeyValueMoneyText(
-              label: row.$1,
-              amount: row.$2,
-              currency: review.currency,
+      child: AppCard(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SettleoraCompactHeader(
+              title: 'Receipt totals',
+              subtitle: _receiptReadinessLabel(review),
+              leadingIcon: Icons.receipt_outlined,
             ),
-        ],
+            const SizedBox(height: 10),
+            for (final row in rows)
+              _KeyValueMoneyText(
+                label: row.$1,
+                amount: row.$2,
+                currency: review.currency,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -991,9 +1070,10 @@ class _ReceiptOcrReviewLinesState extends State<_ReceiptOcrReviewLines> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Review receipt lines',
-            style: Theme.of(context).textTheme.titleMedium,
+          SettleoraCompactHeader(
+            title: 'Review receipt lines',
+            subtitle: '${sorted.length} loaded OCR lines',
+            leadingIcon: Icons.format_list_bulleted,
           ),
           const SizedBox(height: 8),
           if (sorted.length <= 1)
@@ -1098,33 +1178,86 @@ class _ReceiptOcrReviewLineTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final total = _lineTotalValue(line);
+    final unit = _lineUnitPriceValue(line);
+    final quantity = _lineQuantityValue(line);
+    final readiness = total == null ? 'Missing line total' : 'Ready';
+
     return Semantics(
       container: true,
       label: _lineOcrCandidateSemanticLabel,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 10),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: ListTile(
-            title: Text(
-              line.text,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(_lineSummary(line)),
-            ),
+        child: AppCard(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      line.text,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _SoftChip(
+                    label: readiness,
+                    icon: total == null
+                        ? Icons.report_problem_outlined
+                        : Icons.check_circle_outline,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _SoftChip(
+                    label: 'Qty ${quantity ?? 'needs review'}',
+                    icon: Icons.confirmation_number_outlined,
+                  ),
+                  _SoftChip(
+                    label: 'Unit ${unit ?? 'needs review'}',
+                    icon: Icons.sell_outlined,
+                  ),
+                  _SoftChip(
+                    label: 'Line ${total ?? 'needs review'}',
+                    icon: Icons.payments_outlined,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _lineSummary(line),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
+
+String? _lineQuantityValue(ReceiptOcrReviewLine line) {
+  final value = line.quantity?.trim();
+  return value == null || value.isEmpty ? null : value;
+}
+
+String? _lineUnitPriceValue(ReceiptOcrReviewLine line) {
+  final value = line.unitPriceAmount?.trim();
+  return value == null || value.isEmpty ? null : value;
+}
+
+String? _lineTotalValue(ReceiptOcrReviewLine line) {
+  final value = line.lineTotalAmount?.trim();
+  return value == null || value.isEmpty ? null : value;
 }
 
 enum _ReceiptOcrReviewLineDiscoveryFilter {

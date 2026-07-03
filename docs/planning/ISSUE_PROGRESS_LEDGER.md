@@ -225,6 +225,32 @@ remain the source of truth.
     test/receipt_ocr_review_screen_test.dart`,
     `flutter test test/ui/bills_ocr_revision_parity_visual_capture_test.dart`,
     and full `flutter test` with 810 passing tests.
+  - Tommy reviewed the `20260703-1208` Bills/OCR/revision visual evidence and
+    blocked it for follow-up because the OCR review queue/listing looked too
+    plain, listing cards did not expose enough important amount/date/status/
+    source/line-count style context where available, and the pages still felt
+    too far from the approved Bills/OCR/revision references. The
+    `20260703-1248` dirty recovery on the same branch inspected and salvaged
+    the failed `20260703-1238` development-only follow-up. It keeps the
+    scope presentation-only and increases product readout density in the
+    existing OCR queue/detail and bill revision review/proposal screens. OCR
+    queue cards now show merchant, status, personal/group scope, source,
+    line count, currency when exposed by the queue summary, updated date, and
+    a `Review receipt` action. OCR detail now promotes merchant, grand total
+    plus currency, receipt date, source, status, readiness, totals, and line
+    quantity/unit/line-total readiness into stronger cards. Bill revision
+    review/proposal now promote total/currency/status, viewer and payer deltas,
+    participant/payer counts, and server-validation posture. The queue summary
+    model still does not expose receipt date or total amount, so those values
+    are only shown on the detail surface where available. Fresh follow-up
+    recovery evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1248-mobile-bills-ocr-revision-info-density-followup-recovery/`
+    with `ocr-review-queue-390x844.png`, `ocr-review-detail-390x844.png`,
+    `bill-revision-review-390x844.png`, and
+    `bill-revision-proposal-390x844.png`. This evidence is
+    `DEV_FOLLOWUP_READY_NOT_APPROVED`; the previous failure was report/export
+    compaction after validation, not a validation failure. No PR or merge has
+    been performed.
 - Remaining Day 1 work:
   - Tommy/manual visual review for the Bills/OCR/revision development evidence,
     plus follow-up polish if requested before PR/merge.

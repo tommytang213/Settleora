@@ -350,7 +350,14 @@ class _SettleoraBillRevisionProposalEditorScreenState
               _InlineFailure(failure: _failure!),
               const SizedBox(height: 12),
             ],
-            _EditorSummaryPanel(billLabel: widget.billLabel, mode: widget.mode),
+            _EditorSummaryPanel(
+              billLabel: widget.billLabel,
+              mode: widget.mode,
+              totalAmount: _totalAmountController.text,
+              totalCurrency: _totalCurrencyController.text,
+              participantCount: _participants.length,
+              payerCount: _payers.length,
+            ),
             const SizedBox(height: 14),
             _Section(
               title: 'Proposal total',
@@ -444,35 +451,137 @@ class _PayerEditorRow {
 }
 
 class _EditorSummaryPanel extends StatelessWidget {
-  const _EditorSummaryPanel({required this.billLabel, required this.mode});
+  const _EditorSummaryPanel({
+    required this.billLabel,
+    required this.mode,
+    required this.totalAmount,
+    required this.totalCurrency,
+    required this.participantCount,
+    required this.payerCount,
+  });
 
   final String billLabel;
   final SettleoraBillRevisionProposalEditorMode mode;
+  final String totalAmount;
+  final String totalCurrency;
+  final int participantCount;
+  final int payerCount;
 
   @override
   Widget build(BuildContext context) {
+    final normalizedCurrency =
+        settleoraNormalizeCurrencyCode(totalCurrency) ?? totalCurrency.trim();
+
     return _Section(
       title: 'Proposal editor',
       icon: Icons.edit_note_outlined,
       children: [
-        _KeyValueText(label: 'Bill', value: billLabel),
-        _KeyValueText(
-          label: 'Mode',
-          value: mode == SettleoraBillRevisionProposalEditorMode.revise
-              ? 'Revise existing proposal'
-              : 'Create draft proposal',
+        Text(billLabel, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 10),
+        _ProposalTotalHero(
+          amount: totalAmount,
+          currency: normalizedCurrency,
+          caption: mode == SettleoraBillRevisionProposalEditorMode.revise
+              ? 'Replacement proposal'
+              : 'Draft proposal',
         ),
-        const SizedBox(height: 6),
-        const Text(
-          'Settleora will check final totals, participant shares, payer contributions, permissions, and current bill state before saving.',
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _ProposalFactChip(
+              icon: Icons.group_outlined,
+              label: '$participantCount participant shares',
+            ),
+            _ProposalFactChip(
+              icon: Icons.account_balance_wallet_outlined,
+              label: '$payerCount payer rows',
+            ),
+            const _ProposalFactChip(
+              icon: Icons.verified_user_outlined,
+              label: 'Server checks before save',
+            ),
+          ],
         ),
         if (mode == SettleoraBillRevisionProposalEditorMode.revise) ...[
-          const SizedBox(height: 8),
-          const Text(
-            'Saving a replacement supersedes this proposal. Previous approvals on this proposal do not carry over.',
+          const SizedBox(height: 12),
+          const SettleoraInlinePanel(
+            icon: Icons.change_circle_outlined,
+            title: 'Replacement review',
+            message:
+                'Saving replaces this proposal. Previous approvals do not carry over.',
+            variant: SettleoraSurfaceVariant.info,
           ),
         ],
       ],
+    );
+  }
+}
+
+class _ProposalTotalHero extends StatelessWidget {
+  const _ProposalTotalHero({
+    required this.amount,
+    required this.currency,
+    required this.caption,
+  });
+
+  final String amount;
+  final String currency;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Icon(Icons.payments_outlined),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    caption,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  MoneyText(
+                    amount: amount,
+                    currencyCode: currency,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProposalFactChip extends StatelessWidget {
+  const _ProposalFactChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      avatar: Icon(icon, size: 16),
+      label: Text(label),
     );
   }
 }
@@ -677,18 +786,6 @@ class _Section extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _KeyValueText extends StatelessWidget {
-  const _KeyValueText({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return SettleoraKeyValueText(label: label, value: value, labelWidth: 96);
   }
 }
 
