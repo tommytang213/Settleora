@@ -2104,8 +2104,23 @@ class _NotificationDetailSheet extends StatelessWidget {
           const SizedBox(height: 14),
           _NotificationDetailSection(
             title: 'Safety note',
-            child: Text(
-              'We recheck access before opening details. Received ${_formatTimestamp(notification.createdAtUtc)}${updatedAt == null ? '' : '; updated ${_formatTimestamp(updatedAt)}'}.',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('We recheck access before opening details.'),
+                const SizedBox(height: 10),
+                _NotificationTimestampRow(
+                  label: 'Received',
+                  value: _formatTimestamp(notification.createdAtUtc),
+                ),
+                if (updatedAt != null) ...[
+                  const SizedBox(height: 6),
+                  _NotificationTimestampRow(
+                    label: 'Updated',
+                    value: _formatTimestamp(updatedAt),
+                  ),
+                ],
+              ],
             ),
           ),
           if (isArchived)
@@ -2115,6 +2130,33 @@ class _NotificationDetailSheet extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _NotificationTimestampRow extends StatelessWidget {
+  const _NotificationTimestampRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          value,
+          textAlign: TextAlign.end,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
     );
   }
 }

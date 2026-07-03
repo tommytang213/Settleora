@@ -637,7 +637,7 @@ void main() {
     expect(find.textContaining('Credit 0.75 USD'), findsOneWidget);
     expect(find.text('3 bills'), findsOneWidget);
     expect(find.text('2 pending payments'), findsOneWidget);
-    expect(find.text('1 confirmed payments'), findsOneWidget);
+    expect(find.text('1 confirmed payment'), findsOneWidget);
     expect(
       find.textContaining('Refresh if anything looks out of date.'),
       findsOneWidget,

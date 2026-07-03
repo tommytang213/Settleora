@@ -751,7 +751,7 @@ class _LocalPreviewPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const _Section(
-      title: 'Local preview',
+      title: 'Review before saving',
       icon: Icons.visibility_outlined,
       children: [
         Text(
@@ -777,11 +777,11 @@ class _UnsupportedDetailsPanel extends StatelessWidget {
     ];
 
     return _Section(
-      title: 'Unsupported in this editor',
+      title: 'Not included here',
       icon: Icons.info_outline,
       children: [
         const Text(
-          'This editor supports only aggregate total, participant shares, and payer contributions.',
+          'This proposal editor only updates the total, shares, and payer contributions.',
         ),
         const SizedBox(height: 8),
         for (final item in unsupported)

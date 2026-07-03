@@ -266,35 +266,38 @@ class _SettlementLandingSummary extends StatelessWidget {
             leadingIcon: Icons.handshake_outlined,
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              StatusChip(
-                label:
-                    '$openBalanceCount open balance${_plural(openBalanceCount)}',
-                icon: Icons.account_balance_wallet_outlined,
-                variant: openBalanceCount == 0
-                    ? StatusChipVariant.success
-                    : StatusChipVariant.info,
-              ),
-              StatusChip(
-                label: needsActionCount == 1
-                    ? '1 needing action'
-                    : '$needsActionCount needing action',
-                icon: Icons.rule_outlined,
-                variant: needsActionCount == 0
-                    ? StatusChipVariant.success
-                    : StatusChipVariant.warning,
-              ),
-              StatusChip(
-                label:
-                    '$openRequestCount open request${_plural(openRequestCount)}',
-                icon: Icons.request_quote_outlined,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
+          if (openBalanceCount > 0 ||
+              needsActionCount > 0 ||
+              openRequestCount > 0) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (openBalanceCount > 0)
+                  StatusChip(
+                    label:
+                        '$openBalanceCount open balance${_plural(openBalanceCount)}',
+                    icon: Icons.account_balance_wallet_outlined,
+                    variant: StatusChipVariant.info,
+                  ),
+                if (needsActionCount > 0)
+                  StatusChip(
+                    label: needsActionCount == 1
+                        ? '1 needing action'
+                        : '$needsActionCount needing action',
+                    icon: Icons.rule_outlined,
+                    variant: StatusChipVariant.warning,
+                  ),
+                if (openRequestCount > 0)
+                  StatusChip(
+                    label:
+                        '$openRequestCount open request${_plural(openRequestCount)}',
+                    icon: Icons.request_quote_outlined,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
           Text(
             needsActionCount > 0
                 ? 'Start with settlements that need action, then review balances.'
@@ -1139,14 +1142,20 @@ class _BalanceTile extends StatelessWidget {
                 label: '${balance.lineCount} bills',
                 icon: Icons.format_list_bulleted,
               ),
-              SettleoraStatusChip(
-                label: '${balance.pendingPaymentCount} pending payments',
-                icon: Icons.pending_actions_outlined,
-              ),
-              SettleoraStatusChip(
-                label: '${balance.confirmedPaymentCount} confirmed payments',
-                icon: Icons.verified_outlined,
-              ),
+              if (balance.pendingPaymentCount > 0)
+                SettleoraStatusChip(
+                  label: balance.pendingPaymentCount == 1
+                      ? '1 pending payment'
+                      : '${balance.pendingPaymentCount} pending payments',
+                  icon: Icons.pending_actions_outlined,
+                ),
+              if (balance.confirmedPaymentCount > 0)
+                SettleoraStatusChip(
+                  label: balance.confirmedPaymentCount == 1
+                      ? '1 confirmed payment'
+                      : '${balance.confirmedPaymentCount} confirmed payments',
+                  icon: Icons.verified_outlined,
+                ),
               if (_amountStringLooksNonZero(
                 balance.confirmedRemainingResidualAmount,
               ))
