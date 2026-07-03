@@ -1,6 +1,7 @@
 # Notification #635 Runtime Entry Decision Packet
 
-Created: 2026-07-04 HKT  
+Created: 2026-07-04 HKT
+
 Base main SHA: `09f1f26efd9d46ad995d9baf048b3dab43b0f974`
 
 ## Purpose
