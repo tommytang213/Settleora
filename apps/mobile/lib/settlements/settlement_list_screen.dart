@@ -1638,8 +1638,8 @@ class _DetailReviewSummarySection extends StatelessWidget {
               '${settleoraSettlementRequestStatusLabel(request.status)} - $roleLabel.',
           chips: [
             '${request.lines.length} lines',
-            '${payments.length} payments',
-            '$residualCount residuals',
+            _settlementCountLabel(payments.length, 'payment'),
+            _settlementCountLabel(residualCount, 'residual'),
             if (pendingResidualCount > 0)
               pendingResidualCount == 1
                   ? '1 needs confirmation'
@@ -1660,6 +1660,10 @@ class _DetailReviewSummarySection extends StatelessWidget {
       ],
     );
   }
+}
+
+String _settlementCountLabel(int count, String singularLabel) {
+  return count == 1 ? '1 $singularLabel' : '$count ${singularLabel}s';
 }
 
 class _CounterpartyPaymentDetailsSection extends StatelessWidget {

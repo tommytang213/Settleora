@@ -574,9 +574,6 @@ String _queueAttentionText(ReceiptOcrReviewSummary review) {
 
 String _queueReviewReason(ReceiptOcrReviewSummary review) {
   final reasons = <String>[];
-  if (review.status == ReceiptOcrReviewStatusValues.provisional) {
-    reasons.add('review before applying');
-  }
   if (review.lineCount <= 0) {
     reasons.add('no receipt lines');
   }
@@ -585,13 +582,13 @@ String _queueReviewReason(ReceiptOcrReviewSummary review) {
   }
 
   if (reasons.isEmpty) {
-    return 'Review before applying to the draft.';
+    return 'Check the receipt details before applying them to the draft.';
   }
 
   final formatted = reasons.length == 1
       ? reasons.single
       : '${reasons.take(reasons.length - 1).join(', ')} and ${reasons.last}';
-  return 'Review before applying: $formatted.';
+  return 'Check $formatted before applying to the draft.';
 }
 
 String _formatQueueDate(DateTime value) {

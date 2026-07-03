@@ -44,6 +44,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expectMoneyText('10.00', 'USD');
+    await scrollTo(tester, find.text('What this includes'));
+    expect(find.text('1 payment'), findsOneWidget);
+    expect(find.text('1 payments'), findsNothing);
+    expect(find.text('1 residual'), findsOneWidget);
+    expect(find.text('1 residuals'), findsNothing);
     await scrollTo(tester, find.text('Payment details'));
     expect(find.text('Payment details'), findsOneWidget);
     expect(find.text('Bank transfer'), findsOneWidget);
