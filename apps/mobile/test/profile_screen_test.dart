@@ -318,6 +318,11 @@ void main() {
     expect(find.text('FPS'), findsWidgets);
     expect(find.text('fps-id'), findsWidgets);
     expect(find.text('Thanks for settling.'), findsWidgets);
+    expect(find.text('FPS ID'), findsWidgets);
+    expect(
+      find.text('Phone, email, FPS ID, or account alias.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('profile and payment saves ignore duplicate submits', (
@@ -528,7 +533,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Payment handle must be 320 characters or fewer.'),
+      find.text('Payment details must be 320 characters or fewer.'),
       findsOneWidget,
     );
     expect(repository.paymentUpdateCalls, 0);
@@ -576,6 +581,11 @@ void main() {
     );
 
     expect(find.text('Bank transfer'), findsWidgets);
+    expect(find.text('Bank transfer details'), findsWidgets);
+    expect(
+      find.textContaining('Use account, bank, or payee details'),
+      findsOneWidget,
+    );
     expect(handleField.controller?.text, 'pay.example/taylor');
     expect(repository.paymentUpdateCalls, 0);
     expect(visibleText(tester), isNot(contains('discard-me')));

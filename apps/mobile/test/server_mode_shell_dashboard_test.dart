@@ -130,6 +130,29 @@ void main() {
 
     expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
     expect(find.text('Data, import, and export'), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-data-safety-panel')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('notification-preference-panel')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('server-shell-visual-preference-readout')),
+      findsNothing,
+    );
+
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('server-shell-more-settings-detail')),
+      findsOneWidget,
+    );
+    expect(find.text('App settings'), findsWidgets);
+    expect(find.text('Notifications and delivery'), findsOneWidget);
+    expect(find.text('Mode and sync boundary'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('server-shell-data-safety-panel')),
@@ -138,27 +161,29 @@ void main() {
     );
 
     expect(find.text('Data safety'), findsOneWidget);
-    expect(find.text('Local backup'), findsOneWidget);
+    expect(find.text('Back up this device'), findsOneWidget);
     expect(
-      find.textContaining(
-        'excludes session tokens, refresh credentials, passwords, server URLs',
-      ),
+      find.textContaining('Create a local file you can keep for this device.'),
       findsOneWidget,
     );
-    expect(find.text('Scope'), findsOneWidget);
+    expect(find.text('Includes'), findsOneWidget);
     expect(
-      find.text('App mode summary and the current mobile bill sync queue.'),
+      find.text('Local app data and queued mobile-owned changes.'),
       findsOneWidget,
     );
+    expect(find.text('Does not include'), findsOneWidget);
     expect(
-      find.textContaining('The API remains authoritative for collaboration'),
+      find.textContaining('Passwords, session tokens, server-only records'),
       findsOneWidget,
     );
-    expect(find.text('Import'), findsOneWidget);
+    expect(find.text('Restore'), findsOneWidget);
     expect(
-      find.text(
-        'Validation and preview only; merge/replace restore is disabled until a guarded restore policy exists.',
-      ),
+      find.text('Preview only until a guarded restore flow exists.'),
+      findsOneWidget,
+    );
+    expect(find.text('Server data'), findsOneWidget);
+    expect(
+      find.text('Shared records still come from the server in server mode.'),
       findsOneWidget,
     );
     expect(find.byKey(const Key('data-safety-build-export')), findsOneWidget);
@@ -238,13 +263,9 @@ void main() {
       find.textContaining('Appearance choices will never change'),
       findsNothing,
     );
-    expect(find.text('CSV export'), findsOneWidget);
-    expect(find.text('CSV import'), findsOneWidget);
-    expect(find.text('Migration/link'), findsOneWidget);
-    expect(
-      find.text('Future explicit guided flow only; not a bypass.'),
-      findsOneWidget,
-    );
+    expect(find.text('CSV export'), findsNothing);
+    expect(find.text('CSV import'), findsNothing);
+    expect(find.text('Migration/link'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, 'Migrate'), findsNothing);
     expect(find.widgetWithText(OutlinedButton, 'Disconnect'), findsNothing);
     final visualReadout = find.byKey(
@@ -319,6 +340,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
+    expect(find.text('Notification settings'), findsNothing);
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('server-shell-more-settings-detail')),
+      findsOneWidget,
+    );
     expect(find.text('Notification settings'), findsOneWidget);
 
     await tester.scrollUntilVisible(
@@ -335,6 +363,9 @@ void main() {
 
     await scrollToAndTap(tester, const Key('notification-preferences-bills'));
 
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('server-shell-more-hub')), findsOneWidget);
     await ensureAndTap(tester, const Key('server-shell-more-notifications'));
 
     expect(find.text('Settlement row.'), findsOneWidget);
@@ -582,7 +613,7 @@ void main() {
     await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
     await tester.pumpAndSettle();
     final finalReadout = find.byKey(
-      const Key('server-shell-visual-preference-readout'),
+      const Key('server-shell-more-data-readout'),
     );
     await scrollShellToBottom(
       tester,
@@ -1673,6 +1704,47 @@ void main() {
       callsAfterOpeningNotifications + 1,
     );
   });
+
+  testWidgets(
+    'home top-right action opens notifications and sign-out remains in sessions',
+    (tester) async {
+      final notificationRepository = FakeNotificationRepository(
+        notifications: [sampleNotification()],
+      );
+
+      await pumpShell(tester, notificationRepository: notificationRepository);
+
+      expect(
+        find.byKey(const Key('server-shell-notifications-appbar')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('server-shell-sign-out')), findsNothing);
+
+      await tester.tap(
+        find.byKey(const Key('server-shell-notifications-appbar')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Notifications'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+      await tester.pumpAndSettle();
+      await scrollToAndTap(tester, const Key('server-shell-sessions'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sessions'), findsOneWidget);
+      expect(
+        find.byKey(const Key('session-list-sign-out-current')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('session-list-sign-out-all')),
+        findsOneWidget,
+      );
+    },
+  );
 }
 
 Future<void> scrollToAndTap(WidgetTester tester, Key key) async {

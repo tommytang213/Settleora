@@ -27,6 +27,9 @@ remain the source of truth.
 - Last verified at main SHA:
   `7ddce8b8eb115f7a2f4163f3c0cba64e5cb160a2` after PR #671 and before the
   `feature/mobile-shared-visual-foundation-20260702` branch.
+- Last child-slice checkpoint at base main SHA:
+  `154ed6787e1cb1b7f06fd1310ddeff724bd7b886` for branch
+  `feature/mobile-shell-home-more-profile-parity-672-20260702`.
 - Created by branch:
   `feature/mobile-shared-visual-foundation-20260702`.
 - Scope:
@@ -59,8 +62,132 @@ remain the source of truth.
     `VISUAL_APPROVED_WITH_FOLLOWUPS`. This approval keeps the first warm/beige
     visual evidence rejected, does not approve full app visual parity, and does
     not authorize silently switching the entire runtime app default theme.
+  - The Shell/Home/More/Profile child slice on branch
+    `feature/mobile-shell-home-more-profile-parity-672-20260702` migrates the
+    live authenticated shell first-impression surfaces toward the approved
+    Settleora Midnight references by using shared bottom-sheet/dialog frames,
+    shared list rows, inline panels, money chips, status chips, and tokenized
+    shell card styling for Home, attention/readout cards, More/settings rows,
+    data-safety preview shells, and profile/payment evidence. It preserves the
+    current global app default theme because a true selectable preset/runtime
+    theme system remains future work, and switching the full app default would
+    affect unrelated Bills, Groups, Settle, Notifications, OCR, recurring, and
+    report routes outside this child slice.
+  - Fresh visual evidence for the Shell/Home/More/Profile slice was generated
+    under
+    `/workspace/logs/settleora-visual-qa/20260702-2258-mobile-shell-home-more-profile-parity/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, and `profile-payment-390x844.png`. This evidence
+    was manually reviewed as
+    `VISUAL_REVIEW_NEEDS_FOLLOWUP_BOTTOM_NAV_OVERLAP` because the Home
+    attention and More hub captures showed content clipped at the persistent
+    bottom nav boundary.
+  - The `20260702-2323` visual follow-up on the same branch increases shell
+    scroll bottom padding and updates the focused visual evidence harness to
+    capture Home attention, More lower sections, and Profile/payment content
+    only when the target content clears the bottom nav or viewport boundary.
+    Fresh follow-up evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260702-2323-mobile-shell-home-more-profile-visual-followup/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, and `profile-payment-390x844.png`. This evidence
+    is `READY_FOR_TOMMY_VISUAL_REVIEW`; no PR should be opened before explicit
+    visual approval.
+  - Tommy reviewed the `20260702-2323` refreshed Home/More/Profile evidence and
+    requested that the settings/config-like content not live directly under the
+    More root. The `20260702-2336` development follow-up on the same branch
+    keeps More as a concise hub by moving notification preference controls,
+    delivery timing readouts, local/server mode authority readouts, sync/security
+    required readouts, unsupported appearance/theme readouts, and local
+    backup/import-preview controls behind an App settings detail route/surface.
+    Root More now keeps only grouped navigation/readout rows for Account,
+    Security and privacy, App, Activity and records, and Data and sync. Fresh
+    development evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260702-2336-mobile-shell-more-settings-hub-followup/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, `more-settings-390x844.png`, and
+    `profile-payment-390x844.png`. This evidence is
+    `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
+    manual visual approval is deferred.
+  - The `20260703-0012` development polish pass on the same branch rechecked
+    that the root More tab remains a concise grouped hub with navigation/readout
+    rows only, then tightened the App settings data-safety section by composing
+    the local backup and generated-backup preview readouts with shared
+    `SettleoraSection`, `SettleoraInlinePanel`, and
+    `SettleoraKeyValueText` primitives. It preserved notification preference
+    behavior, local backup/import-preview behavior, unsupported appearance
+    readouts, product copy, profile/payment repository calls, QR metadata
+    behavior, and the global runtime app default theme. Fresh development
+    evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260703-0012-mobile-shell-settings-profile-polish-dev-only/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, `more-settings-390x844.png`, and
+    `profile-payment-390x844.png`. This evidence is
+    `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
+    manual visual approval is deferred.
+  - The `20260703-0018` development-only setup/sign-in/settings polish pass on
+    the same branch started from remote head
+    `f572cf9b591c33b9ba8df0fc14799e151797b788` and keeps the exact pushed
+    branch head in the matching Codex report and #672 issue comment because the
+    no-amend rule prevents recording a commit's own SHA inside the same commit.
+    This pass composes setup and sign-in with shared Settleora cards, compact
+    headers, inline/readout panels, and the existing Midnight visual evidence
+    theme while preserving setup choices, server URL validation, sign-in
+    validation, loading/error states, auth/session repository calls, change
+    server behavior, and server/local authority copy. It also regenerates the
+    existing shell/settings/profile evidence and adds setup/sign-in captures
+    under
+    `/workspace/logs/settleora-visual-qa/20260703-0018-mobile-setup-signin-settings-polish-dev-only/`
+    with `setup-mode-390x844.png`, `sign-in-390x844.png`,
+    `home-shell-390x844.png`, `more-hub-390x844.png`,
+    `more-settings-390x844.png`, and `profile-payment-390x844.png` plus the
+    existing `home-attention-390x844.png` capture. This evidence is
+    `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
+    manual visual approval remains deferred.
+  - The `20260703-1046` development-only follow-up on the same branch started
+    from remote head `ef062fe2a5bbfb03d7b8edd66df636a357e1a099` and addresses
+    Tommy's payment-profile copy, local-backup copy, and authenticated-shell
+    top-right action feedback. It keeps the existing profile/payment detail
+    model, QR metadata behavior, payment-detail visibility posture,
+    notification center routing/readout behavior, local backup/import-preview
+    authority boundaries, sign-out/session-management behavior, global runtime
+    app default theme, and all API/OpenAPI/generated-client/schema/backend
+    boundaries unchanged. Fresh development evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1046-mobile-shell-profile-copy-nav-followup-dev-only/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, `more-settings-390x844.png`,
+    `profile-payment-390x844.png`, `setup-mode-390x844.png`, and
+    `sign-in-390x844.png`. This evidence is
+    `DEV_FOLLOWUP_READY_NOT_APPROVED`; no PR or merge has been performed, and
+    manual visual approval remains deferred.
+  - The `20260703-1110` development-only follow-up on the same branch started
+    from remote head `b6088e707b4a75359fc8d780f8862eac5c3d1358` and addresses
+    Tommy's Home duplicate bell cleanup plus setup/sign-in copy simplification.
+    It keeps notification center routing/readout behavior, setup choices,
+    server URL validation, local/server mode behavior, sign-in validation,
+    auth/session repository calls, More/App settings/Profile payment accepted
+    areas, the global runtime app default theme, and all
+    API/OpenAPI/generated-client/schema/backend boundaries unchanged. Fresh
+    development evidence was generated under
+    `/workspace/logs/settleora-visual-qa/20260703-1110-mobile-shell-home-setup-signin-copy-followup-dev-only/`
+    with `home-shell-390x844.png`, `home-attention-390x844.png`,
+    `more-hub-390x844.png`, `more-settings-390x844.png`,
+    `profile-payment-390x844.png`, `setup-mode-390x844.png`, and
+    `sign-in-390x844.png`.
+  - Tommy manually reviewed the `20260703-1110` Shell/Home/More/App
+    settings/Profile/Setup/Sign-in evidence and approved this bounded child
+    slice as `VISUAL_APPROVED_WITH_FOLLOWUPS`. This approval is only for the
+    bounded Shell/Home/More/App settings/Profile/Setup/Sign-in visual parity
+    child slice under #672. It does not approve full mobile visual parity, does
+    not close #672, does not approve Bills/OCR/revision visual parity, does not
+    approve Groups/Settle/Notifications visual parity, and does not authorize
+    runtime theme switching or a theme picker.
+  - PR/merge gate started from reviewed source head
+    `d45c7fdd2f752f696a791fc653fa237324763737` on branch
+    `feature/mobile-shell-home-more-profile-parity-672-20260702`, with starting
+    `origin/main` expected at
+    `154ed6787e1cb1b7f06fd1310ddeff724bd7b886`. #672 remains open during and
+    after this gate.
 - Remaining Day 1 work:
-  - Shell/Home/More visual parity.
   - Bills/OCR/revision visual parity.
   - Groups/settle/notifications visual parity.
   - Followups for spacing, section rhythm, dense bills/OCR/settlement usage,
