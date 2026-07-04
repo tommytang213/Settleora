@@ -2728,6 +2728,46 @@ remain the source of truth.
     - `.codex/reports/settleora-codex-report-20260704-2340-notification-686-provider-readiness-pr-open.md`
     - `.codex/reports/settleora-codex-report-20260704-2325-notification-686-provider-readiness-category-foundation.md`
 
+- #688 audit/redaction readout coverage implementation checkpoint on
+  `feature/notification-688-audit-redaction-readout-coverage-20260705`:
+  - Base main SHA:
+    `7f78ff340c240690db664dfeccb350d97b78051e` after PR #700.
+  - Reviewed implementation head:
+    `b408e89d5b9105dc2b72f1100bcafcdb9cd87048`.
+  - Completed slice:
+    - Added focused redaction-helper regression coverage for fail-closed
+      normalization of unsafe channel, channel-cap, readiness, readout
+      category, event-family, content-class, and timing values.
+    - Hardened admin notification policy endpoint coverage so unexpected
+      provider-readiness strings containing SMTP host/user/password details,
+      APNs/device-token wording, or provider payload wording normalize to
+      bounded `unknown`/`provider_unknown` categories before serialization.
+    - Expanded forbidden-string assertions for the current approved
+      `GET /api/v1/admin/notification-policy` readout, including SMTP,
+      APNs/FCM, provider payload/request, device-token/protected-token,
+      storage/OCR/payment/private/hidden bill, and auth/session/MFA/passkey
+      wording.
+    - Added coverage proving the current read-only admin policy readout does
+      not create notification-policy-specific audit rows; ordinary
+      auth/session validation audit remains separate source-domain behavior.
+  - Current surface posture:
+    - The approved read-only admin/global policy readout and
+      provider-readiness category surface remain bounded category readouts.
+    - `externalProviderAttemptAllowed` remains `false`.
+    - No policy mutation, resolver runtime, provider sending, provider config,
+      OpenAPI/generated-client, schema/migration, UI, deployment, money,
+      storage, sync, OCR, or auth/session runtime behavior changed.
+  - Close/keep-open recommendation:
+    close #688 after this test-only PR merges because the currently approved
+    readout/provider-readiness audit-redaction coverage slice is satisfied.
+    Keep future mutation/write audit, production audit plumbing, resolver
+    audit hooks, delivery-attempt audit, and admin/operator diagnostic
+    coverage as separate future gates under #635/#687/#689 or explicitly
+    named follow-up issues.
+  - Keep #635, #687, #689, #403, #369, #368, and #634 open. Keep #684, #685,
+    #686, #371, #570, #575, #672, and #679 closed unless a concrete regression
+    or approved follow-up changes that posture.
+
 ### Issue #458 - User web auth/session shell and navigation foundation
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,
