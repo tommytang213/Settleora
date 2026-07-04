@@ -95,6 +95,13 @@ public sealed class SettleoraDbContext : DbContext
     private const int PushDeviceTokenProtectionPurposeMaxLength = PushDeviceTokenConstraints.ProtectionPurposeMaxLength;
     private const int PushDeviceTokenDeviceInstallationHashMaxLength = PushDeviceTokenConstraints.DeviceInstallationHashMaxLength;
     private const int PushDeviceTokenProviderFeedbackCategoryMaxLength = PushDeviceTokenConstraints.ProviderFeedbackCategoryMaxLength;
+    private const int NotificationPolicyVersionMaxLength = NotificationPolicyConstraints.PolicyVersionMaxLength;
+    private const int NotificationPolicyStatusMaxLength = NotificationPolicyConstraints.PolicyStatusMaxLength;
+    private const int NotificationPolicyChannelCapMaxLength = NotificationPolicyConstraints.ChannelCapMaxLength;
+    private const int NotificationPolicyReadinessMaxLength = NotificationPolicyConstraints.ReadinessMaxLength;
+    private const int NotificationPolicyEventFamilyMaxLength = NotificationPolicyConstraints.EventFamilyMaxLength;
+    private const int NotificationPolicyContentClassMaxLength = NotificationPolicyConstraints.ContentClassMaxLength;
+    private const int NotificationPolicyTimingModeMaxLength = NotificationPolicyConstraints.TimingModeMaxLength;
     private const int BillCsvImportSessionScopeMaxLength = 16;
     private const int BillCsvImportSessionStatusMaxLength = 32;
     private const int BillCsvImportSessionPayloadDigestMaxLength = 96;
@@ -155,6 +162,8 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<FileObject>(ConfigureFileObject);
         modelBuilder.Entity<InAppNotification>(ConfigureInAppNotification);
         modelBuilder.Entity<NotificationDeliveryAttempt>(ConfigureNotificationDeliveryAttempt);
+        modelBuilder.Entity<NotificationGlobalPolicy>(ConfigureNotificationGlobalPolicy);
+        modelBuilder.Entity<NotificationEventPolicyOverride>(ConfigureNotificationEventPolicyOverride);
         modelBuilder.Entity<PushDeviceToken>(ConfigurePushDeviceToken);
         modelBuilder.Entity<UserNotificationPreference>(ConfigureUserNotificationPreference);
         modelBuilder.Entity<SyncOperation>(ConfigureSyncOperation);
@@ -534,6 +543,242 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany()
             .HasForeignKey(token => token.AuthSessionId)
             .HasConstraintName("fk_push_device_tokens_auth_sessions")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureNotificationGlobalPolicy(EntityTypeBuilder<NotificationGlobalPolicy> entity)
+    {
+        entity.ToTable("notification_global_policies", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_status",
+                "status IN ('active', 'draft', 'disabled', 'superseded')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_in_app_channel_cap",
+                "in_app_channel_cap IN ('enabled', 'disabled', 'unsupported', 'digest_only', 'immediate_allowed', 'generic_external_only', 'in_app_only')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_email_channel_cap",
+                "email_channel_cap IN ('enabled', 'disabled', 'unsupported', 'digest_only', 'immediate_allowed', 'generic_external_only', 'in_app_only')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_mobile_push_channel_cap",
+                "mobile_push_channel_cap IN ('enabled', 'disabled', 'unsupported', 'digest_only', 'immediate_allowed', 'generic_external_only', 'in_app_only')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_email_provider_readiness",
+                "email_provider_readiness IN ('unsupported', 'unconfigured', 'configured', 'invalid', 'disabled', 'limited', 'unknown')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_mobile_push_provider_readiness",
+                "mobile_push_provider_readiness IN ('unsupported', 'unconfigured', 'configured', 'invalid', 'disabled', 'limited', 'unknown')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_external_sensitive_content_class",
+                "external_sensitive_content_class IN ('in_app_only', 'generic_external_only', 'safe_summary_allowed')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_quiet_hours_default_mode",
+                "quiet_hours_default_mode IN ('immediate', 'digest_readout', 'deferred', 'disabled')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_digest_default_mode",
+                "digest_default_mode IN ('immediate', 'digest_readout', 'deferred', 'disabled')");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_required_in_app_enabled",
+                "required_in_app_enabled = TRUE");
+            table.HasCheckConstraint(
+                "ck_notification_global_policies_policy_version_not_blank",
+                "length(btrim(policy_version)) > 0");
+        });
+
+        entity.HasKey(policy => policy.Id);
+
+        entity.Property(policy => policy.Id)
+            .HasColumnName("id");
+
+        entity.Property(policy => policy.PolicyVersion)
+            .HasColumnName("policy_version")
+            .HasMaxLength(NotificationPolicyVersionMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.Status)
+            .HasColumnName("status")
+            .HasMaxLength(NotificationPolicyStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.InAppChannelCap)
+            .HasColumnName("in_app_channel_cap")
+            .HasMaxLength(NotificationPolicyChannelCapMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.EmailChannelCap)
+            .HasColumnName("email_channel_cap")
+            .HasMaxLength(NotificationPolicyChannelCapMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.MobilePushChannelCap)
+            .HasColumnName("mobile_push_channel_cap")
+            .HasMaxLength(NotificationPolicyChannelCapMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.EmailProviderReadiness)
+            .HasColumnName("email_provider_readiness")
+            .HasMaxLength(NotificationPolicyReadinessMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.MobilePushProviderReadiness)
+            .HasColumnName("mobile_push_provider_readiness")
+            .HasMaxLength(NotificationPolicyReadinessMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.RequiredInAppEnabled)
+            .HasColumnName("required_in_app_enabled")
+            .IsRequired();
+
+        entity.Property(policy => policy.OrdinaryMuteMaySuppressRequired)
+            .HasColumnName("ordinary_mute_may_suppress_required")
+            .IsRequired();
+
+        entity.Property(policy => policy.QuietHoursMayDeferRequired)
+            .HasColumnName("quiet_hours_may_defer_required")
+            .IsRequired();
+
+        entity.Property(policy => policy.ExternalSensitiveContentClass)
+            .HasColumnName("external_sensitive_content_class")
+            .HasMaxLength(NotificationPolicyContentClassMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.QuietHoursDefaultMode)
+            .HasColumnName("quiet_hours_default_mode")
+            .HasMaxLength(NotificationPolicyTimingModeMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.DigestDefaultMode)
+            .HasColumnName("digest_default_mode")
+            .HasMaxLength(NotificationPolicyTimingModeMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.EffectiveAtUtc)
+            .HasColumnName("effective_at_utc");
+
+        entity.Property(policy => policy.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(policy => policy.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(policy => policy.CreatedByAuthAccountId)
+            .HasColumnName("created_by_auth_account_id");
+
+        entity.Property(policy => policy.UpdatedByAuthAccountId)
+            .HasColumnName("updated_by_auth_account_id");
+
+        entity.HasIndex(policy => new { policy.Status, policy.EffectiveAtUtc, policy.UpdatedAtUtc })
+            .HasDatabaseName("ix_notification_global_policies_status_effective_updated");
+
+        entity.HasIndex(policy => policy.PolicyVersion)
+            .IsUnique()
+            .HasDatabaseName("ux_notification_global_policies_policy_version");
+
+        entity.HasOne(policy => policy.CreatedByAuthAccount)
+            .WithMany()
+            .HasForeignKey(policy => policy.CreatedByAuthAccountId)
+            .HasConstraintName("fk_notification_global_policies_created_by_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(policy => policy.UpdatedByAuthAccount)
+            .WithMany()
+            .HasForeignKey(policy => policy.UpdatedByAuthAccountId)
+            .HasConstraintName("fk_notification_global_policies_updated_by_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureNotificationEventPolicyOverride(EntityTypeBuilder<NotificationEventPolicyOverride> entity)
+    {
+        entity.ToTable("notification_event_policy_overrides", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_notification_event_policy_overrides_event_family",
+                "event_family IN ('bills', 'settlements', 'recurring', 'ocr', 'sync', 'auth_security')");
+            table.HasCheckConstraint(
+                "ck_notification_event_policy_overrides_in_app_channel_cap",
+                "in_app_channel_cap IN ('enabled', 'disabled', 'unsupported', 'digest_only', 'immediate_allowed', 'generic_external_only', 'in_app_only')");
+            table.HasCheckConstraint(
+                "ck_notification_event_policy_overrides_email_channel_cap",
+                "email_channel_cap IN ('enabled', 'disabled', 'unsupported', 'digest_only', 'immediate_allowed', 'generic_external_only', 'in_app_only')");
+            table.HasCheckConstraint(
+                "ck_notification_event_policy_overrides_mobile_push_channel_cap",
+                "mobile_push_channel_cap IN ('enabled', 'disabled', 'unsupported', 'digest_only', 'immediate_allowed', 'generic_external_only', 'in_app_only')");
+            table.HasCheckConstraint(
+                "ck_notification_event_policy_overrides_external_content_class",
+                "external_content_class IN ('in_app_only', 'generic_external_only', 'safe_summary_allowed')");
+            table.HasCheckConstraint(
+                "ck_notification_event_policy_overrides_required_in_app",
+                "required_in_app = TRUE");
+        });
+
+        entity.HasKey(policyOverride => policyOverride.Id);
+
+        entity.Property(policyOverride => policyOverride.Id)
+            .HasColumnName("id");
+
+        entity.Property(policyOverride => policyOverride.NotificationGlobalPolicyId)
+            .HasColumnName("notification_global_policy_id")
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.EventFamily)
+            .HasColumnName("event_family")
+            .HasMaxLength(NotificationPolicyEventFamilyMaxLength)
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.InAppChannelCap)
+            .HasColumnName("in_app_channel_cap")
+            .HasMaxLength(NotificationPolicyChannelCapMaxLength)
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.EmailChannelCap)
+            .HasColumnName("email_channel_cap")
+            .HasMaxLength(NotificationPolicyChannelCapMaxLength)
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.MobilePushChannelCap)
+            .HasColumnName("mobile_push_channel_cap")
+            .HasMaxLength(NotificationPolicyChannelCapMaxLength)
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.ExternalContentClass)
+            .HasColumnName("external_content_class")
+            .HasMaxLength(NotificationPolicyContentClassMaxLength)
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.RequiredInApp)
+            .HasColumnName("required_in_app")
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.DigestEligible)
+            .HasColumnName("digest_eligible")
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.QuietHoursEligible)
+            .HasColumnName("quiet_hours_eligible")
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(policyOverride => policyOverride.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.HasIndex(policyOverride => new
+            {
+                policyOverride.NotificationGlobalPolicyId,
+                policyOverride.EventFamily
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_notification_event_policy_overrides_policy_family");
+
+        entity.HasOne(policyOverride => policyOverride.NotificationGlobalPolicy)
+            .WithMany(policy => policy.EventOverrides)
+            .HasForeignKey(policyOverride => policyOverride.NotificationGlobalPolicyId)
+            .HasConstraintName("fk_notification_event_policy_overrides_global_policies")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

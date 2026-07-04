@@ -681,6 +681,93 @@ export type AuthMfaSupportMode = "disabled" | "optional" | "required_for_admins"
 export type AuthMfaEnforcementMode = "optional" | "blocking_warning" | "required";
 
 /**
+ * Safe owner/admin notification policy readout. The API remains authoritative; generated client availability does not grant permission or enable provider attempts.
+ */
+export interface AdminNotificationPolicyReadoutResponse {
+  policyVersion: string;
+  source: "default" | "persisted";
+  effectiveAtUtc: string | null;
+  updatedAtUtc: string | null;
+  persistedSchemaReady: true;
+  serverAuthoritative: true;
+  channels: AdminNotificationPolicyChannelReadout[];
+  eventFamilies: AdminNotificationPolicyEventFamilyReadout[];
+  requiredRules: AdminNotificationPolicyRequiredRulesReadout;
+}
+
+/**
+ * Bounded channel-level readout. It contains policy/readiness categories only and never contains provider configuration, credentials, raw tokens, provider payloads, or delivery success claims.
+ */
+export interface AdminNotificationPolicyChannelReadout {
+  channel: NotificationPolicyChannel;
+  channelCap: NotificationPolicyChannelCap;
+  readiness: NotificationPolicyReadiness;
+  readoutCategory: NotificationPolicyReadoutCategory;
+  externalProviderAttemptAllowed: false;
+}
+
+/**
+ * Bounded event-family policy readout. It exposes family and channel categories only, not source payloads or recipient data.
+ */
+export interface AdminNotificationPolicyEventFamilyReadout {
+  eventFamily: NotificationPolicyEventFamily;
+  inAppChannelCap: NotificationPolicyChannelCap;
+  emailChannelCap: NotificationPolicyChannelCap;
+  mobilePushChannelCap: NotificationPolicyChannelCap;
+  externalContentClass: NotificationPolicyContentClass;
+  requiredInApp: boolean;
+  digestEligible: boolean;
+  quietHoursEligible: boolean;
+}
+
+/**
+ * Required/security-impactful notification policy readout. It does not mutate policy and does not schedule quiet-hours or digest work.
+ */
+export interface AdminNotificationPolicyRequiredRulesReadout {
+  requiredInAppEnabled: true;
+  ordinaryMuteMaySuppressRequired: boolean;
+  quietHoursMayDeferRequired: boolean;
+  externalSensitiveContentClass: NotificationPolicyContentClass;
+  quietHoursDefaultMode: NotificationPolicyTimingMode;
+  digestDefaultMode: NotificationPolicyTimingMode;
+}
+
+/**
+ * Notification policy channel values exposed in bounded readouts.
+ */
+export type NotificationPolicyChannel = "in_app" | "email" | "mobile_push";
+
+/**
+ * Admin/global channel cap category.
+ */
+export type NotificationPolicyChannelCap = "enabled" | "disabled" | "unsupported" | "digest_only" | "immediate_allowed" | "generic_external_only" | "in_app_only";
+
+/**
+ * Bounded readiness category. This is not delivery success and does not expose provider configuration.
+ */
+export type NotificationPolicyReadiness = "unsupported" | "unconfigured" | "configured" | "invalid" | "disabled" | "limited" | "unknown";
+
+/**
+ * Safe readout category. `sent` is reserved vocabulary only and is not emitted by this read-only foundation unless a future approved provider runtime proves provider acceptance.
+ */
+export type NotificationPolicyReadoutCategory = "available" | "unsupported" | "unconfigured" | "disabled" | "limited" | "provider_unconfigured" | "provider_invalid" | "provider_unknown" | "disabled_by_admin" | "unsupported_by_deployment" | "quiet_hours_deferred" | "digest_pending" | "queued" | "sent" | "failed";
+
+/**
+ * Bounded event-family categories for admin/global notification policy readout.
+ */
+export type NotificationPolicyEventFamily = "bills" | "settlements" | "recurring" | "ocr" | "sync" | "auth_security";
+
+/**
+ * Bounded external content safety category.
+ */
+export type NotificationPolicyContentClass = "in_app_only" | "generic_external_only" | "safe_summary_allowed";
+
+/**
+ * Bounded timing readout category. This read-only slice does not schedule digest or quiet-hours delivery.
+ */
+export type NotificationPolicyTimingMode = "immediate" | "digest_readout" | "deferred" | "disabled";
+
+/**
  * User preference readout for notification timing. Digest is a preference/readout only in this Day 1 slice and does not schedule digest delivery.
  */
 export type NotificationPreferenceDeliveryTiming = "immediate" | "digest_readout";

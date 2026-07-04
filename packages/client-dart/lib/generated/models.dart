@@ -1901,6 +1901,283 @@ class AuthMfaEnforcementModeValues {
   static const Set<AuthMfaEnforcementMode> values = {optional, blockingWarning, required};
 }
 
+/// Safe owner/admin notification policy readout. The API remains authoritative; generated client availability does not grant permission or enable provider attempts.
+class AdminNotificationPolicyReadoutResponse {
+  const AdminNotificationPolicyReadoutResponse({
+    required this.policyVersion,
+    required this.source,
+    required this.effectiveAtUtc,
+    required this.updatedAtUtc,
+    required this.persistedSchemaReady,
+    required this.serverAuthoritative,
+    required this.channels,
+    required this.eventFamilies,
+    required this.requiredRules,
+  });
+
+  final String policyVersion;
+  final String source;
+  final DateTime? effectiveAtUtc;
+  final DateTime? updatedAtUtc;
+  final bool persistedSchemaReady;
+  final bool serverAuthoritative;
+  final List<AdminNotificationPolicyChannelReadout> channels;
+  final List<AdminNotificationPolicyEventFamilyReadout> eventFamilies;
+  final AdminNotificationPolicyRequiredRulesReadout requiredRules;
+
+  factory AdminNotificationPolicyReadoutResponse.fromJson(JsonObject json) {
+    return AdminNotificationPolicyReadoutResponse(
+      policyVersion: json["policyVersion"] as String,
+      source: json["source"] as String,
+      effectiveAtUtc: json["effectiveAtUtc"] == null ? null : DateTime.parse(json["effectiveAtUtc"] as String),
+      updatedAtUtc: json["updatedAtUtc"] == null ? null : DateTime.parse(json["updatedAtUtc"] as String),
+      persistedSchemaReady: json["persistedSchemaReady"] as bool,
+      serverAuthoritative: json["serverAuthoritative"] as bool,
+      channels: (json["channels"] as List<dynamic>).map((item) => AdminNotificationPolicyChannelReadout.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      eventFamilies: (json["eventFamilies"] as List<dynamic>).map((item) => AdminNotificationPolicyEventFamilyReadout.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+      requiredRules: AdminNotificationPolicyRequiredRulesReadout.fromJson(JsonObject.from(json["requiredRules"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    final effectiveAtUtcJsonValue = effectiveAtUtc;
+    final updatedAtUtcJsonValue = updatedAtUtc;
+
+    return {
+      "policyVersion": policyVersion,
+      "source": source,
+      "effectiveAtUtc": effectiveAtUtcJsonValue == null ? null : effectiveAtUtcJsonValue.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtcJsonValue == null ? null : updatedAtUtcJsonValue.toUtc().toIso8601String(),
+      "persistedSchemaReady": persistedSchemaReady,
+      "serverAuthoritative": serverAuthoritative,
+      "channels": channels.map((item) => item.toJson()).toList(growable: false),
+      "eventFamilies": eventFamilies.map((item) => item.toJson()).toList(growable: false),
+      "requiredRules": requiredRules.toJson(),
+    };
+  }
+}
+
+/// Bounded channel-level readout. It contains policy/readiness categories only and never contains provider configuration, credentials, raw tokens, provider payloads, or delivery success claims.
+class AdminNotificationPolicyChannelReadout {
+  const AdminNotificationPolicyChannelReadout({
+    required this.channel,
+    required this.channelCap,
+    required this.readiness,
+    required this.readoutCategory,
+    required this.externalProviderAttemptAllowed,
+  });
+
+  final NotificationPolicyChannel channel;
+  final NotificationPolicyChannelCap channelCap;
+  final NotificationPolicyReadiness readiness;
+  final NotificationPolicyReadoutCategory readoutCategory;
+  final bool externalProviderAttemptAllowed;
+
+  factory AdminNotificationPolicyChannelReadout.fromJson(JsonObject json) {
+    return AdminNotificationPolicyChannelReadout(
+      channel: json["channel"] as String,
+      channelCap: json["channelCap"] as String,
+      readiness: json["readiness"] as String,
+      readoutCategory: json["readoutCategory"] as String,
+      externalProviderAttemptAllowed: json["externalProviderAttemptAllowed"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "channel": channel,
+      "channelCap": channelCap,
+      "readiness": readiness,
+      "readoutCategory": readoutCategory,
+      "externalProviderAttemptAllowed": externalProviderAttemptAllowed,
+    };
+  }
+}
+
+/// Bounded event-family policy readout. It exposes family and channel categories only, not source payloads or recipient data.
+class AdminNotificationPolicyEventFamilyReadout {
+  const AdminNotificationPolicyEventFamilyReadout({
+    required this.eventFamily,
+    required this.inAppChannelCap,
+    required this.emailChannelCap,
+    required this.mobilePushChannelCap,
+    required this.externalContentClass,
+    required this.requiredInApp,
+    required this.digestEligible,
+    required this.quietHoursEligible,
+  });
+
+  final NotificationPolicyEventFamily eventFamily;
+  final NotificationPolicyChannelCap inAppChannelCap;
+  final NotificationPolicyChannelCap emailChannelCap;
+  final NotificationPolicyChannelCap mobilePushChannelCap;
+  final NotificationPolicyContentClass externalContentClass;
+  final bool requiredInApp;
+  final bool digestEligible;
+  final bool quietHoursEligible;
+
+  factory AdminNotificationPolicyEventFamilyReadout.fromJson(JsonObject json) {
+    return AdminNotificationPolicyEventFamilyReadout(
+      eventFamily: json["eventFamily"] as String,
+      inAppChannelCap: json["inAppChannelCap"] as String,
+      emailChannelCap: json["emailChannelCap"] as String,
+      mobilePushChannelCap: json["mobilePushChannelCap"] as String,
+      externalContentClass: json["externalContentClass"] as String,
+      requiredInApp: json["requiredInApp"] as bool,
+      digestEligible: json["digestEligible"] as bool,
+      quietHoursEligible: json["quietHoursEligible"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "eventFamily": eventFamily,
+      "inAppChannelCap": inAppChannelCap,
+      "emailChannelCap": emailChannelCap,
+      "mobilePushChannelCap": mobilePushChannelCap,
+      "externalContentClass": externalContentClass,
+      "requiredInApp": requiredInApp,
+      "digestEligible": digestEligible,
+      "quietHoursEligible": quietHoursEligible,
+    };
+  }
+}
+
+/// Required/security-impactful notification policy readout. It does not mutate policy and does not schedule quiet-hours or digest work.
+class AdminNotificationPolicyRequiredRulesReadout {
+  const AdminNotificationPolicyRequiredRulesReadout({
+    required this.requiredInAppEnabled,
+    required this.ordinaryMuteMaySuppressRequired,
+    required this.quietHoursMayDeferRequired,
+    required this.externalSensitiveContentClass,
+    required this.quietHoursDefaultMode,
+    required this.digestDefaultMode,
+  });
+
+  final bool requiredInAppEnabled;
+  final bool ordinaryMuteMaySuppressRequired;
+  final bool quietHoursMayDeferRequired;
+  final NotificationPolicyContentClass externalSensitiveContentClass;
+  final NotificationPolicyTimingMode quietHoursDefaultMode;
+  final NotificationPolicyTimingMode digestDefaultMode;
+
+  factory AdminNotificationPolicyRequiredRulesReadout.fromJson(JsonObject json) {
+    return AdminNotificationPolicyRequiredRulesReadout(
+      requiredInAppEnabled: json["requiredInAppEnabled"] as bool,
+      ordinaryMuteMaySuppressRequired: json["ordinaryMuteMaySuppressRequired"] as bool,
+      quietHoursMayDeferRequired: json["quietHoursMayDeferRequired"] as bool,
+      externalSensitiveContentClass: json["externalSensitiveContentClass"] as String,
+      quietHoursDefaultMode: json["quietHoursDefaultMode"] as String,
+      digestDefaultMode: json["digestDefaultMode"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "requiredInAppEnabled": requiredInAppEnabled,
+      "ordinaryMuteMaySuppressRequired": ordinaryMuteMaySuppressRequired,
+      "quietHoursMayDeferRequired": quietHoursMayDeferRequired,
+      "externalSensitiveContentClass": externalSensitiveContentClass,
+      "quietHoursDefaultMode": quietHoursDefaultMode,
+      "digestDefaultMode": digestDefaultMode,
+    };
+  }
+}
+
+/// Notification policy channel values exposed in bounded readouts.
+typedef NotificationPolicyChannel = String;
+class NotificationPolicyChannelValues {
+  const NotificationPolicyChannelValues._();
+  static const NotificationPolicyChannel inApp = "in_app";
+  static const NotificationPolicyChannel email = "email";
+  static const NotificationPolicyChannel mobilePush = "mobile_push";
+  static const Set<NotificationPolicyChannel> values = {inApp, email, mobilePush};
+}
+
+/// Admin/global channel cap category.
+typedef NotificationPolicyChannelCap = String;
+class NotificationPolicyChannelCapValues {
+  const NotificationPolicyChannelCapValues._();
+  static const NotificationPolicyChannelCap enabled = "enabled";
+  static const NotificationPolicyChannelCap disabled = "disabled";
+  static const NotificationPolicyChannelCap unsupported = "unsupported";
+  static const NotificationPolicyChannelCap digestOnly = "digest_only";
+  static const NotificationPolicyChannelCap immediateAllowed = "immediate_allowed";
+  static const NotificationPolicyChannelCap genericExternalOnly = "generic_external_only";
+  static const NotificationPolicyChannelCap inAppOnly = "in_app_only";
+  static const Set<NotificationPolicyChannelCap> values = {enabled, disabled, unsupported, digestOnly, immediateAllowed, genericExternalOnly, inAppOnly};
+}
+
+/// Bounded readiness category. This is not delivery success and does not expose provider configuration.
+typedef NotificationPolicyReadiness = String;
+class NotificationPolicyReadinessValues {
+  const NotificationPolicyReadinessValues._();
+  static const NotificationPolicyReadiness unsupported = "unsupported";
+  static const NotificationPolicyReadiness unconfigured = "unconfigured";
+  static const NotificationPolicyReadiness configured = "configured";
+  static const NotificationPolicyReadiness invalid = "invalid";
+  static const NotificationPolicyReadiness disabled = "disabled";
+  static const NotificationPolicyReadiness limited = "limited";
+  static const NotificationPolicyReadiness unknown = "unknown";
+  static const Set<NotificationPolicyReadiness> values = {unsupported, unconfigured, configured, invalid, disabled, limited, unknown};
+}
+
+/// Safe readout category. `sent` is reserved vocabulary only and is not emitted by this read-only foundation unless a future approved provider runtime proves provider acceptance.
+typedef NotificationPolicyReadoutCategory = String;
+class NotificationPolicyReadoutCategoryValues {
+  const NotificationPolicyReadoutCategoryValues._();
+  static const NotificationPolicyReadoutCategory available = "available";
+  static const NotificationPolicyReadoutCategory unsupported = "unsupported";
+  static const NotificationPolicyReadoutCategory unconfigured = "unconfigured";
+  static const NotificationPolicyReadoutCategory disabled = "disabled";
+  static const NotificationPolicyReadoutCategory limited = "limited";
+  static const NotificationPolicyReadoutCategory providerUnconfigured = "provider_unconfigured";
+  static const NotificationPolicyReadoutCategory providerInvalid = "provider_invalid";
+  static const NotificationPolicyReadoutCategory providerUnknown = "provider_unknown";
+  static const NotificationPolicyReadoutCategory disabledByAdmin = "disabled_by_admin";
+  static const NotificationPolicyReadoutCategory unsupportedByDeployment = "unsupported_by_deployment";
+  static const NotificationPolicyReadoutCategory quietHoursDeferred = "quiet_hours_deferred";
+  static const NotificationPolicyReadoutCategory digestPending = "digest_pending";
+  static const NotificationPolicyReadoutCategory queued = "queued";
+  static const NotificationPolicyReadoutCategory sent = "sent";
+  static const NotificationPolicyReadoutCategory failed = "failed";
+  static const Set<NotificationPolicyReadoutCategory> values = {available, unsupported, unconfigured, disabled, limited, providerUnconfigured, providerInvalid, providerUnknown, disabledByAdmin, unsupportedByDeployment, quietHoursDeferred, digestPending, queued, sent, failed};
+}
+
+/// Bounded event-family categories for admin/global notification policy readout.
+typedef NotificationPolicyEventFamily = String;
+class NotificationPolicyEventFamilyValues {
+  const NotificationPolicyEventFamilyValues._();
+  static const NotificationPolicyEventFamily bills = "bills";
+  static const NotificationPolicyEventFamily settlements = "settlements";
+  static const NotificationPolicyEventFamily recurring = "recurring";
+  static const NotificationPolicyEventFamily ocr = "ocr";
+  static const NotificationPolicyEventFamily sync = "sync";
+  static const NotificationPolicyEventFamily authSecurity = "auth_security";
+  static const Set<NotificationPolicyEventFamily> values = {bills, settlements, recurring, ocr, sync, authSecurity};
+}
+
+/// Bounded external content safety category.
+typedef NotificationPolicyContentClass = String;
+class NotificationPolicyContentClassValues {
+  const NotificationPolicyContentClassValues._();
+  static const NotificationPolicyContentClass inAppOnly = "in_app_only";
+  static const NotificationPolicyContentClass genericExternalOnly = "generic_external_only";
+  static const NotificationPolicyContentClass safeSummaryAllowed = "safe_summary_allowed";
+  static const Set<NotificationPolicyContentClass> values = {inAppOnly, genericExternalOnly, safeSummaryAllowed};
+}
+
+/// Bounded timing readout category. This read-only slice does not schedule digest or quiet-hours delivery.
+typedef NotificationPolicyTimingMode = String;
+class NotificationPolicyTimingModeValues {
+  const NotificationPolicyTimingModeValues._();
+  static const NotificationPolicyTimingMode immediate = "immediate";
+  static const NotificationPolicyTimingMode digestReadout = "digest_readout";
+  static const NotificationPolicyTimingMode deferred = "deferred";
+  static const NotificationPolicyTimingMode disabled = "disabled";
+  static const Set<NotificationPolicyTimingMode> values = {immediate, digestReadout, deferred, disabled};
+}
+
 /// User preference readout for notification timing. Digest is a preference/readout only in this Day 1 slice and does not schedule digest delivery.
 typedef NotificationPreferenceDeliveryTiming = String;
 class NotificationPreferenceDeliveryTimingValues {

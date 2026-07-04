@@ -43,6 +43,17 @@ class SettleoraApiClient {
   final Map<String, String> defaultHeaders;
   final HttpClient _httpClient;
 
+  Future<AdminNotificationPolicyReadoutResponse> getAdminNotificationPolicyReadout({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/admin/notification-policy",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminNotificationPolicyReadoutResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<AdminUserListResponse> listAdminUsers({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
