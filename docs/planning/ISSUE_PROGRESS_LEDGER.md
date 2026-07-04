@@ -22,13 +22,19 @@ remain the source of truth.
 
 ### Issue #684 - Admin notification policy schema and API implementation
 
-- GitHub state/project status: issue expected `OPEN`; live issue mutation was
-  not performed by this implementation task before validation/reporting.
-- Last verified at base main SHA:
-  `1f9f7dbf2a1762a00310bda8f845dd11c607e995`.
+- GitHub state/project status: issue `CLOSED` as completed after PR #697
+  merged the approved readout-first schema/API boundary.
+- Last verified at main SHA:
+  `b9363ab7fc8c61910f540c4c22ba94966c72b96b`.
+- Merged PR:
+  #697 `feat(api): add admin notification policy readout foundation` at merge
+  SHA `b9363ab7fc8c61910f540c4c22ba94966c72b96b`.
+- Reviewed implementation head:
+  `7dae261253ee728c081337e1551720eb9e903a0d`.
 - Implementation branch:
-  `feature/notification-684-policy-runtime-readout-first-20260704`.
-- Completed slice on this branch:
+  `feature/notification-684-policy-runtime-readout-first-20260704`, retained
+  at `7dae261253ee728c081337e1551720eb9e903a0d`.
+- Completed merged slice:
   - Added the first read-only server-authoritative admin/global notification
     policy readout foundation.
   - Added EF schema/migration foundation for
@@ -45,12 +51,9 @@ remain the source of truth.
   - Added redaction/category normalization and focused schema/API tests proving
     bounded categories and forbidden-field absence.
 - Remaining gates:
-  - Manual review remains required before merge because schema/migration,
-    OpenAPI/generated clients, admin/security authorization, and admin readout
-    API changed.
   - Admin write/update/delete policy API remains not implemented.
-  - #687 resolver runtime wiring remains blocked until this persistence/
-    contract slice is reviewed and accepted.
+  - #687 resolver runtime wiring remains future work after this accepted
+    persistence/contract slice.
   - #686 provider readiness runtime remains readout/category-only and does not
     activate SMTP/APNs/FCM or provider sending.
   - #688 remains open unless reviewers decide this helper/test foundation fully
@@ -58,10 +61,10 @@ remain the source of truth.
     mutation audit and broader resolver/provider redaction coverage.
   - #635 and #689 remain open; final acceptance is not ready.
 - Close/keep-open recommendation:
-  keep #635, #684, #686, #687, #688, #689, #403, #369, #368, and #634 open
-  until reviewed implementation PRs merge and each issue's close rule is
-  satisfied. Keep #685, #371, #570, #575, #672, and #679 closed unless a
-  separate concrete approved regression exists.
+  keep #684 closed as completed for the readout-first schema/API boundary.
+  Keep #635, #686, #687, #688, #689, #403, #369, #368, and #634 open until
+  each remaining issue's close rule is satisfied. Keep #685, #371, #570, #575,
+  #672, and #679 closed unless a separate concrete approved regression exists.
 
 ### Issue #672 - Mobile Flutter V1 visual parity implementation slices
 
