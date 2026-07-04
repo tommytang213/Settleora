@@ -2665,6 +2665,69 @@ remain the source of truth.
     deployment/env/CI, Figma output, screenshots, binary assets, production
     audit plumbing, or issue closure.
 
+- #686 provider-readiness category foundation implementation checkpoint after
+  PR #699:
+  - GitHub state/project status: #686 `CLOSED` as completed after PR #699
+    merged the approved category/readout-only provider readiness foundation.
+    Project field mutation was not attempted.
+  - Last verified at main SHA:
+    `9ed8cb49428ecb044ca2b6d102b15ef09c0e50d4`.
+  - Merged PR:
+    #699 `feat(api): add notification provider readiness categories` at merge
+    SHA `9ed8cb49428ecb044ca2b6d102b15ef09c0e50d4`.
+  - Reviewed implementation head:
+    `a19f0adf6b2617ed45ea20c1f2da1d38d0ed9b59`.
+  - Implementation branch:
+    `feature/notification-686-provider-readiness-category-foundation-20260704`,
+    retained at `a19f0adf6b2617ed45ea20c1f2da1d38d0ed9b59`.
+  - Completed merged slice:
+    - Added the internal `INotificationProviderReadinessService` boundary and
+      `NotificationProviderReadinessSnapshotService`.
+    - Added bounded, secret-free readiness categories for `email` and
+      `mobile_push`.
+    - SMTP readiness derives only from existing safe option completeness as
+      `disabled`, `unconfigured`, or `configured`.
+    - Mobile push readiness remains conservative: `disabled` when disabled and
+      `unconfigured` when enabled because there are no safe APNs/FCM config
+      fields yet.
+    - Existing `GET /api/v1/admin/notification-policy` readout consumes those
+      categories without changing the response shape.
+    - Persisted/default admin policy caps remain authoritative.
+    - `externalProviderAttemptAllowed` remains `false` for all channels.
+    - Focused tests cover readiness derivation, readout category composition,
+      admin-disabled precedence, auth/session protections, and forbidden-detail
+      absence.
+  - Remaining gates:
+    - Real provider activation/config/secrets/sending remains future gated
+      work and is not completed by #686.
+    - #687 resolver runtime remains open as a separate task.
+    - #688 audit/mutation/redaction runtime acceptance remains open.
+    - #689 final acceptance remains open and is not ready.
+    - #635 remains open for broader admin/global notification policy API,
+      readout, resolver, audit, provider, and admin UI gates.
+    - #403, #369, #368, and #634 remain open for broader notification,
+      provider, device-token, delivery-state, and event-coverage work.
+  - Close/keep-open recommendation:
+    keep #686 closed as completed for the readout/category-only provider
+    readiness foundation. Keep #635, #687, #688, #689, #403, #369, #368, and
+    #634 open. Keep #684, #685, #371, #570, #575, #672, and #679 closed unless
+    a concrete regression or approved follow-up changes that posture.
+  - Non-goals confirmed for PR #699:
+    no admin notification policy write/update/delete API, OpenAPI contract or
+    generated-client change, EF schema/migration, SMTP/APNs/FCM sending,
+    provider SDK activation, provider config/secrets, `.env`, Docker, compose,
+    deployment, CI, device-token lifecycle behavior, mobile push permission UX,
+    admin/user/mobile UI, Figma output, #371 notification-open behavior, #687
+    resolver runtime, #688 mutation audit/runtime, #689 final acceptance,
+    money/settlement/payment/bill calculation, OCR, storage, sync,
+    reconciliation, auth/session/security behavior beyond existing admin read
+    authorization, direct push to `main`, force push, branch deletion, or
+    secret change.
+  - Last verified repo/report references:
+    - `.codex/reports/settleora-codex-report-20260705-0009-notification-686-provider-readiness-pr699-merge-gate.md`
+    - `.codex/reports/settleora-codex-report-20260704-2340-notification-686-provider-readiness-pr-open.md`
+    - `.codex/reports/settleora-codex-report-20260704-2325-notification-686-provider-readiness-category-foundation.md`
+
 ### Issue #458 - User web auth/session shell and navigation foundation
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,
