@@ -11,6 +11,7 @@ using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
 using Settleora.Api.Domain.Notifications;
 using Settleora.Api.Domain.Users;
+using Settleora.Api.Notifications;
 using Settleora.Api.Persistence;
 
 namespace Settleora.Api.Tests;
@@ -94,7 +95,9 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
     [Fact]
     public async Task PersistedPolicyReadoutUsesSafeCategoriesWithoutAllowingProviderAttempts()
     {
-        var testContext = CreateFactory();
+        var testContext = CreateFactory(new NotificationProviderReadinessSnapshot(
+            NotificationPolicyReadinessStates.Configured,
+            NotificationPolicyReadinessStates.Unconfigured));
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Policy Owner");
         await SeedPersistedPolicyAsync(testFactory, session.AuthAccountId);
@@ -125,6 +128,82 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
         Assert.Equal(NotificationPolicyChannelCaps.GenericExternalOnly, recurring.GetProperty("emailChannelCap").GetString());
         Assert.Equal(NotificationPolicyContentClasses.SafeSummaryAllowed, recurring.GetProperty("externalContentClass").GetString());
         Assert.True(recurring.GetProperty("digestEligible").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ProviderReadinessCategoriesAreReadOnlyInputsWhenPolicyAllowsExternalChannels()
+    {
+        var testContext = CreateFactory(new NotificationProviderReadinessSnapshot(
+            NotificationPolicyReadinessStates.Invalid,
+            NotificationPolicyReadinessStates.Unsupported));
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Policy Owner");
+        await SeedPersistedPolicyAsync(
+            testFactory,
+            session.AuthAccountId,
+            emailCap: NotificationPolicyChannelCaps.GenericExternalOnly,
+            mobilePushCap: NotificationPolicyChannelCaps.GenericExternalOnly);
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(session.RawSessionToken);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AssertSafePolicyReadoutContent(content);
+        using var payload = JsonDocument.Parse(content);
+
+        var email = payload.RootElement.GetProperty("channels")
+            .EnumerateArray()
+            .Single(channel => channel.GetProperty("channel").GetString() == NotificationPolicyChannels.Email);
+        Assert.Equal(NotificationPolicyChannelCaps.GenericExternalOnly, email.GetProperty("channelCap").GetString());
+        Assert.Equal(NotificationPolicyReadinessStates.Invalid, email.GetProperty("readiness").GetString());
+        Assert.Equal(NotificationPolicyReadoutCategories.ProviderInvalid, email.GetProperty("readoutCategory").GetString());
+        Assert.False(email.GetProperty("externalProviderAttemptAllowed").GetBoolean());
+
+        var mobilePush = payload.RootElement.GetProperty("channels")
+            .EnumerateArray()
+            .Single(channel => channel.GetProperty("channel").GetString() == NotificationPolicyChannels.MobilePush);
+        Assert.Equal(NotificationPolicyChannelCaps.GenericExternalOnly, mobilePush.GetProperty("channelCap").GetString());
+        Assert.Equal(NotificationPolicyReadinessStates.Unsupported, mobilePush.GetProperty("readiness").GetString());
+        Assert.Equal(NotificationPolicyReadoutCategories.UnsupportedByDeployment, mobilePush.GetProperty("readoutCategory").GetString());
+        Assert.False(mobilePush.GetProperty("externalProviderAttemptAllowed").GetBoolean());
+    }
+
+    [Fact]
+    public async Task AdminDisabledChannelRemainsDisabledEvenWhenProviderReadinessIsConfigured()
+    {
+        var testContext = CreateFactory(new NotificationProviderReadinessSnapshot(
+            NotificationPolicyReadinessStates.Configured,
+            NotificationPolicyReadinessStates.Configured));
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Policy Owner");
+        await SeedPersistedPolicyAsync(
+            testFactory,
+            session.AuthAccountId,
+            emailCap: NotificationPolicyChannelCaps.Disabled,
+            mobilePushCap: NotificationPolicyChannelCaps.Disabled);
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(session.RawSessionToken);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AssertSafePolicyReadoutContent(content);
+        using var payload = JsonDocument.Parse(content);
+        var channels = payload.RootElement.GetProperty("channels").EnumerateArray().ToArray();
+
+        Assert.All(
+            channels.Where(channel => channel.GetProperty("channel").GetString() is
+                NotificationPolicyChannels.Email or NotificationPolicyChannels.MobilePush),
+            channel =>
+            {
+                Assert.Equal(NotificationPolicyChannelCaps.Disabled, channel.GetProperty("channelCap").GetString());
+                Assert.Equal(NotificationPolicyReadinessStates.Configured, channel.GetProperty("readiness").GetString());
+                Assert.Equal(NotificationPolicyReadoutCategories.DisabledByAdmin, channel.GetProperty("readoutCategory").GetString());
+                Assert.False(channel.GetProperty("externalProviderAttemptAllowed").GetBoolean());
+            });
     }
 
     [Fact]
@@ -211,10 +290,11 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
         Assert.DoesNotContain("secret", responseSchema, StringComparison.OrdinalIgnoreCase);
     }
 
-    private FactoryTestContext CreateFactory()
+    private FactoryTestContext CreateFactory(NotificationProviderReadinessSnapshot? providerReadiness = null)
     {
         var databaseName = Guid.NewGuid().ToString();
         var timeProvider = new EndpointTestTimeProvider(InitialTimestamp);
+        providerReadiness ??= NotificationProviderReadinessSnapshot.ConservativeDefault();
         var testFactory = factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
@@ -230,6 +310,10 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
 
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(timeProvider);
+
+                services.RemoveAll<INotificationProviderReadinessService>();
+                services.AddSingleton<INotificationProviderReadinessService>(
+                    new FakeNotificationProviderReadinessService(providerReadiness));
             });
         });
 
@@ -302,7 +386,11 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
             sessionCreationResult.SessionExpiresAtUtc.Value);
     }
 
-    private static async Task SeedPersistedPolicyAsync(WebApplicationFactory<Program> testFactory, Guid actorAuthAccountId)
+    private static async Task SeedPersistedPolicyAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid actorAuthAccountId,
+        string emailCap = NotificationPolicyChannelCaps.GenericExternalOnly,
+        string mobilePushCap = NotificationPolicyChannelCaps.Disabled)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
@@ -313,8 +401,8 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
             PolicyVersion = "policy-v2",
             Status = NotificationPolicyStatuses.Active,
             InAppChannelCap = NotificationPolicyChannelCaps.Enabled,
-            EmailChannelCap = NotificationPolicyChannelCaps.GenericExternalOnly,
-            MobilePushChannelCap = NotificationPolicyChannelCaps.Disabled,
+            EmailChannelCap = emailCap,
+            MobilePushChannelCap = mobilePushCap,
             EmailProviderReadiness = NotificationPolicyReadinessStates.Configured,
             MobilePushProviderReadiness = NotificationPolicyReadinessStates.Unconfigured,
             RequiredInAppEnabled = true,
@@ -335,8 +423,8 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
             NotificationGlobalPolicyId = policyId,
             EventFamily = NotificationPolicyEventFamilies.Recurring,
             InAppChannelCap = NotificationPolicyChannelCaps.Enabled,
-            EmailChannelCap = NotificationPolicyChannelCaps.GenericExternalOnly,
-            MobilePushChannelCap = NotificationPolicyChannelCaps.Disabled,
+            EmailChannelCap = emailCap,
+            MobilePushChannelCap = mobilePushCap,
             ExternalContentClass = NotificationPolicyContentClasses.SafeSummaryAllowed,
             RequiredInApp = true,
             DigestEligible = true,
@@ -427,6 +515,21 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
     private sealed record FactoryTestContext(
         WebApplicationFactory<Program> Factory,
         EndpointTestTimeProvider TimeProvider);
+
+    private sealed class FakeNotificationProviderReadinessService : INotificationProviderReadinessService
+    {
+        private readonly NotificationProviderReadinessSnapshot snapshot;
+
+        public FakeNotificationProviderReadinessService(NotificationProviderReadinessSnapshot snapshot)
+        {
+            this.snapshot = snapshot;
+        }
+
+        public NotificationProviderReadinessSnapshot GetSnapshot()
+        {
+            return snapshot;
+        }
+    }
 
     private sealed record SeededSession(
         Guid AuthAccountId,

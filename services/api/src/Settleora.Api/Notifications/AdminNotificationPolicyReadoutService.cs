@@ -11,10 +11,14 @@ internal sealed class AdminNotificationPolicyReadoutService : IAdminNotification
     private const string DefaultPolicyVersion = "default-v1";
 
     private readonly SettleoraDbContext dbContext;
+    private readonly INotificationProviderReadinessService providerReadinessService;
 
-    public AdminNotificationPolicyReadoutService(SettleoraDbContext dbContext)
+    public AdminNotificationPolicyReadoutService(
+        SettleoraDbContext dbContext,
+        INotificationProviderReadinessService providerReadinessService)
     {
         this.dbContext = dbContext;
+        this.providerReadinessService = providerReadinessService;
     }
 
     public async Task<AdminNotificationPolicyReadoutResponse> GetReadoutAsync(CancellationToken cancellationToken)
@@ -27,13 +31,19 @@ internal sealed class AdminNotificationPolicyReadoutService : IAdminNotification
             .ThenByDescending(candidate => candidate.UpdatedAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
 
+        var providerReadiness = providerReadinessService.GetSnapshot();
+
         return policy is null
-            ? DefaultReadout()
-            : FromPolicy(policy);
+            ? DefaultReadout(providerReadiness)
+            : FromPolicy(policy, providerReadiness);
     }
 
-    private static AdminNotificationPolicyReadoutResponse DefaultReadout()
+    private static AdminNotificationPolicyReadoutResponse DefaultReadout(
+        NotificationProviderReadinessSnapshot providerReadiness)
     {
+        var emailReadiness = NotificationPolicyReadoutRedactor.SafeReadiness(providerReadiness.Email);
+        var pushReadiness = NotificationPolicyReadoutRedactor.SafeReadiness(providerReadiness.MobilePush);
+
         return new AdminNotificationPolicyReadoutResponse(
             DefaultPolicyVersion,
             DefaultSource,
@@ -52,14 +62,18 @@ internal sealed class AdminNotificationPolicyReadoutService : IAdminNotification
                 new AdminNotificationPolicyChannelReadout(
                     NotificationPolicyChannels.Email,
                     NotificationPolicyChannelCaps.Disabled,
-                    NotificationPolicyReadinessStates.Unconfigured,
-                    NotificationPolicyReadoutCategories.DisabledByAdmin,
+                    emailReadiness,
+                    NotificationPolicyReadoutRedactor.ReadoutCategoryForExternal(
+                        NotificationPolicyChannelCaps.Disabled,
+                        emailReadiness),
                     ExternalProviderAttemptAllowed: false),
                 new AdminNotificationPolicyChannelReadout(
                     NotificationPolicyChannels.MobilePush,
                     NotificationPolicyChannelCaps.Disabled,
-                    NotificationPolicyReadinessStates.Unconfigured,
-                    NotificationPolicyReadoutCategories.DisabledByAdmin,
+                    pushReadiness,
+                    NotificationPolicyReadoutRedactor.ReadoutCategoryForExternal(
+                        NotificationPolicyChannelCaps.Disabled,
+                        pushReadiness),
                     ExternalProviderAttemptAllowed: false)
             ],
             EventFamilies: NotificationPolicyEventFamilies.DefaultReadoutFamilies
@@ -74,13 +88,15 @@ internal sealed class AdminNotificationPolicyReadoutService : IAdminNotification
                 NotificationPolicyTimingModes.Disabled));
     }
 
-    private static AdminNotificationPolicyReadoutResponse FromPolicy(NotificationGlobalPolicy policy)
+    private static AdminNotificationPolicyReadoutResponse FromPolicy(
+        NotificationGlobalPolicy policy,
+        NotificationProviderReadinessSnapshot providerReadiness)
     {
         var inAppCap = NotificationPolicyReadoutRedactor.SafeChannelCap(policy.InAppChannelCap);
         var emailCap = NotificationPolicyReadoutRedactor.SafeChannelCap(policy.EmailChannelCap);
         var pushCap = NotificationPolicyReadoutRedactor.SafeChannelCap(policy.MobilePushChannelCap);
-        var emailReadiness = NotificationPolicyReadoutRedactor.SafeReadiness(policy.EmailProviderReadiness);
-        var pushReadiness = NotificationPolicyReadoutRedactor.SafeReadiness(policy.MobilePushProviderReadiness);
+        var emailReadiness = NotificationPolicyReadoutRedactor.SafeReadiness(providerReadiness.Email);
+        var pushReadiness = NotificationPolicyReadoutRedactor.SafeReadiness(providerReadiness.MobilePush);
 
         return new AdminNotificationPolicyReadoutResponse(
             string.IsNullOrWhiteSpace(policy.PolicyVersion) ? DefaultPolicyVersion : policy.PolicyVersion,
