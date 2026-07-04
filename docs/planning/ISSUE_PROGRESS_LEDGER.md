@@ -20,6 +20,49 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #684 - Admin notification policy schema and API implementation
+
+- GitHub state/project status: issue expected `OPEN`; live issue mutation was
+  not performed by this implementation task before validation/reporting.
+- Last verified at base main SHA:
+  `1f9f7dbf2a1762a00310bda8f845dd11c607e995`.
+- Implementation branch:
+  `feature/notification-684-policy-runtime-readout-first-20260704`.
+- Completed slice on this branch:
+  - Added the first read-only server-authoritative admin/global notification
+    policy readout foundation.
+  - Added EF schema/migration foundation for
+    `notification_global_policies` and
+    `notification_event_policy_overrides` with bounded category fields,
+    restrictive relationships, explicit constraints, and no provider secrets,
+    provider config values, raw device tokens, provider payloads, raw OCR text,
+    storage internals, payment details, private notes, hidden bill data, or
+    auth/session token material.
+  - Added guarded `GET /api/v1/admin/notification-policy` for authenticated
+    system owner/admin callers only; ordinary users are forbidden.
+  - Updated OpenAPI and regenerated web/Dart generated clients for the
+    read-only endpoint only.
+  - Added redaction/category normalization and focused schema/API tests proving
+    bounded categories and forbidden-field absence.
+- Remaining gates:
+  - Manual review remains required before merge because schema/migration,
+    OpenAPI/generated clients, admin/security authorization, and admin readout
+    API changed.
+  - Admin write/update/delete policy API remains not implemented.
+  - #687 resolver runtime wiring remains blocked until this persistence/
+    contract slice is reviewed and accepted.
+  - #686 provider readiness runtime remains readout/category-only and does not
+    activate SMTP/APNs/FCM or provider sending.
+  - #688 remains open unless reviewers decide this helper/test foundation fully
+    satisfies its approved close rule; current recommendation is keep open for
+    mutation audit and broader resolver/provider redaction coverage.
+  - #635 and #689 remain open; final acceptance is not ready.
+- Close/keep-open recommendation:
+  keep #635, #684, #686, #687, #688, #689, #403, #369, #368, and #634 open
+  until reviewed implementation PRs merge and each issue's close rule is
+  satisfied. Keep #685, #371, #570, #575, #672, and #679 closed unless a
+  separate concrete approved regression exists.
+
 ### Issue #672 - Mobile Flutter V1 visual parity implementation slices
 
 - GitHub state/project status: issue `OPEN`; Project field mutation was not

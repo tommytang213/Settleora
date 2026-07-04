@@ -1681,6 +1681,44 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/notification-policy:
+    get:
+      summary: Get admin notification policy readout
+      description: Returns the server-authoritative admin/global notification policy readout for authenticated system owners/admins only. This first slice is read-only, returns safe bounded channel, readiness, event-family, and required-rule categories, and does not expose provider configuration, SMTP/APNs/FCM secrets, raw device tokens, provider payloads, OCR text, storage internals, payment details, private notes, hidden bill data, auth/session token material, or unrelated user data. External provider attempts are not enabled by this readout.
+      operationId: getAdminNotificationPolicyReadout
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe admin notification policy readout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminNotificationPolicyReadoutResponse"
+        "400":
+          description: The readout request includes an unsupported query field or body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
   /api/v1/bills:
     post:
       summary: Create personal bill
@@ -12318,6 +12356,212 @@ components:
         - optional
         - blocking_warning
         - required
+    AdminNotificationPolicyReadoutResponse:
+      type: object
+      description: Safe owner/admin notification policy readout. The API remains authoritative; generated client availability does not grant permission or enable provider attempts.
+      additionalProperties: false
+      required:
+        - policyVersion
+        - source
+        - effectiveAtUtc
+        - updatedAtUtc
+        - persistedSchemaReady
+        - serverAuthoritative
+        - channels
+        - eventFamilies
+        - requiredRules
+      properties:
+        policyVersion:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: default-v1
+        source:
+          type: string
+          enum:
+            - default
+            - persisted
+        effectiveAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        updatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        persistedSchemaReady:
+          type: boolean
+          enum:
+            - true
+        serverAuthoritative:
+          type: boolean
+          enum:
+            - true
+        channels:
+          type: array
+          minItems: 3
+          items:
+            $ref: "#/components/schemas/AdminNotificationPolicyChannelReadout"
+        eventFamilies:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminNotificationPolicyEventFamilyReadout"
+        requiredRules:
+          $ref: "#/components/schemas/AdminNotificationPolicyRequiredRulesReadout"
+    AdminNotificationPolicyChannelReadout:
+      type: object
+      description: Bounded channel-level readout. It contains policy/readiness categories only and never contains provider configuration, credentials, raw tokens, provider payloads, or delivery success claims.
+      additionalProperties: false
+      required:
+        - channel
+        - channelCap
+        - readiness
+        - readoutCategory
+        - externalProviderAttemptAllowed
+      properties:
+        channel:
+          $ref: "#/components/schemas/NotificationPolicyChannel"
+        channelCap:
+          $ref: "#/components/schemas/NotificationPolicyChannelCap"
+        readiness:
+          $ref: "#/components/schemas/NotificationPolicyReadiness"
+        readoutCategory:
+          $ref: "#/components/schemas/NotificationPolicyReadoutCategory"
+        externalProviderAttemptAllowed:
+          type: boolean
+          enum:
+            - false
+    AdminNotificationPolicyEventFamilyReadout:
+      type: object
+      description: Bounded event-family policy readout. It exposes family and channel categories only, not source payloads or recipient data.
+      additionalProperties: false
+      required:
+        - eventFamily
+        - inAppChannelCap
+        - emailChannelCap
+        - mobilePushChannelCap
+        - externalContentClass
+        - requiredInApp
+        - digestEligible
+        - quietHoursEligible
+      properties:
+        eventFamily:
+          $ref: "#/components/schemas/NotificationPolicyEventFamily"
+        inAppChannelCap:
+          $ref: "#/components/schemas/NotificationPolicyChannelCap"
+        emailChannelCap:
+          $ref: "#/components/schemas/NotificationPolicyChannelCap"
+        mobilePushChannelCap:
+          $ref: "#/components/schemas/NotificationPolicyChannelCap"
+        externalContentClass:
+          $ref: "#/components/schemas/NotificationPolicyContentClass"
+        requiredInApp:
+          type: boolean
+        digestEligible:
+          type: boolean
+        quietHoursEligible:
+          type: boolean
+    AdminNotificationPolicyRequiredRulesReadout:
+      type: object
+      description: Required/security-impactful notification policy readout. It does not mutate policy and does not schedule quiet-hours or digest work.
+      additionalProperties: false
+      required:
+        - requiredInAppEnabled
+        - ordinaryMuteMaySuppressRequired
+        - quietHoursMayDeferRequired
+        - externalSensitiveContentClass
+        - quietHoursDefaultMode
+        - digestDefaultMode
+      properties:
+        requiredInAppEnabled:
+          type: boolean
+          enum:
+            - true
+        ordinaryMuteMaySuppressRequired:
+          type: boolean
+        quietHoursMayDeferRequired:
+          type: boolean
+        externalSensitiveContentClass:
+          $ref: "#/components/schemas/NotificationPolicyContentClass"
+        quietHoursDefaultMode:
+          $ref: "#/components/schemas/NotificationPolicyTimingMode"
+        digestDefaultMode:
+          $ref: "#/components/schemas/NotificationPolicyTimingMode"
+    NotificationPolicyChannel:
+      type: string
+      description: Notification policy channel values exposed in bounded readouts.
+      enum:
+        - in_app
+        - email
+        - mobile_push
+    NotificationPolicyChannelCap:
+      type: string
+      description: Admin/global channel cap category.
+      enum:
+        - enabled
+        - disabled
+        - unsupported
+        - digest_only
+        - immediate_allowed
+        - generic_external_only
+        - in_app_only
+    NotificationPolicyReadiness:
+      type: string
+      description: Bounded readiness category. This is not delivery success and does not expose provider configuration.
+      enum:
+        - unsupported
+        - unconfigured
+        - configured
+        - invalid
+        - disabled
+        - limited
+        - unknown
+    NotificationPolicyReadoutCategory:
+      type: string
+      description: Safe readout category. `sent` is reserved vocabulary only and is not emitted by this read-only foundation unless a future approved provider runtime proves provider acceptance.
+      enum:
+        - available
+        - unsupported
+        - unconfigured
+        - disabled
+        - limited
+        - provider_unconfigured
+        - provider_invalid
+        - provider_unknown
+        - disabled_by_admin
+        - unsupported_by_deployment
+        - quiet_hours_deferred
+        - digest_pending
+        - queued
+        - sent
+        - failed
+    NotificationPolicyEventFamily:
+      type: string
+      description: Bounded event-family categories for admin/global notification policy readout.
+      enum:
+        - bills
+        - settlements
+        - recurring
+        - ocr
+        - sync
+        - auth_security
+    NotificationPolicyContentClass:
+      type: string
+      description: Bounded external content safety category.
+      enum:
+        - in_app_only
+        - generic_external_only
+        - safe_summary_allowed
+    NotificationPolicyTimingMode:
+      type: string
+      description: Bounded timing readout category. This read-only slice does not schedule digest or quiet-hours delivery.
+      enum:
+        - immediate
+        - digest_readout
+        - deferred
+        - disabled
     NotificationPreferenceDeliveryTiming:
       type: string
       description: User preference readout for notification timing. Digest is a preference/readout only in this Day 1 slice and does not schedule digest delivery.

@@ -135,6 +135,7 @@ app.MapFutureBillEndpoints();
 app.MapManualFinanceEndpoints();
 app.MapInAppNotificationEndpoints();
 app.MapNotificationPreferenceEndpoints();
+app.MapAdminNotificationPolicyEndpoints();
 app.MapPushDeviceTokenEndpoints();
 app.MapExpenseBillWorkflowEndpoints();
 app.MapExpenseBillRevisionEndpoints();
