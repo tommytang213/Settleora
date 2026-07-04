@@ -2564,6 +2564,61 @@ remain the source of truth.
     deployment/env/CI, Figma output, screenshots, binary assets, production
     audit plumbing, or issue closure.
 
+- #635 runtime-entry decision checkpoint on
+  `docs/notification-635-runtime-entry-decision-packet-20260704`:
+  - Base main SHA:
+    `09f1f26efd9d46ad995d9baf048b3dab43b0f974` after PR #695.
+  - Adds
+    `docs/planning/NOTIFICATION_635_RUNTIME_ENTRY_DECISION_PACKET.md`.
+  - Live issue readback confirmed #635, #684, #686, #687, #688, #689, #403,
+    #369, #368, and #634 are open; #685, #371, #570, #575, #672, and #679 are
+    closed.
+  - Records current merge state:
+    - PR #691 merged #684 schema/API design at
+      `a857a6368b367f5914c49be7740e8057c81402e9`.
+    - PR #692 merged #686 provider-readiness design at
+      `d1c37256da4b416964c1b1afef58a9ee8806b96a`.
+    - PR #693 merged #685 UX/readout reference at
+      `2649f0cacefbb26d223f0fcf9e97834a97ffef1c`; #685 is closed.
+    - PR #694 merged #688 audit/redaction coverage at
+      `e29de98d7d9ff791f19f85c501de31571fd0bce6`.
+    - PR #695 merged #687 resolver-wiring design at
+      `09f1f26efd9d46ad995d9baf048b3dab43b0f974`.
+  - Records that #689 final acceptance remains open and not ready because
+    implementation slices have not merged.
+  - Gate posture:
+    manual/admin/security, schema/migration, OpenAPI/generated-client,
+    provider/secrets/deployment, #634 device-token/provider, #688 audit/
+    redaction implementation, UI/Figma/readout implementation, and #689 final
+    acceptance remain separate gates.
+  - Recommended next runtime path:
+    prepare a small #684 schema/API implementation task only after
+    Tommy/manual approval. Otherwise pause #635 runtime and switch lanes.
+  - Alternative options recorded:
+    #687 resolver skeleton without persistence only if explicitly approved as
+    domain-only/no-public-API/no-provider work; #686 provider readiness runtime
+    is not first unless provider activation/readiness is the priority and gates
+    clear; #688 redaction helpers are a possible companion or security-first
+    foundation; deferral is safe if gates are not approved.
+  - Manual decisions pending:
+    whether to start #684 runtime; whether the first slice includes EF schema/
+    migration; whether it includes OpenAPI/generated clients; whether Day 1
+    gets admin write API or read-only/readout first; whether provider readiness
+    is read-only category input first; whether #687 waits for #684 contracts;
+    whether #688 helpers precede public readout; and whether #635 admin UI
+    stays docs/Figma-only until API stability.
+  - Close/keep-open recommendation:
+    keep #635, #684, #686, #687, #688, #689, #403, #369, #368, and #634 open.
+    Keep #685, #371, #570, #575, #672, and #679 closed unless a concrete
+    regression or approved follow-up changes the posture.
+  - This docs/control checkpoint does not implement runtime API, schema/
+    migrations, OpenAPI/generated clients, admin UI, user web UI, mobile UI,
+    provider sending, SMTP/APNs/FCM runtime, secrets/config files, device-token
+    handling, auth/session/security runtime, money/settlement/storage/OCR/sync
+    behavior, #371 notification-open behavior, #672/#679 state changes,
+    deployment/env/CI, Figma output, screenshots, binary assets, production
+    audit plumbing, or issue closure.
+
 ### Issue #458 - User web auth/session shell and navigation foundation
 
 - GitHub state/project status: issue `CLOSED`; Project status `Merged`,
