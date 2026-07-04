@@ -171,6 +171,41 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
     }
 
     [Fact]
+    public async Task ProviderReadinessSnapshotValuesAreNormalizedBeforeReadout()
+    {
+        var testContext = CreateFactory(new NotificationProviderReadinessSnapshot(
+            "smtp.internal.example:2525;username=smtp-user-placeholder;password=smtp-password-placeholder",
+            "apnsCredential=<redacted>;deviceToken=visible-device-token;providerPayload=visible-provider-payload"));
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Policy Owner");
+        await SeedPersistedPolicyAsync(
+            testFactory,
+            session.AuthAccountId,
+            emailCap: NotificationPolicyChannelCaps.GenericExternalOnly,
+            mobilePushCap: NotificationPolicyChannelCaps.GenericExternalOnly);
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(session.RawSessionToken);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AssertSafePolicyReadoutContent(content);
+        using var payload = JsonDocument.Parse(content);
+        var channels = payload.RootElement.GetProperty("channels").EnumerateArray().ToArray();
+
+        Assert.All(
+            channels.Where(channel => channel.GetProperty("channel").GetString() is
+                NotificationPolicyChannels.Email or NotificationPolicyChannels.MobilePush),
+            channel =>
+            {
+                Assert.Equal(NotificationPolicyReadinessStates.Unknown, channel.GetProperty("readiness").GetString());
+                Assert.Equal(NotificationPolicyReadoutCategories.ProviderUnknown, channel.GetProperty("readoutCategory").GetString());
+                Assert.False(channel.GetProperty("externalProviderAttemptAllowed").GetBoolean());
+            });
+    }
+
+    [Fact]
     public async Task AdminDisabledChannelRemainsDisabledEvenWhenProviderReadinessIsConfigured()
     {
         var testContext = CreateFactory(new NotificationProviderReadinessSnapshot(
@@ -204,6 +239,25 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
                 Assert.Equal(NotificationPolicyReadoutCategories.DisabledByAdmin, channel.GetProperty("readoutCategory").GetString());
                 Assert.False(channel.GetProperty("externalProviderAttemptAllowed").GetBoolean());
             });
+    }
+
+    [Fact]
+    public async Task ReadOnlyAdminPolicyReadoutDoesNotCreatePolicyAuditRowsUntilPolicyAuditIsApproved()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Policy Owner");
+        using var client = testFactory.CreateClient();
+        var beforeCount = await CountNotificationPolicyAuditEventsAsync(testFactory);
+        using var request = CreateBearerRequest(session.RawSessionToken);
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+        var afterCount = await CountNotificationPolicyAuditEventsAsync(testFactory);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        AssertSafePolicyReadoutContent(content);
+        Assert.Equal(beforeCount, afterCount);
     }
 
     [Fact]
@@ -436,6 +490,17 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
         await dbContext.SaveChangesAsync();
     }
 
+    private static async Task<int> CountNotificationPolicyAuditEventsAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        return await dbContext.Set<AuthAuditEvent>()
+            .CountAsync(auditEvent =>
+                auditEvent.Action.Contains("notification_policy")
+                || auditEvent.Action.Contains("notification.policy")
+                || auditEvent.Action.Contains("admin.notification"));
+    }
+
     private static HttpRequestMessage CreateBearerRequest(string rawSessionToken, string path = AdminNotificationPolicyPath)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, path);
@@ -449,22 +514,40 @@ public sealed class AdminNotificationPolicyEndpointTests : IClassFixture<WebAppl
         [
             "smtpPassword",
             "smtp_user",
+            "smtp-user-placeholder",
+            "smtp.internal.example",
+            "from-address-placeholder",
+            "smtp_port",
             "api_key",
             "secret",
+            "credential",
+            "apns",
+            "fcm",
             "providerPayload",
             "provider-payload",
+            "provider_request_id",
             "deviceToken",
+            "device-token",
             "tokenFingerprint",
+            "token-fingerprint",
             "protectedTokenBlob",
+            "protected-token-blob",
+            "installation_hash",
+            "session-token",
             "object_key",
+            "storage_path",
             "signed_url",
             "ocr_text",
             "receipt text",
             "payment_handle",
+            "qr_contents",
             "private_note",
             "hidden_bill",
             "refreshCredential",
+            "refresh-token",
             "passwordHash",
+            "passkey",
+            "mfa",
             "bearer"
         ];
 
