@@ -14,6 +14,7 @@ internal static class InAppNotificationServiceCollectionExtensions
         services.TryAddScoped<INotificationDeliveryAttemptRecorder, EfNotificationDeliveryAttemptRecorder>();
         services.TryAddScoped<INotificationDeliveryAttemptLeaseService, EfNotificationDeliveryAttemptLeaseService>();
         services.TryAddScoped<INotificationDeliveryOutboxProcessor, NotificationDeliveryOutboxProcessor>();
+        services.TryAddScoped<INotificationProviderReadinessService, NotificationProviderReadinessSnapshotService>();
         services.TryAddScoped<IAdminNotificationPolicyReadoutService, AdminNotificationPolicyReadoutService>();
         services.TryAddScoped<ISmtpEmailTransport, SmtpEmailTransport>();
         services.TryAddScoped<ISmtpEmailNotificationSender, SmtpEmailNotificationSender>();
