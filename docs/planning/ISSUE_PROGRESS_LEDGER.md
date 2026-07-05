@@ -20,6 +20,59 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Local password reset delivery and token policy gate
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Architecture Review`.
+- Last verified at main SHA:
+  `0004b153b833fd9793df6102cc1b3ce3d0385002`.
+- Verification timestamp:
+  `2026-07-06 01:30 HKT` task window.
+- Policy gate packet:
+  `docs/planning/AUTH_LOCAL_PASSWORD_RESET_TOKEN_POLICY_GATE.md`.
+- Recent PR readback:
+  PR #729 completed authenticated current-account local password change only and
+  merged at `603235b15c2b5971bc498e46cce3c1b6d1d9fa31`. PR #730 merged the
+  docs-only password reset/recovery policy gate at
+  `0004b153b833fd9793df6102cc1b3ce3d0385002`.
+- Decision digest:
+  user-initiated Day 1 local password reset remains
+  `BLOCKED_PENDING_MANUAL_DECISIONS`. Recommended technical posture is
+  local-account-only reset, approved SMTP/email or approved admin-delivered
+  out-of-band delivery, uniform public responses, hash/verifier-backed
+  short-lived one-time reset material, 15 minute default expiry with a 30 minute
+  cap unless manually changed, atomic consume, replay-safe failures, layered
+  reset abuse/provider-send throttles, bounded audit, and account-wide active
+  session plus refresh-family revocation after success.
+- Current-state clarification:
+  in-app-only reset is insufficient for forgotten-password unauthenticated
+  recovery. MFA/passkey recovery-code foundations remain MFA challenge/recovery
+  material only and are not password-reset token authority.
+- Remaining gates:
+  product/trust delivery posture, provider/admin policy approval, final expiry
+  and replacement rules, reset abuse thresholds, session revocation breadth if
+  narrowed, auth audit metadata/retention, user-facing notification event/
+  target/redaction approval, UI/Figma/product copy, schema/OpenAPI/generated-
+  client review, and runtime implementation remain incomplete.
+- Recommended next posture:
+  keep runtime blocked until Tommy approves one delivery posture and the
+  auth/security token policy. If approved later, the smallest runtime slice
+  should be narrow, local-account only, provider/admin delivery explicit, fully
+  tested, and exclude invitation/admin/break-glass/OIDC/MFA/passkey expansion.
+- Issue posture:
+  keep #336 and #339 open. Do not close either issue from this docs-only child
+  gate, and do not claim runtime password reset is implemented.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, auth/session/security
+  enforcement, credential/session/token issuance, password hashing, reset/
+  recovery/admin credential runtime, invitation/public-registration runtime,
+  notification runtime, mobile/web/admin UI, provider delivery, deployment/
+  Docker/CI/CodeMagic/TestFlight behavior, secrets/config/env, money/
+  settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, or Project fields.
+
 ### Issues #336/#339 - Password reset and recovery policy gate after PR #729
 
 - GitHub state/project status:
