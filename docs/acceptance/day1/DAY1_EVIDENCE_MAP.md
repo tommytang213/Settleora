@@ -32,6 +32,7 @@ This map separates implemented evidence, documentation-only intent, validation c
 | --- | --- | --- | --- | --- | --- | --- |
 | Day 1 product scope | docs | `docs/prd/MVP_DAY1_SCOPE.md`, `docs/prd/PRODUCT_REQUIREMENTS_DRAFT_V5.md` | `npm run validate:docs` | Planned for this branch. | Yes | Scope docs define requirements; they do not prove implementation. |
 | Architecture authority boundaries | docs | `PROGRAM_ARCHITECTURE.md`, `docs/architecture/*.md` | `npm run validate:docs` | Planned for this branch. | Yes | Architecture is required context, not acceptance proof by itself. |
+| Architecture risk register for OCR, restore/import, soft-delete, money, sync, privacy, deployment, and web/admin gaps | docs/control | `docs/planning/ARCHITECTURE_RISK_REGISTER.md` | `npm run validate:docs` | Planned for this branch. | Yes | Risk registration records control decisions and stop conditions only; it does not prove implementation completion. |
 | M1-M14 milestone QA readiness | docs, tests referenced | `docs/qa/M1_*` through `docs/qa/M14_*`, `.ai/qa-report.md` | Commands recorded in each QA map; not rerun here unless scoped validation requires it. | Prior maps report passed focused/full validations for their slices. | Yes | Manual UI/code review remains deferred until Day 1 acceptance. |
 
 ## Validation Command Evidence

@@ -33,7 +33,7 @@ Future status:
 removed
 ```
 
-Avoid implementing hard removal until retention and financial-history access rules are finalized.
+Avoid implementing hard removal until retention and financial-history access rules are finalized. Group membership and participant lifecycle changes should use participation/status fields and soft-delete/archive-style metadata where needed. They must not remove historical bill participants, payer records, split rows, settlement evidence, or audit history.
 
 ## Active member
 
@@ -72,6 +72,8 @@ Behavior:
 Do not remove members from old bills just because their participation status changes.
 
 Old bills retain original participants, payers, split records, and audit history.
+
+Physical purge of membership or participation records is a separate retention/admin action, not an ordinary group-management delete. It requires warning, confirmation, dependency checks, audit, and policy controls where applicable.
 
 ## New bill default selection
 

@@ -214,6 +214,35 @@ Future implementation should keep validation stages explicit and testable:
 | Review result | Produce safe counts, warnings, conflicts, duplicate summaries, and authorized current summaries where visible. | `ready_for_review`, `rejected`, `conflict`, or `failed` |
 | Transaction and audit | Commit accepted candidates through API/domain services and emit bounded audit in the same consistency boundary or reviewed equivalent. | `accepted` or `failed` |
 
+## Preview And Diff Before Apply
+
+Import, restore, and migration apply/write operations must be preceded by a
+user-visible preview or diff. Parsing, staging, validation, duplicate
+detection, and conflict classification may happen before preview, but
+authoritative writes must not.
+
+The preview must include safe counts and expandable detail categories for:
+
+- added records;
+- changed records;
+- duplicate or skipped records;
+- conflicts requiring review;
+- blocked records or sections;
+- privacy/vault warnings;
+- file included, missing, or metadata-only status;
+- local or destination records not present in the import/backup package.
+
+Records that exist in the current destination but are not present in the
+backup/import package must be kept by default. Deleting or replacing current
+destination state requires an explicit dangerous replace/purge mode, warning,
+confirmation, dependency checks, and audit/retention policy where applicable.
+
+Preview and problem details must not expose secrets, raw tokens, raw OCR text,
+file bytes, storage paths, object keys, signed URLs, private notes, or
+unrelated user financial data. Where the actor is not authorized to see a
+current destination record, the preview must use bounded problem categories
+instead of leaking existence or contents.
+
 ## Conflict Classification
 
 Future problem responses, audit categories, UI references, and validation tests

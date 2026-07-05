@@ -449,11 +449,16 @@ Day 1 file lifecycle should distinguish user-facing delete/archive from permanen
 Rules:
 
 - User-facing delete generally moves the file to Trash or `deleted` state.
+- User-facing delete is soft delete/archive/trash by default across financial, shared, security, storage, sync, notification, import/export, and audit-related records.
+- Ordinary app actions must not physically delete records or file bytes when settlement, audit, sync, storage, shared-user, accepted-bill, notification, import/export, or financial-history dependencies may exist.
 - Deleted files are not served through ordinary reads.
 - Restore is allowed only when the actor and subject policy still allow it.
+- Purge is a separate retention, admin, or Trash action with warning, confirmation, dependency checks, audit, and policy controls.
 - Purge permanently removes bytes where retention and legal/audit policy allow it.
 - Purge should leave bounded tombstone/audit evidence without retaining sensitive contents or provider internals.
 - Draft or failed uploads may be hard-deletable sooner when no audit or business record depends on them.
+- Temporary failed-upload blobs, local-only scratch/cache, and orphan cleanup may physically delete where policy allows and no authoritative record is lost.
+- Lifecycle schemas should prefer explicit status fields plus timestamps, actor, reason, restoration, purge, and concurrency metadata where applicable.
 - Retention policy hooks should support keep-forever defaults, export expiry, statement retention, receipt retention, and admin maintenance policy later.
 - Orphan cleanup must handle both metadata without bytes and bytes without active metadata.
 - Backup/restore must preserve database metadata, file bytes, lifecycle state, and future encryption/vault metadata consistently.

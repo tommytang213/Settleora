@@ -97,8 +97,15 @@ The first milestone is an architecture scaffold, not a feature-complete MVP. It 
 
 - On-device OCR is a required mobile capability for offline receipt processing, server-unavailable flows, and local-only profiles.
 - The server-side Python OCR worker is complementary infrastructure for heavier OCR, reprocessing, consistency checks, batch processing, or future higher-confidence extraction.
+- OCR output is never final financial truth. OCR creates candidate/review data only; OCR completion, worker output, preview success, assignment state, queue visibility, or generated-client availability must not automatically finalize bills.
 - In server-mode, OCR-derived data created on-device remains provisional until validated and accepted by the API.
 - OCR architecture details are defined in [docs/architecture/OCR_ARCHITECTURE.md](docs/architecture/OCR_ARCHITECTURE.md).
+
+## High-Risk Architecture Tracking
+
+- Production-dangerous limitations are tracked in [docs/planning/ARCHITECTURE_RISK_REGISTER.md](docs/planning/ARCHITECTURE_RISK_REGISTER.md).
+- Future implementation branches must not hide OCR authority, restore/import apply, soft-delete/purge, money validation, sync conflict, privacy vault, deployment/migration, or web/admin exposure changes inside broad feature work.
+- Recording a risk or policy decision does not mark the runtime implementation complete.
 
 ## Policy And Configuration Rules
 
