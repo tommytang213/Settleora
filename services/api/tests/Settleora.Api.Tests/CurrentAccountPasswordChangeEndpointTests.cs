@@ -167,6 +167,73 @@ public sealed class CurrentAccountPasswordChangeEndpointTests : IClassFixture<We
     }
 
     [Fact]
+    public async Task ReplacementHashFailureReturnsPasswordChangeFailedWithoutChangingCredentialOrRevokingSessions()
+    {
+        var testContext = CreateFactory(new FakePasswordHashingService(NewPassword));
+        using var testFactory = testContext.Factory;
+        await SeedLocalAccountAsync(testFactory);
+        using var client = testFactory.CreateClient();
+        var currentSignIn = await SignInAsync(client, CurrentPassword);
+        var otherSignIn = await SignInAsync(client, CurrentPassword);
+
+        using var response = await client.SendAsync(CreatePasswordChangeRequest(
+            currentSignIn.RawSessionToken,
+            CurrentPassword,
+            NewPassword));
+
+        await AssertPasswordChangeFailedProblemAsync(response, CurrentPassword, NewPassword);
+        await AssertCredentialVerifierAsync(testFactory, FakePasswordHashingService.HashFor(CurrentPassword));
+        await AssertSessionStatusAsync(testFactory, currentSignIn.AuthSessionId, AuthSessionStatuses.Active);
+        await AssertSessionStatusAsync(testFactory, otherSignIn.AuthSessionId, AuthSessionStatuses.Active);
+        await AssertRefreshStateAsync(
+            testFactory,
+            currentSignIn.AuthSessionId,
+            AuthSessionFamilyStatuses.Active,
+            AuthRefreshCredentialStatuses.Active,
+            expectedRevocationReason: null);
+        await AssertRefreshStateAsync(
+            testFactory,
+            otherSignIn.AuthSessionId,
+            AuthSessionFamilyStatuses.Active,
+            AuthRefreshCredentialStatuses.Active,
+            expectedRevocationReason: null);
+
+        using var currentUserRequest = CreateCurrentUserRequest(currentSignIn.RawSessionToken);
+        using var currentUserResponse = await client.SendAsync(currentUserRequest);
+        Assert.Equal(HttpStatusCode.OK, currentUserResponse.StatusCode);
+
+        using var otherCurrentUserRequest = CreateCurrentUserRequest(otherSignIn.RawSessionToken);
+        using var otherCurrentUserResponse = await client.SendAsync(otherCurrentUserRequest);
+        Assert.Equal(HttpStatusCode.OK, otherCurrentUserResponse.StatusCode);
+
+        using var otherRefreshResponse = await client.PostAsync(
+            RefreshPath,
+            CreateRefreshContent(otherSignIn.RawRefreshCredential));
+        Assert.Equal(HttpStatusCode.OK, otherRefreshResponse.StatusCode);
+
+        var audits = await ReadAuthAuditEventsAsync(testFactory);
+        Assert.Contains(audits, audit => audit.Action == "credential.verification" && audit.Outcome == AuthAuditOutcomes.Success);
+        Assert.Contains(audits, audit => audit.Action == "credential.password_changed" && audit.Outcome == AuthAuditOutcomes.Failure);
+        Assert.DoesNotContain(audits, audit => audit.Action == "session.revoked");
+        Assert.DoesNotContain(audits, audit => audit.Action == "session_family.revoked");
+
+        foreach (var audit in audits)
+        {
+            AssertSafeAuditContent(
+                audit,
+                CurrentPassword,
+                NewPassword,
+                FakePasswordHashingService.HashFor(CurrentPassword),
+                FakePasswordHashingService.HashFor(NewPassword),
+                currentSignIn.RawSessionToken,
+                currentSignIn.RawRefreshCredential,
+                otherSignIn.RawSessionToken,
+                otherSignIn.RawRefreshCredential,
+                RawRefreshCredentialFragment);
+        }
+    }
+
+    [Fact]
     public async Task SuccessfulPasswordChangeRotatesVerifierKeepsCurrentSessionAndRevokesOtherSessionsAndRefresh()
     {
         var testContext = CreateFactory();
@@ -278,7 +345,7 @@ public sealed class CurrentAccountPasswordChangeEndpointTests : IClassFixture<We
         Assert.DoesNotContain("sessionId", requestSchema);
     }
 
-    private FactoryTestContext CreateFactory()
+    private FactoryTestContext CreateFactory(IPasswordHashingService? passwordHashingService = null)
     {
         var databaseName = Guid.NewGuid().ToString();
         var timeProvider = new EndpointTestTimeProvider(InitialTimestamp);
@@ -299,7 +366,7 @@ public sealed class CurrentAccountPasswordChangeEndpointTests : IClassFixture<We
                 services.AddSingleton<TimeProvider>(timeProvider);
 
                 services.RemoveAll<IPasswordHashingService>();
-                services.AddSingleton<IPasswordHashingService, FakePasswordHashingService>();
+                services.AddSingleton(passwordHashingService ?? new FakePasswordHashingService());
             });
         });
 
@@ -411,7 +478,8 @@ public sealed class CurrentAccountPasswordChangeEndpointTests : IClassFixture<We
         WebApplicationFactory<Program> testFactory,
         Guid authSessionId,
         string expectedFamilyStatus,
-        string expectedCredentialStatus)
+        string expectedCredentialStatus,
+        string? expectedRevocationReason = "password_changed")
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
@@ -422,8 +490,8 @@ public sealed class CurrentAccountPasswordChangeEndpointTests : IClassFixture<We
 
         Assert.Equal(expectedCredentialStatus, credential.Status);
         Assert.Equal(expectedFamilyStatus, credential.SessionFamily.Status);
-        Assert.Equal("password_changed", credential.RevocationReason);
-        Assert.Equal("password_changed", credential.SessionFamily.RevocationReason);
+        Assert.Equal(expectedRevocationReason, credential.RevocationReason);
+        Assert.Equal(expectedRevocationReason, credential.SessionFamily.RevocationReason);
     }
 
     private static async Task<IReadOnlyList<AuthAuditEvent>> ReadAuthAuditEventsAsync(
@@ -531,6 +599,17 @@ public sealed class CurrentAccountPasswordChangeEndpointTests : IClassFixture<We
         AssertNoUnexpectedResponseText(content, unexpectedResponseText);
     }
 
+    private static async Task AssertPasswordChangeFailedProblemAsync(
+        HttpResponseMessage response,
+        params string[] unexpectedResponseText)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains("Password change failed", content);
+        AssertNoUnexpectedResponseText(content, unexpectedResponseText);
+    }
+
     private static async Task AssertSignInFailedProblemAsync(
         HttpResponseMessage response,
         params string[] unexpectedResponseText)
@@ -633,6 +712,17 @@ public sealed class CurrentAccountPasswordChangeEndpointTests : IClassFixture<We
         public const string CurrentPolicyVersion = "argon2id-test-v1";
         public const string CurrentParametersJson = """{"format":"fake-current"}""";
 
+        private readonly string? passwordToFailHashing;
+
+        public FakePasswordHashingService()
+        {
+        }
+
+        public FakePasswordHashingService(string passwordToFailHashing)
+        {
+            this.passwordToFailHashing = passwordToFailHashing;
+        }
+
         public static string HashFor(string plaintextPassword)
         {
             return $"hash:{plaintextPassword}";
@@ -640,6 +730,11 @@ public sealed class CurrentAccountPasswordChangeEndpointTests : IClassFixture<We
 
         public PasswordHashResult HashPassword(string plaintextPassword)
         {
+            if (StringComparer.Ordinal.Equals(plaintextPassword, passwordToFailHashing))
+            {
+                return PasswordHashResult.Failure(PasswordHashFailureReason.HashingFailed);
+            }
+
             return PasswordHashResult.Success(
                 HashFor(plaintextPassword),
                 PasswordHashingAlgorithms.Argon2id,

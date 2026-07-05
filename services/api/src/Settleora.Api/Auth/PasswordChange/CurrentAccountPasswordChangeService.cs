@@ -57,7 +57,7 @@ internal sealed class CurrentAccountPasswordChangeService : ICurrentAccountPassw
                     {
                         PasswordCredentialChangeStatus.CurrentPasswordInvalid => CurrentAccountPasswordChangeStatus.InvalidCurrentPassword,
                         PasswordCredentialChangeStatus.SamePassword => CurrentAccountPasswordChangeStatus.SamePassword,
-                        PasswordCredentialChangeStatus.HashingFailed => CurrentAccountPasswordChangeStatus.InvalidNewPassword,
+                        PasswordCredentialChangeStatus.HashingFailed => CurrentAccountPasswordChangeStatus.PersistenceFailed,
                         PasswordCredentialChangeStatus.PersistenceFailed => CurrentAccountPasswordChangeStatus.PersistenceFailed,
                         PasswordCredentialChangeStatus.AccountUnavailable => CurrentAccountPasswordChangeStatus.Unavailable,
                         PasswordCredentialChangeStatus.CredentialUnavailable => CurrentAccountPasswordChangeStatus.Unavailable,
