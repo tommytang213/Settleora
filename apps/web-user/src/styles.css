@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme="settleora-midnight"] {
   color-scheme: dark;
   --color-canvas: #050911;
   --color-canvas-soft: #09111e;
@@ -27,6 +28,34 @@
   --radius-control: 16px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+[data-theme="settleora-pearl"] {
+  color-scheme: light;
+  --color-canvas: #f7f2ec;
+  --color-canvas-soft: #fff8f1;
+  --color-surface: #ffffff;
+  --color-surface-raised: #fffaf5;
+  --color-surface-strong: #f1e4d7;
+  --color-ink: #111827;
+  --color-muted: #4b5563;
+  --color-subtle: #6b7280;
+  --color-border: rgba(169, 71, 19, 0.16);
+  --color-border-strong: rgba(169, 71, 19, 0.32);
+  --color-primary: #a94713;
+  --color-primary-strong: #87360e;
+  --color-accent: #0f766e;
+  --color-blue: #1e3a8a;
+  --color-warning: #744700;
+  --color-warning-bg: rgba(254, 243, 224, 0.92);
+  --color-danger: #981b2f;
+  --color-danger-bg: rgba(253, 232, 235, 0.94);
+  --color-success: #14532d;
+  --color-success-bg: rgba(230, 245, 238, 0.94);
+  --shadow-soft: 0 22px 64px rgba(77, 44, 20, 0.12);
+  --shadow-warm: 0 18px 52px rgba(169, 71, 19, 0.08);
   background: var(--color-canvas);
   color: var(--color-ink);
 }

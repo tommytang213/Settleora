@@ -58,7 +58,7 @@ class SettleoraMobileApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Settleora',
-      theme: SettleoraTheme.light(),
+      theme: SettleoraTheme.midnight(),
       home: showDashboardPreview
           ? const DashboardPreviewScreen()
           : SettleoraAppBootstrap(

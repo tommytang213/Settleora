@@ -11,6 +11,7 @@
     "validate": "node tools/validate.mjs",
     "validate:docs": "node tools/validate-docs.mjs",
     "validate:scaffold": "node tools/validate-scaffold.mjs",
+    "validate:theme-tokens": "node tools/validate-theme-tokens.mjs",
     "validate:openapi": "redocly lint packages/contracts/openapi/settleora.v1.yaml",
     "generate:clients": "node tools/generate-clients.mjs",
     "validate:clients": "node tools/validate-clients.mjs",
