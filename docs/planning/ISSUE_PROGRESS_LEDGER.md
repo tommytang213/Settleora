@@ -2538,9 +2538,19 @@ remain the source of truth.
   `feature/notification-687-policy-resolver-runtime-foundation-20260705`:
   - Base main SHA:
     `90e5355ba071972f1295d19ca191ce98dcd2d141` after PR #701.
-  - Implementation status:
-    in progress for PR review; report path
-    `.codex/reports/settleora-codex-report-20260705-0130-notification-687-policy-resolver-runtime-foundation.md`.
+  - GitHub state/project status:
+    issue `CLOSED` as completed after PR #702 merged the approved narrow
+    resolver-runtime foundation.
+  - Merged PR:
+    #702 `feat(api): add notification policy decision resolver foundation` at
+    merge SHA `f7d8239b963b2cbc2ba4fb9a852c25c92645f1be`.
+  - Reviewed implementation head:
+    `235b8747113a6bb984448c79520a86ec05ec11a0`.
+  - Implementation branch:
+    `feature/notification-687-policy-resolver-runtime-foundation-20260705`,
+    retained at `235b8747113a6bb984448c79520a86ec05ec11a0`.
+  - Report:
+    `.codex/reports/settleora-codex-report-20260705-1335-notification-687-resolver-pr702-merge-gate.md`.
   - Completed slice:
     - Added a scoped internal notification decision policy resolver that loads
       the active API-owned admin/global notification policy, applies
@@ -2574,12 +2584,11 @@ remain the source of truth.
       audit, UI/readout surfaces, and any OpenAPI/schema expansion remain
       separately gated.
   - Close/keep-open recommendation:
-    close #687 after this runtime foundation PR is reviewed and merged if the
-    reviewer accepts the narrow resolver-runtime close rule. Keep #635 and
-    #689 open for broader policy/final acceptance. Keep #403, #369, #368, and
-    #634 open. Keep #684, #685, #686, #688, #371, #570, #575, #672, and #679
-    closed unless a concrete regression or approved follow-up changes that
-    posture.
+    keep #687 closed as completed for the narrow resolver-runtime foundation
+    merged by PR #702. Keep #635 and #689 open for broader policy/final
+    acceptance. Keep #403, #369, #368, and #634 open. Keep #684, #685, #686,
+    #688, #371, #570, #575, #672, and #679 closed unless a concrete
+    regression or approved follow-up changes that posture.
 
 - #688 audit/redaction coverage gate checkpoint on
   `docs/notification-688-audit-redaction-coverage-gate-20260704`:
