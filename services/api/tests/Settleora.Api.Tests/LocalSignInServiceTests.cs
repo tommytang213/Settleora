@@ -813,6 +813,15 @@ public sealed class LocalSignInServiceTests
             LastAuthAccountId = authAccountId;
             return Task.FromResult(NextVerificationResult);
         }
+
+        public Task<PasswordCredentialChangeResult> ChangeLocalPasswordAsync(
+            Guid authAccountId,
+            string currentPassword,
+            string newPassword,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 
     private sealed class FakeRefreshSessionRuntimeService : IAuthRefreshSessionRuntimeService

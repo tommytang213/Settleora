@@ -286,6 +286,16 @@ class SettleoraApiClient {
     );
   }
 
+  Future<void> changeCurrentAccountPassword(CurrentAccountPasswordChangeRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      "/api/v1/auth/password/change",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+  }
+
   Future<RecoveryCodeBatchListResponse> getRecoveryCodeBatches({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",

@@ -11,4 +11,10 @@ internal interface IAuthCredentialWorkflowService
         Guid authAccountId,
         string submittedPassword,
         CancellationToken cancellationToken = default);
+
+    Task<PasswordCredentialChangeResult> ChangeLocalPasswordAsync(
+        Guid authAccountId,
+        string currentPassword,
+        string newPassword,
+        CancellationToken cancellationToken = default);
 }
