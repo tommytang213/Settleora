@@ -22,19 +22,24 @@ remain the source of truth.
 
 ### Issue #689 - Admin notification policy final acceptance
 
-- GitHub state/project status: issue `OPEN` by live issue readback on
-  2026-07-05 HKT during branch
-  `docs/notification-689-final-acceptance-readiness-20260705`. Project field
-  mutation was not attempted.
+- GitHub state/project status: issue `CLOSED` as completed after PR #704
+  merged the final acceptance packet and no reviewer, CI/check, validation, or
+  scope blocker remained. Project field mutation was not attempted.
 - Last verified at main SHA:
-  `336118e511cde55f59cfd7ba612f9bb6f3496439` after PR #703.
+  `aec099052dbb5125c3160f99d896d8c652dca46c` after PR #704.
+- Merged PR:
+  #704 `docs: add notification policy final acceptance packet` at merge SHA
+  `aec099052dbb5125c3160f99d896d8c652dca46c`.
+- Reviewed acceptance-packet head:
+  `24ae454a9185d39d707208db691f7ef60cdd00ef`.
 - Acceptance packet branch:
-  `docs/notification-689-final-acceptance-readiness-20260705`.
+  `docs/notification-689-final-acceptance-readiness-20260705`, retained at
+  `24ae454a9185d39d707208db691f7ef60cdd00ef`.
 - Acceptance packet path:
   `docs/planning/NOTIFICATION_689_FINAL_ACCEPTANCE_PACKET.md`.
-- Expected report:
-  `.codex/reports/settleora-codex-report-20260705-1418-notification-689-final-acceptance-readiness-pr-open.md`.
-- Current PR state: pending at the time this ledger entry was written.
+- Merge-gate report:
+  `.codex/reports/settleora-codex-report-20260705-1437-notification-689-final-acceptance-pr704-merge-gate.md`.
+- Current PR state: PR #704 `MERGED`.
 - Completed prerequisite child posture:
   - #684 `CLOSED`: PR #697 merged the read-only guarded admin notification
     policy readout foundation, EF schema foundation, OpenAPI contract, and
@@ -49,13 +54,15 @@ remain the source of truth.
     policy resolver foundation; PR #703 recorded final ledger closure.
   - #371, #570, #575, #672, and #679 remain `CLOSED` unless a concrete
     regression or approved follow-up changes that posture.
-- Acceptance recommendation:
-  recommend closing #689 only after the acceptance packet PR is reviewed and
-  merged, assuming validation remains green and no reviewer blocker is found.
+- Acceptance result:
+  #689 is closed as completed for the approved readout-first final acceptance
+  scope after PR #704 merged, required local validation passed, GitHub checks
+  passed on the exact reviewed head, and no reviewer/comment/scope blocker was
+  found.
 - #635 recommendation:
-  keep #635 open. The final acceptance packet supports closing #689 after
-  merge, but parent #635 still has broader future gates and no unambiguous
-  parent close authorization was found in issue body/comments.
+  keep #635 open. The final acceptance packet closes #689, but parent #635
+  still has broader future gates and no unambiguous parent close authorization
+  was found in issue body/comments.
 - Related open posture:
   keep #403, #369, #368, and #634 open for broader notification/provider,
   event coverage, delivery-state, device-token, and push-provider work unless a
