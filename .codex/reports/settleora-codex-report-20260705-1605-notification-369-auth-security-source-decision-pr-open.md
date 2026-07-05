@@ -19,17 +19,17 @@
 - Actual starting `origin/main`:
   `43b9f484ae32963082a529c710491b06efc32aa1`
 - Source/task commit SHA:
-  `PENDING_BEFORE_COMMIT`
+  `70c3e6f891f8a8cfafd9d975c53f867fc5133c22`
 - Integration branch SHA (`origin/ai/integration`):
   `d3f458b146bc5c5621478aceba8d26f69b5d434a`
-- Current local `HEAD` before commit:
-  `43b9f484ae32963082a529c710491b06efc32aa1`
+- Current local `HEAD` after commit:
+  `70c3e6f891f8a8cfafd9d975c53f867fc5133c22`
 
 ## PR
 
 - PR URL: `PENDING_BEFORE_PUSH`
 - PR state: `PENDING_BEFORE_PUSH`
-- PR head SHA: `PENDING_BEFORE_COMMIT`
+- PR head SHA: `70c3e6f891f8a8cfafd9d975c53f867fc5133c22`
 
 ## Files Changed
 
@@ -83,19 +83,19 @@ mutated.
 
 ## Validation Commands And Results
 
-- `git fetch origin --prune`: passed before branching.
+- `git fetch origin --prune`: passed before branching and after commit.
 - `git rev-parse origin/main`: passed; output
   `43b9f484ae32963082a529c710491b06efc32aa1`.
-- `git status --short`: before commit showed only intended docs/report changes:
+- `git status --short`: passed after commit; no output. Before commit showed
+  only intended docs/report changes:
   `M docs/planning/ISSUE_PROGRESS_LEDGER.md`,
   `?? docs/planning/NOTIFICATION_369_AUTH_SECURITY_SOURCE_DECISION_PACKET.md`,
   and this report after it was created.
-- `git diff --name-only origin/main...HEAD`: before commit produced no output
-  because `HEAD` still matched `origin/main`; final post-commit result is
-  recorded after commit below.
-- `git diff --check origin/main...HEAD`: before commit produced no output
-  because `HEAD` still matched `origin/main`; final post-commit result is
-  recorded after commit below.
+- `git diff --name-only origin/main...HEAD`: passed after commit; output:
+  `.codex/reports/settleora-codex-report-20260705-1605-notification-369-auth-security-source-decision-pr-open.md`,
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`,
+  `docs/planning/NOTIFICATION_369_AUTH_SECURITY_SOURCE_DECISION_PACKET.md`.
+- `git diff --check origin/main...HEAD`: passed after commit; no output.
 - `git diff --name-only`: passed before commit; tracked diff output
   `docs/planning/ISSUE_PROGRESS_LEDGER.md` plus the untracked new packet/report
   shown by `git status --short`.
