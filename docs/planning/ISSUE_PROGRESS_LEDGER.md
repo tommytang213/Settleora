@@ -20,6 +20,49 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #369 - Session revocation notification source design gate
+
+- GitHub state/project status: issue `OPEN`; Project field mutation was not
+  attempted.
+- Last verified at main SHA:
+  `7649f7da951a417a3a2d0d73edd4fee21bdde3d3`.
+- Verification timestamp:
+  `2026-07-05 17:50 HKT` task window.
+- Source-state packet:
+  `docs/planning/NOTIFICATION_369_SESSION_REVOCATION_SOURCE_DESIGN_PACKET.md`.
+- Design digest:
+  the safest first future auth/session/security notification candidate is
+  user-initiated current-account per-session revocation only. The source must
+  be the successful API-owned revocation transition for one non-current session
+  owned by the authenticated account, with the affected account owner as the
+  only recipient. Admin revocation, account-wide revocation, suspicious-session
+  revocation, replay/session-family revocation, current-session sign-out,
+  credential/MFA/passkey/security-policy events, expiry, denied attempts, and
+  generic session-list/status reads remain non-candidates for this first slice.
+- Target/redaction posture:
+  a future runtime task must choose exactly one safe target shape, such as
+  current-account-authorized `authSessionId`, `authAuditEventId`, or a
+  security-center target. Raw session tokens, token hashes, refresh tokens,
+  raw or unbounded IP/user-agent details, password/MFA/passkey/provider
+  material, and unrelated account or business data remain forbidden.
+- Future gates before runtime:
+  auth-security manual review; auth runtime source endpoint/session authority
+  confirmation; target-reference approval; notification event constant and
+  writer design; audit and notification redaction review; OpenAPI/schema/
+  generated-client review if any API or target shape changes; focused tests;
+  and a separate manual auth-security PR/merge gate.
+- Issue posture:
+  keep #369 open. Keep #368, #403, #634, and #635 open. Keep #371, #570, and
+  #575 closed unless a concrete regression or separately approved follow-up is
+  found.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, provider sending, provider
+  config/secrets, device-token lifecycle, delivery attempts, admin policy
+  mutation/write API, UI/Figma, #371 behavior, auth/session/security runtime,
+  money/settlement/bill/OCR/storage/sync/reconciliation behavior, deployment/
+  CI/Docker/env, secrets, issue closure/reopen, or Project fields.
+
 ### Issue #369 - Auth/session/security notification source decision packet
 
 - GitHub state/project status: issue `OPEN`; Project field mutation was not
