@@ -2073,6 +2073,40 @@ remain the source of truth.
     `https://github.com/tommytang213/Settleora/issues/369#issuecomment-4844221960`
   - Branch report:
     `/workspace/logs/settleora-codex-report-20260702-0112-sync-operation-failed-notification-369.md`
+- Post-#635/#689 remaining event coverage gate review on
+  `docs/notification-369-remaining-event-coverage-gate-review-20260705`:
+  - Verified starting `origin/main` is
+    `09e785401c04c5edbcbeb7e26bf9b4b046275d0f`, the PR #706 merge commit for
+    the #635 parent remaining-gates packet.
+  - Live issue readback showed #369, #368, #403, #634, and #635 remain `OPEN`;
+    #371, #570, and #575 remain `CLOSED`.
+  - Adds
+    `docs/planning/NOTIFICATION_369_REMAINING_EVENT_COVERAGE_GATE_REVIEW.md`
+    as the current decision digest for completed evidence, remaining blocked
+    event families, dependency posture, safest next slice, and close/keep-open
+    recommendations after the #635/#689 readout-first chain completed.
+  - Completed or sufficiently evidenced #369 slices remain bill workflow and
+    revision events, settlement request/payment/proof/residual-review events,
+    recurring due-soon/draft-generated events, OCR `ocr.needs_review`, sync
+    conflict/operation-failed events, current-user in-app notification APIs,
+    preference foundations, target-reference foundations, and closed #371
+    notification-open/deep-link behavior.
+  - Remaining gaps are OCR completed/failed, remaining sync queued/retry/
+    resolved/conflict-resolution events, auth/session/security events, item
+    claim/split/creator-review events, broader settlement mismatch/review or
+    debtor residual-decision events, and provider/delivery/admin policy items
+    that are still relevant only as separate #403/#634/#635 gates.
+  - Recommended next narrow path: no runtime slice should start from #369
+    alone. Run an auth/session/security notification target-reference and
+    source-event manual decision gate first, or continue provider/operator
+    readiness under #635/#403/#634 without claiming #369 closure.
+  - Close/keep-open recommendation: keep #369 and #368 open; keep #403, #634,
+    and #635 open; keep #371, #570, and #575 closed unless a concrete
+    regression or separately approved follow-up exists.
+  - Scope confirmation: docs-only; no runtime/API/OpenAPI/generated-client/
+    schema/migration/provider/UI/auth/session/security/money/settlement/bill/
+    OCR/storage/sync/reconciliation/deployment/CI/Docker/env/secret changes,
+    issue closure/reopen, or Project mutation.
 
 ### Issue #403 - Day 1 email, push, provider, preference, delivery-state split
 
