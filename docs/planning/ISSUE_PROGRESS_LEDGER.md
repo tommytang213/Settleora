@@ -20,6 +20,72 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Notification umbrella remaining gates checkpoint
+
+- GitHub state/project status:
+  - #369 `OPEN`; keep open because session-revocation notification runtime is
+    `BLOCKED_PENDING_MANUAL_DECISIONS`, and broader Day 1 notification coverage
+    remains incomplete.
+  - #368 `OPEN`; keep open as the parent notification epic while child/
+    umbrella runtime gates remain.
+  - #403 `OPEN`; keep open for provider/email/push/preference/delivery-state/
+    policy/QA umbrella scope unless future repo evidence proves otherwise.
+  - #634 `OPEN`; keep open for push provider/device-token/provider-neutral
+    delivery runtime gates.
+  - #635 `OPEN`; keep open for admin notification policy API/readout/write/
+    update/delete/runtime/UI/provider gates.
+  - #371, #570, and #575 `CLOSED`; keep closed unless a concrete regression is
+    found.
+- Last verified at main SHA:
+  `da99be532875feed8adf26c07de2978135d8da85`.
+- Verification timestamp:
+  `2026-07-05 19:00 HKT` task window.
+- Checkpoint:
+  `docs/planning/NOTIFICATION_UMBRELLA_REMAINING_GATES_CHECKPOINT.md`.
+- Recent PR readback:
+  #707, #708, #709, #710, #711, #712, and #713 are merged. PR #713 is the
+  latest relevant #369 runtime-readiness decision and merged at
+  `da99be532875feed8adf26c07de2978135d8da85`.
+- Completed slices:
+  #707/#708 recorded #369 remaining event coverage/ledger hygiene; #709
+  recorded auth/session/security source decision; #711 recorded session
+  revocation source design; #712 recorded session revocation target/event
+  design; #713 recorded runtime readiness as
+  `BLOCKED_PENDING_MANUAL_DECISIONS`. #710 merged mobile CodeMagic/TestFlight
+  visual-test selection hygiene and is not notification umbrella completion.
+- Dependency alert posture:
+  the 2026-07-05 18:52 HKT npm Dependabot task found `0` live open alerts and
+  created no dependency diff or PR; do not invent dependency work from stale
+  assumptions.
+- Remaining Day 1 gates:
+  auth/session/security runtime approval for #369, broader remaining
+  notification event-family source states, #403 provider/preference/
+  delivery-state/policy scope, #634 push provider/device-token/mobile gates,
+  #635 admin policy mutation/readout/runtime/UI/provider gates, and final Day 1
+  notification acceptance remain incomplete.
+- Manual decisions:
+  #369 `security.session_revoked` runtime still needs explicit manual approval
+  for the user-facing event, actor self-notification, `auth_session` and
+  `authSessionId`, minimal schema/OpenAPI/generated-client boundary, writer
+  placement, duplicate/transaction behavior, auth audit correlation, and
+  redaction rules.
+- Safe next actions:
+  Option A prepare the manual approval package for the narrow #369
+  `security.session_revoked` runtime gate; Option B keep #369 runtime blocked
+  and continue non-security provider/admin planning or other Day 1 lanes;
+  Option C create focused issue/PR hygiene comments after this checkpoint
+  merges.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, notification writers/
+  constants/event handlers, provider sending, provider config/secrets, device-
+  token lifecycle, delivery attempts, admin policy mutation/write API, UI/
+  Figma, #371 behavior, auth/session/security runtime, login/current-user/
+  session middleware/token issuance/revocation endpoints, money/settlement/
+  bill/OCR/storage/sync/reconciliation behavior, deployment/CI/Docker/env/
+  CodeMagic/TestFlight behavior, secrets, issue closure/reopen, or Project
+  fields.
+
 ### Issue #369 - Session revocation notification runtime readiness decision
 
 - GitHub state/project status: issue `OPEN`; Project field mutation was not
