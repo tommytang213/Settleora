@@ -28,15 +28,16 @@ Run `Mobile iOS validation` manually in Codemagic for mobile/iOS changes, Codema
 ```bash
 flutter pub get
 flutter analyze
-flutter test -r expanded --exclude-tags visual <all test files except *visual_capture_test.dart>
+flutter test -r expanded --exclude-tags visual <non-visual test files only>
 ```
 
 This workflow does not publish, upload to App Store Connect, invite testers, or require Apple signing secrets.
 
 Normal mobile validation intentionally excludes:
 
-- `apps/mobile/test/**/*visual_capture_test.dart`
-- individual tests tagged `visual` inside otherwise non-visual/mixed files.
+- `apps/mobile/test/**/*visual*capture_test.dart`
+- `apps/mobile/test/**/*visual*evidence*_test.dart`
+- files containing tests tagged `visual`.
 
 Those visual capture, screenshot-helper, and screen-compare tests are useful
 review evidence, but they should not block app validity checks or an installable
@@ -49,7 +50,8 @@ tests.
 `Mobile iOS visual evidence` is manual-only in Codemagic and runs files matching:
 
 ```bash
-test/**/*visual_capture_test.dart
+test/**/*visual*capture_test.dart
+test/**/*visual*evidence*_test.dart
 ```
 
 It also runs mixed-file tests tagged `visual`, such as screenshot-helper tests
@@ -59,7 +61,7 @@ screen-compare failures. It runs:
 
 ```bash
 flutter pub get
-flutter test -r expanded <only *visual_capture_test.dart files>
+flutter test -r expanded <only visual capture/evidence files>
 flutter test -r expanded --tags visual <visual-tagged mixed files>
 ```
 
@@ -120,10 +122,11 @@ No public App Store release is configured. No external tester automation is conf
 
 The internal TestFlight workflow uses the same non-visual selection rule as
 `Mobile iOS validation`: it runs every Flutter test file except
-`*visual_capture_test.dart`, and it excludes tests tagged `visual`, with
-expanded output. Visual capture/screenshot-helper/screen-compare evidence
-remains available through `Mobile iOS visual evidence` without blocking the
-installable preview build path.
+`*visual*capture_test.dart` and `*visual*evidence*_test.dart`, and it excludes
+files containing tests tagged `visual`, with `--exclude-tags visual` retained as
+a safeguard. Visual capture/screenshot-helper/screen-compare evidence remains
+available through `Mobile iOS visual evidence` without blocking the installable
+preview build path.
 
 ## App Store Connect Compliance Metadata
 

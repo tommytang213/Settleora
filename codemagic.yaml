@@ -35,16 +35,24 @@ workflows:
         script: |
           # Normal validation proves app validity without blocking on visual
           # evidence/screen-compare capture tests. Filename-selected visual
-          # captures and visual-tagged mixed-file tests run in
+          # capture/evidence tests and visual-tagged mixed-file tests run in
           # mobile-ios-visual-evidence for Codex/Figma/UI review.
           pwd
-          TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual_capture_test.dart' | sort)
-          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          CANDIDATE_TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual*capture_test.dart' ! -name '*visual*evidence*_test.dart' | sort)
           VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
           VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          if [ "$VISUAL_TAGGED_COUNT" != "0" ]; then
+            VISUAL_TAGGED_LIST=$(mktemp)
+            printf '%s\n' "$VISUAL_TAGGED_FILES" > "$VISUAL_TAGGED_LIST"
+            TEST_FILES=$(printf '%s\n' "$CANDIDATE_TEST_FILES" | grep -F -x -v -f "$VISUAL_TAGGED_LIST" || true)
+            rm -f "$VISUAL_TAGGED_LIST"
+          else
+            TEST_FILES="$CANDIDATE_TEST_FILES"
+          fi
+          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
           echo "Selected non-visual Flutter test files: $TEST_COUNT"
           printf '%s\n' "$TEST_FILES"
-          echo "Visual-tagged Flutter test files excluded by --exclude-tags visual: $VISUAL_TAGGED_COUNT"
+          echo "Visual-tagged Flutter test files excluded from non-visual selection: $VISUAL_TAGGED_COUNT"
           printf '%s\n' "$VISUAL_TAGGED_FILES"
           if [ "$TEST_COUNT" = "0" ]; then
             echo "No non-visual Flutter tests were selected"
@@ -91,7 +99,7 @@ workflows:
           # Codex/Figma/UI review can collect screenshots without blocking
           # internal TestFlight preview builds.
           pwd
-          VISUAL_CAPTURE_FILES=$(find test -type f -name '*visual_capture_test.dart' | sort)
+          VISUAL_CAPTURE_FILES=$(find test -type f \( -name '*visual*capture_test.dart' -o -name '*visual*evidence*_test.dart' \) | sort)
           VISUAL_CAPTURE_COUNT=$(printf '%s\n' "$VISUAL_CAPTURE_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
           VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
           VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
@@ -160,13 +168,21 @@ workflows:
           # installable IPA path without being blocked by visual evidence or
           # screen-compare capture tests.
           pwd
-          TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual_capture_test.dart' | sort)
-          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          CANDIDATE_TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual*capture_test.dart' ! -name '*visual*evidence*_test.dart' | sort)
           VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
           VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
+          if [ "$VISUAL_TAGGED_COUNT" != "0" ]; then
+            VISUAL_TAGGED_LIST=$(mktemp)
+            printf '%s\n' "$VISUAL_TAGGED_FILES" > "$VISUAL_TAGGED_LIST"
+            TEST_FILES=$(printf '%s\n' "$CANDIDATE_TEST_FILES" | grep -F -x -v -f "$VISUAL_TAGGED_LIST" || true)
+            rm -f "$VISUAL_TAGGED_LIST"
+          else
+            TEST_FILES="$CANDIDATE_TEST_FILES"
+          fi
+          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
           echo "Selected non-visual Flutter test files: $TEST_COUNT"
           printf '%s\n' "$TEST_FILES"
-          echo "Visual-tagged Flutter test files excluded by --exclude-tags visual: $VISUAL_TAGGED_COUNT"
+          echo "Visual-tagged Flutter test files excluded from non-visual selection: $VISUAL_TAGGED_COUNT"
           printf '%s\n' "$VISUAL_TAGGED_FILES"
           if [ "$TEST_COUNT" = "0" ]; then
             echo "No non-visual Flutter tests were selected"
