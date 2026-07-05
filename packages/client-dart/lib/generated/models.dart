@@ -215,6 +215,33 @@ class RefreshSessionRequest {
   }
 }
 
+/// Authenticated current-account local password change request. Account, profile, session, session-revocation policy, audit metadata, and notification behavior are resolved server-side. Unsupported fields are rejected.
+class CurrentAccountPasswordChangeRequest {
+  const CurrentAccountPasswordChangeRequest({
+    required this.currentPassword,
+    required this.newPassword,
+  });
+
+  /// Submitted current local password. The API never stores, returns, audits, or logs this plaintext value.
+  final String currentPassword;
+  /// Submitted replacement local password. The API stores only verifier output through the credential workflow boundary and never returns this plaintext value.
+  final String newPassword;
+
+  factory CurrentAccountPasswordChangeRequest.fromJson(JsonObject json) {
+    return CurrentAccountPasswordChangeRequest(
+      currentPassword: json["currentPassword"] as String,
+      newPassword: json["newPassword"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "currentPassword": currentPassword,
+      "newPassword": newPassword,
+    };
+  }
+}
+
 /// Minimal refresh success response. Raw credential material is returned only once.
 class RefreshSessionResponse {
   const RefreshSessionResponse({

@@ -20,6 +20,52 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Current-account password change runtime slice
+
+- GitHub state/project status:
+  - #336 `OPEN`; keep open as the broad auth/session/runtime security epic.
+  - #339 `OPEN`; keep open because password reset, recovery, admin reset,
+    credential lifecycle UX, abuse controls beyond existing sign-in policy,
+    and UI/Figma scope remain incomplete.
+- Last verified at main SHA:
+  `c4e042bddcc27f921914b06a956328998d862fa0`.
+- Verification timestamp:
+  `2026-07-05 23:44 HKT` task window.
+- Completed slice:
+  current-account local password change runtime for authenticated bearer
+  sessions only, using `POST /api/v1/auth/password/change`, current-password
+  verification through the credential workflow boundary, same-password
+  rejection, replacement verifier hashing through the approved password hashing
+  service, safe auth audit events, current bearer session preserved, and other
+  active sessions plus linked refresh-family/refresh credentials revoked where
+  supported.
+- OpenAPI/generated-client posture:
+  the password-change endpoint and request schema are contract-backed, and web
+  and Dart generated clients are expected to expose
+  `changeCurrentAccountPassword` from generated output only.
+- Remaining Day 1 gates:
+  password reset, first-owner recovery/break-glass recovery, admin password
+  reset/change, invitation/public registration credential flows, user-facing
+  security notifications, password-change UI, broader abuse/rate-limit policy,
+  and final auth/security acceptance remain incomplete.
+- Manual decisions:
+  user approved the narrow current-account password-change runtime Option A
+  after PR #728 merged. No approval was recorded for reset/recovery/admin/UI/
+  notification expansion.
+- Issue posture:
+  do not close #336 or #339 from this slice alone. Treat this as one completed
+  child runtime capability inside #339, not completion of the full password
+  reset/change workflow candidate.
+- Scope confirmation:
+  this checkpoint records a narrow auth/security runtime slice. It does not
+  implement password reset, first-owner recovery, break-glass recovery, admin
+  password reset/change, invitation acceptance, public registration, OIDC
+  password behavior, MFA/passkey runtime changes, notification runtime, mobile/
+  web/admin UI, TestFlight, CodeMagic, signing, release, deployment, schema/
+  migrations, secrets/config/env changes, money/settlement/payment/bill/OCR/
+  storage/sync/import/export/backup/restore/reconciliation behavior, or issue
+  closure/project-field automation.
+
 ### Notification umbrella remaining gates checkpoint
 
 - GitHub state/project status:

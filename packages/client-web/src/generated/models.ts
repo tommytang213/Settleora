@@ -93,6 +93,20 @@ export interface RefreshSessionRequest {
 }
 
 /**
+ * Authenticated current-account local password change request. Account, profile, session, session-revocation policy, audit metadata, and notification behavior are resolved server-side. Unsupported fields are rejected.
+ */
+export interface CurrentAccountPasswordChangeRequest {
+  /**
+   * Submitted current local password. The API never stores, returns, audits, or logs this plaintext value.
+   */
+  currentPassword: string;
+  /**
+   * Submitted replacement local password. The API stores only verifier output through the credential workflow boundary and never returns this plaintext value.
+   */
+  newPassword: string;
+}
+
+/**
  * Minimal refresh success response. Raw credential material is returned only once.
  */
 export interface RefreshSessionResponse {

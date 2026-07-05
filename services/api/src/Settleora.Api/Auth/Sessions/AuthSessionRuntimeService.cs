@@ -14,6 +14,7 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
     private const string SessionValidatedAction = "session.validated";
     private const string SessionValidationFailedAction = "session.validation_failed";
     private const string SessionRevokedAction = "session.revoked";
+    private const string SessionFamilyRevokedAction = "session_family.revoked";
     private const string TokenHashPrefix = "sha256:";
     private const int TokenByteLength = 32;
     private const int DeviceLabelMaxLength = 120;
@@ -308,12 +309,16 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
             .Where(session => session.AuthAccountId == request.AuthAccountId
                 && session.Status == AuthSessionStatuses.Active
                 && session.RevokedAtUtc == null
-                && session.ExpiresAtUtc > occurredAtUtc)
+                && session.ExpiresAtUtc > occurredAtUtc
+                && (request.ExcludedAuthSessionId == null || session.Id != request.ExcludedAuthSessionId.Value))
             .ToListAsync(cancellationToken);
 
         var revocationReason = NormalizeOptionalField(
             request.RevocationReason,
             RevocationReasonMaxLength) ?? DefaultRevocationReason;
+        var revokedSessionIds = activeSessions
+            .Select(session => session.Id)
+            .ToHashSet();
 
         foreach (var session in activeSessions)
         {
@@ -321,6 +326,17 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
             session.RevokedAtUtc = occurredAtUtc;
             session.RevocationReason = revocationReason;
             session.UpdatedAtUtc = occurredAtUtc;
+        }
+
+        if (revokedSessionIds.Count > 0)
+        {
+            await RevokeRefreshFamiliesForSessionsAsync(
+                request.AuthAccountId,
+                revokedSessionIds,
+                request.ExcludedAuthSessionId,
+                revocationReason,
+                occurredAtUtc,
+                cancellationToken);
         }
 
         await WriteAuditAsync(
@@ -344,6 +360,83 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
         }
 
         return AuthAccountSessionRevocationResult.Revoked();
+    }
+
+    private async Task RevokeRefreshFamiliesForSessionsAsync(
+        Guid authAccountId,
+        ISet<Guid> revokedSessionIds,
+        Guid? excludedAuthSessionId,
+        string revocationReason,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var candidateFamilyIds = await dbContext.Set<AuthRefreshCredential>()
+            .Where(credential => credential.AuthSessionId != null
+                && revokedSessionIds.Contains(credential.AuthSessionId.Value))
+            .Select(credential => credential.AuthSessionFamilyId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (candidateFamilyIds.Count == 0)
+        {
+            return;
+        }
+
+        if (excludedAuthSessionId is { } currentSessionId)
+        {
+            var currentSessionFamilyIds = await dbContext.Set<AuthRefreshCredential>()
+                .Where(credential => credential.AuthSessionId == currentSessionId)
+                .Select(credential => credential.AuthSessionFamilyId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            candidateFamilyIds.RemoveAll(currentSessionFamilyIds.Contains);
+        }
+
+        if (candidateFamilyIds.Count == 0)
+        {
+            return;
+        }
+
+        var activeFamilies = await dbContext.Set<AuthSessionFamily>()
+            .Where(family => candidateFamilyIds.Contains(family.Id)
+                && family.AuthAccountId == authAccountId
+                && family.Status == AuthSessionFamilyStatuses.Active
+                && family.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var family in activeFamilies)
+        {
+            family.Status = AuthSessionFamilyStatuses.Revoked;
+            family.RevokedAtUtc = occurredAtUtc;
+            family.RevocationReason = revocationReason;
+            family.UpdatedAtUtc = occurredAtUtc;
+        }
+
+        var activeRefreshCredentials = await dbContext.Set<AuthRefreshCredential>()
+            .Where(credential => candidateFamilyIds.Contains(credential.AuthSessionFamilyId)
+                && credential.Status == AuthRefreshCredentialStatuses.Active
+                && credential.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var credential in activeRefreshCredentials)
+        {
+            credential.Status = AuthRefreshCredentialStatuses.Revoked;
+            credential.RevokedAtUtc = occurredAtUtc;
+            credential.RevocationReason = revocationReason;
+            credential.UpdatedAtUtc = occurredAtUtc;
+        }
+
+        if (activeFamilies.Count > 0 || activeRefreshCredentials.Count > 0)
+        {
+            await WriteAuditAsync(
+                SessionFamilyRevokedAction,
+                AuthAuditOutcomes.Revoked,
+                authAccountId,
+                authAccountId,
+                AuthAccountSessionRevocationStatus.Revoked.ToString(),
+                occurredAtUtc,
+                cancellationToken);
+        }
     }
 
     private static bool IsAccountAvailable(AuthAccount? account)

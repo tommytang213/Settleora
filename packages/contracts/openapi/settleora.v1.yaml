@@ -10,9 +10,10 @@ info:
     and web clients are produced from this file, and generated output
     must not be manually edited. This contract currently covers scaffold health
     checks, first-owner local bootstrap status/creation for fresh deployments,
-    refresh-capable local sign-in, public refresh, current-session sign-out,
-    current-account sign-out-all, current-account session list and per-session
-    revocation, the minimal current-user auth read boundary, and guarded
+    refresh-capable local sign-in, public refresh, current-account password
+    change, current-session sign-out, current-account sign-out-all,
+    current-account session list and per-session revocation, the minimal
+    current-user auth read boundary, and guarded
     self-profile read/update endpoints, first personal and group bill create/read
     endpoints, bill submission and participant acknowledgement/rejection workflow endpoints,
     first bill revision proposal lifecycle endpoints, settlement candidate preview, first settlement request creation endpoints,
@@ -360,6 +361,46 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         "500":
           description: Refresh could not be completed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/password/change:
+    post:
+      summary: Change current account password
+      description: Authenticated current-account local password change. The current auth account, profile, and session are resolved from the validated bearer session only. The endpoint verifies the submitted current password, stores only a replacement verifier through the API auth credential boundary, keeps the current bearer session active, and revokes other active sessions plus linked refresh-like credentials where safely supported. Unsupported request fields are rejected.
+      operationId: changeCurrentAccountPassword
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrentAccountPasswordChangeRequest"
+      responses:
+        "204":
+          description: Password changed. No response body is returned.
+        "400":
+          description: Request shape, unsupported fields, new-password policy, or same-password policy rejected.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required, the bearer session is invalid, or current-password verification failed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Password change could not be completed.
           content:
             application/problem+json:
               schema:
@@ -11249,6 +11290,28 @@ components:
           type: string
           maxLength: 120
           description: Optional display label for the replacement access session.
+    CurrentAccountPasswordChangeRequest:
+      type: object
+      description: Authenticated current-account local password change request. Account, profile, session, session-revocation policy, audit metadata, and notification behavior are resolved server-side. Unsupported fields are rejected.
+      additionalProperties: false
+      required:
+        - currentPassword
+        - newPassword
+      properties:
+        currentPassword:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+          description: Submitted current local password. The API never stores, returns, audits, or logs this plaintext value.
+        newPassword:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 4096
+          writeOnly: true
+          description: Submitted replacement local password. The API stores only verifier output through the credential workflow boundary and never returns this plaintext value.
     RefreshSessionResponse:
       type: object
       description: Minimal refresh success response. Raw credential material is returned only once.
