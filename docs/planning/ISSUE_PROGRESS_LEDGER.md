@@ -20,6 +20,44 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #369 - Auth/session/security notification source decision packet
+
+- GitHub state/project status: issue `OPEN`; Project field mutation was not
+  attempted.
+- Last verified at main SHA:
+  `43b9f484ae32963082a529c710491b06efc32aa1`.
+- Verification timestamp:
+  `2026-07-05 16:05 HKT` task window.
+- Decision packet:
+  `docs/planning/NOTIFICATION_369_AUTH_SECURITY_SOURCE_DECISION_PACKET.md`.
+- Decision digest:
+  auth/session/security notifications are not ready for runtime implementation
+  from #369 alone. Current auth/session/security runtime has real API-owned
+  source states, including session revocation and auth audit foundations, but
+  notification event constants, subject types, first-class auth/session/security
+  target references, authorized re-fetch route policy, recipient/self-notify
+  rules, suppression/bypass posture, and redaction/external-snippet approvals
+  remain missing.
+- Safest next action:
+  create a future manual auth-security design task for exactly one first event
+  candidate, preferably explicit current-account per-session revocation
+  (`security.session_revoked`) if approved, or keep all auth/security
+  notifications blocked. That future task must choose the exact source
+  transition, recipient rule, self-notification behavior, target-reference
+  shape, subject type, action target, OpenAPI/schema/generated-client boundary,
+  redaction class, and validation plan before runtime.
+- Issue posture:
+  keep #369 open. Keep #368, #403, #634, and #635 open. Keep #371, #570, and
+  #575 closed unless a concrete regression or separately approved follow-up is
+  found.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, provider sending, provider
+  config/secrets, device-token lifecycle, delivery attempts, admin policy
+  mutation/write API, UI/Figma, #371 behavior, auth/session/security runtime,
+  money/settlement/bill/OCR/storage/sync/reconciliation behavior, deployment/
+  CI/Docker/env, secrets, issue closure/reopen, or Project fields.
+
 ### Issue #635 - Parent remaining gates decision after #689 closure
 
 - GitHub state/project status: issue `OPEN`; Project field mutation was not
