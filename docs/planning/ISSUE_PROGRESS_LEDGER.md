@@ -20,6 +20,42 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #635 - Parent remaining gates decision after #689 closure
+
+- GitHub state/project status: issue `OPEN`; Project field mutation was not
+  attempted.
+- Last verified at main SHA:
+  `8d203a49e9ff9355d78c4d38cd7d28115bb70d36`.
+- Verification timestamp:
+  `2026-07-05 15:00 HKT`.
+- Completed child-chain posture:
+  - #684, #685, #686, #687, #688, and #689 are `CLOSED`.
+  - PR #704 merged the final acceptance packet for #689 at merge SHA
+    `aec099052dbb5125c3160f99d896d8c652dca46c`.
+  - PR #705 merged final #689 ledger hygiene at merge SHA
+    `8d203a49e9ff9355d78c4d38cd7d28115bb70d36`.
+- Related open posture:
+  #403, #369, #368, and #634 remain `OPEN` for broader notification/provider,
+  event coverage, delivery-state, device-token, and push-provider work.
+- Related closed posture:
+  #371 remains `CLOSED`; the #635 readout-first chain did not change
+  notification-open/deep-link behavior.
+- Decision packet:
+  `docs/planning/NOTIFICATION_635_PARENT_REMAINING_GATES_DECISION_PACKET.md`.
+- Recommendation:
+  keep #635 open. #689 closure completes the accepted readout-first child
+  chain, but it is not provider sending, admin policy mutation/write API,
+  mutation audit, admin/operator UI, user/mobile readout UI, device-token
+  provider integration, broader #403/#369/#368/#634 notification-provider
+  completion, or future OpenAPI/schema/generated-client expansion.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, provider sending, provider
+  config/secrets, device-token lifecycle, admin policy mutation/write API, UI,
+  #371 behavior, money/settlement/bill/OCR/storage/sync/reconciliation
+  behavior, deployment/CI/Docker/env, auth/session/security runtime, or
+  secrets.
+
 ### Issue #689 - Admin notification policy final acceptance
 
 - GitHub state/project status: issue `CLOSED` as completed after PR #704
