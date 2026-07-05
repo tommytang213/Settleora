@@ -2534,6 +2534,53 @@ remain the source of truth.
     #672/#679 state changes, deployment/env/CI, Figma output, screenshots,
     binary assets, production audit plumbing, or issue closure.
 
+- #687 notification policy resolver runtime foundation checkpoint on
+  `feature/notification-687-policy-resolver-runtime-foundation-20260705`:
+  - Base main SHA:
+    `90e5355ba071972f1295d19ca191ce98dcd2d141` after PR #701.
+  - Implementation status:
+    in progress for PR review; report path
+    `.codex/reports/settleora-codex-report-20260705-0130-notification-687-policy-resolver-runtime-foundation.md`.
+  - Completed slice:
+    - Added a scoped internal notification decision policy resolver that loads
+      the active API-owned admin/global notification policy, applies
+      event-family overrides, consumes bounded provider-readiness categories,
+      and translates those inputs into existing
+      `NotificationDecisionChannelPolicy` values for the pure
+      `NotificationDecisionEnvelopeResolver`.
+    - Preserved the existing stateless resolver constructor and existing
+      in-app baseline behavior.
+    - Preserved fail-closed external defaults: without persisted policy,
+      external email and mobile push are disabled even when readiness is
+      configured.
+    - Preserved `MayAttemptExternalProvider=false`; configured/readiness-
+      eligible channels resolve only to future-provider eligibility and do not
+      send or claim provider success.
+    - Added focused tests proving unsupported event-family/channel caps,
+      provider unconfigured mapping, admin-disabled precedence over configured
+      readiness, user preference narrowing, quiet-hours/digest deferral,
+      future-provider-only configured candidates, required/security in-app
+      baseline preservation, and sent/failed vocabulary remaining delivery-
+      attempt/provider-runtime state outside this resolver slice.
+  - Remaining gates:
+    - No SMTP/APNs/FCM sending, provider SDK activation, provider config/
+      secrets, device-token lifecycle behavior, admin write API, UI,
+      OpenAPI/generated-client change, schema/migration, production audit
+      plumbing, resolver audit hooks, #371 behavior, #634 behavior, or
+      unrelated event-writer work is completed by this slice.
+    - #689 final acceptance remains open and is not ready until approved
+      implementation slices merge and final acceptance checks pass.
+    - Future provider sending, device/provider runtime, admin writes, mutation
+      audit, UI/readout surfaces, and any OpenAPI/schema expansion remain
+      separately gated.
+  - Close/keep-open recommendation:
+    close #687 after this runtime foundation PR is reviewed and merged if the
+    reviewer accepts the narrow resolver-runtime close rule. Keep #635 and
+    #689 open for broader policy/final acceptance. Keep #403, #369, #368, and
+    #634 open. Keep #684, #685, #686, #688, #371, #570, #575, #672, and #679
+    closed unless a concrete regression or approved follow-up changes that
+    posture.
+
 - #688 audit/redaction coverage gate checkpoint on
   `docs/notification-688-audit-redaction-coverage-gate-20260704`:
   - Base main SHA:
