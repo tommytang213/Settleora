@@ -291,5 +291,5 @@ abstract final class SettleoraTheme {
 
 extension SettleoraThemeX on BuildContext {
   SettleoraColors get settleoraColors =>
-      Theme.of(this).extension<SettleoraColors>() ?? SettleoraColors.light;
+      Theme.of(this).extension<SettleoraColors>() ?? SettleoraColors.midnight;
 }

@@ -413,7 +413,7 @@ void main() {
     expect(find.text('Ready'), findsWidgets);
     expect(find.text('Visual preferences'), findsOneWidget);
     expect(
-      find.text('The app currently uses the default Settleora theme.'),
+      find.text('The app currently uses the default Settleora Midnight theme.'),
       findsOneWidget,
     );
     expect(find.text('Appearance'), findsOneWidget);

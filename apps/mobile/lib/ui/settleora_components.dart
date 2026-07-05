@@ -1210,7 +1210,7 @@ class VisualPreferenceUnsupportedReadout extends StatelessWidget {
                     Text('Visual preferences', style: textTheme.titleSmall),
                     const SizedBox(height: SettleoraSpacing.xxs),
                     Text(
-                      'The app currently uses the default Settleora theme.',
+                      'The app currently uses the default Settleora Midnight theme.',
                       style: TextStyle(color: colors.textMuted),
                     ),
                   ],
