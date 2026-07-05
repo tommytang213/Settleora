@@ -24,8 +24,14 @@ This document records the current architecture and policy for applying a saved r
 ## Authority And Safety Boundaries
 
 - API/domain services own mutation from OCR review data to bill data.
+- OCR output is never final financial truth.
+- OCR creates candidate/review data only.
+- Users must be able to review and edit extracted fields before OCR-derived data becomes a final local record or queued server-mode change.
+- In server mode, user-reviewed OCR-derived data remains provisional until API/domain validation accepts money, currency, ownership, authorization, file purpose, storage policy, split/adjustment/payer policy, duplicate/conflict policy, and rounding.
+- The intended flow is `capture/import -> OCR candidate extraction -> user review/edit -> apply preview -> explicit apply -> API/domain validation -> accepted bill state`.
 - OCR output remains provisional until explicit user action and API validation.
 - Apply must be user-triggered; OCR completion, queue visibility, generated client availability, apply endpoint availability, or apply-preview success must never automatically apply or finalize bill data.
+- Preview success, queue visibility, OCR completion, assignment state, generated-client availability, or worker output must not automatically finalize bills.
 - Clients, generated clients, OCR workers, and mobile OCR must not directly mutate authoritative bill items, splits, settlement, payments, balances, file metadata, or storage metadata.
 - Workers may produce provisional OCR results only through reviewed job/result boundaries; the API must validate and accept those results before they affect bill truth.
 - Generated clients are transport helpers only. They must not become policy engines for money, ownership, bill state, splits, settlement, payment, balance, file lifecycle, or audit decisions.

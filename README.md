@@ -15,6 +15,7 @@ Future optional Settleora Cloud support is an architecture direction for managed
 - [Authority, workspace, and instance migration posture](docs/architecture/AUTHORITY_WORKSPACE_INSTANCE_MIGRATION_POSTURE.md)
 - [MVP Day 1 scope](docs/prd/MVP_DAY1_SCOPE.md)
 - [Day 1 UX reference decisions](docs/planning/DAY1_UX_REFERENCE_DECISIONS.md)
+- [Architecture risk register](docs/planning/ARCHITECTURE_RISK_REGISTER.md)
 - [Design references](docs/design/)
 - [User web reference V1](docs/design/web/WEB_USER_REFERENCE_V1.md)
 - [Admin web reference V1](docs/design/web/WEB_ADMIN_REFERENCE_V1.md)

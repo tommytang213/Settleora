@@ -177,6 +177,27 @@ Restore must be a staged operation:
 7. Preserve rejected, conflicted, duplicate, or failed candidates where policy
    allows until explicit discard or retention cleanup.
 
+The restore preview must be user-visible and reviewable before any apply or
+write. It must include safe counts and expandable detail categories for:
+
+- added records;
+- changed records;
+- duplicate or skipped records;
+- conflicts requiring review;
+- blocked records or sections;
+- privacy/vault warnings;
+- file included, missing, or metadata-only status;
+- local records not present in the backup or package.
+
+Records that exist locally but are not present in the backup or import package
+must be kept by default. Deleting or replacing current local state requires an
+explicit dangerous replace/purge mode, warning, confirmation, dependency
+checks, and audit/retention policy where applicable.
+
+Restore preview and problem details must not expose secrets, raw tokens, raw
+OCR text, file bytes, storage paths, object keys, signed URLs, private notes,
+or unrelated user financial data.
+
 Restore cannot:
 
 - create server accounts, server collaboration membership, server groups, or

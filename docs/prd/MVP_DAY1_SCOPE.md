@@ -345,10 +345,18 @@ failed
 
 Day 1 should include safe deletion behavior:
 
+- User-facing delete is soft delete, archive, or Trash by default.
+- Financial, shared, security, storage, sync, notification, import/export, and audit-related records must not be physically deleted by ordinary app actions.
 - Archive instead of destructive delete for financial records.
-- Restore where safe.
-- Deletion restrictions when settlements/audits depend on records.
-- Audit events for archive/restore/delete attempts.
+- Restore where safe and where current authorization, lifecycle, dependency, and retention policy allow it.
+- Physical purge is a separate retention, admin, or Trash action with warning, confirmation, dependency checks, audit, and policy controls.
+- Deletion restrictions apply when settlements, payments, bill revisions, participants, audit history, sync/import state, storage files, notifications, or shared users depend on records.
+- Lifecycle modeling should prefer explicit status/lifecycle fields plus timestamps, actor, reason, restoration, purge, and concurrency metadata where applicable, not a generic `activeInd = 0` model.
+- Drafts may be hard-deletable only where no settlement, audit, sync, storage, file, shared-user, accepted-bill, notification, import/export, or financial-history dependency exists.
+- Temporary failed-upload blobs, local-only scratch/cache, and orphan cleanup may physically delete where policy allows and no authoritative record is lost.
+- Auth sessions/factors should be revoked or disabled by ordinary user/admin actions; bounded tombstones may be purged later only through retention cleanup policy.
+- Group membership and bill participation changes must preserve historical bill participants, payer records, split rows, and audit history.
+- Audit events are required for archive, restore, delete, purge, blocked attempts, and policy-significant lifecycle transitions where server state participates.
 
 ## Day 1 language scope
 

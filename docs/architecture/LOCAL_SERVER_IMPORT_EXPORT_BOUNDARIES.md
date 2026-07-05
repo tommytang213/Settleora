@@ -170,6 +170,19 @@ accepted bill revisions, relink files to storage paths, or clear conflict
 markers. When restored data differs from current server truth, the future
 runtime behavior must produce conflict/review state or rejection.
 
+Restore/import must produce a user-visible preview or diff before any apply or
+write. The preview should show safe counts and expandable categories for added
+records, changed records, duplicate/skipped records, conflicts requiring
+review, blocked records/sections, privacy/vault warnings, file included/
+missing/metadata-only status, and local or destination records not present in
+the backup/import package. Records that exist locally or in the destination but
+are not present in the package must be kept by default. Deleting or replacing
+current state requires an explicit dangerous replace/purge mode, warning,
+confirmation, dependency checks, and audit/retention policy where applicable.
+Preview and problem details must not expose secrets, raw tokens, raw OCR text,
+file bytes, storage paths, object keys, signed URLs, private notes, or
+unrelated user financial data.
+
 ## Storage And File Boundaries
 
 Server-mode file bytes still go through the API storage abstraction:

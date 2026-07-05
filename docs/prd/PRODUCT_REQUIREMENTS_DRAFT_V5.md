@@ -122,6 +122,8 @@ OCR should attempt to detect:
 - grand total
 
 ### 6.4 OCR Editability
+OCR output is never final financial truth. OCR creates candidate/review data only, and users must be able to review and edit extracted fields before OCR-derived data becomes a final local record or queued server-mode change.
+
 Users can:
 - delete/edit lines
 - add missing lines
@@ -474,10 +476,15 @@ Initial practical support target includes:
 Exact enforcement should remain security-conscious and configurable.
 
 ## 22. Deletion and Trash
-- anything deletable should first go to Trash
+- anything deletable should first go to Trash, archive, or another soft-delete lifecycle state by default
 - user-facing delete should generally be soft delete
-- drafts may be hard-deletable where safe
-- permanent delete should occur from Trash with warning/confirmation
+- financial, shared, security, storage, sync, notification, import/export, and audit-related records must not be physically deleted by ordinary app actions
+- lifecycle models should prefer explicit status plus timestamps and actor/reason metadata, such as `status`, `archived_at_utc`, `deleted_at_utc`, `deleted_by_user_profile_id`, `delete_reason`, `restored_at_utc`, `purged_at_utc` where applicable, and `row_version` or another concurrency token where applicable
+- drafts may be hard-deletable only where no settlement, audit, sync, storage, file, shared-user, accepted-bill, notification, import/export, or financial-history dependency exists
+- temporary failed-upload blobs, local-only scratch/cache, and orphan cleanup may physically delete where policy allows and no authoritative record is lost
+- auth sessions/factors should be revoked or disabled, not ordinary hard-deleted, unless retention cleanup policy later purges bounded tombstones
+- group membership/participants should use participation or lifecycle statuses and must not remove historical bill participants, payer records, split rows, or audit history
+- permanent delete should occur from Trash with warning, confirmation, dependency checks, audit, retention policy checks, and privacy/storage controls
 - admin purge path may exist separately
 
 ## 23. Aliasing

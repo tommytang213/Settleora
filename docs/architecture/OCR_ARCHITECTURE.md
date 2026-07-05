@@ -6,7 +6,17 @@ Settleora requires OCR to support receipt capture and expense creation. Receipt 
 
 On-device OCR is a required mobile capability. The mobile app must be able to scan and process receipts when offline, when the server is unavailable, and when a user is using a local-only profile. The server-side Python OCR worker is complementary infrastructure for heavier or later processing; it is not the only OCR path and does not replace required mobile OCR.
 
-OCR output is still subject to validation depending on profile mode. Local-only profiles can accept OCR-derived data locally after user confirmation or editing. Server-mode profiles treat OCR-derived data from the client as provisional until the backend API validates and accepts it.
+OCR output is never final financial truth. OCR creates candidate/review data only. Users must be able to review and edit extracted fields before OCR-derived data becomes a final local record or queued server-mode change. Server-mode profiles treat OCR-derived data from the client as provisional until the backend API validates and accepts it.
+
+In server mode, user-reviewed OCR-derived data remains provisional until API/domain validation accepts money, currency, ownership, authorization, file purpose, storage policy, split/adjustment/payer policy, duplicate/conflict policy, and rounding. Preview success, queue visibility, OCR completion, assignment state, generated-client availability, or worker output must not automatically finalize bills.
+
+The intended flow is:
+
+```text
+capture/import -> OCR candidate extraction -> user review/edit -> apply preview -> explicit apply -> API/domain validation -> accepted bill state
+```
+
+OCR may assist extraction, but it must not be treated as inferring receipt meaning better than the user's reviewed choices and the API/domain validation result.
 
 ## Current Implementation Status
 
@@ -112,6 +122,8 @@ Receipt image normalization, raw source retention, thumbnails, deployment hard c
 Client-side OCR extraction is a convenience in server-mode, not an authority boundary. The backend validates money, currency, rounding, ownership, permissions, and policy before accepting server-mode records.
 
 Money must remain decimal-safe. Currency must always be attached to monetary values. Rounding policy remains centralized for authoritative server-mode decisions.
+
+OCR-derived review and apply paths must also validate file purpose, storage policy, split/adjustment/payer policy, duplicate/conflict policy, and current bill state before acceptance. Worker output, on-device extraction, queue state, notification assignment state, generated-client methods, or successful preview responses are not acceptance.
 
 ## Non-goals For Current Milestone
 
