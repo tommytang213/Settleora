@@ -299,6 +299,74 @@ Experience mode requirements:
 
 Full dashboard builders, drag-drop widget customization, and complex per-user product builders remain later work unless separately approved.
 
+### User guidance, release notes, and announcements
+
+Day 1 should include three distinct UX-support features: bundled app-version
+release notes, server-managed announcements, and contextual screen help. They
+may share presentation primitives such as modals, banners, sheets, cards, CTAs,
+dismissal controls, and priority handling, but their data sources and authority
+boundaries remain separate:
+
+```text
+Bundled What's New = app/client release-note source.
+Server announcements = API/admin authoritative source.
+Contextual help overlays = app/client product-help source.
+```
+
+Bundled app-version What's New requirements:
+
+- Show a simple popup, sheet, or card for user-facing changes after an app
+  update.
+- The content is bundled with the app/client so it works without server
+  availability.
+- The flow works in local-only mode and before sign-in or server connection.
+- Show only when the relevant version or build has not already been seen.
+- Be skippable and dismissible.
+- Be re-openable from a settings, help, or about surface.
+- Store local/profile preference such as `last_seen_release_notes_version`
+  without requiring backend authority.
+- Use product-facing release-note copy, not developer changelog copy.
+- Be localization-ready.
+
+Server-managed announcement requirements:
+
+- Support admin/server notices such as maintenance windows, server notices,
+  security-impactful notices, policy/config changes, feature enablement notices,
+  and service degradation notices.
+- In server mode, announcements are authoritative through auth/admin/API
+  boundaries.
+- Support severity/category such as `info`, `feature`, `maintenance`,
+  `warning`, and `security`.
+- Support target surface such as mobile, user web, admin web, or all.
+- Support dismiss/read state where appropriate.
+- Support scheduled active windows where appropriate.
+- Must not expose secrets, raw audit details, storage internals, or sensitive
+  user data.
+- Security/admin/policy-impacting announcements require audit coverage when
+  runtime support exists.
+- Must not replace event notifications such as bill assigned, settlement
+  requested, OCR completed, sync conflict, security/session events, or other
+  user-specific workflow events.
+- Must not become a marketing or advertising surface.
+
+Contextual `?` help overlay / screen guide mode requirements:
+
+- Important screens should expose a visible `?`, Help, or equivalent
+  affordance.
+- Opening help shows an overlay, bottom sheet, or guided highlight mode that
+  explains the current screen purpose and major actions/statuses.
+- Help is skippable and closable at any time.
+- Help is re-openable on demand.
+- First implementation uses static product-managed help copy tied to app/screen
+  versions, not admin-managed arbitrary content.
+- Explain user-facing meaning, not implementation architecture.
+- Cover key Day 1 flows such as first-launch local/server choice, dashboard,
+  bills, OCR review, groups, settlements, recurring bills, reports/search,
+  backup/restore, settings/security, and admin maintenance where applicable.
+- Be localization-ready.
+- Track only minimal local/profile progress state if needed, such as viewed or
+  skipped state per guide key.
+
 ### Storage and privacy
 
 - All file bytes go through storage abstraction.
@@ -385,3 +453,11 @@ Traditional Chinese support is planned for Day 2.
 - Silent bill-revision-driven settlement mutation.
 - Requiring every participant to have a registered account before a receipt can be captured.
 - Settleora Cloud runtime, managed provisioning, shared multi-tenant SaaS, federation, and cross-server live collaboration.
+- Using server-managed announcements as a substitute for bundled app release
+  notes, local-only help, or contextual screen guides.
+- Using contextual help overlays as admin-managed arbitrary content in the first
+  implementation.
+- Using server announcements as event notifications for bills, settlements, OCR,
+  sync, security/session, or other user-specific workflow events.
+- Using release notes, announcements, or screen help as marketing or ad
+  placement surfaces.
