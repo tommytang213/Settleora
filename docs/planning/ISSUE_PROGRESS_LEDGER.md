@@ -20,6 +20,58 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #369 - Session revocation notification target/event design gate
+
+- GitHub state/project status: issue `OPEN`; Project field mutation was not
+  attempted.
+- Last verified at main SHA:
+  `f6cca35aa4b1cab3f692d3c178df552b8e1c464a`.
+- Verification timestamp:
+  `2026-07-05 18:10 HKT` task window.
+- Target/event packet:
+  `docs/planning/NOTIFICATION_369_SESSION_REVOCATION_TARGET_EVENT_DESIGN_PACKET.md`.
+- Design digest:
+  inherits PR #711's source decision: user-initiated current-account
+  per-session revocation only, successful API-owned revocation transition only,
+  and no runtime authorization granted by this docs packet. The recommended
+  future event key is `security.session_revoked`, with subject type
+  `auth_session`, versioned contract `security.session_revoked.v1`, and a
+  first-class `authSessionId` target for the revoked session row.
+- Target/open posture:
+  the future notification target is a navigation/reference hint only. Opening
+  must re-fetch the notification through the current-user notification API and
+  re-fetch the session/security target through current-account authorized
+  auth/session APIs. Client-supplied target IDs, push payloads, local cache
+  rows, action URLs, copied IDs, and generated-client methods are not
+  authorization proof.
+- Recipient/content posture:
+  only the affected account owner's server-mode profile may receive the first
+  slice. Admin/operator/friend/group/bill/settlement/OCR recipients and
+  client-provided recipients remain forbidden. Safe content is limited to
+  generic security/session title/body/category/severity, timestamp/correlation
+  where safe, approved `authSessionId`, bounded device/session display label if
+  already authorized by the future session list/detail policy, and normalized
+  revocation reason. Raw tokens, token hashes, refresh credentials, password/
+  MFA/passkey/provider material, raw IP/user-agent details, unrelated account
+  data, and business data remain forbidden.
+- Future gates before runtime:
+  auth/security manual approval; source endpoint/session authority confirmation;
+  `authSessionId` target-reference approval; event/subject constants and writer
+  placement; redaction/audit review; schema/OpenAPI/generated-client review if
+  any public shape changes; focused source/recipient/target/redaction/read-
+  archive/provider-disabled tests; and a separate PR/merge gate.
+- Issue posture:
+  keep #369 open. Keep #368, #403, #634, and #635 open. Keep #371, #570, and
+  #575 closed unless a concrete regression or separately approved follow-up is
+  found.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, provider sending, provider
+  config/secrets, device-token lifecycle, delivery attempts, admin policy
+  mutation/write API, UI/Figma, #371 behavior, auth/session/security runtime,
+  money/settlement/bill/OCR/storage/sync/reconciliation behavior, deployment/
+  CI/Docker/env, secrets, issue closure/reopen, or Project fields.
+
 ### Issue #369 - Session revocation notification source design gate
 
 - GitHub state/project status: issue `OPEN`; Project field mutation was not
