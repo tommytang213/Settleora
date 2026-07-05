@@ -2078,6 +2078,15 @@ remain the source of truth.
   - Verified starting `origin/main` is
     `09e785401c04c5edbcbeb7e26bf9b4b046275d0f`, the PR #706 merge commit for
     the #635 parent remaining-gates packet.
+  - PR #707 `docs: review remaining notification event coverage gates` merged
+    at merge SHA `8ec5a7c854c40072e7e8418bab865c774fd68c01` from reviewed
+    head `c360d63c847948161fd424e29996f5a1da205dc0`.
+  - PR #707 state after merge is `MERGED`; merged at
+    `2026-07-05T07:39:01Z`.
+  - Source branch
+    `docs/notification-369-remaining-event-coverage-gate-review-20260705` was
+    restored/retained at reviewed head
+    `c360d63c847948161fd424e29996f5a1da205dc0` after GitHub auto-deleted it.
   - Live issue readback showed #369, #368, #403, #634, and #635 remain `OPEN`;
     #371, #570, and #575 remain `CLOSED`.
   - Adds
@@ -2107,6 +2116,8 @@ remain the source of truth.
     schema/migration/provider/UI/auth/session/security/money/settlement/bill/
     OCR/storage/sync/reconciliation/deployment/CI/Docker/env/secret changes,
     issue closure/reopen, or Project mutation.
+  - Merge-gate report:
+    `.codex/reports/settleora-codex-report-20260705-1533-notification-369-gate-review-pr707-merge-gate.md`.
 
 ### Issue #403 - Day 1 email, push, provider, preference, delivery-state split
 
