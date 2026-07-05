@@ -27,9 +27,13 @@
 
 ## PR
 
-- PR URL: `PENDING_BEFORE_PUSH`
-- PR state: `PENDING_BEFORE_PUSH`
-- PR head SHA: `70c3e6f891f8a8cfafd9d975c53f867fc5133c22`
+- PR URL: https://github.com/tommytang213/Settleora/pull/709
+- PR state at creation readback: `OPEN`
+- PR draft state at creation readback: `false`
+- PR base/head at creation readback:
+  `main` <- `docs/notification-369-auth-security-source-decision-20260705`
+- PR head SHA at creation readback:
+  `06579389a380968b61de539944da5f953398147d`
 
 ## Files Changed
 
