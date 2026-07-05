@@ -20,6 +20,65 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #369 - Session revocation notification runtime readiness decision
+
+- GitHub state/project status: issue `OPEN`; Project field mutation was not
+  attempted.
+- Last verified at main SHA:
+  `8e4178b811354b7fc0377fa2d7955aa26d64bf61`.
+- Verification timestamp:
+  `2026-07-05 18:32 HKT` task window.
+- Runtime readiness packet:
+  `docs/planning/NOTIFICATION_369_SESSION_REVOCATION_RUNTIME_READINESS_DECISION_PACKET.md`.
+- Decision digest:
+  runtime is `BLOCKED_PENDING_MANUAL_DECISIONS`. PR #711 supplied the
+  source-state gate for user-initiated current-account per-session revocation,
+  and PR #712 supplied the target/event gate recommending
+  `security.session_revoked`, `auth_session`, `security.session_revoked.v1`,
+  and first-class `authSessionId`, but runtime still needs explicit manual
+  auth/security approval and a reviewed schema/OpenAPI/generated-client
+  boundary before implementation.
+- Smallest future runtime slice if approved:
+  one successful API-owned revocation of one non-current session owned by the
+  authenticated account, one affected account owner's server-mode profile
+  recipient, safe in-app notification only, first-class `authSessionId` target,
+  current-user notification re-fetch, and current-account authorized
+  auth/session re-fetch. Auth audit remains the security source of truth.
+- Remaining manual decisions:
+  approve the event as user-facing, approve actor self-notification for this
+  exact event, approve `auth_session`/`authSessionId`, approve the minimal
+  schema/OpenAPI/generated-client diff, confirm writer placement and
+  duplicate/transaction behavior, and confirm audit/redaction rules.
+- Out-of-scope posture:
+  admin revocation, account-wide revocation, suspicious/replay/session-family
+  revocation, current-session sign-out, expiry, denied attempts, credential/
+  MFA/passkey/provider changes, provider sending, SMTP/APNs/FCM activation,
+  device-token lifecycle, mobile/web/admin UI, #371 broad notification-open/
+  deep-link behavior, unrelated notification families, unrelated auth/session
+  runtime, money/bill/settlement/OCR/storage/sync/reconciliation behavior,
+  Docker/env/deployment/CI/CodeMagic/TestFlight behavior, and secrets remain
+  out of scope.
+- Future validation posture:
+  an approved runtime PR should run docs/scaffold/OpenAPI/client/API validation
+  if it includes the expected API/schema/OpenAPI/generated-client changes, plus
+  focused source, recipient, self-notification, duplicate, target authorization,
+  stale/unauthorized fallback, redaction, read/archive isolation, and provider-
+  disabled tests.
+- Issue posture:
+  keep #369 open. Keep #368, #403, #634, and #635 open. Keep #371, #570, and
+  #575 closed unless a concrete regression or separately approved follow-up is
+  found.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, notification writers/
+  constants/event handlers, provider sending, provider config/secrets, device-
+  token lifecycle, delivery attempts, admin policy mutation/write API, UI/
+  Figma, #371 behavior, auth/session/security runtime, login/current-user/
+  session middleware/token issuance/revocation endpoints, money/settlement/
+  bill/OCR/storage/sync/reconciliation behavior, deployment/CI/Docker/env/
+  CodeMagic/TestFlight behavior, secrets, issue closure/reopen, or Project
+  fields.
+
 ### Issue #369 - Session revocation notification target/event design gate
 
 - GitHub state/project status: issue `OPEN`; Project field mutation was not
