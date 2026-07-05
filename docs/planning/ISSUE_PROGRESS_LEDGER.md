@@ -20,6 +20,49 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset and recovery policy gate after PR #729
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Architecture Review`.
+- Last verified at main SHA:
+  `603235b15c2b5971bc498e46cce3c1b6d1d9fa31`.
+- Verification timestamp:
+  `2026-07-06 01:01 HKT` task window.
+- Policy gate packet:
+  `docs/planning/AUTH_PASSWORD_RESET_RECOVERY_POLICY_GATE.md`.
+- Completed PR #729 slice:
+  current-account local password change runtime only, merged as PR #729 at
+  `603235b15c2b5971bc498e46cce3c1b6d1d9fa31`, with PR head
+  `1b1daaa26646adcf3dcc3b7a124c6eb700ae3636`.
+- Current-state clarification:
+  MFA/passkey/recovery-code foundations, including recovery-code batches and
+  verifiers, exist in current repo state, but they are not general password
+  reset tokens and must not be reused as password reset, first-owner recovery,
+  or admin reset authority without a separate auth/security design.
+- Remaining gates:
+  user-initiated password reset, first-owner/break-glass recovery,
+  owner/admin reset or change for another local user, invitation/public
+  registration credential creation, OIDC/passkey/MFA interaction policy,
+  password-change UI, user-facing security notifications, reset/recovery abuse
+  and rate-limit policy, and final auth/security acceptance remain incomplete.
+- Recommended next posture:
+  runtime remains blocked pending manual decisions. The smallest next safe
+  child is a docs-only decision gate for Day 1 local password reset delivery
+  and token policy before any schema/OpenAPI/runtime/UI work.
+- Issue posture:
+  keep #336 and #339 open. Do not close either issue from PR #729 or this
+  docs-only packet.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, auth/session/security
+  enforcement, credential/session/token issuance, password hashing, reset/
+  recovery/admin credential runtime, invitation/public-registration runtime,
+  notification runtime, mobile/web/admin UI, provider delivery, deployment/
+  Docker/CI/CodeMagic/TestFlight behavior, secrets/config/env, money/
+  settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, or Project fields.
+
 ### Issues #336/#339 - Current-account password change runtime slice
 
 - GitHub state/project status:
