@@ -38,7 +38,7 @@ jobs:
             -v "${PWD}:/src" \
             -w /src \
             semgrep/semgrep:1.167.0 \
-            semgrep scan --config auto --sarif --output semgrep-results.sarif --metrics=off .
+            semgrep scan --config p/default --sarif --output semgrep-results.sarif --metrics=off .
           status="$?"
           if [ ! -s semgrep-results.sarif ]; then
             echo "Semgrep did not produce semgrep-results.sarif."
