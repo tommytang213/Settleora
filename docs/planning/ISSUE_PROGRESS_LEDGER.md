@@ -20,6 +20,55 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Local password reset internal runtime foundation branch
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `feature/auth-local-password-reset-internal-runtime-foundation-20260706`.
+- Baseline:
+  `origin/main` at `1fd45765344d603c166e788661acfe871a7d2b0b`,
+  the PR #738 merge commit.
+- Verification timestamp:
+  `2026-07-06 15:00 HKT` task window.
+- Completed branch checkpoint:
+  internal API/domain password reset runtime foundation only. The branch adds
+  internal local password reset request, material issue, and completion service
+  boundaries; purpose-bound hash-backed reset material helpers; credential
+  replacement through the existing local password hashing/credential workflow;
+  account-wide active session and refresh/session-family revocation after
+  successful internal completion; bounded auth audit events; and focused tests
+  proving route non-exposure, no material creation when provider delivery is
+  unavailable, hash-only material persistence, replacement of older material,
+  one-time completion/replay handling, credential replacement, session-family
+  revocation, and audit redaction.
+- Public route exposure:
+  still blocked. The branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`.
+- Current-state clarification:
+  runtime remains internal-service-only. No reset SMTP/email/provider delivery,
+  notification runtime, UI, OpenAPI/generated-client, schema/migration,
+  deployment/config/secrets, or public reset endpoint exposure is added.
+- Remaining gates:
+  SMTP/email provider configuration and verification, optional admin-delivered
+  recovery, public route exposure after delivery approval, notification
+  event/target/redaction, UI/Figma/mobile/web/admin/product copy, reset abuse
+  threshold tuning, audit retention/final audit acceptance, and final
+  auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. Keep #339 in `Needs Decision` unless a later
+  explicitly scoped metadata task changes it.
+- Scope confirmation:
+  this checkpoint changes internal auth runtime/test/ledger files only. It does
+  not change public API route exposure, OpenAPI/contracts, generated clients,
+  schema/migrations, provider delivery, notification runtime, UI, secrets/
+  config/env, deployment/Docker/CI/Codemagic/TestFlight behavior, money/
+  settlement/
+  payment/bill/OCR/storage/sync/import/export/backup/restore/reconciliation
+  behavior, issue closure, or Project fields.
+
 ### Issues #336/#339 - Local password reset API runtime readiness gate
 
 - GitHub state/project status:

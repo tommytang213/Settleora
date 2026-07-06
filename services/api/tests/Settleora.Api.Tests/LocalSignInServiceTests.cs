@@ -822,6 +822,14 @@ public sealed class LocalSignInServiceTests
         {
             throw new NotSupportedException();
         }
+
+        public Task<PasswordCredentialResetResult> ResetLocalPasswordAsync(
+            Guid authAccountId,
+            string newPassword,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 
     private sealed class FakeRefreshSessionRuntimeService : IAuthRefreshSessionRuntimeService

@@ -11,6 +11,7 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
     private const string CredentialCreatedAction = "credential.created";
     private const string CredentialVerificationAction = "credential.verification";
     private const string CredentialPasswordChangedAction = "credential.password_changed";
+    private const string CredentialPasswordResetAction = "credential.password_reset";
 
     private readonly SettleoraDbContext dbContext;
     private readonly IPasswordHashingService passwordHashingService;
@@ -366,6 +367,89 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         return changedResult;
     }
 
+    public async Task<PasswordCredentialResetResult> ResetLocalPasswordAsync(
+        Guid authAccountId,
+        string newPassword,
+        CancellationToken cancellationToken = default)
+    {
+        var occurredAtUtc = timeProvider.GetUtcNow();
+        var account = await dbContext.Set<AuthAccount>()
+            .SingleOrDefaultAsync(account => account.Id == authAccountId, cancellationToken);
+
+        if (!IsAccountEligibleForLocalCredential(account))
+        {
+            var result = PasswordCredentialResetResult.Failure(
+                PasswordCredentialResetStatus.AccountUnavailable);
+            await WritePasswordResetAuditAndSaveAsync(result, account?.Id, occurredAtUtc, cancellationToken);
+            return result;
+        }
+
+        var credential = await dbContext.Set<LocalPasswordCredential>()
+            .SingleOrDefaultAsync(
+                credential => credential.AuthAccountId == authAccountId,
+                cancellationToken);
+
+        var unavailableResult = GetPasswordResetUnavailableResult(credential);
+        if (unavailableResult is not null)
+        {
+            await WritePasswordResetAuditAndSaveAsync(unavailableResult, authAccountId, occurredAtUtc, cancellationToken);
+            return unavailableResult;
+        }
+
+        var storedHash = new StoredPasswordHash(
+            credential!.PasswordHash,
+            credential.PasswordHashAlgorithm,
+            credential.PasswordHashAlgorithmVersion,
+            credential.PasswordHashParameters,
+            credential.RequiresRehash);
+
+        if (passwordHashingService.VerifyPassword(newPassword, storedHash).Succeeded)
+        {
+            var result = PasswordCredentialResetResult.Failure(PasswordCredentialResetStatus.SamePassword);
+            await WritePasswordResetAuditAndSaveAsync(result, authAccountId, occurredAtUtc, cancellationToken);
+            return result;
+        }
+
+        var hashResult = passwordHashingService.HashPassword(newPassword);
+        if (!hashResult.Succeeded)
+        {
+            var result = PasswordCredentialResetResult.HashFailure(hashResult.FailureReason!.Value);
+            await WritePasswordResetAuditAndSaveAsync(result, authAccountId, occurredAtUtc, cancellationToken);
+            return result;
+        }
+
+        credential.PasswordHash = hashResult.Verifier;
+        credential.PasswordHashAlgorithm = hashResult.Algorithm;
+        credential.PasswordHashAlgorithmVersion = hashResult.AlgorithmVersion;
+        credential.PasswordHashParameters = hashResult.ParametersJson;
+        credential.LastVerifiedAtUtc = occurredAtUtc;
+        credential.UpdatedAtUtc = occurredAtUtc;
+        credential.RequiresRehash = false;
+
+        var resetResult = PasswordCredentialResetResult.Reset();
+        await WritePasswordResetAuditAsync(resetResult, authAccountId, occurredAtUtc, cancellationToken);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            var result = PasswordCredentialResetResult.Failure(
+                PasswordCredentialResetStatus.PersistenceFailed);
+            await WritePersistenceFailureAuditAfterFailedSaveAsync(
+                CredentialPasswordResetAction,
+                AuthAuditOutcomes.Failure,
+                authAccountId,
+                result.Status.ToString(),
+                occurredAtUtc,
+                cancellationToken);
+            return result;
+        }
+
+        return resetResult;
+    }
+
     private static bool IsAccountEligibleForLocalCredential(AuthAccount? account)
     {
         return account is
@@ -422,6 +506,24 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
                 PasswordCredentialVerificationStatus.CredentialDisabled => PasswordCredentialChangeStatus.CredentialDisabled,
                 PasswordCredentialVerificationStatus.CredentialRevoked => PasswordCredentialChangeStatus.CredentialRevoked,
                 _ => PasswordCredentialChangeStatus.CredentialUnavailable
+            });
+    }
+
+    private static PasswordCredentialResetResult? GetPasswordResetUnavailableResult(
+        LocalPasswordCredential? credential)
+    {
+        var verificationResult = GetCredentialUnavailableResult(credential);
+        if (verificationResult is null)
+        {
+            return null;
+        }
+
+        return PasswordCredentialResetResult.Failure(
+            verificationResult.Status switch
+            {
+                PasswordCredentialVerificationStatus.CredentialDisabled => PasswordCredentialResetStatus.CredentialDisabled,
+                PasswordCredentialVerificationStatus.CredentialRevoked => PasswordCredentialResetStatus.CredentialRevoked,
+                _ => PasswordCredentialResetStatus.CredentialUnavailable
             });
     }
 
@@ -519,6 +621,42 @@ internal sealed class AuthCredentialWorkflowService : IAuthCredentialWorkflowSer
         CancellationToken cancellationToken)
     {
         await WritePasswordChangeAuditAsync(result, subjectAuthAccountId, occurredAtUtc, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private ValueTask WritePasswordResetAuditAsync(
+        PasswordCredentialResetResult result,
+        Guid? subjectAuthAccountId,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var outcome = result.Status switch
+        {
+            PasswordCredentialResetStatus.Reset => AuthAuditOutcomes.Success,
+            PasswordCredentialResetStatus.AccountUnavailable => AuthAuditOutcomes.Denied,
+            PasswordCredentialResetStatus.CredentialUnavailable => AuthAuditOutcomes.Denied,
+            PasswordCredentialResetStatus.CredentialDisabled => AuthAuditOutcomes.Denied,
+            PasswordCredentialResetStatus.CredentialRevoked => AuthAuditOutcomes.Revoked,
+            PasswordCredentialResetStatus.SamePassword => AuthAuditOutcomes.Denied,
+            _ => AuthAuditOutcomes.Failure
+        };
+
+        return WriteAuditAsync(
+            CredentialPasswordResetAction,
+            outcome,
+            subjectAuthAccountId,
+            result.Status.ToString(),
+            occurredAtUtc,
+            cancellationToken);
+    }
+
+    private async ValueTask WritePasswordResetAuditAndSaveAsync(
+        PasswordCredentialResetResult result,
+        Guid? subjectAuthAccountId,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        await WritePasswordResetAuditAsync(result, subjectAuthAccountId, occurredAtUtc, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
