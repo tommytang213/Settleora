@@ -48,7 +48,7 @@ builder.Services.AddDatabaseMigrationRunner();
 builder.Services.AddPasswordHashing(builder.Configuration);
 builder.Services.AddAuthCredentialWorkflow();
 builder.Services.AddCurrentAccountPasswordChange();
-builder.Services.AddLocalPasswordResetRuntime();
+builder.Services.AddLocalPasswordResetRuntime(builder.Configuration);
 builder.Services.AddAdminLocalUsers();
 builder.Services.AddLocalOwnerBootstrap();
 builder.Services.AddAuthSessionRuntime(builder.Configuration);

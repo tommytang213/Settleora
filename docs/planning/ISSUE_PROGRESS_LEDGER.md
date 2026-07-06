@@ -20,6 +20,51 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset SMTP provider config verification foundation
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `feature/auth-local-password-reset-smtp-provider-config-verification-20260706`.
+- Baseline:
+  `origin/main` at `b441bb7ecab058c8891962fdbe83f9312f64644a`,
+  the PR #743 merge commit.
+- Verification timestamp:
+  `2026-07-06 22:45 HKT` task window.
+- Completed branch checkpoint:
+  internal password-reset SMTP/email delivery configuration readiness
+  foundation. The API can evaluate whether future local-account password reset
+  email delivery is disabled, has production SMTP readiness, has an explicit
+  local/test sink mode, has a configured safe public origin, and uses the
+  approved 60 minute default / 15-120 minute reset-link lifetime range.
+- Public route exposure:
+  still blocked. This branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`.
+- Redaction posture:
+  readiness results expose only bounded status/category values and lifetime
+  minutes. They do not expose SMTP hostnames, usernames, passwords, configured
+  public origins, query strings, reset material, tokens, provider payloads, or
+  raw provider diagnostics.
+- Required next gates:
+  reset-link builder and redacted template review, internal delivery
+  orchestration without route exposure, reset-specific abuse/provider-send
+  throttles, audit/redaction acceptance, notification event/target/redaction if
+  used, UI/Figma/product copy, final public route exposure review, and final
+  auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. This verifier is a bounded internal readiness
+  foundation only; it does not send password reset email or approve public
+  request/complete route exposure.
+- Scope confirmation:
+  this checkpoint does not change OpenAPI/contracts, generated clients,
+  schema/migrations, SMTP/email sending, reset email templates, reset-link
+  construction, public endpoint mappings, UI, secrets/config/env samples,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, money/settlement/payment/
+  bill/OCR/storage/sync/import/export/backup/restore/reconciliation behavior,
+  issue closure, or Project fields.
+
 ### Issues #336/#339 - Local password reset SMTP provider readiness gate
 
 - GitHub state/project status:
