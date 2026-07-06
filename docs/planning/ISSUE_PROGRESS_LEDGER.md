@@ -20,6 +20,54 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset internal delivery orchestration PR-open checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `feature/auth-local-password-reset-internal-delivery-orchestration-20260707`.
+- Baseline:
+  `origin/main` at `89fb5ca2384dfa53115730c1698f5197827b67d8`,
+  the PR #745 merge commit.
+- Verification timestamp:
+  `2026-07-07 01:15 HKT` task window.
+- Completed branch checkpoint:
+  internal password-reset email delivery orchestration foundation only. The
+  branch connects the existing internal reset material issuer, password-reset
+  email delivery readiness, reset-link/template composer, and reset-specific
+  SMTP transport handoff behind readiness checks.
+- Delivery posture:
+  disabled/not-ready delivery refuses before material issuance or provider
+  handoff; production SMTP delivery requires the existing readiness gate;
+  local/test sink modes produce explicit no-SMTP sink results; provider
+  failures collapse to bounded redacted categories.
+- Redaction posture:
+  delivery results and `ToString()` readbacks do not expose reset material,
+  token/query-style URL content, submitted identifiers, recipient email
+  addresses, SMTP host/password, configured public origins, provider payloads,
+  or raw provider errors. Raw reset material appears only in the send-ready SMTP
+  message body handed to the provider boundary after readiness and composition
+  pass.
+- Public route exposure:
+  still blocked. This branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`.
+- Required next gates:
+  reset-specific abuse/provider-send throttles, audit/redaction acceptance,
+  notification event/target/redaction if used, UI/Figma/product copy, final
+  public route exposure review, and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. This checkpoint does not approve public
+  request/complete route exposure and does not complete the broader Day 1
+  password reset or auth/security epic.
+- Scope confirmation:
+  this checkpoint does not change OpenAPI/contracts, generated clients,
+  schema/migrations, public endpoint mappings, UI, secrets/config/env samples,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, money/settlement/payment/
+  bill/OCR/storage/sync/import/export/backup/restore/reconciliation behavior,
+  issue closure, or Project fields.
+
 ### Issues #336/#339 - Password reset link/template internal foundation
 
 - GitHub state/project status:
