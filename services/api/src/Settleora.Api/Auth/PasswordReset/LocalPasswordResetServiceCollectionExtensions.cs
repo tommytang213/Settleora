@@ -19,6 +19,7 @@ internal static class LocalPasswordResetServiceCollectionExtensions
         services.AddScoped<IPasswordResetAuditWriter, EfPasswordResetAuditWriter>();
         services.AddScoped<ILocalPasswordResetService, LocalPasswordResetService>();
         services.AddScoped<IPasswordResetEmailDeliveryReadinessService, PasswordResetEmailDeliveryReadinessService>();
+        services.AddScoped<IPasswordResetEmailTemplateComposer, PasswordResetEmailTemplateComposer>();
         return services;
     }
 }

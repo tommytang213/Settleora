@@ -15,6 +15,8 @@ internal sealed class PasswordResetEmailDeliveryOptions
 
     public string? PublicBaseUrl { get; init; }
 
+    public string ResetLinkPath { get; init; } = "/auth/password-reset";
+
     public TimeSpan ResetLinkLifetime { get; init; } = DefaultResetLinkLifetime;
 
     internal IReadOnlyCollection<string> GetValidationFailures()
@@ -31,6 +33,11 @@ internal sealed class PasswordResetEmailDeliveryOptions
         {
             failures.Add(
                 $"{SectionName}:{nameof(ResetLinkLifetime)} must be between {MinimumResetLinkLifetime} and {MaximumResetLinkLifetime}.");
+        }
+
+        if (!PasswordResetLinkPathPolicy.IsSafeRelativePath(ResetLinkPath))
+        {
+            failures.Add($"{SectionName}:{nameof(ResetLinkPath)} must be a safe rooted relative path.");
         }
 
         return failures;
