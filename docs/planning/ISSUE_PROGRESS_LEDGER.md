@@ -20,6 +20,61 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Local password reset schema/OpenAPI/runtime design gate
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Last verified at main SHA:
+  `a86be35a2c4be2cfc47294648282bdc5a39e90a5`.
+- Verification timestamp:
+  `2026-07-06 11:15 HKT` task window.
+- Design gate packet:
+  `docs/planning/AUTH_LOCAL_PASSWORD_RESET_SCHEMA_OPENAPI_RUNTIME_DESIGN_GATE.md`.
+- Recent PR and metadata readback:
+  PR #729 merged authenticated current-account password change only at
+  `603235b15c2b5971bc498e46cce3c1b6d1d9fa31`. PR #730 merged the docs-only
+  password reset/recovery policy gate at
+  `0004b153b833fd9793df6102cc1b3ce3d0385002`. PR #731 merged the docs-only
+  local reset delivery/token policy gate at
+  `9dbb47f65d886ab90ef6de8e31a7115bfbb9ac1e`. PR #732 merged Tommy's approved
+  local reset delivery/token policy decision at
+  `a86be35a2c4be2cfc47294648282bdc5a39e90a5`.
+- Current design digest:
+  the schema/OpenAPI/runtime design gate proposes a local-account-only reset
+  persistence model, endpoint family, service boundaries, audit taxonomy,
+  redaction matrix, validation matrix, and implementation slicing plan. It
+  keeps reset material hash/verifier-backed only, rejects raw tokens and raw
+  identifiers, preserves uniform public anti-enumeration responses, treats
+  newer material as replacing older outstanding material, and keeps successful
+  reset account-wide session and refresh/session-family revocation as the
+  default.
+- Current-state clarification:
+  runtime password reset is still not implemented. This checkpoint is technical
+  design only and does not approve schema, migrations, OpenAPI, generated
+  clients, API runtime endpoints, SMTP/email provider delivery, notification
+  runtime, UI/Figma/product copy, admin-delivered reset, or final auth/security
+  acceptance.
+- Remaining gates:
+  schema/migration/domain model implementation gate, OpenAPI/generated-client
+  contract gate, API/service runtime implementation gate, SMTP/email provider
+  configuration and verification gate, optional admin-delivered recovery gate,
+  notification event/target/redaction gate, UI/Figma/mobile/web gate, abuse
+  threshold tuning, audit retention approval, and final auth/security
+  acceptance.
+- Issue posture:
+  keep #336 and #339 open. Do not close either issue from this docs-only design
+  gate, and do not claim runtime password reset is implemented.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, auth/session/security
+  enforcement, credential/session/token issuance, password hashing, reset/
+  recovery/admin credential runtime, invitation/public-registration runtime,
+  notification runtime, mobile/web/admin UI, provider delivery, deployment/
+  Docker/CI/Codemagic/TestFlight behavior, secrets/config/env, money/
+  settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, or Project fields.
+
 ### Issues #336/#339 - Local password reset token policy approved decision
 
 - GitHub state/project status:
