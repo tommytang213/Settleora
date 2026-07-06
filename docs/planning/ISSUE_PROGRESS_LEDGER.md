@@ -20,6 +20,52 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Local password reset delivery readiness decision gate
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `docs/auth-local-password-reset-delivery-readiness-decision-gate-20260706`.
+- Baseline:
+  `origin/main` at `4051ee5aef1ae122e81b339155038c920525e25e`,
+  the PR #741 merge commit.
+- Verification timestamp:
+  `2026-07-06 20:35 HKT` task window.
+- Recent merged checkpoints:
+  PR #739 merged the internal local-account password reset runtime foundation at
+  `7a35823325b5207104ceb91866e087775e2a0b34`. PR #741 merged the non-blocking
+  Trivy/Semgrep CE scanner baseline at
+  `4051ee5aef1ae122e81b339155038c920525e25e`.
+- Completed branch checkpoint:
+  docs-only delivery readiness decision gate. The recommended Day 1 path is
+  SMTP/email reset-link delivery first, behind provider/configuration, base
+  URL, template redaction, delivery failure, audit/redaction, abuse, and final
+  auth/security gates. Any admin-delivered recovery fallback remains separately
+  approved and audited.
+- Public route exposure:
+  still blocked. This branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`.
+- Remaining gates:
+  SMTP/email provider configuration and verification, optional separately
+  approved admin-delivered recovery, reset-specific abuse/provider-send
+  thresholds, audit/redaction, notification event/target/redaction if used,
+  UI/Figma/mobile/web/admin/product copy, final public route exposure review,
+  and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. #336 remains open for broader auth/session/runtime
+  security. #339 remains open because password reset and credential-change
+  workflow still has delivery/public exposure/UI/final acceptance gates.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change public API route exposure,
+  runtime handlers, OpenAPI/contracts, generated clients, schema/migrations,
+  SMTP/email provider delivery/configuration, notification runtime, UI,
+  scanner configuration, secrets/config/env, deployment/Docker/CI/Codemagic/
+  TestFlight behavior, money/settlement/payment/bill/OCR/storage/sync/import/
+  export/backup/restore/reconciliation behavior, issue closure, or Project
+  fields.
+
 ### Issues #336/#339 - Local password reset internal runtime bucket hardening branch
 
 - GitHub state/project status:
