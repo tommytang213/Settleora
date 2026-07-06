@@ -20,6 +20,55 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Local password reset schema/domain foundation branch
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `feature/auth-local-password-reset-schema-domain-20260706`.
+- Baseline:
+  `origin/main` at `6a6893e1c1ccb323733cde627e6df1a753622161`,
+  the PR #733 merge commit.
+- Verification timestamp:
+  `2026-07-06 12:10 HKT` task window.
+- Completed slice:
+  schema/domain foundation only for local-account password reset request
+  material. The branch adds `AuthPasswordResetRequest` and bounded category
+  constants, maps `auth_password_reset_requests`, adds an explicit EF Core
+  migration, and adds focused schema/migration tests.
+- Schema digest:
+  the table stores bounded purpose/status/scope/delivery/provider-send/
+  revocation categories, nullable account and active-at-issuance local password
+  credential references, nullable hash-backed reset material fields, lifecycle
+  timestamps, safe abuse bucket references, correlation IDs, cleanup timestamp,
+  and replacement self-reference. It includes restrictive FKs, bounded check
+  constraints, filtered unique material-hash lookup, pending account/purpose
+  lookup, account/purpose/status/expiry lookup, and expiry/cleanup indexes.
+- Current-state clarification:
+  runtime password reset is still not implemented. This checkpoint does not add
+  public password reset endpoints, OpenAPI paths or schemas, generated clients,
+  SMTP/email delivery, provider configuration, notification runtime, UI/Figma,
+  mobile/web/admin behavior, session revocation runtime for reset, abuse
+  threshold runtime, or final auth/security acceptance.
+- Remaining gates:
+  OpenAPI/generated-client contract gate, API/service runtime implementation
+  gate, SMTP/email provider configuration and verification gate, optional
+  admin-delivered recovery gate, notification event/target/redaction gate,
+  UI/Figma/mobile/web/product copy gate, abuse threshold tuning, audit
+  retention approval, and final auth/security acceptance. Schema/migration
+  merge remains manual-gated because auth/security persistence is sensitive.
+- Issue posture:
+  keep #336 and #339 open. Do not claim Day 1 password reset runtime is
+  complete from this schema/domain branch.
+- Scope confirmation:
+  this checkpoint changes auth schema/domain/test/report/ledger files only. It
+  does not change public API behavior, OpenAPI/contracts, generated clients,
+  provider delivery, notification runtime, UI, secrets/config/env, deployment/
+  Docker/CI/Codemagic/TestFlight behavior, money/settlement/payment/bill/OCR/
+  storage/sync/import/export/backup/restore/reconciliation behavior, issue
+  closure, or Project fields.
+
 ### Issues #336/#339 - Local password reset schema/OpenAPI/runtime design gate
 
 - GitHub state/project status:

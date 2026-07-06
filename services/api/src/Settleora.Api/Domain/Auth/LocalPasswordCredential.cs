@@ -27,4 +27,7 @@ public sealed class LocalPasswordCredential
     public DateTimeOffset? RevokedAtUtc { get; set; }
 
     public bool RequiresRehash { get; set; }
+
+    public ICollection<AuthPasswordResetRequest> PasswordResetRequests { get; } =
+        new List<AuthPasswordResetRequest>();
 }

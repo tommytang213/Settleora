@@ -27,6 +27,16 @@ public sealed class SettleoraDbContext : DbContext
     private const int LocalPasswordCredentialPasswordHashAlgorithmVersionMaxLength = 32;
     private const int LocalPasswordCredentialPasswordHashParametersMaxLength = 1024;
     private const int LocalPasswordCredentialStatusMaxLength = 16;
+    private const int AuthPasswordResetPurposeMaxLength = 32;
+    private const int AuthPasswordResetStatusMaxLength = 32;
+    private const int AuthPasswordResetMaterialHashMaxLength = 256;
+    private const int AuthPasswordResetMaterialHashVersionMaxLength = 32;
+    private const int AuthPasswordResetMaterialScopeMaxLength = 32;
+    private const int AuthPasswordResetRevocationReasonMaxLength = 120;
+    private const int AuthPasswordResetDeliveryCategoryMaxLength = 32;
+    private const int AuthPasswordResetProviderSendCategoryMaxLength = 32;
+    private const int AuthPasswordResetBucketRefMaxLength = 160;
+    private const int AuthPasswordResetCorrelationIdMaxLength = 120;
     private const int AuthSessionTokenHashMaxLength = 128;
     private const int AuthSessionStatusMaxLength = 16;
     private const int AuthSessionRevocationReasonMaxLength = 120;
@@ -148,6 +158,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<AuthAccount>(ConfigureAuthAccount);
         modelBuilder.Entity<AuthIdentity>(ConfigureAuthIdentity);
         modelBuilder.Entity<LocalPasswordCredential>(ConfigureLocalPasswordCredential);
+        modelBuilder.Entity<AuthPasswordResetRequest>(ConfigureAuthPasswordResetRequest);
         modelBuilder.Entity<AuthSession>(ConfigureAuthSession);
         modelBuilder.Entity<AuthSessionFamily>(ConfigureAuthSessionFamily);
         modelBuilder.Entity<AuthRefreshCredential>(ConfigureAuthRefreshCredential);
@@ -4958,6 +4969,198 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany(account => account.LocalPasswordCredentials)
             .HasForeignKey(credential => credential.AuthAccountId)
             .HasConstraintName("fk_local_password_credentials_auth_accounts_auth_account_id")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthPasswordResetRequest(EntityTypeBuilder<AuthPasswordResetRequest> entity)
+    {
+        entity.ToTable("auth_password_reset_requests", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_purpose",
+                "purpose IN ('local_password_reset')");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_status",
+                "status IN ('pending', 'consumed', 'expired', 'revoked', 'suspicious_replay')");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_material_scope",
+                "reset_material_scope IS NULL OR reset_material_scope IN ('email_link', 'typed_code')");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_revocation_reason",
+                "revocation_reason IS NULL OR revocation_reason IN ('replaced_by_newer_material', 'successful_reset', 'policy_blocked', 'account_disabled', 'provider_unavailable', 'cleanup_expired')");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_delivery_category",
+                "delivery_category IN ('email_link', 'admin_delivered_future_gate', 'provider_skipped', 'provider_unavailable')");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_provider_send_category",
+                "provider_send_category IN ('not_attempted', 'queued_or_sent', 'skipped_by_policy', 'throttled', 'failed_safe', 'provider_disabled')");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_material_hash_not_blank",
+                "reset_material_hash IS NULL OR length(btrim(reset_material_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_material_version_not_blank",
+                "reset_material_hash_version IS NULL OR length(btrim(reset_material_hash_version)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_material_complete",
+                "(reset_material_hash IS NULL AND reset_material_hash_version IS NULL AND reset_material_scope IS NULL AND issued_at_utc IS NULL AND expires_at_utc IS NULL) OR (reset_material_hash IS NOT NULL AND reset_material_hash_version IS NOT NULL AND reset_material_scope IS NOT NULL AND issued_at_utc IS NOT NULL AND expires_at_utc IS NOT NULL)");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_expiry_after_issued",
+                "issued_at_utc IS NULL OR expires_at_utc IS NULL OR expires_at_utc > issued_at_utc");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_source_bucket_not_blank",
+                "request_source_bucket_ref IS NULL OR length(btrim(request_source_bucket_ref)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_identifier_bucket_not_blank",
+                "identifier_bucket_ref IS NULL OR length(btrim(identifier_bucket_ref)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_combined_bucket_not_blank",
+                "combined_bucket_ref IS NULL OR length(btrim(combined_bucket_ref)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_global_bucket_not_blank",
+                "global_bucket_ref IS NULL OR length(btrim(global_bucket_ref)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_provider_bucket_not_blank",
+                "provider_send_bucket_ref IS NULL OR length(btrim(provider_send_bucket_ref)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_request_correlation_not_blank",
+                "request_correlation_id IS NULL OR length(btrim(request_correlation_id)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_password_reset_requests_audit_correlation_not_blank",
+                "audit_correlation_id IS NULL OR length(btrim(audit_correlation_id)) > 0");
+        });
+
+        entity.HasKey(request => request.Id);
+
+        entity.Property(request => request.Id).HasColumnName("id");
+
+        entity.Property(request => request.Purpose)
+            .HasColumnName("purpose")
+            .HasMaxLength(AuthPasswordResetPurposeMaxLength)
+            .IsRequired();
+
+        entity.Property(request => request.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthPasswordResetStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(request => request.AuthAccountId).HasColumnName("auth_account_id");
+
+        entity.Property(request => request.LocalPasswordCredentialId)
+            .HasColumnName("local_password_credential_id");
+
+        entity.Property(request => request.ResetMaterialHash)
+            .HasColumnName("reset_material_hash")
+            .HasMaxLength(AuthPasswordResetMaterialHashMaxLength);
+
+        entity.Property(request => request.ResetMaterialHashVersion)
+            .HasColumnName("reset_material_hash_version")
+            .HasMaxLength(AuthPasswordResetMaterialHashVersionMaxLength);
+
+        entity.Property(request => request.ResetMaterialScope)
+            .HasColumnName("reset_material_scope")
+            .HasMaxLength(AuthPasswordResetMaterialScopeMaxLength);
+
+        entity.Property(request => request.IssuedAtUtc).HasColumnName("issued_at_utc");
+        entity.Property(request => request.ExpiresAtUtc).HasColumnName("expires_at_utc");
+        entity.Property(request => request.ConsumedAtUtc).HasColumnName("consumed_at_utc");
+        entity.Property(request => request.RevokedAtUtc).HasColumnName("revoked_at_utc");
+        entity.Property(request => request.ReplacedAtUtc).HasColumnName("replaced_at_utc");
+        entity.Property(request => request.SuspiciousReplayAtUtc).HasColumnName("suspicious_replay_at_utc");
+        entity.Property(request => request.LastCheckedAtUtc).HasColumnName("last_checked_at_utc");
+        entity.Property(request => request.ReplacedByResetRequestId).HasColumnName("replaced_by_reset_request_id");
+
+        entity.Property(request => request.RevocationReason)
+            .HasColumnName("revocation_reason")
+            .HasMaxLength(AuthPasswordResetRevocationReasonMaxLength);
+
+        entity.Property(request => request.DeliveryCategory)
+            .HasColumnName("delivery_category")
+            .HasMaxLength(AuthPasswordResetDeliveryCategoryMaxLength)
+            .IsRequired();
+
+        entity.Property(request => request.ProviderSendCategory)
+            .HasColumnName("provider_send_category")
+            .HasMaxLength(AuthPasswordResetProviderSendCategoryMaxLength)
+            .IsRequired();
+
+        entity.Property(request => request.RequestSourceBucketRef)
+            .HasColumnName("request_source_bucket_ref")
+            .HasMaxLength(AuthPasswordResetBucketRefMaxLength);
+
+        entity.Property(request => request.IdentifierBucketRef)
+            .HasColumnName("identifier_bucket_ref")
+            .HasMaxLength(AuthPasswordResetBucketRefMaxLength);
+
+        entity.Property(request => request.CombinedBucketRef)
+            .HasColumnName("combined_bucket_ref")
+            .HasMaxLength(AuthPasswordResetBucketRefMaxLength);
+
+        entity.Property(request => request.GlobalBucketRef)
+            .HasColumnName("global_bucket_ref")
+            .HasMaxLength(AuthPasswordResetBucketRefMaxLength);
+
+        entity.Property(request => request.ProviderSendBucketRef)
+            .HasColumnName("provider_send_bucket_ref")
+            .HasMaxLength(AuthPasswordResetBucketRefMaxLength);
+
+        entity.Property(request => request.RequestCorrelationId)
+            .HasColumnName("request_correlation_id")
+            .HasMaxLength(AuthPasswordResetCorrelationIdMaxLength);
+
+        entity.Property(request => request.AuditCorrelationId)
+            .HasColumnName("audit_correlation_id")
+            .HasMaxLength(AuthPasswordResetCorrelationIdMaxLength);
+
+        entity.Property(request => request.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(request => request.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(request => request.CleanupEligibleAtUtc).HasColumnName("cleanup_eligible_at_utc");
+
+        entity.HasIndex(request => request.ResetMaterialHash)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_password_reset_requests_material_hash")
+            .HasFilter("reset_material_hash IS NOT NULL");
+
+        entity.HasIndex(request => new { request.AuthAccountId, request.Purpose, request.Status, request.ExpiresAtUtc })
+            .HasDatabaseName("ix_auth_password_reset_requests_account_purpose_status_expires");
+
+        entity.HasIndex(request => new { request.AuthAccountId, request.Purpose, request.Status })
+            .HasDatabaseName("ix_auth_password_reset_requests_pending_account_purpose")
+            .HasFilter("status = 'pending' AND auth_account_id IS NOT NULL");
+
+        entity.HasIndex(request => request.ExpiresAtUtc)
+            .HasDatabaseName("ix_auth_password_reset_requests_expires_at_utc");
+
+        entity.HasIndex(request => request.CleanupEligibleAtUtc)
+            .HasDatabaseName("ix_auth_password_reset_requests_cleanup_eligible_at_utc");
+
+        entity.HasIndex(request => request.LocalPasswordCredentialId)
+            .HasDatabaseName("ix_auth_password_reset_requests_local_password_credential_id");
+
+        entity.HasIndex(request => request.ReplacedByResetRequestId)
+            .HasDatabaseName("ix_auth_password_reset_requests_replaced_by_id");
+
+        entity.HasOne(request => request.AuthAccount)
+            .WithMany(account => account.PasswordResetRequests)
+            .HasForeignKey(request => request.AuthAccountId)
+            .HasConstraintName("fk_auth_password_reset_requests_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(request => request.LocalPasswordCredential)
+            .WithMany(credential => credential.PasswordResetRequests)
+            .HasForeignKey(request => request.LocalPasswordCredentialId)
+            .HasConstraintName("fk_auth_password_reset_requests_local_password_credentials")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(request => request.ReplacedByResetRequest)
+            .WithMany(request => request.ReplacedResetRequests)
+            .HasForeignKey(request => request.ReplacedByResetRequestId)
+            .HasConstraintName("fk_auth_password_reset_requests_replaced_by_reset_request")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
