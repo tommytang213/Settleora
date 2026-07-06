@@ -107,6 +107,30 @@ export interface CurrentAccountPasswordChangeRequest {
 }
 
 /**
+ * Public local-account password reset request. It accepts only the submitted reset identifier; account IDs, profile IDs, credential IDs, delivery-category overrides, expiry overrides, provider flags, source keys, debug fields, and revocation choices are not accepted. API/domain auth services remain authoritative, generated clients are transport only, and this contract slice does not implement runtime behavior.
+ */
+export interface LocalPasswordResetRequest {
+  /**
+   * Submitted local-account reset identifier. The API must not return, document by example, or expose this value in responses, generated clients as response data, logs, audit internals, reset material, provider payloads, or token/hash fields.
+   */
+  resetIdentifier: string;
+}
+
+/**
+ * Public local-account password reset completion request. It accepts only submitted reset material plus a new password; account IDs, profile IDs, credential IDs, session IDs, provider flags, expiry overrides, revocation choices, audit metadata, and debug fields are not accepted. API/domain auth services remain authoritative, generated clients are transport only, and this contract slice does not implement runtime behavior.
+ */
+export interface LocalPasswordResetCompleteRequest {
+  /**
+   * Submitted reset material such as a link-derived value or future approved code. It must never be returned, logged, audited as raw material, documented by example, stored as a raw token, or exposed as a hash/verifier/provider payload.
+   */
+  resetMaterial: string;
+  /**
+   * Submitted replacement local password. The API stores only verifier output through the credential workflow boundary and never returns this plaintext value.
+   */
+  newPassword: string;
+}
+
+/**
  * Minimal refresh success response. Raw credential material is returned only once.
  */
 export interface RefreshSessionResponse {

@@ -11,7 +11,8 @@ info:
     must not be manually edited. This contract currently covers scaffold health
     checks, first-owner local bootstrap status/creation for fresh deployments,
     refresh-capable local sign-in, public refresh, current-account password
-    change, current-session sign-out, current-account sign-out-all,
+    change, local-account password reset request/complete transport contracts,
+    current-session sign-out, current-account sign-out-all,
     current-account session list and per-session revocation, the minimal
     current-user auth read boundary, and guarded
     self-profile read/update endpoints, first personal and group bill create/read
@@ -367,6 +368,60 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         default:
           description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/password-reset/request:
+    post:
+      summary: Request local password reset
+      description: Public local-account password reset request transport contract. Settleora reset applies only to local-account passwords; OIDC or provider-owned passwords must be recovered through the identity provider. The API and domain auth services remain authoritative for account lookup, reset-material issuance, provider delivery, abuse policy, audit, and runtime support. Generated clients are transport only and do not prove account existence, local credential state, token validity, provider delivery state, or permission. Runtime remains unimplemented by this contract slice. Responses, examples, generated clients, and docs examples must not expose raw reset tokens, reset links, reset codes, identifiers, passwords, hashes, token hashes, provider payloads, or audit internals.
+      operationId: requestLocalPasswordReset
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalPasswordResetRequest"
+      responses:
+        "202":
+          description: Reset request accepted for uniform processing. This response does not prove account existence, local credential state, token issuance, provider configuration, provider delivery, throttling state, policy state, or runtime support.
+        "400":
+          description: Request shape was rejected without revealing account existence, local-vs-OIDC state, provider state, delivery attempt state, policy-blocked state, token issuance, throttling internals, or reset runtime support.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Generic problem response that must not reveal account existence, local-vs-OIDC state, provider state, delivery attempt state, policy-blocked state, token issuance, throttling internals, or reset runtime support.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/password-reset/complete:
+    post:
+      summary: Complete local password reset
+      description: Public local-account password reset completion transport contract. Settleora reset applies only to local-account passwords; OIDC or provider-owned passwords must be recovered through the identity provider. The API and domain auth services remain authoritative for reset-material validation, password policy, credential replacement, session revocation, audit, and runtime support. Generated clients are transport only and do not prove account existence, reset-material validity, token state, delivery state, password-policy result, or permission. Runtime remains unimplemented by this contract slice. The endpoint must not issue access or refresh credentials in the response. Responses, examples, generated clients, and docs examples must not expose raw reset tokens, reset links, reset codes, identifiers, passwords, hashes, token hashes, provider payloads, or audit internals.
+      operationId: completeLocalPasswordReset
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalPasswordResetCompleteRequest"
+      responses:
+        "204":
+          description: Local password reset completed. No response body or access/refresh credentials are returned.
+        "400":
+          description: Reset completion failed or request shape was rejected without revealing whether reset material is expired, consumed, revoked, replayed, unknown, malformed, wrong-account, replaced, account-disabled, missing a local credential, OIDC-only, weak-password, policy-denied, or unsupported at runtime.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Generic problem response that must not reveal account existence, reset-material validity, token state, provider state, delivery attempt state, password-policy internals, session-revocation details, or runtime support.
           content:
             application/problem+json:
               schema:
@@ -11305,6 +11360,40 @@ components:
           maxLength: 4096
           writeOnly: true
           description: Submitted current local password. The API never stores, returns, audits, or logs this plaintext value.
+        newPassword:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 4096
+          writeOnly: true
+          description: Submitted replacement local password. The API stores only verifier output through the credential workflow boundary and never returns this plaintext value.
+    LocalPasswordResetRequest:
+      type: object
+      description: Public local-account password reset request. It accepts only the submitted reset identifier; account IDs, profile IDs, credential IDs, delivery-category overrides, expiry overrides, provider flags, source keys, debug fields, and revocation choices are not accepted. API/domain auth services remain authoritative, generated clients are transport only, and this contract slice does not implement runtime behavior.
+      additionalProperties: false
+      required:
+        - resetIdentifier
+      properties:
+        resetIdentifier:
+          type: string
+          minLength: 1
+          maxLength: 320
+          writeOnly: true
+          description: Submitted local-account reset identifier. The API must not return, document by example, or expose this value in responses, generated clients as response data, logs, audit internals, reset material, provider payloads, or token/hash fields.
+    LocalPasswordResetCompleteRequest:
+      type: object
+      description: Public local-account password reset completion request. It accepts only submitted reset material plus a new password; account IDs, profile IDs, credential IDs, session IDs, provider flags, expiry overrides, revocation choices, audit metadata, and debug fields are not accepted. API/domain auth services remain authoritative, generated clients are transport only, and this contract slice does not implement runtime behavior.
+      additionalProperties: false
+      required:
+        - resetMaterial
+        - newPassword
+      properties:
+        resetMaterial:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+          description: Submitted reset material such as a link-derived value or future approved code. It must never be returned, logged, audited as raw material, documented by example, stored as a raw token, or exposed as a hash/verifier/provider payload.
         newPassword:
           type: string
           format: password
