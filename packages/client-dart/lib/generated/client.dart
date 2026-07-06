@@ -286,6 +286,24 @@ class SettleoraApiClient {
     );
   }
 
+  Future<void> completeLocalPasswordReset(LocalPasswordResetCompleteRequest body, {Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      "/api/v1/auth/password-reset/complete",
+      body: body.toJson(),
+      headers: headers,
+    );
+  }
+
+  Future<void> requestLocalPasswordReset(LocalPasswordResetRequest body, {Map<String, String>? headers}) async {
+    await _send(
+      "POST",
+      "/api/v1/auth/password-reset/request",
+      body: body.toJson(),
+      headers: headers,
+    );
+  }
+
   Future<void> changeCurrentAccountPassword(CurrentAccountPasswordChangeRequest body, {required String accessToken, Map<String, String>? headers}) async {
     await _send(
       "POST",
