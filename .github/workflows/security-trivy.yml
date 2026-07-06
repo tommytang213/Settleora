@@ -1,0 +1,49 @@
+name: Security Trivy Scan
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "37 3 * * 2"
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: security-trivy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy:
+    name: Trivy repository scan
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        # Pinned from actions/checkout@v6.
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+
+      - name: Run Trivy filesystem scan
+        # Pinned from aquasecurity/trivy-action@v0.36.0.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          skip-dirs: .git,node_modules,.dart_tool,build,bin,obj,coverage,apps/mobile/ios/Pods
+
+      - name: Upload Trivy SARIF
+        if: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+        # Pinned from github/codeql-action/upload-sarif@v4.
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
