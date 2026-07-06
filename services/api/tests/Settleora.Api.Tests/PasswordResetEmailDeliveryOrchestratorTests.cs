@@ -16,6 +16,8 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
     private const string RecipientEmail = "recipient@example.invalid";
     private const string SmtpPassword = "smtp-password-placeholder";
     private const string ProviderPayload = "raw provider diagnostic payload";
+    private const string RequestThrottleCategory = PasswordResetThrottleCategories.Request;
+    private const string ProviderSendThrottleCategory = PasswordResetThrottleCategories.ProviderSend;
 
     [Fact]
     public async Task DisabledOrNotReadyDeliveryRefusesBeforeMaterialIssueOrProviderSend()
@@ -92,6 +94,73 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
     }
 
     [Fact]
+    public async Task RequestThrottleStopsBeforeMaterialIssueAndProviderSend()
+    {
+        var localReset = new FakeLocalPasswordResetService();
+        var transport = new CapturingSmtpEmailTransport();
+        var throttlePolicy = new RecordingPasswordResetAbuseThrottlePolicy
+        {
+            RequestDecision = PasswordResetThrottleDecision.Block(
+                PasswordResetThrottleCategories.Request,
+                PasswordResetThrottleScopes.Identifier)
+        };
+        var orchestrator = CreateOrchestrator(
+            CreateProductionOptions(),
+            NotificationPolicyReadinessStates.Configured,
+            CreateCompleteSmtpOptions(),
+            localReset,
+            transport,
+            throttlePolicy);
+
+        var result = await orchestrator.DeliverAsync(CreateRequest());
+
+        Assert.False(result.Accepted);
+        Assert.Equal(PasswordResetEmailDeliveryResultCategories.Throttled, result.Category);
+        Assert.Contains(RequestThrottleCategory, result.FailureCategories ?? []);
+        Assert.Contains(PasswordResetThrottleScopes.Identifier, result.FailureCategories ?? []);
+        Assert.Equal(1, throttlePolicy.CheckRequestCallCount);
+        Assert.Equal(0, throttlePolicy.RecordRequestCallCount);
+        Assert.Equal(0, throttlePolicy.CheckProviderSendCallCount);
+        Assert.False(localReset.IssueMaterialWasCalled);
+        Assert.False(transport.WasCalled);
+        AssertSafeResult(result);
+    }
+
+    [Fact]
+    public async Task ProviderSendThrottleStopsBeforeSmtpSendAfterSafeComposition()
+    {
+        var localReset = new FakeLocalPasswordResetService();
+        var transport = new CapturingSmtpEmailTransport();
+        var throttlePolicy = new RecordingPasswordResetAbuseThrottlePolicy
+        {
+            ProviderSendDecision = PasswordResetThrottleDecision.Block(
+                PasswordResetThrottleCategories.ProviderSend,
+                PasswordResetThrottleScopes.ProviderSend)
+        };
+        var orchestrator = CreateOrchestrator(
+            CreateProductionOptions(),
+            NotificationPolicyReadinessStates.Configured,
+            CreateCompleteSmtpOptions(),
+            localReset,
+            transport,
+            throttlePolicy);
+
+        var result = await orchestrator.DeliverAsync(CreateRequest());
+
+        Assert.False(result.Accepted);
+        Assert.Equal(PasswordResetEmailDeliveryResultCategories.Throttled, result.Category);
+        Assert.Equal(PasswordResetSmtpEmailSendResultCategories.ThrottledByPolicy, result.ProviderCategory);
+        Assert.Contains(ProviderSendThrottleCategory, result.FailureCategories ?? []);
+        Assert.Contains(PasswordResetThrottleScopes.ProviderSend, result.FailureCategories ?? []);
+        Assert.True(localReset.IssueMaterialWasCalled);
+        Assert.Equal(1, throttlePolicy.RecordRequestCallCount);
+        Assert.Equal(1, throttlePolicy.CheckProviderSendCallCount);
+        Assert.Equal(0, throttlePolicy.RecordProviderSendCallCount);
+        Assert.False(transport.WasCalled);
+        AssertSafeResult(result);
+    }
+
+    [Fact]
     public async Task ProductionSmtpAcceptedResultDoesNotExposeResetMaterialOrRecipient()
     {
         var transport = new CapturingSmtpEmailTransport();
@@ -108,6 +177,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.Equal(PasswordResetEmailDeliveryResultCategories.ProviderSendAccepted, result.Category);
         Assert.Equal(PasswordResetSmtpEmailSendResultCategories.Accepted, result.ProviderCategory);
         Assert.True(transport.WasCalled);
+        Assert.Equal(1, transport.SendAttemptCount);
         Assert.Equal(RecipientEmail, transport.To);
         Assert.Equal(PasswordResetEmailTemplateComposer.TemplateSubject, transport.Subject);
         Assert.Contains("resetMaterial=", transport.Body, StringComparison.Ordinal);
@@ -199,6 +269,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         services.AddLocalPasswordResetRuntime(configuration);
 
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetEmailDeliveryOrchestrator));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetAbuseThrottlePolicy));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetSmtpEmailSender));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetEmailDeliveryReadinessService));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetEmailTemplateComposer));
@@ -209,7 +280,8 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         string emailProviderReadiness,
         SmtpEmailNotificationOptions smtpOptions,
         FakeLocalPasswordResetService localPasswordResetService,
-        CapturingSmtpEmailTransport transport)
+        CapturingSmtpEmailTransport transport,
+        RecordingPasswordResetAbuseThrottlePolicy? throttlePolicy = null)
     {
         var deliveryOptionsMonitor = new FakeOptionsMonitor(deliveryOptions);
         var readinessService = new PasswordResetEmailDeliveryReadinessService(
@@ -222,7 +294,8 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
             readinessService,
             localPasswordResetService,
             composer,
-            sender);
+            sender,
+            throttlePolicy ?? new RecordingPasswordResetAbuseThrottlePolicy());
     }
 
     private static PasswordResetEmailDeliveryRequest CreateRequest(string? recipientEmail = RecipientEmail)
@@ -317,6 +390,8 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
     {
         public bool WasCalled { get; private set; }
 
+        public int SendAttemptCount { get; private set; }
+
         public string? To { get; private set; }
 
         public string? Subject { get; private set; }
@@ -331,6 +406,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
             CancellationToken cancellationToken)
         {
             WasCalled = true;
+            SendAttemptCount++;
             To = message.To.Single().Address;
             Subject = message.Subject;
             Body = message.Body;
@@ -341,6 +417,61 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
             }
 
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingPasswordResetAbuseThrottlePolicy : IPasswordResetAbuseThrottlePolicy
+    {
+        public PasswordResetThrottleDecision RequestDecision { get; set; } =
+            PasswordResetThrottleDecision.Allow(PasswordResetThrottleCategories.Request);
+
+        public PasswordResetThrottleDecision ProviderSendDecision { get; set; } =
+            PasswordResetThrottleDecision.Allow(PasswordResetThrottleCategories.ProviderSend);
+
+        public int CheckRequestCallCount { get; private set; }
+
+        public int RecordRequestCallCount { get; private set; }
+
+        public int CheckProviderSendCallCount { get; private set; }
+
+        public int RecordProviderSendCallCount { get; private set; }
+
+        public PasswordResetThrottleDecision CheckRequest(PasswordResetThrottleRequest request)
+        {
+            CheckRequestCallCount++;
+            AssertSafeThrottleRequest(request);
+            return RequestDecision;
+        }
+
+        public PasswordResetThrottleDecision CheckProviderSend(PasswordResetThrottleRequest request)
+        {
+            CheckProviderSendCallCount++;
+            AssertSafeThrottleRequest(request);
+            return ProviderSendDecision;
+        }
+
+        public void RecordRequestAttempt(PasswordResetThrottleRequest request)
+        {
+            RecordRequestCallCount++;
+            AssertSafeThrottleRequest(request);
+        }
+
+        public void RecordProviderSendAttempt(PasswordResetThrottleRequest request)
+        {
+            RecordProviderSendCallCount++;
+            AssertSafeThrottleRequest(request);
+        }
+
+        private static void AssertSafeThrottleRequest(PasswordResetThrottleRequest request)
+        {
+            var combined = string.Join(
+                " ",
+                request.ToString(),
+                request.IdentifierKey,
+                request.SourceKey);
+            Assert.DoesNotContain(SubmittedIdentifier, combined, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(RecipientEmail, combined, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(RawResetMaterial, combined, StringComparison.Ordinal);
         }
     }
 

@@ -9,17 +9,20 @@ internal sealed class PasswordResetEmailDeliveryOrchestrator
     private readonly ILocalPasswordResetService localPasswordResetService;
     private readonly IPasswordResetEmailTemplateComposer templateComposer;
     private readonly IPasswordResetSmtpEmailSender smtpEmailSender;
+    private readonly IPasswordResetAbuseThrottlePolicy throttlePolicy;
 
     public PasswordResetEmailDeliveryOrchestrator(
         IPasswordResetEmailDeliveryReadinessService readinessService,
         ILocalPasswordResetService localPasswordResetService,
         IPasswordResetEmailTemplateComposer templateComposer,
-        IPasswordResetSmtpEmailSender smtpEmailSender)
+        IPasswordResetSmtpEmailSender smtpEmailSender,
+        IPasswordResetAbuseThrottlePolicy throttlePolicy)
     {
         this.readinessService = readinessService;
         this.localPasswordResetService = localPasswordResetService;
         this.templateComposer = templateComposer;
         this.smtpEmailSender = smtpEmailSender;
+        this.throttlePolicy = throttlePolicy;
     }
 
     public async Task<PasswordResetEmailDeliveryResult> DeliverAsync(
@@ -33,6 +36,18 @@ internal sealed class PasswordResetEmailDeliveryOrchestrator
         {
             return PasswordResetEmailDeliveryResult.DisabledOrNotReady(readiness);
         }
+
+        var throttleRequest = new PasswordResetThrottleRequest(
+            request.SubmittedIdentifier,
+            request.SourceBucketRef,
+            request.RequestCorrelationId);
+        var requestThrottle = throttlePolicy.CheckRequest(throttleRequest);
+        if (!requestThrottle.Allowed)
+        {
+            return PasswordResetEmailDeliveryResult.Throttled(readiness, requestThrottle);
+        }
+
+        throttlePolicy.RecordRequestAttempt(throttleRequest);
 
         var materialResult = await localPasswordResetService.IssueMaterialAsync(
             new LocalPasswordResetMaterialIssueRequest(
@@ -68,12 +83,20 @@ internal sealed class PasswordResetEmailDeliveryOrchestrator
             return PasswordResetEmailDeliveryResult.SinkRecorded(composition);
         }
 
+        var providerSendThrottle = throttlePolicy.CheckProviderSend(throttleRequest);
+        if (!providerSendThrottle.Allowed)
+        {
+            return PasswordResetEmailDeliveryResult.Throttled(composition, providerSendThrottle);
+        }
+
         if (string.IsNullOrWhiteSpace(request.RecipientEmailAddress))
         {
             return PasswordResetEmailDeliveryResult.InvalidPolicy(
                 readiness,
                 [PasswordResetEmailDeliveryFailureCategories.RecipientUnavailable]);
         }
+
+        throttlePolicy.RecordProviderSendAttempt(throttleRequest);
 
         var sendResult = await smtpEmailSender.SendAsync(
             new PasswordResetSmtpEmailSendRequest(

@@ -15,6 +15,8 @@ internal static class LocalPasswordResetServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<
             IValidateOptions<PasswordResetEmailDeliveryOptions>,
             PasswordResetEmailDeliveryOptionsValidator>());
+        services.TryAddSingleton(_ => PasswordResetAbuseThrottleOptions.Default);
+        services.TryAddSingleton<IPasswordResetAbuseThrottlePolicy, InMemoryPasswordResetAbuseThrottlePolicy>();
         services.AddScoped<IPasswordResetMaterialService, PasswordResetMaterialService>();
         services.AddScoped<IPasswordResetAuditWriter, EfPasswordResetAuditWriter>();
         services.AddScoped<ILocalPasswordResetService, LocalPasswordResetService>();
