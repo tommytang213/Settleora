@@ -20,6 +20,56 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - PR #734 local password reset schema/domain foundation merged
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  #734 `feat(api): add local password reset schema foundation`.
+- Merge:
+  `bf2f6cd1526b2c71283c97a5f8bdf6aba60d0df7` into `main` from
+  `feature/auth-local-password-reset-schema-domain-20260706`.
+- Reviewed source head:
+  `d66a6328a84f70eb3a5f6d3145e5e182612b9df0`.
+- Previous `origin/main` before PR #734:
+  `6a6893e1c1ccb323733cde627e6df1a753622161`.
+- Verification timestamp:
+  `2026-07-06 13:10 HKT` post-merge hygiene task window.
+- Completed slice:
+  schema/domain foundation only for local-account password reset request
+  material. The merge adds the `AuthPasswordResetRequest` domain model and
+  bounded constants, maps `auth_password_reset_requests`, adds EF migration
+  `20260706041357_AddAuthPasswordResetRequestsFoundation`, and adds focused
+  schema/migration tests.
+- Merged diff scope:
+  exactly 16 auth schema/domain/test/ledger files. The merged diff excludes
+  `.codex/reports/**`.
+- Current-state clarification:
+  runtime password reset is still not implemented. PR #734 does not add public
+  password reset endpoints, OpenAPI paths or schemas, generated clients,
+  SMTP/email delivery, provider configuration, notification runtime, UI/Figma,
+  mobile/web/admin behavior, session revocation runtime for reset, abuse
+  threshold runtime, or final auth/security acceptance.
+- Remaining gates:
+  OpenAPI/generated-client contract gate, API/service runtime implementation
+  gate, SMTP/email provider configuration and verification gate, optional
+  admin-delivered recovery gate, notification event/target/redaction gate,
+  UI/Figma/mobile/web/product copy gate, abuse threshold tuning, audit
+  retention approval, and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. #339 should remain `Needs Decision` unless a later
+  explicitly scoped metadata task changes it. Do not claim Day 1 password reset
+  runtime is complete from this schema/domain merge.
+- Scope confirmation:
+  this checkpoint records an already merged auth schema/domain/migration slice.
+  It does not add runtime password reset endpoints or services, public API
+  behavior, OpenAPI/contracts, generated clients, provider delivery,
+  notification runtime, UI, secrets/config/env, deployment/Docker/CI/Codemagic/
+  TestFlight behavior, money/settlement/payment/bill/OCR/storage/sync/import/
+  export/backup/restore/reconciliation behavior, issue closure, or Project
+  field changes.
+
 ### Issues #336/#339 - Local password reset schema/domain foundation branch
 
 - GitHub state/project status:
