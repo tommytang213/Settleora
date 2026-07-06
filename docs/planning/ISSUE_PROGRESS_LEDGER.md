@@ -20,6 +20,71 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Local password reset API runtime readiness gate
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `docs/auth-local-password-reset-api-runtime-readiness-gate-20260706`.
+- Last verified at main SHA:
+  `65961d7a60b7c1732e2d932ad1c69b7439861541`, the PR #737 merge commit.
+- Verification timestamp:
+  `2026-07-06 14:20 HKT` task window.
+- Readiness gate packet:
+  `docs/planning/AUTH_LOCAL_PASSWORD_RESET_API_RUNTIME_READINESS_GATE.md`.
+- Recent PR and metadata readback:
+  PR #734 merged the local password reset schema/domain foundation at
+  `bf2f6cd1526b2c71283c97a5f8bdf6aba60d0df7` from reviewed head
+  `d66a6328a84f70eb3a5f6d3145e5e182612b9df0`. PR #736 merged the
+  OpenAPI/generated-client transport contract at
+  `ce18aaaf9975ec26b1a02e55fd3310c42273cb3f` from reviewed head
+  `03878c114bccd817fee1200c8cbf01bb1238d29d`. PR #737 merged the
+  OpenAPI/generated-client post-merge ledger checkpoint at
+  `65961d7a60b7c1732e2d932ad1c69b7439861541` from reviewed head
+  `0cc755e676d5a72e2c5b78e9710f83caf48545f0`.
+- Runtime readiness decision:
+  `READY_FOR_INTERNAL_SERVICE_ONLY`.
+- Current-state clarification:
+  schema/domain and OpenAPI/generated clients are merged, but runtime password
+  reset remains unimplemented. Current repo evidence does not contain explicit
+  approval that SMTP/email provider configuration is configured, verified, and
+  approved for password reset, and it does not contain a separately approved
+  admin-delivered recovery policy.
+- Public route exposure:
+  blocked. Do not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete` until the SMTP/email provider
+  configuration/verification gate or a separate admin-delivered recovery gate
+  is approved.
+- Allowed next bounded slice:
+  an internal API/service runtime foundation may proceed only with route
+  exposure disabled/unregistered and no outbound reset delivery. A separate
+  SMTP/email provider configuration and verification gate remains required
+  before public runtime exposure.
+- Existing provider/delivery finding:
+  the current SMTP email notification sender and provider readiness readout are
+  generic optional notification plumbing, default disabled/unconfigured unless
+  deployment options are present, and are not an approved password-reset
+  delivery provider or reset email content gate by themselves.
+- Remaining separate gates:
+  SMTP/email provider configuration and verification, optional admin-delivered
+  recovery, public route exposure after delivery approval, notification
+  event/target/redaction, UI/Figma/mobile/web/admin/product copy, reset abuse
+  threshold tuning, audit retention/final audit acceptance, and final
+  auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. Do not change Project fields from this docs-only
+  readiness gate.
+- Scope confirmation:
+  this checkpoint is docs-only and does not add runtime password reset
+  endpoints or services, public API behavior, OpenAPI/contracts, generated
+  clients, schema/migrations/domain model changes, SMTP/email provider
+  delivery/configuration, notification runtime, UI, secrets/config/env,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, money/settlement/
+  payment/bill/OCR/storage/sync/import/export/backup/restore/reconciliation
+  behavior, issue closure, or Project field changes.
+
 ### Issues #336/#339 - PR #736 local password reset OpenAPI/generated-client contract merged
 
 - GitHub state/project status:
