@@ -20,6 +20,52 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset abuse/provider-send throttles PR #748 post-merge checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  https://github.com/tommytang213/Settleora/pull/748.
+- Merge SHA:
+  `aef4d7f6768a5a5ededda91c04dda21eba81e0b0`.
+- Reviewed source head:
+  `f860b8155bd1686c0f04977ae31dda4ddd9100b4`.
+- Previous main/base:
+  `4ef9c0f1bc035a0e09b27e731af2104bf0911e55`.
+- Verification timestamp:
+  `2026-07-07 04:45 HKT` task window.
+- Completed merged checkpoint:
+  internal reset-specific abuse/provider-send throttle foundation for local
+  password reset email delivery orchestration. PR #748 keeps the throttle
+  policy inside the existing internal reset delivery path and does not expose
+  public password-reset routes.
+- Validation checkpoint:
+  PR #748 final gate recorded docs, scaffold, focused password-reset tests,
+  route-exposure guard, and full `npm run validate:api` passing with `1398`
+  API tests passed. GitHub checks passed on the exact reviewed source head
+  `f860b8155bd1686c0f04977ae31dda4ddd9100b4`.
+- Post-merge hygiene checkpoint:
+  the source branch was restored to the reviewed head; comments were posted to
+  #336 and #339; public password-reset request/complete runtime routes remained
+  blocked/unregistered after merge.
+- Required next gates:
+  delivery failure public-response acceptance, audit/redaction acceptance,
+  notification event/target/redaction if used, UI/Figma/product copy, final
+  public route exposure review, and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. PR #748 does not complete the broader
+  auth/session/runtime security epic, the Day 1 password reset and
+  credential-change workflow, public route exposure, user-visible reset UX, or
+  final auth/security acceptance.
+- Scope confirmation:
+  this checkpoint does not change runtime source, tests, OpenAPI/contracts,
+  generated clients, schema/migrations, public endpoint mappings, UI, secrets/
+  config/env samples, deployment/Docker/CI/Codemagic/TestFlight behavior,
+  notification outbox design, money/settlement/payment/bill/OCR/storage/sync/
+  import/export/backup/restore/reconciliation behavior, issue closure, or
+  Project fields.
+
 ### Issues #336/#339 - Password reset abuse/provider-send throttles PR-open checkpoint
 
 - GitHub state/project status:
