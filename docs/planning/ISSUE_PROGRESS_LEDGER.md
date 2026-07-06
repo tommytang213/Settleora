@@ -20,6 +20,63 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset abuse/provider-send throttles PR-open checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `feature/auth-local-password-reset-abuse-provider-send-throttles-20260707`.
+- PR:
+  https://github.com/tommytang213/Settleora/pull/748.
+- PR-open implementation head:
+  `f13deb310b45fb00581fa467cefbf623137f1a7f`.
+- Baseline:
+  `origin/main` at `4ef9c0f1bc035a0e09b27e731af2104bf0911e55`,
+  the PR #747 merge commit.
+- Verification timestamp:
+  `2026-07-07 03:00 HKT` task window.
+- Completed branch checkpoint:
+  internal reset-specific abuse/provider-send throttle foundation for the
+  existing local password reset delivery orchestration. The branch adds a
+  reset throttle policy boundary, an in-memory single-node foundation with
+  bounded source, identifier, combined, global, and provider-send scopes, and
+  orchestrator checks that block before reset material issuance and before
+  SMTP/provider handoff when policy says to throttle.
+- Redaction posture:
+  throttle request, decision, delivery result, and provider-throttled readbacks
+  expose only bounded status/category/scope values. They do not expose
+  submitted identifiers, account existence, recipient email addresses, reset
+  material, reset URLs, SMTP host/password, provider payloads, raw provider
+  errors, or raw bucket keys. Derived in-memory throttle keys are not persisted
+  to reset request rows or audit metadata by this slice.
+- Public route exposure:
+  still blocked. This branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`; the runtime route exposure guard
+  under `services/api/src` found no public password-reset mapping strings.
+- Validation checkpoint at PR-open implementation head:
+  `git diff --check` passed; focused password-reset throttle/readiness/
+  template/orchestration/route-exposure tests passed with 66 tests; the route
+  exposure guard passed. Full required PR-open validation is recorded in the
+  Codex report for the final PR head.
+- Required next gates:
+  delivery failure public-response acceptance, audit/redaction acceptance,
+  notification event/target/redaction if used, UI/Figma/product copy, final
+  public route exposure review, and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. #336 remains the broader auth/session/runtime
+  security epic. #339 remains the Day 1 password reset and credential-change
+  workflow umbrella because this PR does not expose public reset routes, does
+  not complete user-visible reset UX/product copy, and does not satisfy final
+  auth/security acceptance.
+- Scope confirmation:
+  this checkpoint does not change OpenAPI/contracts, generated clients,
+  schema/migrations, public endpoint mappings, UI, secrets/config/env samples,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, notification outbox
+  design, money/settlement/payment/bill/OCR/storage/sync/import/export/
+  backup/restore/reconciliation behavior, issue closure, or Project fields.
+
 ### Issues #336/#339 - Password reset internal delivery orchestration PR #746 post-merge checkpoint
 
 - GitHub state/project status:
