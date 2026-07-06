@@ -20,6 +20,64 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - PR #736 local password reset OpenAPI/generated-client contract merged
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  #736 `feat(api): add local password reset OpenAPI contract`.
+- Merge:
+  `ce18aaaf9975ec26b1a02e55fd3310c42273cb3f` into `main` from
+  `feature/auth-local-password-reset-openapi-clients-20260706`.
+- Reviewed source head:
+  `03878c114bccd817fee1200c8cbf01bb1238d29d`.
+- Previous `origin/main` before PR #736:
+  `a8f556ef671899a4c98924f66fe4c483eac7ce2f`.
+- Verification timestamp:
+  `2026-07-06 14:00 HKT` post-merge hygiene task window.
+- Completed slice:
+  OpenAPI/generated-client contract only for local-account password reset
+  request and completion. The merge adds contract paths
+  `POST /api/v1/auth/password-reset/request` with operation ID
+  `requestLocalPasswordReset` and
+  `POST /api/v1/auth/password-reset/complete` with operation ID
+  `completeLocalPasswordReset`, then refreshes the generated web and Dart
+  clients from the OpenAPI source.
+- Merged diff scope:
+  exactly the five intended OpenAPI/generated-client files:
+  `packages/contracts/openapi/settleora.v1.yaml`,
+  `packages/client-web/src/generated/client.ts`,
+  `packages/client-web/src/generated/models.ts`,
+  `packages/client-dart/lib/generated/client.dart`, and
+  `packages/client-dart/lib/generated/models.dart`. The merged diff excludes
+  `.codex/reports/**`.
+- Current-state clarification:
+  runtime password reset is still not implemented. PR #736 does not add API
+  runtime handlers, service implementation, SMTP/email provider delivery or
+  configuration, notification runtime, UI/Figma/mobile/web/admin behavior,
+  schema/migrations/domain model changes, auth config/secrets/env/appsettings,
+  session revocation runtime for reset, abuse threshold runtime, or final
+  auth/security acceptance.
+- Remaining gates:
+  API/service runtime implementation gate, SMTP/email provider configuration
+  and verification gate, optional admin-delivered recovery gate, notification
+  event/target/redaction gate, UI/Figma/mobile/web/product copy gate, abuse
+  threshold tuning, audit/final auth-security acceptance, and any future
+  runtime merge gate.
+- Issue posture:
+  keep #336 and #339 open. #339 should remain `Needs Decision` unless a later
+  explicitly scoped metadata task changes it. Do not claim Day 1 password reset
+  runtime is complete from this OpenAPI/generated-client contract merge.
+- Scope confirmation:
+  this checkpoint records an already merged auth OpenAPI/generated-client
+  contract slice. It does not add runtime password reset endpoints or services,
+  provider delivery, notification runtime, UI, schema/migrations/domain model
+  changes, secrets/config/env, deployment/Docker/CI/Codemagic/TestFlight
+  behavior, money/settlement/payment/bill/OCR/storage/sync/import/export/
+  backup/restore/reconciliation behavior, issue closure, or Project field
+  changes.
+
 ### Issues #336/#339 - PR #734 local password reset schema/domain foundation merged
 
 - GitHub state/project status:
