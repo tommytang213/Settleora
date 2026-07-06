@@ -1,0 +1,8 @@
+.git/
+node_modules/
+.dart_tool/
+build/
+bin/
+obj/
+coverage/
+apps/mobile/ios/Pods/
