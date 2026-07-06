@@ -28,6 +28,9 @@ public sealed class AuthAccount
 
     public ICollection<LocalPasswordCredential> LocalPasswordCredentials { get; } = new List<LocalPasswordCredential>();
 
+    public ICollection<AuthPasswordResetRequest> PasswordResetRequests { get; } =
+        new List<AuthPasswordResetRequest>();
+
     public ICollection<AuthSession> Sessions { get; } = new List<AuthSession>();
 
     public ICollection<AuthSessionFamily> SessionFamilies { get; } = new List<AuthSessionFamily>();
