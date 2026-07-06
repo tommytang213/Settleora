@@ -20,6 +20,65 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Local password reset token policy approved decision
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Last verified at main SHA:
+  `9dbb47f65d886ab90ef6de8e31a7115bfbb9ac1e`.
+- Verification timestamp:
+  `2026-07-06 10:45 HKT` task window.
+- Policy decision packet:
+  `docs/planning/AUTH_LOCAL_PASSWORD_RESET_TOKEN_POLICY_GATE.md`.
+- Recent PR and metadata readback:
+  PR #731 merged the docs-only local password reset delivery/token policy gate at
+  `9dbb47f65d886ab90ef6de8e31a7115bfbb9ac1e`. The later metadata hygiene task
+  changed #339 Project status from `Needs Architecture Review` to
+  `Needs Decision`; #336 stayed `Inbox`.
+- Manual decision digest:
+  Tommy approved the Day 1 local-account password reset delivery/token policy
+  for subsequent technical design. Approved values are local-account-only reset,
+  no Settleora reset for OIDC/provider-owned passwords, SMTP/email reset links
+  only when the provider policy is configured/verified/approved, no runtime
+  forgotten-password endpoint without approved SMTP/email or separately approved
+  admin-delivered recovery policy, admin-delivered material as a separate later
+  gate, uniform anti-enumeration-safe public responses, high-entropy one-time
+  scoped hash/verifier-backed reset material with no raw storage, 60 minute
+  default email-link expiry, owner/admin configurable email-link expiry from 15
+  to 120 minutes, 10 to 15 minute expiry for any future typed short-code/OTP
+  flow, newer reset material revoking or replacing older outstanding material,
+  account-wide active session and refresh/session-family revocation after
+  successful reset by default, source/identifier/combined/global/provider-send
+  abuse buckets, no initial `Retry-After`, bounded secret-free audit, separate
+  notification event/target/redaction gate, separate UI/Figma/product copy gate,
+  and separate schema/OpenAPI/generated-client/runtime implementation gate.
+- Current-state clarification:
+  runtime password reset is still not implemented. This checkpoint resolves only
+  the local reset delivery/token policy decision gate; it does not approve
+  schema, OpenAPI, generated-client, API runtime, provider delivery,
+  notification, UI, or final auth/security implementation readiness.
+- Remaining gates:
+  schema/migration/retention design, OpenAPI and generated-client review, API
+  runtime design and tests, SMTP/email provider configuration and verification,
+  any admin-delivered recovery policy, reset abuse thresholds, future
+  `Retry-After` approval if desired, auth audit metadata/retention, user-facing
+  notification event/target/redaction approval, UI/Figma/product copy, and final
+  auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. Do not close either issue from this docs-only
+  decision recording task, and do not claim runtime password reset is
+  implemented.
+- Scope confirmation:
+  this checkpoint is docs-only and does not change runtime code, API behavior,
+  OpenAPI, generated clients, schema/migrations, auth/session/security
+  enforcement, credential/session/token issuance, password hashing, reset/
+  recovery/admin credential runtime, invitation/public-registration runtime,
+  notification runtime, mobile/web/admin UI, provider delivery, deployment/
+  Docker/CI/CodeMagic/TestFlight behavior, secrets/config/env, money/
+  settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, or Project fields.
+
 ### Issues #336/#339 - Local password reset delivery and token policy gate
 
 - GitHub state/project status:

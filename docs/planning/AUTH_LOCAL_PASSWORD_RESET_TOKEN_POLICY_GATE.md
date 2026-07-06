@@ -12,51 +12,70 @@ config, deployment behavior, or security enforcement.
 ## Current-State Readback
 
 - Verified repo baseline: `origin/main` at
-  `0004b153b833fd9793df6102cc1b3ce3d0385002`, the PR #730 merge commit.
+  `9dbb47f65d886ab90ef6de8e31a7115bfbb9ac1e`, the PR #731 merge commit.
 - PR #729 completed only authenticated current-account local password change at
   merge commit `603235b15c2b5971bc498e46cce3c1b6d1d9fa31`.
 - PR #730 merged the docs-only password reset and recovery policy gate at
   `0004b153b833fd9793df6102cc1b3ce3d0385002`.
-- `AUTH_PASSWORD_RESET_RECOVERY_POLICY_GATE.md` keeps password reset,
-  first-owner/break-glass recovery, owner/admin reset/change, invitation/public
-  registration credential setup, UI, notifications, and broader auth/security
-  acceptance blocked pending manual decisions.
+- PR #731 merged the docs-only local password reset delivery/token policy gate at
+  `9dbb47f65d886ab90ef6de8e31a7115bfbb9ac1e`.
+- Tommy manually approved the Day 1 local-account password reset delivery/token
+  policy values recorded below, with a 60 minute default email-link expiry and
+  an owner/admin configurable 15 to 120 minute email-link expiry range.
+- `AUTH_PASSWORD_RESET_RECOVERY_POLICY_GATE.md` still keeps first-owner/
+  break-glass recovery, owner/admin reset/change, invitation/public registration
+  credential setup, UI, notifications, and broader auth/security acceptance
+  separate from this local reset policy decision.
 - GitHub #336 remains open as the broad auth/session/runtime security epic.
 - GitHub #339 remains open for the broader password reset and credential-change
-  workflow.
+  workflow. Its Project status was changed to `Needs Decision` by the
+  metadata hygiene task after PR #731.
 - MFA/passkey recovery-code foundations are not password reset token authority.
   Recovery codes may satisfy only a separately approved MFA challenge or
   recovery flow and must not be reused as local password reset tokens,
   first-owner recovery, admin reset authority, or invitation credential setup
   material without a separate auth/security design.
 
-## Decision Summary
+## Approved Decision Summary
 
-Day 1 user-initiated local password reset should remain
-`BLOCKED_PENDING_MANUAL_DECISIONS` until the product/trust delivery posture and
-auth/security token policy are explicitly approved.
+Tommy approved the Day 1 user-initiated local-account password reset delivery
+and token policy values in this packet for subsequent technical design.
 
-Recommended Day 1 technical posture, if later approved:
+Approved Day 1 local-account reset posture:
 
 - support only local-account password reset, not OIDC/provider password
   recovery;
 - use a public reset-request endpoint with a uniform response;
 - deliver reset material only through an approved SMTP/email provider or an
   approved admin-delivered out-of-band process;
+- do not expose a runtime forgotten-password reset endpoint when no approved
+  SMTP/email delivery policy and no separately approved admin-delivered recovery
+  policy exists;
 - store only hash/verifier-backed one-time reset material, never raw tokens;
-- use short expiry, atomic one-time consumption, replay-safe responses, layered
-  abuse controls, bounded audit, and account-wide session/refresh-family
-  revocation after success.
+- use 60 minute default email reset-link expiry;
+- allow owner/admin configuration of email reset-link expiry from 15 to 120
+  minutes;
+- if a future typed short code or OTP-style reset flow is approved, expire that
+  material in 10 to 15 minutes;
+- issue newer reset material by revoking or replacing older outstanding reset
+  material for the same account;
+- use atomic one-time consumption, replay-safe responses, layered abuse
+  controls, bounded audit, and account-wide session/refresh-family revocation
+  after success;
+- do not expose `Retry-After` initially unless a later auth/security decision
+  explicitly approves it.
 
-No runtime slice is implementation-ready from this packet alone. A later task
-must record explicit manual approval before schema, OpenAPI, generated-client,
-API runtime, provider delivery, notification, or UI work starts.
+This approval resolves the local reset delivery/token policy decision gate only.
+Runtime password reset is still not implemented. Schema, OpenAPI,
+generated-client, API runtime, provider delivery, notification event/target/
+redaction, UI/Figma/product copy, provider configuration, and final
+auth/security acceptance remain separate gates.
 
 ## Delivery Channel Decision
 
 ### SMTP or email reset link
 
-Recommended only if a deployment email provider is configured, verified, and
+Allowed only if a deployment email provider is configured, verified, and
 approved for this security flow.
 
 Required constraints before runtime:
@@ -100,7 +119,7 @@ exists and is a separate lane.
 
 ### Blocked until provider and admin policy are approved
 
-Current Day 1 posture: blocked.
+Current runtime posture: blocked until delivery and implementation gates exist.
 
 If no SMTP/email provider policy is approved and no admin-delivered
 out-of-band reset policy is approved, Settleora should not expose a runtime
@@ -122,7 +141,7 @@ The public reset request response must not reveal whether:
 - delivery was attempted, skipped, throttled, or failed;
 - an admin-delivered process exists for that identifier.
 
-Recommended request response shape for approved runtime: a generic successful
+Approved request response direction for future runtime: a generic successful
 acceptance such as `202 Accepted` or equivalent product-approved body. The
 exact status and copy require future OpenAPI and product review.
 
@@ -175,15 +194,20 @@ boundary.
 
 ## Expiry And Replay Policy
 
-Recommended expiry: 15 minutes by default, with a hard cap of 30 minutes unless
-a later manual auth/security decision approves a different Day 1 value.
+Approved email reset-link expiry: 60 minutes by default, with owner/admin
+configuration allowed from 15 to 120 minutes.
+
+Approved short-code/OTP-style expiry: if a future typed short code or OTP-style
+reset flow is approved, the reset material should expire in 10 to 15 minutes.
 
 Rationale:
 
 - shorter windows reduce replay and mailbox-compromise exposure;
-- self-hosted deployments may have slower email delivery, so 15 minutes is a
-  practical default;
-- longer-lived reset links are high risk and should require explicit approval.
+- self-hosted deployments may have slower email delivery, so a 60 minute
+  default is the approved Day 1 email-link compromise between usability and
+  replay exposure;
+- links longer than 120 minutes remain outside the approved Day 1 range and
+  require a later explicit auth/security decision.
 
 Completion must atomically consume the reset material and replace the local
 password credential in one server-owned transaction or equivalent consistency
@@ -202,9 +226,9 @@ Required safe handling:
 | Wrong account or replaced | Generic failure. | Do not disclose ownership or replacement state. |
 | Malformed | Generic failure or transport validation failure, depending on shape. | Do not log raw token; audit bounded malformed category only if safe. |
 
-Successful reset should invalidate any still-unused older reset material for the
-same account. Issuing a newer reset should either revoke older outstanding
-material or define a strict replacement rule before runtime starts.
+Successful reset must invalidate any still-unused older reset material for the
+same account. Issuing newer reset material should revoke or replace older
+outstanding reset material for the same account.
 
 ## Abuse And Rate-Limit Policy
 
@@ -231,7 +255,9 @@ Recommended behavior:
 - use temporary throttling, cooldowns, and global emergency protection rather
   than permanent public lockout;
 - surface only generic public responses for throttled, skipped, blocked, and
-  accepted states unless a later policy safely approves `Retry-After`.
+  accepted states;
+- do not expose `Retry-After` initially unless a later auth/security decision
+  explicitly approves it.
 
 Audit and operator visibility may include aggregate counts, safe outcome
 categories, source bucket category, normalized identifier hash category where
@@ -291,14 +317,14 @@ comments must not contain:
 
 ## Notification Dependency
 
-User-facing password reset security notification remains a separate approved
-event, target, recipient, redaction, and delivery gate.
+User-facing password reset security notification remains a separate
+notification event, target, recipient, redaction, and delivery gate.
 
-This packet recommends that successful password reset eventually produce an
-account-owner security notification, but it does not approve notification event
-constants, subject types, target columns, OpenAPI fields, generated-client
-changes, provider snippets, push/email sending, in-app notification writes, or
-UI routes.
+Successful password reset should eventually produce an account-owner security
+notification only after a separate notification event/target/redaction gate.
+This packet does not approve notification event constants, subject types, target
+columns, OpenAPI fields, generated-client changes, provider snippets,
+push/email sending, in-app notification writes, or UI routes.
 
 Auth audit remains the security source of truth until a later notification
 policy explicitly maps reset events to user-visible notifications.
@@ -335,16 +361,18 @@ Future runtime requires explicit review of:
 
 Generated clients must not be hand-edited.
 
-## Recommended Smallest Runtime Slice If Approved Later
+## Recommended Smallest Runtime Slice
 
-If Tommy approves the delivery posture and token policy, the smallest future
-runtime slice should be:
+With the local reset delivery/token policy approved, the smallest future runtime
+slice should still wait for the remaining schema/OpenAPI/generated-client/API/
+provider/notification/UI/final auth-security gates and should be:
 
 - local-account-only password reset;
 - one approved delivery posture, either configured SMTP/email or explicitly
   approved admin-delivered out-of-band reset material;
 - public request plus completion flow with uniform anti-enumeration responses;
-- hash/verifier-backed one-time reset material with 15 minute default expiry;
+- hash/verifier-backed one-time reset material with 60 minute default email-link
+  expiry and a 15 to 120 minute owner/admin configurable range;
 - atomic consume and credential replacement through API auth services;
 - account-wide active session and refresh-family revocation after success;
 - bounded audit and redaction tests;
@@ -363,24 +391,24 @@ tests for logs/audit/problem responses.
 - Keep #336 open.
 - Keep #339 open.
 - Do not claim runtime password reset is implemented.
-- Do not mark #339 runtime-ready until product/trust delivery posture,
-  auth/security token policy, schema/OpenAPI boundary, UI/Figma dependency, and
-  notification dependency are explicitly approved or split into blocked child
-  tasks.
+- Do not mark #339 runtime-ready until schema/OpenAPI boundary, generated-client
+  impact, API runtime design, provider configuration, notification event/target/
+  redaction behavior, UI/Figma/product copy, and final auth/security acceptance
+  are explicitly approved or split into blocked child tasks.
 
-## Manual Decisions Still Required
+## Remaining Separate Gates
 
-- Approve SMTP/email reset link, admin-delivered out-of-band reset material, or
-  no Day 1 runtime reset.
-- Approve exact expiry window and whether the 15 minute default/30 minute cap is
-  acceptable.
-- Approve replacement behavior for multiple outstanding reset requests.
+- Schema, migration, retention, and cleanup design for reset material.
+- OpenAPI paths, response shapes, problem redaction, and generated-client diffs.
+- API runtime implementation and focused auth/security tests.
+- SMTP/email provider configuration, verification, and approval for this
+  security flow.
+- Separately approved admin-delivered recovery policy if that delivery path is
+  ever used.
 - Approve reset abuse thresholds, provider-send throttles, and whether any
-  `Retry-After` response is safe.
-- Approve session/refresh-family revocation breadth, especially if anything
-  narrower than account-wide revocation is desired.
+  future `Retry-After` response is safe.
 - Approve auth audit action names, safe metadata keys, and retention posture.
-- Approve whether and when password reset emits user-facing security
-  notifications.
+- Approve password reset user-facing security notification event, target,
+  recipient, redaction, and delivery behavior.
 - Approve product copy and Figma/reference before UI.
-- Approve schema/OpenAPI/generated-client boundaries before runtime.
+- Final auth/security acceptance before runtime password reset work ships.
