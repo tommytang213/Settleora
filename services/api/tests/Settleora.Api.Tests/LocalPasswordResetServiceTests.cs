@@ -89,6 +89,67 @@ public sealed class LocalPasswordResetServiceTests
     }
 
     [Fact]
+    public async Task IssueMaterialDoesNotPersistIdentifierOrPlainSha256IdentifierBuckets()
+    {
+        const string submittedEmailIdentifier = "  Reset.User+Case@Example.COM  ";
+        const string normalizedEmailIdentifier = "reset.user+case@example.com";
+        using var dbContext = CreateDbContext();
+        var localAccount = await SeedLocalAccountAsync(dbContext, normalizedEmailIdentifier);
+        await SeedCredentialAsync(dbContext, localAccount.AuthAccountId, CurrentSecretInput);
+        var service = CreateService(dbContext);
+        var oldIdentifierBucket = DeriveFormerPlainSha256Bucket(
+            "reset-id-sha256:",
+            "local-password-reset-id:" + normalizedEmailIdentifier);
+        var oldCombinedBucket = DeriveFormerPlainSha256Bucket(
+            "reset-combined-sha256:",
+            "local-password-reset-combined:" + SourceBucket + ":" + normalizedEmailIdentifier);
+
+        var issued = await service.IssueMaterialAsync(new LocalPasswordResetMaterialIssueRequest(
+            submittedEmailIdentifier,
+            AuthPasswordResetMaterialScopes.EmailLink,
+            TimeSpan.FromMinutes(60),
+            SourceBucket,
+            CorrelationId));
+
+        Assert.True(issued.Succeeded);
+        var resetRequest = await dbContext.Set<AuthPasswordResetRequest>().SingleAsync();
+        Assert.Equal(SourceBucket, resetRequest.RequestSourceBucketRef);
+        Assert.Null(resetRequest.IdentifierBucketRef);
+        Assert.Null(resetRequest.CombinedBucketRef);
+        Assert.Null(resetRequest.GlobalBucketRef);
+        Assert.Null(resetRequest.ProviderSendBucketRef);
+
+        var persistedResetContent = string.Join(
+            " ",
+            resetRequest.RequestSourceBucketRef,
+            resetRequest.IdentifierBucketRef,
+            resetRequest.CombinedBucketRef,
+            resetRequest.GlobalBucketRef,
+            resetRequest.ProviderSendBucketRef,
+            resetRequest.RequestCorrelationId,
+            resetRequest.AuditCorrelationId,
+            resetRequest.DeliveryCategory,
+            resetRequest.ProviderSendCategory,
+            resetRequest.ResetMaterialHash,
+            resetRequest.ResetMaterialHashVersion,
+            resetRequest.ResetMaterialScope);
+
+        Assert.DoesNotContain(submittedEmailIdentifier.Trim(), persistedResetContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(normalizedEmailIdentifier, persistedResetContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(oldIdentifierBucket, persistedResetContent, StringComparison.Ordinal);
+        Assert.DoesNotContain(oldCombinedBucket, persistedResetContent, StringComparison.Ordinal);
+
+        var audits = await dbContext.Set<AuthAuditEvent>().ToListAsync();
+        Assert.All(audits, audit => AssertSafeAuditContent(
+            audit,
+            submittedEmailIdentifier.Trim(),
+            normalizedEmailIdentifier,
+            oldIdentifierBucket,
+            oldCombinedBucket,
+            CurrentSecretInput));
+    }
+
+    [Fact]
     public async Task CompleteResetSucceedsOnceReplacesCredentialAndRevokesSessionsAndRefreshFamilies()
     {
         using var dbContext = CreateDbContext();
@@ -353,6 +414,12 @@ public sealed class LocalPasswordResetServiceTests
         {
             Assert.DoesNotContain(fragment, combined, StringComparison.Ordinal);
         }
+    }
+
+    private static string DeriveFormerPlainSha256Bucket(string prefix, string payload)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(payload));
+        return prefix + Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(hash);
     }
 
     private sealed record SeededAccount(Guid AuthAccountId, Guid UserProfileId);

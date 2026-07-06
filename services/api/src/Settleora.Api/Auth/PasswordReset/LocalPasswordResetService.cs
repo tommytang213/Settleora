@@ -139,8 +139,10 @@ internal sealed class LocalPasswordResetService : ILocalPasswordResetService
                 DeliveryCategory = AuthPasswordResetDeliveryCategories.EmailLink,
                 ProviderSendCategory = AuthPasswordResetProviderSendCategories.NotAttempted,
                 RequestSourceBucketRef = NormalizeOptionalBucket(request.SourceBucketRef),
-                IdentifierBucketRef = normalizedIdentifier is null ? null : DeriveIdentifierBucketRef(normalizedIdentifier),
-                CombinedBucketRef = BuildCombinedBucketRef(request.SourceBucketRef, normalizedIdentifier),
+                IdentifierBucketRef = null,
+                CombinedBucketRef = null,
+                GlobalBucketRef = null,
+                ProviderSendBucketRef = null,
                 RequestCorrelationId = NormalizeOptionalCategory(request.RequestCorrelationId),
                 AuditCorrelationId = NormalizeOptionalCategory(request.RequestCorrelationId),
                 CreatedAtUtc = occurredAtUtc,
@@ -614,26 +616,6 @@ internal sealed class LocalPasswordResetService : ILocalPasswordResetService
         }
 
         return normalized;
-    }
-
-    private static string DeriveIdentifierBucketRef(string normalizedIdentifier)
-    {
-        var hash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes("local-password-reset-id:" + normalizedIdentifier));
-        return "reset-id-sha256:" + Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(hash);
-    }
-
-    private static string? BuildCombinedBucketRef(string? sourceBucketRef, string? normalizedIdentifier)
-    {
-        var normalizedSource = NormalizeOptionalBucket(sourceBucketRef);
-        if (normalizedSource is null || normalizedIdentifier is null)
-        {
-            return null;
-        }
-
-        var hash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes("local-password-reset-combined:" + normalizedSource + ":" + normalizedIdentifier));
-        return "reset-combined-sha256:" + Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(hash);
     }
 
     private static bool IsSafeMetadataCategoryCharacter(char character)
