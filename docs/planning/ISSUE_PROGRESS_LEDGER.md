@@ -20,6 +20,67 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Local password reset SMTP provider readiness gate
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `docs/auth-local-password-reset-smtp-provider-readiness-gate-20260706`.
+- Baseline:
+  `origin/main` at `b2414ee595e33735acbd1f2357a6dbd6d3471cd6`,
+  the PR #742 merge commit.
+- Verification timestamp:
+  `2026-07-06 21:35 HKT` task window.
+- Recent merged checkpoints:
+  PR #739 merged the internal local-account password reset runtime foundation at
+  `7a35823325b5207104ceb91866e087775e2a0b34`. PR #741 merged the non-blocking
+  Trivy/Semgrep CE scanner baseline at
+  `4051ee5aef1ae122e81b339155038c920525e25e`. PR #742 merged the docs-only
+  delivery readiness decision gate at
+  `b2414ee595e33735acbd1f2357a6dbd6d3471cd6`.
+- Completed branch checkpoint:
+  docs-only SMTP provider readiness gate. Current repo is partially ready for
+  bounded internal SMTP reset delivery slices because generic SMTP notification
+  sender/options/readiness/outbox plumbing exists, but generic notification
+  plumbing is not approved password-reset delivery by itself.
+- Current-state clarification:
+  password reset has merged schema/domain, OpenAPI/generated-client transport,
+  and internal runtime foundations. It still has no reset delivery
+  implementation, reset-link builder, reset email template, reset-specific base
+  URL/public-origin runtime, reset provider-send throttle runtime, or public
+  request/complete route mapping.
+- Public route exposure:
+  still blocked. This branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`.
+- Required next gates:
+  SMTP/email provider configuration verification, base URL/reset-link
+  construction policy, reset-link lifetime enforcement, redacted reset template,
+  delivery failure handling with uniform public responses, reset-specific abuse
+  and provider-send throttles, audit/redaction acceptance, local/dev/test
+  fake-or-sink behavior, UI/Figma/product copy, notification event/target/
+  redaction if used, and final public exposure/auth-security review.
+- Recommended next slices:
+  provider config verification foundation; reset-link builder and redacted
+  template rendering internal service; internal reset delivery orchestration
+  without public route exposure; final public route exposure only after all
+  delivery, abuse, audit, UI/product copy, notification-if-used, and final
+  auth/security gates pass.
+- Issue posture:
+  keep #336 and #339 open. #336 remains open for broader auth/session/runtime
+  security. #339 remains open because password reset and credential-change
+  workflow still has delivery, public exposure, UI/product copy, abuse,
+  notification-if-used, and final acceptance gates.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change public API route exposure,
+  runtime handlers, OpenAPI/contracts, generated clients, schema/migrations,
+  SMTP/email provider delivery/configuration, notification runtime, UI,
+  scanner configuration, secrets/config/env, deployment/Docker/CI/Codemagic/
+  TestFlight behavior, money/settlement/payment/bill/OCR/storage/sync/import/
+  export/backup/restore/reconciliation behavior, issue closure, or Project
+  fields.
+
 ### Issues #336/#339 - Local password reset delivery readiness decision gate
 
 - GitHub state/project status:
