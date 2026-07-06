@@ -91,7 +91,7 @@ internal sealed class PasswordResetEmailDeliveryReadinessService
         }
 
         if (!Uri.TryCreate(options.PublicBaseUrl, UriKind.Absolute, out var uri)
-            || !IsSafePublicOrigin(uri, options.DeliveryMode))
+            || !PasswordResetPublicOriginPolicy.IsSafePublicOrigin(uri, options.DeliveryMode))
         {
             return AddFailure(
                 failures,
@@ -99,33 +99,6 @@ internal sealed class PasswordResetEmailDeliveryReadinessService
         }
 
         return PasswordResetEmailDeliveryReadinessCategories.PublicOriginConfigured;
-    }
-
-    private static bool IsSafePublicOrigin(Uri uri, string deliveryMode)
-    {
-        if (!string.IsNullOrWhiteSpace(uri.UserInfo)
-            || !string.IsNullOrWhiteSpace(uri.Query)
-            || !string.IsNullOrWhiteSpace(uri.Fragment)
-            || string.IsNullOrWhiteSpace(uri.Host))
-        {
-            return false;
-        }
-
-        if (uri.Scheme == Uri.UriSchemeHttps)
-        {
-            return true;
-        }
-
-        return PasswordResetEmailDeliveryModes.IsSinkMode(deliveryMode)
-            && uri.Scheme == Uri.UriSchemeHttp
-            && IsLocalHost(uri.Host);
-    }
-
-    private static bool IsLocalHost(string host)
-    {
-        return StringComparer.OrdinalIgnoreCase.Equals(host, "localhost")
-            || StringComparer.OrdinalIgnoreCase.Equals(host, "127.0.0.1")
-            || StringComparer.OrdinalIgnoreCase.Equals(host, "::1");
     }
 
     private static void ValidateLifetime(

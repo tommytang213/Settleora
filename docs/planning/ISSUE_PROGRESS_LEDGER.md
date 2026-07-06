@@ -20,6 +20,50 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset link/template internal foundation
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `feature/auth-local-password-reset-link-template-internal-20260707`.
+- Baseline:
+  `origin/main` at `054d442ab91f388a44959a8d8aba59a8662446b5`,
+  the PR #744 merge commit.
+- Verification timestamp:
+  `2026-07-07 00:10 HKT` task window.
+- Completed branch checkpoint:
+  internal reset-link construction and redacted reset email-template composition
+  foundation. The API can compose a send-ready internal password-reset email
+  message only when delivery readiness is available, a safe configured public
+  origin exists, reset-link lifetime is in the approved 15-120 minute range,
+  and the reset-link path passes the safe rooted-relative path policy.
+- Link posture:
+  send-ready internal messages place reset material in the URL fragment for
+  future browser/mobile handoff. Redacted previews/readbacks replace the link
+  with a fixed redaction marker and do not expose reset material, token-like URL
+  content, submitted identifiers, account email/usernames, SMTP credentials,
+  configured origins, or provider payloads.
+- Public route exposure:
+  still blocked. This branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`.
+- Required next gates:
+  internal delivery orchestration without route exposure, reset-specific
+  abuse/provider-send throttles, delivery failure handling, audit/redaction
+  acceptance, notification event/target/redaction if used, UI/Figma/product
+  copy, final public route exposure review, and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. This checkpoint does not send password reset email
+  and does not approve public request/complete route exposure.
+- Scope confirmation:
+  this checkpoint does not change OpenAPI/contracts, generated clients,
+  schema/migrations, SMTP/email sending, notification runtime, public endpoint
+  mappings, UI, secrets/config/env samples, deployment/Docker/CI/Codemagic/
+  TestFlight behavior, money/settlement/payment/bill/OCR/storage/sync/import/
+  export/backup/restore/reconciliation behavior, issue closure, or Project
+  fields.
+
 ### Issues #336/#339 - Password reset SMTP provider config verification foundation
 
 - GitHub state/project status:

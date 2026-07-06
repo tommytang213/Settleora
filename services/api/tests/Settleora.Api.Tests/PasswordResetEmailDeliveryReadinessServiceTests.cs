@@ -167,6 +167,7 @@ public sealed class PasswordResetEmailDeliveryReadinessServiceTests
             [$"{PasswordResetEmailDeliveryOptions.SectionName}:Enabled"] = "true",
             [$"{PasswordResetEmailDeliveryOptions.SectionName}:DeliveryMode"] = PasswordResetEmailDeliveryModes.ProductionSmtp,
             [$"{PasswordResetEmailDeliveryOptions.SectionName}:PublicBaseUrl"] = "https://settleora.example.invalid",
+            [$"{PasswordResetEmailDeliveryOptions.SectionName}:ResetLinkPath"] = "/auth/password-reset",
             [$"{PasswordResetEmailDeliveryOptions.SectionName}:ResetLinkLifetime"] = "01:30:00"
         };
 
@@ -182,6 +183,7 @@ public sealed class PasswordResetEmailDeliveryReadinessServiceTests
         Assert.True(options.Enabled);
         Assert.Equal(PasswordResetEmailDeliveryModes.ProductionSmtp, options.DeliveryMode);
         Assert.Equal("https://settleora.example.invalid", options.PublicBaseUrl);
+        Assert.Equal("/auth/password-reset", options.ResetLinkPath);
         Assert.Equal(TimeSpan.FromMinutes(90), options.ResetLinkLifetime);
     }
 
@@ -198,6 +200,7 @@ public sealed class PasswordResetEmailDeliveryReadinessServiceTests
         using var provider = services.BuildServiceProvider();
 
         Assert.NotNull(provider.GetRequiredService<IPasswordResetEmailDeliveryReadinessService>());
+        Assert.NotNull(provider.GetRequiredService<IPasswordResetEmailTemplateComposer>());
     }
 
     private static PasswordResetEmailDeliveryReadinessService CreateService(

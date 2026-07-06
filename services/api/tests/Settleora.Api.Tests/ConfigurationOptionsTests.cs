@@ -36,6 +36,7 @@ public sealed class ConfigurationOptionsTests
             ["Settleora:Auth:PasswordReset:EmailDelivery:Enabled"] = "true",
             ["Settleora:Auth:PasswordReset:EmailDelivery:DeliveryMode"] = PasswordResetEmailDeliveryModes.ProductionSmtp,
             ["Settleora:Auth:PasswordReset:EmailDelivery:PublicBaseUrl"] = "https://settleora.example.invalid",
+            ["Settleora:Auth:PasswordReset:EmailDelivery:ResetLinkPath"] = "/auth/password-reset",
             ["Settleora:Auth:PasswordReset:EmailDelivery:ResetLinkLifetime"] = "01:00:00"
         };
 
@@ -82,6 +83,7 @@ public sealed class ConfigurationOptionsTests
         Assert.True(passwordResetEmailDelivery.Enabled);
         Assert.Equal(PasswordResetEmailDeliveryModes.ProductionSmtp, passwordResetEmailDelivery.DeliveryMode);
         Assert.Equal("https://settleora.example.invalid", passwordResetEmailDelivery.PublicBaseUrl);
+        Assert.Equal("/auth/password-reset", passwordResetEmailDelivery.ResetLinkPath);
         Assert.Equal(TimeSpan.FromMinutes(60), passwordResetEmailDelivery.ResetLinkLifetime);
     }
 }
