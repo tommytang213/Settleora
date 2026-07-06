@@ -107,6 +107,40 @@ internal sealed record PasswordResetEmailDeliveryResult(
             RedactedPreview: composition.RedactedPreview);
     }
 
+    public static PasswordResetEmailDeliveryResult Throttled(
+        PasswordResetEmailDeliveryReadinessResult readiness,
+        PasswordResetThrottleDecision decision)
+    {
+        return new PasswordResetEmailDeliveryResult(
+            Accepted: false,
+            PasswordResetEmailDeliveryResultCategories.Throttled,
+            readiness.DeliveryMode,
+            readiness.ResetLinkLifetimeMinutes,
+            FailureCategories:
+            [
+                decision.Category,
+                decision.Scope
+            ]);
+    }
+
+    public static PasswordResetEmailDeliveryResult Throttled(
+        PasswordResetEmailTemplateCompositionResult composition,
+        PasswordResetThrottleDecision decision)
+    {
+        return new PasswordResetEmailDeliveryResult(
+            Accepted: false,
+            PasswordResetEmailDeliveryResultCategories.Throttled,
+            composition.DeliveryMode,
+            composition.ResetLinkLifetimeMinutes,
+            ProviderCategory: PasswordResetSmtpEmailSendResultCategories.ThrottledByPolicy,
+            FailureCategories:
+            [
+                decision.Category,
+                decision.Scope
+            ],
+            RedactedPreview: composition.RedactedPreview);
+    }
+
     public static PasswordResetEmailDeliveryResult BlockedDecisionRequired(
         PasswordResetEmailDeliveryReadinessResult readiness,
         string category)
@@ -143,6 +177,7 @@ internal static class PasswordResetEmailDeliveryResultCategories
     public const string SinkRecorded = "sink_recorded";
     public const string ProviderSendAccepted = "provider_send_accepted";
     public const string ProviderSendFailedRedacted = "provider_send_failed_redacted";
+    public const string Throttled = "throttled";
     public const string BlockedDecisionRequired = "blocked_decision_required";
 }
 

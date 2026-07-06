@@ -77,6 +77,7 @@ internal static class PasswordResetSmtpEmailSendResultCategories
     public const string ConfigurationInvalid = "configuration_invalid";
     public const string RecipientRejected = "recipient_rejected";
     public const string ContentRejected = "content_rejected";
+    public const string ThrottledByPolicy = "throttled_by_policy";
 }
 
 internal sealed class PasswordResetSmtpEmailSender : IPasswordResetSmtpEmailSender
