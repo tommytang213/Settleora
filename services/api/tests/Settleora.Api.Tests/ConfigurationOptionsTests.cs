@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Settleora.Api.Auth.PasswordReset;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Configuration;
 
@@ -31,7 +32,11 @@ public sealed class ConfigurationOptionsTests
             ["Settleora:Auth:Sessions:RefreshAccessSessionMaxLifetime"] = "00:30:00",
             ["Settleora:Auth:Sessions:RefreshIdleTimeout"] = "7.00:00:00",
             ["Settleora:Auth:Sessions:RefreshAbsoluteLifetime"] = "30.00:00:00",
-            ["Settleora:Auth:Sessions:ClockSkewAllowance"] = "00:02:00"
+            ["Settleora:Auth:Sessions:ClockSkewAllowance"] = "00:02:00",
+            ["Settleora:Auth:PasswordReset:EmailDelivery:Enabled"] = "true",
+            ["Settleora:Auth:PasswordReset:EmailDelivery:DeliveryMode"] = PasswordResetEmailDeliveryModes.ProductionSmtp,
+            ["Settleora:Auth:PasswordReset:EmailDelivery:PublicBaseUrl"] = "https://settleora.example.invalid",
+            ["Settleora:Auth:PasswordReset:EmailDelivery:ResetLinkLifetime"] = "01:00:00"
         };
 
         IConfiguration configuration = new ConfigurationBuilder()
@@ -43,12 +48,16 @@ public sealed class ConfigurationOptionsTests
         var storage = configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>();
         var passwordHashing = configuration.GetSection(PasswordHashingOptions.SectionName).Get<PasswordHashingOptions>();
         var authSessions = configuration.GetSection(AuthSessionPolicyOptions.SectionName).Get<AuthSessionPolicyOptions>();
+        var passwordResetEmailDelivery = configuration
+            .GetSection(PasswordResetEmailDeliveryOptions.SectionName)
+            .Get<PasswordResetEmailDeliveryOptions>();
 
         Assert.NotNull(database);
         Assert.NotNull(rabbitMq);
         Assert.NotNull(storage);
         Assert.NotNull(passwordHashing);
         Assert.NotNull(authSessions);
+        Assert.NotNull(passwordResetEmailDelivery);
         Assert.Equal("Host=postgres;Database=settleora", database.ConnectionString);
         Assert.Equal("rabbitmq", rabbitMq.HostName);
         Assert.Equal(5673, rabbitMq.Port);
@@ -70,5 +79,9 @@ public sealed class ConfigurationOptionsTests
         Assert.Equal(TimeSpan.FromDays(7), authSessions.RefreshIdleTimeout);
         Assert.Equal(TimeSpan.FromDays(30), authSessions.RefreshAbsoluteLifetime);
         Assert.Equal(TimeSpan.FromMinutes(2), authSessions.ClockSkewAllowance);
+        Assert.True(passwordResetEmailDelivery.Enabled);
+        Assert.Equal(PasswordResetEmailDeliveryModes.ProductionSmtp, passwordResetEmailDelivery.DeliveryMode);
+        Assert.Equal("https://settleora.example.invalid", passwordResetEmailDelivery.PublicBaseUrl);
+        Assert.Equal(TimeSpan.FromMinutes(60), passwordResetEmailDelivery.ResetLinkLifetime);
     }
 }
