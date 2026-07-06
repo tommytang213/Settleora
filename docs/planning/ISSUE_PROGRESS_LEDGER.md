@@ -20,6 +20,56 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset internal delivery orchestration PR #746 post-merge checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  https://github.com/tommytang213/Settleora/pull/746.
+- Merge SHA:
+  `86713435af299347f5fa1b016b400575e39daf0a`.
+- Reviewed source head:
+  `72aef62c5b9afe1b1ecb7ecdd48d1d6ac6e53be0`.
+- Previous main/base:
+  `89fb5ca2384dfa53115730c1698f5197827b67d8`.
+- Verification timestamp:
+  `2026-07-07 02:00 HKT` task window.
+- Completed merged checkpoint:
+  internal-only local password reset email delivery orchestration foundation.
+  PR #746 connects internal reset material issuance, delivery readiness,
+  reset-link/template composition, local/test sink outcomes, and
+  reset-specific SMTP transport handoff behind readiness gates.
+- Public route exposure:
+  still blocked. PR #746 does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`.
+- Validation checkpoint:
+  GitHub checks passed on the exact reviewed source head
+  `72aef62c5b9afe1b1ecb7ecdd48d1d6ac6e53be0`; the later validation gate
+  completed `npm run validate:api` with `1393` tests passed; route exposure
+  search under `services/api/src` found no public password-reset runtime
+  mappings.
+- Post-merge hygiene checkpoint:
+  the source branch was restored to the reviewed head; comments were posted to
+  #336 and #339; #336 remains `OPEN` with Project status `Inbox`; #339 remains
+  `OPEN` with Project status `Needs Decision`.
+- Required next gates:
+  reset-specific abuse/provider-send throttles, delivery failure
+  public-response acceptance, audit/redaction acceptance, notification
+  event/target/redaction if used, UI/Figma/product copy, final public route
+  exposure review, and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. PR #746 does not complete the broader
+  auth/session/runtime security epic, the Day 1 password reset and
+  credential-change workflow, or public password-reset route exposure.
+- Scope confirmation:
+  this checkpoint does not change OpenAPI/contracts, generated clients,
+  schema/migrations, public endpoint mappings, UI, secrets/config/env samples,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, notification outbox
+  design, money/settlement/payment/bill/OCR/storage/sync/import/export/
+  backup/restore/reconciliation behavior, issue closure, or Project fields.
+
 ### Issues #336/#339 - Password reset internal delivery orchestration PR-open checkpoint
 
 - GitHub state/project status:
