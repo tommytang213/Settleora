@@ -54,10 +54,12 @@ remain the source of truth.
   exists remotely at reviewed head
   `ac7bde43a425c594bb6f1a7ccbc22ecca9100e33`.
 - Post-restoration scaffold/check readback:
-  pre-merge exact-head checks passed, including `Validate scaffold`. The
-  additional post-restoration `Validate scaffold` check/run on the same source
-  head, started at `2026-07-07T06:32:08Z`, was still discoverable and
-  `in_progress` at this checkpoint readback.
+  pre-merge exact-head checks passed, including `Validate scaffold`.
+  Post-restoration Scaffold Validation check/run on the restored PR #756
+  source branch: run `28846488298`, job `85551530735`, completed successfully
+  after the PR #757 checkpoint was opened. This was post-merge source-branch
+  restoration activity; all pre-merge exact-head checks for PR #756 had already
+  passed before merge.
 - Existing post-merge issue comments:
   - #336:
     https://github.com/tommytang213/Settleora/issues/336#issuecomment-4900855538
