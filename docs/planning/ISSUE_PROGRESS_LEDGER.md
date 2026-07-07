@@ -20,6 +20,88 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - PR #760 UI/product-copy gate post-merge checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  <https://github.com/tommytang213/Settleora/pull/760>.
+- PR title:
+  `docs(auth): add password reset UI product copy gate`.
+- Reviewed source head:
+  branch `docs/auth-password-reset-ui-product-copy-gate-20260707-1827` at
+  `c53e7d5e2b925b680746148b70fc3bab16aed55e`.
+- Merge SHA:
+  `20665379246e52f8caec367f729c44d5cde4152f`.
+- Merged at:
+  `2026-07-07T10:49:05Z`.
+- Final `origin/main` at post-merge verification:
+  `20665379246e52f8caec367f729c44d5cde4152f`.
+- Merged scope:
+  `docs/planning/AUTH_PASSWORD_RESET_UI_PRODUCT_COPY_GATE.md` and
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`.
+- Merge/readback evidence:
+  PR #760 is `MERGED` into `main`; merge commit
+  `20665379246e52f8caec367f729c44d5cde4152f` is an ancestor of
+  `origin/main`; the merge commit first-parent diff contains only the merged
+  scope above; no `.codex/reports/**` files were merged.
+- Source branch restoration/readback:
+  source branch
+  `docs/auth-password-reset-ui-product-copy-gate-20260707-1827` exists
+  remotely at reviewed head
+  `c53e7d5e2b925b680746148b70fc3bab16aed55e`.
+- Existing PR #760 issue comments:
+  - #336:
+    https://github.com/tommytang213/Settleora/issues/336#issuecomment-4902966824
+  - #339:
+    https://github.com/tommytang213/Settleora/issues/339#issuecomment-4902966799
+- Decision:
+  `BLOCKED_FOR_ROUTE_EXPOSURE`.
+- Public route posture:
+  `POST /api/v1/auth/password-reset/request` and
+  `POST /api/v1/auth/password-reset/complete` remain blocked and
+  unregistered.
+- UI/product-copy gate outcome:
+  current repo/reference evidence is insufficient to unblock public
+  password-reset route exposure.
+- Required public reset surfaces still missing:
+  mobile forgotten-password entry point, mobile reset-request submitted state,
+  mobile reset-complete form/state, reset email subject/body/preview copy,
+  generic expired/consumed/replayed/malformed/unknown/invalid-link states,
+  unsupported/OIDC/provider-password states, and safe success copy.
+- Conditional surfaces:
+  user-web reset screens are required only if user web participates in Day 1
+  public auth; admin readout is required only if Day 1 admin scope uses it;
+  security-center or credential-activity copy is required only if those
+  surfaces or password-reset notifications are used.
+- Notification posture:
+  password-reset notification runtime is not required for Day 1 public route
+  exposure if notifications remain deferred/audit-only. If a future route-
+  exposure design emits password-reset notifications, target/schema/OpenAPI/
+  generated-client work plus an authorized current-account security-center,
+  credential-activity, or auth-audit re-fetch path must happen first.
+- Remaining blockers:
+  password-reset UI/Figma/reference/product approval, manual OpenAPI/
+  generated-client gate for changed public runtime posture or any
+  target/security-center contract, final public route exposure review, and
+  final auth/security acceptance.
+- Issue posture:
+  keep #336 open. PR #760 does not complete the broader auth/session/runtime
+  security epic or final auth/security acceptance. Keep #339 open. PR #760
+  does not expose public reset routes, complete user-visible reset UX/product
+  copy, implement notification runtime, or complete the Day 1 password reset
+  and credential-change workflow.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change runtime/API endpoint
+  behavior, public route mapping, OpenAPI/contracts, generated clients,
+  schema/migrations, notification writer/runtime, SMTP/provider config,
+  secrets, UI/Figma/mobile/web/admin implementation, deployment/Docker/CI/
+  Codemagic/TestFlight behavior, auth/session/security runtime, money/
+  settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, labels, milestones, assignees,
+  Project fields, or `.codex/reports/**` committed files.
+
 ### Issues #336/#339 - Password reset UI/product-copy gate
 
 - GitHub state/project status:
