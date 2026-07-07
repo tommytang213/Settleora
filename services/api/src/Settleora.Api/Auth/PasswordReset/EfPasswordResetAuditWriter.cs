@@ -29,7 +29,7 @@ internal sealed class EfPasswordResetAuditWriter : IPasswordResetAuditWriter
         {
             Id = Guid.NewGuid(),
             ActorAuthAccountId = null,
-            SubjectAuthAccountId = auditEvent.SubjectAuthAccountId,
+            SubjectAuthAccountId = null,
             Action = auditEvent.Action,
             Outcome = auditEvent.Outcome,
             OccurredAtUtc = auditEvent.OccurredAtUtc,

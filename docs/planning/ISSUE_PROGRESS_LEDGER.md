@@ -20,6 +20,57 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset audit/redaction acceptance PR-open checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `feature/auth-local-password-reset-audit-redaction-acceptance-20260707`.
+- Baseline:
+  `origin/main` at `6f37c3e03923e874dca0af367a2025e34c6b6ab1`,
+  the PR #751 merge commit.
+- Verification timestamp:
+  `2026-07-07 11:30 HKT` task window.
+- Completed branch checkpoint:
+  bounded audit/redaction acceptance for the current internal local password
+  reset runtime foundation. Password-reset audit writes are hardened so the
+  password-reset audit workflow stores no actor/auth subject account ID and
+  keeps readback metadata to `workflowName` plus bounded status categories.
+  Focused acceptance coverage exercises request, material issue, replacement
+  revocation, completion, session-revocation audit, replay-suspicious, and
+  unknown-material denial outcomes.
+- Redaction posture:
+  password-reset audit/readback/logging-oriented surfaces are covered to exclude
+  submitted identifiers, account email/username/display/profile/account IDs,
+  recipient email, reset material, reset hashes, reset URL/token/query/fragment
+  content, SMTP host/username/password, provider payloads/diagnostics/raw
+  exception details, configured public origins, source bucket keys, raw error
+  strings, stack traces, and recoverable correlation placeholders. Allowed
+  readback remains bounded status/category/scope/reason/readiness/delivery
+  labels only.
+- Public route exposure:
+  still blocked. This branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`; the runtime route exposure guard
+  under `services/api/src` found no public password-reset mapping strings before
+  implementation.
+- Required next gates:
+  notification event/target/redaction gate if used, UI/Figma/product copy,
+  final public route exposure review, and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. This checkpoint does not complete the broader
+  auth/session/runtime security epic, the Day 1 password reset and
+  credential-change workflow, public route exposure, user-visible reset UX, or
+  final auth/security acceptance.
+- Scope confirmation:
+  this checkpoint does not change OpenAPI/contracts, generated clients,
+  schema/migrations, public endpoint mappings, UI, secrets/config/env samples,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, notification outbox
+  design, money/settlement/payment/bill/OCR/storage/sync/import/export/
+  backup/restore/reconciliation behavior, issue closure, labels, milestones,
+  assignees, or Project fields.
+
 ### Issues #336/#339 - Password reset public response policy PR #750 post-merge checkpoint
 
 - GitHub state/project status:
