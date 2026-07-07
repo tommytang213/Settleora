@@ -20,6 +20,54 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset A04 email/link target alignment branch
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback remains `Inbox` from the latest
+    password-reset gate reports.
+  - #339 `OPEN`; Project status readback remains `Needs Decision` from the
+    latest password-reset gate reports.
+- Branch:
+  `feature/password-reset-a04-email-link-target-alignment-20260708-0046`.
+- Baseline:
+  `origin/main` at `5358a5a517cc1d1f436a1e3afed1738948c0c7fb`, the PR #768
+  post-merge ledger merge commit.
+- Verification timestamp:
+  `2026-07-08 00:46 HKT` task window.
+- Completed branch checkpoint:
+  narrow A04 reset email/link target alignment for the current backend
+  password-reset email template composer. The send-ready subject is
+  `Reset your Settleora password`, the text body uses the approved generic A04
+  copy, and the existing reset-link target remains
+  `/auth/password-reset#resetMaterial=...`.
+- Link/privacy checkpoint:
+  reset material remains carried only in the URL fragment as
+  `resetMaterial`, not in query parameters. Redacted template readbacks remain
+  bounded and do not expose reset material, token-style URL content, submitted
+  identifiers, account email/usernames, SMTP credentials, configured origins,
+  or provider payloads.
+- Scope confirmation:
+  this checkpoint changes only the backend password-reset email composer,
+  focused password-reset email composer tests, and this ledger entry. It does
+  not change public API route behavior, OpenAPI/contracts, generated clients,
+  schema/migrations, SMTP/provider configuration, notification runtime/
+  targets/security-center/credential-activity surfaces, mobile UI, user-web UI,
+  secrets/config/env, deployment/Docker/CI/Codemagic/TestFlight behavior,
+  money/settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, labels, milestones, assignees, or
+  Project fields.
+- Remaining gates:
+  PR review/merge gate for this branch, A08 provider-owned/helper state only if
+  an approved surface needs it, final broader auth/security acceptance, and
+  notification/security-center/credential-activity gates only if those surfaces
+  are added later.
+- Issue posture:
+  keep #336 open. This branch does not complete the broader auth/session/
+  runtime security epic or final Day 1 auth/security acceptance. Keep #339
+  open. This branch addresses the A04 email/link target alignment slice only
+  and does not complete the full Day 1 password reset and credential-change
+  workflow.
+
 ### Issues #336/#339 - PR #767 user-web password reset complete UI post-merge checkpoint
 
 - GitHub state/project status:
