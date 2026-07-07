@@ -16,6 +16,7 @@ This folder records approved mobile UI/UX design reference material for future S
 - [Mobile Push Registration UX reference](MOBILE_PUSH_REGISTRATION_UX_REFERENCE.md)
 - [Notification deep-link route policy](../../architecture/NOTIFICATION_DEEP_LINK_ROUTE_POLICY.md)
 - [Mobile Auth Security reference V1](MOBILE_AUTH_SECURITY_REFERENCE_V1.md)
+- [Mobile Auth Password Reset approval package V1](MOBILE_AUTH_PASSWORD_RESET_APPROVAL_PACKAGE_V1.md)
 - [Mobile Privacy Vault reference V1](MOBILE_PRIVACY_VAULT_REFERENCE_V1.md)
 - [Mobile Web Bill Revision Diff reference V1](MOBILE_WEB_BILL_REVISION_DIFF_REFERENCE_V1.md)
 - [OCR tax, discount, fee, and refund UX reference](../../features/expenses-bills/OCR_TAX_DISCOUNT_FEE_REFUND_UX_REFERENCE.md)
