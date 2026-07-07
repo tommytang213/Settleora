@@ -20,6 +20,65 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset notification gate PR #754 post-merge checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  <https://github.com/tommytang213/Settleora/pull/754>.
+- PR title:
+  `docs(auth): add password reset notification event gate`.
+- Merge SHA:
+  `1d1bbc2b496047d3f3e27fe479c15260f6304fe9`.
+- Reviewed source head:
+  `d456e34c06975eef47afb45992e4c9a1d9dcda78`.
+- Final `origin/main` at post-merge verification:
+  `1d1bbc2b496047d3f3e27fe479c15260f6304fe9`.
+- Merged scope:
+  `docs/planning/AUTH_LOCAL_PASSWORD_RESET_NOTIFICATION_EVENT_TARGET_REDACTION_GATE.md`
+  and `docs/planning/ISSUE_PROGRESS_LEDGER.md`.
+- Completed merged checkpoint:
+  docs/control gate for password reset notification event, target/reference,
+  recipient, suppression/copy, and redaction posture. Password-reset
+  notification runtime remains blocked. Public password-reset request/complete
+  routes remain blocked and unregistered.
+- Validation/readback summary:
+  local docs/scaffold/focused route exposure validation passed during the merge
+  gate. GitHub exact-head checks passed for reviewed head
+  `d456e34c06975eef47afb45992e4c9a1d9dcda78`. The actual merge commit
+  first-parent diff contained exactly the merged scope above, and no
+  `.codex/reports/**` files were merged.
+- Post-merge hygiene:
+  source branch
+  `docs/auth-local-password-reset-notification-gate-20260707-1234` exists
+  remotely at reviewed head `d456e34c06975eef47afb45992e4c9a1d9dcda78`.
+  Issue comments were posted:
+  - #336:
+    https://github.com/tommytang213/Settleora/issues/336#issuecomment-4900430331
+  - #339:
+    https://github.com/tommytang213/Settleora/issues/339#issuecomment-4900430332
+- Remaining gates:
+  target-reference schema/OpenAPI/generated-client gate if notifications are
+  used, password-reset notification runtime gate if later approved,
+  UI/Figma/mobile/web/admin/product copy gate, final public route exposure gate,
+  and final auth/security acceptance.
+- Issue posture:
+  keep #336 open. PR #754 does not complete the broader
+  auth/session/runtime security epic or final auth/security acceptance. Keep
+  #339 open. PR #754 does not expose public reset routes, implement notification
+  runtime, complete user-visible reset UX/product copy, or complete the Day 1
+  password reset/credential-change workflow.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change runtime/API endpoint
+  behavior, OpenAPI/contracts, generated clients, schema/migrations,
+  notification writer/runtime, SMTP/provider config, secrets, UI/Figma/mobile/
+  web/admin implementation, deployment/Docker/CI/Codemagic/TestFlight behavior,
+  auth/session/security runtime, money/settlement/payment/bill/OCR/storage/
+  sync/import/export/backup/restore/reconciliation behavior, issue closure,
+  labels, milestones, assignees, Project fields, or `.codex/reports/**`
+  committed files.
+
 ### Issues #336/#339 - Password reset notification event/target/redaction gate checkpoint
 
 - GitHub state/project status:
