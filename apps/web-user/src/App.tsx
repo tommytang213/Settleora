@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { PasswordResetCompletePage } from "./PasswordResetCompletePage";
 import {
   createInitialSessionBoundaryState,
   loadSessionBoundaryState,
@@ -100,6 +101,7 @@ import {
   type SyncLocalStatusRuntimeState
 } from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
+import { isPasswordResetCompletePath } from "./passwordResetComplete";
 import type {
   BillCsvImportConfirmationResponse,
   BillCsvImportPreflightResponse,
@@ -148,6 +150,14 @@ function setActiveRoute(id: string) {
 }
 
 export function App() {
+  if (isPasswordResetCompletePath(window.location.pathname)) {
+    return <PasswordResetCompletePage />;
+  }
+
+  return <UserPortalShell />;
+}
+
+function UserPortalShell() {
   const [activeId, setActiveId] = useState(() => getInitialActiveId());
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);

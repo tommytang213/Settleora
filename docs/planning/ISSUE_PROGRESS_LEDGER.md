@@ -20,6 +20,74 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - PR #767 user-web password reset complete UI checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback remains last known `Inbox`.
+  - #339 `OPEN`; Project status readback remains last known `Needs Decision`.
+- PR:
+  <https://github.com/tommytang213/Settleora/pull/767>.
+- PR title:
+  `feat(web): add password reset complete flow`.
+- PR state:
+  `OPEN` at checkpoint creation.
+- PR branch:
+  `feature/user-web-password-reset-complete-ui-20260707-2337`.
+- Source head at PR open:
+  `5b38cd381ac86dd72194a336f4f7da243e3f9701`.
+- Base at PR open:
+  `main` at expected starting `origin/main`
+  `a96289a8faf411702e6f04868b34a3ec9c5da1ce`.
+- Completed implementation slice in the PR:
+  public user-web fallback for the backend reset-link path
+  `/auth/password-reset#resetMaterial=...`, covering A05-A07 only:
+  - A05 reset-complete form with approved title, body, field labels, primary
+    action, secondary action, and local password/confirmation validation copy.
+  - A06 `Password updated` success state after generated-client completion
+    succeeds.
+  - A07 generic `Reset link unavailable` state for missing, empty, malformed,
+    invalid, expired, consumed, replayed, revoked, unknown, unavailable, or
+    otherwise failed reset material outcomes.
+- Reset material/privacy checkpoint:
+  reset material is parsed only from `window.location.hash`, kept only in
+  runtime component memory, scrubbed from the visible URL with history
+  replacement after capture, passed to generated web
+  `completeLocalPasswordReset` with only `newPassword`, and not rendered,
+  logged, persisted, stored in browser storage/cookies, or included in error
+  text.
+- Validation checkpoint at source head:
+  `git status --short`, `git diff --check`,
+  `npm run test --prefix apps/web-user`,
+  `npm run build --prefix apps/web-user`,
+  `npm run validate:openapi`, `npm run generate:clients`,
+  `git diff --name-only`, `git diff --stat`,
+  `npm run validate:clients`, `npm run validate:scaffold`,
+  `npm run validate:docs`, and the additional
+  `npm run lint --prefix apps/web-user` command passed. Client generation
+  produced no tracked generated-client drift.
+- Non-goals preserved:
+  no general user-web sign-in, credential storage, automatic sign-in, access
+  or refresh token issuance, auth/session storage, mobile reset-complete UI,
+  mobile universal/app links, custom URL schemes, manual reset material entry,
+  API behavior, OpenAPI/contracts, generated clients, email template copy,
+  SMTP/provider config, notifications, security-center, credential-activity,
+  schema/migrations, Docker, CI, deployment, secrets, storage/privacy,
+  money/settlement/payment/bill/OCR/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, labels, milestones, assignees, or
+  Project field mutations.
+- Remaining gates:
+  A04 email/link target end-to-end confirmation; A08 provider-owned/helper
+  state only if an approved surface needs it; final broader auth/security
+  acceptance after A04-A07 evidence; notification/security-center/
+  credential-activity gates only if those surfaces are added later; and future
+  mobile universal/app link/custom scheme policy/platform/deployment gates
+  only if mobile link handling is later chosen.
+- Issue posture:
+  keep #336 open. PR #767 does not complete the broader auth/session/runtime
+  security epic or final Day 1 auth/security acceptance. Keep #339 open.
+  PR #767 completes only the user-web A05-A07 fallback slice and does not
+  complete the full Day 1 password reset and credential-change workflow.
+
 ### Issues #336/#339 - PR #765 mobile password reset request UI post-merge checkpoint
 
 - GitHub state/project status:
