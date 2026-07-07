@@ -20,6 +20,65 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset public response policy PR #750 post-merge checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  https://github.com/tommytang213/Settleora/pull/750.
+- PR title:
+  `feat(api): add password reset public response policy`.
+- Merge SHA:
+  `f46f0f4ffe5b73ac6ec77385778801e913aaa4c0`.
+- Reviewed source head:
+  `b09e9e908296bc4f55fabc165ef12ffb5f3bd63c`.
+- Previous main/base:
+  `a9d531ee0502269d0c3ff7992089e1470b238c95`.
+- Completed merged checkpoint:
+  internal password-reset public request-response policy mapping future request
+  outcomes to the uniform public posture: `202 Accepted`, no response body, and
+  no `Retry-After`. Covered outcomes include delivery disabled/not-ready,
+  local/test sink recorded, provider send accepted, provider send failed,
+  reset-specific request throttles, and provider-send throttles.
+- Public route exposure:
+  still blocked. PR #750 does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`; the OpenAPI paths remain
+  transport contracts only, and the post-merge route exposure guard found no
+  public password-reset runtime route mapping strings under `services/api/src`.
+- Validation/readback summary:
+  focused password-reset tests passed with `67` passed, `0` failed, `0`
+  skipped. Full `npm run validate:api` passed with `1399` passed, `0` failed,
+  `0` skipped. GitHub checks passed on the exact reviewed head
+  `b09e9e908296bc4f55fabc165ef12ffb5f3bd63c`.
+- Post-merge hygiene:
+  source branch
+  `feature/auth-local-password-reset-delivery-failure-public-response-20260707`
+  was restored to `b09e9e908296bc4f55fabc165ef12ffb5f3bd63c`. Issue comments
+  were posted:
+  - #336:
+    https://github.com/tommytang213/Settleora/issues/336#issuecomment-4899597867
+  - #339:
+    https://github.com/tommytang213/Settleora/issues/339#issuecomment-4899597862
+- Required next gates:
+  audit/redaction acceptance, notification event/target/redaction if used,
+  UI/Figma/product copy, final public route exposure review, and final
+  auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. No issue closure, labels, milestones, assignees, or
+  Project fields were changed. PR #750 does not complete the broader
+  auth/session/runtime security epic, the Day 1 password reset and
+  credential-change workflow, public route exposure, user-visible reset UX, or
+  final auth/security acceptance.
+- Scope confirmation:
+  this checkpoint does not change runtime source, tests, OpenAPI/contracts,
+  generated clients, schema/migrations, public endpoint mappings, UI, secrets/
+  config/env samples, deployment/Docker/CI/Codemagic/TestFlight behavior,
+  notification outbox design, money/settlement/payment/bill/OCR/storage/sync/
+  import/export/backup/restore/reconciliation behavior, issue closure, or
+  Project fields.
+
 ### Issues #336/#339 - Password reset delivery-failure public-response PR-open checkpoint
 
 - GitHub state/project status:
