@@ -20,6 +20,61 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset public route exposure preflight
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Live PR #757 verification:
+  <https://github.com/tommytang213/Settleora/pull/757> is `MERGED` into
+  `main`, with merge commit
+  `bd049c2afffdebb8a7ff9233df105cb7fba644ab`.
+- Current `origin/main` at preflight:
+  `bd049c2afffdebb8a7ff9233df105cb7fba644ab`.
+- Preflight doc:
+  `docs/planning/AUTH_PASSWORD_RESET_PUBLIC_ROUTE_EXPOSURE_PREFLIGHT.md`.
+- Route exposure decision:
+  `BLOCKED_FOR_ROUTE_EXPOSURE`.
+- Current satisfied internal-only gates:
+  SMTP/email delivery readiness and reset-link/template composition from
+  PR #746, reset-specific request/provider-send throttles from PR #748,
+  uniform public request-response policy from PR #750, audit/redaction
+  acceptance from PR #752, local-only/OIDC exclusion, token lifetime/replay
+  handling, and account-wide session/refresh-family revocation after successful
+  internal reset completion.
+- Notification posture:
+  password-reset notification runtime is not required for Day 1 public route
+  exposure if notifications remain deferred/audit-only, per PR #756. If a
+  future route-exposure design emits a password-reset notification, target/
+  schema/OpenAPI/generated-client work plus an authorized current-account
+  security-center, credential-activity, or auth-audit re-fetch path must happen
+  first.
+- Remaining blockers before public route mapping:
+  UI/Figma/mobile/web/admin/product-copy gate, manual OpenAPI/generated-client
+  gate for changing the public route runtime posture or any target/security-
+  center contract, final public route exposure review, and final
+  auth/security acceptance.
+- Current runtime posture:
+  `POST /api/v1/auth/password-reset/request` and
+  `POST /api/v1/auth/password-reset/complete` remain unregistered/disabled.
+  Existing route exposure tests assert both paths are absent from runtime
+  endpoint data sources and return `404 Not Found`.
+- Issue posture:
+  keep #336 open. This preflight does not complete the broader
+  auth/session/runtime security epic or final auth/security acceptance. Keep
+  #339 open. This preflight does not expose public reset routes, complete
+  user-visible reset UX/product copy, implement notification runtime, or
+  complete the Day 1 password reset and credential-change workflow.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change runtime/API endpoint
+  behavior, OpenAPI/contracts, generated clients, schema/migrations,
+  notification writer/runtime, SMTP/provider config, secrets, UI/Figma/mobile/
+  web/admin implementation, deployment/Docker/CI/Codemagic/TestFlight behavior,
+  auth/session/security runtime, money/settlement/payment/bill/OCR/storage/
+  sync/import/export/backup/restore/reconciliation behavior, issue closure,
+  labels, milestones, assignees, Project fields, or `.codex/reports/**`
+  committed files.
+
 ### Issues #336/#339 - PR #756 password reset notification target-reference post-merge checkpoint
 
 - GitHub state/project status:
