@@ -1185,6 +1185,62 @@ remain the source of truth.
   export/backup/restore/reconciliation behavior, issue closure, or Project
   fields.
 
+### Issues #336/#339 - Password reset public route exposure implementation branch
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback remains `Inbox` from the latest
+    password-reset gate reports.
+  - #339 `OPEN`; Project status readback remains `Needs Decision` from the
+    latest password-reset gate reports.
+- Branch:
+  `feature/auth-password-reset-route-exposure-20260707-2120`.
+- Baseline:
+  `origin/main` at `e1bf888e6e83503b2424d5237a409251a41f2720`, the PR #762
+  merge commit.
+- Verification timestamp:
+  `2026-07-07 21:20 HKT` task window.
+- Implementation PR:
+  to be opened from this branch after required local validation passes; the
+  task report records the final PR number and URL.
+- Completed branch checkpoint:
+  narrow public runtime route exposure only. The branch maps exactly:
+  `POST /api/v1/auth/password-reset/request` and
+  `POST /api/v1/auth/password-reset/complete`. The request route is anonymous,
+  validates only the approved transport shape, calls the existing local request
+  service and delivery/public-response runtime boundaries, and returns uniform
+  `202 Accepted` with no body and no `Retry-After`. The completion route is
+  anonymous, validates only the approved transport shape, calls the existing
+  local completion service boundary, returns `204 No Content` for successful
+  reset, and maps invalid/unavailable material to generic bounded problem
+  responses without issuing access or refresh credentials.
+- Scope confirmation:
+  this checkpoint changes only API route mapping/binding, focused route
+  exposure tests, and this ledger entry. It does not change OpenAPI/contracts,
+  generated clients, schema/migrations, password-reset token policy, SMTP/
+  provider configuration, notification targets/security-center/
+  credential-activity surfaces, mobile/web/admin UI, product copy beyond this
+  ledger checkpoint, secrets/config/env, deployment/Docker/CI/Codemagic/
+  TestFlight behavior, money/settlement/payment/bill/OCR/storage/sync/import/
+  export/backup/restore/reconciliation behavior, issue closure, labels,
+  milestones, assignees, or Project fields.
+- Validation checkpoint:
+  required validation for this branch is `git diff --check`,
+  `npm run validate:openapi`, `npm run generate:clients` with no tracked
+  generated-client drift, `npm run validate:clients`,
+  `npm run validate:scaffold`, `npm run validate:api`, and focused
+  `dotnet test services/api/tests/Settleora.Api.Tests/Settleora.Api.Tests.csproj --filter "FullyQualifiedName~PasswordReset|FullyQualifiedName~LocalPasswordResetRouteExposureTests"`.
+  Exact command results are recorded in the task report for this branch.
+- Remaining gates:
+  PR review/merge gate, post-merge hygiene, and broader Day 1 password-reset/
+  UI/notification acceptance work. Conditional target/security-center/
+  credential-activity OpenAPI/generated-client gates remain required only if a
+  later task adds password-reset notifications or those surfaces.
+- Issue posture:
+  keep #336 and #339 open. This route exposure branch closes the old unmapped
+  public transport gap only; it does not complete the broader auth/session/
+  runtime security epic or the full Day 1 password reset and credential-change
+  workflow.
+
 ### Issues #336/#339 - Local password reset internal runtime bucket hardening branch
 
 - GitHub state/project status:

@@ -1,5 +1,8 @@
 using System.Net;
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -480,11 +483,19 @@ public sealed class LocalPasswordResetServiceTests
 
 public sealed class LocalPasswordResetRouteExposureTests : IClassFixture<WebApplicationFactory<Program>>
 {
+    private const string ResetRequestPath = "/api/v1/auth/password-reset/request";
+    private const string ResetCompletePath = "/api/v1/auth/password-reset/complete";
+    private const string SubmittedIdentifier = "route.reset@example.com";
+    private const string CurrentSecretInput = "current-route-reset-password";
+    private const string NewSecretInput = "new-route-reset-password";
+    private const string SourceBucket = "src:local-single-node";
+
     private static readonly string[] PasswordResetPaths =
     [
-        "/api/v1/auth/password-reset/request",
-        "/api/v1/auth/password-reset/complete"
+        ResetRequestPath,
+        ResetCompletePath
     ];
+    private static readonly DateTimeOffset InitialTimestamp = new(2026, 7, 7, 13, 20, 0, TimeSpan.Zero);
 
     private readonly WebApplicationFactory<Program> factory;
 
@@ -494,39 +505,169 @@ public sealed class LocalPasswordResetRouteExposureTests : IClassFixture<WebAppl
     }
 
     [Fact]
-    public void PasswordResetOpenApiPathsAreNotMappedInRuntimeEndpointDataSources()
+    public void PasswordResetOpenApiPathsAreMappedOnlyForApprovedPostRoutes()
     {
-        using var testFactory = CreateFactory();
-        var routePatterns = testFactory.Services
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var passwordResetRoutes = testFactory.Services
             .GetRequiredService<IEnumerable<EndpointDataSource>>()
             .SelectMany(dataSource => dataSource.Endpoints)
             .OfType<RouteEndpoint>()
-            .Select(endpoint => NormalizeRoutePattern(endpoint.RoutePattern.RawText ?? endpoint.RoutePattern.ToString()))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .Select(endpoint => new
+            {
+                Path = NormalizeRoutePattern(endpoint.RoutePattern.RawText ?? endpoint.RoutePattern.ToString()),
+                Methods = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? []
+            })
+            .Where(endpoint => endpoint.Path.StartsWith("/api/v1/auth/password-reset", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(endpoint => endpoint.Path, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(endpoint => string.Join(",", endpoint.Methods), StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        foreach (var path in PasswordResetPaths)
-        {
-            Assert.DoesNotContain(path, routePatterns);
-        }
+        Assert.Equal(
+            PasswordResetPaths.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
+            passwordResetRoutes.Select(endpoint => endpoint.Path).Order(StringComparer.OrdinalIgnoreCase).ToArray());
+        Assert.All(passwordResetRoutes, endpoint => Assert.Equal(["POST"], endpoint.Methods));
+    }
+
+    [Fact]
+    public async Task PasswordResetRequestReturnsAcceptedNoBodyAndNoRetryAfter()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        using var client = testFactory.CreateClient();
+
+        using var response = await client.PostAsync(
+            ResetRequestPath,
+            CreateJsonContent(new
+            {
+                resetIdentifier = SubmittedIdentifier
+            }));
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(string.Empty, content);
+        Assert.False(response.Headers.Contains("Retry-After"));
+    }
+
+    [Fact]
+    public async Task PasswordResetCompleteReturnsNoContentNoBodyAndNoCredentialsForValidMaterial()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var seededAccount = await SeedLocalAccountAsync(testFactory);
+        var rawResetMaterial = await IssueResetMaterialAsync(testFactory);
+        using var client = testFactory.CreateClient();
+
+        using var response = await client.PostAsync(
+            ResetCompletePath,
+            CreateJsonContent(new
+            {
+                resetMaterial = rawResetMaterial,
+                newPassword = NewSecretInput
+            }));
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(string.Empty, content);
+        Assert.DoesNotContain("access", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("refresh", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(rawResetMaterial, content, StringComparison.Ordinal);
+        await AssertCredentialVerifierAsync(
+            testFactory,
+            seededAccount.AuthAccountId,
+            TestPasswordHashingService.HashFor(NewSecretInput));
+    }
+
+    [Fact]
+    public async Task PasswordResetCompleteInvalidOrUnavailableMaterialReturnsGenericBoundedProblem()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        using var client = testFactory.CreateClient();
+        const string submittedMaterial = "unknown-route-reset-material";
+
+        using var response = await client.PostAsync(
+            ResetCompletePath,
+            CreateJsonContent(new
+            {
+                resetMaterial = submittedMaterial,
+                newPassword = NewSecretInput
+            }));
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Password reset failed", content, StringComparison.Ordinal);
+        Assert.Contains("Unable to complete password reset with the submitted information.", content, StringComparison.Ordinal);
+        Assert.DoesNotContain(submittedMaterial, content, StringComparison.Ordinal);
+        Assert.DoesNotContain(NewSecretInput, content, StringComparison.Ordinal);
+        Assert.DoesNotContain("expired", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("consumed", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("revoked", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("replay", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("unknown", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("oidc", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("credential", content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PasswordResetEndpointsRejectUnsupportedFieldsWithoutLeakingSubmittedSecrets()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        using var client = testFactory.CreateClient();
+        var smuggledAccountId = Guid.NewGuid().ToString("D");
+
+        using var response = await client.PostAsync(
+            ResetCompletePath,
+            CreateJsonContent(new
+            {
+                resetMaterial = "visible-reset-material",
+                newPassword = NewSecretInput,
+                authAccountId = smuggledAccountId
+            }));
+
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Unsupported fields are not allowed.", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("visible-reset-material", content, StringComparison.Ordinal);
+        Assert.DoesNotContain(NewSecretInput, content, StringComparison.Ordinal);
+        Assert.DoesNotContain(smuggledAccountId, content, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("/api/v1/auth/password-reset/request")]
-    [InlineData("/api/v1/auth/password-reset/complete")]
-    public async Task PasswordResetOpenApiPathsAreNotReachableOverHttp(string path)
+    [InlineData("/api/v1/auth/password-reset")]
+    [InlineData("/api/v1/auth/password-reset/status")]
+    [InlineData("/api/v1/auth/password-reset/token")]
+    public async Task PasswordResetRouteExposureDoesNotAddUnapprovedEndpoints(string path)
     {
-        using var testFactory = CreateFactory();
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
         using var client = testFactory.CreateClient();
 
-        using var response = await client.PostAsync(path, new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
+        using var response = await client.PostAsync(path, CreateJsonContent(new { }));
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
-    private WebApplicationFactory<Program> CreateFactory()
+    [Theory]
+    [InlineData(ResetRequestPath)]
+    [InlineData(ResetCompletePath)]
+    public async Task PasswordResetOpenApiPathsAreReachableOverHttp(string path)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        using var client = testFactory.CreateClient();
+
+        using var response = await client.PostAsync(path, new StringContent("{}", Encoding.UTF8, "application/json"));
+
+        Assert.NotEqual(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    private FactoryTestContext CreateFactory()
     {
         var databaseName = Guid.NewGuid().ToString();
-        return factory.WithWebHostBuilder(builder =>
+        var timeProvider = new EndpointTestTimeProvider(InitialTimestamp);
+        var testFactory = factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {
@@ -538,8 +679,106 @@ public sealed class LocalPasswordResetRouteExposureTests : IClassFixture<WebAppl
                 {
                     options.UseInMemoryDatabase(databaseName);
                 });
+
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(timeProvider);
+
+                services.RemoveAll<IPasswordHashingService>();
+                services.AddSingleton<IPasswordHashingService, TestPasswordHashingService>();
             });
         });
+
+        return new FactoryTestContext(testFactory, timeProvider);
+    }
+
+    private static async Task<SeededAccount> SeedLocalAccountAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var userProfileId = Guid.NewGuid();
+        var authAccountId = Guid.NewGuid();
+
+        dbContext.Set<UserProfile>().Add(new UserProfile
+        {
+            Id = userProfileId,
+            DisplayName = "Route Reset User",
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<AuthAccount>().Add(new AuthAccount
+        {
+            Id = authAccountId,
+            UserProfileId = userProfileId,
+            Status = AuthAccountStatuses.Active,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<AuthIdentity>().Add(new AuthIdentity
+        {
+            Id = Guid.NewGuid(),
+            AuthAccountId = authAccountId,
+            ProviderType = AuthIdentityProviderTypes.Local,
+            ProviderName = AuthIdentityProviderTypes.Local,
+            ProviderSubject = SubmittedIdentifier,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+        dbContext.Set<LocalPasswordCredential>().Add(new LocalPasswordCredential
+        {
+            Id = Guid.NewGuid(),
+            AuthAccountId = authAccountId,
+            PasswordHash = TestPasswordHashingService.HashFor(CurrentSecretInput),
+            PasswordHashAlgorithm = TestPasswordHashingService.Algorithm,
+            PasswordHashAlgorithmVersion = TestPasswordHashingService.PolicyVersion,
+            PasswordHashParameters = TestPasswordHashingService.ParametersJson,
+            Status = LocalPasswordCredentialStatuses.Active,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp
+        });
+
+        await dbContext.SaveChangesAsync();
+        return new SeededAccount(authAccountId, userProfileId);
+    }
+
+    private static async Task<string> IssueResetMaterialAsync(WebApplicationFactory<Program> testFactory)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var resetService = scope.ServiceProvider.GetRequiredService<ILocalPasswordResetService>();
+        var issued = await resetService.IssueMaterialAsync(new LocalPasswordResetMaterialIssueRequest(
+            SubmittedIdentifier,
+            AuthPasswordResetMaterialScopes.EmailLink,
+            TimeSpan.FromMinutes(60),
+            SourceBucket));
+
+        Assert.True(issued.Succeeded);
+        Assert.False(string.IsNullOrWhiteSpace(issued.RawResetMaterial));
+        return issued.RawResetMaterial!;
+    }
+
+    private static async Task AssertCredentialVerifierAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid authAccountId,
+        string expectedVerifier)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var credential = await dbContext.Set<LocalPasswordCredential>()
+            .AsNoTracking()
+            .SingleAsync(credential => credential.AuthAccountId == authAccountId);
+
+        Assert.Equal(expectedVerifier, credential.PasswordHash);
+        Assert.Equal(TestPasswordHashingService.Algorithm, credential.PasswordHashAlgorithm);
+        Assert.Equal(TestPasswordHashingService.PolicyVersion, credential.PasswordHashAlgorithmVersion);
+        Assert.Equal(TestPasswordHashingService.ParametersJson, credential.PasswordHashParameters);
+        Assert.Equal(LocalPasswordCredentialStatuses.Active, credential.Status);
+    }
+
+    private static StringContent CreateJsonContent(object value)
+    {
+        return new StringContent(
+            JsonSerializer.Serialize(value),
+            Encoding.UTF8,
+            "application/json");
     }
 
     private static string NormalizeRoutePattern(string? routePattern)
@@ -552,5 +791,61 @@ public sealed class LocalPasswordResetRouteExposureTests : IClassFixture<WebAppl
         return routePattern.StartsWith("/", StringComparison.Ordinal)
             ? routePattern
             : "/" + routePattern;
+    }
+
+    private sealed record FactoryTestContext(
+        WebApplicationFactory<Program> Factory,
+        EndpointTestTimeProvider TimeProvider);
+
+    private sealed record SeededAccount(Guid AuthAccountId, Guid UserProfileId);
+
+    private sealed class EndpointTestTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset utcNow;
+
+        public EndpointTestTimeProvider(DateTimeOffset utcNow)
+        {
+            this.utcNow = utcNow;
+        }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            return utcNow;
+        }
+    }
+
+    private sealed class TestPasswordHashingService : IPasswordHashingService
+    {
+        public const string Algorithm = "fake";
+        public const string PolicyVersion = "test-v1";
+        public const string ParametersJson = "{\"profile\":\"test\"}";
+
+        public static string HashFor(string password)
+        {
+            return $"fake-hash:{password}";
+        }
+
+        public PasswordHashResult HashPassword(string plaintextPassword)
+        {
+            return PasswordHashResult.Success(
+                HashFor(plaintextPassword),
+                Algorithm,
+                PolicyVersion,
+                ParametersJson);
+        }
+
+        public PasswordVerificationResult VerifyPassword(
+            string submittedPassword,
+            StoredPasswordHash storedHash)
+        {
+            return StringComparer.Ordinal.Equals(storedHash.Verifier, HashFor(submittedPassword))
+                ? PasswordVerificationResult.Verified(PasswordRehashDecision.NotRequired)
+                : PasswordVerificationResult.Failure(PasswordVerificationStatus.WrongPassword);
+        }
+
+        public PasswordRehashDecision CheckRehashRequired(StoredPasswordHash storedHash)
+        {
+            return PasswordRehashDecision.NotRequired;
+        }
     }
 }

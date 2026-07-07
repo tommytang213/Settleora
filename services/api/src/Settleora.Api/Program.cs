@@ -120,6 +120,7 @@ app.MapLocalSignInEndpoints();
 app.MapRefreshSessionEndpoints();
 app.MapCurrentUserEndpoints();
 app.MapCurrentAccountPasswordChangeEndpoints();
+app.MapLocalPasswordResetEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMfaEndpoints();
 app.MapGroupFoundationEndpoints();
