@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/app/app_configuration.dart';
 import 'package:mobile/app/auth_session_repository.dart';
+import 'package:mobile/app/password_reset_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/main.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -102,6 +103,7 @@ void main() {
     expect(find.text('Sign in to Settleora'), findsOneWidget);
     expect(find.byKey(const Key('sign-in-identifier')), findsOneWidget);
     expect(find.byKey(const Key('sign-in-password')), findsOneWidget);
+    expect(find.text('Forgot password?'), findsOneWidget);
     expect(
       find.textContaining('Use your server account to sync bills'),
       findsOneWidget,
@@ -118,6 +120,213 @@ void main() {
     expect(visibleText(tester), isNot(contains('https://settleora.example')));
     expect(find.text('Receipt Reviews'), findsNothing);
   });
+
+  testWidgets('forgot password opens the reset request form', (tester) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+    );
+
+    await tester.pumpWidget(SettleoraMobileApp(secureStorage: storage));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('sign-in-forgot-password')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Reset your password'), findsOneWidget);
+    expect(find.text('Email or username'), findsOneWidget);
+    expect(find.text('Send reset link'), findsOneWidget);
+    expect(find.text('Back to sign in'), findsOneWidget);
+    expect(find.byKey(const Key('password-reset-identifier')), findsOneWidget);
+    expect(find.byKey(const Key('password-reset-submit')), findsOneWidget);
+    expect(find.text('Set a new password'), findsNothing);
+    expect(find.text('New password'), findsNothing);
+    expect(find.text('Confirm new password'), findsNothing);
+    expect(find.text('Reset link unavailable'), findsNothing);
+  });
+
+  testWidgets(
+    'empty password reset identifier validates locally without API call',
+    (tester) async {
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+      );
+      final passwordResetRepository = FakePasswordResetRepository();
+
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          passwordResetRepositoryFactory: (_) => passwordResetRepository,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('sign-in-forgot-password')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('password-reset-submit')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter your email or username.'), findsOneWidget);
+      expect(passwordResetRepository.requestCalls, 0);
+      expect(find.text('Check your next step'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'accepted password reset request reaches the uniform submitted state',
+    (tester) async {
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+      );
+      final passwordResetRepository = FakePasswordResetRepository();
+
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          passwordResetRepositoryFactory: (_) => passwordResetRepository,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('sign-in-identifier')),
+        ' owner@example.test ',
+      );
+      await tester.tap(find.byKey(const Key('sign-in-forgot-password')));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(
+                of: find.byKey(const Key('password-reset-identifier')),
+                matching: find.byType(EditableText),
+              ),
+            )
+            .controller
+            .text,
+        'owner@example.test',
+      );
+
+      await tester.tap(find.byKey(const Key('password-reset-submit')));
+      await tester.pumpAndSettle();
+
+      expect(passwordResetRepository.requestCalls, 1);
+      expect(passwordResetRepository.lastResetIdentifier, 'owner@example.test');
+      expect(find.text('Check your next step'), findsOneWidget);
+      expect(
+        find.text(
+          'If password reset is available for that account, use the reset link to continue. You can return to sign in now.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          "For accounts managed by an external sign-in provider, use that provider's recovery options.",
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('password-reset-submitted-back-to-sign-in')),
+        findsOneWidget,
+      );
+      expect(find.text('Use another sign-in method'), findsNothing);
+    },
+  );
+
+  testWidgets('password reset failure uses generic safe copy', (tester) async {
+    final storage = FakeSecureStorage(
+      configuration: SettleoraAppConfiguration.server(
+        serverBaseUri: Uri.parse('https://settleora.example/'),
+      ),
+    );
+    final passwordResetRepository = FakePasswordResetRepository(
+      failure: const SettleoraPasswordResetFailure(
+        kind: SettleoraPasswordResetFailureKind.unavailable,
+        message:
+            'We could not process this request right now. Try again later.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: storage,
+        passwordResetRepositoryFactory: (_) => passwordResetRepository,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('sign-in-forgot-password')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('password-reset-identifier')),
+      'owner@example.test',
+    );
+    await tester.tap(find.byKey(const Key('password-reset-submit')));
+    await tester.pumpAndSettle();
+
+    expect(passwordResetRepository.requestCalls, 1);
+    expect(find.text('Request unavailable'), findsOneWidget);
+    expect(
+      find.text(
+        'We could not process this request right now. Try again later.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Check your next step'), findsNothing);
+  });
+
+  testWidgets(
+    'password reset submitted state does not leak unsafe reset details',
+    (tester) async {
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+      );
+      final passwordResetRepository = FakePasswordResetRepository();
+
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          passwordResetRepositoryFactory: (_) => passwordResetRepository,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('sign-in-forgot-password')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('password-reset-identifier')),
+        'owner@example.test',
+      );
+      await tester.tap(find.byKey(const Key('password-reset-submit')));
+      await tester.pumpAndSettle();
+
+      final text = visibleText(tester).toLowerCase();
+      expect(text, contains('check your next step'));
+      expect(text, isNot(contains('account found')));
+      expect(text, isNot(contains('account not found')));
+      expect(text, isNot(contains('local account')));
+      expect(text, isNot(contains('oidc')));
+      expect(text, isNot(contains('smtp')));
+      expect(text, isNot(contains('provider readiness')));
+      expect(text, isNot(contains('email sent')));
+      expect(text, isNot(contains('delivery')));
+      expect(text, isNot(contains('throttle')));
+      expect(text, isNot(contains('token')));
+      expect(text, isNot(contains('reset material')));
+      expect(text, isNot(contains('/api/')));
+      expect(text, isNot(contains('generated client')));
+      expect(find.text('Set a new password'), findsNothing);
+      expect(find.text('Reset link unavailable'), findsNothing);
+    },
+  );
 
   testWidgets(
     'setup server copy keeps API authority and no-migration boundary',
@@ -1628,6 +1837,24 @@ class FakeSecureStorage implements SettleoraSecureStorageBoundary {
   Future<void> clearServerSession() async {
     clearServerSessionCalls += 1;
     session = null;
+  }
+}
+
+class FakePasswordResetRepository implements SettleoraPasswordResetRepository {
+  FakePasswordResetRepository({this.failure});
+
+  final SettleoraPasswordResetFailure? failure;
+  int requestCalls = 0;
+  String? lastResetIdentifier;
+
+  @override
+  Future<void> requestReset(SettleoraPasswordResetRequest request) async {
+    requestCalls += 1;
+    lastResetIdentifier = request.resetIdentifier.trim();
+    final failure = this.failure;
+    if (failure != null) {
+      throw failure;
+    }
   }
 }
 

@@ -20,6 +20,65 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Mobile password reset request UI PR checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `unverified`.
+  - #339 `OPEN`; Project status readback: `unverified`.
+- PR:
+  <https://github.com/tommytang213/Settleora/pull/765>.
+- PR title:
+  `feat(mobile): add password reset request flow`.
+- PR state:
+  `OPEN`.
+- PR branch:
+  `feature/mobile-password-reset-request-ui-20260707-2240`.
+- Implementation source head before this ledger-only checkpoint:
+  `85e0f56b17a286ccc24959008e64233c07ba957d`.
+- Base at checkpoint:
+  `861d8f9778fb6112f76561879ec827e152de1666`.
+- Completed implementation slice:
+  mobile A01-A03 request-only password reset UI/runtime behavior is
+  implemented in PR #765:
+  - A01 sign-in `Forgot password?` secondary action.
+  - A02 reset request form using approved copy.
+  - A03 anti-enumeration-safe submitted state using approved copy.
+  - dedicated mobile password-reset repository seam around the generated Dart
+    `requestLocalPasswordReset` transport method, sending only
+    `resetIdentifier`.
+  - `SettleoraAppBootstrap` wiring from the saved server base URL through the
+    generated API client factory pattern.
+- Safety checkpoint:
+  request-submitted UI remains uniform and does not reveal account existence,
+  local-vs-provider account state, SMTP/provider readiness, delivery attempt
+  state, provider failure, throttling state, token issuance, token state,
+  endpoint paths, internal policy details, or generated-client details. Empty
+  identifier validation is local. Network/server failure copy is limited to
+  `We could not process this request right now. Try again later.`
+- Visual/test checkpoint:
+  the existing sign-in visual capture harness was updated to include the
+  forgotten-password action. No brittle new screenshot harness was added.
+- Remaining gates:
+  A04 reset email, A05 reset-complete form, A06 successful reset state, A07
+  generic invalid-link state, A08 provider-owned/helper state, reset-complete
+  link target/deep-link/custom URL/web handoff decision, and final broader
+  auth/security acceptance remain open.
+- Issue posture:
+  keep #336 open. PR #765 does not complete the broader auth/session/runtime
+  security epic or final Day 1 auth/security acceptance. Keep #339 open.
+  PR #765 implements only the mobile request UI slice and does not complete the
+  full Day 1 password reset and credential-change workflow.
+- Scope confirmation:
+  PR #765 does not implement reset-complete UI, reset material entry, invalid
+  link routing, deep links, user-web/admin UI, notification runtime,
+  security-center, credential-activity, auth-audit re-fetch, OpenAPI/contracts,
+  generated-client edits, API route mapping, backend auth runtime behavior,
+  password reset policy, SMTP/provider config, appsettings/env/secrets,
+  schema/migrations, Docker, CI, deployment, Codemagic/TestFlight behavior,
+  money/settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, labels, milestones, assignees, or
+  Project field mutations.
+
 ### Issues #336/#339 - PR #763 password reset route exposure post-merge checkpoint
 
 - GitHub state/project status:
