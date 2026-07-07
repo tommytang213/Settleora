@@ -49,6 +49,23 @@ describe("password reset complete page", () => {
     expect(completeLocalPasswordReset).not.toHaveBeenCalled();
   });
 
+  it("rejects 8 through 11 character passwords before calling the API", async () => {
+    const completeLocalPasswordReset = vi.fn().mockResolvedValue(undefined);
+
+    for (const password of ["12345678", "123456789", "1234567890", "12345678901"]) {
+      window.history.pushState(null, "", "/auth/password-reset#resetMaterial=raw-material");
+
+      await render(<PasswordResetCompletePage client={{ completeLocalPasswordReset }} />);
+      await fillPasswords(password, password);
+      await submitForm();
+
+      expect(document.body.textContent).toContain("Choose a stronger password.");
+      expect(completeLocalPasswordReset).not.toHaveBeenCalled();
+
+      await unmountRenderedPage();
+    }
+  });
+
   it("submits completion and shows the success state without rendering sensitive values", async () => {
     const resetMaterial = "raw-material-secret";
     const newPassword = "new-password-secret";
@@ -132,6 +149,18 @@ async function render(element: React.ReactNode) {
   await act(async () => {
     root?.render(element);
   });
+}
+
+async function unmountRenderedPage() {
+  if (root) {
+    await act(async () => {
+      root?.unmount();
+    });
+  }
+
+  root = null;
+  container?.remove();
+  container = null;
 }
 
 async function fillPasswords(newPassword: string, confirmPassword: string) {

@@ -1,6 +1,5 @@
 import {
   SettleoraApiClient,
-  SettleoraApiError,
   type LocalPasswordResetCompleteRequest
 } from "../../../packages/client-web/src/generated";
 
@@ -8,6 +7,7 @@ export const PASSWORD_RESET_PATH = "/auth/password-reset";
 export const PASSWORD_RESET_INVALID_LINK_MESSAGE =
   "This reset link cannot be used. Request a new link to continue.";
 export const PASSWORD_RESET_STRONGER_PASSWORD_MESSAGE = "Choose a stronger password.";
+export const PASSWORD_RESET_MINIMUM_PASSWORD_LENGTH = 12;
 
 export type PasswordResetValidationStatus =
   | "valid"
@@ -81,7 +81,7 @@ export function validateNewPassword(
     return { status: "mismatch", message: "The passwords do not match." };
   }
 
-  if (newPassword.length < 8) {
+  if (newPassword.length < PASSWORD_RESET_MINIMUM_PASSWORD_LENGTH) {
     return { status: "weak_password", message: PASSWORD_RESET_STRONGER_PASSWORD_MESSAGE };
   }
 

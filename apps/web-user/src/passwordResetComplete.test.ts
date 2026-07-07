@@ -60,6 +60,13 @@ describe("password reset complete helpers", () => {
       status: "weak_password",
       message: "Choose a stronger password."
     });
+    expect(validateNewPassword("12345678901", "12345678901")).toMatchObject({
+      status: "weak_password",
+      message: "Choose a stronger password."
+    });
+    expect(validateNewPassword("123456789012", "123456789012")).toMatchObject({
+      status: "valid"
+    });
     expect(validateNewPassword("strong-password", "strong-password")).toMatchObject({
       status: "valid"
     });
