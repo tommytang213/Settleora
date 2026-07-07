@@ -20,27 +20,50 @@ remain the source of truth.
 
 ## Current Checkpoints
 
-### Issues #336/#339 - PR #767 user-web password reset complete UI checkpoint
+### Issues #336/#339 - PR #767 user-web password reset complete UI post-merge checkpoint
 
 - GitHub state/project status:
-  - #336 `OPEN`; Project status readback remains last known `Inbox`.
-  - #339 `OPEN`; Project status readback remains last known `Needs Decision`.
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
 - PR:
   <https://github.com/tommytang213/Settleora/pull/767>.
 - PR title:
   `feat(web): add password reset complete flow`.
 - PR state:
-  `OPEN` at checkpoint creation.
+  `MERGED`.
 - PR branch:
   `feature/user-web-password-reset-complete-ui-20260707-2337`.
-- Source head at PR open:
-  `5b38cd381ac86dd72194a336f4f7da243e3f9701`.
-- Base at PR open:
-  `main` at expected starting `origin/main`
+- Reviewed source head:
+  `f3b13029dde6d73883dad48dc8660c70a0e31576`.
+- Merge SHA:
+  `cf90e10c954df23ba5e7b228839adddc79d0f490`.
+- Previous main/base:
   `a96289a8faf411702e6f04868b34a3ec9c5da1ce`.
-- Completed implementation slice in the PR:
-  public user-web fallback for the backend reset-link path
-  `/auth/password-reset#resetMaterial=...`, covering A05-A07 only:
+- Issue comments:
+  - #336:
+    <https://github.com/tommytang213/Settleora/issues/336#issuecomment-4905954069>.
+  - #339:
+    <https://github.com/tommytang213/Settleora/issues/339#issuecomment-4905955867>.
+- Post-merge verification:
+  `origin/main` is merge commit
+  `cf90e10c954df23ba5e7b228839adddc79d0f490`; PR #767 readback is
+  `MERGED`, base `main`, source branch
+  `feature/user-web-password-reset-complete-ui-20260707-2337`, reviewed head
+  `f3b13029dde6d73883dad48dc8660c70a0e31576`, and merge commit
+  `cf90e10c954df23ba5e7b228839adddc79d0f490`. The restored source branch
+  readback points to `f3b13029dde6d73883dad48dc8660c70a0e31576`.
+- Merged diff scope:
+  first-parent merge diff was limited to
+  `apps/web-user/src/App.tsx`,
+  `apps/web-user/src/PasswordResetCompletePage.test.tsx`,
+  `apps/web-user/src/PasswordResetCompletePage.tsx`,
+  `apps/web-user/src/passwordResetComplete.test.ts`,
+  `apps/web-user/src/passwordResetComplete.ts`,
+  `apps/web-user/src/styles.css`, and
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`.
+- Completed implementation slice:
+  user-web public unauthenticated fallback for the backend reset-link path
+  `/auth/password-reset#resetMaterial=...`, covering A05-A07:
   - A05 reset-complete form with approved title, body, field labels, primary
     action, secondary action, and local password/confirmation validation copy.
   - A06 `Password updated` success state after generated-client completion
@@ -48,14 +71,19 @@ remain the source of truth.
   - A07 generic `Reset link unavailable` state for missing, empty, malformed,
     invalid, expired, consumed, replayed, revoked, unknown, unavailable, or
     otherwise failed reset material outcomes.
+  - reset material is read from `#resetMaterial=...` in the URL fragment.
+  - the fragment is scrubbed from the visible URL after capture.
+  - the generated web `completeLocalPasswordReset` transport is called with
+    only `resetMaterial` and `newPassword`.
+  - new-password client validation uses minimum length `12`, matching the
+    current OpenAPI `newPassword` contract.
 - Reset material/privacy checkpoint:
   reset material is parsed only from `window.location.hash`, kept only in
   runtime component memory, scrubbed from the visible URL with history
-  replacement after capture, passed to generated web
-  `completeLocalPasswordReset` with only `newPassword`, and not rendered,
-  logged, persisted, stored in browser storage/cookies, or included in error
-  text.
-- Validation checkpoint at source head:
+  replacement after capture, passed to generated web only in the completion
+  body with `newPassword`, and not rendered, logged, persisted, stored in
+  browser storage/cookies, or included in error text.
+- Validation checkpoint at reviewed source head:
   `git status --short`, `git diff --check`,
   `npm run test --prefix apps/web-user`,
   `npm run build --prefix apps/web-user`,
@@ -66,22 +94,23 @@ remain the source of truth.
   `npm run lint --prefix apps/web-user` command passed. Client generation
   produced no tracked generated-client drift.
 - Non-goals preserved:
-  no general user-web sign-in, credential storage, automatic sign-in, access
-  or refresh token issuance, auth/session storage, mobile reset-complete UI,
-  mobile universal/app links, custom URL schemes, manual reset material entry,
-  API behavior, OpenAPI/contracts, generated clients, email template copy,
-  SMTP/provider config, notifications, security-center, credential-activity,
-  schema/migrations, Docker, CI, deployment, secrets, storage/privacy,
-  money/settlement/payment/bill/OCR/sync/import/export/backup/restore/
-  reconciliation behavior, issue closure, labels, milestones, assignees, or
-  Project field mutations.
+  no general user-web sign-in; no email-template copy changes; no SMTP/provider
+  config; no OpenAPI/generated-client changes; no API/backend behavior changes;
+  no access tokens, refresh tokens, sessions, current-user state, credential
+  storage, cookies, localStorage/sessionStorage persistence, or automatic
+  sign-in; no mobile reset-complete UI, universal links, Android app links,
+  custom URL schemes, app-link association files, iOS entitlements, Android
+  manifest changes, or manual reset-material/code entry; no notification/
+  security-center/credential-activity/auth-audit re-fetch surfaces; no schema/
+  migrations/deployment/Docker/CI/secrets/money/storage/OCR/sync/import/
+  export/backup/restore/reconciliation behavior; and no issue closure, labels,
+  milestones, assignees, or Project field mutations.
 - Remaining gates:
   A04 email/link target end-to-end confirmation; A08 provider-owned/helper
   state only if an approved surface needs it; final broader auth/security
-  acceptance after A04-A07 evidence; notification/security-center/
-  credential-activity gates only if those surfaces are added later; and future
-  mobile universal/app link/custom scheme policy/platform/deployment gates
-  only if mobile link handling is later chosen.
+  acceptance; notification/security-center/credential-activity gates only if
+  those surfaces are added later; and future mobile link handling only if later
+  chosen and separately gated.
 - Issue posture:
   keep #336 open. PR #767 does not complete the broader auth/session/runtime
   security epic or final Day 1 auth/security acceptance. Keep #339 open.
