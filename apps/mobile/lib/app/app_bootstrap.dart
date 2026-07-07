@@ -38,6 +38,7 @@ import '../sync/sync_repository.dart';
 import 'app_configuration.dart';
 import 'auth_session_repository.dart';
 import 'local_data_backup.dart';
+import 'password_reset_repository.dart';
 import 'secure_session_access_token_provider.dart';
 import 'secure_storage.dart';
 import 'server_mode_shell.dart';
@@ -52,6 +53,11 @@ typedef ReceiptOcrReviewRepositoryFactory =
 
 typedef SettleoraAuthRepositoryFactory =
     SettleoraAuthRepository Function(SettleoraApiConfiguration configuration);
+
+typedef SettleoraPasswordResetRepositoryFactory =
+    SettleoraPasswordResetRepository Function(
+      SettleoraApiConfiguration configuration,
+    );
 
 typedef SettleoraBillRepositoryFactory =
     SettleoraBillRepository Function(
@@ -139,6 +145,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
     required this.secureStorage,
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
+    this.passwordResetRepositoryFactory,
     this.billRepositoryFactory,
     this.billAttachmentRepositoryFactory,
     this.billRevisionRepositoryFactory,
@@ -160,6 +167,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
   final SettleoraSecureStorageBoundary secureStorage;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
+  final SettleoraPasswordResetRepositoryFactory? passwordResetRepositoryFactory;
   final SettleoraBillRepositoryFactory? billRepositoryFactory;
   final SettleoraBillAttachmentRepositoryFactory?
   billAttachmentRepositoryFactory;
@@ -413,8 +421,12 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     }
 
     if (!snapshot!.hasUsableServerSession || snapshot.currentUser == null) {
+      final apiConfiguration = SettleoraApiConfiguration(baseUri: baseUri);
       return SettleoraSignInScreen(
         serverBaseUri: baseUri,
+        passwordResetRepository: _passwordResetRepositoryFactory(
+          apiConfiguration,
+        ),
         onSignIn: _signIn,
         onChangeServer: _editConfiguration,
         noticeMessage: _signInNotice,
@@ -528,6 +540,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
 
   SettleoraAuthRepositoryFactory get _authRepositoryFactory =>
       widget.authRepositoryFactory ?? _defaultAuthRepositoryFactory;
+
+  SettleoraPasswordResetRepositoryFactory get _passwordResetRepositoryFactory =>
+      widget.passwordResetRepositoryFactory ??
+      _defaultPasswordResetRepositoryFactory;
 
   SettleoraBillRepositoryFactory get _billRepositoryFactory =>
       widget.billRepositoryFactory ?? _defaultBillRepositoryFactory;
@@ -650,6 +666,14 @@ SettleoraAuthRepository _defaultAuthRepositoryFactory(
   SettleoraApiConfiguration configuration,
 ) {
   return GeneratedSettleoraAuthRepository.fromConfiguration(
+    configuration: configuration,
+  );
+}
+
+SettleoraPasswordResetRepository _defaultPasswordResetRepositoryFactory(
+  SettleoraApiConfiguration configuration,
+) {
+  return GeneratedSettleoraPasswordResetRepository.fromConfiguration(
     configuration: configuration,
   );
 }

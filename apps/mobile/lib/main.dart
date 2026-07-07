@@ -17,6 +17,7 @@ class SettleoraMobileApp extends StatelessWidget {
     SettleoraSecureStorageBoundary? secureStorage,
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
+    this.passwordResetRepositoryFactory,
     this.billRepositoryFactory,
     this.billAttachmentRepositoryFactory,
     this.billRevisionRepositoryFactory,
@@ -38,6 +39,7 @@ class SettleoraMobileApp extends StatelessWidget {
   final SettleoraSecureStorageBoundary secureStorage;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
+  final SettleoraPasswordResetRepositoryFactory? passwordResetRepositoryFactory;
   final SettleoraBillRepositoryFactory? billRepositoryFactory;
   final SettleoraBillAttachmentRepositoryFactory?
   billAttachmentRepositoryFactory;
@@ -66,6 +68,7 @@ class SettleoraMobileApp extends StatelessWidget {
               receiptOcrReviewRepositoryFactory:
                   receiptOcrReviewRepositoryFactory,
               authRepositoryFactory: authRepositoryFactory,
+              passwordResetRepositoryFactory: passwordResetRepositoryFactory,
               billRepositoryFactory: billRepositoryFactory,
               billAttachmentRepositoryFactory: billAttachmentRepositoryFactory,
               billRevisionRepositoryFactory: billRevisionRepositoryFactory,

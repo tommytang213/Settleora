@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/app/auth_session_repository.dart';
+import 'package:mobile/app/password_reset_repository.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/app/setup_screen.dart';
 import 'package:mobile/app/sign_in_screen.dart';
@@ -248,6 +249,7 @@ void main() {
           theme: SettleoraTheme.midnight(),
           home: SettleoraSignInScreen(
             serverBaseUri: Uri.parse('https://settleora.example/'),
+            passwordResetRepository: FakePasswordResetRepository(),
             onSignIn: (SettleoraSignInSubmission submission) async {},
             onChangeServer: () {},
             noticeMessage:
@@ -262,6 +264,11 @@ void main() {
     expect(find.byKey(const Key('sign-in-submit')), findsOneWidget);
     await _captureBoundary(tester, signInCaptureKey, 'sign-in-390x844.png');
   });
+}
+
+class FakePasswordResetRepository implements SettleoraPasswordResetRepository {
+  @override
+  Future<void> requestReset(SettleoraPasswordResetRequest request) async {}
 }
 
 void _expectAboveBottomNav(WidgetTester tester, Finder contentFinder) {
