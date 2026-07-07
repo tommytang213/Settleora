@@ -20,6 +20,74 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset UI/product-copy gate
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Current `origin/main` at gate start:
+  `6ce7de222843433a65e0ed923ad7431311363b27`.
+- Prior checkpoint posture:
+  PR #759 is already merged and is the post-merge ledger checkpoint for
+  PR #758. No recursive PR #759 checkpoint is needed.
+- Gate doc:
+  `docs/planning/AUTH_PASSWORD_RESET_UI_PRODUCT_COPY_GATE.md`.
+- Decision:
+  `BLOCKED_FOR_ROUTE_EXPOSURE`.
+- Design/reference readback:
+  current repo evidence includes approved general mobile auth-security Figma/
+  asset references, mobile design reference assets, user-web textual reference,
+  and admin-web textual reference. It does not include password-reset-specific
+  mobile/web/admin Figma frames, reset-request submitted states,
+  reset-complete states, reset email subject/body/preview approval, generic
+  invalid/expired/reused/malformed link states, unsupported/OIDC/provider
+  states, or security-center/credential-activity copy approval.
+- Required public reset surfaces before route mapping:
+  mobile forgotten-password entry point, mobile reset request submitted state,
+  mobile reset-complete form/state, reset email subject/body/preview copy,
+  generic expired/consumed/replayed/malformed/unknown/invalid-link states,
+  unsupported/OIDC/provider-password states, and success copy that tells the
+  user they can sign in with the new password and that other sessions may have
+  been ended for security.
+- Conditional surfaces:
+  user-web reset entry/completion screens are required if user web
+  participates in Day 1 public auth; admin readout/copy is required only if
+  current Day 1 admin scope uses it; security-center or credential-activity
+  copy is required only if those surfaces or password-reset notifications are
+  used.
+- Copy requirements:
+  request-submit copy must remain anti-enumeration safe; email copy must be
+  generic/redacted and include the reset link only in the approved delivery
+  boundary; reset-complete and invalid-link copy must not reveal token validity
+  or account state; OIDC/provider-password copy must not imply Settleora can
+  reset external provider passwords; button labels must be action-specific.
+- Notification posture:
+  password-reset notification runtime is not required for Day 1 public route
+  exposure if notifications remain deferred/audit-only. If a future
+  route-exposure design emits password-reset notifications, target/schema/
+  OpenAPI/generated-client work plus an authorized current-account security-
+  center, credential-activity, or auth-audit re-fetch route must happen first.
+- Remaining blockers:
+  approved UI/Figma/reference/product-copy coverage, manual OpenAPI/generated-
+  client gate for changed public runtime posture or any target/security-center
+  contract, final public route exposure review, and final auth/security
+  acceptance.
+- Issue posture:
+  keep #336 open. This gate does not complete the broader auth/session/runtime
+  security epic or final auth/security acceptance. Keep #339 open. This gate
+  does not expose public reset routes, complete user-visible reset UX/product
+  copy, implement notification runtime, or complete the Day 1 password reset
+  and credential-change workflow.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change runtime/API endpoint
+  behavior, public route mapping, OpenAPI/contracts, generated clients,
+  schema/migrations, notification writer/runtime, SMTP/provider config,
+  secrets, UI/Figma/mobile/web/admin implementation, deployment/Docker/CI/
+  Codemagic/TestFlight behavior, auth/session/security runtime, money/
+  settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, labels, milestones, assignees,
+  Project fields, or `.codex/reports/**` committed files.
+
 ### Issues #336/#339 - PR #758 route exposure preflight post-merge checkpoint
 
 - GitHub state/project status:
