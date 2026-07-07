@@ -20,6 +20,53 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset delivery-failure public-response PR-open checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Branch:
+  `feature/auth-local-password-reset-delivery-failure-public-response-20260707`.
+- Baseline:
+  `origin/main` at `a9d531ee0502269d0c3ff7992089e1470b238c95`,
+  the PR #749 merge commit.
+- Verification timestamp:
+  `2026-07-07 05:45 HKT` task window.
+- Completed branch checkpoint:
+  internal password-reset public request-response policy foundation for future
+  route exposure review. The policy maps delivery disabled/not-ready,
+  local/test sink recorded, provider send accepted, provider send failed, and
+  reset-specific request/provider-send throttled outcomes to the existing
+  uniform public request posture: `202 Accepted`, no response body, and no
+  `Retry-After`.
+- Redaction posture:
+  public-response decisions preserve only bounded internal diagnostic
+  categories for server-side policy/tests. Decision readbacks do not expose
+  submitted identifiers, recipient email addresses, reset material, reset URLs,
+  token/query/fragment content, SMTP host/password, configured public origins,
+  provider payloads, raw provider exceptions, bucket keys, account IDs, user
+  profile IDs, auth account IDs, or audit internals.
+- Public route exposure:
+  still blocked. This branch does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`; the OpenAPI paths remain
+  transport contracts only.
+- Required next gates:
+  audit/redaction acceptance, notification event/target/redaction if used,
+  UI/Figma/product copy, final public route exposure review, and final
+  auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. This checkpoint does not complete the broader
+  auth/session/runtime security epic, the Day 1 password reset and
+  credential-change workflow, public route exposure, user-visible reset UX, or
+  final auth/security acceptance.
+- Scope confirmation:
+  this checkpoint does not change OpenAPI/contracts, generated clients,
+  schema/migrations, public endpoint mappings, UI, secrets/config/env samples,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, notification outbox
+  design, money/settlement/payment/bill/OCR/storage/sync/import/export/
+  backup/restore/reconciliation behavior, issue closure, or Project fields.
+
 ### Issues #336/#339 - Password reset abuse/provider-send throttles PR #748 post-merge checkpoint
 
 - GitHub state/project status:

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Mail;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -38,6 +39,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.False(localReset.IssueMaterialWasCalled);
         Assert.False(transport.WasCalled);
         AssertSafeResult(result);
+        AssertUniformSafePublicRequestDecision(result);
     }
 
     [Fact]
@@ -62,6 +64,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.False(localReset.IssueMaterialWasCalled);
         Assert.False(transport.WasCalled);
         AssertSafeResult(result);
+        AssertUniformSafePublicRequestDecision(result);
     }
 
     [Theory]
@@ -91,6 +94,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.True(localReset.IssueMaterialWasCalled);
         Assert.False(transport.WasCalled);
         AssertSafeResult(result);
+        AssertUniformSafePublicRequestDecision(result);
     }
 
     [Fact]
@@ -124,6 +128,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.False(localReset.IssueMaterialWasCalled);
         Assert.False(transport.WasCalled);
         AssertSafeResult(result);
+        AssertUniformSafePublicRequestDecision(result);
     }
 
     [Fact]
@@ -158,6 +163,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.Equal(0, throttlePolicy.RecordProviderSendCallCount);
         Assert.False(transport.WasCalled);
         AssertSafeResult(result);
+        AssertUniformSafePublicRequestDecision(result);
     }
 
     [Fact]
@@ -184,6 +190,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.Contains(RawResetMaterial, transport.Body, StringComparison.Ordinal);
         Assert.DoesNotContain("?token=", transport.Body, StringComparison.OrdinalIgnoreCase);
         AssertSafeResult(result);
+        AssertUniformSafePublicRequestDecision(result);
     }
 
     [Theory]
@@ -215,6 +222,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.Equal(expectedProviderCategory, result.ProviderCategory);
         Assert.Equal(expectedRetryable, result.Retryable);
         AssertSafeResult(result);
+        AssertUniformSafePublicRequestDecision(result);
     }
 
     [Fact]
@@ -237,6 +245,58 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
             result.FailureCategories ?? []);
         Assert.False(transport.WasCalled);
         AssertSafeResult(result);
+        AssertUniformSafePublicRequestDecision(result);
+    }
+
+    [Fact]
+    public void PublicResponsePolicyPreservesBoundedDiagnosticsWithoutChangingPublicPosture()
+    {
+        var policy = new PasswordResetPublicResponsePolicy();
+        PasswordResetEmailDeliveryResult[] deliveryResults =
+        [
+            PasswordResetEmailDeliveryResult.DisabledOrNotReady(
+                new PasswordResetEmailDeliveryReadinessResult(
+                    Ready: false,
+                    PasswordResetEmailDeliveryReadinessStatuses.Disabled,
+                    PasswordResetEmailDeliveryModes.ProductionSmtp,
+                    PasswordResetEmailDeliveryReadinessCategories.NotEvaluated,
+                    PasswordResetEmailDeliveryReadinessCategories.NotEvaluated,
+                    60,
+                    [PasswordResetEmailDeliveryReadinessCategories.DeliveryDisabled])),
+            PasswordResetEmailDeliveryResult.ProviderFailedRedacted(
+                CreateSendReadyComposition(),
+                PasswordResetSmtpEmailSendResult.FailedTransient(
+                    PasswordResetSmtpEmailSendResultCategories.ProviderUnavailable)),
+            PasswordResetEmailDeliveryResult.Throttled(
+                CreateSendReadyComposition(),
+                PasswordResetThrottleDecision.Block(
+                    PasswordResetThrottleCategories.ProviderSend,
+                    PasswordResetThrottleScopes.ProviderSend)),
+            PasswordResetEmailDeliveryResult.ProviderAccepted(
+                CreateSendReadyComposition(),
+                PasswordResetSmtpEmailSendResult.AcceptedByProvider())
+        ];
+
+        var decisions = deliveryResults
+            .Select(policy.DecideForRequest)
+            .ToArray();
+
+        Assert.All(decisions, decision =>
+        {
+            Assert.Equal(StatusCodes.Status202Accepted, decision.StatusCode);
+            Assert.Equal(PasswordResetPublicRequestResponseCategories.Accepted, decision.PublicCategory);
+            Assert.Equal(PasswordResetPublicRequestResponseBodyKinds.None, decision.BodyKind);
+            Assert.False(decision.IncludeRetryAfter);
+            AssertSafePublicDecision(decision);
+        });
+        Assert.Contains(
+            decisions,
+            decision => decision.InternalDeliveryCategory
+                == PasswordResetEmailDeliveryResultCategories.ProviderSendFailedRedacted);
+        Assert.Contains(
+            decisions,
+            decision => decision.InternalProviderCategory
+                == PasswordResetSmtpEmailSendResultCategories.ThrottledByPolicy);
     }
 
     [Fact]
@@ -273,6 +333,7 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetSmtpEmailSender));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetEmailDeliveryReadinessService));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetEmailTemplateComposer));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IPasswordResetPublicResponsePolicy));
     }
 
     private static PasswordResetEmailDeliveryOrchestrator CreateOrchestrator(
@@ -353,6 +414,66 @@ public sealed class PasswordResetEmailDeliveryOrchestratorTests
         Assert.DoesNotContain(SmtpPassword, combined, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(ProviderPayload, combined, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("settleora.example.invalid", combined, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AssertUniformSafePublicRequestDecision(PasswordResetEmailDeliveryResult result)
+    {
+        var decision = new PasswordResetPublicResponsePolicy().DecideForRequest(result);
+
+        Assert.Equal(StatusCodes.Status202Accepted, decision.StatusCode);
+        Assert.Equal(PasswordResetPublicRequestResponseCategories.Accepted, decision.PublicCategory);
+        Assert.Equal(PasswordResetPublicRequestResponseBodyKinds.None, decision.BodyKind);
+        Assert.False(decision.IncludeRetryAfter);
+        Assert.Equal(result.Category, decision.InternalDeliveryCategory);
+        Assert.Equal(result.ProviderCategory, decision.InternalProviderCategory);
+        Assert.Equal(result.FailureCategories ?? [], decision.InternalFailureCategories ?? []);
+        AssertSafePublicDecision(decision);
+    }
+
+    private static void AssertSafePublicDecision(PasswordResetPublicRequestResponseDecision decision)
+    {
+        var combined = string.Join(
+            " ",
+            decision.ToString(),
+            decision.PublicCategory,
+            decision.BodyKind,
+            decision.InternalDeliveryCategory,
+            decision.InternalProviderCategory ?? string.Empty,
+            string.Join(",", decision.InternalFailureCategories ?? []));
+
+        Assert.DoesNotContain(RawResetMaterial, combined, StringComparison.Ordinal);
+        Assert.DoesNotContain("resetMaterial=", combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("?token=", combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(SubmittedIdentifier, combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(RecipientEmail, combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("smtp-host-placeholder", combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(SmtpPassword, combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(ProviderPayload, combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("settleora.example.invalid", combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("source_bucket_placeholder", combined, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("correlation_placeholder", combined, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static PasswordResetEmailTemplateCompositionResult CreateSendReadyComposition()
+    {
+        return new PasswordResetEmailTemplateCompositionResult(
+            Available: true,
+            PasswordResetEmailTemplateCompositionStatuses.Available,
+            PasswordResetEmailTemplateCompositionCategories.ProductionSmtpReady,
+            PasswordResetEmailDeliveryModes.ProductionSmtp,
+            60,
+            new PasswordResetEmailSendReadyMessage(
+                PasswordResetEmailTemplateComposer.TemplateSubject,
+                $"body {RawResetMaterial} resetMaterial={RawResetMaterial}",
+                new Uri($"https://settleora.example.invalid/auth/password-reset#resetMaterial={RawResetMaterial}"),
+                PasswordResetEmailDeliveryModes.ProductionSmtp,
+                60),
+            new PasswordResetEmailTemplateRedactedPreview(
+                PasswordResetEmailTemplateComposer.TemplateSubject,
+                "Reset link: [redacted]",
+                PasswordResetEmailTemplateCompositionCategories.ProductionSmtpReady,
+                60),
+            []);
     }
 
     private sealed class FakeLocalPasswordResetService : ILocalPasswordResetService
