@@ -20,6 +20,68 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset notification event/target/redaction gate checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Baseline:
+  `origin/main` at `25b7c272cc57d5928c9711a6f294e33b4ff38d9f`, the PR #753
+  merge commit.
+- PR #753 live verification:
+  <https://github.com/tommytang213/Settleora/pull/753> is `MERGED` into
+  `main`, with merge commit
+  `25b7c272cc57d5928c9711a6f294e33b4ff38d9f` and reviewed source head
+  `9eec0d20888df5ec9441d5a3139132a2e765caf1`.
+- Completed docs/control checkpoint:
+  added
+  `docs/planning/AUTH_LOCAL_PASSWORD_RESET_NOTIFICATION_EVENT_TARGET_REDACTION_GATE.md`
+  to record the Day 1 password-reset notification posture before any future
+  public route exposure.
+- Decision summary:
+  password-reset notification runtime remains blocked. Request, material issue,
+  delivery skipped/unavailable/failed/throttled, and reset denial outcomes are
+  audit-only by default. Successful reset completion is a candidate future
+  affected-account-owner security notification only after target/schema,
+  notification runtime, UI/product-copy, route-exposure, and final
+  auth/security gates pass. Replay/suspicious reuse requires a manual decision
+  and remains audit-only by default. Reset-caused session/family revocation is
+  blocked as a separate event until duplicate and target policy are approved.
+- Target/reference posture:
+  current notification schema/OpenAPI cannot safely represent auth/password
+  reset targets. Any future runtime notification needs a first-class
+  `authAuditEventId` plus `authAccountId`, an explicit targetless
+  security-center model, or a separately approved session-family target. Targets
+  must not be hidden in `safeSummary`, and raw `actionUrl` must not be treated
+  as authorization.
+- Recipient/copy/redaction posture:
+  affected account owner is the only default recipient. Admins/owners are not
+  notified by default, unrelated users/groups/friends/bill participants must
+  never receive auth/security notifications, and ordinary mute/digest/quiet
+  hours must not hide required security notifications unless a later security
+  policy explicitly approves bounded suppression. External snippets must remain
+  generic and must not reveal reset status, delivery state, token validity,
+  replay classification, provider state, throttling, or session details.
+- Public route exposure:
+  still blocked. This checkpoint does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`.
+- Required next gates:
+  target-reference schema/OpenAPI/generated-client gate if notifications are
+  used, notification runtime gate if later approved, UI/Figma/mobile/web/admin/
+  product copy gate, final public route exposure gate, and final
+  auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. No issue closure, labels, milestones, assignees, or
+  Project fields were changed.
+- Scope confirmation:
+  this checkpoint does not change runtime/API endpoint behavior, OpenAPI/
+  contracts, generated clients, schema/migrations, notification writer/runtime,
+  SMTP/provider config, secrets, UI/Figma/mobile/web/admin implementation,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, money/settlement/payment/
+  bill/OCR/storage/sync/import/export/backup/restore/reconciliation behavior,
+  or `.codex/reports/**` committed files.
+
 ### Issues #336/#339 - Password reset audit/redaction acceptance PR #752 post-merge checkpoint
 
 - GitHub state/project status:
