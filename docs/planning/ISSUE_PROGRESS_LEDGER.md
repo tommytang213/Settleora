@@ -20,6 +20,73 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset audit/redaction acceptance PR #752 post-merge checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  https://github.com/tommytang213/Settleora/pull/752.
+- PR title:
+  `feat(api): add password reset audit redaction acceptance`.
+- Merge SHA:
+  `311710242b1935c58d3118998f237cc479e8c763`.
+- Reviewed source head:
+  `67c0d65001eab8470c57c0ef38718d261b5ad724`.
+- Final `origin/main` at post-merge verification:
+  `311710242b1935c58d3118998f237cc479e8c763`.
+- Merged scope:
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`,
+  `services/api/src/Settleora.Api/Auth/PasswordReset/EfPasswordResetAuditWriter.cs`,
+  and
+  `services/api/tests/Settleora.Api.Tests/PasswordResetAuditRedactionAcceptanceTests.cs`.
+- Completed merged checkpoint:
+  bounded audit/redaction acceptance for the current internal local password
+  reset runtime foundation. Password-reset audit writes no longer populate
+  actor or subject auth account IDs, and acceptance coverage verifies bounded
+  safe audit/readback metadata across request, material issue, replacement
+  revocation, completion, session-revocation audit, replay-suspicious, and
+  unknown-material denial outcomes.
+- Public route exposure:
+  still blocked. PR #752 does not register or expose
+  `POST /api/v1/auth/password-reset/request` or
+  `POST /api/v1/auth/password-reset/complete`; the post-merge focused route
+  exposure tests verified the runtime endpoint mappings remain absent and the
+  paths are not reachable over HTTP.
+- Validation/readback summary:
+  live GitHub PR readback showed `MERGED` with merge commit
+  `311710242b1935c58d3118998f237cc479e8c763`; git verified that merge commit
+  exists and is an ancestor of `origin/main`. The actual merge commit
+  first-parent diff contained exactly the three intended files above and no
+  `.codex/reports/**` files. Focused post-merge validation passed:
+  `dotnet test services/api/tests/Settleora.Api.Tests/Settleora.Api.Tests.csproj --filter "FullyQualifiedName~PasswordReset|FullyQualifiedName~LocalPasswordResetRouteExposureTests"`
+  with `76` passed, `0` failed, `0` skipped.
+- Post-merge hygiene:
+  source branch
+  `feature/auth-local-password-reset-audit-redaction-acceptance-20260707` was
+  auto-deleted after merge and restored to the reviewed head
+  `67c0d65001eab8470c57c0ef38718d261b5ad724` with a normal non-force push.
+  Issue comments were posted:
+  - #336:
+    https://github.com/tommytang213/Settleora/issues/336#issuecomment-4900027170
+  - #339:
+    https://github.com/tommytang213/Settleora/issues/339#issuecomment-4900027181
+- Required next gates:
+  notification event/target/redaction gate if used, UI/Figma/product copy,
+  final public route exposure review, and final auth/security acceptance.
+- Issue posture:
+  keep #336 and #339 open. PR #752 does not complete the broader
+  auth/session/runtime security epic, final auth/security acceptance, public
+  reset route exposure, user-visible reset UX/product copy, or the Day 1
+  password reset and credential-change workflow.
+- Scope confirmation:
+  this checkpoint does not change OpenAPI/contracts, generated clients,
+  schema/migrations, public endpoint mappings, UI, secrets/config/env samples,
+  deployment/Docker/CI/Codemagic/TestFlight behavior, notification outbox
+  design, money/settlement/payment/bill/OCR/storage/sync/import/export/
+  backup/restore/reconciliation behavior, issue closure, labels, milestones,
+  assignees, or Project fields.
+
 ### Issues #336/#339 - Password reset audit/redaction acceptance PR-open checkpoint
 
 - GitHub state/project status:
