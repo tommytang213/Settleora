@@ -20,6 +20,80 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - PR #758 route exposure preflight post-merge checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  <https://github.com/tommytang213/Settleora/pull/758>.
+- PR title:
+  `docs(auth): add password reset route exposure preflight`.
+- Reviewed source head:
+  `5fd12c532bf4fbda4d59df95475d8d0e907ff3a4`.
+- Merge SHA:
+  `3d9bc3c6b4f659de6149b417b47626bad1ff809c`.
+- Merged at:
+  `2026-07-07T09:13:23Z`.
+- Final `origin/main` at post-merge verification:
+  `3d9bc3c6b4f659de6149b417b47626bad1ff809c`.
+- Merged scope:
+  `docs/planning/AUTH_PASSWORD_RESET_PUBLIC_ROUTE_EXPOSURE_PREFLIGHT.md`
+  and `docs/planning/ISSUE_PROGRESS_LEDGER.md`.
+- Merge/readback evidence:
+  PR #758 is `MERGED` into `main`; merge commit
+  `3d9bc3c6b4f659de6149b417b47626bad1ff809c` is an ancestor of
+  `origin/main`; the merge commit first-parent diff contains only the merged
+  scope above; no `.codex/reports/**` files were merged.
+- Source branch restoration/readback:
+  source branch
+  `docs/auth-password-reset-public-route-exposure-preflight-20260707-1529`
+  exists remotely at reviewed head
+  `5fd12c532bf4fbda4d59df95475d8d0e907ff3a4`.
+- Existing post-merge issue comments:
+  - #336:
+    https://github.com/tommytang213/Settleora/issues/336#issuecomment-4902161582
+  - #339:
+    https://github.com/tommytang213/Settleora/issues/339#issuecomment-4902165409
+- Route exposure decision:
+  `BLOCKED_FOR_ROUTE_EXPOSURE`.
+- Public route posture:
+  `POST /api/v1/auth/password-reset/request` and
+  `POST /api/v1/auth/password-reset/complete` remain blocked and
+  unregistered.
+- Internal-only gates satisfied per PR #758:
+  SMTP/email delivery readiness and reset-link/template composition;
+  reset-specific request/provider-send throttles; uniform public
+  request-response policy; audit/redaction acceptance; local-only/OIDC
+  exclusion; token lifetime/replay handling; and account-wide session/
+  refresh-family revocation.
+- Notification posture:
+  password-reset notification runtime is not required for Day 1 public route
+  exposure if notifications remain deferred/audit-only. If a future route
+  exposure design emits a password-reset notification, target/schema/OpenAPI/
+  generated-client work plus an authorized current-account security-center,
+  credential-activity, or auth-audit re-fetch route must happen first.
+- Remaining blockers before public route exposure:
+  UI/Figma/mobile/web/admin/product-copy gate, manual OpenAPI/generated-client
+  gate for changed public runtime posture or any target/security-center
+  contract, final public route exposure review, and final auth/security
+  acceptance.
+- Issue posture:
+  keep #336 open. PR #758 does not complete the broader auth/session/runtime
+  security epic or final auth/security acceptance. Keep #339 open. PR #758
+  does not expose public reset routes, complete user-visible reset UX/product
+  copy, implement notification runtime, or complete the Day 1 password reset
+  and credential-change workflow.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change runtime/API endpoint
+  behavior, OpenAPI/contracts, generated clients, schema/migrations,
+  notification writer/runtime, SMTP/provider config, secrets, UI/Figma/mobile/
+  web/admin implementation, deployment/Docker/CI/Codemagic/TestFlight behavior,
+  auth/session/security runtime, money/settlement/payment/bill/OCR/storage/
+  sync/import/export/backup/restore/reconciliation behavior, issue closure,
+  labels, milestones, assignees, Project fields, or `.codex/reports/**`
+  committed files.
+
 ### Issues #336/#339 - Password reset public route exposure preflight
 
 - GitHub state/project status:
