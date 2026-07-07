@@ -110,7 +110,7 @@ internal static class PasswordResetEmailTemplateCompositionCategories
 
 internal sealed class PasswordResetEmailTemplateComposer : IPasswordResetEmailTemplateComposer
 {
-    public const string TemplateSubject = "Settleora password reset";
+    public const string TemplateSubject = "Reset your Settleora password";
     public const string RedactedResetLink = "[reset-link-redacted]";
     public const string RedactedUnavailableBody = "Password reset email composition is not available.";
 
@@ -169,10 +169,10 @@ internal sealed class PasswordResetEmailTemplateComposer : IPasswordResetEmailTe
             options.ResetLinkPath,
             request.RawResetMaterial.Trim());
         var subject = TemplateSubject;
-        var body = BuildTextBody(resetLink, lifetimeMinutes);
+        var body = BuildTextBody(resetLink);
         var redactedPreview = new PasswordResetEmailTemplateRedactedPreview(
             subject,
-            BuildTextBody(RedactedResetLink, lifetimeMinutes),
+            BuildTextBody(RedactedResetLink),
             ResolveReadyCategory(readiness.DeliveryMode),
             lifetimeMinutes);
 
@@ -217,21 +217,22 @@ internal sealed class PasswordResetEmailTemplateComposer : IPasswordResetEmailTe
         return normalizedOriginPath + resetLinkPath;
     }
 
-    private static string BuildTextBody(Uri resetLink, int lifetimeMinutes)
+    private static string BuildTextBody(Uri resetLink)
     {
-        return BuildTextBody(resetLink.ToString(), lifetimeMinutes);
+        return BuildTextBody(resetLink.ToString());
     }
 
-    private static string BuildTextBody(string resetLink, int lifetimeMinutes)
+    private static string BuildTextBody(string resetLink)
     {
         return string.Join(
             Environment.NewLine,
-            "If you requested a Settleora local password reset, use this link to continue.",
+            TemplateSubject,
+            string.Empty,
+            "Use this link to continue resetting your Settleora password:",
             string.Empty,
             resetLink,
             string.Empty,
-            $"This link expires in {lifetimeMinutes} minutes.",
-            "If you did not request a reset, ignore this email.");
+            "This link expires after a limited time. If you did not request this, you can ignore this email.");
     }
 
     private static string ResolveReadyCategory(string deliveryMode)

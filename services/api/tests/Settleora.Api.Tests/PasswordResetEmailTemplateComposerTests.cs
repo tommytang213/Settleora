@@ -16,6 +16,7 @@ public sealed class PasswordResetEmailTemplateComposerTests
     private const string SmtpHost = "smtp-host-placeholder";
     private const string SmtpPassword = "smtp-password-placeholder";
     private const string ProviderPayload = "raw provider payload";
+    private const string ApprovedSubject = "Reset your Settleora password";
 
     [Fact]
     public void CompositionIsUnavailableWhenEmailDeliveryIsDisabledByDefault()
@@ -152,6 +153,36 @@ public sealed class PasswordResetEmailTemplateComposerTests
         Assert.Equal("#resetMaterial=raw-reset-material-secret", result.SendReadyMessage.ResetLink.Fragment);
         Assert.Contains(RawResetMaterial, result.SendReadyMessage.TextBody, StringComparison.Ordinal);
         Assert.DoesNotContain("token=", result.SendReadyMessage.ResetLink.ToString(), StringComparison.OrdinalIgnoreCase);
+        AssertSafeRedactedResult(result);
+    }
+
+    [Fact]
+    public void SendReadyMessageUsesApprovedA04SubjectAndGenericBodyCopy()
+    {
+        var composer = CreateComposer(
+            CreateReadyOptions(),
+            NotificationPolicyReadinessStates.Configured);
+
+        var result = composer.Compose(new PasswordResetEmailTemplateCompositionRequest(RawResetMaterial));
+
+        Assert.True(result.Available, DescribeSafeResult(result));
+        Assert.NotNull(result.SendReadyMessage);
+        Assert.Equal(ApprovedSubject, result.SendReadyMessage.Subject);
+        Assert.Equal(
+            string.Join(
+                Environment.NewLine,
+                ApprovedSubject,
+                string.Empty,
+                "Use this link to continue resetting your Settleora password:",
+                string.Empty,
+                result.SendReadyMessage.ResetLink.ToString(),
+                string.Empty,
+                "This link expires after a limited time. If you did not request this, you can ignore this email."),
+            result.SendReadyMessage.TextBody);
+        Assert.DoesNotContain("local", result.SendReadyMessage.TextBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("delivered", result.SendReadyMessage.TextBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("accepted", result.SendReadyMessage.TextBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("mailbox", result.SendReadyMessage.TextBody, StringComparison.OrdinalIgnoreCase);
         AssertSafeRedactedResult(result);
     }
 
