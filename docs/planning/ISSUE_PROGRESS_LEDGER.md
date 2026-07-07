@@ -20,6 +20,74 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - PR #763 password reset route exposure post-merge checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  <https://github.com/tommytang213/Settleora/pull/763>.
+- PR title:
+  `feat(auth): expose local password reset routes`.
+- PR state:
+  `MERGED`.
+- PR branch:
+  `feature/auth-password-reset-route-exposure-20260707-2120`.
+- Reviewed source head:
+  `062c0ca435ade928b9c5d4f20dbb0ea91bb8899b`.
+- Merge SHA:
+  `c2907f71447ffd90898a3952adfe9c60581dfad1`.
+- Previous main/base:
+  `e1bf888e6e83503b2424d5237a409251a41f2720`.
+- Post-merge verification:
+  `origin/main` contains merge commit
+  `c2907f71447ffd90898a3952adfe9c60581dfad1`; first-parent merged diff was
+  limited to `docs/planning/ISSUE_PROGRESS_LEDGER.md`,
+  `services/api/src/Settleora.Api/Auth/PasswordReset/LocalPasswordResetEndpoints.cs`,
+  `services/api/src/Settleora.Api/Program.cs`,
+  `services/api/tests/Settleora.Api.Tests/AuthenticatedApiPolicyBaselineTests.cs`,
+  and
+  `services/api/tests/Settleora.Api.Tests/LocalPasswordResetServiceTests.cs`.
+- Source branch restoration/readback:
+  source branch
+  `feature/auth-password-reset-route-exposure-20260707-2120` exists remotely at
+  reviewed head `062c0ca435ade928b9c5d4f20dbb0ea91bb8899b`.
+- Issue comments:
+  - #336:
+    https://github.com/tommytang213/Settleora/issues/336#issuecomment-4904625903
+  - #339:
+    https://github.com/tommytang213/Settleora/issues/339#issuecomment-4904628178
+- Completed merged checkpoint:
+  PR #763 exposed only the two approved public local password-reset runtime
+  routes:
+  - `POST /api/v1/auth/password-reset/request`
+  - `POST /api/v1/auth/password-reset/complete`
+- Route behavior checkpoint:
+  the request route remains anonymous and anti-enumeration safe, returning
+  uniform `202 Accepted` with no body and no `Retry-After`. The completion
+  route remains anonymous, returns `204 No Content` for valid reset material,
+  returns generic bounded problem responses for invalid/unavailable material,
+  and does not issue access tokens, refresh credentials, sessions, or sign the
+  user in.
+- Scope confirmation:
+  PR #763 did not change OpenAPI/contracts, generated clients, schema/
+  migrations, password-reset token policy, notification writer/runtime,
+  notification targets, security-center, credential-activity, SMTP/provider
+  configuration, secrets/config/env, mobile/web/admin UI, product copy outside
+  the ledger checkpoint, deployment/Docker/CI/Codemagic/TestFlight behavior,
+  money/settlement/payment/bill/OCR/storage/sync/import/export/backup/
+  restore/reconciliation behavior, issue closure, labels, milestones,
+  assignees, or Project fields.
+- Remaining gates:
+  broader Day 1 password-reset UI/runtime acceptance. Notification,
+  security-center, and credential-activity gates remain required only if those
+  surfaces or password-reset notifications are added later.
+- Issue posture:
+  keep #336 open. PR #763 does not complete the broader auth/session/runtime
+  security epic or final Day 1 auth/security acceptance. Keep #339 open.
+  PR #763 exposes only the approved public password-reset routes and does not
+  complete the full Day 1 password reset and credential-change workflow.
+
 ### Issues #336/#339 - Password reset UI/product-copy approval package
 
 - GitHub state/project status:
