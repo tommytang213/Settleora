@@ -20,6 +20,58 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset UI/product-copy approval package
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Current `origin/main` at package start:
+  `ec650a83d6005a919ba9102102746c0a30814930`.
+- PR #761 readback:
+  PR #761 is `MERGED` into `main` at merge commit
+  `ec650a83d6005a919ba9102102746c0a30814930`.
+- Package doc:
+  `docs/design/mobile/MOBILE_AUTH_PASSWORD_RESET_APPROVAL_PACKAGE_V1.md`.
+- Package status:
+  `READY_FOR_MANUAL_PRODUCT_REVIEW`.
+- Package outcome:
+  the repo now has an implementation-ready review package for the Day 1
+  local-account password reset experience. It defines the required mobile
+  forgotten-password entry point, reset request form, anti-enumeration-safe
+  submitted state, reset email subject/preview/body, reset-complete form,
+  successful reset state, generic invalid-link family, unsupported/provider-
+  owned password copy, visual requirements, conditional web/admin/security-
+  center coverage, and manual acceptance checklist.
+- Figma/reference evidence:
+  existing mobile auth-security, mobile design, user-web, and admin-web
+  references remain useful source references. No password-reset-specific Figma
+  frames or exported assets were found in the repo. This package is a textual
+  product/design review artifact; it is not final approval by itself.
+- Route-exposure posture:
+  public route exposure remains blocked for
+  `POST /api/v1/auth/password-reset/request` and
+  `POST /api/v1/auth/password-reset/complete`.
+- Remaining blockers:
+  human product/design approval of the package or a replacement Figma/reference
+  package, manual OpenAPI/generated-client gate for changed public runtime
+  posture and any target/security-center contract, final public route exposure
+  review, and final auth/security acceptance.
+- Issue posture:
+  keep #336 open. This package does not complete the broader
+  auth/session/runtime security epic or final auth/security acceptance. Keep
+  #339 open. This package does not expose public reset routes, implement UI,
+  implement notification runtime, or complete the Day 1 password reset and
+  credential-change workflow.
+- Scope confirmation:
+  this checkpoint is docs/design/planning only. It does not change runtime/API
+  endpoint behavior, public route mapping, OpenAPI/contracts, generated
+  clients, schema/migrations, notification writer/runtime, SMTP/provider
+  config, secrets, UI/Figma/mobile/web/admin implementation, deployment/
+  Docker/CI/Codemagic/TestFlight behavior, auth/session/security runtime,
+  money/settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  reconciliation behavior, issue closure, labels, milestones, assignees,
+  Project fields, or `.codex/reports/**` committed files.
+
 ### Issues #336/#339 - PR #760 UI/product-copy gate post-merge checkpoint
 
 - GitHub state/project status:
