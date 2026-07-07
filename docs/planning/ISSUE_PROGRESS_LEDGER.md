@@ -20,24 +20,51 @@ remain the source of truth.
 
 ## Current Checkpoints
 
-### Issues #336/#339 - Password reset notification target-reference schema/OpenAPI gate checkpoint
+### Issues #336/#339 - PR #756 password reset notification target-reference post-merge checkpoint
 
 - GitHub state/project status:
-  - #336 `OPEN`; Project status last readback: `Inbox`.
-  - #339 `OPEN`; Project status last readback: `Needs Decision`.
-- Baseline:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  <https://github.com/tommytang213/Settleora/pull/756>.
+- PR title:
+  `docs(auth): add password reset notification target gate`.
+- Reviewed source head:
+  `ac7bde43a425c594bb6f1a7ccbc22ecca9100e33`.
+- Merge SHA:
+  `63c04d495aa8037142090afcb5cc900fde57710f`.
+- Merged at:
+  `2026-07-07T06:31:37Z`.
+- Final `origin/main` at post-merge verification:
+  `63c04d495aa8037142090afcb5cc900fde57710f`.
+- PR #756 baseline:
   `origin/main` at `86c29bd2eab7008f6304f556383536e7bf072fc5`, the PR #755
   merge commit.
-- PR #755 live verification:
-  <https://github.com/tommytang213/Settleora/pull/755> is `MERGED` into
-  `main`, with merge commit
-  `86c29bd2eab7008f6304f556383536e7bf072fc5` and reviewed source head
-  `846d3b59ece1bef0e83529a474add965100fd236`.
-- Completed docs/control checkpoint:
-  added
+- Merged scope:
   `docs/planning/AUTH_LOCAL_PASSWORD_RESET_NOTIFICATION_TARGET_REFERENCE_SCHEMA_OPENAPI_GATE.md`
-  to record the safe target-reference posture before any future password-reset
-  security notification runtime.
+  and `docs/planning/ISSUE_PROGRESS_LEDGER.md`.
+- Merge/readback evidence:
+  PR #756 is `MERGED` into `main`; merge commit
+  `63c04d495aa8037142090afcb5cc900fde57710f` is an ancestor of
+  `origin/main`; the merge commit first-parent diff contains only the merged
+  scope above; no `.codex/reports/**` files were merged.
+- Source branch restoration/readback:
+  source branch
+  `docs/auth-password-reset-notification-target-reference-gate-20260707-1411`
+  exists remotely at reviewed head
+  `ac7bde43a425c594bb6f1a7ccbc22ecca9100e33`.
+- Post-restoration scaffold/check readback:
+  pre-merge exact-head checks passed, including `Validate scaffold`.
+  Post-restoration Scaffold Validation check/run on the restored PR #756
+  source branch: run `28846488298`, job `85551530735`, completed successfully
+  after the PR #757 checkpoint was opened. This was post-merge source-branch
+  restoration activity; all pre-merge exact-head checks for PR #756 had already
+  passed before merge.
+- Existing post-merge issue comments:
+  - #336:
+    https://github.com/tommytang213/Settleora/issues/336#issuecomment-4900855538
+  - #339:
+    https://github.com/tommytang213/Settleora/issues/339#issuecomment-4900857670
 - Decision summary:
   password-reset notification runtime is not required for Day 1 public
   password-reset route exposure if notifications remain deferred/audit-only.
