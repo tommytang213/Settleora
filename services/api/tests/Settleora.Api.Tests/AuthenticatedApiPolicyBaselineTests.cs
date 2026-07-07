@@ -25,6 +25,8 @@ public sealed class AuthenticatedApiPolicyBaselineTests : IClassFixture<WebAppli
         new("POST", "/api/v1/auth/sign-in", "Legacy local sign-in must accept credentials before a session exists."),
         new("POST", "/api/v1/auth/local/sign-in", "Local-session sign-in must accept credentials before a session exists."),
         new("POST", "/api/v1/auth/refresh", "Refresh rotates the submitted refresh credential without bearer auth."),
+        new("POST", "/api/v1/auth/password-reset/request", "Local password reset requests must remain anonymous and enumeration-safe."),
+        new("POST", "/api/v1/auth/password-reset/complete", "Local password reset completion must accept submitted reset material before a session exists."),
         new("POST", "/api/v1/auth/passkeys/sign-in/options", "Passkey sign-in ceremony options must start before a session exists."),
         new("POST", "/api/v1/auth/passkeys/sign-in/complete", "Passkey sign-in ceremony completion validates assertions before a session exists."),
         new("POST", "/api/v1/auth/mfa/challenges", "MFA challenges can be created for pending auth flows before a full session exists."),
