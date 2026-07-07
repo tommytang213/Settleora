@@ -20,23 +20,48 @@ remain the source of truth.
 
 ## Current Checkpoints
 
-### Issues #336/#339 - Mobile password reset request UI PR checkpoint
+### Issues #336/#339 - PR #765 mobile password reset request UI post-merge checkpoint
 
 - GitHub state/project status:
-  - #336 `OPEN`; Project status readback: `unverified`.
-  - #339 `OPEN`; Project status readback: `unverified`.
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
 - PR:
   <https://github.com/tommytang213/Settleora/pull/765>.
 - PR title:
   `feat(mobile): add password reset request flow`.
 - PR state:
-  `OPEN`.
+  `MERGED`.
 - PR branch:
   `feature/mobile-password-reset-request-ui-20260707-2240`.
-- Implementation source head before this ledger-only checkpoint:
-  `85e0f56b17a286ccc24959008e64233c07ba957d`.
-- Base at checkpoint:
+- Reviewed source head:
+  `13a40e2d23076d8d02928912dfac48114e07071d`.
+- Merge SHA:
+  `a0f7c47e2382940363b7e46238d0c3cd77d2e2ef`.
+- Previous main/base:
   `861d8f9778fb6112f76561879ec827e152de1666`.
+- Issue comments:
+  - #336:
+    <https://github.com/tommytang213/Settleora/issues/336#issuecomment-4905287107>.
+  - #339:
+    <https://github.com/tommytang213/Settleora/issues/339#issuecomment-4905287063>.
+- Post-merge verification:
+  `origin/main` contains merge commit
+  `a0f7c47e2382940363b7e46238d0c3cd77d2e2ef`; PR #765 readback is
+  `MERGED`, base `main`, source branch
+  `feature/mobile-password-reset-request-ui-20260707-2240`, reviewed head
+  `13a40e2d23076d8d02928912dfac48114e07071d`, and merge commit
+  `a0f7c47e2382940363b7e46238d0c3cd77d2e2ef`. The restored source branch
+  readback points to `13a40e2d23076d8d02928912dfac48114e07071d`.
+- Merged diff scope:
+  first-parent merge diff was limited to
+  `apps/mobile/lib/app/app_bootstrap.dart`,
+  `apps/mobile/lib/app/password_reset_repository.dart`,
+  `apps/mobile/lib/app/sign_in_screen.dart`,
+  `apps/mobile/lib/main.dart`,
+  `apps/mobile/test/password_reset_repository_test.dart`,
+  `apps/mobile/test/ui/shell_home_more_profile_parity_visual_capture_test.dart`,
+  `apps/mobile/test/widget_test.dart`, and
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`.
 - Completed implementation slice:
   mobile A01-A03 request-only password reset UI/runtime behavior is
   implemented in PR #765:
@@ -57,12 +82,20 @@ remain the source of truth.
   `We could not process this request right now. Try again later.`
 - Visual/test checkpoint:
   the existing sign-in visual capture harness was updated to include the
-  forgotten-password action. No brittle new screenshot harness was added.
+  forgotten-password action. Focused widget/repository coverage was added.
+  No brittle new screenshot harness was added.
+- Non-goals preserved:
+  no A04-A08 reset-complete/email-link target implementation; no reset
+  material field or manual code entry; no invalid-link route/state; no
+  provider-owned helper state; no deep link, universal link, custom URL
+  scheme, app-link, or web handoff; no user-web/admin UI; no notification,
+  security-center, or credential-activity behavior; and no OpenAPI,
+  generated-client, API, backend, schema, config, or deployment changes.
 - Remaining gates:
-  A04 reset email, A05 reset-complete form, A06 successful reset state, A07
-  generic invalid-link state, A08 provider-owned/helper state, reset-complete
-  link target/deep-link/custom URL/web handoff decision, and final broader
-  auth/security acceptance remain open.
+  A04 reset email/link-target handling, A05-A08 reset-complete/success/
+  invalid-link/provider-owned states, reset-complete link target decision,
+  broader auth/security acceptance, and notification/security-center/
+  credential-activity gates only if those surfaces are added later.
 - Issue posture:
   keep #336 open. PR #765 does not complete the broader auth/session/runtime
   security epic or final Day 1 auth/security acceptance. Keep #339 open.
