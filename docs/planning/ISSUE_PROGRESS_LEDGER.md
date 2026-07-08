@@ -20,6 +20,67 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#338/#777 - Current-account session revocation refresh-continuity hardening
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #338 `OPEN`; this checkpoint completes one focused API/test hardening
+    slice for current-account session revocation and refresh continuity, but
+    the issue remains open for review, future UX/security-center decisions,
+    and any later approved session/device visibility work.
+  - #777 `OPEN`; production/public-exposure security review remains a
+    separate manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `a015ed1e3079030b61ba073129c0b47bbd0a90e7` before this task branch.
+- Branch:
+  `feature/auth-session-visibility-revocation-audit-20260708-1529`.
+- Completed slice:
+  - `IAuthSessionRuntimeService.RevokeSessionAsync` now revokes linked active
+    refresh session families and active refresh credentials when the revoked
+    access session belongs to a refresh lineage.
+  - Refresh-family revocation now also marks other active linked access
+    sessions in the same affected family revoked, while preserving the existing
+    exclusion behavior used by password-change flows to keep the current
+    bearer session active.
+  - Existing endpoint authorization and public response behavior is unchanged:
+    current-account session list remains caller-owned and bounded; per-session
+    revocation still filters by current auth account and maps missing,
+    cross-account, already-revoked, or inactive targets to the same safe
+    unavailable response; current-session sign-out and sign-out-all still
+    return no token-bearing body.
+  - Added focused service proof that per-session revocation invalidates linked
+    refresh family state, active refresh credentials, and sibling access
+    sessions without exposing raw access tokens, token hashes, or refresh hashes
+    in audit metadata.
+- Password change/reset posture:
+  - Password change behavior was inspected and left unchanged: it keeps the
+    current bearer session active and revokes other active sessions plus linked
+    refresh material.
+  - Password reset behavior was inspected and left unchanged: successful reset
+    revokes active sessions and refresh families according to current policy.
+- Notification/security-center posture:
+  auth/session/security notifications and credential activity/security-center
+  surfaces remain audit-only/future-gated under #369/#774. No notification
+  writer/runtime, target schema, UI, or provider delivery behavior was added.
+- Validation evidence recorded in the task report:
+  focused auth/session/password-change/password-reset tests passed with
+  `102` tests, `0` failed, `0` skipped. Broader validation is recorded in the
+  associated Codex report for the branch.
+- Issue posture:
+  keep #336, #338, and #777 open. #337 and #339 were read for context and not
+  touched. #369/#774 remain the future gates for notification/security-center
+  product surfaces.
+- Scope confirmation:
+  this checkpoint changes only API auth session runtime and focused API tests,
+  plus this ledger entry. It does not change OpenAPI/contracts, generated
+  clients, schema/migrations, mobile/user-web/admin UI, notification runtime,
+  password-reset request/complete route behavior, email/reset material/link
+  behavior, invite/registration/OIDC onboarding, MFA/passkey runtime,
+  production/public exposure, Docker/CI/deployment, appsettings/env/secrets,
+  storage, sync, import/export, backup/restore, OCR, money, settlement,
+  payment, bill calculation, issue closure, or branch cleanup.
+
 ### Issues #336/#339 - Password reset future gates issue split after PR #771
 
 - GitHub state/project status:

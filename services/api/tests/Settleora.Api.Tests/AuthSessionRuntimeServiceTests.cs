@@ -401,6 +401,82 @@ public sealed class AuthSessionRuntimeServiceTests
     }
 
     [Fact]
+    public async Task RevokeActiveSessionRevokesLinkedRefreshFamilyCredentialsAndSiblingSessions()
+    {
+        const string visibleRefreshCredentialHash = "refresh-sha256:visible-refresh-credential-hash";
+        using var dbContext = CreateDbContext();
+        var authAccountId = await SeedAuthAccountAsync(dbContext);
+        var targetSession = await CreateSessionForValidationAsync(dbContext, authAccountId);
+        var siblingSession = await CreateSessionForValidationAsync(dbContext, authAccountId);
+        await SeedRefreshFamilyAsync(
+            dbContext,
+            authAccountId,
+            [targetSession.AuthSessionId!.Value, siblingSession.AuthSessionId!.Value],
+            visibleRefreshCredentialHash);
+        var targetSessionHash = (await dbContext.Set<AuthSession>().SingleAsync(
+            session => session.Id == targetSession.AuthSessionId)).SessionTokenHash;
+        await ClearAuditEventsAsync(dbContext);
+        var service = CreateService(dbContext, RevocationTimestamp);
+
+        var result = await service.RevokeSessionAsync(new AuthSessionRevocationRequest(
+            authAccountId,
+            targetSession.AuthSessionId!.Value,
+            "user_session_revoke"));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(AuthSessionRevocationStatus.Revoked, result.Status);
+
+        var sessions = await dbContext.Set<AuthSession>()
+            .OrderBy(session => session.IssuedAtUtc)
+            .ToListAsync();
+        Assert.All(sessions, session =>
+        {
+            Assert.Equal(AuthSessionStatuses.Revoked, session.Status);
+            Assert.Equal(RevocationTimestamp, session.RevokedAtUtc);
+            Assert.Equal("user_session_revoke", session.RevocationReason);
+        });
+
+        var family = await dbContext.Set<AuthSessionFamily>().SingleAsync();
+        Assert.Equal(AuthSessionFamilyStatuses.Revoked, family.Status);
+        Assert.Equal(RevocationTimestamp, family.RevokedAtUtc);
+        Assert.Equal("user_session_revoke", family.RevocationReason);
+
+        var refreshCredentials = await dbContext.Set<AuthRefreshCredential>()
+            .OrderBy(credential => credential.IssuedAtUtc)
+            .ToListAsync();
+        Assert.All(refreshCredentials, credential =>
+        {
+            Assert.Equal(AuthRefreshCredentialStatuses.Revoked, credential.Status);
+            Assert.Equal(RevocationTimestamp, credential.RevokedAtUtc);
+            Assert.Equal("user_session_revoke", credential.RevocationReason);
+        });
+
+        var auditEvents = await dbContext.Set<AuthAuditEvent>()
+            .OrderBy(audit => audit.Action)
+            .ToListAsync();
+        Assert.Contains(auditEvents, audit =>
+            audit.Action == "session.revoked"
+            && audit.Outcome == AuthAuditOutcomes.Revoked
+            && audit.ActorAuthAccountId == authAccountId
+            && audit.SubjectAuthAccountId == authAccountId);
+        Assert.Contains(auditEvents, audit =>
+            audit.Action == "session_family.revoked"
+            && audit.Outcome == AuthAuditOutcomes.Revoked
+            && audit.ActorAuthAccountId == authAccountId
+            && audit.SubjectAuthAccountId == authAccountId);
+        Assert.All(auditEvents, audit =>
+        {
+            AssertSafeAuditMetadata(audit.SafeMetadataJson, audit.Action == "session.revoked"
+                ? AuthSessionRevocationStatus.Revoked.ToString()
+                : AuthAccountSessionRevocationStatus.Revoked.ToString());
+            Assert.DoesNotContain(targetSession.RawSessionToken!, audit.SafeMetadataJson!);
+            Assert.DoesNotContain(siblingSession.RawSessionToken!, audit.SafeMetadataJson!);
+            Assert.DoesNotContain(targetSessionHash, audit.SafeMetadataJson!);
+            Assert.DoesNotContain(visibleRefreshCredentialHash, audit.SafeMetadataJson!);
+        });
+    }
+
+    [Fact]
     public async Task RevokeActiveSessionsForAccountRevokesOnlyActiveOwnedSessionsAndWritesSafeAuditMetadata()
     {
         using var dbContext = CreateDbContext();
@@ -613,6 +689,45 @@ public sealed class AuthSessionRuntimeServiceTests
 
         await ClearAuditEventsAsync(dbContext);
         return createResult;
+    }
+
+    private static async Task SeedRefreshFamilyAsync(
+        SettleoraDbContext dbContext,
+        Guid authAccountId,
+        IReadOnlyList<Guid> authSessionIds,
+        string firstRefreshCredentialHash)
+    {
+        var familyId = Guid.NewGuid();
+        dbContext.Set<AuthSessionFamily>().Add(new AuthSessionFamily
+        {
+            Id = familyId,
+            AuthAccountId = authAccountId,
+            Status = AuthSessionFamilyStatuses.Active,
+            CreatedAtUtc = InitialTimestamp,
+            UpdatedAtUtc = InitialTimestamp,
+            AbsoluteExpiresAtUtc = InitialTimestamp.AddDays(30)
+        });
+
+        for (var index = 0; index < authSessionIds.Count; index++)
+        {
+            dbContext.Set<AuthRefreshCredential>().Add(new AuthRefreshCredential
+            {
+                Id = Guid.NewGuid(),
+                AuthSessionFamilyId = familyId,
+                AuthSessionId = authSessionIds[index],
+                RefreshTokenHash = index == 0
+                    ? firstRefreshCredentialHash
+                    : $"refresh-sha256:visible-refresh-credential-hash-{index}",
+                Status = AuthRefreshCredentialStatuses.Active,
+                IssuedAtUtc = InitialTimestamp.AddMinutes(index),
+                IdleExpiresAtUtc = InitialTimestamp.AddDays(7),
+                AbsoluteExpiresAtUtc = InitialTimestamp.AddDays(30),
+                CreatedAtUtc = InitialTimestamp.AddMinutes(index),
+                UpdatedAtUtc = InitialTimestamp.AddMinutes(index)
+            });
+        }
+
+        await dbContext.SaveChangesAsync();
     }
 
     private static async Task ClearAuditEventsAsync(SettleoraDbContext dbContext)
