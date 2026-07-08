@@ -14,6 +14,8 @@ internal static class InvitationManagementEndpoints
     private const string InvitationUnavailableDetail = "The requested invitation is unavailable.";
     private const string InvitationCapabilityDisabledTitle = "Invitation capability disabled";
     private const string InvitationCapabilityDisabledDetail = "Invitation creation or resend is disabled by current policy.";
+    private const string TooManyInvitationAttemptsTitle = "Too many invitation attempts";
+    private const string TooManyInvitationAttemptsDetail = "Too many invitation attempts. Try again later.";
     private const int DefaultListLimit = 50;
     private const int MaxListLimit = 200;
 
@@ -84,6 +86,7 @@ internal static class InvitationManagementEndpoints
             InvitationManagementResultStatus.UnsupportedContactIdentifierKind => InvitationConflict(),
             InvitationManagementResultStatus.UnsupportedTargetSystemRole => InvitationConflict(),
             InvitationManagementResultStatus.DuplicatePendingInvitation => InvitationConflict(),
+            InvitationManagementResultStatus.Throttled => TooManyInvitationAttempts(),
             _ => InvitationConflict()
         };
     }
@@ -165,6 +168,7 @@ internal static class InvitationManagementEndpoints
             InvitationManagementResultStatus.CapabilityDisabled => CapabilityDisabled(),
             InvitationManagementResultStatus.NotFound => InvitationUnavailable(),
             InvitationManagementResultStatus.TerminalState => InvitationConflict(),
+            InvitationManagementResultStatus.Throttled => TooManyInvitationAttempts(),
             _ => InvitationConflict()
         };
     }
@@ -537,6 +541,14 @@ internal static class InvitationManagementEndpoints
             title: InvitationCapabilityDisabledTitle,
             detail: InvitationCapabilityDisabledDetail,
             statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    private static IResult TooManyInvitationAttempts()
+    {
+        return Results.Problem(
+            title: TooManyInvitationAttemptsTitle,
+            detail: TooManyInvitationAttemptsDetail,
+            statusCode: StatusCodes.Status429TooManyRequests);
     }
 
     private static bool RequestHasBody(HttpRequest request)

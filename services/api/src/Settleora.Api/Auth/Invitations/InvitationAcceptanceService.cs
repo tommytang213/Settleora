@@ -15,7 +15,7 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
     private const string WorkflowName = "auth_invitation_acceptance";
     private const string AcceptedAction = "invitation.accepted";
     private const string AcceptFailedAction = "invitation.accept_failed";
-    private const string LocalSingleNodeSourceKey = "src:local-single-node";
+    private const string LocalSingleNodeSourceKey = "invite-source:local-single-node";
     private const int SafeMetadataJsonMaxLength = 4096;
     private static readonly TimeSpan TerminalCleanupDelay = TimeSpan.FromDays(90);
     private static readonly string[] AcceptedRoles = [SystemRoles.User];
@@ -23,13 +23,13 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
 
     private readonly SettleoraDbContext dbContext;
     private readonly IAuthCredentialWorkflowService credentialWorkflowService;
-    private readonly ISignInAbusePolicyService abusePolicyService;
+    private readonly IInvitationAbusePolicyService abusePolicyService;
     private readonly TimeProvider timeProvider;
 
     public InvitationAcceptanceService(
         SettleoraDbContext dbContext,
         IAuthCredentialWorkflowService credentialWorkflowService,
-        ISignInAbusePolicyService abusePolicyService,
+        IInvitationAbusePolicyService abusePolicyService,
         TimeProvider timeProvider)
     {
         this.dbContext = dbContext;
@@ -44,16 +44,11 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var attemptKey = InvitationSecretHasher.DeriveSafeAttemptKey(request.InvitationSecret);
-        var policyResult = abusePolicyService.CheckPreVerification(new SignInAbusePolicyRequest(
-            attemptKey,
-            LocalSingleNodeSourceKey));
-        if (!policyResult.IsAllowed)
+        var abuseRequest = CreateAbuseRequest(request.InvitationSecret);
+        var policyResult = abusePolicyService.CheckAttempt(abuseRequest);
+        if (!policyResult.Allowed)
         {
-            abusePolicyService.RecordAttempt(new SignInAttemptRecord(
-                attemptKey,
-                LocalSingleNodeSourceKey,
-                SignInAttemptOutcome.Throttled));
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Throttled);
             await AddFailureAuditAndSaveAsync(
                 "throttled",
                 invitation: null,
@@ -66,10 +61,7 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
         var occurredAtUtc = timeProvider.GetUtcNow();
         if (!await InvitationCapabilityEnabledAsync(cancellationToken))
         {
-            abusePolicyService.RecordAttempt(new SignInAttemptRecord(
-                attemptKey,
-                LocalSingleNodeSourceKey,
-                SignInAttemptOutcome.BlockedByPolicy));
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.BlockedByPolicy);
             await AddFailureAuditAndSaveAsync(
                 "policy_disabled",
                 invitation: null,
@@ -103,10 +95,7 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
 
-            abusePolicyService.RecordAttempt(new SignInAttemptRecord(
-                attemptKey,
-                LocalSingleNodeSourceKey,
-                SignInAttemptOutcome.Failed));
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Failed);
             await AddFailureAuditAndSaveAsync(
                 ClassifyFailure(invitation, occurredAtUtc),
                 invitation,
@@ -140,10 +129,7 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
                 || await LocalIdentityExistsAsync(invitation!.ContactIdentifierNormalized, cancellationToken))
             {
                 await RollbackAsync(transaction, cancellationToken);
-                abusePolicyService.RecordAttempt(new SignInAttemptRecord(
-                    attemptKey,
-                    LocalSingleNodeSourceKey,
-                    SignInAttemptOutcome.Failed));
+                abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Failed);
                 return InvitationAcceptanceResult.Failure(InvitationAcceptanceStatus.InvalidInvitation);
             }
 
@@ -214,10 +200,7 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
                         cancellationToken);
                 }
 
-                abusePolicyService.RecordAttempt(new SignInAttemptRecord(
-                    attemptKey,
-                    LocalSingleNodeSourceKey,
-                    SignInAttemptOutcome.Failed));
+                abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Failed);
                 return InvitationAcceptanceResult.Failure(InvitationAcceptanceStatus.PersistenceFailed);
             }
 
@@ -244,10 +227,7 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
                 await transaction.CommitAsync(cancellationToken);
             }
 
-            abusePolicyService.RecordAttempt(new SignInAttemptRecord(
-                attemptKey,
-                LocalSingleNodeSourceKey,
-                SignInAttemptOutcome.Succeeded));
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Succeeded);
             return InvitationAcceptanceResult.Accepted();
         }
         catch (DbUpdateException)
@@ -264,10 +244,7 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
                     cancellationToken);
             }
 
-            abusePolicyService.RecordAttempt(new SignInAttemptRecord(
-                attemptKey,
-                LocalSingleNodeSourceKey,
-                SignInAttemptOutcome.Failed));
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Failed);
             return InvitationAcceptanceResult.Failure(InvitationAcceptanceStatus.PersistenceFailed);
         }
         finally
@@ -288,6 +265,15 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
                     && policy.RetiredAtUtc == null
                     && policy.CapabilityState == AuthInvitationCapabilityStates.Enabled,
                 cancellationToken);
+    }
+
+    private static InvitationAbusePolicyRequest CreateAbuseRequest(string invitationSecret)
+    {
+        return new InvitationAbusePolicyRequest(
+            InvitationAbusePolicyOperations.Accept,
+            ActorBucketRef: null,
+            SubjectBucketRef: InvitationSecretHasher.DeriveSafeAttemptKey(invitationSecret),
+            SourceBucketRef: LocalSingleNodeSourceKey);
     }
 
     private Task<bool> LocalIdentityExistsAsync(

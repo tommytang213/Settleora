@@ -261,6 +261,64 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
             .ToListAsync());
     }
 
+    [Fact]
+    public async Task PublicAcceptThrottlingStaysGenericAndDoesNotCreateAccount()
+    {
+        var testContext = CreateFactory(services =>
+        {
+            services.AddSingleton(CreateStrictInvitationAbuseOptions());
+        });
+        using var testFactory = testContext.Factory;
+        var inviter = await SeedAccountAsync(testFactory, "Inviting Admin", [SystemRoles.Admin]);
+        await EnableInvitationPolicyAsync(testFactory, inviter.AuthAccountId);
+        await SeedInvitationAsync(testFactory, inviter, RawInvitationSecret, "throttled.accept@example.com");
+        using var client = testFactory.CreateClient();
+
+        using var firstResponse = await client.PostAsync(
+            AcceptPath,
+            JsonContent(CreateAcceptJson("unknown-material-for-throttle", "Unknown User", LocalPassword)));
+        using var throttledResponse = await client.PostAsync(
+            AcceptPath,
+            JsonContent(CreateAcceptJson("unknown-material-for-throttle", "Throttled User", LocalPassword)));
+        var throttledContent = await throttledResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, throttledResponse.StatusCode);
+        Assert.Contains("Too many invitation acceptance attempts", throttledContent, StringComparison.Ordinal);
+        AssertSafePublicContent(throttledContent);
+        AssertDoesNotContainSensitiveFragment(throttledContent, "throttled raw invitation material", "unknown-material-for-throttle");
+
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        Assert.Equal(1, await dbContext.Set<AuthAccount>().CountAsync());
+        Assert.Empty(await dbContext.Set<AuthIdentity>()
+            .Where(identity => identity.ProviderSubject == "throttled.accept@example.com")
+            .ToListAsync());
+        var throttledAudits = await dbContext.Set<AuthAuditEvent>()
+            .Where(audit => audit.Action == "invitation.accept_failed"
+                && audit.Outcome == AuthAuditOutcomes.BlockedByPolicy)
+            .ToListAsync();
+        var throttledAudit = Assert.Single(
+            throttledAudits,
+            audit => audit.SafeMetadataJson?.Contains("throttled", StringComparison.Ordinal) == true);
+        AssertSafePublicContent(throttledAudit.SafeMetadataJson ?? string.Empty);
+    }
+
+    [Fact]
+    public void InvitationAbusePolicyRequestDebugStringsDoNotEchoRawMaterialOrContact()
+    {
+        var request = new InvitationAbusePolicyRequest(
+            InvitationAbusePolicyOperations.Accept,
+            ActorBucketRef: "raw.actor@example.com",
+            SubjectBucketRef: RawInvitationSecret,
+            SourceBucketRef: "forwarded-for:203.0.113.25");
+
+        var text = request.ToString();
+        AssertDoesNotContainSensitiveFragment(text, "raw invitation material", RawInvitationSecret);
+        AssertDoesNotContainSensitiveFragment(text, "raw actor contact", "raw.actor@example.com");
+        AssertDoesNotContainSensitiveFragment(text, "raw source address", "203.0.113.25");
+    }
+
     private async Task<FailureAttemptResult> TryAcceptAsync(string rawSecret)
     {
         var testContext = CreateFactory();
@@ -326,6 +384,21 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         });
 
         return new FactoryTestContext(testFactory, timeProvider);
+    }
+
+    private static InvitationAbusePolicyOptions CreateStrictInvitationAbuseOptions()
+    {
+        return new InvitationAbusePolicyOptions
+        {
+            Window = TimeSpan.FromMinutes(15),
+            ThrottleDuration = TimeSpan.FromMinutes(5),
+            EntryRetention = TimeSpan.FromHours(1),
+            SourceLimit = 10,
+            ActorLimit = 10,
+            SubjectLimit = 1,
+            ActorSubjectLimit = 1,
+            GlobalLimit = 100
+        };
     }
 
     private static async Task EnableInvitationPolicyAsync(
@@ -451,6 +524,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
             ("normalized full contact identifier", "invitee@example.com"),
             ("audit full contact identifier", "redacted@example.com"),
             ("rollback full contact identifier", "rollback@example.com"),
+            ("throttled full contact identifier", "throttled.accept@example.com"),
             ("provider payload marker", "providerPayload"),
             ("request body marker", "requestBody"),
             ("SMTP marker", "smtp")

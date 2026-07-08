@@ -545,6 +545,80 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         Assert.Contains("disabled_by_admin", audit.SafeMetadataJson, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task CreateThrottlingPreventsAdditionalRowsDeliveryAndRawMaterialExposure()
+    {
+        var transport = new CapturingSmtpEmailTransport();
+        var testContext = CreateFactory(
+            configuration: CreateProductionEmailConfiguration(),
+            configureServices: services =>
+            {
+                services.AddSingleton(CreateStrictInvitationAbuseOptions());
+                services.RemoveAll<ISmtpEmailTransport>();
+                services.AddSingleton<ISmtpEmailTransport>(transport);
+            });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var allowedRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
+        allowedRequest.Content = JsonContent(
+            """{"contactIdentifierKind":"email","contactIdentifier":"throttle.create@example.invalid","targetSystemRole":"user","deliveryRequested":false}""");
+        using var allowedResponse = await client.SendAsync(allowedRequest);
+
+        using var throttledRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
+        throttledRequest.Content = JsonContent(
+            """{"contactIdentifierKind":"email","contactIdentifier":"throttle.create@example.invalid","targetSystemRole":"user","deliveryRequested":true}""");
+        using var throttledResponse = await client.SendAsync(throttledRequest);
+        var throttledContent = await throttledResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, allowedResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, throttledResponse.StatusCode);
+        Assert.False(transport.WasCalled);
+        AssertSafeInvitationContent(throttledContent);
+
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        Assert.Equal(1, await dbContext.Set<AuthInvitation>().CountAsync());
+    }
+
+    [Fact]
+    public async Task ResendThrottlingPreventsHashRotationAndDeliveryHandoff()
+    {
+        var transport = new CapturingSmtpEmailTransport();
+        var testContext = CreateFactory(
+            configuration: CreateProductionEmailConfiguration(),
+            configureServices: services =>
+            {
+                services.AddSingleton(CreateStrictInvitationAbuseOptions());
+                services.RemoveAll<ISmtpEmailTransport>();
+                services.AddSingleton<ISmtpEmailTransport>(transport);
+            });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Admin], "Admin Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        var invitationId = await SeedPendingInvitationAsync(testFactory, session, "throttle.resend@example.invalid");
+        var beforeHash = await ReadInvitationHashAsync(testFactory, invitationId);
+        using var client = testFactory.CreateClient();
+
+        using var allowedRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
+        allowedRequest.Content = JsonContent("""{"deliveryRequested":false}""");
+        using var allowedResponse = await client.SendAsync(allowedRequest);
+
+        using var throttledRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
+        throttledRequest.Content = JsonContent("""{"deliveryRequested":true}""");
+        using var throttledResponse = await client.SendAsync(throttledRequest);
+        var throttledContent = await throttledResponse.Content.ReadAsStringAsync();
+        var afterHash = await ReadInvitationHashAsync(testFactory, invitationId);
+
+        Assert.Equal(HttpStatusCode.Accepted, allowedResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, throttledResponse.StatusCode);
+        Assert.Equal(beforeHash, afterHash);
+        Assert.False(transport.WasCalled);
+        AssertSafeInvitationContent(throttledContent);
+    }
+
     private FactoryTestContext CreateFactory(
         IReadOnlyDictionary<string, string?>? configuration = null,
         Action<IServiceCollection>? configureServices = null)
@@ -671,6 +745,21 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
             [$"{InvitationEmailDeliveryOptions.SectionName}:DeliveryMode"] = deliveryMode,
             [$"{InvitationEmailDeliveryOptions.SectionName}:PublicBaseUrl"] = publicBaseUrl,
             [$"{InvitationEmailDeliveryOptions.SectionName}:InviteLinkPath"] = "/auth/invitations/accept"
+        };
+    }
+
+    private static InvitationAbusePolicyOptions CreateStrictInvitationAbuseOptions()
+    {
+        return new InvitationAbusePolicyOptions
+        {
+            Window = TimeSpan.FromMinutes(15),
+            ThrottleDuration = TimeSpan.FromMinutes(5),
+            EntryRetention = TimeSpan.FromHours(1),
+            SourceLimit = 10,
+            ActorLimit = 10,
+            SubjectLimit = 1,
+            ActorSubjectLimit = 1,
+            GlobalLimit = 100
         };
     }
 
@@ -808,6 +897,8 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
             "resend.not.requested@example.com",
             "resend.unavailable@example.com",
             "resend.ready@example.invalid",
+            "throttle.create@example.invalid",
+            "throttle.resend@example.invalid",
             "old-resend-raw-invitation-material"
         };
 
