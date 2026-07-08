@@ -1,15 +1,19 @@
+using System.Net.Mail;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Settleora.Api.Auth.Invitations;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
+using Settleora.Api.Notifications;
 using Settleora.Api.Domain.Users;
 using Settleora.Api.Persistence;
 
@@ -55,7 +59,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         Assert.Equal("email", createdInvitation.GetProperty("contactIdentifierKind").GetString());
         Assert.Equal("email:***", createdInvitation.GetProperty("contactDisplay").GetString());
         Assert.Equal("user", createdInvitation.GetProperty("targetSystemRole").GetString());
-        Assert.Equal("provider_unconfigured", createdInvitation.GetProperty("deliveryState").GetString());
+        Assert.Equal("disabled_by_admin", createdInvitation.GetProperty("deliveryState").GetString());
         Assert.Equal(session.AuthAccountId, createdInvitation.GetProperty("invitedByAuthAccountId").GetGuid());
         Assert.Equal(session.UserProfileId, createdInvitation.GetProperty("invitedByUserProfileId").GetGuid());
 
@@ -214,6 +218,302 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public async Task CreateWithDeliveryNotRequestedDoesNotComposeOrSend()
+    {
+        var testContext = CreateFactory(configureServices: services =>
+        {
+            services.RemoveAll<IInvitationEmailTemplateComposer>();
+            services.RemoveAll<IInvitationEmailSender>();
+            services.AddSingleton<IInvitationEmailTemplateComposer, ThrowingInvitationEmailTemplateComposer>();
+            services.AddSingleton<IInvitationEmailSender, ThrowingInvitationEmailSender>();
+        });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
+        createRequest.Content = JsonContent(
+            """{"contactIdentifierKind":"email","contactIdentifier":"no.delivery@example.com","targetSystemRole":"user","deliveryRequested":false}""");
+        using var response = await client.SendAsync(createRequest);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        AssertSafeInvitationContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(
+            "not_requested",
+            payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+    }
+
+    [Fact]
+    public async Task CreateWithUnavailableDeliveryReturnsSafeNonSentStateWithoutTransportCall()
+    {
+        var transport = new CapturingSmtpEmailTransport();
+        var testContext = CreateFactory(configureServices: services =>
+        {
+            services.RemoveAll<ISmtpEmailTransport>();
+            services.AddSingleton<ISmtpEmailTransport>(transport);
+        });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
+        createRequest.Content = JsonContent(
+            """{"contactIdentifierKind":"email","contactIdentifier":"unavailable.delivery@example.com","targetSystemRole":"user","deliveryRequested":true}""");
+        using var response = await client.SendAsync(createRequest);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.False(transport.WasCalled);
+        AssertSafeInvitationContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(
+            "disabled_by_admin",
+            payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+    }
+
+    [Fact]
+    public async Task CreateWithConfiguredProductionSmtpAttemptsOneSafeEmailHandoff()
+    {
+        var transport = new CapturingSmtpEmailTransport();
+        var testContext = CreateFactory(
+            configuration: CreateProductionEmailConfiguration(),
+            configureServices: services =>
+            {
+                services.RemoveAll<ISmtpEmailTransport>();
+                services.AddSingleton<ISmtpEmailTransport>(transport);
+            });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
+        createRequest.Content = JsonContent(
+            """{"contactIdentifierKind":"email","contactIdentifier":"smtp.delivery@example.invalid","targetSystemRole":"user","deliveryRequested":true}""");
+        using var response = await client.SendAsync(createRequest);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(1, transport.SendAttemptCount);
+        Assert.Equal("smtp.delivery@example.invalid", transport.To);
+        Assert.Equal(InvitationEmailTemplateComposer.TemplateSubject, transport.Subject);
+        Assert.Contains("invitationSecret=", transport.Body, StringComparison.Ordinal);
+        AssertSafeInvitationContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(
+            "sent",
+            payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+    }
+
+    [Theory]
+    [InlineData(InvitationEmailDeliveryModes.LocalSink, "http://localhost:5173")]
+    [InlineData(InvitationEmailDeliveryModes.TestSink, "http://127.0.0.1:5173")]
+    public async Task CreateWithSinkModeDoesNotCallSmtpOrClaimProviderSent(
+        string deliveryMode,
+        string publicBaseUrl)
+    {
+        var transport = new CapturingSmtpEmailTransport();
+        var testContext = CreateFactory(
+            configuration: CreateSinkEmailConfiguration(deliveryMode, publicBaseUrl),
+            configureServices: services =>
+            {
+                services.RemoveAll<ISmtpEmailTransport>();
+                services.AddSingleton<ISmtpEmailTransport>(transport);
+            });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
+        createRequest.Content = JsonContent(
+            """{"contactIdentifierKind":"email","contactIdentifier":"sink.delivery@example.invalid","targetSystemRole":"user","deliveryRequested":true}""");
+        using var response = await client.SendAsync(createRequest);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.False(transport.WasCalled);
+        AssertSafeInvitationContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(
+            "queued",
+            payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+        Assert.NotEqual(
+            "sent",
+            payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+    }
+
+    [Fact]
+    public async Task ProviderExceptionMapsToSafeFailedStateWithoutRawDiagnostics()
+    {
+        var transport = new CapturingSmtpEmailTransport
+        {
+            ExceptionToThrow = new SmtpException(
+                SmtpStatusCode.GeneralFailure,
+                "raw provider diagnostic with smtp-password-placeholder")
+        };
+        var testContext = CreateFactory(
+            configuration: CreateProductionEmailConfiguration(),
+            configureServices: services =>
+            {
+                services.RemoveAll<ISmtpEmailTransport>();
+                services.AddSingleton<ISmtpEmailTransport>(transport);
+            });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        using var client = testFactory.CreateClient();
+
+        using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
+        createRequest.Content = JsonContent(
+            """{"contactIdentifierKind":"email","contactIdentifier":"provider.failure@example.invalid","targetSystemRole":"user","deliveryRequested":true}""");
+        using var response = await client.SendAsync(createRequest);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(1, transport.SendAttemptCount);
+        AssertSafeInvitationContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(
+            "failed",
+            payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        var deliveryAudit = await dbContext.Set<AuthAuditEvent>()
+            .SingleAsync(audit => audit.Action == "invitation.delivery_result");
+        AssertSafeInvitationContent(deliveryAudit.SafeMetadataJson ?? string.Empty);
+        Assert.DoesNotContain("raw provider diagnostic", deliveryAudit.SafeMetadataJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("smtp-password-placeholder", deliveryAudit.SafeMetadataJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResendWithDeliveryNotRequestedDoesNotRotate()
+    {
+        var testContext = CreateFactory(configureServices: services =>
+        {
+            services.RemoveAll<IInvitationEmailTemplateComposer>();
+            services.RemoveAll<IInvitationEmailSender>();
+            services.AddSingleton<IInvitationEmailTemplateComposer, ThrowingInvitationEmailTemplateComposer>();
+            services.AddSingleton<IInvitationEmailSender, ThrowingInvitationEmailSender>();
+        });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Admin], "Admin Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        var invitationId = await SeedPendingInvitationAsync(testFactory, session, "resend.not.requested@example.com");
+        var beforeHash = await ReadInvitationHashAsync(testFactory, invitationId);
+        using var client = testFactory.CreateClient();
+
+        using var resendRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
+        resendRequest.Content = JsonContent("""{"deliveryRequested":false}""");
+        using var response = await client.SendAsync(resendRequest);
+        var content = await response.Content.ReadAsStringAsync();
+        var afterHash = await ReadInvitationHashAsync(testFactory, invitationId);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(beforeHash, afterHash);
+        AssertSafeInvitationContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(
+            "not_requested",
+            payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+    }
+
+    [Fact]
+    public async Task ResendWithUnavailableDeliveryDoesNotRotateOrClaimDelivery()
+    {
+        var transport = new CapturingSmtpEmailTransport();
+        var testContext = CreateFactory(configureServices: services =>
+        {
+            services.RemoveAll<ISmtpEmailTransport>();
+            services.AddSingleton<ISmtpEmailTransport>(transport);
+        });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Admin], "Admin Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        var invitationId = await SeedPendingInvitationAsync(testFactory, session, "resend.unavailable@example.com");
+        var beforeHash = await ReadInvitationHashAsync(testFactory, invitationId);
+        using var client = testFactory.CreateClient();
+
+        using var resendRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
+        resendRequest.Content = JsonContent("""{"deliveryRequested":true}""");
+        using var response = await client.SendAsync(resendRequest);
+        var content = await response.Content.ReadAsStringAsync();
+        var afterHash = await ReadInvitationHashAsync(testFactory, invitationId);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.False(transport.WasCalled);
+        Assert.Equal(beforeHash, afterHash);
+        AssertSafeInvitationContent(content);
+        using var payload = JsonDocument.Parse(content);
+        Assert.Equal(
+            "disabled_by_admin",
+            payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+    }
+
+    [Fact]
+    public async Task ResendWithReadyDeliveryRotatesHashAndOnlyDeliveredSecretCanRedeem()
+    {
+        var transport = new CapturingSmtpEmailTransport();
+        var testContext = CreateFactory(
+            configuration: CreateProductionEmailConfiguration(),
+            configureServices: services =>
+            {
+                services.RemoveAll<ISmtpEmailTransport>();
+                services.AddSingleton<ISmtpEmailTransport>(transport);
+            });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Admin], "Admin Actor");
+        await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
+        const string oldRawInvitationSecret = "old-resend-raw-invitation-material";
+        var invitationId = await SeedPendingInvitationAsync(
+            testFactory,
+            session,
+            "resend.ready@example.invalid",
+            oldRawInvitationSecret);
+        var beforeHash = await ReadInvitationHashAsync(testFactory, invitationId);
+        using var client = testFactory.CreateClient();
+
+        using var resendRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
+        resendRequest.Content = JsonContent("""{"deliveryRequested":true}""");
+        using var resendResponse = await client.SendAsync(resendRequest);
+        var resendContent = await resendResponse.Content.ReadAsStringAsync();
+        var afterHash = await ReadInvitationHashAsync(testFactory, invitationId);
+        var deliveredRawInvitationSecret = ExtractInvitationSecretFromBody(transport.Body);
+
+        Assert.Equal(HttpStatusCode.Accepted, resendResponse.StatusCode);
+        Assert.NotEqual(beforeHash, afterHash);
+        Assert.Equal(1, transport.SendAttemptCount);
+        AssertSafeInvitationContent(resendContent);
+        AssertDoesNotContainSensitiveFragment(resendContent, "delivered raw invitation material", deliveredRawInvitationSecret);
+        using (var payload = JsonDocument.Parse(resendContent))
+        {
+            Assert.Equal(
+                "sent",
+                payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
+        }
+
+        using var oldAccept = await client.PostAsync(
+            "/api/v1/auth/invitations/accept",
+            JsonContent(CreateAcceptJson(oldRawInvitationSecret, "Old Secret User", "correct horse battery staple")));
+        using var newAccept = await client.PostAsync(
+            "/api/v1/auth/invitations/accept",
+            JsonContent(CreateAcceptJson(deliveredRawInvitationSecret, "New Secret User", "correct horse battery staple")));
+        var oldAcceptContent = await oldAccept.Content.ReadAsStringAsync();
+        var newAcceptContent = await newAccept.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, oldAccept.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, newAccept.StatusCode);
+        AssertSafeInvitationContent(oldAcceptContent);
+        AssertSafeInvitationContent(newAcceptContent);
+        AssertDoesNotContainSensitiveFragment(newAcceptContent, "delivered raw invitation material", deliveredRawInvitationSecret);
+    }
+
+    [Fact]
     public async Task ResendDoesNotFakeDeliverySuccessOrLeakSecretMaterial()
     {
         var testContext = CreateFactory();
@@ -232,7 +532,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         AssertSafeInvitationContent(resendContent);
         using var payload = JsonDocument.Parse(resendContent);
         Assert.Equal(
-            "provider_unconfigured",
+            "disabled_by_admin",
             payload.RootElement.GetProperty("invitation").GetProperty("deliveryState").GetString());
         Assert.NotEqual(
             "sent",
@@ -242,15 +542,25 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
         var audit = await dbContext.Set<AuthAuditEvent>().SingleAsync(audit => audit.Action == "invitation.resend_requested");
         AssertSafeInvitationContent(audit.SafeMetadataJson ?? string.Empty);
-        Assert.Contains("provider_unconfigured", audit.SafeMetadataJson, StringComparison.Ordinal);
+        Assert.Contains("disabled_by_admin", audit.SafeMetadataJson, StringComparison.Ordinal);
     }
 
-    private FactoryTestContext CreateFactory()
+    private FactoryTestContext CreateFactory(
+        IReadOnlyDictionary<string, string?>? configuration = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         var databaseName = Guid.NewGuid().ToString();
         var timeProvider = new InvitationManagementTestTimeProvider(InitialTimestamp);
         var testFactory = factory.WithWebHostBuilder(builder =>
         {
+            if (configuration is not null)
+            {
+                builder.ConfigureAppConfiguration((_, configurationBuilder) =>
+                {
+                    configurationBuilder.AddInMemoryCollection(configuration);
+                });
+            }
+
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<SettleoraDbContext>();
@@ -261,6 +571,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
 
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(timeProvider);
+                configureServices?.Invoke(services);
             });
         });
 
@@ -290,19 +601,23 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
     private static async Task<Guid> SeedPendingInvitationAsync(
         WebApplicationFactory<Program> testFactory,
         SeededSession actor,
-        string normalizedEmail)
+        string normalizedEmail,
+        string? rawInvitationSecret = null)
     {
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
         var invitationId = Guid.NewGuid();
+        var invitationHash = rawInvitationSecret is null
+            ? $"test-auth-invitation-sha256:v1:{Guid.NewGuid():N}"
+            : InvitationSecretHasher.DeriveInvitationSecretHash(rawInvitationSecret);
         dbContext.Set<AuthInvitation>().Add(new AuthInvitation
         {
             Id = invitationId,
             Status = AuthInvitationStatuses.Pending,
             ContactIdentifierKind = AuthInvitationContactIdentifierKinds.Email,
             ContactIdentifierNormalized = normalizedEmail,
-            InvitationSecretHash = $"test-auth-invitation-sha256:v1:{Guid.NewGuid():N}",
-            InvitationSecretHashVersion = "sha256-v1",
+            InvitationSecretHash = invitationHash,
+            InvitationSecretHashVersion = InvitationSecretHasher.HashVersion,
             TargetSystemRole = SystemRoles.User,
             InvitedByAuthAccountId = actor.AuthAccountId,
             InvitedByUserProfileId = actor.UserProfileId,
@@ -312,6 +627,51 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         });
         await dbContext.SaveChangesAsync();
         return invitationId;
+    }
+
+    private static async Task<string> ReadInvitationHashAsync(
+        WebApplicationFactory<Program> testFactory,
+        Guid invitationId)
+    {
+        using var scope = testFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
+        return await dbContext.Set<AuthInvitation>()
+            .Where(invitation => invitation.Id == invitationId)
+            .Select(invitation => invitation.InvitationSecretHash)
+            .SingleAsync();
+    }
+
+    private static IReadOnlyDictionary<string, string?> CreateProductionEmailConfiguration()
+    {
+        return new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [$"{InvitationEmailDeliveryOptions.SectionName}:Enabled"] = "true",
+            [$"{InvitationEmailDeliveryOptions.SectionName}:DeliveryMode"] = InvitationEmailDeliveryModes.ProductionSmtp,
+            [$"{InvitationEmailDeliveryOptions.SectionName}:PublicBaseUrl"] = "https://settleora.example.invalid",
+            [$"{InvitationEmailDeliveryOptions.SectionName}:InviteLinkPath"] = "/auth/invitations/accept",
+            [$"{SmtpEmailNotificationOptions.SectionName}:Enabled"] = "true",
+            [$"{SmtpEmailNotificationOptions.SectionName}:Host"] = "smtp-host-placeholder",
+            [$"{SmtpEmailNotificationOptions.SectionName}:Port"] = "2525",
+            [$"{SmtpEmailNotificationOptions.SectionName}:UseTls"] = "true",
+            [$"{SmtpEmailNotificationOptions.SectionName}:Username"] = "smtp-username-placeholder",
+            [$"{SmtpEmailNotificationOptions.SectionName}:Password"] = "smtp-password-placeholder",
+            [$"{SmtpEmailNotificationOptions.SectionName}:FromAddress"] = "from-address-placeholder@example.invalid",
+            [$"{SmtpEmailNotificationOptions.SectionName}:FromName"] = "Settleora",
+            [$"{SmtpEmailNotificationOptions.SectionName}:TimeoutSeconds"] = "10"
+        };
+    }
+
+    private static IReadOnlyDictionary<string, string?> CreateSinkEmailConfiguration(
+        string deliveryMode,
+        string publicBaseUrl)
+    {
+        return new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [$"{InvitationEmailDeliveryOptions.SectionName}:Enabled"] = "true",
+            [$"{InvitationEmailDeliveryOptions.SectionName}:DeliveryMode"] = deliveryMode,
+            [$"{InvitationEmailDeliveryOptions.SectionName}:PublicBaseUrl"] = publicBaseUrl,
+            [$"{InvitationEmailDeliveryOptions.SectionName}:InviteLinkPath"] = "/auth/invitations/accept"
+        };
     }
 
     private static async Task<SeededSession> SeedSessionActorAsync(
@@ -400,6 +760,25 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         return new StringContent(json, Encoding.UTF8, "application/json");
     }
 
+    private static string CreateAcceptJson(string rawSecret, string displayName, string password)
+    {
+        return $$"""
+            {"invitationSecret":"{{rawSecret}}","displayName":"{{displayName}}","localPassword":"{{password}}"}
+            """;
+    }
+
+    private static string ExtractInvitationSecretFromBody(string? body)
+    {
+        Assert.False(string.IsNullOrWhiteSpace(body));
+        const string marker = "invitationSecret=";
+        var markerIndex = body!.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(markerIndex >= 0, "Expected captured invitation email body to contain invitation material marker.");
+        var encoded = body[(markerIndex + marker.Length)..]
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)[0]
+            .Trim();
+        return Uri.UnescapeDataString(encoded);
+    }
+
     private static void AssertSafeInvitationContent(string content)
     {
         var forbiddenFragments = new[]
@@ -420,12 +799,30 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
             "new.user@example.com",
             "duplicate@example.com",
             "revoke@example.com",
-            "resend@example.com"
+            "resend@example.com",
+            "no.delivery@example.com",
+            "unavailable.delivery@example.com",
+            "smtp.delivery@example.invalid",
+            "sink.delivery@example.invalid",
+            "provider.failure@example.invalid",
+            "resend.not.requested@example.com",
+            "resend.unavailable@example.com",
+            "resend.ready@example.invalid",
+            "old-resend-raw-invitation-material"
         };
 
         foreach (var fragment in forbiddenFragments)
         {
-            Assert.DoesNotContain(fragment, content, StringComparison.OrdinalIgnoreCase);
+            AssertDoesNotContainSensitiveFragment(content, "sensitive invitation content", fragment);
+        }
+    }
+
+    private static void AssertDoesNotContainSensitiveFragment(string content, string safeLabel, string fragment)
+    {
+        // Avoid xUnit string containment assertions here because failure output can echo checked bearer material.
+        if (content.Contains(fragment, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new Xunit.Sdk.XunitException($"Redaction check failed for {safeLabel}.");
         }
     }
 
@@ -459,6 +856,58 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         public void SetUtcNow(DateTimeOffset value)
         {
             utcNow = value;
+        }
+    }
+
+    private sealed class CapturingSmtpEmailTransport : ISmtpEmailTransport
+    {
+        public bool WasCalled { get; private set; }
+
+        public int SendAttemptCount { get; private set; }
+
+        public string? To { get; private set; }
+
+        public string? Subject { get; private set; }
+
+        public string? Body { get; private set; }
+
+        public Exception? ExceptionToThrow { get; set; }
+
+        public Task SendAsync(
+            SmtpEmailNotificationOptions options,
+            MailMessage message,
+            CancellationToken cancellationToken)
+        {
+            WasCalled = true;
+            SendAttemptCount++;
+            To = message.To.Single().Address;
+            Subject = message.Subject;
+            Body = message.Body;
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingInvitationEmailTemplateComposer : IInvitationEmailTemplateComposer
+    {
+        public InvitationEmailTemplateCompositionResult Compose(InvitationEmailTemplateCompositionRequest request)
+        {
+            throw new InvalidOperationException("Template composition should not be called for this test path.");
+        }
+    }
+
+    private sealed class ThrowingInvitationEmailSender : IInvitationEmailSender
+    {
+        public Task<InvitationEmailSendResult> SendAsync(
+            InvitationEmailSendRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Invitation email sender should not be called for this test path.");
         }
     }
 }

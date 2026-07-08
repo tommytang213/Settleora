@@ -20,6 +20,72 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Admin invitation delivery runtime checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only the admin create/resend
+    invitation delivery wiring slice after PR #796. Delivery persistence/outbox,
+    broader abuse hardening, cleanup/retention jobs, UI/Figma, public
+    self-registration, OIDC-adjacent onboarding, and production/public-exposure
+    gates remain open.
+  - #777 `OPEN`; production/public-exposure security review remains a separate
+    manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `d4b9306732bf4712a0b83579aa30f9b156863106` before this task branch.
+- Branch:
+  `feature/auth-invitation-admin-delivery-runtime-20260708-2246`.
+- Completed slice:
+  - Added an invitation-specific internal email sender boundary that accepts
+    only a send-ready invitation message plus recipient email, reuses the
+    existing SMTP transport in production mode, treats local/test sink modes as
+    non-SMTP safe sink acceptance, and returns redacted bounded categories.
+  - Wired owner/admin invitation create to persist the hash-only invitation row
+    before any raw invitation material leaves through the explicit delivery
+    boundary, while preserving `not_requested` behavior when delivery is false.
+  - Wired owner/admin resend so `deliveryRequested=false` does not rotate,
+    unavailable readiness/template delivery does not rotate or claim delivery,
+    and ready delivery rotates the stored hash before handoff so old raw
+    material no longer redeems after rotation.
+  - Added bounded `invitation.delivery_result` audit metadata and kept
+    `invitation.created`/`invitation.resend_requested` metadata secret-free.
+  - Added focused tests for not-requested create/resend, disabled/unavailable
+    delivery, configured production SMTP handoff, sink-mode no-SMTP behavior,
+    provider exception mapping, resend no-rotation cases, resend rotation with
+    public accept proof, sender redaction, and regression coverage across
+    invitation management/acceptance/readiness/template/SMTP/provider tests.
+- Validation checkpoint:
+  - Focused `InvitationEmailSenderTests|InvitationManagementRuntimeTests|
+    InvitationAcceptanceRuntimeTests` filter passed with `40` passed, `0`
+    failed, `0` skipped.
+  - Broader focused invitation/email regression filter passed with `136`
+    passed, `0` failed, `0` skipped.
+  - Broader validation for this branch is recorded in the task report.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Remaining #784 gates:
+  delivery attempt persistence/outbox if chosen, stronger/distributed abuse
+  controls, lifecycle cleanup/retention jobs, UI/Figma/mobile/user-web/admin-web
+  surfaces, public self-registration and OIDC-adjacent onboarding gates, and
+  production/public-exposure review.
+- Scope confirmation:
+  this checkpoint changes only API auth invitation admin delivery runtime,
+  invitation-specific SMTP/sink sender code, focused tests, and this ledger
+  entry. It does not change OpenAPI/contracts, generated clients,
+  schema/migrations, notification delivery persistence/outbox schema, public
+  invitation accept/redeem semantics or response shape, public
+  self-registration, OIDC/Keycloak runtime, owner/admin invitation target roles,
+  owner/admin role assignment, local-account/admin-created-user hardening,
+  mobile/user-web/admin UI, Figma, production/public exposure,
+  Docker/CI/deployment, appsettings/env/secrets, storage, sync, import/export,
+  backup/restore, OCR, money, settlement, payment, bill calculation, issue
+  closure, or branch cleanup.
+
 ### Issues #336/#337/#784/#777 - Invitation delivery/link foundation checkpoint
 
 - GitHub state/project status:
