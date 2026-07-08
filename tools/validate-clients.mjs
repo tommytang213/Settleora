@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { generateClients } from "./generate-clients.mjs";
 
 const generatedTargets = [
   {
@@ -25,20 +26,17 @@ try {
     generatedPath: target.name === "web" ? webTempPath : dartTempPath
   }));
 
-  process.env.SETTLEORA_CLIENT_WEB_OUTPUT_PATH = webTempPath;
-  process.env.SETTLEORA_CLIENT_DART_OUTPUT_PATH = dartTempPath;
-
   try {
-    await import(new URL(`./generate-clients.mjs?validate=${Date.now()}`, import.meta.url).href);
+    await generateClients({
+      webOutputPath: webTempPath,
+      dartOutputPath: dartTempPath
+    });
   } catch (error) {
     console.error("Client generation failed.");
     console.error("Command: node tools/generate-clients.mjs");
     console.error(formatError(error));
     process.exitCode = 1;
     throw error;
-  } finally {
-    delete process.env.SETTLEORA_CLIENT_WEB_OUTPUT_PATH;
-    delete process.env.SETTLEORA_CLIENT_DART_OUTPUT_PATH;
   }
 
   const committed = await snapshotCommittedTargets(tempTargets);
@@ -163,10 +161,8 @@ async function validateGeneratedDartNullSafety(modelsPath) {
     const nullableFields = collectNullableDartFields(dartClass.body);
 
     for (const fieldName of nullableFields) {
-      const unsafeMemberCall = new RegExp(`\\b${escapeRegExp(fieldName)}\\s*\\.\\s*(?:toUtc|toJson|map)\\s*\\(`, "g");
-      let match;
-      while ((match = unsafeMemberCall.exec(dartClass.body)) !== null) {
-        const lineNumber = lineNumberAt(content, dartClass.bodyStartIndex + match.index);
+      for (const matchIndex of findUnsafeNullableMemberCalls(dartClass.body, fieldName)) {
+        const lineNumber = lineNumberAt(content, dartClass.bodyStartIndex + matchIndex);
         unsafeCalls.push(`packages/client-dart/lib/generated/models.dart:${lineNumber} direct method call on nullable field \`${fieldName}\` in ${dartClass.name}`);
       }
     }
@@ -183,6 +179,58 @@ async function validateGeneratedDartNullSafety(modelsPath) {
   }
 
   process.exit(1);
+}
+
+function findUnsafeNullableMemberCalls(body, fieldName) {
+  const matches = [];
+  let startIndex = 0;
+  while (startIndex < body.length) {
+    const index = body.indexOf(fieldName, startIndex);
+    if (index === -1) {
+      break;
+    }
+    startIndex = index + fieldName.length;
+    if (!isIdentifierBoundary(body[index - 1]) || !isIdentifierBoundary(body[index + fieldName.length])) {
+      continue;
+    }
+
+    let cursor = skipWhitespace(body, index + fieldName.length);
+    if (body[cursor] !== ".") {
+      continue;
+    }
+
+    cursor = skipWhitespace(body, cursor + 1);
+    if (hasUnsafeNullableMethodCall(body, cursor)) {
+      matches.push(index);
+    }
+  }
+  return matches;
+}
+
+function hasUnsafeNullableMethodCall(body, startIndex) {
+  for (const methodName of ["toUtc", "toJson", "map"]) {
+    if (!body.startsWith(methodName, startIndex)) {
+      continue;
+    }
+    const afterMethod = startIndex + methodName.length;
+    if (!isIdentifierBoundary(body[afterMethod])) {
+      continue;
+    }
+    return body[skipWhitespace(body, afterMethod)] === "(";
+  }
+  return false;
+}
+
+function skipWhitespace(value, startIndex) {
+  let cursor = startIndex;
+  while (cursor < value.length && /\s/.test(value[cursor])) {
+    cursor += 1;
+  }
+  return cursor;
+}
+
+function isIdentifierBoundary(character) {
+  return character === undefined || !/[A-Za-z0-9_$]/.test(character);
 }
 
 function collectDartClasses(content) {
@@ -244,10 +292,6 @@ function collectNullableDartFields(content) {
 
 function lineNumberAt(content, index) {
   return content.slice(0, index).split("\n").length;
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatError(error) {

@@ -52,9 +52,8 @@ console.log("Validation doctor passed.");
 
 function checkCommand(command, commandArgs, options = {}) {
   const { required = false, label = command } = options;
-  const result = spawnSync(command, commandArgs, {
+  const result = spawnSync(platformExecutable(command), commandArgs, {
     encoding: "utf8",
-    shell: process.platform === "win32",
     windowsHide: true
   });
 
@@ -84,6 +83,19 @@ function checkCommand(command, commandArgs, options = {}) {
 
   console.log(`${label}: ${truncate(redact(summary.split(/\r?\n/)[0]))}`);
   return result;
+}
+
+function platformExecutable(command) {
+  if (process.platform !== "win32") {
+    return command;
+  }
+
+  const windowsCommands = {
+    dart: "dart.bat",
+    flutter: "flutter.bat",
+    npm: "npm.cmd"
+  };
+  return windowsCommands[command] ?? command;
 }
 
 async function checkNpmEnvironment() {

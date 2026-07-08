@@ -41,9 +41,8 @@ function printSection(title) {
 }
 
 function printCommand(label, command, args) {
-  const result = spawnSync(command, args, {
+  const result = spawnSync(platformExecutable(command), args, {
     encoding: "utf8",
-    shell: process.platform === "win32",
     windowsHide: true
   });
 
@@ -68,6 +67,17 @@ function printCommand(label, command, args) {
   if (stderr.length > 0) {
     console.log(`${label} stderr: ${stderr}`);
   }
+}
+
+function platformExecutable(command) {
+  if (process.platform !== "win32") {
+    return command;
+  }
+
+  const windowsCommands = {
+    npm: "npm.cmd"
+  };
+  return windowsCommands[command] ?? command;
 }
 
 function redact(value) {
