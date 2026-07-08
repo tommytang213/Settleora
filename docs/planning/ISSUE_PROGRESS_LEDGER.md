@@ -20,6 +20,74 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Invitation delivery/link foundation checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only an internal invitation
+    email-delivery readiness and configured-link/template foundation. Admin
+    create/resend still do not send email, rotate resend secrets, queue
+    delivery, or claim sent delivery.
+  - #777 `OPEN`; production/public-exposure security review remains a separate
+    manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `bd7b0c3870eb04e6efb2974dc76482a28642b98d` before this task branch.
+- Branch:
+  `feature/auth-invitation-delivery-link-foundation-20260708-2210`.
+- Completed slice:
+  - Added invitation email delivery options/readiness services under the auth
+    invitation runtime boundary, default disabled/off and fail-closed when
+    SMTP/provider readiness, delivery mode, public origin, or invite path is
+    unsafe or unconfigured.
+  - Added invitation-specific configured-origin/link policy and template
+    composer. Raw invitation material is accepted only as method input and is
+    placed only in the send-ready invitation link/message returned by the
+    explicit internal composition boundary.
+  - Kept public-origin handling explicit and configuration-only. Link
+    construction does not derive origins from request `Host`, forwarded,
+    referrer, or other client-controlled headers.
+  - Added redacted preview and `ToString()` behavior that excludes raw
+    invitation secrets, raw links, full contacts, SMTP/provider values, request
+    bodies, passwords, tokens, and provider diagnostics.
+  - Registered the internal invitation delivery readiness/template services
+    through the existing invitation service collection wiring without changing
+    admin create/resend delivery behavior.
+  - Added focused tests for disabled defaults, no fake sent state, unsafe
+    public origins, unsafe invite paths, configured-origin/path-only link
+    construction, raw secret redaction outside send-ready messages,
+    privacy-safe generic templates, no realistic SMTP/provider config values,
+    and DI registration.
+- Validation checkpoint:
+  - Focused `InvitationEmail` test filter passed with `38` passed, `0`
+    failed, `0` skipped.
+  - Broader validation for this branch is recorded in the task report.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Remaining #784 gates:
+  connecting admin create/resend to reviewed provider delivery, resend
+  rotate-and-deliver behavior, delivery attempt persistence/outbox if chosen,
+  stronger/distributed abuse controls, lifecycle cleanup/retention jobs, UI
+  surfaces, public self-registration and OIDC-adjacent onboarding gates, and
+  production/public-exposure review.
+- Scope confirmation:
+  this checkpoint changes only API auth invitation internal delivery/link
+  foundation, focused tests, configuration binding coverage, and this ledger
+  entry. It does not change OpenAPI/contracts, generated clients,
+  schema/migrations, admin create/resend delivery behavior, actual SMTP
+  sending from invitation create/resend, public invitation accept/redeem
+  semantics, invitation acceptance response shape, public self-registration,
+  OIDC/Keycloak runtime, owner/admin invitation target roles, owner/admin role
+  assignment, local-account/admin-created-user hardening, mobile/user-web/admin
+  UI, Figma, production/public exposure, Docker/CI/deployment,
+  appsettings/env/secrets, storage, sync, import/export, backup/restore, OCR,
+  money, settlement, payment, bill calculation, issue closure, or branch
+  cleanup.
+
 ### Issues #336/#337/#784/#777 - Public invitation accept/redeem runtime checkpoint
 
 - GitHub state/project status:

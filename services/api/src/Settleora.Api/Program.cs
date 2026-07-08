@@ -51,7 +51,7 @@ builder.Services.AddAuthCredentialWorkflow();
 builder.Services.AddCurrentAccountPasswordChange();
 builder.Services.AddLocalPasswordResetRuntime(builder.Configuration);
 builder.Services.AddAdminLocalUsers();
-builder.Services.AddInvitationPolicyRuntime();
+builder.Services.AddInvitationPolicyRuntime(builder.Configuration);
 builder.Services.AddLocalOwnerBootstrap();
 builder.Services.AddAuthSessionRuntime(builder.Configuration);
 builder.Services.AddAuthSecurityPolicyRuntime();
