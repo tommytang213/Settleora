@@ -43,6 +43,83 @@ class SettleoraApiClient {
   final Map<String, String> defaultHeaders;
   final HttpClient _httpClient;
 
+  Future<AdminInvitationPolicyReadoutResponse> getAdminInvitationPolicy({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/admin/auth/invitation-policy",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminInvitationPolicyReadoutResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<AdminInvitationPolicyReadoutResponse> updateAdminInvitationPolicy(AdminInvitationPolicyUpdateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "PATCH",
+      "/api/v1/admin/auth/invitation-policy",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminInvitationPolicyReadoutResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<AdminInvitationListResponse> listAdminInvitations({AuthInvitationStatus? status, AuthInvitationContactIdentifierKind? contactIdentifierKind, String? contactSearch, DateTime? createdFromUtc, DateTime? createdToUtc, DateTime? expiresBeforeUtc, int? limit, required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      _withQuery("/api/v1/admin/auth/invitations", {"status": status, "contactIdentifierKind": contactIdentifierKind, "contactSearch": contactSearch, "createdFromUtc": createdFromUtc, "createdToUtc": createdToUtc, "expiresBeforeUtc": expiresBeforeUtc, "limit": limit}),
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminInvitationListResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<AdminInvitationResponse> createAdminInvitation(AdminInvitationCreateRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/admin/auth/invitations",
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminInvitationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<AdminInvitationResponse> getAdminInvitation(String invitationId, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      '/api/v1/admin/auth/invitations/${Uri.encodeComponent(invitationId.toString())}',
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminInvitationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<AdminInvitationResponse> resendAdminInvitation(String invitationId, AdminInvitationResendRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/admin/auth/invitations/${Uri.encodeComponent(invitationId.toString())}/resend',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminInvitationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<AdminInvitationResponse> revokeAdminInvitation(String invitationId, AdminInvitationRevokeRequest body, {required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      '/api/v1/admin/auth/invitations/${Uri.encodeComponent(invitationId.toString())}/revoke',
+      body: body.toJson(),
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return AdminInvitationResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
   Future<AdminNotificationPolicyReadoutResponse> getAdminNotificationPolicyReadout({required String accessToken, Map<String, String>? headers}) async {
     final payload = await _send(
       "GET",
@@ -116,6 +193,27 @@ class SettleoraApiClient {
       headers: headers,
     );
     return CurrentUserResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<InvitationAcceptResponse> acceptInvitation(InvitationAcceptRequest body, {Map<String, String>? headers}) async {
+    final payload = await _send(
+      "POST",
+      "/api/v1/auth/invitations/accept",
+      body: body.toJson(),
+      headers: headers,
+    );
+    return InvitationAcceptResponse.fromJson(JsonObject.from(payload as Map));
+  }
+
+  Future<InvitationCapabilityReadoutResponse> getInvitationCapability({required String accessToken, Map<String, String>? headers}) async {
+    final payload = await _send(
+      "GET",
+      "/api/v1/auth/invitations/capability",
+      body: null,
+      accessToken: accessToken,
+      headers: headers,
+    );
+    return InvitationCapabilityReadoutResponse.fromJson(JsonObject.from(payload as Map));
   }
 
   Future<LocalSessionSignInResponse> signInLocalSession(LocalSignInRequest body, {Map<String, String>? headers}) async {

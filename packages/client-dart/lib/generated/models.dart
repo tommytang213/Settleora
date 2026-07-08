@@ -2942,6 +2942,538 @@ class AdminUserSummaryResponse {
   }
 }
 
+/// Current authenticated actor invitation capability readout. This is display metadata only; API/domain authorization and policy remain authoritative. It excludes raw invitation secrets, links, hashes, contact request bodies, provider payloads, audit internals, session credentials, passwords, storage internals, and unrelated user data.
+class InvitationCapabilityReadoutResponse {
+  const InvitationCapabilityReadoutResponse({
+    required this.capability,
+  });
+
+  final InvitationCapabilityReadout capability;
+
+  factory InvitationCapabilityReadoutResponse.fromJson(JsonObject json) {
+    return InvitationCapabilityReadoutResponse(
+      capability: InvitationCapabilityReadout.fromJson(JsonObject.from(json["capability"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "capability": capability.toJson(),
+    };
+  }
+}
+
+/// Safe owner/admin invitation policy readout. It excludes raw invitation secrets, links, hashes, contact request bodies, SMTP/provider credentials, provider payloads, email bodies, audit internals, password/session material, storage internals, and unrelated user data.
+class AdminInvitationPolicyReadoutResponse {
+  const AdminInvitationPolicyReadoutResponse({
+    required this.capability,
+    required this.policyVersion,
+    required this.updatedAtUtc,
+  });
+
+  final InvitationCapabilityReadout capability;
+  /// Bounded policy version/category for display and optimistic review only. It is not authorization.
+  final String policyVersion;
+  /// Last policy update timestamp if a future runtime persists one.
+  final DateTime? updatedAtUtc;
+
+  factory AdminInvitationPolicyReadoutResponse.fromJson(JsonObject json) {
+    return AdminInvitationPolicyReadoutResponse(
+      capability: InvitationCapabilityReadout.fromJson(JsonObject.from(json["capability"] as Map)),
+      policyVersion: json["policyVersion"] as String,
+      updatedAtUtc: json["updatedAtUtc"] == null ? null : DateTime.parse(json["updatedAtUtc"] as String),
+    );
+  }
+
+  JsonObject toJson() {
+    final updatedAtUtcJsonValue = updatedAtUtc;
+
+    return {
+      "capability": capability.toJson(),
+      "policyVersion": policyVersion,
+      "updatedAtUtc": updatedAtUtcJsonValue == null ? null : updatedAtUtcJsonValue.toUtc().toIso8601String(),
+    };
+  }
+}
+
+/// Safe invitation capability and policy category readout. Invitations default disabled/off until owner/admin policy enables them; generated clients must not treat this readout as permission.
+class InvitationCapabilityReadout {
+  const InvitationCapabilityReadout({
+    required this.capabilityState,
+    required this.defaultState,
+    required this.canCurrentActorManageInvitations,
+    required this.canCurrentActorCreateInvitations,
+    required this.canCurrentActorMutatePolicy,
+    required this.publicAcceptEnabled,
+    required this.pendingInviteGraceWhenDisabled,
+    required this.supportedContactIdentifierKinds,
+    required this.supportedTargetSystemRoles,
+    required this.deliveryReadiness,
+    required this.readoutCategory,
+  });
+
+  final InvitationCapabilityState capabilityState;
+  /// Safe default state for Day 1 invitation capability until owner/admin policy explicitly enables it.
+  final String defaultState;
+  /// Client-visible hint only; the API still enforces owner/admin authorization on every management operation.
+  final bool canCurrentActorManageInvitations;
+  /// Client-visible hint only; creation also requires enabled capability and server policy checks.
+  final bool canCurrentActorCreateInvitations;
+  /// Client-visible hint only; policy mutation remains owner/admin-authorized and audit-required.
+  final bool canCurrentActorMutatePolicy;
+  /// Whether the public accept endpoint may process redemption attempts under current server policy. This does not prove any invitation material is valid.
+  final bool publicAcceptEnabled;
+  /// Safe policy readout for whether pending invitations remain redeemable after capability disablement. The default/safe posture is false.
+  final bool pendingInviteGraceWhenDisabled;
+  /// Contact identifier kinds supported by this contract slice.
+  final List<AuthInvitationContactIdentifierKind> supportedContactIdentifierKinds;
+  /// Invitation target system roles supported by this contract slice.
+  final List<AuthInvitationTargetSystemRole> supportedTargetSystemRoles;
+  final InvitationDeliveryReadiness deliveryReadiness;
+  final InvitationPolicyReadoutCategory readoutCategory;
+
+  factory InvitationCapabilityReadout.fromJson(JsonObject json) {
+    return InvitationCapabilityReadout(
+      capabilityState: json["capabilityState"] as String,
+      defaultState: json["defaultState"] as String,
+      canCurrentActorManageInvitations: json["canCurrentActorManageInvitations"] as bool,
+      canCurrentActorCreateInvitations: json["canCurrentActorCreateInvitations"] as bool,
+      canCurrentActorMutatePolicy: json["canCurrentActorMutatePolicy"] as bool,
+      publicAcceptEnabled: json["publicAcceptEnabled"] as bool,
+      pendingInviteGraceWhenDisabled: json["pendingInviteGraceWhenDisabled"] as bool,
+      supportedContactIdentifierKinds: (json["supportedContactIdentifierKinds"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      supportedTargetSystemRoles: (json["supportedTargetSystemRoles"] as List<dynamic>).map((item) => item as String).toList(growable: false),
+      deliveryReadiness: json["deliveryReadiness"] as String,
+      readoutCategory: json["readoutCategory"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "capabilityState": capabilityState,
+      "defaultState": defaultState,
+      "canCurrentActorManageInvitations": canCurrentActorManageInvitations,
+      "canCurrentActorCreateInvitations": canCurrentActorCreateInvitations,
+      "canCurrentActorMutatePolicy": canCurrentActorMutatePolicy,
+      "publicAcceptEnabled": publicAcceptEnabled,
+      "pendingInviteGraceWhenDisabled": pendingInviteGraceWhenDisabled,
+      "supportedContactIdentifierKinds": supportedContactIdentifierKinds,
+      "supportedTargetSystemRoles": supportedTargetSystemRoles,
+      "deliveryReadiness": deliveryReadiness,
+      "readoutCategory": readoutCategory,
+    };
+  }
+}
+
+/// Owner/admin invitation policy update request. Runtime must enforce authorization, safe default-disabled behavior, anti-lockout policy, and audit. This request cannot approve public self-registration, owner/admin invitation targets, privileged roles, SMTP credentials, delivery templates, or provider configuration.
+class AdminInvitationPolicyUpdateRequest {
+  const AdminInvitationPolicyUpdateRequest({
+    this.capabilityState,
+    this.pendingInviteGraceWhenDisabled,
+  });
+
+  final InvitationCapabilityState? capabilityState;
+  /// Optional policy choice for pending invitation redemption after capability disablement. Runtime should default fail-closed unless explicitly enabled by policy.
+  final bool? pendingInviteGraceWhenDisabled;
+
+  factory AdminInvitationPolicyUpdateRequest.fromJson(JsonObject json) {
+    return AdminInvitationPolicyUpdateRequest(
+      capabilityState: json["capabilityState"] == null ? null : json["capabilityState"] as String,
+      pendingInviteGraceWhenDisabled: json["pendingInviteGraceWhenDisabled"] == null ? null : json["pendingInviteGraceWhenDisabled"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final capabilityStateJsonValue = capabilityState;
+    final pendingInviteGraceWhenDisabledJsonValue = pendingInviteGraceWhenDisabled;
+
+    return {
+      if (capabilityStateJsonValue != null) "capabilityState": capabilityStateJsonValue,
+      if (pendingInviteGraceWhenDisabledJsonValue != null) "pendingInviteGraceWhenDisabled": pendingInviteGraceWhenDisabledJsonValue,
+    };
+  }
+}
+
+/// Invitation capability policy state. Day 1 default is disabled/off.
+typedef InvitationCapabilityState = String;
+class InvitationCapabilityStateValues {
+  const InvitationCapabilityStateValues._();
+  static const InvitationCapabilityState disabled = "disabled";
+  static const InvitationCapabilityState enabled = "enabled";
+  static const Set<InvitationCapabilityState> values = {disabled, enabled};
+}
+
+/// Bounded invitation policy readout category.
+typedef InvitationPolicyReadoutCategory = String;
+class InvitationPolicyReadoutCategoryValues {
+  const InvitationPolicyReadoutCategoryValues._();
+  static const InvitationPolicyReadoutCategory defaultDisabled = "default_disabled";
+  static const InvitationPolicyReadoutCategory enabledByAdminPolicy = "enabled_by_admin_policy";
+  static const InvitationPolicyReadoutCategory disabledByAdminPolicy = "disabled_by_admin_policy";
+  static const InvitationPolicyReadoutCategory unsupportedByDeployment = "unsupported_by_deployment";
+  static const InvitationPolicyReadoutCategory providerUnconfigured = "provider_unconfigured";
+  static const InvitationPolicyReadoutCategory providerInvalid = "provider_invalid";
+  static const InvitationPolicyReadoutCategory limited = "limited";
+  static const InvitationPolicyReadoutCategory unknown = "unknown";
+  static const Set<InvitationPolicyReadoutCategory> values = {defaultDisabled, enabledByAdminPolicy, disabledByAdminPolicy, unsupportedByDeployment, providerUnconfigured, providerInvalid, limited, unknown};
+}
+
+/// Bounded delivery readiness category. It is not proof of email delivery and does not expose SMTP/provider internals.
+typedef InvitationDeliveryReadiness = String;
+class InvitationDeliveryReadinessValues {
+  const InvitationDeliveryReadinessValues._();
+  static const InvitationDeliveryReadiness unsupported = "unsupported";
+  static const InvitationDeliveryReadiness unconfigured = "unconfigured";
+  static const InvitationDeliveryReadiness configured = "configured";
+  static const InvitationDeliveryReadiness invalid = "invalid";
+  static const InvitationDeliveryReadiness disabled = "disabled";
+  static const InvitationDeliveryReadiness limited = "limited";
+  static const InvitationDeliveryReadiness unknown = "unknown";
+  static const Set<InvitationDeliveryReadiness> values = {unsupported, unconfigured, configured, invalid, disabled, limited, unknown};
+}
+
+/// Invitation lifecycle status.
+typedef AuthInvitationStatus = String;
+class AuthInvitationStatusValues {
+  const AuthInvitationStatusValues._();
+  static const AuthInvitationStatus pending = "pending";
+  static const AuthInvitationStatus accepted = "accepted";
+  static const AuthInvitationStatus revoked = "revoked";
+  static const AuthInvitationStatus expired = "expired";
+  static const Set<AuthInvitationStatus> values = {pending, accepted, revoked, expired};
+}
+
+/// Invitation contact identifier kind. This contract slice supports email only.
+typedef AuthInvitationContactIdentifierKind = String;
+class AuthInvitationContactIdentifierKindValues {
+  const AuthInvitationContactIdentifierKindValues._();
+  static const AuthInvitationContactIdentifierKind email = "email";
+  static const Set<AuthInvitationContactIdentifierKind> values = {email};
+}
+
+/// Invitation target system role. This contract slice supports normal user invitations only; owner/admin invitation or role elevation belongs to a separate gate.
+typedef AuthInvitationTargetSystemRole = String;
+class AuthInvitationTargetSystemRoleValues {
+  const AuthInvitationTargetSystemRoleValues._();
+  static const AuthInvitationTargetSystemRole user = "user";
+  static const Set<AuthInvitationTargetSystemRole> values = {user};
+}
+
+/// Authenticated owner/admin invitation creation request. The server derives actor, policy, expiry, secret generation, hash storage, duplicate checks, delivery, and audit context. Raw invitation material is never accepted from admin callers or returned in responses.
+class AdminInvitationCreateRequest {
+  static const Object _unsetIdempotencyKey = Object();
+
+  AdminInvitationCreateRequest({
+    required this.contactIdentifierKind,
+    required this.contactIdentifier,
+    required this.targetSystemRole,
+    Object? idempotencyKey = _unsetIdempotencyKey,
+    this.deliveryRequested,
+  })
+      : idempotencyKey = identical(idempotencyKey, _unsetIdempotencyKey) ? null : idempotencyKey as String?,
+        _hasIdempotencyKey = !identical(idempotencyKey, _unsetIdempotencyKey);
+
+  final AuthInvitationContactIdentifierKind contactIdentifierKind;
+  /// Submitted contact identifier to normalize server-side. This slice supports email only. It must not be echoed in public responses, audit internals, logs, provider diagnostics, or generated examples; admin readbacks may expose only a policy-approved display-safe value.
+  final String contactIdentifier;
+  final AuthInvitationTargetSystemRole targetSystemRole;
+  /// Optional caller idempotency key for create retry safety. The API still decides replay/conflict behavior server-side.
+  final String? idempotencyKey;
+  final bool _hasIdempotencyKey;
+  /// Optional request to send or queue delivery through a future approved delivery boundary. Missing provider readiness must not be represented as sent.
+  final bool? deliveryRequested;
+
+  factory AdminInvitationCreateRequest.fromJson(JsonObject json) {
+    return AdminInvitationCreateRequest(
+      contactIdentifierKind: json["contactIdentifierKind"] as String,
+      contactIdentifier: json["contactIdentifier"] as String,
+      targetSystemRole: json["targetSystemRole"] as String,
+      idempotencyKey: json.containsKey("idempotencyKey")
+          ? json["idempotencyKey"] == null ? null : json["idempotencyKey"] as String
+          : _unsetIdempotencyKey,
+      deliveryRequested: json["deliveryRequested"] == null ? null : json["deliveryRequested"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final idempotencyKeyJsonValue = idempotencyKey;
+    final deliveryRequestedJsonValue = deliveryRequested;
+
+    return {
+      "contactIdentifierKind": contactIdentifierKind,
+      "contactIdentifier": contactIdentifier,
+      "targetSystemRole": targetSystemRole,
+      if (_hasIdempotencyKey) "idempotencyKey": idempotencyKeyJsonValue,
+      if (deliveryRequestedJsonValue != null) "deliveryRequested": deliveryRequestedJsonValue,
+    };
+  }
+}
+
+/// Optional bounded revocation request. The server derives actor, lifecycle, and audit metadata; request body fields are never audit internals.
+class AdminInvitationRevokeRequest {
+  static const Object _unsetReason = Object();
+
+  AdminInvitationRevokeRequest({
+    Object? reason = _unsetReason,
+  })
+      : reason = identical(reason, _unsetReason) ? null : reason as String?,
+        _hasReason = !identical(reason, _unsetReason);
+
+  /// Optional bounded owner/admin reason category or note after server-side trimming. It must not contain raw invitation material, contact secrets, provider payloads, passwords, session tokens, or unrelated user data.
+  final String? reason;
+  final bool _hasReason;
+
+  factory AdminInvitationRevokeRequest.fromJson(JsonObject json) {
+    return AdminInvitationRevokeRequest(
+      reason: json.containsKey("reason")
+          ? json["reason"] == null ? null : json["reason"] as String
+          : _unsetReason,
+    );
+  }
+
+  JsonObject toJson() {
+    final reasonJsonValue = reason;
+
+    return {
+      if (_hasReason) "reason": reasonJsonValue,
+    };
+  }
+}
+
+/// Optional bounded resend request. Runtime must enforce enabled capability, pending/unexpired state, abuse limits, delivery readiness, and safe secret rotation or another reviewed delivery boundary.
+class AdminInvitationResendRequest {
+  const AdminInvitationResendRequest({
+    this.deliveryRequested,
+  });
+
+  /// Optional request to send or queue delivery through a future approved delivery boundary. Provider acceptance must remain explicit and is never implied by this flag.
+  final bool? deliveryRequested;
+
+  factory AdminInvitationResendRequest.fromJson(JsonObject json) {
+    return AdminInvitationResendRequest(
+      deliveryRequested: json["deliveryRequested"] == null ? null : json["deliveryRequested"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    final deliveryRequestedJsonValue = deliveryRequested;
+
+    return {
+      if (deliveryRequestedJsonValue != null) "deliveryRequested": deliveryRequestedJsonValue,
+    };
+  }
+}
+
+/// Safe owner/admin invitation list response. It excludes raw invitation secrets, links, hashes, request bodies, provider payloads, email bodies, SMTP diagnostics, password/session material, audit internals, storage internals, and unrelated user data.
+class AdminInvitationListResponse {
+  const AdminInvitationListResponse({
+    required this.invitations,
+  });
+
+  final List<AdminInvitationSummary> invitations;
+
+  factory AdminInvitationListResponse.fromJson(JsonObject json) {
+    return AdminInvitationListResponse(
+      invitations: (json["invitations"] as List<dynamic>).map((item) => AdminInvitationSummary.fromJson(JsonObject.from(item as Map))).toList(growable: false),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "invitations": invitations.map((item) => item.toJson()).toList(growable: false),
+    };
+  }
+}
+
+/// Safe owner/admin invitation response. It excludes raw invitation secrets, links, hashes, request bodies, provider payloads, email bodies, SMTP diagnostics, password/session material, audit internals, storage internals, and unrelated user data.
+class AdminInvitationResponse {
+  const AdminInvitationResponse({
+    required this.invitation,
+  });
+
+  final AdminInvitationSummary invitation;
+
+  factory AdminInvitationResponse.fromJson(JsonObject json) {
+    return AdminInvitationResponse(
+      invitation: AdminInvitationSummary.fromJson(JsonObject.from(json["invitation"] as Map)),
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "invitation": invitation.toJson(),
+    };
+  }
+}
+
+/// Safe invitation metadata for owner/admin read surfaces. Contact display is policy-approved display-safe text only, not a raw submitted contact unless a future reviewed policy allows it.
+class AdminInvitationSummary {
+  const AdminInvitationSummary({
+    required this.id,
+    required this.status,
+    required this.contactIdentifierKind,
+    required this.contactDisplay,
+    required this.targetSystemRole,
+    required this.deliveryState,
+    required this.createdAtUtc,
+    required this.updatedAtUtc,
+    required this.expiresAtUtc,
+    required this.acceptedAtUtc,
+    required this.revokedAtUtc,
+    required this.expiredAtUtc,
+    required this.cleanupEligibleAtUtc,
+    required this.invitedByAuthAccountId,
+    required this.invitedByUserProfileId,
+    required this.revokedByAuthAccountId,
+  });
+
+  final String id;
+  final AuthInvitationStatus status;
+  final AuthInvitationContactIdentifierKind contactIdentifierKind;
+  /// Optional policy-approved display-safe contact value, such as a redacted label. It must not become a public contact-verification surface.
+  final String? contactDisplay;
+  final AuthInvitationTargetSystemRole targetSystemRole;
+  final InvitationDeliveryState deliveryState;
+  final DateTime createdAtUtc;
+  final DateTime updatedAtUtc;
+  final DateTime expiresAtUtc;
+  final DateTime? acceptedAtUtc;
+  final DateTime? revokedAtUtc;
+  final DateTime? expiredAtUtc;
+  final DateTime? cleanupEligibleAtUtc;
+  /// Safe actor ID for owner/admin operation readback where policy allows.
+  final String? invitedByAuthAccountId;
+  /// Safe actor profile ID for owner/admin operation readback where policy allows.
+  final String? invitedByUserProfileId;
+  /// Safe revoking actor ID for owner/admin operation readback where policy allows.
+  final String? revokedByAuthAccountId;
+
+  factory AdminInvitationSummary.fromJson(JsonObject json) {
+    return AdminInvitationSummary(
+      id: json["id"] as String,
+      status: json["status"] as String,
+      contactIdentifierKind: json["contactIdentifierKind"] as String,
+      contactDisplay: json["contactDisplay"] == null ? null : json["contactDisplay"] as String,
+      targetSystemRole: json["targetSystemRole"] as String,
+      deliveryState: json["deliveryState"] as String,
+      createdAtUtc: DateTime.parse(json["createdAtUtc"] as String),
+      updatedAtUtc: DateTime.parse(json["updatedAtUtc"] as String),
+      expiresAtUtc: DateTime.parse(json["expiresAtUtc"] as String),
+      acceptedAtUtc: json["acceptedAtUtc"] == null ? null : DateTime.parse(json["acceptedAtUtc"] as String),
+      revokedAtUtc: json["revokedAtUtc"] == null ? null : DateTime.parse(json["revokedAtUtc"] as String),
+      expiredAtUtc: json["expiredAtUtc"] == null ? null : DateTime.parse(json["expiredAtUtc"] as String),
+      cleanupEligibleAtUtc: json["cleanupEligibleAtUtc"] == null ? null : DateTime.parse(json["cleanupEligibleAtUtc"] as String),
+      invitedByAuthAccountId: json["invitedByAuthAccountId"] == null ? null : json["invitedByAuthAccountId"] as String,
+      invitedByUserProfileId: json["invitedByUserProfileId"] == null ? null : json["invitedByUserProfileId"] as String,
+      revokedByAuthAccountId: json["revokedByAuthAccountId"] == null ? null : json["revokedByAuthAccountId"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    final contactDisplayJsonValue = contactDisplay;
+    final acceptedAtUtcJsonValue = acceptedAtUtc;
+    final revokedAtUtcJsonValue = revokedAtUtc;
+    final expiredAtUtcJsonValue = expiredAtUtc;
+    final cleanupEligibleAtUtcJsonValue = cleanupEligibleAtUtc;
+    final invitedByAuthAccountIdJsonValue = invitedByAuthAccountId;
+    final invitedByUserProfileIdJsonValue = invitedByUserProfileId;
+    final revokedByAuthAccountIdJsonValue = revokedByAuthAccountId;
+
+    return {
+      "id": id,
+      "status": status,
+      "contactIdentifierKind": contactIdentifierKind,
+      "contactDisplay": contactDisplayJsonValue,
+      "targetSystemRole": targetSystemRole,
+      "deliveryState": deliveryState,
+      "createdAtUtc": createdAtUtc.toUtc().toIso8601String(),
+      "updatedAtUtc": updatedAtUtc.toUtc().toIso8601String(),
+      "expiresAtUtc": expiresAtUtc.toUtc().toIso8601String(),
+      "acceptedAtUtc": acceptedAtUtcJsonValue == null ? null : acceptedAtUtcJsonValue.toUtc().toIso8601String(),
+      "revokedAtUtc": revokedAtUtcJsonValue == null ? null : revokedAtUtcJsonValue.toUtc().toIso8601String(),
+      "expiredAtUtc": expiredAtUtcJsonValue == null ? null : expiredAtUtcJsonValue.toUtc().toIso8601String(),
+      "cleanupEligibleAtUtc": cleanupEligibleAtUtcJsonValue == null ? null : cleanupEligibleAtUtcJsonValue.toUtc().toIso8601String(),
+      "invitedByAuthAccountId": invitedByAuthAccountIdJsonValue,
+      "invitedByUserProfileId": invitedByUserProfileIdJsonValue,
+      "revokedByAuthAccountId": revokedByAuthAccountIdJsonValue,
+    };
+  }
+}
+
+/// Bounded invitation delivery state category. `sent` means only a future provider boundary accepted an attempt; it is not proof the recipient saw it.
+typedef InvitationDeliveryState = String;
+class InvitationDeliveryStateValues {
+  const InvitationDeliveryStateValues._();
+  static const InvitationDeliveryState notRequested = "not_requested";
+  static const InvitationDeliveryState unsupported = "unsupported";
+  static const InvitationDeliveryState providerUnconfigured = "provider_unconfigured";
+  static const InvitationDeliveryState providerInvalid = "provider_invalid";
+  static const InvitationDeliveryState disabledByAdmin = "disabled_by_admin";
+  static const InvitationDeliveryState queued = "queued";
+  static const InvitationDeliveryState sent = "sent";
+  static const InvitationDeliveryState failed = "failed";
+  static const InvitationDeliveryState unknown = "unknown";
+  static const Set<InvitationDeliveryState> values = {notRequested, unsupported, providerUnconfigured, providerInvalid, disabledByAdmin, queued, sent, failed, unknown};
+}
+
+/// Public invitation acceptance request. The invitation secret is write-only bearer-like material used only for a server-authorized redemption attempt. Runtime must not log, audit, echo, store raw, document by example, or expose this value through responses, generated snapshots, provider payloads, or reports.
+class InvitationAcceptRequest {
+  const InvitationAcceptRequest({
+    required this.invitationSecret,
+    required this.displayName,
+    required this.localPassword,
+  });
+
+  /// Submitted invitation secret material from an approved delivery boundary. It may appear only in request input for validation and must never appear in responses, examples, logs, audit metadata, provider diagnostics, generated snapshots, or reports.
+  final String invitationSecret;
+  /// Initial user profile display name after server-side trimming if invitation acceptance creates an account/profile.
+  final String displayName;
+  /// Submitted local-account password for invitation acceptance where local accounts are allowed by policy. The API stores only verifier output through the credential workflow boundary and never returns this plaintext value.
+  final String localPassword;
+
+  factory InvitationAcceptRequest.fromJson(JsonObject json) {
+    return InvitationAcceptRequest(
+      invitationSecret: json["invitationSecret"] as String,
+      displayName: json["displayName"] as String,
+      localPassword: json["localPassword"] as String,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "invitationSecret": invitationSecret,
+      "displayName": displayName,
+      "localPassword": localPassword,
+    };
+  }
+}
+
+/// Safe invitation acceptance response. It does not return access-session tokens, refresh credentials, invitation material, links, hashes, contact identifiers, provider payloads, audit internals, or unrelated user data.
+class InvitationAcceptResponse {
+  const InvitationAcceptResponse({
+    required this.result,
+    required this.signInRequired,
+  });
+
+  /// High-level success category. Clients must use normal sign-in after acceptance; no session credential is returned here.
+  final String result;
+  final bool signInRequired;
+
+  factory InvitationAcceptResponse.fromJson(JsonObject json) {
+    return InvitationAcceptResponse(
+      result: json["result"] as String,
+      signInRequired: json["signInRequired"] as bool,
+    );
+  }
+
+  JsonObject toJson() {
+    return {
+      "result": result,
+      "signInRequired": signInRequired,
+    };
+  }
+}
+
 /// Group creation request. Creator and owner membership are derived from the authenticated actor.
 class CreateGroupRequest {
   const CreateGroupRequest({

@@ -25,13 +25,16 @@ info:
     canonical auth MFA/passkey transport contracts for passkey WebAuthn ceremonies,
     TOTP enrollment, MFA challenges, recovery-code lifecycle, factor metadata,
     credential metadata, and current-account policy readouts,
+    invitation capability and owner/admin invitation policy/read-management
+    transport contracts plus public invitation acceptance request shape,
     recurring bill template and forecast/draft-generation endpoints,
     guarded current-user in-app notification inbox endpoints, guarded
     current-user push device-token lifecycle endpoints,
     personal and group bill attachment attach/list/content/remove endpoints, and settlement balance projection read endpoints,
     guarded group create/list/read/update and group member-management foundations
     plus guarded admin local-user list/read/create foundations; it is not the feature contract for
-    general public registration, invitations, auth middleware, session management beyond
+    general public registration, invitation runtime behavior, invitation delivery,
+    auth middleware, session management beyond
     current-session sign-out, current-account sign-out-all/list/revocation, and
     public refresh, MFA/passkey runtime handler behavior or server enforcement,
     broader user management, role assignment, group invitations,
@@ -610,6 +613,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CurrentUserResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/invitations/capability:
+    get:
+      summary: Read invitation capability
+      description: Returns the current authenticated user's client-visible invitation capability readout. Invitations are a Day 1 available capability but default disabled/off until owner/admin policy enables them. The API remains authoritative for authorization, policy, lifecycle, duplicate checks, abuse controls, audit, and delivery; generated clients and hidden UI controls do not authorize invitation actions. This readout never exposes raw invitation secrets, links, hashes, provider payloads, audit internals, request bodies, or storage internals.
+      operationId: getInvitationCapability
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe invitation capability readout for the authenticated actor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationCapabilityReadoutResponse"
         "401":
           description: Authentication is required to access this resource.
           content:
@@ -1773,6 +1802,448 @@ paths:
                 $ref: "#/components/schemas/ProblemDetails"
         default:
           description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/auth/invitation-policy:
+    get:
+      summary: Get admin invitation policy
+      description: Returns the server-authoritative invitation policy readout for authenticated system owners/admins. The default state is disabled/off; enabling or disabling invitation capability is a future security-impactful owner/admin policy mutation and must be audited by runtime code. This readout excludes raw invitation secrets, links, hashes, contact request bodies, provider credentials, provider payloads, SMTP diagnostics, audit internals, password/session material, and unrelated user data.
+      operationId: getAdminInvitationPolicy
+      security:
+        - SessionBearerAuth: []
+      responses:
+        "200":
+          description: Safe admin invitation policy readout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvitationPolicyReadoutResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    patch:
+      summary: Update admin invitation policy
+      description: Owner/admin invitation policy mutation transport contract. Runtime remains a separate gate and must enforce owner/admin authorization, anti-lockout policy, audit, safe default-disabled behavior, and no public exposure approval. Disabling invitation capability must prevent new invitation creation and resend attempts by default. This request cannot approve public self-registration, owner/admin invitations, privileged role assignment, SMTP provider configuration, or invitation delivery behavior.
+      operationId: updateAdminInvitationPolicy
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminInvitationPolicyUpdateRequest"
+      responses:
+        "200":
+          description: Safe updated invitation policy readout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvitationPolicyReadoutResponse"
+        "400":
+          description: The submitted policy update is invalid or includes unsupported fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Policy update is denied by capability, anti-lockout, pending-invitation grace, or related auth-method policy constraints.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/auth/invitations:
+    get:
+      summary: List admin invitations
+      description: Lists bounded invitation metadata for authenticated system owners/admins. The API/domain layer remains authoritative for visibility, policy, lifecycle, duplicate checks, and audit. Responses must not include raw invitation secrets, links, secret hashes, request bodies, provider payloads, email bodies, SMTP diagnostics, passwords, session tokens, refresh tokens, audit internals, storage internals, or unrelated user data.
+      operationId: listAdminInvitations
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Optional invitation lifecycle status filter.
+          schema:
+            $ref: "#/components/schemas/AuthInvitationStatus"
+        - name: contactIdentifierKind
+          in: query
+          required: false
+          description: Optional contact identifier kind filter. This contract slice supports email only.
+          schema:
+            $ref: "#/components/schemas/AuthInvitationContactIdentifierKind"
+        - name: contactSearch
+          in: query
+          required: false
+          description: Optional bounded owner/admin search over policy-approved display-safe contact values. It must not become a public user-directory or contact-verification surface.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: createdFromUtc
+          in: query
+          required: false
+          description: Optional inclusive created-at lower bound.
+          schema:
+            type: string
+            format: date-time
+        - name: createdToUtc
+          in: query
+          required: false
+          description: Optional inclusive created-at upper bound.
+          schema:
+            type: string
+            format: date-time
+        - name: expiresBeforeUtc
+          in: query
+          required: false
+          description: Optional expiry upper bound for pending-invitation review.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Optional bounded result limit. Defaults to 50 and may not exceed 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Safe admin invitation list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvitationListResponse"
+        "400":
+          description: The submitted invitation list filters are invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    post:
+      summary: Create admin invitation
+      description: Owner/admin invitation creation transport contract. Runtime remains a separate gate and must enforce default-off capability, owner/admin authorization, user-only target role, email-only contact identifiers, duplicate pending invitation policy, abuse limits, safe audit, secret generation/hash storage, and delivery boundaries. Responses never return raw invitation secrets, links, secret hashes, provider payloads, email bodies, SMTP diagnostics, passwords, session tokens, refresh tokens, or audit internals.
+      operationId: createAdminInvitation
+      security:
+        - SessionBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminInvitationCreateRequest"
+      responses:
+        "201":
+          description: Invitation metadata was created for a user-target invitation. Delivery state, if present, is bounded metadata only and is not a raw link or provider diagnostic.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvitationResponse"
+        "400":
+          description: The submitted invitation request is invalid or includes unsupported fields.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner/admin or invitation capability is disabled by policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Duplicate pending invitation, terminal invitation, unsupported target role, disabled contact kind, account-state conflict, or related policy conflict.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many invitation creation attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/auth/invitations/{invitationId}:
+    get:
+      summary: Get admin invitation
+      description: Returns one safe invitation metadata record for authenticated system owners/admins. Missing, unavailable, or unauthorized records must not expose raw invitation secrets, links, hashes, provider payloads, email bodies, SMTP diagnostics, passwords, session tokens, refresh tokens, audit internals, or unrelated user data.
+      operationId: getAdminInvitation
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: invitationId
+          in: path
+          required: true
+          description: Invitation ID to read.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Safe admin invitation metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvitationResponse"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Invitation is missing, unavailable, or not readable by the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/auth/invitations/{invitationId}/revoke:
+    post:
+      summary: Revoke admin invitation
+      description: Owner/admin invitation revocation transport contract. Runtime remains a separate gate and must reject accepted or already-terminal invitations with a stable safe problem category, record bounded actor/timestamp metadata, and immediately make revoked invitations non-redeemable. Request and response shapes never include raw invitation secrets, links, hashes, provider payloads, email bodies, SMTP diagnostics, passwords, session tokens, refresh tokens, or audit internals.
+      operationId: revokeAdminInvitation
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: invitationId
+          in: path
+          required: true
+          description: Invitation ID to revoke.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminInvitationRevokeRequest"
+      responses:
+        "200":
+          description: Safe revoked invitation metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvitationResponse"
+        "400":
+          description: The submitted revocation request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner or admin.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Invitation is missing, unavailable, or not readable by the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Invitation is already accepted, revoked, expired, terminal, or otherwise not revocable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/admin/auth/invitations/{invitationId}/resend:
+    post:
+      summary: Resend admin invitation
+      description: Owner/admin invitation resend transport contract. Runtime remains a separate gate and must enforce owner/admin authorization, enabled invitation capability, pending and unexpired lifecycle state, rotate-on-resend or another reviewed secret boundary, abuse limits, no duplicate pending invitation creation, and explicit delivery state. The response never returns raw invitation secrets, links, hashes, provider payloads, email bodies, SMTP diagnostics, passwords, session tokens, refresh tokens, or audit internals.
+      operationId: resendAdminInvitation
+      security:
+        - SessionBearerAuth: []
+      parameters:
+        - name: invitationId
+          in: path
+          required: true
+          description: Invitation ID to resend.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminInvitationResendRequest"
+      responses:
+        "202":
+          description: Resend accepted for explicit delivery processing or safe delivery-state reporting. This does not prove provider delivery or expose raw invitation material.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInvitationResponse"
+        "400":
+          description: The submitted resend request is invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Authentication is required to access this resource.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: The authenticated actor is not a system owner/admin or invitation capability is disabled by policy.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Invitation is missing, unavailable, or not readable by the authenticated actor.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Invitation is accepted, revoked, expired, terminal, duplicate-conflicting, or otherwise not resendable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many invitation resend attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Problem response.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/v1/auth/invitations/accept:
+    post:
+      summary: Accept invitation
+      description: Public invitation acceptance/redemption transport contract. The submitted invitation secret is bearer-like material accepted only as write-only request input so the server can attempt validation. Possession of this material authorizes only a redemption attempt; the API must still validate capability state, policy, status, expiry, revocation, single-use state, abuse controls, account creation rules, password/local/OIDC policy, and audit server-side. Failures must be anti-enumeration-safe for unknown, malformed, expired, revoked, accepted, already-used, disabled, unsupported, throttled, or policy-denied material. Responses never include raw invitation secrets, links, hashes, provider payloads, email bodies, SMTP diagnostics, passwords, session tokens, refresh tokens, audit internals, or unrelated user data.
+      operationId: acceptInvitation
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationAcceptRequest"
+      responses:
+        "200":
+          description: Invitation was accepted by server-authorized runtime. The response does not sign the caller in or return credential material.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationAcceptResponse"
+        "400":
+          description: Invitation acceptance failed or request shape was rejected without revealing whether invitation material is unknown, malformed, expired, revoked, accepted, consumed, disabled by policy, unsupported, wrong-account, duplicate-conflicting, account-disabled, local-credential-denied, OIDC-only, weak-password, throttled, or otherwise policy-denied.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "429":
+          description: Too many invitation acceptance attempts.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        default:
+          description: Generic problem response that must not reveal invitation existence, status, contact identifier, account existence, account state, policy internals, delivery state, or runtime support.
           content:
             application/problem+json:
               schema:
@@ -13206,6 +13677,368 @@ components:
         updatedAtUtc:
           type: string
           format: date-time
+    InvitationCapabilityReadoutResponse:
+      type: object
+      description: Current authenticated actor invitation capability readout. This is display metadata only; API/domain authorization and policy remain authoritative. It excludes raw invitation secrets, links, hashes, contact request bodies, provider payloads, audit internals, session credentials, passwords, storage internals, and unrelated user data.
+      additionalProperties: false
+      required:
+        - capability
+      properties:
+        capability:
+          $ref: "#/components/schemas/InvitationCapabilityReadout"
+    AdminInvitationPolicyReadoutResponse:
+      type: object
+      description: Safe owner/admin invitation policy readout. It excludes raw invitation secrets, links, hashes, contact request bodies, SMTP/provider credentials, provider payloads, email bodies, audit internals, password/session material, storage internals, and unrelated user data.
+      additionalProperties: false
+      required:
+        - capability
+        - policyVersion
+        - updatedAtUtc
+      properties:
+        capability:
+          $ref: "#/components/schemas/InvitationCapabilityReadout"
+        policyVersion:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Bounded policy version/category for display and optimistic review only. It is not authorization.
+        updatedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          description: Last policy update timestamp if a future runtime persists one.
+    InvitationCapabilityReadout:
+      type: object
+      description: Safe invitation capability and policy category readout. Invitations default disabled/off until owner/admin policy enables them; generated clients must not treat this readout as permission.
+      additionalProperties: false
+      required:
+        - capabilityState
+        - defaultState
+        - canCurrentActorManageInvitations
+        - canCurrentActorCreateInvitations
+        - canCurrentActorMutatePolicy
+        - publicAcceptEnabled
+        - pendingInviteGraceWhenDisabled
+        - supportedContactIdentifierKinds
+        - supportedTargetSystemRoles
+        - deliveryReadiness
+        - readoutCategory
+      properties:
+        capabilityState:
+          $ref: "#/components/schemas/InvitationCapabilityState"
+        defaultState:
+          type: string
+          enum:
+            - disabled
+          description: Safe default state for Day 1 invitation capability until owner/admin policy explicitly enables it.
+        canCurrentActorManageInvitations:
+          type: boolean
+          description: Client-visible hint only; the API still enforces owner/admin authorization on every management operation.
+        canCurrentActorCreateInvitations:
+          type: boolean
+          description: Client-visible hint only; creation also requires enabled capability and server policy checks.
+        canCurrentActorMutatePolicy:
+          type: boolean
+          description: Client-visible hint only; policy mutation remains owner/admin-authorized and audit-required.
+        publicAcceptEnabled:
+          type: boolean
+          description: Whether the public accept endpoint may process redemption attempts under current server policy. This does not prove any invitation material is valid.
+        pendingInviteGraceWhenDisabled:
+          type: boolean
+          description: Safe policy readout for whether pending invitations remain redeemable after capability disablement. The default/safe posture is false.
+        supportedContactIdentifierKinds:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: "#/components/schemas/AuthInvitationContactIdentifierKind"
+          description: Contact identifier kinds supported by this contract slice.
+        supportedTargetSystemRoles:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: "#/components/schemas/AuthInvitationTargetSystemRole"
+          description: Invitation target system roles supported by this contract slice.
+        deliveryReadiness:
+          $ref: "#/components/schemas/InvitationDeliveryReadiness"
+        readoutCategory:
+          $ref: "#/components/schemas/InvitationPolicyReadoutCategory"
+    AdminInvitationPolicyUpdateRequest:
+      type: object
+      description: Owner/admin invitation policy update request. Runtime must enforce authorization, safe default-disabled behavior, anti-lockout policy, and audit. This request cannot approve public self-registration, owner/admin invitation targets, privileged roles, SMTP credentials, delivery templates, or provider configuration.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        capabilityState:
+          $ref: "#/components/schemas/InvitationCapabilityState"
+        pendingInviteGraceWhenDisabled:
+          type: boolean
+          description: Optional policy choice for pending invitation redemption after capability disablement. Runtime should default fail-closed unless explicitly enabled by policy.
+    InvitationCapabilityState:
+      type: string
+      description: Invitation capability policy state. Day 1 default is disabled/off.
+      enum:
+        - disabled
+        - enabled
+    InvitationPolicyReadoutCategory:
+      type: string
+      description: Bounded invitation policy readout category.
+      enum:
+        - default_disabled
+        - enabled_by_admin_policy
+        - disabled_by_admin_policy
+        - unsupported_by_deployment
+        - provider_unconfigured
+        - provider_invalid
+        - limited
+        - unknown
+    InvitationDeliveryReadiness:
+      type: string
+      description: Bounded delivery readiness category. It is not proof of email delivery and does not expose SMTP/provider internals.
+      enum:
+        - unsupported
+        - unconfigured
+        - configured
+        - invalid
+        - disabled
+        - limited
+        - unknown
+    AuthInvitationStatus:
+      type: string
+      description: Invitation lifecycle status.
+      enum:
+        - pending
+        - accepted
+        - revoked
+        - expired
+    AuthInvitationContactIdentifierKind:
+      type: string
+      description: Invitation contact identifier kind. This contract slice supports email only.
+      enum:
+        - email
+    AuthInvitationTargetSystemRole:
+      type: string
+      description: Invitation target system role. This contract slice supports normal user invitations only; owner/admin invitation or role elevation belongs to a separate gate.
+      enum:
+        - user
+    AdminInvitationCreateRequest:
+      type: object
+      description: Authenticated owner/admin invitation creation request. The server derives actor, policy, expiry, secret generation, hash storage, duplicate checks, delivery, and audit context. Raw invitation material is never accepted from admin callers or returned in responses.
+      additionalProperties: false
+      required:
+        - contactIdentifierKind
+        - contactIdentifier
+        - targetSystemRole
+      properties:
+        contactIdentifierKind:
+          $ref: "#/components/schemas/AuthInvitationContactIdentifierKind"
+        contactIdentifier:
+          type: string
+          minLength: 1
+          maxLength: 320
+          writeOnly: true
+          description: Submitted contact identifier to normalize server-side. This slice supports email only. It must not be echoed in public responses, audit internals, logs, provider diagnostics, or generated examples; admin readbacks may expose only a policy-approved display-safe value.
+        targetSystemRole:
+          $ref: "#/components/schemas/AuthInvitationTargetSystemRole"
+        idempotencyKey:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 120
+            - type: "null"
+          description: Optional caller idempotency key for create retry safety. The API still decides replay/conflict behavior server-side.
+        deliveryRequested:
+          type: boolean
+          default: true
+          description: Optional request to send or queue delivery through a future approved delivery boundary. Missing provider readiness must not be represented as sent.
+    AdminInvitationRevokeRequest:
+      type: object
+      description: Optional bounded revocation request. The server derives actor, lifecycle, and audit metadata; request body fields are never audit internals.
+      additionalProperties: false
+      properties:
+        reason:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 160
+            - type: "null"
+          description: Optional bounded owner/admin reason category or note after server-side trimming. It must not contain raw invitation material, contact secrets, provider payloads, passwords, session tokens, or unrelated user data.
+    AdminInvitationResendRequest:
+      type: object
+      description: Optional bounded resend request. Runtime must enforce enabled capability, pending/unexpired state, abuse limits, delivery readiness, and safe secret rotation or another reviewed delivery boundary.
+      additionalProperties: false
+      properties:
+        deliveryRequested:
+          type: boolean
+          default: true
+          description: Optional request to send or queue delivery through a future approved delivery boundary. Provider acceptance must remain explicit and is never implied by this flag.
+    AdminInvitationListResponse:
+      type: object
+      description: Safe owner/admin invitation list response. It excludes raw invitation secrets, links, hashes, request bodies, provider payloads, email bodies, SMTP diagnostics, password/session material, audit internals, storage internals, and unrelated user data.
+      additionalProperties: false
+      required:
+        - invitations
+      properties:
+        invitations:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/AdminInvitationSummary"
+    AdminInvitationResponse:
+      type: object
+      description: Safe owner/admin invitation response. It excludes raw invitation secrets, links, hashes, request bodies, provider payloads, email bodies, SMTP diagnostics, password/session material, audit internals, storage internals, and unrelated user data.
+      additionalProperties: false
+      required:
+        - invitation
+      properties:
+        invitation:
+          $ref: "#/components/schemas/AdminInvitationSummary"
+    AdminInvitationSummary:
+      type: object
+      description: Safe invitation metadata for owner/admin read surfaces. Contact display is policy-approved display-safe text only, not a raw submitted contact unless a future reviewed policy allows it.
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - contactIdentifierKind
+        - contactDisplay
+        - targetSystemRole
+        - deliveryState
+        - createdAtUtc
+        - updatedAtUtc
+        - expiresAtUtc
+        - acceptedAtUtc
+        - revokedAtUtc
+        - expiredAtUtc
+        - cleanupEligibleAtUtc
+        - invitedByAuthAccountId
+        - invitedByUserProfileId
+        - revokedByAuthAccountId
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AuthInvitationStatus"
+        contactIdentifierKind:
+          $ref: "#/components/schemas/AuthInvitationContactIdentifierKind"
+        contactDisplay:
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 160
+            - type: "null"
+          description: Optional policy-approved display-safe contact value, such as a redacted label. It must not become a public contact-verification surface.
+        targetSystemRole:
+          $ref: "#/components/schemas/AuthInvitationTargetSystemRole"
+        deliveryState:
+          $ref: "#/components/schemas/InvitationDeliveryState"
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+        expiresAtUtc:
+          type: string
+          format: date-time
+        acceptedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        revokedAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        expiredAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        cleanupEligibleAtUtc:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        invitedByAuthAccountId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Safe actor ID for owner/admin operation readback where policy allows.
+        invitedByUserProfileId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Safe actor profile ID for owner/admin operation readback where policy allows.
+        revokedByAuthAccountId:
+          oneOf:
+            - type: string
+              format: uuid
+            - type: "null"
+          description: Safe revoking actor ID for owner/admin operation readback where policy allows.
+    InvitationDeliveryState:
+      type: string
+      description: Bounded invitation delivery state category. `sent` means only a future provider boundary accepted an attempt; it is not proof the recipient saw it.
+      enum:
+        - not_requested
+        - unsupported
+        - provider_unconfigured
+        - provider_invalid
+        - disabled_by_admin
+        - queued
+        - sent
+        - failed
+        - unknown
+    InvitationAcceptRequest:
+      type: object
+      description: Public invitation acceptance request. The invitation secret is write-only bearer-like material used only for a server-authorized redemption attempt. Runtime must not log, audit, echo, store raw, document by example, or expose this value through responses, generated snapshots, provider payloads, or reports.
+      additionalProperties: false
+      required:
+        - invitationSecret
+        - displayName
+        - localPassword
+      properties:
+        invitationSecret:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+          description: Submitted invitation secret material from an approved delivery boundary. It may appear only in request input for validation and must never appear in responses, examples, logs, audit metadata, provider diagnostics, generated snapshots, or reports.
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Initial user profile display name after server-side trimming if invitation acceptance creates an account/profile.
+        localPassword:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 4096
+          writeOnly: true
+          description: Submitted local-account password for invitation acceptance where local accounts are allowed by policy. The API stores only verifier output through the credential workflow boundary and never returns this plaintext value.
+    InvitationAcceptResponse:
+      type: object
+      description: Safe invitation acceptance response. It does not return access-session tokens, refresh credentials, invitation material, links, hashes, contact identifiers, provider payloads, audit internals, or unrelated user data.
+      additionalProperties: false
+      required:
+        - result
+        - signInRequired
+      properties:
+        result:
+          type: string
+          enum:
+            - accepted_sign_in_required
+          description: High-level success category. Clients must use normal sign-in after acceptance; no session credential is returned here.
+        signInRequired:
+          type: boolean
+          enum:
+            - true
     CreateGroupRequest:
       type: object
       description: Group creation request. Creator and owner membership are derived from the authenticated actor.
