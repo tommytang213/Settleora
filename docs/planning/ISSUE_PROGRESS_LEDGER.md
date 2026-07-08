@@ -20,6 +20,122 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset A08 and final auth/security acceptance checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- Verified acceptance base:
+  `origin/main` at
+  `21eb3efa0a35b57b5d50a8908e614d0425faa88f`.
+- PR #770 merge evidence:
+  PR #770 is `MERGED` into `main`; base `main`; head branch
+  `docs/pr769-password-reset-a04-email-link-target-post-merge-20260708-0116`;
+  reviewed head `858cad2952e5403b58e4fc904f8b9129340a1add`; merge commit
+  `21eb3efa0a35b57b5d50a8908e614d0425faa88f`; changed files were limited to
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`.
+- Completed Day 1 password-reset evidence:
+  - PR #763 exposed only the approved public local password-reset request and
+    completion routes, with anonymous/public mapping preserved for both.
+  - PR #765 completed mobile A01-A03 request-only UI and repository wiring.
+  - PR #767 completed user-web A05-A07 reset-complete fallback UI, fragment
+    capture/scrub, generated-client completion call, success state, and
+    generic invalid-link state.
+  - PR #769 completed A04 reset email subject/body/link-target alignment.
+  - PR #770 recorded post-merge ledger hygiene for A04.
+- A08 decision:
+  `not_applicable_current_surface`.
+  Current repo search found no approved Day 1 provider-owned password-reset
+  surface, no external identity-provider sign-in/reset runtime, no OAuth/SSO/
+  social-login password ownership surface, and no reset-complete UI state that
+  requires a provider-owned helper message. The current mobile request
+  submitted state includes only the already-approved generic support line for
+  externally managed accounts, and backend/OpenAPI policy continues to state
+  Settleora reset applies only to local-account passwords. No A08 runtime, UI,
+  OAuth/OIDC behavior, helper state, or account-provider logic is implemented
+  or required by this checkpoint.
+- Final acceptance matrix:
+  - Request route remains public and uniform: `POST
+    /api/v1/auth/password-reset/request` returns the public accepted response
+    shape without exposing account existence, local-vs-provider state,
+    delivery state, reset material, or `Retry-After`.
+  - Completion route remains public and bounded: `POST
+    /api/v1/auth/password-reset/complete` returns `204 No Content` on success
+    and generic bounded failure responses for invalid, expired, consumed,
+    replayed, malformed, unavailable, or weak-password outcomes, with no
+    credential/session issuance.
+  - Password policy alignment is verified across OpenAPI, backend, generated
+    clients, and user-web validation; `newPassword` remains `minLength: 12`.
+  - Email composer uses the approved A04 subject/body and preserves
+    `/auth/password-reset#resetMaterial=...`, empty query, and no `token=`
+    shape.
+  - Email delivery readiness still depends on safe configured origin/provider
+    readiness; no SMTP/provider/configuration change is included.
+  - Reset material is not returned to clients except through the approved email
+    delivery boundary, is stored only as lookup material server-side, and is
+    covered by audit/redaction tests for reports, previews, audit text, and
+    user-visible failures.
+  - User-web reset-complete reads only the URL fragment, scrubs the visible
+    fragment, calls generated `completeLocalPasswordReset` with only
+    `resetMaterial` and `newPassword`, stores no session/token/current-user
+    state, and maps server failures to generic invalid-link copy.
+  - Mobile remains request-only: no deep links, universal links, custom
+    schemes, reset-material entry, reset-complete UI, or token handling.
+  - Notification/security-center/credential-activity remains deferred/
+    audit-only for password reset. Future notification runtime still requires
+    target/schema/OpenAPI/generated-client/authz/security-copy gates.
+  - OpenAPI/generated-client drift is clean after generation.
+  - Audit/security redaction tests cover password-reset sensitive material.
+- Final validation evidence on
+  `21eb3efa0a35b57b5d50a8908e614d0425faa88f` before opening this checkpoint:
+  `git status --short` clean; `git diff --check` passed; `npm run
+  validate:openapi` passed; `npm run generate:clients` passed; `git diff
+  --name-only` and `git diff --stat` were empty; `npm run validate:clients`
+  passed; `npm run validate:scaffold` passed; `/usr/bin/time -f
+  'ELAPSED=%E EXIT=%x' npm run validate:api` passed with `1409` tests,
+  `0` failed, `0` skipped, `ELAPSED=6:19.43 EXIT=0`; focused password-reset/
+  route/composer/audit-redaction tests passed with `84` tests; user-web tests
+  passed with `129` tests; user-web build passed; user-web lint passed;
+  Flutter `pub get` passed; Flutter analyze passed with no issues; Flutter
+  tests passed with `820` tests; `npm run validate:docs` passed.
+- Missing optional reports:
+  the exact optional filenames
+  `.codex/reports/settleora-codex-report-20260707-2120-auth-password-reset-route-exposure*.md`
+  and
+  `.codex/reports/settleora-codex-report-20260707-2108*final-auth-security-acceptance*.md`
+  were not found, but equivalent current evidence exists in the ledger, PR
+  readbacks, and reports
+  `.codex/reports/settleora-codex-report-20260707-2120-password-reset-route-exposure-implementation.md`,
+  `.codex/reports/settleora-codex-report-20260707-2146-pr763-password-reset-route-exposure-merge-gate.md`,
+  `.codex/reports/settleora-codex-report-20260707-2201-pr763-password-reset-route-exposure-post-merge-hygiene.md`,
+  `.codex/reports/settleora-codex-report-20260707-2034-password-reset-final-auth-security-acceptance.md`,
+  and
+  `.codex/reports/settleora-codex-report-20260707-2108-password-reset-final-auth-security-acceptance-rerun.md`.
+- Issue posture:
+  keep #336 open because the broad auth/session/runtime security epic still
+  includes non-password-reset auth/security work and manual Day 1 acceptance
+  concerns. #339 is close-ready after this final acceptance checkpoint PR
+  merges, assuming the issue scope is the current Day 1 local password reset
+  and credential-change workflow; do not close it from this task.
+- Remaining password-reset Day 1 gates:
+  none for the currently approved local-account password-reset surface after
+  this checkpoint merges. Future optional surfaces remain separately gated:
+  provider-owned/OIDC helper UI if a real approved provider-owned surface is
+  added, mobile link handling if later chosen, password-reset notifications or
+  security-center/credential-activity if later approved, admin-delivered
+  recovery, owner/admin reset/change for other users, invitation/public
+  registration, MFA/passkey/OIDC runtime, and broader production/security
+  review.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change runtime/API/backend
+  behavior, route mappings, OpenAPI/contracts, generated clients, email
+  templates, SMTP/provider configuration, appsettings/env/secrets,
+  schema/migrations, Docker, CI, deployment, Codemagic/TestFlight, mobile UI,
+  user-web UI, admin UI, notifications, security-center, credential-activity,
+  auth-audit re-fetch surfaces, money, settlement, payment, bill, OCR,
+  storage, sync, import/export, backup/restore, reconciliation behavior, issue
+  closure, labels, milestones, assignees, or Project fields.
+
 ### Issues #336/#339 - PR #769 password reset A04 email/link target post-merge checkpoint
 
 - GitHub state/project status:
