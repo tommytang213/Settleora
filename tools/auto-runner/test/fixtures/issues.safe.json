@@ -1,0 +1,26 @@
+[
+  {
+    "number": 9101,
+    "title": "Harden auto-runner dry-run diagnostics",
+    "body": "Workflow tooling task limited to tools/auto-runner and docs/workflow.",
+    "labels": ["auto-ready", "priority-high"],
+    "url": "https://example.invalid/issues/9101",
+    "createdAt": "2026-07-08T00:00:00Z"
+  },
+  {
+    "number": 9102,
+    "title": "Document auto-runner review package evidence",
+    "body": "Docs and workflow automation only.",
+    "labels": ["auto-ready"],
+    "url": "https://example.invalid/issues/9102",
+    "createdAt": "2026-07-08T00:01:00Z"
+  },
+  {
+    "number": 9103,
+    "title": "Already opened auto-runner PR",
+    "body": "Should be ignored because stop label is present.",
+    "labels": ["auto-ready", "auto-pr-opened"],
+    "url": "https://example.invalid/issues/9103",
+    "createdAt": "2026-07-08T00:02:00Z"
+  }
+]

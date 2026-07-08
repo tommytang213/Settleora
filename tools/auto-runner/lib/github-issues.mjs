@@ -16,6 +16,12 @@ function labelNames(issue) {
 }
 
 export function pollEligibleIssues(config, logger) {
+  if (config.fixtureIssues) {
+    const parsed = config.fixtureIssues.map((issue) => ({ ...issue, labels: labelNames(issue) }));
+    const eligible = filterAndSortEligibleIssues(config, parsed).slice(config.fixtureIssueCursor || 0);
+    return { issues: eligible, rawCount: parsed.length, fixture: true };
+  }
+
   const search = `repo:${repoSlug()} is:issue is:open (${config.eligibleLabels.map((label) => `label:${label}`).join(" OR ")})`;
   const result = runGh([
     "issue",
@@ -48,11 +54,7 @@ export function pollEligibleIssues(config, logger) {
     ...issue,
     labels: labelNames(issue),
   }));
-  const stop = new Set(config.stopLabels);
-  const eligible = parsed
-    .filter((issue) => issue.labels.some((label) => config.eligibleLabels.includes(label)))
-    .filter((issue) => !issue.labels.some((label) => stop.has(label)))
-    .sort((a, b) => issueSortKey(config, a).localeCompare(issueSortKey(config, b)));
+  const eligible = filterAndSortEligibleIssues(config, parsed);
   return { issues: eligible, rawCount: parsed.length };
 }
 
@@ -63,19 +65,23 @@ export function claimIssue(config, issue, logger) {
     runnerPid: process.pid,
   };
   if (config.dryRun) {
-    return { ...claim, skipped: true, reason: "dry-run" };
+    return {
+      ...claim,
+      skipped: true,
+      reason: config.fixtureIssues ? "dry-run-fixture" : "dry-run",
+      preview: {
+        addLabels: [...config.claimLabels],
+        removeLabels: [],
+        comment: claimComment(claim.claimedAt),
+      },
+    };
   }
 
   const labelResult = runGh(["issue", "edit", String(issue.number), "--add-label", config.claimLabels.join(",")]);
   if (labelResult.error || labelResult.status !== 0) {
     throw new Error(`Unable to claim issue #${issue.number}: ${labelResult.stderr || labelResult.error}`);
   }
-  const comment = [
-    "Settleora auto-runner claimed this issue for one bounded DevBox iteration.",
-    `Runner pid: ${process.pid}`,
-    `Claimed at: ${claim.claimedAt}`,
-    "If this claim is stale, inspect /workspace/logs/settleora-auto-runner/state before relabeling.",
-  ].join("\n");
+  const comment = claimComment(claim.claimedAt);
   const commentResult = runGh(["issue", "comment", String(issue.number), "--body", comment]);
   if (commentResult.error || commentResult.status !== 0) {
     logger.warn(`Issue #${issue.number} was labeled but claim comment failed.`, {
@@ -87,14 +93,22 @@ export function claimIssue(config, issue, logger) {
 }
 
 export function commentIssueOutcome(config, issue, outcome, body) {
-  if (config.dryRun) {
-    return { skipped: true, reason: "dry-run", outcome };
-  }
-  const labels = outcomeToLabels(outcome);
-  if (labels.length > 0) {
-    runGh(["issue", "edit", String(issue.number), "--add-label", labels.join(",")]);
-  }
+  const mutations = outcomeToMutations(outcome);
   const boundedBody = body.length > 4000 ? `${body.slice(0, 3900)}\n\n[truncated]` : body;
+  if (config.dryRun) {
+    return {
+      skipped: true,
+      reason: config.fixtureIssues ? "dry-run-fixture" : "dry-run",
+      outcome,
+      preview: { ...mutations, comment: boundedBody },
+    };
+  }
+  if (mutations.addLabels.length > 0) {
+    runGh(["issue", "edit", String(issue.number), "--add-label", mutations.addLabels.join(",")]);
+  }
+  if (mutations.removeLabels.length > 0) {
+    runGh(["issue", "edit", String(issue.number), "--remove-label", mutations.removeLabels.join(",")]);
+  }
   const result = runGh(["issue", "comment", String(issue.number), "--body", boundedBody]);
   return { skipped: false, status: result.status, stderr: result.stderr };
 }
@@ -129,9 +143,34 @@ function issueSortKey(config, issue) {
   return `${priority}:${createdAt}:${number}`;
 }
 
-function outcomeToLabels(outcome) {
-  if (outcome === "danger_gate") return ["danger-gate"];
-  if (outcome === "blocked_needs_tommy") return ["needs-tommy"];
-  if (outcome === "auto_failed" || outcome === "validation_failed") return ["auto-failed"];
-  return [];
+function filterAndSortEligibleIssues(config, issues) {
+  const stop = new Set(config.stopLabels);
+  return issues
+    .filter((issue) => issue.labels.some((label) => config.eligibleLabels.includes(label)))
+    .filter((issue) => !issue.labels.some((label) => stop.has(label)))
+    .sort((a, b) => issueSortKey(config, a).localeCompare(issueSortKey(config, b)));
+}
+
+function claimComment(claimedAt) {
+  return [
+    "Settleora auto-runner claimed this issue for one bounded DevBox iteration.",
+    `Runner pid: ${process.pid}`,
+    `Claimed at: ${claimedAt}`,
+    "If this claim is stale, inspect /workspace/logs/settleora-auto-runner/state before relabeling.",
+  ].join("\n");
+}
+
+function outcomeToMutations(outcome) {
+  const mutations = { addLabels: [], removeLabels: ["auto-running"] };
+  if (outcome === "approved_pr_opened") mutations.addLabels.push("auto-pr-opened");
+  if (outcome === "danger_gate") mutations.addLabels.push("danger-gate");
+  if (outcome === "blocked_needs_tommy") mutations.addLabels.push("needs-tommy");
+  if (
+    outcome === "auto_failed" ||
+    outcome === "validation_failed" ||
+    outcome === "review_changes_requested_retry_exhausted"
+  ) {
+    mutations.addLabels.push("auto-failed");
+  }
+  return mutations;
 }

@@ -20,6 +20,60 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - DevBox auto-runner foundation and real-run safety hardening checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+- Verified repo baseline:
+  `origin/main` at
+  `eaaf0ee1baf5d70dad558e0b5f5569911d1e8459` before this hardening task
+  branch.
+- Foundation completed:
+  - PR #801 `Add DevBox unattended Codex auto-runner foundation` was merged to
+    `main`.
+  - PR #801 merge/final main SHA:
+    `eaaf0ee1baf5d70dad558e0b5f5569911d1e8459`.
+  - Foundation scope added `docs/workflow/AUTONOMOUS_CODEX_RUNNER.md` and
+    `tools/auto-runner/**` for issue-label polling, safe claim modeling,
+    lane/danger gates, generated Codex prompts, DevBox-local Codex invocation,
+    report collection, validation planning, pre-PR review package/review gate,
+    explicit-path commit plumbing, PR/check stubs, summaries, external log
+    directories, and example-only systemd templates.
+- This hardening slice:
+  - Adds non-mutating preflight diagnostics for repo/GitHub/Codex/log/config
+    readiness.
+  - Adds dry-run fixture issue simulation for deterministic multi-iteration
+    loop evidence without live GitHub or Codex mutation.
+  - Hardens issue claim/outcome lifecycle cleanup so terminal outcomes remove
+    `auto-running`, PR-opened outcomes add `auto-pr-opened`, and blocked/
+    failure outcomes add stop labels.
+  - Refines workflow/tooling lane policy to avoid generic `config` false
+    positives while preserving gates for auth/security, storage/privacy,
+    money/settlement/payment/bill calculation, schema/migration,
+    OpenAPI/generated clients, sync/import/export/restore, Docker/CI/
+    deployment, secrets/env, public/admin exposure, mobile release, branch
+    cleanup/history rewrite, and architecture replacement.
+  - Hardens reviewer verdict parsing and documents review package evidence and
+    mutation guard behavior.
+- Issue posture:
+  keep #800 open. This checkpoint does not approve trusted real-run operation
+  and does not complete broader unattended runner enablement.
+- Remaining #800 manual gates:
+  trusted real-run operation, any auto-merge lane, stale-claim stealing,
+  follow-up issue creation, review-fix cycle mutation, systemd service/timer
+  installation or enablement, and any future expansion beyond workflow/tooling
+  paths.
+- Scope confirmation:
+  this checkpoint changes only `tools/auto-runner/**`, workflow docs, and this
+  ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, or auto-merge
+  enablement.
+
 ### Issues #336/#337/#784/#777 - Invitation lifecycle cleanup runtime checkpoint
 
 - GitHub state/project status:

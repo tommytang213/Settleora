@@ -8,6 +8,7 @@
     "danger-gate",
     "auto-failed",
     "auto-running",
+    "auto-pr-opened",
     "blocked"
   ],
   "claimLabels": ["auto-claimed", "auto-running"],

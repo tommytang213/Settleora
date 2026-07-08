@@ -6,7 +6,7 @@ const dangerPatterns = [
   { key: "openapi_generated_client", pattern: /\b(openapi|generated client|client generation)\b/i },
   { key: "sync_import_export", pattern: /\b(sync|restore|backup|import|export|reconciliation)\b/i },
   { key: "docker_ci_deploy", pattern: /\b(docker|compose|ci|github action|deployment|deploy|truenas|codemagic)\b/i },
-  { key: "secrets_config", pattern: /\b(secret|credential|\.env|config|ssh|token storage)\b/i },
+  { key: "secrets_config", pattern: /\b(secret|secrets|credential|credentials|\.env|env var|environment variable|ssh|token storage|auth config|security config|deployment config)\b/i },
   { key: "public_admin_exposure", pattern: /\b(public exposure|admin exposure|production|reverse proxy|tls)\b/i },
   { key: "mobile_release", pattern: /\b(testflight|app store|mobile release|signing)\b/i },
   { key: "branch_cleanup", pattern: /\b(delete branch|branch cleanup|force push|history rewrite)\b/i },
@@ -24,6 +24,12 @@ const forbiddenPathPatterns = [
   /(^|\/)migrations?(\/|$)/i,
   /(^|\/)(auth|session|security)(\/|$)/i,
   /(^|\/)(settlement|payment|bill|money|storage|sync|ocr)(\/|$)/i,
+];
+
+const safeWorkflowToolingPathPatterns = [
+  /^tools\/auto-runner(?:\/|$)/,
+  /^docs\/workflow(?:\/|$)/,
+  /^scripts\/ai(?:\/|$)/,
 ];
 
 export function classifyIssueLane(issue) {
@@ -65,7 +71,7 @@ export function classifyIssueLane(issue) {
       dangerGate: false,
       reason: "Workflow/docs/tooling lane with no detected gated domain.",
       dangerReasons: [],
-      allowedPaths: ["tools/auto-runner/**", "docs/workflow/**", "scripts/ai/**", ".ai/**"],
+      allowedPaths: ["tools/auto-runner/**", "docs/workflow/**", "scripts/ai/**"],
       autoMergeEligible: false,
     };
   }
@@ -85,7 +91,9 @@ export function classifyIssueLane(issue) {
 export function pathViolatesPolicy(filePath, laneDecision) {
   const normalized = filePath.replace(/\\/g, "/");
   if (laneDecision.lane === "workflow-docs-tooling") {
-    return forbiddenPathPatterns.some((pattern) => pattern.test(normalized));
+    const explicitlyAllowed = safeWorkflowToolingPathPatterns.some((pattern) => pattern.test(normalized));
+    const explicitlyForbidden = forbiddenPathPatterns.some((pattern) => pattern.test(normalized));
+    return !explicitlyAllowed || explicitlyForbidden;
   }
   return true;
 }

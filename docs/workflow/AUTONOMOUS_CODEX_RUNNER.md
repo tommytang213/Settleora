@@ -60,12 +60,24 @@ Default stop labels:
 - `danger-gate`
 - `auto-failed`
 - `auto-running`
+- `auto-pr-opened`
 - `blocked`
 
 Real-run claim behavior adds `auto-claimed` and `auto-running`, then posts a
 bounded claim comment. The runner re-reads and records claim state locally so a
 later stale-claim policy can be implemented. Stale-claim stealing is disabled by
 default and must stay disabled unless config explicitly allows it.
+
+Terminal real-run outcomes always remove `auto-running`. `approved_pr_opened`
+adds `auto-pr-opened`, which is also a stop label so the issue is not selected
+again while a PR is pending. `blocked_needs_tommy` adds `needs-tommy`,
+`danger_gate` adds `danger-gate`, and `auto_failed`, `validation_failed`, and
+`review_changes_requested_retry_exhausted` add `auto-failed`. `no_changes`
+removes `auto-running` and comments the outcome without closing the issue. The
+runner never closes issues automatically.
+
+Dry-run mode previews the exact label add/remove/comment operations instead of
+calling `gh issue edit`, `gh issue comment`, or `gh issue create`.
 
 `auto-bundle` means the issue may intentionally split into multiple prompts,
 branches, or follow-up issues in a future lane policy. Each implementation
@@ -75,7 +87,13 @@ branch still has to stay reviewable.
 
 Auto-merge is disabled globally by default. Real mutation requires `--run`.
 Docs/workflow/tooling issues can be represented as a future safe lane, but PR
-creation still requires local validation and pre-PR AI review.
+creation still requires local validation and pre-PR AI review. The safe
+workflow/tooling lane is limited to `tools/auto-runner/**`,
+`docs/workflow/**`, and `scripts/ai/**`; other paths are blocked even when the
+issue text looks safe. Generic words such as `config` do not by themselves
+trigger the secrets/config danger gate, but auth config, security config,
+deployment config, `.env`, secrets, credentials, SSH, and token-storage work
+remain gated.
 
 The runner must label/comment `danger-gate` or `needs-tommy` instead of
 implementing unattended work for auth/session/security, storage/file
@@ -151,6 +169,9 @@ Reviewer output must contain:
 `changes_requested` may trigger a bounded safe fix cycle only when the lane
 allows it, the requested changes stay inside original scope, and retry budget
 remains. `needs_tommy`, `danger_gate`, and `unable_to_review` block PR creation.
+Reviewer verdict JSON is parsed against the allowed enum values. Missing,
+malformed, or out-of-enum verdicts fail closed as `unable_to_review`. Dry-run
+review diagnostics never approve PR creation.
 
 ## Follow-Up Issues
 
@@ -177,6 +198,22 @@ The runner does not merge into `main` by default.
 
 ## Running
 
+Preflight:
+
+```bash
+cd /workspace/repos/Settleora
+node tools/auto-runner/settleora-auto-runner.mjs --preflight
+```
+
+Preflight prints a bounded JSON result with pass/warn/fail checks for the repo
+root, branch/worktree status and whether real-run would refuse, `gh`
+availability, `gh repo view tommytang213/Settleora`, issue polling,
+`codex-vm-full` resolution, logs-root writability, config parseability, disabled
+auto-merge/follow-up/stale-claim-steal defaults, and the fact that this command
+does not install or enable systemd. Preflight does not acquire the runner lock,
+run implementation Codex, run review Codex, mutate GitHub, create branches, or
+enable systemd units.
+
 Dry-run:
 
 ```bash
@@ -184,7 +221,15 @@ cd /workspace/repos/Settleora
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --once
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --max-iterations 3
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --once --require-pre-pr-review
+node tools/auto-runner/settleora-auto-runner.mjs --dry-run --max-iterations 3 --fixture-issues tools/auto-runner/test/fixtures/issues.safe.json
 ```
+
+`--fixture-issues <json>` is accepted only with `--dry-run`. Fixture mode uses
+local issue objects to simulate multiple eligible issues in one trigger,
+continues after terminal dry-run outcomes, skips issues that already carry stop
+labels such as `auto-pr-opened`, and stops on no eligible fixture work or
+`--max-iterations`. It does not call real GitHub mutation commands, create
+branches, push, open PRs, run real Codex, mutate `.codex`, or enable auto-merge.
 
 Bounded real-run:
 
