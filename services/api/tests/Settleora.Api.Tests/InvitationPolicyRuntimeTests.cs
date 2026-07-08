@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Auth.Invitations;
 using Settleora.Api.Auth.Sessions;
 using Settleora.Api.Domain.Auth;
@@ -128,6 +129,46 @@ public sealed class InvitationPolicyRuntimeTests : IClassFixture<WebApplicationF
         Assert.Equal(HttpStatusCode.Unauthorized, invalidTokenGet.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, userGet.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, userPatch.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(CapabilityPath)]
+    [InlineData(AdminPolicyPath)]
+    public async Task PolicyGetRequestsResolveCurrentActorBeforeRejectingRequestShape(string path)
+    {
+        var testContext = CreateFactory(services =>
+        {
+            services.RemoveAll<ICurrentActorAccessor>();
+            services.AddScoped<ICurrentActorAccessor, NoCurrentActorAccessor>();
+        });
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Policy Owner");
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(HttpMethod.Get, $"{path}?unexpected=true", session.RawSessionToken);
+        request.Content = JsonContent("""{"unexpected":true}""");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(CapabilityPath)]
+    [InlineData(AdminPolicyPath)]
+    public async Task AuthenticatedPolicyGetRequestsRejectUnsupportedRequestShape(string path)
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Policy Owner");
+        using var client = testFactory.CreateClient();
+        using var request = CreateBearerRequest(HttpMethod.Get, $"{path}?unexpected=true", session.RawSessionToken);
+        request.Content = JsonContent("""{"unexpected":true}""");
+
+        using var response = await client.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("Invalid invitation policy request", content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -269,7 +310,7 @@ public sealed class InvitationPolicyRuntimeTests : IClassFixture<WebApplicationF
         Assert.Equal(["auth_invitation_policies"], affectedTables);
     }
 
-    private FactoryTestContext CreateFactory()
+    private FactoryTestContext CreateFactory(Action<IServiceCollection>? configureServices = null)
     {
         var databaseName = Guid.NewGuid().ToString();
         var timeProvider = new InvitationPolicyTestTimeProvider(InitialTimestamp);
@@ -285,6 +326,8 @@ public sealed class InvitationPolicyRuntimeTests : IClassFixture<WebApplicationF
 
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(timeProvider);
+
+                configureServices?.Invoke(services);
             });
         });
 
@@ -455,6 +498,15 @@ public sealed class InvitationPolicyRuntimeTests : IClassFixture<WebApplicationF
         public void SetUtcNow(DateTimeOffset value)
         {
             utcNow = value;
+        }
+    }
+
+    private sealed class NoCurrentActorAccessor : ICurrentActorAccessor
+    {
+        public bool TryGetCurrentActor(out AuthenticatedActor actor)
+        {
+            actor = default!;
+            return false;
         }
     }
 }

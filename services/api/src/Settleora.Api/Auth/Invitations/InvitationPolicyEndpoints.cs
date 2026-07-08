@@ -30,14 +30,14 @@ internal static class InvitationPolicyEndpoints
         IInvitationPolicyService invitationPolicyService,
         CancellationToken cancellationToken)
     {
-        if (request.Query.Count > 0 || RequestHasBody(request))
-        {
-            return InvalidPolicyRequest();
-        }
-
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Results.Unauthorized();
+        }
+
+        if (request.Query.Count > 0 || RequestHasBody(request))
+        {
+            return InvalidPolicyRequest();
         }
 
         return Results.Ok(await invitationPolicyService.GetCapabilityReadoutAsync(actor, cancellationToken));
@@ -49,14 +49,14 @@ internal static class InvitationPolicyEndpoints
         IInvitationPolicyService invitationPolicyService,
         CancellationToken cancellationToken)
     {
-        if (request.Query.Count > 0 || RequestHasBody(request))
-        {
-            return InvalidPolicyRequest();
-        }
-
         if (!currentActorAccessor.TryGetCurrentActor(out var actor))
         {
             return Results.Unauthorized();
+        }
+
+        if (request.Query.Count > 0 || RequestHasBody(request))
+        {
+            return InvalidPolicyRequest();
         }
 
         return Results.Ok(await invitationPolicyService.GetAdminPolicyReadoutAsync(actor, cancellationToken));
