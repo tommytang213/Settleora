@@ -203,6 +203,48 @@ Bundle C remains separate and is not changed by Bundle B2.
 - Add suppression proof for admin local-user test-only sensitive transmission
   if confirmed test-only.
 
+### Bundle C Proof/Suppression Review Status
+
+Bundle C was reviewed after PR #781 / Bundle B2 merged to `main` at
+`4de7680ec3bde565aadb23866c20030693391a4a`.
+
+Live GitHub code-scanning readback on `refs/heads/main` before Bundle C edits
+reported `10` open alerts. Safe metadata only was read and recorded here; raw
+alert source/sink payloads, reset material, SMTP payloads, provider payloads,
+workflow logs, secrets, and tokens were not stored.
+
+| Alert | Tool | Rule | Severity / security severity | Path | Line | Bundle C classification | Decision |
+| --- | --- | --- | --- | --- | ---: | --- | --- |
+| `#48` | CodeQL | `cs/sensitive-data-transmission` | error / medium | `services/api/src/Settleora.Api/Auth/PasswordReset/IPasswordResetSmtpEmailSender.cs` | 145 | `manual-dismissal-required-with-proof` | The flagged send boundary is the approved password-reset SMTP delivery boundary: it builds a plain-text reset email only after delivery readiness, recipient availability, and reset email composition have already succeeded. The current implementation intentionally sends the approved reset link/body through SMTP and keeps reset material out of persistence, logs, audit, reports, and public API responses. Changing subject/body/link shape, reset material semantics, recipient resolution, or delivery behavior is outside Bundle C. Because the repo has no established CodeQL inline suppression format, leave this alert open for manual GitHub code-scanning dismissal under #777 with this rationale. |
+| `#12` | CodeQL | `cs/path-injection` | error / high | `services/api/tests/Settleora.Api.Tests/LocalStorageReadinessCheckTests.cs` | 42 | `false-positive/test-only-with-proof` | Test-only temporary directory setup under `Path.GetTempPath()` and an isolated GUID path. The test verifies readiness creates and accesses a local storage root. It is not runtime user input and is not exposed to API callers. |
+| `#11`, `#10` | CodeQL | `cs/path-injection` | error / high | `services/api/src/Settleora.Api/Storage/LocalFileObjectStorageProvider.cs` | 84, 66 | `false-positive-with-proof` | Bundle A added proof tests showing object keys reject rooted paths, separators, dot segments, encoded traversal, special characters, overlong keys, unsupported providers, missing roots, and root escape before write/read/delete. Runtime storage remains guarded by provider/object-key validation and normalized root containment. |
+| `#9` | CodeQL | `cs/path-injection` | error / high | `services/api/tests/Settleora.Api.Tests/LocalStorageReadinessCheckTests.cs` | 63 | `false-positive/test-only-with-proof` | Test-only cleanup of the same isolated temporary directory tree created by the test. The path is server/test-owned, GUID-scoped, and not derived from API input. |
+| `#8` | CodeQL | `cs/path-injection` | error / high | `services/api/tests/Settleora.Api.Tests/LocalFileObjectStorageProviderTests.cs` | 204 | `false-positive/test-only-with-proof` | Test-only creation of an isolated temporary root for storage-provider tests. Bundle A coverage proves traversal keys are rejected before touching disk and valid object keys stay inside the temp root. |
+| `#7`, `#6` | CodeQL | `cs/web/xss` | error / high | `services/api/tests/Settleora.Api.Tests/ExpenseBillRevisionEndpointTests.cs` | 3785, 1994 | `false-positive/test-only-with-proof` | Test-only in-memory HTTP request body construction for API endpoint tests. These tests post JSON to the ASP.NET test server and assert authorization/conflict behavior; they do not render HTML, write frontend output, or change API response encoding. No supported repo suppression format exists, so manual dismissal is required if GitHub keeps these alerts on `main`. |
+| `#5` | CodeQL | `cs/user-controlled-bypass` | error / high | `services/api/src/Settleora.Api/Expenses/RecurringBills/RecurringBillEndpoints.cs` | 265 | `already-fixed-by-bundle-a-main-alert-stale` | Bundle A added explicit business authorization after visible-template lookup for recurring lifecycle/generation writes and focused fail-closed tests for removed members and cross-user attempts. PR #779 exact-head code scanning returned zero open alerts, so this remaining `main` alert is treated as stale until GitHub reprocesses `main` or is manually dismissed with the Bundle A proof. |
+| `#2` | CodeQL | `cs/sensitive-data-transmission` | error / medium | `services/api/tests/Settleora.Api.Tests/AdminLocalUserEndpointTests.cs` | 936 | `false-positive/test-only-with-proof` | Test-only in-memory admin local-user request construction. The test intentionally exercises authenticated admin user creation and sign-in through the ASP.NET test server using fixed fake credentials, then asserts raw submitted passwords/session/provider/storage marker strings are not leaked in responses or audit-safe payloads. No runtime endpoint behavior is changed by this proof. |
+
+Bundle C did not add inline suppressions because no project-accepted CodeQL or
+Semgrep suppression-comment format is currently used in the repository, and
+adding scanner-specific comments without an established policy would create a
+new suppression convention. Bundle C also did not refactor shared test request
+helpers or the password-reset SMTP sender solely to satisfy scanner heuristics:
+the test helpers are intentionally test-only and the SMTP sender is an approved
+delivery boundary whose behavior must not change silently.
+
+Recommended manual GitHub code-scanning dismissal posture under #777:
+
+- Dismiss `#48` as approved/expected password-reset SMTP delivery with the
+  rationale above. This is a manual security/public-exposure gate because it is
+  the one intentional external reset-material delivery boundary.
+- Dismiss `#12`, `#9`, `#8`, `#7`, `#6`, and `#2` as test-only false positives
+  with the proof above if PR-head scanning stays clean and no runtime alert is
+  introduced.
+- Dismiss or wait for reprocessing of stale `#5`, `#11`, and `#10` only after
+  confirming the exact analyzed commit includes Bundle A proof/fixes; do not
+  treat their presence on `main` as evidence of an unfixed runtime regression
+  without a fresh CodeQL trace on the current commit.
+
 ## Guardrails
 
 Bundle A does not change OpenAPI contracts, generated clients, schema or
