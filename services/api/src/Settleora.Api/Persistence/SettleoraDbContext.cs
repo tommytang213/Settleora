@@ -37,6 +37,12 @@ public sealed class SettleoraDbContext : DbContext
     private const int AuthPasswordResetProviderSendCategoryMaxLength = 32;
     private const int AuthPasswordResetBucketRefMaxLength = 160;
     private const int AuthPasswordResetCorrelationIdMaxLength = 120;
+    private const int AuthInvitationStatusMaxLength = 32;
+    private const int AuthInvitationContactIdentifierKindMaxLength = 32;
+    private const int AuthInvitationContactIdentifierNormalizedMaxLength = 320;
+    private const int AuthInvitationSecretHashMaxLength = 256;
+    private const int AuthInvitationSecretHashVersionMaxLength = 32;
+    private const int AuthInvitationTargetSystemRoleMaxLength = 16;
     private const int AuthSessionTokenHashMaxLength = 128;
     private const int AuthSessionStatusMaxLength = 16;
     private const int AuthSessionRevocationReasonMaxLength = 120;
@@ -159,6 +165,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<AuthIdentity>(ConfigureAuthIdentity);
         modelBuilder.Entity<LocalPasswordCredential>(ConfigureLocalPasswordCredential);
         modelBuilder.Entity<AuthPasswordResetRequest>(ConfigureAuthPasswordResetRequest);
+        modelBuilder.Entity<AuthInvitation>(ConfigureAuthInvitation);
         modelBuilder.Entity<AuthSession>(ConfigureAuthSession);
         modelBuilder.Entity<AuthSessionFamily>(ConfigureAuthSessionFamily);
         modelBuilder.Entity<AuthRefreshCredential>(ConfigureAuthRefreshCredential);
@@ -5161,6 +5168,156 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany(request => request.ReplacedResetRequests)
             .HasForeignKey(request => request.ReplacedByResetRequestId)
             .HasConstraintName("fk_auth_password_reset_requests_replaced_by_reset_request")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthInvitation(EntityTypeBuilder<AuthInvitation> entity)
+    {
+        entity.ToTable("auth_invitations", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_invitations_status",
+                "status IN ('pending', 'accepted', 'revoked', 'expired')");
+            table.HasCheckConstraint(
+                "ck_auth_invitations_contact_identifier_kind",
+                "contact_identifier_kind IN ('email')");
+            table.HasCheckConstraint(
+                "ck_auth_invitations_contact_identifier_not_blank",
+                "length(btrim(contact_identifier_normalized)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_invitations_secret_hash_not_blank",
+                "length(btrim(invitation_secret_hash)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_invitations_secret_hash_version_not_blank",
+                "length(btrim(invitation_secret_hash_version)) > 0");
+            table.HasCheckConstraint(
+                "ck_auth_invitations_target_system_role_user_only",
+                "target_system_role = 'user'");
+            table.HasCheckConstraint(
+                "ck_auth_invitations_expiry_after_created",
+                "expires_at_utc > created_at_utc");
+            table.HasCheckConstraint(
+                "ck_auth_invitations_status_timestamp",
+                "(status = 'pending' AND accepted_at_utc IS NULL AND revoked_at_utc IS NULL AND expired_at_utc IS NULL) OR (status = 'accepted' AND accepted_at_utc IS NOT NULL AND revoked_at_utc IS NULL) OR (status = 'revoked' AND revoked_at_utc IS NOT NULL AND accepted_at_utc IS NULL) OR (status = 'expired' AND expired_at_utc IS NOT NULL AND accepted_at_utc IS NULL AND revoked_at_utc IS NULL)");
+            table.HasCheckConstraint(
+                "ck_auth_invitations_revoker_timestamp",
+                "(revoked_by_auth_account_id IS NULL AND revoked_at_utc IS NULL) OR (revoked_by_auth_account_id IS NOT NULL AND revoked_at_utc IS NOT NULL)");
+        });
+
+        entity.HasKey(invitation => invitation.Id);
+
+        entity.Property(invitation => invitation.Id)
+            .HasColumnName("id");
+
+        entity.Property(invitation => invitation.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthInvitationStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(invitation => invitation.ContactIdentifierKind)
+            .HasColumnName("contact_identifier_kind")
+            .HasMaxLength(AuthInvitationContactIdentifierKindMaxLength)
+            .IsRequired();
+
+        entity.Property(invitation => invitation.ContactIdentifierNormalized)
+            .HasColumnName("contact_identifier_normalized")
+            .HasMaxLength(AuthInvitationContactIdentifierNormalizedMaxLength)
+            .IsRequired();
+
+        entity.Property(invitation => invitation.InvitationSecretHash)
+            .HasColumnName("invitation_secret_hash")
+            .HasMaxLength(AuthInvitationSecretHashMaxLength)
+            .IsRequired();
+
+        entity.Property(invitation => invitation.InvitationSecretHashVersion)
+            .HasColumnName("invitation_secret_hash_version")
+            .HasMaxLength(AuthInvitationSecretHashVersionMaxLength)
+            .IsRequired();
+
+        entity.Property(invitation => invitation.TargetSystemRole)
+            .HasColumnName("target_system_role")
+            .HasMaxLength(AuthInvitationTargetSystemRoleMaxLength)
+            .IsRequired();
+
+        entity.Property(invitation => invitation.InvitedByAuthAccountId)
+            .HasColumnName("invited_by_auth_account_id")
+            .IsRequired();
+
+        entity.Property(invitation => invitation.InvitedByUserProfileId)
+            .HasColumnName("invited_by_user_profile_id")
+            .IsRequired();
+
+        entity.Property(invitation => invitation.RevokedByAuthAccountId)
+            .HasColumnName("revoked_by_auth_account_id");
+
+        entity.Property(invitation => invitation.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(invitation => invitation.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(invitation => invitation.ExpiresAtUtc)
+            .HasColumnName("expires_at_utc")
+            .IsRequired();
+
+        entity.Property(invitation => invitation.AcceptedAtUtc)
+            .HasColumnName("accepted_at_utc");
+
+        entity.Property(invitation => invitation.RevokedAtUtc)
+            .HasColumnName("revoked_at_utc");
+
+        entity.Property(invitation => invitation.ExpiredAtUtc)
+            .HasColumnName("expired_at_utc");
+
+        entity.Property(invitation => invitation.CleanupEligibleAtUtc)
+            .HasColumnName("cleanup_eligible_at_utc");
+
+        entity.HasIndex(invitation => invitation.InvitationSecretHash)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_invitations_secret_hash");
+
+        entity.HasIndex(invitation => new
+            {
+                invitation.ContactIdentifierKind,
+                invitation.ContactIdentifierNormalized
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_auth_invitations_pending_contact_identifier")
+            .HasFilter("status = 'pending'");
+
+        entity.HasIndex(invitation => new { invitation.Status, invitation.ExpiresAtUtc })
+            .HasDatabaseName("ix_auth_invitations_status_expires_at_utc");
+
+        entity.HasIndex(invitation => invitation.CleanupEligibleAtUtc)
+            .HasDatabaseName("ix_auth_invitations_cleanup_eligible_at_utc");
+
+        entity.HasIndex(invitation => invitation.InvitedByAuthAccountId)
+            .HasDatabaseName("ix_auth_invitations_invited_by_auth_account_id");
+
+        entity.HasIndex(invitation => invitation.InvitedByUserProfileId)
+            .HasDatabaseName("ix_auth_invitations_invited_by_user_profile_id");
+
+        entity.HasIndex(invitation => invitation.RevokedByAuthAccountId)
+            .HasDatabaseName("ix_auth_invitations_revoked_by_auth_account_id");
+
+        entity.HasOne(invitation => invitation.InvitedByAuthAccount)
+            .WithMany(account => account.CreatedInvitations)
+            .HasForeignKey(invitation => invitation.InvitedByAuthAccountId)
+            .HasConstraintName("fk_auth_invitations_invited_by_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(invitation => invitation.InvitedByUserProfile)
+            .WithMany()
+            .HasForeignKey(invitation => invitation.InvitedByUserProfileId)
+            .HasConstraintName("fk_auth_invitations_invited_by_user_profiles")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasOne(invitation => invitation.RevokedByAuthAccount)
+            .WithMany(account => account.RevokedInvitations)
+            .HasForeignKey(invitation => invitation.RevokedByAuthAccountId)
+            .HasConstraintName("fk_auth_invitations_revoked_by_auth_accounts")
             .OnDelete(DeleteBehavior.Restrict);
     }
 

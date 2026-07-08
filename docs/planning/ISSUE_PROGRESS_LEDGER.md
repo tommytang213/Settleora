@@ -20,6 +20,62 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Invitation schema foundation checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only the first invitation
+    persistence/domain foundation slice. Invitation OpenAPI, generated
+    clients, runtime create/list/revoke/accept/send behavior, policy toggles,
+    audit writers, email delivery, and UI remain open follow-up gates.
+  - #777 `OPEN`; production/public-exposure security review remains a
+    separate manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `9334397384c7700ec3addedffc9497849d94ab5d` before this task branch.
+- Branch:
+  `feature/auth-invitation-schema-foundation-20260708-1649`.
+- Completed slice:
+  - Added an API-owned auth-domain invitation persistence foundation with an
+    additive `auth_invitations` table and `AuthInvitation` domain model.
+  - Invitation rows store only `invitation_secret_hash` plus
+    `invitation_secret_hash_version`; raw invitation tokens, codes, links,
+    reusable material, request bodies, provider payloads, session tokens,
+    refresh credentials, password material, storage fields, and money fields
+    are not part of the model/table shape.
+  - Bounded metadata covers normalized contact identifier kind/value, user-only
+    target system role, invited-by auth account/profile, optional revoked-by
+    auth account, status, created/updated/expiry, accepted/revoked/expired,
+    and cleanup-eligible timestamps.
+  - Status is constrained to `pending`, `accepted`, `revoked`, and `expired`;
+    target system role is constrained to `user` only. Owner/admin invitation
+    assignment and lockout protection remain separate #785 work.
+  - Added model/migration tests proving hash-only invite material, user-only
+    target role, required indexes/constraints, additive migration operations,
+    and no storage/money/sync/security-center side-effect tables.
+- Migration assessment:
+  the migration is additive and creates `auth_invitations` with restrictive
+  auth account/user profile foreign keys plus indexes for secret hash,
+  pending contact uniqueness, status/expiry lookup, actor lookup, and cleanup
+  lookup. It does not drop, alter, or mutate existing tables.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Scope confirmation:
+  this checkpoint changes only API auth invitation domain/schema tests,
+  additive EF migration/schema snapshot, and this ledger entry. It does not
+  change OpenAPI/contracts, generated clients, runtime endpoints, invitation
+  token generation/validation, accept/redeem flow, email delivery, public
+  self-registration, OIDC/Keycloak, owner/admin role assignment, admin-created
+  user policy, mobile/user-web/admin UI, Figma, notification/security-center
+  runtime, password reset/change behavior, production/public exposure,
+  Docker/CI/deployment, appsettings/env/secrets, storage, sync, import/export,
+  backup/restore, OCR, money, settlement, payment, bill calculation, issue
+  closure, or branch cleanup.
+
 ### Issues #336/#337/#777 - Auth onboarding full Day 1 policy checkpoint
 
 - GitHub state/project status:

@@ -31,6 +31,10 @@ public sealed class AuthAccount
     public ICollection<AuthPasswordResetRequest> PasswordResetRequests { get; } =
         new List<AuthPasswordResetRequest>();
 
+    public ICollection<AuthInvitation> CreatedInvitations { get; } = new List<AuthInvitation>();
+
+    public ICollection<AuthInvitation> RevokedInvitations { get; } = new List<AuthInvitation>();
+
     public ICollection<AuthSession> Sessions { get; } = new List<AuthSession>();
 
     public ICollection<AuthSessionFamily> SessionFamilies { get; } = new List<AuthSessionFamily>();
