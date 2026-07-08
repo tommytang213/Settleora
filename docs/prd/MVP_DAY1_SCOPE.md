@@ -34,7 +34,22 @@ Day 1 can use simple/guided UI defaults where they reduce clutter, but experienc
 
 Passkeys and MFA are Day 1 runtime scope, not only future foundation. Day 1 does not include SMS MFA. Implementation must remain auth/security manual-gated and must use explicit schema, API/OpenAPI, generated-client, recovery, audit, and UI issue breakdowns before runtime work starts. MFA is optional for normal users unless admin policy requires it; owners/admins should be required or strongly guided by default through admin/security policy. Raw MFA secrets, passkey private material, recovery codes, reusable challenge material, provider tokens, session tokens, and reset tokens must not appear in logs, API responses, generated clients, or audit metadata.
 
-Public self-registration must be easy for non-technical self-hosted admins to enable intentionally from admin/settings with clear warnings and audit, but invite/admin-created flows remain the safe defaults. Local accounts are available where policy allows. OIDC/Keycloak-compatible account flows remain configurable and must not store raw provider tokens in ordinary auth/profile tables.
+Day 1 auth onboarding must keep invitations, public self-registration, local
+accounts, and OIDC/Keycloak-compatible account flows as available product
+capabilities. The default posture is safe: these capabilities are off or
+disabled until explicitly enabled by owner/admin policy, except setup-only
+first-owner bootstrap for an empty deployment.
+
+Public self-registration must be easy for non-technical self-hosted admins to
+enable intentionally from admin/settings with clear warnings and audit, but it
+is off by default and must be implemented as a gated Day 1 capability rather
+than deferred out of Day 1. Invite and admin-created flows remain safe
+defaults. Invitations are off by default until enabled and need safe expiry,
+revocation, and audit. Local accounts are available where policy allows, and
+policy may disable them only when another safe owner/admin authentication path
+remains. OIDC/Keycloak-compatible account flows remain configurable, default
+disabled until configured, must not store raw provider tokens in ordinary
+auth/profile tables, and OIDC-only mode must prevent owner lockout.
 
 ### User profile and payment details
 

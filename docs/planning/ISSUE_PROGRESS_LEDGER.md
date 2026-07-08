@@ -20,6 +20,67 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#777 - Auth onboarding full Day 1 policy checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #777 `OPEN`; production/public-exposure security review remains a
+    separate manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `e4aceacb502022387ce46b53be16cef903a4ec60` before this task branch.
+- Maintainer decision:
+  the earlier #337 readiness posture that implied OIDC/Keycloak runtime later
+  and public self-registration later is superseded. Day 1 auth onboarding must
+  preserve invitations, public self-registration, local accounts, and
+  OIDC/Keycloak as available product capabilities.
+- Corrected Day 1 policy:
+  - Default posture is safe: invitations, public self-registration, local
+    accounts, and OIDC/Keycloak are off or disabled until explicitly enabled
+    by owner/admin policy, except setup-only first-owner bootstrap for an empty
+    deployment.
+  - Setup-only first-owner bootstrap remains allowed only while no auth account
+    exists and must not become public registration.
+  - Public self-registration is off by default but must be implemented as a
+    gated Day 1 capability, not deferred out of Day 1.
+  - Local accounts are available as a Day 1 capability and may be disabled by
+    policy only when a safe owner/admin authentication path remains.
+  - OIDC/Keycloak are Day 1 available capabilities, default disabled until
+    configured, and OIDC-only mode must prevent owner lockout.
+  - Invitations are Day 1 available capabilities, default disabled until
+    owner/admin policy enables them, and must support safe expiry, revocation,
+    and audit in later implementation.
+- Issue split/readback:
+  - Reused #337 for the broad onboarding policy/capability parent.
+  - Reused #464/#465 for admin onboarding/settings UI and Figma planning.
+  - Created #784 for Day 1 invitation schema/OpenAPI/runtime.
+  - Created #785 for owner/admin role assignment and auth lockout protection.
+  - Created #786 for Day 1 public self-registration policy/OpenAPI/runtime.
+  - Created #787 for Day 1 OIDC and Keycloak provider runtime.
+  - Created #788 for Day 1 local-account and admin-created user policy
+    hardening.
+  - Reused #773/#775/#776 only as adjacent provider-reset/admin-recovery/
+    MFA-passkey gates; they do not replace the core onboarding gates above.
+- Security board readback:
+  live open code-scanning alerts on `refs/heads/main`: `0`; live open
+  Dependabot alerts: `0`.
+- Issue posture:
+  keep #336, #337, #338, #339, #777, and child issues #784-#788 open. This
+  checkpoint records policy and issue split only; it does not implement runtime
+  onboarding behavior or complete the auth/session/runtime security epic.
+- Scope confirmation:
+  this checkpoint is docs/planning and GitHub issue hygiene only. It does not
+  change runtime/API/backend behavior, OpenAPI/contracts, generated clients,
+  schema/migrations, mobile/user-web/admin UI, password reset behavior,
+  session/runtime auth behavior, notification/security-center runtime,
+  MFA/passkey runtime, production/public exposure, Docker/CI/deployment,
+  appsettings/env/secrets, storage, sync, import/export, backup/restore, OCR,
+  money, settlement, payment, bill calculation, issue closure, or issue/project
+  metadata beyond creating the child issues with existing labels and posting
+  checkpoint comments where recorded in the task report.
+
 ### Issues #336/#338/#777 - Current-account session revocation refresh-continuity hardening
 
 - GitHub state/project status:

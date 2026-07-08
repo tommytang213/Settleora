@@ -55,7 +55,9 @@ The auth foundation must support these directions:
 
 Future implementation should use provider abstractions so auth method choices remain deployment policy, not hardcoded product behavior. Secure defaults should be least privilege, with invite-only mode, public self-registration, local-account enablement, OIDC-only mode, passkey policy, and MFA policy treated as explicit configuration or persisted policy decisions.
 
-Fresh self-hosted deployments may use the reviewed first-owner local bootstrap endpoint to create the initial local account only while `auth_accounts` is empty. After that, account creation is limited to the reviewed owner/admin local-user foundation until invitation or self-registration policy is designed and implemented separately.
+Maintainer decision on 2026-07-08 confirms the full Day 1 onboarding posture: invitations, public self-registration, local accounts, and OIDC/Keycloak are Day 1 available product capabilities. They default off or disabled until explicitly enabled by owner/admin policy, except setup-only first-owner local bootstrap for an empty deployment. Public self-registration is off by default but must be implemented as a gated Day 1 capability, not deferred out of Day 1. Invitations are off by default until enabled and must support safe expiry, revocation, and audit when implemented. Local accounts may be disabled by policy only when a safe owner/admin authentication path remains. OIDC/Keycloak is default disabled until configured, must avoid raw provider-token storage in ordinary auth/profile tables, and OIDC-only mode must prevent owner lockout.
+
+Fresh self-hosted deployments may use the reviewed first-owner local bootstrap endpoint to create the initial local account only while `auth_accounts` is empty. Bootstrap must remain setup-only and must not become public registration. After that, account creation remains limited to reviewed owner/admin local-user foundations until the separate invitation, public self-registration, local-account policy, OIDC/Keycloak, and owner-lockout gates are implemented.
 
 ## Account To Profile Mapping
 
@@ -169,8 +171,8 @@ This document does not authorize:
 
 Future work should remain small and reviewable. Good next candidates are:
 
-- Public registration or invite onboarding only after policy, abuse handling, and audit expectations are reviewed.
-- Password reset/change flows, passkeys, MFA, and OIDC runtime only as separate reviewed slices.
+- Invitation and public-registration onboarding as separate reviewed Day 1 slices after policy, abuse handling, and audit expectations are explicit; these are gated Day 1 capabilities, not Day 2/future-only cuts.
+- Password reset/change flows, passkeys, MFA, and OIDC/Keycloak runtime only as separate reviewed slices. OIDC/Keycloak remains a Day 1 available capability that is default disabled until configured.
 - Admin account/session management beyond the current owner/admin local-user foundation and current-account session endpoints only after authorization and audit policy are explicit.
 - Invitation, guest/default-excluded/left member behavior, and broader admin user-management endpoints only after the current group, group member management, membership audit, and admin local-user foundations are reviewed and the next policy checks are designed.
 
