@@ -19,7 +19,6 @@ for (const path of requiredDocs) {
 
 const trackedMarkdown = spawnSync("git", ["ls-files", "*.md"], {
   encoding: "utf8",
-  shell: process.platform === "win32",
   windowsHide: true
 });
 

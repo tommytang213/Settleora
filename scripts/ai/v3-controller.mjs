@@ -32,6 +32,7 @@ const maxBugfixCyclesPerFinding = 2;
 const maxSameValidationFailure = 2;
 const codexCommandEnv = "SETTLEORA_AI_V3_CODEX_COMMAND";
 const defaultCodexCommand = "codex-vm-full";
+const allowedCodexCommands = new Set([defaultCodexCommand, "codex"]);
 
 const forbiddenPathPatterns = [
   /^main$/,
@@ -435,10 +436,6 @@ Timezone: Asia/Hong_Kong / HKT / GMT+8
   return { promptPath, branchName };
 }
 
-function shellQuote(value) {
-  return `'${String(value).replace(/'/g, "'\\''")}'`;
-}
-
 function attemptedCommand(command, args = []) {
   return [command, ...args].map((part) => JSON.stringify(String(part))).join(" ");
 }
@@ -538,23 +535,20 @@ function parseJsonOutput(result, message) {
 }
 
 function resolveCodexCommand() {
-  const override = process.env[codexCommandEnv]?.trim();
-  if (override) {
-    return {
-      command: override,
-      source: `${codexCommandEnv} override`,
-      resolverCommand: null,
-      resolverArgs: [],
-    };
+  const requestedCommand = process.env[codexCommandEnv]?.trim() || defaultCodexCommand;
+  if (!allowedCodexCommands.has(requestedCommand)) {
+    throw new Error(
+      `${codexCommandEnv} must be one of: ${[...allowedCodexCommands].sort().join(", ")}`,
+    );
   }
 
-  const resolverCommand = "bash";
-  const resolverArgs = ["-lc", `command -v ${shellQuote(defaultCodexCommand)}`];
+  const resolverCommand = "which";
+  const resolverArgs = [requestedCommand];
   const result = runCommand(resolverCommand, resolverArgs);
   if (!result.error && result.status === 0 && result.stdout.trim()) {
     return {
-      command: result.stdout.trim().split(/\r?\n/)[0],
-      source: "login-shell PATH",
+      command: codexCommandForKey(requestedCommand),
+      source: requestedCommand === defaultCodexCommand ? "PATH" : `${codexCommandEnv} allowlist`,
       resolverCommand,
       resolverArgs,
     };
@@ -568,6 +562,17 @@ function resolveCodexCommand() {
       formatCommandFailure(result),
     ].join("\n"),
   );
+}
+
+function codexCommandForKey(commandKey) {
+  switch (commandKey) {
+    case defaultCodexCommand:
+      return defaultCodexCommand;
+    case "codex":
+      return "codex";
+    default:
+      throw new Error(`Unsupported Codex command key: ${commandKey}`);
+  }
 }
 
 function runCodexCommand(codexCommand, prompt, promptInfo, iteration) {
@@ -593,7 +598,7 @@ function runCodexCommand(codexCommand, prompt, promptInfo, iteration) {
   const outputFd = openSync(logPath, "a");
   let result;
   try {
-    result = spawnSync(codexCommand.command, args, {
+    result = spawnCodexCommand(codexCommand.command, args, {
       cwd: repoRoot,
       encoding: "utf8",
       stdio: ["pipe", outputFd, outputFd],
@@ -636,6 +641,17 @@ function runCodexCommand(codexCommand, prompt, promptInfo, iteration) {
   };
 }
 
+function spawnCodexCommand(command, args, options) {
+  switch (command) {
+    case defaultCodexCommand:
+      return spawnSync(defaultCodexCommand, args, options);
+    case "codex":
+      return spawnSync("codex", args, options);
+    default:
+      throw new Error(`Unsupported Codex command key: ${command}`);
+  }
+}
+
 function selectionSafeId(value) {
   return slugify(String(value).replace(/^ai\/task\//, ""));
 }
@@ -646,13 +662,42 @@ function changedFiles(baseRef, headRef) {
   return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-function globToRegex(pattern) {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "<<<GLOBSTAR>>>")
-    .replace(/\*/g, "[^/]*")
-    .replace(/<<<GLOBSTAR>>>/g, ".*");
-  return new RegExp(`^${escaped}$`);
+function globMatches(pattern, value) {
+  return globPartsMatch(pattern.split("/"), value.split("/"));
+}
+
+function globPartsMatch(patternParts, valueParts) {
+  if (patternParts.length === 0) {
+    return valueParts.length === 0;
+  }
+
+  const [head, ...tail] = patternParts;
+  if (head === "**") {
+    return globPartsMatch(tail, valueParts) || (valueParts.length > 0 && globPartsMatch(patternParts, valueParts.slice(1)));
+  }
+
+  if (valueParts.length === 0) {
+    return false;
+  }
+
+  return segmentMatches(head, valueParts[0]) && globPartsMatch(tail, valueParts.slice(1));
+}
+
+function segmentMatches(patternSegment, valueSegment) {
+  return segmentPartsMatch([...patternSegment], [...valueSegment]);
+}
+
+function segmentPartsMatch(patternChars, valueChars) {
+  if (patternChars.length === 0) {
+    return valueChars.length === 0;
+  }
+
+  const [head, ...tail] = patternChars;
+  if (head === "*") {
+    return segmentPartsMatch(tail, valueChars) || (valueChars.length > 0 && segmentPartsMatch(patternChars, valueChars.slice(1)));
+  }
+
+  return valueChars.length > 0 && head === valueChars[0] && segmentPartsMatch(tail, valueChars.slice(1));
 }
 
 function fileAllowedByTask(file, task) {
@@ -661,7 +706,7 @@ function fileAllowedByTask(file, task) {
       return file.startsWith(area.slice(0, -3));
     }
     if (area.includes("*")) {
-      return globToRegex(area).test(file);
+      return globMatches(area, file);
     }
     return file === area || file.startsWith(`${area.replace(/\/$/, "")}/`);
   });

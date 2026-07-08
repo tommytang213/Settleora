@@ -55,9 +55,9 @@ class Summary:
     hierarchy_failures: int = 0
 
 
-def run(args: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run_gh(args: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
-        args,
+        ["gh", *args],
         input=input_text,
         text=True,
         stdout=subprocess.PIPE,
@@ -65,12 +65,12 @@ def run(args: list[str], *, input_text: str | None = None, check: bool = True) -
         check=False,
     )
     if check and result.returncode != 0:
-        raise RuntimeError(f"{' '.join(args)}\n{result.stderr.strip()}")
+        raise RuntimeError(f"gh {' '.join(args)}\n{result.stderr.strip()}")
     return result
 
 
 def load_json_command(args: list[str]) -> Any:
-    result = run(args)
+    result = run_gh(args)
     return json.loads(result.stdout)
 
 
@@ -179,7 +179,7 @@ def field_option_maps(fields: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
 
 
 def find_project_id(fields: list[dict[str, Any]], owner: str, number: int) -> str:
-    projects = load_json_command(["gh", "project", "list", "--owner", owner, "--format", "json", "--limit", "100"])
+    projects = load_json_command(["project", "list", "--owner", owner, "--format", "json", "--limit", "100"])
     for project in projects.get("projects", []):
         if int(project["number"]) == number:
             return project["id"]
@@ -228,7 +228,7 @@ query($projectId: ID!) {
   }
 }
 """
-    result = run(["gh", "api", "graphql", "-f", f"query={query}", "-F", f"projectId={project_id}"])
+    result = run_gh(["api", "graphql", "-f", f"query={query}", "-F", f"projectId={project_id}"])
     data = json.loads(result.stdout)
     output: dict[str, dict[str, str]] = {}
     for item in data["data"]["node"]["items"]["nodes"]:
@@ -295,7 +295,7 @@ def edit_project_field(
         return "skipped"
     if dry_run:
         return "updated"
-    args = ["gh", "project", "item-edit", "--id", item_id, "--project-id", project_id, "--field-id", field["id"]]
+    args = ["project", "item-edit", "--id", item_id, "--project-id", project_id, "--field-id", field["id"]]
     if value_kind == "single":
         option_id = field.get("options", {}).get(str(value))
         if not option_id:
@@ -307,7 +307,7 @@ def edit_project_field(
         args.extend(["--text", str(value)])
     else:
         return "unsupported"
-    result = run(args, check=False)
+    result = run_gh(args, check=False)
     return "updated" if result.returncode == 0 else f"failed: {result.stderr.strip()}"
 
 
@@ -320,7 +320,7 @@ def marker_replace(body: str, start: str, end: str, section: str) -> str:
 
 
 def issue_body(repo: str, number: int) -> str:
-    data = load_json_command(["gh", "issue", "view", str(number), "--repo", repo, "--json", "body"])
+    data = load_json_command(["issue", "view", str(number), "--repo", repo, "--json", "body"])
     return data.get("body") or ""
 
 
@@ -331,15 +331,15 @@ def update_issue_body(repo: str, number: int, body: str, dry_run: bool) -> bool:
         handle.write(body)
         body_path = handle.name
     try:
-        result = run(["gh", "issue", "edit", str(number), "--repo", repo, "--body-file", body_path], check=False)
+        result = run_gh(["issue", "edit", str(number), "--repo", repo, "--body-file", body_path], check=False)
         return result.returncode == 0
     finally:
         Path(body_path).unlink(missing_ok=True)
 
 
 def sync_fields(args: argparse.Namespace, summary: Summary, issues: list[SeedIssue]) -> dict[str, dict[str, Any]]:
-    fields_data = load_json_command(["gh", "project", "field-list", str(args.project_number), "--owner", args.owner, "--format", "json", "--limit", "100"])
-    items_data = load_json_command(["gh", "project", "item-list", str(args.project_number), "--owner", args.owner, "--format", "json", "--limit", "1000"])
+    fields_data = load_json_command(["project", "field-list", str(args.project_number), "--owner", args.owner, "--format", "json", "--limit", "100"])
+    items_data = load_json_command(["project", "item-list", str(args.project_number), "--owner", args.owner, "--format", "json", "--limit", "1000"])
     fields = field_option_maps(fields_data.get("fields", []))
     project_id = find_project_id(fields_data.get("fields", []), args.owner, args.project_number)
     existing_field_values = fetch_existing_field_values(project_id)
@@ -450,7 +450,7 @@ def main() -> int:
     if not args.skip_fields:
         item_map = sync_fields(args, summary, issues)
     else:
-        items_data = load_json_command(["gh", "project", "item-list", str(args.project_number), "--owner", args.owner, "--format", "json", "--limit", "1000"])
+        items_data = load_json_command(["project", "item-list", str(args.project_number), "--owner", args.owner, "--format", "json", "--limit", "1000"])
         item_map = build_item_map(items_data.get("items", []))
         summary.project_items_seen = int(items_data.get("totalCount", len(item_map)))
         summary.seeded_titles = len(issues)

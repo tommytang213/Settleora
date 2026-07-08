@@ -56,15 +56,81 @@ details beyond file/rule metadata, or raw sensitive runtime data.
 
 ## Bundle B Follow-ups
 
-- Harden critical command execution in `scripts/ai/v3-controller.mjs` and
-  `tools/github/sync-day1-board-fields.py`.
-- Harden repo JS validation tools that use shell execution.
+### Bundle B1 Tooling Hardening Status
+
+Bundle B1 was opened after PR #779 / Bundle A merged to `main` at
+`85c45f0018b8f20e6c34e6283776bcdfbea5a65f`.
+
+Live GitHub code-scanning readback on `refs/heads/main` before Bundle B1 edits
+reported `41` open alerts. The exact-head PR #779 readback on
+`refs/pull/779/head` reported `0` open alerts, confirming the Bundle A
+exact-head test-only alert noise was removed for that PR head. The remaining
+main-context readback still included older storage/recurring entries plus the
+Bundle B/C families recorded below.
+
+Bundle B1 fixed the command/tooling families in repo tooling only:
+
+- CodeQL `js/command-line-injection` in `scripts/ai/v3-controller.mjs` by
+  replacing arbitrary `SETTLEORA_AI_V3_CODEX_COMMAND` executable selection with
+  a small reviewed command allowlist, argument-array command resolution, and
+  literal executable dispatch for Codex launch.
+- CodeQL `py/command-line-injection` in
+  `tools/github/sync-day1-board-fields.py` by replacing the generic subprocess
+  runner with a `gh`-only runner that passes only argument arrays to a fixed
+  executable.
+- Semgrep `spawn-shell-true` findings in `tools/validate-docs.mjs`,
+  `tools/doctor-validation.mjs`, and `tools/diagnose-npm-env.mjs` by removing
+  `shell: true` usage while preserving fixed executable names and argument
+  arrays.
+- CodeQL `js/path-injection` findings in `tools/generate-clients.mjs` by
+  confining generated-client output roots to the committed web/Dart generated
+  directories or the explicit `validate-clients` temp directory shape
+  `settleora-client-validation-*`, and by checking generated entry paths before
+  recursive delete or write.
+- Semgrep dynamic RegExp findings in touched tooling by replacing the
+  controller glob RegExp builder with a small glob matcher and replacing the
+  generated Dart nullable-field dynamic RegExp with a literal string scanner
+  over an allowlisted method set.
+
+Bundle B1 added a focused Node built-in smoke test for generated-client output
+path confinement in `tools/tests/generate-clients-path-confinement.test.mjs`.
+
+Bundle B1 validation evidence:
+
+- `node --check scripts/ai/v3-controller.mjs`: passed.
+- `python3 -m py_compile tools/github/sync-day1-board-fields.py`: passed.
+- `node --check tools/generate-clients.mjs`: passed.
+- `node --check tools/validate-clients.mjs`,
+  `node --check tools/validate-docs.mjs`,
+  `node --check tools/doctor-validation.mjs`,
+  `node --check tools/diagnose-npm-env.mjs`, and
+  `node --check tools/tests/generate-clients-path-confinement.test.mjs`:
+  passed.
+- `node --test tools/tests/generate-clients-path-confinement.test.mjs`:
+  passed with `2` tests.
+- `git diff --check`: passed with no output.
+- `npm run validate:docs`: passed; output included
+  `Documentation validation passed.`
+- `npm run validate:scaffold`: passed; output included
+  `Scaffold validation passed (19 paths).`
+- `npm run validate:openapi`: passed; Redocly reported the OpenAPI
+  description is valid.
+- `npm run generate:clients`: passed; generated web/Dart clients under the
+  committed generated output roots.
+- `git diff --name-only`: showed only Bundle B1 tooling/docs paths and no
+  generated-client output files.
+- `git diff --stat`: showed only Bundle B1 tooling/docs paths and no
+  generated-client output files.
+- `npm run validate:clients`: passed; generated temp outputs under
+  `/tmp/settleora-client-validation-*/client-web` and
+  `/tmp/settleora-client-validation-*/client-dart`, then reported
+  `Generated client validation passed.`
+
+### Remaining Bundle B2 Follow-ups
+
 - Pin GitHub Actions to immutable SHAs and add least-privilege workflow
   permissions.
 - Fix GitHub Actions shell interpolation findings.
-- Refactor `tools/generate-clients.mjs` path handling under a reviewed
-  OpenAPI/generated-client tooling gate.
-- Resolve or prove dynamic RegExp findings.
 
 ## Bundle C Follow-ups
 
