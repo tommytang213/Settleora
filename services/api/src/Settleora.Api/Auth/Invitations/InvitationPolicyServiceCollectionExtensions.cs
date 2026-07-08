@@ -18,6 +18,7 @@ internal static class InvitationPolicyServiceCollectionExtensions
         services.TryAddSingleton(_ => InvitationAbusePolicyOptions.Default);
         services.TryAddSingleton<IInvitationAbusePolicyService, InMemoryInvitationAbusePolicyService>();
         services.TryAddScoped<IInvitationPolicyService, InvitationPolicyService>();
+        services.TryAddScoped<IInvitationLifecycleCleanupService, InvitationLifecycleCleanupService>();
         services.TryAddScoped<IInvitationManagementService, InvitationManagementService>();
         services.TryAddScoped<IInvitationAcceptanceService, InvitationAcceptanceService>();
         services.TryAddScoped<IInvitationEmailDeliveryReadinessService, InvitationEmailDeliveryReadinessService>();

@@ -30,6 +30,7 @@ internal sealed class InvitationManagementService : IInvitationManagementService
     private readonly IInvitationEmailTemplateComposer emailTemplateComposer;
     private readonly IInvitationEmailSender emailSender;
     private readonly IInvitationAbusePolicyService abusePolicyService;
+    private readonly IInvitationLifecycleCleanupService lifecycleCleanupService;
 
     public InvitationManagementService(
         SettleoraDbContext dbContext,
@@ -37,7 +38,8 @@ internal sealed class InvitationManagementService : IInvitationManagementService
         IInvitationEmailDeliveryReadinessService emailDeliveryReadinessService,
         IInvitationEmailTemplateComposer emailTemplateComposer,
         IInvitationEmailSender emailSender,
-        IInvitationAbusePolicyService abusePolicyService)
+        IInvitationAbusePolicyService abusePolicyService,
+        IInvitationLifecycleCleanupService lifecycleCleanupService)
     {
         this.dbContext = dbContext;
         this.timeProvider = timeProvider;
@@ -45,12 +47,15 @@ internal sealed class InvitationManagementService : IInvitationManagementService
         this.emailTemplateComposer = emailTemplateComposer;
         this.emailSender = emailSender;
         this.abusePolicyService = abusePolicyService;
+        this.lifecycleCleanupService = lifecycleCleanupService;
     }
 
     public async Task<AdminInvitationListResponse> ListInvitationsAsync(
         InvitationListFilters filters,
         CancellationToken cancellationToken)
     {
+        await lifecycleCleanupService.ExecuteCleanupAsync(cancellationToken);
+
         var now = timeProvider.GetUtcNow();
         var query = dbContext.Set<AuthInvitation>()
             .AsNoTracking()
@@ -104,6 +109,8 @@ internal sealed class InvitationManagementService : IInvitationManagementService
     {
         ArgumentNullException.ThrowIfNull(actor);
         ArgumentNullException.ThrowIfNull(request);
+
+        await lifecycleCleanupService.ExecuteCleanupAsync(cancellationToken);
 
         if (!await InvitationCapabilityEnabledAsync(cancellationToken))
         {
@@ -216,6 +223,8 @@ internal sealed class InvitationManagementService : IInvitationManagementService
         Guid invitationId,
         CancellationToken cancellationToken)
     {
+        await lifecycleCleanupService.ExecuteCleanupAsync(cancellationToken);
+
         var invitation = await dbContext.Set<AuthInvitation>()
             .AsNoTracking()
             .SingleOrDefaultAsync(invitation => invitation.Id == invitationId, cancellationToken);
@@ -233,6 +242,8 @@ internal sealed class InvitationManagementService : IInvitationManagementService
     {
         ArgumentNullException.ThrowIfNull(actor);
         ArgumentNullException.ThrowIfNull(request);
+
+        await lifecycleCleanupService.ExecuteCleanupAsync(cancellationToken);
 
         var invitation = await dbContext.Set<AuthInvitation>()
             .SingleOrDefaultAsync(invitation => invitation.Id == invitationId, cancellationToken);
@@ -279,6 +290,8 @@ internal sealed class InvitationManagementService : IInvitationManagementService
     {
         ArgumentNullException.ThrowIfNull(actor);
         ArgumentNullException.ThrowIfNull(request);
+
+        await lifecycleCleanupService.ExecuteCleanupAsync(cancellationToken);
 
         if (!await InvitationCapabilityEnabledAsync(cancellationToken))
         {
