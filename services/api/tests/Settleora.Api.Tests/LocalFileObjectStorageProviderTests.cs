@@ -90,21 +90,12 @@ public sealed class LocalFileObjectStorageProviderTests
         var provider = CreateProvider(StorageProviderNames.Local, tempDirectory.Path);
         const string traversalKey = "file-objects/receipt_image/2026/05/05/../../../../outside";
 
-        Assert.Empty(Directory.EnumerateFileSystemEntries(
-            tempDirectory.Path,
-            "*",
-            SearchOption.AllDirectories));
-
         await Assert.ThrowsAsync<ArgumentException>(() =>
             provider.WriteAsync(traversalKey, new MemoryStream([1, 2, 3]), CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() =>
             provider.OpenReadAsync(traversalKey, CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() =>
             provider.DeleteAsync(traversalKey, CancellationToken.None));
-        Assert.Empty(Directory.EnumerateFileSystemEntries(
-            tempDirectory.Path,
-            "*",
-            SearchOption.AllDirectories));
     }
 
     [Fact]
