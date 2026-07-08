@@ -12,13 +12,17 @@ on:
       - "chore/**"
       - "docs/**"
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     name: Validate scaffold
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        # Pinned from actions/checkout@v6.
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           fetch-depth: 0
 
@@ -95,14 +99,16 @@ jobs:
           printf 'Changed files:\n%s\n' "${changed_files:-<unavailable>}"
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        # Pinned from actions/setup-node@v6.
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: "22"
           cache: npm
 
       - name: Setup .NET
         if: steps.changes.outputs.run_full_validation == 'true'
-        uses: actions/setup-dotnet@v5
+        # Pinned from actions/setup-dotnet@v5.
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: "9.0.x"
 

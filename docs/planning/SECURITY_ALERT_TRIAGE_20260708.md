@@ -2,8 +2,9 @@
 
 ## Scope
 
-This document records Bundle A triage for the open GitHub code-scanning alert
-set checked on 2026-07-08 from the repository `tommytang213/Settleora`.
+This document records Bundle A triage and follow-up Bundle B hardening for the
+open GitHub code-scanning alert set checked on 2026-07-08 from the repository
+`tommytang213/Settleora`.
 
 Live GitHub code-scanning alerts were fetched with `gh api` from the current
 repository context. The live open count was `42`, matching the user-provided
@@ -126,11 +127,70 @@ Bundle B1 validation evidence:
   `/tmp/settleora-client-validation-*/client-dart`, then reported
   `Generated client validation passed.`
 
-### Remaining Bundle B2 Follow-ups
+### Bundle B2 GitHub Actions Hardening Status
 
-- Pin GitHub Actions to immutable SHAs and add least-privilege workflow
-  permissions.
-- Fix GitHub Actions shell interpolation findings.
+Bundle B2 was opened after PR #780 / Bundle B1 merged to `main` at
+`be4fecda4aa2cd8766916c7698517c47d82ed781`.
+
+Live GitHub code-scanning readback on `refs/heads/main` before Bundle B2 edits
+reported `25` open alerts. The Bundle B2-relevant alert families were:
+
+- Semgrep OSS
+  `yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag`:
+  alerts `#36`, `#35`, `#34`, `#33`, `#31`, `#30`, `#29`, `#28`, `#26`, and
+  `#23` across `.github/workflows/scaffold-validation.yml`,
+  `.github/workflows/mobile-ios-validation.yml`,
+  `.github/workflows/api-image-ghcr.yml`, and
+  `.github/workflows/ai-integration-scope-guard.yml`.
+- Semgrep OSS
+  `yaml.github-actions.security.run-shell-injection.run-shell-injection`:
+  alerts `#32`, `#27`, `#25`, and `#24` across
+  `.github/workflows/mobile-ios-validation.yml`,
+  `.github/workflows/api-image-ghcr.yml`, and
+  `.github/workflows/ai-integration-scope-guard.yml`.
+- CodeQL `actions/missing-workflow-permissions`: alert `#3` in
+  `.github/workflows/scaffold-validation.yml`.
+
+Bundle B2 fixed the GitHub Actions families only:
+
+- `.github/workflows/ai-integration-scope-guard.yml`: pinned
+  `actions/checkout@v4` to
+  `34e114876b0b11c390a56381ad16ebd13914f8d5`; moved `github.base_ref` and
+  `github.head_ref` values into step `env:` variables before using them in
+  shell commands.
+- `.github/workflows/api-image-ghcr.yml`: pinned `actions/checkout@v6` to
+  `df4cb1c069e1874edd31b4311f1884172cec0e10`,
+  `docker/login-action@v3` to
+  `c94ce9fb468520275223c153574b00df6fe4bcc9`,
+  `docker/setup-buildx-action@v3` to
+  `8d2750c68a42422c14e847fe6c8ac0403b4cbd6f`, and
+  `docker/build-push-action@v6` to
+  `10e90e3645eae34f1e60eeb005ba3a3d33f178e8`; moved the workflow dispatch
+  event name and optional image tag into step `env:` variables before shell
+  use.
+- `.github/workflows/mobile-ios-validation.yml`: pinned
+  `actions/checkout@v6` to
+  `df4cb1c069e1874edd31b4311f1884172cec0e10` and
+  `subosito/flutter-action@v2` to
+  `1a449444c387b1966244ae4d4f8c696479add0b2`; moved `inputs.expected_head`
+  into a step `env:` variable before shell use.
+- `.github/workflows/scaffold-validation.yml`: added top-level
+  `permissions: contents: read`; pinned `actions/checkout@v6` to
+  `df4cb1c069e1874edd31b4311f1884172cec0e10`,
+  `actions/setup-node@v6` to
+  `48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e`, and
+  `actions/setup-dotnet@v5` to
+  `26b0ec14cb23fa6904739307f278c14f94c95bf1`.
+
+Existing security workflows already had least-privilege permissions and pinned
+action SHAs:
+
+- `.github/workflows/security-semgrep.yml` keeps `contents: read` plus
+  `security-events: write` because it uploads Semgrep SARIF.
+- `.github/workflows/security-trivy.yml` keeps `contents: read` plus
+  `security-events: write` because it uploads Trivy SARIF.
+
+Bundle C remains separate and is not changed by Bundle B2.
 
 ## Bundle C Follow-ups
 

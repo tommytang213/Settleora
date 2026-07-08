@@ -15,18 +15,24 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # Pinned from actions/checkout@v4.
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
 
       - name: Fetch base branch
-        run: git fetch origin "${{ github.base_ref }}"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch origin "${BASE_REF}"
 
       - name: Run scope guard
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           extra_args=()
-          if [ "${{ github.head_ref }}" = "ai/task/v3-pipeline-bootstrap-20260611-1704" ]; then
+          if [ "${HEAD_REF}" = "ai/task/v3-pipeline-bootstrap-20260611-1704" ]; then
             extra_args+=(--allow-bootstrap-workflow)
           fi
 
-          node scripts/ai/v3-scope-guard.mjs --base "origin/${{ github.base_ref }}" --head HEAD "${extra_args[@]}"
+          node scripts/ai/v3-scope-guard.mjs --base "origin/${BASE_REF}" --head HEAD "${extra_args[@]}"
