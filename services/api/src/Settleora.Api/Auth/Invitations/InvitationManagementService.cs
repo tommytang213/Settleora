@@ -10,8 +10,14 @@ internal sealed class InvitationManagementService : IInvitationManagementService
 {
     private const int SafeMetadataJsonMaxLength = 4096;
     private const string WorkflowName = "auth_invitation_management";
-    private const string DeliveryStateProviderUnconfigured = "provider_unconfigured";
     private const string DeliveryStateNotRequested = "not_requested";
+    private const string DeliveryStateUnsupported = "unsupported";
+    private const string DeliveryStateProviderUnconfigured = "provider_unconfigured";
+    private const string DeliveryStateProviderInvalid = "provider_invalid";
+    private const string DeliveryStateDisabledByAdmin = "disabled_by_admin";
+    private const string DeliveryStateQueued = "queued";
+    private const string DeliveryStateSent = "sent";
+    private const string DeliveryStateFailed = "failed";
     private const string DeliveryStateUnknown = "unknown";
     private static readonly TimeSpan InvitationLifetime = TimeSpan.FromDays(7);
     private static readonly TimeSpan TerminalCleanupDelay = TimeSpan.FromDays(90);
@@ -19,11 +25,22 @@ internal sealed class InvitationManagementService : IInvitationManagementService
 
     private readonly SettleoraDbContext dbContext;
     private readonly TimeProvider timeProvider;
+    private readonly IInvitationEmailDeliveryReadinessService emailDeliveryReadinessService;
+    private readonly IInvitationEmailTemplateComposer emailTemplateComposer;
+    private readonly IInvitationEmailSender emailSender;
 
-    public InvitationManagementService(SettleoraDbContext dbContext, TimeProvider timeProvider)
+    public InvitationManagementService(
+        SettleoraDbContext dbContext,
+        TimeProvider timeProvider,
+        IInvitationEmailDeliveryReadinessService emailDeliveryReadinessService,
+        IInvitationEmailTemplateComposer emailTemplateComposer,
+        IInvitationEmailSender emailSender)
     {
         this.dbContext = dbContext;
         this.timeProvider = timeProvider;
+        this.emailDeliveryReadinessService = emailDeliveryReadinessService;
+        this.emailTemplateComposer = emailTemplateComposer;
+        this.emailSender = emailSender;
     }
 
     public async Task<AdminInvitationListResponse> ListInvitationsAsync(
@@ -146,7 +163,7 @@ internal sealed class InvitationManagementService : IInvitationManagementService
                 invitation.Status,
                 invitation.ContactIdentifierKind,
                 invitation.TargetSystemRole,
-                request.DeliveryRequested ? DeliveryStateProviderUnconfigured : DeliveryStateNotRequested));
+                request.DeliveryRequested ? DeliveryStateUnknown : DeliveryStateNotRequested));
 
         try
         {
@@ -157,10 +174,25 @@ internal sealed class InvitationManagementService : IInvitationManagementService
             return InvitationManagementResult.Failure(InvitationManagementResultStatus.DuplicatePendingInvitation);
         }
 
+        var deliveryState = DeliveryStateNotRequested;
+        if (request.DeliveryRequested)
+        {
+            // Email links contain bearer invitation material. The row and
+            // matching hash are committed before the raw material leaves this
+            // service through the explicit invitation email boundary.
+            var deliveryOutcome = await TryDeliverInvitationEmailAsync(
+                normalizedEmail,
+                rawInvitationSecret,
+                cancellationToken);
+            deliveryState = deliveryOutcome.DeliveryState;
+            AddDeliveryAudit(actor.AuthAccountId, occurredAtUtc, invitation, deliveryOutcome);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
         return InvitationManagementResult.Succeeded(MapSummary(
             invitation,
             occurredAtUtc,
-            request.DeliveryRequested ? DeliveryStateProviderUnconfigured : DeliveryStateNotRequested));
+            deliveryState));
     }
 
     public async Task<InvitationManagementResult> GetInvitationAsync(
@@ -249,25 +281,129 @@ internal sealed class InvitationManagementService : IInvitationManagementService
             return InvitationManagementResult.Failure(InvitationManagementResultStatus.TerminalState);
         }
 
-        invitation.UpdatedAtUtc = occurredAtUtc;
-        var deliveryState = request.DeliveryRequested ? DeliveryStateProviderUnconfigured : DeliveryStateNotRequested;
+        var deliveryOutcome = InvitationDeliveryOutcome.NotRequested();
+        var resendAuditRecorded = false;
+        if (request.DeliveryRequested)
+        {
+            var readiness = emailDeliveryReadinessService.GetReadiness();
+            if (!readiness.Ready)
+            {
+                deliveryOutcome = InvitationDeliveryOutcome.FromReadiness(readiness);
+            }
+            else
+            {
+                var rawInvitationSecret = InvitationSecretHasher.CreateRawInvitationSecret();
+                var composition = emailTemplateComposer.Compose(
+                    new InvitationEmailTemplateCompositionRequest(rawInvitationSecret));
+                if (!composition.Available || composition.SendReadyMessage is null)
+                {
+                    deliveryOutcome = InvitationDeliveryOutcome.FromComposition(composition);
+                }
+                else
+                {
+                    invitation.InvitationSecretHash = InvitationSecretHasher.DeriveInvitationSecretHash(rawInvitationSecret);
+                    invitation.InvitationSecretHashVersion = InvitationSecretHasher.HashVersion;
+                    invitation.UpdatedAtUtc = occurredAtUtc;
+
+                    AddAudit(
+                        actor.AuthAccountId,
+                        action: "invitation.resend_requested",
+                        occurredAtUtc,
+                        new InvitationAuditMetadata(
+                            WorkflowName,
+                            "resend_requested",
+                            invitation.Id,
+                            invitation.Status,
+                            invitation.ContactIdentifierKind,
+                            invitation.TargetSystemRole,
+                            DeliveryStateQueued));
+                    resendAuditRecorded = true;
+
+                    // The new hash is committed before the new raw material is
+                    // handed to SMTP/sink delivery, so the old material cannot
+                    // redeem after a successful rotation.
+                    await dbContext.SaveChangesAsync(cancellationToken);
+
+                    var sendResult = await emailSender.SendAsync(
+                        new InvitationEmailSendRequest(
+                            invitation.ContactIdentifierNormalized,
+                            composition.SendReadyMessage),
+                        cancellationToken);
+                    deliveryOutcome = InvitationDeliveryOutcome.FromSendResult(sendResult);
+                }
+            }
+        }
+
+        if (!resendAuditRecorded)
+        {
+            invitation.UpdatedAtUtc = occurredAtUtc;
+            AddAudit(
+                actor.AuthAccountId,
+                action: "invitation.resend_requested",
+                occurredAtUtc,
+                new InvitationAuditMetadata(
+                    WorkflowName,
+                    "resend_requested",
+                    invitation.Id,
+                    invitation.Status,
+                    invitation.ContactIdentifierKind,
+                    invitation.TargetSystemRole,
+                    deliveryOutcome.DeliveryState));
+        }
+
+        AddDeliveryAudit(actor.AuthAccountId, occurredAtUtc, invitation, deliveryOutcome);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return InvitationManagementResult.Succeeded(MapSummary(invitation, occurredAtUtc, deliveryOutcome.DeliveryState));
+    }
+
+    private async Task<InvitationDeliveryOutcome> TryDeliverInvitationEmailAsync(
+        string recipientEmail,
+        string rawInvitationSecret,
+        CancellationToken cancellationToken)
+    {
+        var readiness = emailDeliveryReadinessService.GetReadiness();
+        if (!readiness.Ready)
+        {
+            return InvitationDeliveryOutcome.FromReadiness(readiness);
+        }
+
+        var composition = emailTemplateComposer.Compose(
+            new InvitationEmailTemplateCompositionRequest(rawInvitationSecret));
+        if (!composition.Available || composition.SendReadyMessage is null)
+        {
+            return InvitationDeliveryOutcome.FromComposition(composition);
+        }
+
+        var sendResult = await emailSender.SendAsync(
+            new InvitationEmailSendRequest(recipientEmail, composition.SendReadyMessage),
+            cancellationToken);
+        return InvitationDeliveryOutcome.FromSendResult(sendResult);
+    }
+
+    private void AddDeliveryAudit(
+        Guid actorAuthAccountId,
+        DateTimeOffset occurredAtUtc,
+        AuthInvitation invitation,
+        InvitationDeliveryOutcome outcome)
+    {
+        if (StringComparer.Ordinal.Equals(outcome.DeliveryState, DeliveryStateNotRequested))
+        {
+            return;
+        }
 
         AddAudit(
-            actor.AuthAccountId,
-            action: "invitation.resend_requested",
+            actorAuthAccountId,
+            action: "invitation.delivery_result",
             occurredAtUtc,
             new InvitationAuditMetadata(
                 WorkflowName,
-                "resend_requested",
+                outcome.AuditStatusCategory,
                 invitation.Id,
                 invitation.Status,
                 invitation.ContactIdentifierKind,
                 invitation.TargetSystemRole,
-                deliveryState));
-
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return InvitationManagementResult.Succeeded(MapSummary(invitation, occurredAtUtc, deliveryState));
+                outcome.DeliveryState));
     }
 
     private async Task<bool> InvitationCapabilityEnabledAsync(CancellationToken cancellationToken)
@@ -389,4 +525,95 @@ internal sealed class InvitationManagementService : IInvitationManagementService
         string ContactIdentifierKind,
         string TargetSystemRole,
         string DeliveryState);
+
+    private sealed record InvitationDeliveryOutcome(
+        string DeliveryState,
+        string AuditStatusCategory)
+    {
+        public static InvitationDeliveryOutcome NotRequested()
+        {
+            return new InvitationDeliveryOutcome(DeliveryStateNotRequested, "not_requested");
+        }
+
+        public static InvitationDeliveryOutcome FromReadiness(InvitationEmailDeliveryReadinessResult readiness)
+        {
+            return new InvitationDeliveryOutcome(
+                MapReadinessToDeliveryState(readiness),
+                "delivery_blocked");
+        }
+
+        public static InvitationDeliveryOutcome FromComposition(InvitationEmailTemplateCompositionResult composition)
+        {
+            return new InvitationDeliveryOutcome(
+                MapCompositionToDeliveryState(composition),
+                "delivery_blocked");
+        }
+
+        public static InvitationDeliveryOutcome FromSendResult(InvitationEmailSendResult sendResult)
+        {
+            return new InvitationDeliveryOutcome(
+                MapSendResultToDeliveryState(sendResult),
+                sendResult.Accepted ? "delivery_accepted" : "delivery_failed");
+        }
+
+        private static string MapReadinessToDeliveryState(InvitationEmailDeliveryReadinessResult readiness)
+        {
+            if (readiness.FailureCategories.Contains(InvitationEmailDeliveryReadinessCategories.DeliveryModeUnsupported))
+            {
+                return DeliveryStateUnsupported;
+            }
+
+            if (readiness.FailureCategories.Contains(InvitationEmailDeliveryReadinessCategories.DeliveryDisabled)
+                || readiness.FailureCategories.Contains(InvitationEmailDeliveryReadinessCategories.GenericSmtpDisabled))
+            {
+                return DeliveryStateDisabledByAdmin;
+            }
+
+            if (readiness.FailureCategories.Contains(InvitationEmailDeliveryReadinessCategories.GenericSmtpUnconfigured)
+                || readiness.FailureCategories.Contains(InvitationEmailDeliveryReadinessCategories.PublicOriginMissing))
+            {
+                return DeliveryStateProviderUnconfigured;
+            }
+
+            return DeliveryStateProviderInvalid;
+        }
+
+        private static string MapCompositionToDeliveryState(InvitationEmailTemplateCompositionResult composition)
+        {
+            if (composition.FailureCategories.Contains(InvitationEmailTemplateCompositionCategories.InvitationSecretMissing)
+                || composition.FailureCategories.Contains(InvitationEmailTemplateCompositionCategories.InviteLinkPathUnsafe)
+                || composition.FailureCategories.Contains(InvitationEmailTemplateCompositionCategories.PublicOriginUnsafe))
+            {
+                return DeliveryStateProviderInvalid;
+            }
+
+            return DeliveryStateProviderUnconfigured;
+        }
+
+        private static string MapSendResultToDeliveryState(InvitationEmailSendResult sendResult)
+        {
+            if (sendResult.Accepted)
+            {
+                return StringComparer.Ordinal.Equals(sendResult.Category, InvitationEmailSendResultCategories.Accepted)
+                    ? DeliveryStateSent
+                    : DeliveryStateQueued;
+            }
+
+            if (sendResult.Disabled)
+            {
+                return DeliveryStateDisabledByAdmin;
+            }
+
+            if (sendResult.Unconfigured)
+            {
+                return DeliveryStateProviderUnconfigured;
+            }
+
+            return sendResult.Category is InvitationEmailSendResultCategories.ConfigurationInvalid
+                or InvitationEmailSendResultCategories.AuthenticationFailedRedacted
+                or InvitationEmailSendResultCategories.ContentRejected
+                    ? DeliveryStateProviderInvalid
+                    : DeliveryStateFailed;
+        }
+    }
 }

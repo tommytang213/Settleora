@@ -20,6 +20,7 @@ internal static class InvitationPolicyServiceCollectionExtensions
         services.TryAddScoped<IInvitationAcceptanceService, InvitationAcceptanceService>();
         services.TryAddScoped<IInvitationEmailDeliveryReadinessService, InvitationEmailDeliveryReadinessService>();
         services.TryAddScoped<IInvitationEmailTemplateComposer, InvitationEmailTemplateComposer>();
+        services.TryAddScoped<IInvitationEmailSender, InvitationEmailSender>();
         return services;
     }
 }
