@@ -535,6 +535,31 @@ public sealed class RecurringBillEndpointTests : IClassFixture<WebApplicationFac
             """);
         using var removedMemberPatchResponse = await client.SendAsync(removedMemberPatchRequest);
         await AssertRecurringBillUnavailableProblemAsync(removedMemberPatchResponse);
+
+        foreach (var path in new[]
+        {
+            $"{RecurringBillsPath}/{groupTemplateId:D}/pause",
+            $"{RecurringBillsPath}/{groupTemplateId:D}/resume",
+            $"{RecurringBillsPath}/{groupTemplateId:D}/archive",
+            $"{RecurringBillsPath}/{groupTemplateId:D}/occurrences/2026-06-01/generate-draft"
+        })
+        {
+            using var removedMemberWriteRequest = CreateBearerRequest(HttpMethod.Post, path, removed.RawSessionToken);
+            using var removedMemberWriteResponse = await client.SendAsync(removedMemberWriteRequest);
+            await AssertRecurringBillUnavailableProblemAsync(removedMemberWriteResponse);
+        }
+
+        using var crossUserPauseRequest = CreateBearerRequest(HttpMethod.Post, $"{RecurringBillsPath}/{personalTemplateId:D}/pause", other.RawSessionToken);
+        using var crossUserPauseResponse = await client.SendAsync(crossUserPauseRequest);
+        await AssertRecurringBillUnavailableProblemAsync(crossUserPauseResponse);
+
+        Assert.Equal(RecurringBillTemplateStatuses.Active, (await ReadTemplateAsync(testFactory, personalTemplateId)).Status);
+        Assert.Equal(RecurringBillTemplateStatuses.Active, (await ReadTemplateAsync(testFactory, groupTemplateId)).Status);
+        Assert.Empty(await ReadBillsAsync(testFactory));
+        Assert.Empty(await ReadOccurrencesAsync(testFactory));
+        Assert.DoesNotContain(
+            await ReadAuditEventsAsync(testFactory),
+            auditEvent => auditEvent.Action.StartsWith("recurring_bill.", StringComparison.Ordinal));
     }
 
     [Fact]
