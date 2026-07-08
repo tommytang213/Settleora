@@ -20,6 +20,71 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Invitation policy/audit readiness checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only the docs/control policy,
+    capability-state, authorization, lifecycle, audit, abuse, delivery-boundary,
+    and future split-readiness slice. Invitation OpenAPI, generated clients,
+    runtime create/list/revoke/accept/redeem/send behavior, raw invitation
+    secret generation/validation, email/provider delivery, and UI remain open
+    follow-up gates.
+  - #777 `OPEN`; production/public-exposure security review remains a
+    separate manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `502e71356b622344315a6cf066acb0fd80eda955` before this task branch.
+- Branch:
+  `docs/auth-invitation-policy-audit-readiness-20260708-1728`.
+- Completed slice:
+  - Added
+    [Auth invitation policy and audit readiness](../architecture/AUTH_INVITATION_POLICY_AUDIT_READINESS.md).
+  - Recorded that invitations remain a Day 1 available capability, default
+    disabled/off until authenticated owner/admin policy enables them.
+  - Preserved full Day 1 auth onboarding scope: invitations, public
+    self-registration, local accounts, and OIDC/Keycloak remain Day 1 available
+    capabilities with risky entry points default off; setup-only first-owner
+    bootstrap remains separate and must not become public registration.
+  - Defined owner/admin authorization boundaries for invite create/list/revoke/
+    resend and invitation policy changes, with public accept/redeem limited to
+    a server-authorized redemption attempt.
+  - Confirmed #784 invitation targets are system `user` only. Owner/admin
+    invitation or role elevation remains excluded and belongs to #785.
+  - Kept contact identifiers email-only unless a later reviewed design expands
+    the schema and delivery model.
+  - Defined lifecycle/readiness expectations for expiry, revocation, single-use
+    acceptance, cleanup retention, duplicate pending invitation handling, and
+    idempotency.
+  - Reaffirmed raw invitation secret/link handling: hash-only at rest, raw
+    material only at creation/delivery boundary, never in logs, audit, API
+    readbacks, reports, provider diagnostics, or generated examples.
+  - Defined audit event families and safe/forbidden metadata for invitation
+    policy changes, create/send/resend/revoke/expire/accept/cleanup outcomes.
+  - Defined anti-enumeration and abuse posture for public accept/redeem and
+    owner/admin create/resend.
+  - Linked invitation delivery to the SMTP/email provider policy while keeping
+    password-reset SMTP semantics separate.
+  - Recorded the future #784 split order: OpenAPI/contract, runtime policy/
+    authorization/audit, secret/redemption/lifecycle runtime, email/provider
+    delivery, then Figma/UI.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Scope confirmation:
+  this checkpoint changes only docs/architecture and docs/planning files. It
+  does not change OpenAPI/contracts, generated clients, runtime endpoints,
+  invitation token generation/validation, accept/redeem flow, email delivery,
+  public self-registration, OIDC/Keycloak, owner/admin role assignment,
+  admin-created user policy, mobile/user-web/admin UI, Figma, notification/
+  security-center runtime, password reset/change behavior, production/public
+  exposure, Docker/CI/deployment, appsettings/env/secrets, storage, sync,
+  import/export, backup/restore, OCR, money, settlement, payment, bill
+  calculation, issue closure, or branch cleanup.
+
 ### Issues #336/#337/#784/#777 - Invitation schema foundation checkpoint
 
 - GitHub state/project status:
