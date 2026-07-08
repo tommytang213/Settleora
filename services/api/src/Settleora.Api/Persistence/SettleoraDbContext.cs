@@ -43,6 +43,8 @@ public sealed class SettleoraDbContext : DbContext
     private const int AuthInvitationSecretHashMaxLength = 256;
     private const int AuthInvitationSecretHashVersionMaxLength = 32;
     private const int AuthInvitationTargetSystemRoleMaxLength = 16;
+    private const int AuthInvitationPolicyStatusMaxLength = 16;
+    private const int AuthInvitationPolicyCapabilityStateMaxLength = 16;
     private const int AuthSessionTokenHashMaxLength = 128;
     private const int AuthSessionStatusMaxLength = 16;
     private const int AuthSessionRevocationReasonMaxLength = 120;
@@ -166,6 +168,7 @@ public sealed class SettleoraDbContext : DbContext
         modelBuilder.Entity<LocalPasswordCredential>(ConfigureLocalPasswordCredential);
         modelBuilder.Entity<AuthPasswordResetRequest>(ConfigureAuthPasswordResetRequest);
         modelBuilder.Entity<AuthInvitation>(ConfigureAuthInvitation);
+        modelBuilder.Entity<AuthInvitationPolicy>(ConfigureAuthInvitationPolicy);
         modelBuilder.Entity<AuthSession>(ConfigureAuthSession);
         modelBuilder.Entity<AuthSessionFamily>(ConfigureAuthSessionFamily);
         modelBuilder.Entity<AuthRefreshCredential>(ConfigureAuthRefreshCredential);
@@ -5318,6 +5321,80 @@ public sealed class SettleoraDbContext : DbContext
             .WithMany(account => account.RevokedInvitations)
             .HasForeignKey(invitation => invitation.RevokedByAuthAccountId)
             .HasConstraintName("fk_auth_invitations_revoked_by_auth_accounts")
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private static void ConfigureAuthInvitationPolicy(EntityTypeBuilder<AuthInvitationPolicy> entity)
+    {
+        entity.ToTable("auth_invitation_policies", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_auth_invitation_policies_status",
+                "status IN ('active', 'retired')");
+            table.HasCheckConstraint(
+                "ck_auth_invitation_policies_capability_state",
+                "capability_state IN ('disabled', 'enabled')");
+            table.HasCheckConstraint(
+                "ck_auth_invitation_policies_positive_version",
+                "policy_version > 0");
+            table.HasCheckConstraint(
+                "ck_auth_invitation_policies_active_not_retired",
+                "(status = 'active' AND retired_at_utc IS NULL) OR (status = 'retired' AND retired_at_utc IS NOT NULL)");
+        });
+
+        entity.HasKey(policy => policy.Id);
+
+        entity.Property(policy => policy.Id)
+            .HasColumnName("id");
+
+        entity.Property(policy => policy.PolicyVersion)
+            .HasColumnName("policy_version")
+            .IsRequired();
+
+        entity.Property(policy => policy.Status)
+            .HasColumnName("status")
+            .HasMaxLength(AuthInvitationPolicyStatusMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.CapabilityState)
+            .HasColumnName("capability_state")
+            .HasMaxLength(AuthInvitationPolicyCapabilityStateMaxLength)
+            .IsRequired();
+
+        entity.Property(policy => policy.PendingInviteGraceWhenDisabled)
+            .HasColumnName("pending_invite_grace_when_disabled")
+            .IsRequired();
+
+        entity.Property(policy => policy.CreatedAtUtc)
+            .HasColumnName("created_at_utc")
+            .IsRequired();
+
+        entity.Property(policy => policy.UpdatedAtUtc)
+            .HasColumnName("updated_at_utc")
+            .IsRequired();
+
+        entity.Property(policy => policy.RetiredAtUtc)
+            .HasColumnName("retired_at_utc");
+
+        entity.Property(policy => policy.ChangedByAuthAccountId)
+            .HasColumnName("changed_by_auth_account_id");
+
+        entity.HasIndex(policy => policy.PolicyVersion)
+            .IsUnique()
+            .HasDatabaseName("ux_auth_invitation_policies_policy_version");
+
+        entity.HasIndex(policy => policy.Status)
+            .HasDatabaseName("ux_auth_invitation_policies_active")
+            .IsUnique()
+            .HasFilter("status = 'active'");
+
+        entity.HasIndex(policy => policy.ChangedByAuthAccountId)
+            .HasDatabaseName("ix_auth_invitation_policies_changed_by_auth_account_id");
+
+        entity.HasOne(policy => policy.ChangedByAuthAccount)
+            .WithMany(account => account.ChangedInvitationPolicies)
+            .HasForeignKey(policy => policy.ChangedByAuthAccountId)
+            .HasConstraintName("fk_auth_invitation_policies_changed_by_auth_accounts")
             .OnDelete(DeleteBehavior.Restrict);
     }
 
