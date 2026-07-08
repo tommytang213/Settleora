@@ -8,6 +8,7 @@ internal static class InvitationPolicyServiceCollectionExtensions
     {
         services.TryAddScoped<IInvitationPolicyService, InvitationPolicyService>();
         services.TryAddScoped<IInvitationManagementService, InvitationManagementService>();
+        services.TryAddScoped<IInvitationAcceptanceService, InvitationAcceptanceService>();
         return services;
     }
 }

@@ -1,7 +1,4 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Settleora.Api.Auth.Authorization;
 using Settleora.Api.Domain.Auth;
@@ -11,11 +8,7 @@ namespace Settleora.Api.Auth.Invitations;
 
 internal sealed class InvitationManagementService : IInvitationManagementService
 {
-    private const int InvitationSecretByteLength = 32;
     private const int SafeMetadataJsonMaxLength = 4096;
-    private const string InvitationSecretHashPrefix = "auth-invitation-sha256:v1:";
-    private const string InvitationSecretHashVersion = "sha256-v1";
-    private const string InvitationSecretPurpose = "auth_invitation";
     private const string WorkflowName = "auth_invitation_management";
     private const string DeliveryStateProviderUnconfigured = "provider_unconfigured";
     private const string DeliveryStateNotRequested = "not_requested";
@@ -124,15 +117,15 @@ internal sealed class InvitationManagementService : IInvitationManagementService
         }
 
         var occurredAtUtc = timeProvider.GetUtcNow();
-        var rawInvitationSecret = CreateRawInvitationSecret();
+        var rawInvitationSecret = InvitationSecretHasher.CreateRawInvitationSecret();
         var invitation = new AuthInvitation
         {
             Id = Guid.NewGuid(),
             Status = AuthInvitationStatuses.Pending,
             ContactIdentifierKind = AuthInvitationContactIdentifierKinds.Email,
             ContactIdentifierNormalized = normalizedEmail,
-            InvitationSecretHash = DeriveInvitationSecretHash(rawInvitationSecret),
-            InvitationSecretHashVersion = InvitationSecretHashVersion,
+            InvitationSecretHash = InvitationSecretHasher.DeriveInvitationSecretHash(rawInvitationSecret),
+            InvitationSecretHashVersion = InvitationSecretHasher.HashVersion,
             TargetSystemRole = SystemRoles.User,
             InvitedByAuthAccountId = actor.AuthAccountId,
             InvitedByUserProfileId = actor.UserProfileId,
@@ -386,18 +379,6 @@ internal sealed class InvitationManagementService : IInvitationManagementService
             trimmed,
             static (destination, source) => source.AsSpan().ToLowerInvariant(destination));
         return true;
-    }
-
-    private static string CreateRawInvitationSecret()
-    {
-        return WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(InvitationSecretByteLength));
-    }
-
-    private static string DeriveInvitationSecretHash(string rawInvitationSecret)
-    {
-        var payload = $"{InvitationSecretPurpose}:{rawInvitationSecret}";
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
-        return InvitationSecretHashPrefix + WebEncoders.Base64UrlEncode(hash);
     }
 
     private sealed record InvitationAuditMetadata(
