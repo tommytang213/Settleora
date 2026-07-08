@@ -217,7 +217,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         var content = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.DoesNotContain(RawInvitationSecret, content, StringComparison.Ordinal);
+        AssertDoesNotContainSensitiveFragment(content, "raw invitation material", RawInvitationSecret);
 
         using var scope = testFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SettleoraDbContext>();
@@ -226,8 +226,8 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
             .Where(audit => audit.Action == "invitation.accepted"
                 || audit.Action == "invitation.accept_failed")
             .ToListAsync();
-        Assert.DoesNotContain(RawInvitationSecret, invitation.InvitationSecretHash, StringComparison.Ordinal);
-        Assert.DoesNotContain("redacted@example.com", invitation.InvitationSecretHash, StringComparison.OrdinalIgnoreCase);
+        AssertDoesNotContainSensitiveFragment(invitation.InvitationSecretHash, "raw invitation material", RawInvitationSecret);
+        AssertDoesNotContainSensitiveFragment(invitation.InvitationSecretHash, "full contact identifier", "redacted@example.com");
         Assert.All(audits, audit => AssertSafePublicContent(audit.SafeMetadataJson ?? string.Empty));
     }
 
@@ -439,26 +439,35 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
     {
         var forbiddenFragments = new[]
         {
-            RawInvitationSecret,
-            "test-visible-invitation-acceptance-material",
-            "secret",
-            "link",
-            "token",
-            "password",
-            "credential",
-            "refresh",
-            "Invitee@Example.COM",
-            "invitee@example.com",
-            "redacted@example.com",
-            "rollback@example.com",
-            "providerPayload",
-            "requestBody",
-            "smtp"
+            ("raw invitation material", RawInvitationSecret),
+            ("raw invitation material literal", "test-visible-invitation-acceptance-material"),
+            ("raw secret wording", "secret"),
+            ("raw link wording", "link"),
+            ("raw token wording", "token"),
+            ("password wording", "password"),
+            ("credential wording", "credential"),
+            ("refresh credential wording", "refresh"),
+            ("mixed-case full contact identifier", "Invitee@Example.COM"),
+            ("normalized full contact identifier", "invitee@example.com"),
+            ("audit full contact identifier", "redacted@example.com"),
+            ("rollback full contact identifier", "rollback@example.com"),
+            ("provider payload marker", "providerPayload"),
+            ("request body marker", "requestBody"),
+            ("SMTP marker", "smtp")
         };
 
-        foreach (var fragment in forbiddenFragments)
+        foreach (var (safeLabel, fragment) in forbiddenFragments)
         {
-            Assert.DoesNotContain(fragment, content, StringComparison.OrdinalIgnoreCase);
+            AssertDoesNotContainSensitiveFragment(content, safeLabel, fragment);
+        }
+    }
+
+    private static void AssertDoesNotContainSensitiveFragment(string content, string safeLabel, string fragment)
+    {
+        // Avoid xUnit string containment assertions here because failure output can echo the checked secret.
+        if (content.Contains(fragment, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new Xunit.Sdk.XunitException($"Redaction check failed for {safeLabel}.");
         }
     }
 
