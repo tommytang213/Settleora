@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { generateClients } from "./generate-clients.mjs";
 
 const generatedTargets = [
   {
@@ -25,20 +26,17 @@ try {
     generatedPath: target.name === "web" ? webTempPath : dartTempPath
   }));
 
-  process.env.SETTLEORA_CLIENT_WEB_OUTPUT_PATH = webTempPath;
-  process.env.SETTLEORA_CLIENT_DART_OUTPUT_PATH = dartTempPath;
-
   try {
-    await import(new URL(`./generate-clients.mjs?validate=${Date.now()}`, import.meta.url).href);
+    await generateClients({
+      webOutputPath: webTempPath,
+      dartOutputPath: dartTempPath
+    });
   } catch (error) {
     console.error("Client generation failed.");
     console.error("Command: node tools/generate-clients.mjs");
     console.error(formatError(error));
     process.exitCode = 1;
     throw error;
-  } finally {
-    delete process.env.SETTLEORA_CLIENT_WEB_OUTPUT_PATH;
-    delete process.env.SETTLEORA_CLIENT_DART_OUTPUT_PATH;
   }
 
   const committed = await snapshotCommittedTargets(tempTargets);
