@@ -20,6 +20,62 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Invitation OpenAPI/generated-client contract checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only the reviewed invitation
+    OpenAPI contract and generated-client surface slice. Invitation runtime
+    policy enforcement, owner/admin create/list/revoke/resend handlers, raw
+    invitation secret generation/hash verification, public accept/redeem
+    behavior, email/provider delivery, audit writers, abuse controls,
+    lifecycle cleanup, and UI remain open follow-up gates.
+  - #777 `OPEN`; production/public-exposure security review remains a
+    separate manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `91bdcf2b2d4868860728233609a715047d0cc139` before this task branch.
+- Branch:
+  `feature/auth-invitation-openapi-contract-20260708-1755`.
+- Completed slice:
+  - Added invitation capability and policy readout contract shapes that
+    represent default-disabled invitation capability and preserve owner/admin
+    control over future policy mutation.
+  - Added owner/admin invitation management transport contracts for create,
+    list, get, revoke, and resend under guarded admin auth paths.
+  - Kept #784 invitation targets constrained to system `user` only and contact
+    identifier kind constrained to `email` only.
+  - Added public invitation accept/redeem transport contract with raw
+    invitation secret material accepted only as write-only request input.
+  - Kept accept/redeem responses anti-enumeration-oriented and token-free; no
+    access session, refresh credential, raw invitation secret, raw link, secret
+    hash, provider payload, email body, request body, or audit internals are
+    exposed by response schemas.
+  - Added bounded admin invitation metadata readbacks: invitation ID, lifecycle
+    status, contact kind, optional display-safe contact label, user-only target
+    role, delivery-state category, lifecycle timestamps, cleanup timestamp, and
+    safe actor IDs where policy allows.
+  - Added generated web and Dart client updates produced by
+    `npm run generate:clients`; generated files were not hand-edited.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Scope confirmation:
+  this checkpoint changes only the OpenAPI contract, generated web/Dart client
+  output, and this ledger entry. It does not change API runtime endpoints,
+  handlers, services, validators, middleware, auth/session behavior, invitation
+  token generation/validation, invitation email delivery, public
+  self-registration, OIDC/Keycloak, owner/admin role assignment,
+  admin-created-user hardening, EF/domain/schema/migrations, mobile/user-web/
+  admin UI, Figma, notification/security-center runtime, password reset/change
+  behavior, production/public exposure, Docker/CI/deployment,
+  appsettings/env/secrets, storage, sync, import/export, backup/restore, OCR,
+  money, settlement, payment, bill calculation, issue closure, or branch
+  cleanup.
+
 ### Issues #336/#337/#784/#777 - Invitation policy/audit readiness checkpoint
 
 - GitHub state/project status:

@@ -1056,6 +1056,232 @@ export interface AdminUserSummaryResponse {
 }
 
 /**
+ * Current authenticated actor invitation capability readout. This is display metadata only; API/domain authorization and policy remain authoritative. It excludes raw invitation secrets, links, hashes, contact request bodies, provider payloads, audit internals, session credentials, passwords, storage internals, and unrelated user data.
+ */
+export interface InvitationCapabilityReadoutResponse {
+  capability: InvitationCapabilityReadout;
+}
+
+/**
+ * Safe owner/admin invitation policy readout. It excludes raw invitation secrets, links, hashes, contact request bodies, SMTP/provider credentials, provider payloads, email bodies, audit internals, password/session material, storage internals, and unrelated user data.
+ */
+export interface AdminInvitationPolicyReadoutResponse {
+  capability: InvitationCapabilityReadout;
+  /**
+   * Bounded policy version/category for display and optimistic review only. It is not authorization.
+   */
+  policyVersion: string;
+  /**
+   * Last policy update timestamp if a future runtime persists one.
+   */
+  updatedAtUtc: string | null;
+}
+
+/**
+ * Safe invitation capability and policy category readout. Invitations default disabled/off until owner/admin policy enables them; generated clients must not treat this readout as permission.
+ */
+export interface InvitationCapabilityReadout {
+  capabilityState: InvitationCapabilityState;
+  /**
+   * Safe default state for Day 1 invitation capability until owner/admin policy explicitly enables it.
+   */
+  defaultState: "disabled";
+  /**
+   * Client-visible hint only; the API still enforces owner/admin authorization on every management operation.
+   */
+  canCurrentActorManageInvitations: boolean;
+  /**
+   * Client-visible hint only; creation also requires enabled capability and server policy checks.
+   */
+  canCurrentActorCreateInvitations: boolean;
+  /**
+   * Client-visible hint only; policy mutation remains owner/admin-authorized and audit-required.
+   */
+  canCurrentActorMutatePolicy: boolean;
+  /**
+   * Whether the public accept endpoint may process redemption attempts under current server policy. This does not prove any invitation material is valid.
+   */
+  publicAcceptEnabled: boolean;
+  /**
+   * Safe policy readout for whether pending invitations remain redeemable after capability disablement. The default/safe posture is false.
+   */
+  pendingInviteGraceWhenDisabled: boolean;
+  /**
+   * Contact identifier kinds supported by this contract slice.
+   */
+  supportedContactIdentifierKinds: AuthInvitationContactIdentifierKind[];
+  /**
+   * Invitation target system roles supported by this contract slice.
+   */
+  supportedTargetSystemRoles: AuthInvitationTargetSystemRole[];
+  deliveryReadiness: InvitationDeliveryReadiness;
+  readoutCategory: InvitationPolicyReadoutCategory;
+}
+
+/**
+ * Owner/admin invitation policy update request. Runtime must enforce authorization, safe default-disabled behavior, anti-lockout policy, and audit. This request cannot approve public self-registration, owner/admin invitation targets, privileged roles, SMTP credentials, delivery templates, or provider configuration.
+ */
+export interface AdminInvitationPolicyUpdateRequest {
+  capabilityState?: InvitationCapabilityState;
+  /**
+   * Optional policy choice for pending invitation redemption after capability disablement. Runtime should default fail-closed unless explicitly enabled by policy.
+   */
+  pendingInviteGraceWhenDisabled?: boolean;
+}
+
+/**
+ * Invitation capability policy state. Day 1 default is disabled/off.
+ */
+export type InvitationCapabilityState = "disabled" | "enabled";
+
+/**
+ * Bounded invitation policy readout category.
+ */
+export type InvitationPolicyReadoutCategory = "default_disabled" | "enabled_by_admin_policy" | "disabled_by_admin_policy" | "unsupported_by_deployment" | "provider_unconfigured" | "provider_invalid" | "limited" | "unknown";
+
+/**
+ * Bounded delivery readiness category. It is not proof of email delivery and does not expose SMTP/provider internals.
+ */
+export type InvitationDeliveryReadiness = "unsupported" | "unconfigured" | "configured" | "invalid" | "disabled" | "limited" | "unknown";
+
+/**
+ * Invitation lifecycle status.
+ */
+export type AuthInvitationStatus = "pending" | "accepted" | "revoked" | "expired";
+
+/**
+ * Invitation contact identifier kind. This contract slice supports email only.
+ */
+export type AuthInvitationContactIdentifierKind = "email";
+
+/**
+ * Invitation target system role. This contract slice supports normal user invitations only; owner/admin invitation or role elevation belongs to a separate gate.
+ */
+export type AuthInvitationTargetSystemRole = "user";
+
+/**
+ * Authenticated owner/admin invitation creation request. The server derives actor, policy, expiry, secret generation, hash storage, duplicate checks, delivery, and audit context. Raw invitation material is never accepted from admin callers or returned in responses.
+ */
+export interface AdminInvitationCreateRequest {
+  contactIdentifierKind: AuthInvitationContactIdentifierKind;
+  /**
+   * Submitted contact identifier to normalize server-side. This slice supports email only. It must not be echoed in public responses, audit internals, logs, provider diagnostics, or generated examples; admin readbacks may expose only a policy-approved display-safe value.
+   */
+  contactIdentifier: string;
+  targetSystemRole: AuthInvitationTargetSystemRole;
+  /**
+   * Optional caller idempotency key for create retry safety. The API still decides replay/conflict behavior server-side.
+   */
+  idempotencyKey?: string | null;
+  /**
+   * Optional request to send or queue delivery through a future approved delivery boundary. Missing provider readiness must not be represented as sent.
+   */
+  deliveryRequested?: boolean;
+}
+
+/**
+ * Optional bounded revocation request. The server derives actor, lifecycle, and audit metadata; request body fields are never audit internals.
+ */
+export interface AdminInvitationRevokeRequest {
+  /**
+   * Optional bounded owner/admin reason category or note after server-side trimming. It must not contain raw invitation material, contact secrets, provider payloads, passwords, session tokens, or unrelated user data.
+   */
+  reason?: string | null;
+}
+
+/**
+ * Optional bounded resend request. Runtime must enforce enabled capability, pending/unexpired state, abuse limits, delivery readiness, and safe secret rotation or another reviewed delivery boundary.
+ */
+export interface AdminInvitationResendRequest {
+  /**
+   * Optional request to send or queue delivery through a future approved delivery boundary. Provider acceptance must remain explicit and is never implied by this flag.
+   */
+  deliveryRequested?: boolean;
+}
+
+/**
+ * Safe owner/admin invitation list response. It excludes raw invitation secrets, links, hashes, request bodies, provider payloads, email bodies, SMTP diagnostics, password/session material, audit internals, storage internals, and unrelated user data.
+ */
+export interface AdminInvitationListResponse {
+  invitations: AdminInvitationSummary[];
+}
+
+/**
+ * Safe owner/admin invitation response. It excludes raw invitation secrets, links, hashes, request bodies, provider payloads, email bodies, SMTP diagnostics, password/session material, audit internals, storage internals, and unrelated user data.
+ */
+export interface AdminInvitationResponse {
+  invitation: AdminInvitationSummary;
+}
+
+/**
+ * Safe invitation metadata for owner/admin read surfaces. Contact display is policy-approved display-safe text only, not a raw submitted contact unless a future reviewed policy allows it.
+ */
+export interface AdminInvitationSummary {
+  id: string;
+  status: AuthInvitationStatus;
+  contactIdentifierKind: AuthInvitationContactIdentifierKind;
+  /**
+   * Optional policy-approved display-safe contact value, such as a redacted label. It must not become a public contact-verification surface.
+   */
+  contactDisplay: string | null;
+  targetSystemRole: AuthInvitationTargetSystemRole;
+  deliveryState: InvitationDeliveryState;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  expiresAtUtc: string;
+  acceptedAtUtc: string | null;
+  revokedAtUtc: string | null;
+  expiredAtUtc: string | null;
+  cleanupEligibleAtUtc: string | null;
+  /**
+   * Safe actor ID for owner/admin operation readback where policy allows.
+   */
+  invitedByAuthAccountId: string | null;
+  /**
+   * Safe actor profile ID for owner/admin operation readback where policy allows.
+   */
+  invitedByUserProfileId: string | null;
+  /**
+   * Safe revoking actor ID for owner/admin operation readback where policy allows.
+   */
+  revokedByAuthAccountId: string | null;
+}
+
+/**
+ * Bounded invitation delivery state category. `sent` means only a future provider boundary accepted an attempt; it is not proof the recipient saw it.
+ */
+export type InvitationDeliveryState = "not_requested" | "unsupported" | "provider_unconfigured" | "provider_invalid" | "disabled_by_admin" | "queued" | "sent" | "failed" | "unknown";
+
+/**
+ * Public invitation acceptance request. The invitation secret is write-only bearer-like material used only for a server-authorized redemption attempt. Runtime must not log, audit, echo, store raw, document by example, or expose this value through responses, generated snapshots, provider payloads, or reports.
+ */
+export interface InvitationAcceptRequest {
+  /**
+   * Submitted invitation secret material from an approved delivery boundary. It may appear only in request input for validation and must never appear in responses, examples, logs, audit metadata, provider diagnostics, generated snapshots, or reports.
+   */
+  invitationSecret: string;
+  /**
+   * Initial user profile display name after server-side trimming if invitation acceptance creates an account/profile.
+   */
+  displayName: string;
+  /**
+   * Submitted local-account password for invitation acceptance where local accounts are allowed by policy. The API stores only verifier output through the credential workflow boundary and never returns this plaintext value.
+   */
+  localPassword: string;
+}
+
+/**
+ * Safe invitation acceptance response. It does not return access-session tokens, refresh credentials, invitation material, links, hashes, contact identifiers, provider payloads, audit internals, or unrelated user data.
+ */
+export interface InvitationAcceptResponse {
+  /**
+   * High-level success category. Clients must use normal sign-in after acceptance; no session credential is returned here.
+   */
+  result: "accepted_sign_in_required";
+  signInRequired: true;
+}
+
+/**
  * Group creation request. Creator and owner membership are derived from the authenticated actor.
  */
 export interface CreateGroupRequest {
