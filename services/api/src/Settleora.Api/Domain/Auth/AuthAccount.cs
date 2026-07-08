@@ -60,4 +60,6 @@ public sealed class AuthAccount
     public ICollection<AuthChallenge> Challenges { get; } = new List<AuthChallenge>();
 
     public ICollection<AuthSecurityPolicy> ChangedSecurityPolicies { get; } = new List<AuthSecurityPolicy>();
+
+    public ICollection<AuthInvitationPolicy> ChangedInvitationPolicies { get; } = new List<AuthInvitationPolicy>();
 }

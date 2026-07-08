@@ -31,8 +31,9 @@ public sealed class SettleoraDbContextDesignTimeFactoryTests
 
         Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", dbContext.Database.ProviderName);
         Assert.Equal(connectionString, dbContext.Database.GetConnectionString());
-        Assert.Equal(54, dbContext.Model.GetEntityTypes().Count());
+        Assert.Equal(55, dbContext.Model.GetEntityTypes().Count());
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthInvitation)));
+        Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthInvitationPolicy)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthPasswordResetRequest)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthPasskeyCredential)));
         Assert.NotNull(dbContext.Model.FindEntityType(typeof(AuthMfaFactor)));

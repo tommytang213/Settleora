@@ -20,6 +20,74 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Invitation policy runtime checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only the default-off invitation
+    capability/policy runtime foundation. Owner/admin invitation create/list/
+    get/revoke/resend handlers, public accept/redeem runtime, raw invitation
+    secret generation/hash verification, email/provider delivery, invitation
+    link construction, abuse controls, lifecycle cleanup, and UI remain open
+    follow-up gates.
+  - #777 `OPEN`; production/public-exposure security review remains a separate
+    manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `f9153c24057387728e3469cec43a61520b43d985` before this task branch.
+- Branch:
+  `feature/auth-invitation-policy-runtime-20260708-1846`.
+- Completed slice:
+  - Added authenticated `GET /api/v1/auth/invitations/capability` runtime
+    readout matching the existing OpenAPI contract, defaulting invitation
+    capability to disabled/off when no policy row exists.
+  - Added owner/admin-only `GET /api/v1/admin/auth/invitation-policy` and
+    `PATCH /api/v1/admin/auth/invitation-policy` runtime.
+  - Added a narrow API-owned durable `auth_invitation_policies` persistence
+    table for invitation policy state only, with active/retired versions,
+    capability state, pending-invite grace flag, timestamps, and safe actor
+    reference.
+  - Added an invitation policy service boundary so API/domain code owns the
+    policy write and read decisions; clients and generated clients remain
+    display callers only.
+  - Wrote safe `invitation.policy_changed` auth audit events only for actual
+    policy changes. Repeated idempotent updates return the current readout
+    without duplicate audit writes.
+  - Added focused runtime/schema tests for default-off behavior, owner/admin
+    read/update, normal-user/anonymous admin denial, persistence across service
+    scopes, safe audit metadata, idempotent updates, additive migration scope,
+    and no mutation of invitation rows, password-reset rows, or active session
+    credential state.
+- Validation checkpoint:
+  - `npm run doctor:validation` passed.
+  - Focused auth/runtime regression filter passed with `50` passed, `0`
+    failed, `0` skipped.
+  - Focused invitation schema/migration filter passed with `5` passed, `0`
+    failed, `0` skipped.
+  - `/usr/bin/time -f 'ELAPSED=%E EXIT=%x' npm run validate:api` passed with
+    `1426` passed, `0` failed, `0` skipped, `ELAPSED=6:24.51 EXIT=0`.
+  - `npm run validate:openapi` passed.
+  - `npm run validate:clients` passed.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Scope confirmation:
+  this checkpoint changes only API auth invitation policy runtime, a narrow
+  additive policy-state migration/model, focused tests, and this ledger entry.
+  It does not change OpenAPI/contracts, generated clients, owner/admin
+  invitation create/list/get/revoke/resend handlers, public invitation
+  accept/redeem behavior, raw invitation secret generation/validation,
+  invitation email/provider delivery, invitation link construction, public
+  self-registration, OIDC/Keycloak runtime, owner/admin role assignment,
+  local-account/admin-created-user policy hardening, mobile/user-web/admin UI,
+  Figma, notification/security-center runtime, password reset/change behavior,
+  production/public exposure, Docker/CI/deployment, appsettings/env/secrets,
+  storage, sync, import/export, backup/restore, OCR, money, settlement,
+  payment, bill calculation, issue closure, or branch cleanup.
+
 ### Issues #336/#337/#784/#777 - Invitation OpenAPI/generated-client contract checkpoint
 
 - GitHub state/project status:
