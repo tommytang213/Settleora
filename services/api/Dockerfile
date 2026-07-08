@@ -19,5 +19,11 @@ WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 
-COPY --from=build /app/publish .
+RUN groupadd --system settleora \
+    && useradd --system --gid settleora --create-home --home-dir /home/settleora settleora \
+    && mkdir -p /app/data/storage /var/lib/settleora/storage \
+    && chown -R settleora:settleora /app /home/settleora /var/lib/settleora
+
+COPY --from=build --chown=settleora:settleora /app/publish .
+USER settleora
 ENTRYPOINT ["dotnet", "Settleora.Api.dll"]

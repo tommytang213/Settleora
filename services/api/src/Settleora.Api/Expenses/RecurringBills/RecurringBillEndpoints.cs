@@ -365,6 +365,7 @@ internal static class RecurringBillEndpoints
         Guid templateId,
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
         IRecurringBillAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -376,6 +377,7 @@ internal static class RecurringBillEndpoints
             RecurringBillTemplateStatuses.Paused,
             TemplatePausedAction,
             currentActorAccessor,
+            businessAuthorizationService,
             auditWriter,
             dbContext,
             timeProvider,
@@ -386,6 +388,7 @@ internal static class RecurringBillEndpoints
         Guid templateId,
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
         IRecurringBillAuditWriter auditWriter,
         RecurringBillScheduleService scheduleService,
         SettleoraDbContext dbContext,
@@ -407,6 +410,16 @@ internal static class RecurringBillEndpoints
         if (template is null)
         {
             return RecurringBillUnavailable();
+        }
+
+        var authorizationResult = await AuthorizeTemplateAccessAsync(
+            template,
+            businessAuthorizationService,
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
         }
 
         if (template.Status == RecurringBillTemplateStatuses.Archived)
@@ -431,6 +444,7 @@ internal static class RecurringBillEndpoints
         Guid templateId,
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
         IRecurringBillAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -451,6 +465,16 @@ internal static class RecurringBillEndpoints
         if (template is null)
         {
             return RecurringBillUnavailable();
+        }
+
+        var authorizationResult = await AuthorizeTemplateAccessAsync(
+            template,
+            businessAuthorizationService,
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
         }
 
         var now = timeProvider.GetUtcNow();
@@ -557,6 +581,7 @@ internal static class RecurringBillEndpoints
         string occurrenceDate,
         HttpRequest request,
         ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
         IRecurringBillAuditWriter auditWriter,
         IInAppNotificationWriter notificationWriter,
         RecurringBillScheduleService scheduleService,
@@ -594,6 +619,16 @@ internal static class RecurringBillEndpoints
         if (template is null)
         {
             return RecurringBillUnavailable();
+        }
+
+        var authorizationResult = await AuthorizeTemplateAccessAsync(
+            template,
+            businessAuthorizationService,
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
         }
 
         if (template.Status is RecurringBillTemplateStatuses.Paused or RecurringBillTemplateStatuses.Archived)
@@ -754,6 +789,7 @@ internal static class RecurringBillEndpoints
         string nextStatus,
         string auditAction,
         ICurrentActorAccessor currentActorAccessor,
+        IBusinessAuthorizationService businessAuthorizationService,
         IRecurringBillAuditWriter auditWriter,
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
@@ -774,6 +810,16 @@ internal static class RecurringBillEndpoints
         if (template is null)
         {
             return RecurringBillUnavailable();
+        }
+
+        var authorizationResult = await AuthorizeTemplateAccessAsync(
+            template,
+            businessAuthorizationService,
+            actor.UserProfileId,
+            cancellationToken);
+        if (!authorizationResult.Allowed)
+        {
+            return MapAuthorizationFailure(authorizationResult);
         }
 
         if (template.Status == RecurringBillTemplateStatuses.Archived)
@@ -904,6 +950,17 @@ internal static class RecurringBillEndpoints
                             && membership.UserProfile.DeletedAtUtc == null))));
 
         return trackChanges ? query : query.AsNoTracking();
+    }
+
+    private static Task<BusinessAuthorizationResult> AuthorizeTemplateAccessAsync(
+        RecurringBillTemplate template,
+        IBusinessAuthorizationService businessAuthorizationService,
+        Guid actorUserProfileId,
+        CancellationToken cancellationToken)
+    {
+        return template.GroupId is null
+            ? businessAuthorizationService.CanAccessProfileAsync(actorUserProfileId, cancellationToken)
+            : businessAuthorizationService.CanAccessGroupAsync(template.GroupId.Value, cancellationToken);
     }
 
     private static async Task<HashSet<Guid>> LoadActiveGroupMemberIdsAsync(

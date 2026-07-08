@@ -67,17 +67,37 @@ public sealed class LocalFileObjectStorageProviderTests
     [Theory]
     [InlineData("../outside")]
     [InlineData("file-objects/../../outside")]
+    [InlineData("file-objects/receipt_image/2026/05/05/../../../../outside")]
     [InlineData("file-objects//receipt_image")]
     [InlineData("file-objects/receipt_image/./object")]
     [InlineData("file-objects\\receipt_image\\object")]
     [InlineData("file-objects/receipt image/object")]
     [InlineData("file-objects/receipt_image/object.txt")]
+    [InlineData("file-objects/receipt_image/%2e%2e/outside")]
+    [InlineData("file-objects/receipt_image/outside?name=value")]
     public void ResolveObjectPathRejectsTraversalAndUnsupportedKeys(string objectKey)
     {
         using var tempDirectory = new TemporaryDirectory();
         var provider = CreateProvider(StorageProviderNames.Local, tempDirectory.Path);
 
         Assert.Throws<ArgumentException>(() => provider.ResolveObjectPath(objectKey));
+    }
+
+    [Fact]
+    public async Task WriteOpenReadAndDeleteRejectTraversalKeysBeforeTouchingDisk()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        var provider = CreateProvider(StorageProviderNames.Local, tempDirectory.Path);
+        const string traversalKey = "file-objects/receipt_image/2026/05/05/../../../../outside";
+        var outsidePath = System.IO.Path.GetFullPath(System.IO.Path.Combine(tempDirectory.Path, "..", "outside"));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            provider.WriteAsync(traversalKey, new MemoryStream([1, 2, 3]), CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            provider.OpenReadAsync(traversalKey, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            provider.DeleteAsync(traversalKey, CancellationToken.None));
+        Assert.False(File.Exists(outsidePath));
     }
 
     [Fact]
