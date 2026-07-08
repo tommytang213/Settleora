@@ -35,6 +35,15 @@ Task timestamp key: ${timestampKey}
 - Lane: \`${laneDecision.lane}\`
 - Lane decision: ${laneDecision.reason}
 - Allowed paths: ${(laneDecision.allowedPaths || []).join(", ") || "none"}
+- Validation profile: ${laneDecision.validationProfile || "none"}
+- Auto-merge eligible: ${laneDecision.autoMergeEligible ? "yes" : "no"}
+- Manual merge required: ${laneDecision.manualMergeRequired ? "yes" : "no"}
+
+## Validated auto-runner contract
+
+\`\`\`json
+${JSON.stringify(laneDecision.contract || null, null, 2)}
+\`\`\`
 
 ## Issue body
 
@@ -49,6 +58,7 @@ ${issue.body || "_No issue body._"}
 - \`docs/planning/ISSUE_PROGRESS_LEDGER.md\` when relevant
 - Active \`.ai/*\` files when workflow state could be affected
 - Relevant docs for the changed area
+${(laneDecision.contract?.requiredReading || []).map((item) => `- Contract required: \`${item}\``).join("\n")}
 
 ## Guardrails
 

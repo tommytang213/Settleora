@@ -20,6 +20,58 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Auto-runner issue-contract and lane-manifest checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+- Verified repo baseline:
+  `origin/main` at
+  `02e4942dd3c51abe6e083caa173bd19580a532ad` before this contract/lane
+  manifest task branch.
+- Prior merged slices:
+  - PR #801 merged the DevBox-native unattended Codex auto-runner foundation.
+  - PR #802 merged real-run safety hardening, preflight diagnostics,
+    dry-run fixtures, safer outcome cleanup, and the previous #800 ledger
+    checkpoint.
+- This hardening slice:
+  - Adds a body-only `## Auto-runner contract` JSON parser for explicit
+    automation metadata.
+  - Requires `contractVersion`, `lane`, `allowedPaths`,
+    `validationProfile`, `manualMergeRequired`, `autoMergeEligible`, and
+    `requiredReading`.
+  - Treats `auto-ready` and `auto-bundle` labels as eligibility signals only;
+    they no longer authorize implementation by themselves.
+  - Adds a trusted lane manifest for `workflow-docs-tooling`,
+    `docs-planning`, and disabled/manual-gated danger placeholders.
+  - Requires contract `allowedPaths` to be a subset of lane manifest paths and
+    blocks PR creation when changed files are outside the contract or lane
+    allowlist.
+  - Adds trusted validation profile mapping for `docs-only`,
+    `workflow-tooling`, `runner-tests`, and `scaffold-docs`; issue text cannot
+    inject shell commands.
+  - Extends auto-runner tests and fixtures for valid contracts, missing or
+    malformed contracts, unknown lanes/profiles, danger gates, unsafe paths,
+    and multi-iteration continuation after blocked/gated outcomes.
+- Issue posture:
+  keep #800 open. This checkpoint does not approve trusted overnight real-run,
+  auto-merge, stale-claim stealing, follow-up issue creation, review-fix
+  mutation, or systemd enablement.
+- Remaining #800 manual gates:
+  trusted unattended real-run operation, any auto-merge lane, stale-claim
+  stealing, follow-up issue creation, review-fix cycle mutation, systemd
+  service/timer installation or enablement, and any future expansion beyond
+  approved workflow/planning tooling paths.
+- Scope confirmation:
+  this checkpoint changes only `tools/auto-runner/**`, workflow docs, and this
+  ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, or auto-merge
+  enablement.
+
 ### Issue #800 - DevBox auto-runner foundation and real-run safety hardening checkpoint
 
 - GitHub state/project status:

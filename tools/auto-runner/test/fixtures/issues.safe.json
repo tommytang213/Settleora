@@ -2,18 +2,26 @@
   {
     "number": 9101,
     "title": "Harden auto-runner dry-run diagnostics",
-    "body": "Workflow tooling task limited to tools/auto-runner and docs/workflow.",
+    "body": "Workflow tooling task limited to tools/auto-runner and docs/workflow.\n\n## Auto-runner contract\n\n```json\n{\n  \"contractVersion\": 1,\n  \"lane\": \"workflow-docs-tooling\",\n  \"allowedPaths\": [\n    \"tools/auto-runner/**\",\n    \"docs/workflow/**\"\n  ],\n  \"validationProfile\": \"workflow-tooling\",\n  \"manualMergeRequired\": true,\n  \"autoMergeEligible\": false,\n  \"requiredReading\": [\n    \"PROGRAM_ARCHITECTURE.md\",\n    \"docs/workflow/CODEX_TASK_GUIDE.md\",\n    \"docs/workflow/AUTONOMOUS_CODEX_RUNNER.md\"\n  ]\n}\n```",
     "labels": ["auto-ready", "priority-high"],
     "url": "https://example.invalid/issues/9101",
     "createdAt": "2026-07-08T00:00:00Z"
   },
   {
     "number": 9102,
-    "title": "Document auto-runner review package evidence",
-    "body": "Docs and workflow automation only.",
+    "title": "Malformed auto-runner contract should block",
+    "body": "This fixture intentionally has malformed contract JSON.\n\n## Auto-runner contract\n\n```json\n{\n  \"contractVersion\": 1,\n  \"lane\": \"workflow-docs-tooling\",\n}\n```",
     "labels": ["auto-ready"],
     "url": "https://example.invalid/issues/9102",
     "createdAt": "2026-07-08T00:01:00Z"
+  },
+  {
+    "number": 9104,
+    "title": "Document auto-runner review package evidence",
+    "body": "Docs planning checkpoint only.\n\n## Auto-runner contract\n\n```json\n{\n  \"contractVersion\": 1,\n  \"lane\": \"docs-planning\",\n  \"allowedPaths\": [\n    \"docs/planning/**\"\n  ],\n  \"validationProfile\": \"docs-only\",\n  \"manualMergeRequired\": true,\n  \"autoMergeEligible\": false,\n  \"requiredReading\": [\n    \"PROGRAM_ARCHITECTURE.md\",\n    \"docs/workflow/CODEX_TASK_GUIDE.md\",\n    \"docs/planning/ISSUE_PROGRESS_LEDGER.md\"\n  ]\n}\n```",
+    "labels": ["auto-ready"],
+    "url": "https://example.invalid/issues/9104",
+    "createdAt": "2026-07-08T00:01:30Z"
   },
   {
     "number": 9103,

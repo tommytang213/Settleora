@@ -202,6 +202,18 @@ async function runIteration(config, logger, runId, index) {
     return iteration;
   }
 
+  if (!laneDecision.prCreationAllowed) {
+    iteration.outcome = "blocked_needs_tommy";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner did not open a PR for #${issue.number} because lane ${laneDecision.lane} does not allow PR creation.`,
+    );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+
   const validationPlan = planValidation(changedFiles, laneDecision);
   iteration.validation = runValidationPlan(config, validationPlan);
   if (!iteration.validation.passed) {

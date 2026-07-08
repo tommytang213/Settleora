@@ -83,17 +83,78 @@ calling `gh issue edit`, `gh issue comment`, or `gh issue create`.
 branches, or follow-up issues in a future lane policy. Each implementation
 branch still has to stay reviewable.
 
+## Issue Contract
+
+`auto-ready` and `auto-bundle` are eligibility signals only. They do not
+authorize implementation, path scope, validation commands, PR creation, or
+merge behavior.
+
+Every issue that the runner may implement must include a body-level contract:
+
+````markdown
+## Auto-runner contract
+
+```json
+{
+  "contractVersion": 1,
+  "lane": "workflow-docs-tooling",
+  "allowedPaths": [
+    "tools/auto-runner/**",
+    "docs/workflow/**"
+  ],
+  "validationProfile": "workflow-tooling",
+  "manualMergeRequired": true,
+  "autoMergeEligible": false,
+  "requiredReading": [
+    "PROGRAM_ARCHITECTURE.md",
+    "docs/workflow/CODEX_TASK_GUIDE.md",
+    "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"
+  ]
+}
+```
+````
+
+The first supported contract version is `1`. The contract is parsed from the
+issue body only. Issue comments do not override the contract in this slice.
+
+The parser fails closed for a missing contract, malformed JSON, missing fields,
+unknown fields, unsupported contract version, unsupported lane, unsupported
+validation profile, or contract `allowedPaths` outside the lane manifest. In
+real-run these cases become a safe blocked outcome such as
+`blocked_needs_tommy`; in dry-run the same outcome is previewed without GitHub
+mutation.
+
+Issue text cannot provide shell commands. It can only name a
+`validationProfile`, and that profile must exist in trusted runner code.
+
 ## Lane Policy
 
 Auto-merge is disabled globally by default. Real mutation requires `--run`.
-Docs/workflow/tooling issues can be represented as a future safe lane, but PR
-creation still requires local validation and pre-PR AI review. The safe
-workflow/tooling lane is limited to `tools/auto-runner/**`,
-`docs/workflow/**`, and `scripts/ai/**`; other paths are blocked even when the
-issue text looks safe. Generic words such as `config` do not by themselves
-trigger the secrets/config danger gate, but auth config, security config,
-deployment config, `.env`, secrets, credentials, SSH, and token-storage work
-remain gated.
+Lane classification is contract-first and backed by a trusted lane manifest in
+`tools/auto-runner/lib/lane-policy.mjs`. Text heuristics may still force
+danger/manual gates, but they never authorize implementation or allowed paths.
+
+Implemented lanes:
+
+- `workflow-docs-tooling`: implementation and PR creation are allowed after
+  validation and pre-PR review. Allowed paths are limited to
+  `tools/auto-runner/**`, `docs/workflow/**`, and `scripts/ai/**`.
+  Auto-merge, follow-up issue creation, and review-fix mutation remain
+  disabled.
+- `docs-planning`: implementation and PR creation are allowed for planning and
+  QA/reporting docs under `docs/planning/**` and `docs/qa/**`. Auto-merge,
+  follow-up issue creation, and review-fix mutation remain disabled.
+
+Disabled/manual-gated placeholder lanes exist for product runtime,
+security runtime, storage/privacy, money/settlement, schema/migrations,
+OpenAPI/generated clients, and deployment/CI/env scope.
+
+The contract `allowedPaths` must be a subset of the lane manifest allowlist.
+PR creation is blocked if any changed file is outside either the contract
+allowlist or the lane allowlist. Generic words such as `config` do not by
+themselves trigger the secrets/config danger gate, but auth config, security
+config, deployment config, `.env`, secrets, credentials, SSH, and token-storage
+work remain gated.
 
 The runner must label/comment `danger-gate` or `needs-tommy` instead of
 implementing unattended work for auth/session/security, storage/file
@@ -104,6 +165,19 @@ destructive operations, branch deletion/cleanup, force-like history changes, or
 architecture replacement.
 
 AI review cannot clear these gates.
+
+## Validation Profiles
+
+Validation profiles are named, trusted command lists in runner code. Supported
+profiles are:
+
+- `docs-only`
+- `workflow-tooling`
+- `runner-tests`
+- `scaffold-docs`
+
+Issue text cannot add, replace, append, or interpolate commands. Unknown or
+injected profile names fail closed before implementation.
 
 ## Unattended Loop
 
