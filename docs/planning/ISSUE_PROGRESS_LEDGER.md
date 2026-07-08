@@ -20,6 +20,81 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Invitation abuse controls runtime checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only a focused single-node
+    invitation abuse-control runtime foundation for current create/resend/
+    accept flows after PR #797. Delivery persistence/outbox, distributed abuse
+    storage, cleanup/retention jobs, UI/Figma, public self-registration,
+    OIDC-adjacent onboarding, and production/public-exposure gates remain open.
+  - #777 `OPEN`; production/public-exposure security review remains a separate
+    manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `fec1267b52c322bfe69596f219e09a26db617a53` before this task branch.
+- Branch:
+  `feature/auth-invitation-abuse-controls-runtime-20260708-2328`.
+- Completed slice:
+  - Added `IInvitationAbusePolicyService` with invitation-specific request,
+    decision, outcome, operation, scope, and option types plus an in-memory
+    single-node implementation registered under the invitation runtime.
+  - Invitation abuse bucket keys are bounded safe values derived from
+    operation, actor, subject/contact/invitation/material, and a conservative
+    local source bucket. Raw invitation secrets, raw emails, raw links, SMTP
+    diagnostics, request bodies, provider payloads, passwords, session tokens,
+    refresh material, and secret hashes are not used as bucket keys or echoed
+    by debug strings.
+  - Owner/admin create checks abuse policy after request normalization and
+    before duplicate lookup, raw invitation secret generation, row creation, or
+    delivery handoff. Throttled create returns the existing contract-supported
+    `429` problem response and creates no invitation rows.
+  - Owner/admin resend checks abuse policy before lookup by actor/invitation
+    category and again after safely loading the invitation/contact category,
+    before hash rotation, template composition, or email/sink handoff.
+    Throttled resend returns `429` without rotating or sending.
+  - Public accept now uses invitation-specific abuse semantics instead of the
+    sign-in abuse service, still using only a safe invitation-material
+    fingerprint plus conservative local source bucket before lookup/account
+    work. Throttled accept remains generic and does not issue sessions or
+    refresh credentials.
+  - Added focused tests proving create/resend throttling prevents row creation,
+    hash rotation, delivery handoff, and raw material exposure; public accept
+    throttling stays generic and creates no account; safe bucket/debug helpers
+    do not echo raw secrets, contact, or source values; existing invitation
+    success paths still pass.
+- Validation checkpoint:
+  - Focused `InvitationManagementRuntimeTests|InvitationAcceptanceRuntimeTests`
+    filter passed with `36` passed, `0` failed, `0` skipped.
+  - Broader validation for this branch is recorded in the task report.
+- Abuse-control storage posture:
+  single-node/in-memory only. Counters reset on process restart and are not
+  coordinated across API replicas; distributed Redis/database/provider-backed
+  persistence remains a future reviewed #784 gate.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Remaining #784 gates:
+  delivery attempt persistence/outbox if chosen, distributed abuse controls,
+  lifecycle cleanup/retention jobs, UI/Figma/mobile/user-web/admin-web
+  surfaces, public self-registration and OIDC-adjacent onboarding gates, and
+  production/public-exposure review.
+- Scope confirmation:
+  this checkpoint changes only API auth invitation abuse-control runtime,
+  focused tests, and this ledger entry. It does not change OpenAPI/contracts,
+  generated clients, schema/migrations, notification delivery persistence/
+  outbox schema, public self-registration, OIDC/Keycloak runtime, owner/admin
+  invitation target roles, owner/admin role assignment, local-account/admin-
+  created-user hardening outside existing invitation acceptance, session or
+  refresh-token issuance from invitation acceptance, mobile/user-web/admin UI,
+  Figma, production/public exposure, Docker/CI/deployment, appsettings/env/
+  secrets, storage, sync, import/export, backup/restore, OCR, money,
+  settlement, payment, bill calculation, issue closure, or branch cleanup.
+
 ### Issues #336/#337/#784/#777 - Admin invitation delivery runtime checkpoint
 
 - GitHub state/project status:

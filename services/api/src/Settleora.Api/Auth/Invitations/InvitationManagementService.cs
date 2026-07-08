@@ -19,6 +19,7 @@ internal sealed class InvitationManagementService : IInvitationManagementService
     private const string DeliveryStateSent = "sent";
     private const string DeliveryStateFailed = "failed";
     private const string DeliveryStateUnknown = "unknown";
+    private const string LocalSingleNodeSourceBucket = "invite-source:local-single-node";
     private static readonly TimeSpan InvitationLifetime = TimeSpan.FromDays(7);
     private static readonly TimeSpan TerminalCleanupDelay = TimeSpan.FromDays(90);
     private static readonly JsonSerializerOptions MetadataJsonOptions = new(JsonSerializerDefaults.Web);
@@ -28,19 +29,22 @@ internal sealed class InvitationManagementService : IInvitationManagementService
     private readonly IInvitationEmailDeliveryReadinessService emailDeliveryReadinessService;
     private readonly IInvitationEmailTemplateComposer emailTemplateComposer;
     private readonly IInvitationEmailSender emailSender;
+    private readonly IInvitationAbusePolicyService abusePolicyService;
 
     public InvitationManagementService(
         SettleoraDbContext dbContext,
         TimeProvider timeProvider,
         IInvitationEmailDeliveryReadinessService emailDeliveryReadinessService,
         IInvitationEmailTemplateComposer emailTemplateComposer,
-        IInvitationEmailSender emailSender)
+        IInvitationEmailSender emailSender,
+        IInvitationAbusePolicyService abusePolicyService)
     {
         this.dbContext = dbContext;
         this.timeProvider = timeProvider;
         this.emailDeliveryReadinessService = emailDeliveryReadinessService;
         this.emailTemplateComposer = emailTemplateComposer;
         this.emailSender = emailSender;
+        this.abusePolicyService = abusePolicyService;
     }
 
     public async Task<AdminInvitationListResponse> ListInvitationsAsync(
@@ -121,6 +125,17 @@ internal sealed class InvitationManagementService : IInvitationManagementService
             return InvitationManagementResult.Failure(InvitationManagementResultStatus.InvalidRequest);
         }
 
+        var abuseRequest = CreateAbuseRequest(
+            InvitationAbusePolicyOperations.Create,
+            actor.AuthAccountId,
+            normalizedEmail);
+        var abuseDecision = abusePolicyService.CheckAttempt(abuseRequest);
+        if (!abuseDecision.Allowed)
+        {
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Throttled);
+            return InvitationManagementResult.Failure(InvitationManagementResultStatus.Throttled);
+        }
+
         var existingPending = await dbContext.Set<AuthInvitation>()
             .AsNoTracking()
             .AnyAsync(
@@ -130,6 +145,7 @@ internal sealed class InvitationManagementService : IInvitationManagementService
                 cancellationToken);
         if (existingPending)
         {
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Failed);
             return InvitationManagementResult.Failure(InvitationManagementResultStatus.DuplicatePendingInvitation);
         }
 
@@ -189,6 +205,7 @@ internal sealed class InvitationManagementService : IInvitationManagementService
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
+        abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Succeeded);
         return InvitationManagementResult.Succeeded(MapSummary(
             invitation,
             occurredAtUtc,
@@ -268,16 +285,40 @@ internal sealed class InvitationManagementService : IInvitationManagementService
             return InvitationManagementResult.Failure(InvitationManagementResultStatus.CapabilityDisabled);
         }
 
+        var initialAbuseRequest = CreateAbuseRequest(
+            InvitationAbusePolicyOperations.Resend,
+            actor.AuthAccountId,
+            invitationId.ToString("D"));
+        var initialAbuseDecision = abusePolicyService.CheckAttempt(initialAbuseRequest);
+        if (!initialAbuseDecision.Allowed)
+        {
+            abusePolicyService.RecordAttempt(initialAbuseRequest, InvitationAbusePolicyOutcome.Throttled);
+            return InvitationManagementResult.Failure(InvitationManagementResultStatus.Throttled);
+        }
+
         var invitation = await dbContext.Set<AuthInvitation>()
             .SingleOrDefaultAsync(invitation => invitation.Id == invitationId, cancellationToken);
         if (invitation is null)
         {
+            abusePolicyService.RecordAttempt(initialAbuseRequest, InvitationAbusePolicyOutcome.Failed);
             return InvitationManagementResult.Failure(InvitationManagementResultStatus.NotFound);
+        }
+
+        var abuseRequest = CreateAbuseRequest(
+            InvitationAbusePolicyOperations.Resend,
+            actor.AuthAccountId,
+            $"{invitation.Id:D}:{invitation.ContactIdentifierKind}:{invitation.ContactIdentifierNormalized}");
+        var abuseDecision = abusePolicyService.CheckAttempt(abuseRequest);
+        if (!abuseDecision.Allowed)
+        {
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Throttled);
+            return InvitationManagementResult.Failure(InvitationManagementResultStatus.Throttled);
         }
 
         var occurredAtUtc = timeProvider.GetUtcNow();
         if (!IsPendingAndUnexpired(invitation, occurredAtUtc))
         {
+            abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Failed);
             return InvitationManagementResult.Failure(InvitationManagementResultStatus.TerminalState);
         }
 
@@ -354,7 +395,20 @@ internal sealed class InvitationManagementService : IInvitationManagementService
         AddDeliveryAudit(actor.AuthAccountId, occurredAtUtc, invitation, deliveryOutcome);
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        abusePolicyService.RecordAttempt(abuseRequest, InvitationAbusePolicyOutcome.Succeeded);
         return InvitationManagementResult.Succeeded(MapSummary(invitation, occurredAtUtc, deliveryOutcome.DeliveryState));
+    }
+
+    private static InvitationAbusePolicyRequest CreateAbuseRequest(
+        string operationCategory,
+        Guid actorAuthAccountId,
+        string subjectBucketRef)
+    {
+        return new InvitationAbusePolicyRequest(
+            operationCategory,
+            ActorBucketRef: actorAuthAccountId.ToString("D"),
+            SubjectBucketRef: subjectBucketRef,
+            SourceBucketRef: LocalSingleNodeSourceBucket);
     }
 
     private async Task<InvitationDeliveryOutcome> TryDeliverInvitationEmailAsync(

@@ -54,6 +54,7 @@ internal enum InvitationManagementResultStatus
     InvalidRequest,
     CapabilityDisabled,
     DuplicatePendingInvitation,
+    Throttled,
     NotFound,
     TerminalState,
     UnsupportedContactIdentifierKind,
