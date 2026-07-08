@@ -124,6 +124,7 @@ app.MapCurrentUserEndpoints();
 app.MapCurrentAccountPasswordChangeEndpoints();
 app.MapLocalPasswordResetEndpoints();
 app.MapInvitationPolicyEndpoints();
+app.MapInvitationManagementEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMfaEndpoints();
 app.MapGroupFoundationEndpoints();
