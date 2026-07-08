@@ -1,0 +1,12 @@
+[Unit]
+Description=Example timer for Settleora unattended Codex auto-runner
+
+[Timer]
+OnCalendar=*-*-* 01:00:00
+Persistent=false
+Unit=settleora-auto-runner.service
+
+[Install]
+WantedBy=timers.target
+
+# Example only. This PR does not install or enable the timer.

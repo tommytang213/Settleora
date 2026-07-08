@@ -1,0 +1,26 @@
+{
+  "repoRoot": "/workspace/repos/Settleora",
+  "logsRoot": "/workspace/logs/settleora-auto-runner",
+  "eligibleLabels": ["auto-ready", "auto-bundle"],
+  "stopLabels": [
+    "needs-tommy",
+    "manual-gate",
+    "danger-gate",
+    "auto-failed",
+    "auto-running",
+    "blocked"
+  ],
+  "claimLabels": ["auto-claimed", "auto-running"],
+  "priorityLabels": ["priority-critical", "priority-high", "priority-ready"],
+  "maxIterations": 3,
+  "maxRuntimeMs": null,
+  "pollLimit": 30,
+  "allowStaleClaimSteal": false,
+  "staleClaimAfterHours": 12,
+  "allowAutoMerge": false,
+  "allowFollowupIssueCreation": false,
+  "maxFollowupIssuesPerRun": 3,
+  "maxReviewFixCycles": 1,
+  "codexCommand": "codex-vm-full",
+  "reviewerCommand": "codex-vm-full"
+}
