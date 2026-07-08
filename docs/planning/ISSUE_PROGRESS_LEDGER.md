@@ -20,6 +20,82 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#339 - Password reset future gates issue split after PR #771
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #339 `OPEN`; not closed in this task.
+- Verified repo baseline:
+  `origin/main` at
+  `833b480e69760163b83de4b6c4531a521374417c`, the PR #771 merge commit.
+- PR #771 merge evidence:
+  PR #771 is `MERGED` into `main`; merge commit
+  `833b480e69760163b83de4b6c4531a521374417c`; changed files were limited to
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`. PR #771 recorded the final Day 1
+  local-account password-reset auth/security acceptance checkpoint.
+- Current approved-surface posture:
+  the local-account password reset Day 1 surface has no remaining
+  approved-surface gates after PR #771. #339 remains open only because it is
+  broad/planning-shaped and should not be closed until future optional or
+  broader auth/credential surfaces are safely represented elsewhere.
+- Duplicate-search readback before creating issues:
+  searched open and closed issues for
+  `mobile deep link universal app link custom scheme password reset`,
+  `provider owned OIDC OAuth SSO password reset helper`,
+  `security center credential activity password reset credential change`,
+  `admin recovery admin reset change password users owner`,
+  `MFA passkey OIDC auth factor local account`,
+  `production security review auth public exposure release readiness`, and
+  `password reset notification security session event`. No narrow equivalent
+  child issues were found for the six newly created future-surface gates.
+  Existing broad/adjacent coverage was reused where appropriate.
+- Future optional/broader coverage matrix:
+
+  | Surface | Issue | Status | Day 1 blocker? |
+  | --- | --- | --- | --- |
+  | Broad auth/session/runtime security umbrella | #336 | Existing open epic | Yes for broader E1; not a remaining local password-reset gate |
+  | Invitation/public registration/admin-created user/local account/OIDC-Keycloak policy gates | #337 | Existing open child | Separate Day 1 auth policy gate |
+  | Current-account session visibility, revocation, new-device/security audit expectations | #338 | Existing open child | Separate Day 1 auth/session gate |
+  | Current approved local-account password reset and credential-change workflow | #339 | Existing open planning issue; current approved local reset surface final-accepted by PR #771 | No remaining approved-surface gate after PR #771 |
+  | Password-reset mobile universal links, Android app links, iOS associated domains, custom schemes, manual reset-material/code entry, and platform handoff policy | #772 | New open child | Future optional; not a Day 1 blocker unless later approved |
+  | Provider-owned/OIDC/OAuth/SSO password-reset helper posture | #773 | New open child | Future optional; not a current Day 1 blocker |
+  | Credential activity and security-center surfaces for auth events | #774 | New open child | Future optional unless product-facing security center/credential activity is later approved |
+  | Admin-assisted recovery and administrator credential-change boundaries | #775 | New open child | Future optional/manual-gated; not a current Day 1 blocker |
+  | Passkey and MFA auth-factor gates and reset/change interactions | #776 | New open child | Future optional/manual-gated beyond current local password-reset surface |
+  | Auth production/public-exposure security review gate | #777 | New open child | Future manual security/release gate; not a current local password-reset gate |
+  | In-app notification event coverage, including important auth/session/security events | #369 | Existing open notification issue | Separate notification gate; not required for current local password-reset acceptance |
+  | Notification deep-link routing | #371 | Existing closed notification-flow issue | Not a password-reset email link/app-link policy gate |
+  | Push/email/provider/delivery-state notification runtime | #634 and related notification issue set | Existing open/related notification coverage | Separate notification delivery/provider work |
+
+- GitHub issue hygiene completed:
+  - Created child issues #772, #773, #774, #775, #776, and #777.
+  - Commented on #339:
+    <https://github.com/tommytang213/Settleora/issues/339#issuecomment-4911285794>.
+  - Commented on #336:
+    <https://github.com/tommytang213/Settleora/issues/336#issuecomment-4911285890>.
+  - No issue was closed by this task.
+- Metadata posture:
+  issue labels were set only at creation time using existing repo labels.
+  No milestones, assignees, Project fields, or post-creation label mutations
+  were updated. Project/status metadata updates were skipped because the task
+  did not require safe Project mutation and the issue bodies/comments now carry
+  the split coverage.
+- Issue posture:
+  keep #336 open for broader auth/session/runtime security. Keep #339 open
+  for now; it can later be closed only if maintainers confirm all future and
+  broader password-reset/credential-change scope is represented by linked
+  child issues and no open #339-specific gate remains.
+- Scope confirmation:
+  this checkpoint is docs-only. It does not change runtime/API/backend
+  behavior, OpenAPI/contracts, generated clients, mobile/user-web/admin UI,
+  email template code/tests, SMTP/provider configuration, appsettings/env/
+  secrets, schema/migrations, Docker, CI, deployment, Codemagic/TestFlight,
+  notifications runtime, security-center runtime, credential-activity runtime,
+  auth-audit runtime, money, settlement, payment, bill, OCR, storage, sync,
+  import/export, backup/restore, reconciliation behavior, issue closure, or
+  issue/project metadata beyond creating the child issues with existing labels
+  and posting the required comments.
+
 ### Issues #336/#339 - Password reset A08 and final auth/security acceptance checkpoint
 
 - GitHub state/project status:
