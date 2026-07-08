@@ -20,53 +20,81 @@ remain the source of truth.
 
 ## Current Checkpoints
 
-### Issues #336/#339 - Password reset A04 email/link target alignment branch
+### Issues #336/#339 - PR #769 password reset A04 email/link target post-merge checkpoint
 
 - GitHub state/project status:
-  - #336 `OPEN`; Project status readback remains `Inbox` from the latest
-    password-reset gate reports.
-  - #339 `OPEN`; Project status readback remains `Needs Decision` from the
-    latest password-reset gate reports.
-- Branch:
+  - #336 `OPEN`; Project status readback: `Inbox`.
+  - #339 `OPEN`; Project status readback: `Needs Decision`.
+- PR:
+  <https://github.com/tommytang213/Settleora/pull/769>.
+- PR title:
+  `fix(auth): align password reset email link copy`.
+- PR state:
+  `MERGED`.
+- PR branch:
   `feature/password-reset-a04-email-link-target-alignment-20260708-0046`.
-- Baseline:
-  `origin/main` at `5358a5a517cc1d1f436a1e3afed1738948c0c7fb`, the PR #768
-  post-merge ledger merge commit.
-- Verification timestamp:
-  `2026-07-08 00:46 HKT` task window.
-- Completed branch checkpoint:
-  narrow A04 reset email/link target alignment for the current backend
-  password-reset email template composer. The send-ready subject is
-  `Reset your Settleora password`, the text body uses the approved generic A04
-  copy, and the existing reset-link target remains
+- Reviewed source head:
+  `79dbc1320c7e90c694a41e14a5932c4763b69025`.
+- Merge SHA:
+  `1450a0bdd30e664e5f4a5e9409681170dc86d0e7`.
+- Previous main/base:
+  `5358a5a517cc1d1f436a1e3afed1738948c0c7fb`.
+- Issue comments:
+  - #336:
+    <https://github.com/tommytang213/Settleora/issues/336#issuecomment-4906428286>.
+  - #339:
+    <https://github.com/tommytang213/Settleora/issues/339#issuecomment-4906431027>.
+- Post-merge verification:
+  `origin/main` is merge commit
+  `1450a0bdd30e664e5f4a5e9409681170dc86d0e7`; PR #769 readback is
+  `MERGED`, base `main`, source branch
+  `feature/password-reset-a04-email-link-target-alignment-20260708-0046`,
+  reviewed head `79dbc1320c7e90c694a41e14a5932c4763b69025`, and merge commit
+  `1450a0bdd30e664e5f4a5e9409681170dc86d0e7`. The restored source branch
+  readback points to `79dbc1320c7e90c694a41e14a5932c4763b69025`.
+- Merged diff scope:
+  first-parent merge diff was limited to
+  `docs/planning/ISSUE_PROGRESS_LEDGER.md`,
+  `services/api/src/Settleora.Api/Auth/PasswordReset/IPasswordResetEmailTemplateComposer.cs`,
+  and
+  `services/api/tests/Settleora.Api.Tests/PasswordResetEmailTemplateComposerTests.cs`.
+- Completed A04 slice:
+  backend reset email subject is aligned to
+  `Reset your Settleora password`; the send-ready text body uses the approved
+  generic A04 copy; and the reset-link target remains
   `/auth/password-reset#resetMaterial=...`.
 - Link/privacy checkpoint:
-  reset material remains carried only in the URL fragment as
-  `resetMaterial`, not in query parameters. Redacted template readbacks remain
-  bounded and do not expose reset material, token-style URL content, submitted
+  reset material remains carried only in the URL fragment as `resetMaterial`,
+  not in query parameters. The generated reset link has an empty query, and no
+  `token=` link shape was introduced. Redacted template readbacks remain
+  bounded and exclude reset material, token-style URL content, submitted
   identifiers, account email/usernames, SMTP credentials, configured origins,
-  or provider payloads.
-- Scope confirmation:
-  this checkpoint changes only the backend password-reset email composer,
-  focused password-reset email composer tests, and this ledger entry. It does
-  not change public API route behavior, OpenAPI/contracts, generated clients,
-  schema/migrations, SMTP/provider configuration, notification runtime/
-  targets/security-center/credential-activity surfaces, mobile UI, user-web UI,
-  secrets/config/env, deployment/Docker/CI/Codemagic/TestFlight behavior,
-  money/settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
+  and provider payloads.
+- Validation checkpoint at reviewed source head:
+  full API validation passed with `1409` tests, `0` failed, `0` skipped;
+  focused password-reset route/composer tests passed with `84` tests and `30`
+  email-composer tests; OpenAPI validation passed; client generation produced
+  no tracked generated-client drift; generated-client validation passed;
+  scaffold validation passed; docs validation passed; and exact-head GitHub
+  checks passed before merge.
+- Non-goals preserved:
+  no public API route behavior outside the password-reset email composer,
+  OpenAPI/contracts, generated clients, schema/migrations, SMTP/provider
+  configuration, appsettings/env/secrets, notification runtime/targets,
+  security-center/credential-activity/auth-audit re-fetch surfaces, mobile UI,
+  user-web UI, Docker/CI/deployment/Codemagic/TestFlight behavior, money/
+  settlement/payment/bill/OCR/storage/sync/import/export/backup/restore/
   reconciliation behavior, issue closure, labels, milestones, assignees, or
-  Project fields.
+  Project field changes were made.
 - Remaining gates:
-  PR review/merge gate for this branch, A08 provider-owned/helper state only if
-  an approved surface needs it, final broader auth/security acceptance, and
-  notification/security-center/credential-activity gates only if those surfaces
-  are added later.
+  A08 provider-owned/helper state only if an approved surface needs it, final
+  broader auth/security acceptance, and notification/security-center/
+  credential-activity gates only if those surfaces are added later.
 - Issue posture:
-  keep #336 open. This branch does not complete the broader auth/session/
-  runtime security epic or final Day 1 auth/security acceptance. Keep #339
-  open. This branch addresses the A04 email/link target alignment slice only
-  and does not complete the full Day 1 password reset and credential-change
-  workflow.
+  keep #336 open. PR #769 does not complete the broader auth/session/runtime
+  security epic or final Day 1 auth/security acceptance. Keep #339 open.
+  PR #769 completes only the A04 email/link target alignment slice and does not
+  complete the full Day 1 password reset and credential-change workflow.
 
 ### Issues #336/#339 - PR #767 user-web password reset complete UI post-merge checkpoint
 
