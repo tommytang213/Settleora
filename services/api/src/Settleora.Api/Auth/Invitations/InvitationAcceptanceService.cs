@@ -24,17 +24,20 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
     private readonly SettleoraDbContext dbContext;
     private readonly IAuthCredentialWorkflowService credentialWorkflowService;
     private readonly IInvitationAbusePolicyService abusePolicyService;
+    private readonly IInvitationLifecycleCleanupService lifecycleCleanupService;
     private readonly TimeProvider timeProvider;
 
     public InvitationAcceptanceService(
         SettleoraDbContext dbContext,
         IAuthCredentialWorkflowService credentialWorkflowService,
         IInvitationAbusePolicyService abusePolicyService,
+        IInvitationLifecycleCleanupService lifecycleCleanupService,
         TimeProvider timeProvider)
     {
         this.dbContext = dbContext;
         this.credentialWorkflowService = credentialWorkflowService;
         this.abusePolicyService = abusePolicyService;
+        this.lifecycleCleanupService = lifecycleCleanupService;
         this.timeProvider = timeProvider;
     }
 
@@ -43,6 +46,8 @@ internal sealed class InvitationAcceptanceService : IInvitationAcceptanceService
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        await lifecycleCleanupService.ExecuteCleanupAsync(cancellationToken);
 
         var abuseRequest = CreateAbuseRequest(request.InvitationSecret);
         var policyResult = abusePolicyService.CheckAttempt(abuseRequest);

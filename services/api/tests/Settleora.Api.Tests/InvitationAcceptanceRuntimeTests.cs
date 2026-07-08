@@ -198,6 +198,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         var invitation = await dbContext.Set<AuthInvitation>().SingleAsync(invitation => invitation.Id == invitationId);
         Assert.Equal(AuthInvitationStatuses.Expired, invitation.Status);
         Assert.NotNull(invitation.ExpiredAtUtc);
+        Assert.Equal(InitialTimestamp.AddDays(90), invitation.CleanupEligibleAtUtc);
         Assert.Equal(1, await dbContext.Set<AuthAccount>().CountAsync());
     }
 

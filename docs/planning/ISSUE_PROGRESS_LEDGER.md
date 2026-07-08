@@ -20,6 +20,74 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Invitation lifecycle cleanup runtime checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only the API/domain-owned
+    invitation lifecycle cleanup/retention runtime slice. Delivery persistence/
+    outbox, distributed abuse storage, UI/Figma/mobile/user-web/admin-web
+    surfaces, public self-registration, OIDC-adjacent onboarding, and
+    production/public-exposure gates remain open.
+  - #777 `OPEN`; production/public-exposure security review remains a separate
+    manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `63a1bdf12f7e1bce609fe7a82d32bf1d70532c85` before this task branch.
+- Branch:
+  `feature/auth-invitation-lifecycle-cleanup-runtime-20260709-0008`.
+- Completed slice:
+  - Added `IInvitationLifecycleCleanupService` under the auth invitation
+    runtime boundary and registered it through the existing invitation service
+    collection wiring.
+  - Cleanup is invoked from existing invitation management/read/mutation and
+    public acceptance paths before normal invitation queries, with no new
+    background worker or cross-domain table mutation.
+  - Pending invitations whose server-controlled `ExpiresAtUtc` has passed are
+    marked `expired`, receive bounded `ExpiredAtUtc`/`UpdatedAtUtc`
+    timestamps, and become cleanup-eligible after the current 90-day terminal
+    retention posture.
+  - Accepted, revoked, and expired terminal invitations are hard-deleted only
+    after `CleanupEligibleAtUtc` has passed, avoiding retention of contact and
+    hash material without schema changes.
+  - Cleanup is idempotent and bounded to 50 total invitation changes per
+    invocation; unexpired pending invitations and terminal invitations before
+    cleanup eligibility are retained.
+  - Added `invitation.cleanup_completed` audit only when cleanup changes state.
+    Metadata contains counts/categories, batch-cap state, and a safe timing
+    bucket only; it does not include invitation IDs, raw invitation secrets,
+    raw links, secret hashes, full contact identifiers, SMTP/provider
+    diagnostics, request bodies, passwords, session/refresh material, source
+    IP, user-agent, or unrelated user data.
+- Validation checkpoint:
+  - Focused
+    `InvitationLifecycleCleanupRuntimeTests|InvitationAcceptanceRuntimeTests|InvitationManagementRuntimeTests|InvitationEmailSenderTests`
+    filter passed with `50` passed, `0` failed, `0` skipped.
+  - Broader validation for this branch is recorded in the task report.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Remaining #784 gates:
+  delivery attempt persistence/outbox if chosen, distributed abuse controls,
+  UI/Figma/mobile/user-web/admin-web surfaces, public self-registration and
+  OIDC-adjacent onboarding gates, and production/public-exposure review.
+- Scope confirmation:
+  this checkpoint changes only API auth invitation lifecycle cleanup runtime,
+  focused tests, and this ledger entry. It does not change OpenAPI/contracts,
+  generated clients, schema/migrations, delivery attempt persistence/outbox
+  schema or worker behavior, distributed limiter storage, invitation email/
+  provider transport semantics, public invitation accept response shape,
+  session or refresh credential issuance from invitation acceptance, public
+  self-registration, OIDC/Keycloak runtime, owner/admin invitation target
+  roles, owner/admin role assignment, local-account/admin-created-user
+  hardening outside existing invitation acceptance, mobile/user-web/admin UI,
+  Figma, production/public exposure, Docker/CI/deployment, appsettings/env/
+  secrets, storage, sync, import/export, backup/restore, OCR, money,
+  settlement, payment, bill calculation, issue closure, or branch cleanup.
+
 ### Issues #336/#337/#784/#777 - Invitation abuse controls runtime checkpoint
 
 - GitHub state/project status:
