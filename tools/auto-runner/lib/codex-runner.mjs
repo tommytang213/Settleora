@@ -126,16 +126,35 @@ export function parseReviewVerdict(output) {
   if (!match) return unableToReview("Reviewer output did not contain verdict JSON.");
   try {
     const parsed = JSON.parse(match[0]);
+    const verdict = enumValue(parsed.verdict, [
+      "approve",
+      "changes_requested",
+      "needs_tommy",
+      "danger_gate",
+      "unable_to_review",
+    ]);
+    if (!verdict) return unableToReview(`Reviewer verdict is invalid: ${parsed.verdict || "missing"}`);
+    const confidence = enumValue(parsed.confidence, ["low", "medium", "high"]) || "low";
+    const triState = ["pass", "partial", "fail", "unclear"];
+    const scopeControl = enumValue(parsed.scope_control, ["pass", "fail", "unclear"]) || "unclear";
+    const recommendedNextAction =
+      enumValue(parsed.recommended_next_action, [
+        "open_pr",
+        "run_safe_fix_cycle",
+        "mark_needs_tommy",
+        "mark_auto_failed",
+        "mark_danger_gate",
+      ]) || "mark_auto_failed";
     return {
-      verdict: parsed.verdict || "unable_to_review",
-      confidence: parsed.confidence || "low",
-      requirement_match: parsed.requirement_match || "unclear",
-      code_quality: parsed.code_quality || "unclear",
-      scope_control: parsed.scope_control || "unclear",
-      validation_adequacy: parsed.validation_adequacy || "unclear",
-      blocking_findings: parsed.blocking_findings || [],
-      non_blocking_findings: parsed.non_blocking_findings || [],
-      recommended_next_action: parsed.recommended_next_action || "mark_auto_failed",
+      verdict,
+      confidence,
+      requirement_match: enumValue(parsed.requirement_match, triState) || "unclear",
+      code_quality: enumValue(parsed.code_quality, triState) || "unclear",
+      scope_control: scopeControl,
+      validation_adequacy: enumValue(parsed.validation_adequacy, triState) || "unclear",
+      blocking_findings: Array.isArray(parsed.blocking_findings) ? parsed.blocking_findings.slice(0, 20) : [],
+      non_blocking_findings: Array.isArray(parsed.non_blocking_findings) ? parsed.non_blocking_findings.slice(0, 20) : [],
+      recommended_next_action: recommendedNextAction,
     };
   } catch (error) {
     return unableToReview(`Reviewer verdict JSON could not be parsed: ${error.message}`);
@@ -196,6 +215,10 @@ function unableToReview(reason) {
     non_blocking_findings: [],
     recommended_next_action: "mark_auto_failed",
   };
+}
+
+function enumValue(value, allowed) {
+  return allowed.includes(value) ? value : null;
 }
 
 function tailText(filePath, maxLines = 80) {

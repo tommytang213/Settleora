@@ -13,6 +13,7 @@ export const defaultConfig = Object.freeze({
     "danger-gate",
     "auto-failed",
     "auto-running",
+    "auto-pr-opened",
     "blocked",
   ],
   claimLabels: ["auto-claimed", "auto-running"],
@@ -47,6 +48,7 @@ export function parseCliArgs(argv) {
   const args = {
     dryRun: false,
     run: false,
+    preflight: false,
     once: false,
     maxIterations: null,
     maxRuntimeMs: null,
@@ -55,17 +57,20 @@ export function parseCliArgs(argv) {
     sinceMs: 24 * 60 * 60 * 1000,
     requirePrePrReview: false,
     configPath: null,
+    fixtureIssuesPath: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--dry-run") args.dryRun = true;
     else if (arg === "--run") args.run = true;
+    else if (arg === "--preflight") args.preflight = true;
     else if (arg === "--once") args.once = true;
     else if (arg === "--require-pre-pr-review") args.requirePrePrReview = true;
     else if (arg === "--write-summary") args.writeSummary = true;
     else if (arg === "--review-package") args.reviewPackage = readValue(argv, ++index, arg);
     else if (arg === "--config") args.configPath = readValue(argv, ++index, arg);
+    else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--since") args.sinceMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-runtime") args.maxRuntimeMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-iterations") {
@@ -79,12 +84,21 @@ export function parseCliArgs(argv) {
     }
   }
 
-  const specialMode = args.writeSummary || Boolean(args.reviewPackage);
+  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight;
   if (!specialMode && args.dryRun === args.run) {
     throw new Error("Pass exactly one of --dry-run or --run");
   }
-  if (specialMode && (args.dryRun || args.run)) {
-    throw new Error("--write-summary and --review-package do not take --dry-run or --run");
+  if ((args.writeSummary || args.reviewPackage) && (args.dryRun || args.run || args.preflight)) {
+    throw new Error("--write-summary and --review-package do not take --dry-run, --run, or --preflight");
+  }
+  if (args.preflight && (args.dryRun || args.run)) {
+    throw new Error("--preflight runs as its own non-mutating mode; do not pass --dry-run or --run");
+  }
+  if (args.fixtureIssuesPath && !args.dryRun) {
+    throw new Error("--fixture-issues is dry-run only; pass --dry-run");
+  }
+  if (args.fixtureIssuesPath && (args.writeSummary || args.reviewPackage || args.preflight)) {
+    throw new Error("--fixture-issues can only be used with the normal dry-run loop");
   }
   if (args.once) {
     args.maxIterations = 1;
@@ -116,6 +130,16 @@ export function loadConfig(cliArgs) {
     maxRuntimeMs: cliArgs.maxRuntimeMs ?? fileConfig.maxRuntimeMs ?? defaultConfig.maxRuntimeMs,
     requirePrePrReview: cliArgs.requirePrePrReview,
   };
+  if (cliArgs.preflight) {
+    config.mode = "preflight";
+    config.dryRun = true;
+    config.run = false;
+  }
+  if (cliArgs.fixtureIssuesPath) {
+    config.fixtureIssuesPath = cliArgs.fixtureIssuesPath;
+    config.fixtureIssues = parseFixtureIssues(cliArgs.fixtureIssuesPath);
+    config.fixtureIssueCursor = 0;
+  }
 
   for (const dir of [
     config.logsRoot,
@@ -135,4 +159,24 @@ export function loadConfig(cliArgs) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+function parseFixtureIssues(fixtureIssuesPath) {
+  const parsed = JSON.parse(readFileSync(fixtureIssuesPath, "utf8"));
+  if (!Array.isArray(parsed)) {
+    throw new Error("--fixture-issues must point to a JSON array of issue objects");
+  }
+  return parsed.map((issue, index) => {
+    if (!Number.isInteger(issue.number) || !issue.title) {
+      throw new Error(`Fixture issue at index ${index} must include integer number and title`);
+    }
+    return {
+      body: "",
+      labels: [],
+      url: `fixture://issue/${issue.number}`,
+      createdAt: "1970-01-01T00:00:00Z",
+      updatedAt: "1970-01-01T00:00:00Z",
+      ...issue,
+    };
+  });
 }

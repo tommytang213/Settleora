@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { parseCliArgs, loadConfig, defaultLogsRoot } from "./lib/config.mjs";
+import { runPreflight } from "./lib/preflight.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
 import { acquireRunnerLock, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
@@ -45,6 +46,13 @@ async function main() {
     console.log(JSON.stringify(result.verdict, null, 2));
     return;
   }
+  if (cliArgs.preflight) {
+    const config = loadConfig(cliArgs);
+    const result = runPreflight(config);
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = result.summary.fail > 0 ? 1 : 0;
+    return;
+  }
 
   const config = loadConfig(cliArgs);
   const runId = `run-${safeTimestamp()}`;
@@ -76,6 +84,9 @@ async function main() {
       const iteration = await runIteration(config, logger, runId, index);
       summary.iterations.push(iteration);
       writeIterationState(config, iteration);
+      if (config.fixtureIssues && iteration.issue) {
+        config.fixtureIssueCursor = (config.fixtureIssueCursor || 0) + 1;
+      }
       if (iteration.systemicStop) {
         summary.stopReason = iteration.systemicStop;
         break;
@@ -131,7 +142,7 @@ async function runIteration(config, logger, runId, index) {
   iteration.laneDecision = laneDecision;
   if (!laneDecision.allowedToImplement) {
     iteration.outcome = laneDecision.dangerGate ? "danger_gate" : "blocked_needs_tommy";
-    iteration.issueComment = commentIssueOutcome(
+    iteration.issueComment = finishIssueOutcome(
       config,
       issue,
       iteration.outcome,
@@ -158,7 +169,7 @@ async function runIteration(config, logger, runId, index) {
   iteration.codex = codexResult;
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
     iteration.outcome = "auto_failed";
-    iteration.issueComment = commentIssueOutcome(config, issue, iteration.outcome, codexFailureBody(issue, codexResult));
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, codexFailureBody(issue, codexResult));
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -167,6 +178,12 @@ async function runIteration(config, logger, runId, index) {
   iteration.changedFiles = changedFiles;
   if (changedFiles.length === 0 && !config.dryRun) {
     iteration.outcome = "no_changes";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner made no changes for #${issue.number}; no PR was opened.`,
+    );
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -175,7 +192,7 @@ async function runIteration(config, logger, runId, index) {
   iteration.forbiddenChangedFiles = forbidden;
   if (forbidden.length > 0) {
     iteration.outcome = "danger_gate";
-    iteration.issueComment = commentIssueOutcome(
+    iteration.issueComment = finishIssueOutcome(
       config,
       issue,
       iteration.outcome,
@@ -189,7 +206,7 @@ async function runIteration(config, logger, runId, index) {
   iteration.validation = runValidationPlan(config, validationPlan);
   if (!iteration.validation.passed) {
     iteration.outcome = "validation_failed";
-    iteration.issueComment = commentIssueOutcome(config, issue, iteration.outcome, validationFailureBody(issue, iteration.validation));
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, validationFailureBody(issue, iteration.validation));
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -197,7 +214,12 @@ async function runIteration(config, logger, runId, index) {
   iteration.report = collectReport(config, promptInfo);
   if (!config.dryRun && !iteration.report.found) {
     iteration.outcome = "auto_failed";
-    iteration.issueComment = commentIssueOutcome(config, issue, iteration.outcome, `Expected report missing: ${promptInfo.reportPath}`);
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Expected report missing: ${promptInfo.reportPath}`,
+    );
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -216,6 +238,12 @@ async function runIteration(config, logger, runId, index) {
   iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
   if (iteration.reviewMutationGuard.mutationDetected) {
     iteration.outcome = "auto_failed";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner blocked #${issue.number} because pre-PR review mutated the checkout.`,
+    );
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -226,12 +254,24 @@ async function runIteration(config, logger, runId, index) {
         ? "danger_gate"
         : iteration.review.verdict.verdict === "needs_tommy"
           ? "blocked_needs_tommy"
-          : "review_changes_requested_retry_exhausted";
+        : "review_changes_requested_retry_exhausted";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
+    );
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
   if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
     iteration.outcome = "review_changes_requested_retry_exhausted";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
+    );
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -240,6 +280,12 @@ async function runIteration(config, logger, runId, index) {
   iteration.push = pushBranch(config, branchName);
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner failed while pushing branch ${branchName} for #${issue.number}.`,
+    );
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -248,8 +294,20 @@ async function runIteration(config, logger, runId, index) {
     iteration.ci = watchChecks(config, iteration.pr.url);
   }
   iteration.outcome = config.dryRun ? "dry_run_preview_complete" : "approved_pr_opened";
+  if (!config.dryRun) {
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner opened or updated a PR for #${issue.number}: ${iteration.pr?.url || "URL unavailable"}`,
+    );
+  }
   iteration.finishedAt = new Date().toISOString();
   return iteration;
+}
+
+function finishIssueOutcome(config, issue, outcome, body) {
+  return commentIssueOutcome(config, issue, outcome, body);
 }
 
 async function checkoutFingerprint() {
