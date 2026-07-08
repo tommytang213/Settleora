@@ -20,6 +20,76 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Invitation admin management runtime checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only the owner/admin invitation
+    management runtime slice for create/list/get/revoke/resend over the
+    existing contract. Public accept/redeem runtime, email/provider delivery,
+    invitation link construction, broader abuse controls, lifecycle cleanup,
+    UI/Figma, and adjacent auth onboarding gates remain open.
+  - #777 `OPEN`; production/public-exposure security review remains a separate
+    manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `069b1f67e93e0a82fda00cfec035880eea07cfe1` before this task branch.
+- Branch:
+  `feature/auth-invitation-admin-management-runtime-20260708-1957`.
+- Completed slice:
+  - Added owner/admin-only runtime handlers for
+    `GET /api/v1/admin/auth/invitations`,
+    `POST /api/v1/admin/auth/invitations`,
+    `GET /api/v1/admin/auth/invitations/{invitationId}`,
+    `POST /api/v1/admin/auth/invitations/{invitationId}/revoke`, and
+    `POST /api/v1/admin/auth/invitations/{invitationId}/resend`.
+  - Kept creation/resend default-off behind the persisted invitation policy;
+    revocation of existing pending invitations remains owner/admin-controlled
+    even when creation/resend is disabled.
+  - Enforced #784 Day 1 constraints: email-only contact identifiers,
+    user-only invitation targets, duplicate pending invitation rejection, and
+    bounded safe admin readbacks.
+  - Added server-side random invitation material generation for create and
+    persisted only a versioned lookup hash. Raw invitation material is not
+    accepted from admin callers and is not returned by create/list/get/revoke/
+    resend responses.
+  - Kept delivery truthful in this no-delivery slice: create/resend return
+    `provider_unconfigured` or `not_requested` delivery state and do not claim
+    queued/sent delivery, construct links, call SMTP, or persist provider
+    payloads.
+  - Added bounded auth audit events for `invitation.created`,
+    `invitation.revoked`, and `invitation.resend_requested` with invitation ID
+    and category metadata only. Audit metadata does not include raw invitation
+    material, raw links, secret hashes, full contact identifiers, request
+    bodies, provider payloads, SMTP diagnostics, passwords, session tokens, or
+    refresh tokens.
+  - Added focused runtime tests for owner/admin access, normal-user/anonymous
+    denial, default-off create/resend blocking, enabled-policy creation,
+    user-only/email-only validation, duplicate pending handling, safe readbacks,
+    revoke terminal behavior, resend no-fake-delivery behavior, hash-only
+    persistence, and audit redaction.
+- Validation checkpoint:
+  - Focused invitation runtime/schema filter passed with `25` passed, `0`
+    failed, `0` skipped.
+  - Broader validation for this branch is recorded in the task report.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Scope confirmation:
+  this checkpoint changes only API auth invitation admin management runtime,
+  focused tests, and this ledger entry. It does not change OpenAPI/contracts,
+  generated clients, schema/migrations, public invitation accept/redeem
+  behavior, email/provider delivery, invitation link construction, public
+  self-registration, OIDC/Keycloak runtime, owner/admin role assignment,
+  local-account/admin-created-user hardening, mobile/user-web/admin UI, Figma,
+  notification/security-center runtime, password reset/change behavior,
+  production/public exposure, Docker/CI/deployment, appsettings/env/secrets,
+  storage, sync, import/export, backup/restore, OCR, money, settlement,
+  payment, bill calculation, issue closure, or branch cleanup.
+
 ### Issues #336/#337/#784/#777 - Invitation policy runtime checkpoint
 
 - GitHub state/project status:
