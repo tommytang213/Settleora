@@ -256,6 +256,14 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
             RevocationReasonMaxLength) ?? DefaultRevocationReason;
         session.UpdatedAtUtc = occurredAtUtc;
 
+        await RevokeRefreshFamiliesForSessionsAsync(
+            request.AuthAccountId,
+            new HashSet<Guid> { session.Id },
+            excludedAuthSessionId: null,
+            session.RevocationReason,
+            occurredAtUtc,
+            cancellationToken);
+
         await WriteAuditAsync(
             SessionRevokedAction,
             AuthAuditOutcomes.Revoked,
@@ -426,7 +434,41 @@ internal sealed class AuthSessionRuntimeService : IAuthSessionRuntimeService
             credential.UpdatedAtUtc = occurredAtUtc;
         }
 
-        if (activeFamilies.Count > 0 || activeRefreshCredentials.Count > 0)
+        var linkedSessionIds = await dbContext.Set<AuthRefreshCredential>()
+            .Where(credential => candidateFamilyIds.Contains(credential.AuthSessionFamilyId)
+                && credential.AuthSessionId != null)
+            .Select(credential => credential.AuthSessionId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (excludedAuthSessionId is { } excludedSessionId)
+        {
+            linkedSessionIds.RemoveAll(sessionId => sessionId == excludedSessionId);
+        }
+
+        foreach (var alreadyRevokedSessionId in revokedSessionIds)
+        {
+            linkedSessionIds.RemoveAll(sessionId => sessionId == alreadyRevokedSessionId);
+        }
+
+        var activeLinkedSessions = await dbContext.Set<AuthSession>()
+            .Where(session => linkedSessionIds.Contains(session.Id)
+                && session.AuthAccountId == authAccountId
+                && session.Status == AuthSessionStatuses.Active
+                && session.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var linkedSession in activeLinkedSessions)
+        {
+            linkedSession.Status = AuthSessionStatuses.Revoked;
+            linkedSession.RevokedAtUtc = occurredAtUtc;
+            linkedSession.RevocationReason = revocationReason;
+            linkedSession.UpdatedAtUtc = occurredAtUtc;
+        }
+
+        if (activeFamilies.Count > 0
+            || activeRefreshCredentials.Count > 0
+            || activeLinkedSessions.Count > 0)
         {
             await WriteAuditAsync(
                 SessionFamilyRevokedAction,
