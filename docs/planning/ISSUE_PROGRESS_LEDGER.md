@@ -20,6 +20,78 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #336/#337/#784/#777 - Public invitation accept/redeem runtime checkpoint
+
+- GitHub state/project status:
+  - #336 `OPEN`; broad E1 auth/session/runtime security epic remains open.
+  - #337 `OPEN`; broad Day 1 invite/registration/local-account/OIDC policy
+    parent remains open.
+  - #784 `OPEN`; this checkpoint completes only the public invitation
+    accept/redeem runtime slice for the existing
+    `POST /api/v1/auth/invitations/accept` contract. Invitation email/provider
+    delivery, invitation link construction, resend rotate-and-deliver behavior,
+    public self-registration, OIDC/Keycloak runtime, broader abuse controls,
+    lifecycle cleanup jobs, UI/Figma, and adjacent auth onboarding gates remain
+    open.
+  - #777 `OPEN`; production/public-exposure security review remains a separate
+    manual gate.
+- Verified repo baseline:
+  `origin/main` at
+  `6748624663805c78ccafe443decf7c6ff32ca60f` before this task branch.
+- Branch:
+  `feature/auth-invitation-public-accept-redeem-runtime-20260708-2041`.
+- Completed slice:
+  - Added anonymous `POST /api/v1/auth/invitations/accept` runtime for the
+    existing OpenAPI request/response shape without changing contracts or
+    generated clients.
+  - Added strict request parsing for object-only JSON, required
+    `invitationSecret`, `displayName`, and `localPassword`, unsupported-field
+    rejection, and bounded field validation.
+  - Reused the internal invitation secret hash/version boundary for
+    admin-created invitation material and public redemption lookup; raw
+    invitation material remains request-only and is not persisted, returned, or
+    audited.
+  - Enforced server-side pending/unaccepted/unrevoked/unexpired, user-only,
+    email-only, and capability-enabled redemption policy. Capability disabled
+    fails closed.
+  - Created the invited Day 1 local user account/profile/identity/credential
+    through the existing credential workflow boundary, assigned only system
+    `user`, and returned only `accepted_sign_in_required` with
+    `signInRequired: true`.
+  - Marked accepted invitations terminal in the same account/credential
+    transaction where relational transactions are available, with non-relational
+    cleanup coverage for focused tests.
+  - Added bounded `invitation.accepted` success audit and generic bounded
+    `invitation.accept_failed` audit for pre-transaction public failures. Audit
+    metadata excludes raw secret, raw link, secret hash, full email/contact,
+    password, verifier, session/refresh token, provider payload, request body,
+    and unrelated user data.
+  - Reused the existing in-memory sign-in abuse policy service with a safe
+    invitation-material fingerprint and fixed single-node source bucket for
+    public accept attempts.
+- Validation checkpoint:
+  - Focused `InvitationAcceptanceRuntimeTests` passed with `14` passed, `0`
+    failed, `0` skipped.
+  - Broader validation for this branch is recorded in the task report.
+- Issue posture:
+  keep #336, #337, #784, #777, and related child issues #785-#788 open. This
+  checkpoint does not complete Day 1 invitation capability and does not close
+  #784.
+- Remaining #784 gates:
+  invitation delivery/provider behavior, invitation link construction,
+  resend rotate-and-deliver behavior, distributed/stronger abuse controls,
+  lifecycle cleanup, UI surfaces, public self-registration and OIDC-adjacent
+  onboarding gates, and production/public-exposure review.
+- Scope confirmation:
+  this checkpoint changes only API auth invitation public accept/redeem
+  runtime, focused tests, and this ledger entry. It does not change OpenAPI/
+  contracts, generated clients, schema/migrations, invitation email/provider
+  delivery, invitation link construction, public self-registration,
+  OIDC/Keycloak runtime, owner/admin role assignment, mobile/user-web/admin UI,
+  Figma, production/public exposure, Docker/CI/deployment, appsettings/env/
+  secrets, storage, sync, import/export, backup/restore, OCR, money,
+  settlement, payment, bill calculation, issue closure, or branch cleanup.
+
 ### Issues #336/#337/#784/#777 - Invitation admin management runtime checkpoint
 
 - GitHub state/project status:
