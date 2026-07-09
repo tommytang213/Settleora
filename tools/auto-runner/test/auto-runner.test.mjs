@@ -1245,7 +1245,7 @@ test("canary mode rejects auto-merge and non-manual-merge contracts", () => {
   assert.equal(evaluateCanaryIssuePolicy(config, nonManual).allowed, false);
 });
 
-test("approved low-risk auto-merge canary accepts exact workflow and planning contracts only", () => {
+test("approved low-risk auto-merge canary accepts exact lane globs and least-privilege subsets", () => {
   const config = approvedLowRiskAutoMergeCanaryConfig();
   const workflow = classifyIssueLane({
     title: "Bounded auto merge canary",
@@ -1260,6 +1260,19 @@ test("approved low-risk auto-merge canary accepts exact workflow and planning co
   });
   assert.equal(evaluateCanaryIssuePolicy(config, workflow).allowed, true);
 
+  const workflowSingleFile = classifyIssueLane({
+    title: "Auto-merge canary 1: workflow docs checkpoint",
+    body: contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+      validationProfile: "docs-only",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready"],
+  });
+  assert.equal(evaluateCanaryIssuePolicy(config, workflowSingleFile).allowed, true);
+
   const planning = classifyIssueLane({
     title: "Bounded planning auto merge canary",
     body: contractBody({
@@ -1273,17 +1286,53 @@ test("approved low-risk auto-merge canary accepts exact workflow and planning co
   });
   assert.equal(evaluateCanaryIssuePolicy(config, planning).allowed, true);
 
+  const planningSingleFile = classifyIssueLane({
+    title: "Auto-merge canary 2: planning docs checkpoint",
+    body: contractBody({
+      lane: "docs-planning",
+      allowedPaths: ["docs/planning/ISSUE_PROGRESS_LEDGER.md"],
+      validationProfile: "docs-only",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready"],
+  });
+  assert.equal(evaluateCanaryIssuePolicy(config, planningSingleFile).allowed, true);
+
+  const qaSingleFile = classifyIssueLane({
+    title: "Bounded QA docs auto merge canary",
+    body: contractBody({
+      lane: "docs-planning",
+      allowedPaths: ["docs/qa/some-safe-file.md"],
+      validationProfile: "docs-only",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready"],
+  });
+  assert.equal(evaluateCanaryIssuePolicy(config, qaSingleFile).allowed, true);
+});
+
+test("approved low-risk auto-merge canary rejects broad, runtime, traversal, and non-canary lane paths", () => {
+  const config = approvedLowRiskAutoMergeCanaryConfig();
   for (const body of [
     contractBody({
       lane: "workflow-docs-tooling",
-      allowedPaths: ["tools/auto-runner/**"],
+      allowedPaths: ["docs/**"],
       validationProfile: "runner-tests",
       manualMergeRequired: false,
       autoMergeEligible: true,
     }),
     contractBody({
       lane: "workflow-docs-tooling",
-      allowedPaths: ["tools/auto-runner/**", "docs/**"],
+      allowedPaths: ["**"],
+      validationProfile: "runner-tests",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["."],
       validationProfile: "runner-tests",
       manualMergeRequired: false,
       autoMergeEligible: true,
@@ -1295,10 +1344,27 @@ test("approved low-risk auto-merge canary accepts exact workflow and planning co
       manualMergeRequired: false,
       autoMergeEligible: true,
     }),
+    contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["services/api/Auth/**"],
+      validationProfile: "runner-tests",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
   ]) {
-    const broad = classifyIssueLane({ title: "Broad canary", body, labels: ["auto-canary-ready"] });
-    assert.equal(evaluateCanaryIssuePolicy(config, broad).allowed, false);
+    const unsafe = classifyIssueLane({ title: "Unsafe canary", body, labels: ["auto-canary-ready"] });
+    assert.equal(evaluateCanaryIssuePolicy(config, unsafe).allowed, false);
   }
+
+  const traversal = parseAutoRunnerContract(contractBody({
+    lane: "docs-planning",
+    allowedPaths: ["docs/planning/../workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+    validationProfile: "docs-only",
+    manualMergeRequired: false,
+    autoMergeEligible: true,
+  }));
+  assert.equal(traversal.ok, false);
+  assert.match(traversal.reason, /repo-relative forward-slash/);
 });
 
 test("low-risk auto-merge canary approval rejects unsafe config shapes", () => {
@@ -1338,6 +1404,27 @@ test("approved low-risk lane with exact allowed paths and exact-head checks allo
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "all_auto_merge_gates_passed");
   assert.equal(decision.prHeadSha, "head123");
+});
+
+test("auto-merge decision enforces exact issue contract paths even under approved lane prefix", () => {
+  const laneDecision = autoMergeLane({
+    allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    laneManifestAllowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
+    validationProfile: "docs-only",
+    contract: {
+      allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const decision = evaluateAutoMergeDecision(
+    autoMergeContext({
+      laneDecision,
+      changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+    }),
+  );
+  assert.equal(decision.eligible, false);
+  assert.equal(decision.reason, "forbidden_changed_files:docs/workflow/AUTONOMOUS_CODEX_RUNNER.md");
 });
 
 test("canary auto-merge decision requires explicit low-risk approval", () => {
@@ -1432,6 +1519,30 @@ test("auto-merge evidence is sanitized and does not leak secrets", () => {
     );
     const text = readFileSync(evidence.evidencePath, "utf8");
     assert.doesNotMatch(text, /live-token|GEMINI_API_KEY|super-secret-token/i);
+    assert.match(text, /\[REDACTED\]/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("canary evidence is sanitized and does not leak secret-like data", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-canary-evidence-"));
+  try {
+    const evidence = writeCanaryEvidence(
+      { canary: true, dryRun: true, canaryEvidenceRoot: tempRoot },
+      {
+        issue: {
+          number: 825,
+          title: "authorization Bearer live-token GEMINI_API_KEY super-secret-token",
+          labels: ["auto-canary-ready"],
+        },
+        laneDecision: { lane: "workflow-docs-tooling", contract: { allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"] } },
+        canaryPolicy: { allowed: false, reason: "api_key=secret-token" },
+        outcome: "blocked_needs_tommy",
+      },
+    );
+    const text = readFileSync(evidence.evidencePath, "utf8");
+    assert.doesNotMatch(text, /live-token|GEMINI_API_KEY|super-secret-token|secret-token/i);
     assert.match(text, /\[REDACTED\]/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });

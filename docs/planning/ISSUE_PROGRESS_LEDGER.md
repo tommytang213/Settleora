@@ -20,6 +20,51 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#825/#826 - Low-risk auto-merge canary subset-policy checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - PR #824 was merged to `main` with normal GitHub merge commit
+    `f94b1ab57ab03802a7d3eaa513fe9f8d2a5a3767`.
+  - #825 and #826 remain `OPEN` with `needs-tommy`; this task does not
+    relabel, rerun, close, reopen, or otherwise mutate them.
+- Verified repo baseline:
+  `origin/main` at
+  `f94b1ab57ab03802a7d3eaa513fe9f8d2a5a3767` after PR #824 merged.
+- Max-2 canary result before this fix:
+  - The bounded max-2 low-risk auto-merge canary selected and processed #825
+    and #826.
+  - Both iterations failed closed before Codex implementation, Gemini review,
+    branch creation, PR creation, validation, check watching, auto-merge, or
+    issue closure.
+  - The blocker was a single-file subset policy mismatch: #825 used
+    `docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md`, and #826 used
+    `docs/planning/ISSUE_PROGRESS_LEDGER.md`, while the canary policy required
+    the full lane-wide low-risk prefix arrays.
+- This subset-policy fix:
+  - Allows low-risk auto-merge canary contracts to use non-empty exact safe
+    subsets under the approved lane prefixes.
+  - Preserves the approved prefixes for `workflow-docs-tooling`
+    (`tools/auto-runner/**`, `docs/workflow/**`) and `docs-planning`
+    (`docs/planning/**`, `docs/qa/**`).
+  - Keeps the auto-merge decision layer contract-scoped so changed files
+    outside the issue contract still block even when they are under a lane-wide
+    prefix.
+- Issue posture:
+  keep #800, #825, and #826 open. #825/#826 should keep `needs-tommy` until a
+  separate explicit rerun/cleanup task removes the label and reruns the
+  bounded max-2 live low-risk auto-merge canary after this PR merges.
+- Scope confirmation:
+  this checkpoint changes only auto-runner policy/tests, workflow docs, and
+  this ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, live canary
+  execution, or issue label/closure state.
+
 ### Issue #800 - Low-risk auto-merge canary policy checkpoint
 
 - GitHub state/project status:

@@ -124,14 +124,15 @@ export function evaluateCanaryIssuePolicy(config, laneDecision) {
     if (!approval.approved) {
       return { allowed: false, reason: `Canary auto-merge contract requires explicit low-risk approval: ${approval.reason}.` };
     }
-    const exactPaths = lowRiskAutoMergeCanaryAllowedPathsByLane[laneDecision.lane] || [];
+    const approvedPaths = lowRiskAutoMergeCanaryAllowedPathsByLane[laneDecision.lane] || [];
     const contractPaths = laneDecision.contract?.allowedPaths || laneDecision.allowedPaths || [];
-    const pathsAreExact =
-      contractPaths.length === exactPaths.length && exactPaths.every((glob) => contractPaths.includes(glob));
-    if (!pathsAreExact) {
+    const unsafeSubsetPath = contractPaths.find(
+      (glob) => !approvedPaths.some((approvedGlob) => globIsSubsetOf(glob, approvedGlob)),
+    );
+    if (contractPaths.length === 0 || unsafeSubsetPath) {
       return {
         allowed: false,
-        reason: `Low-risk auto-merge canary requires exact allowedPaths for ${laneDecision.lane}: ${exactPaths.join(", ")}.`,
+        reason: `Low-risk auto-merge canary requires allowedPaths to be non-empty safe subsets for ${laneDecision.lane}: ${approvedPaths.join(", ")}.`,
       };
     }
     if (laneDecision.contract?.autoMergeEligible !== true || laneDecision.autoMergeEligible !== true) {
@@ -146,7 +147,7 @@ export function evaluateCanaryIssuePolicy(config, laneDecision) {
     if (laneDecision.followupIssueCreationAllowed || laneDecision.reviewFixMutationAllowed) {
       return { allowed: false, reason: "Canary mode refuses follow-up issue creation and review-fix mutation." };
     }
-    return { allowed: true, reason: "Low-risk auto-merge canary issue policy accepted the exact contracted lane." };
+    return { allowed: true, reason: "Low-risk auto-merge canary issue policy accepted the contracted safe subset." };
   }
   if (laneDecision.autoMergeEligible || laneDecision.contract?.autoMergeEligible === true) {
     return { allowed: false, reason: "Canary mode refuses contracts with autoMergeEligible: true." };
@@ -204,7 +205,7 @@ export function writeCanaryEvidence(config, iteration) {
   if (!config.canary) return null;
   const issuePart = iteration.issue ? `issue-${iteration.issue.number}-${slugify(iteration.issue.title || "untitled", 40)}` : "no-issue";
   const evidencePath = path.join(config.canaryEvidenceRoot, `${safeTimestamp()}-${issuePart}.json`);
-  const evidence = {
+  const evidence = sanitizeEvidence({
     generatedAt: new Date().toISOString(),
     selectedMode: config.dryRun ? "canary-dry-run" : "canary-real-run",
     issue: iteration.issue || null,
@@ -223,9 +224,26 @@ export function writeCanaryEvidence(config, iteration) {
     reviewVerdict: iteration.review?.verdict || null,
     prUrl: iteration.pr?.url || null,
     terminalOutcome: iteration.outcome || null,
-  };
+  });
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
   return { evidencePath };
+}
+
+function globIsSubsetOf(childGlob, parentGlob) {
+  if (parentGlob.endsWith("/**")) {
+    const parentPrefix = parentGlob.slice(0, -2);
+    return childGlob === parentGlob || childGlob.startsWith(parentPrefix);
+  }
+  return childGlob === parentGlob;
+}
+
+function sanitizeEvidence(value) {
+  return JSON.parse(
+    JSON.stringify(value).replace(
+      /(GEMINI_API_KEY|authorization|x-goog-api-key|bearer\s+[A-Za-z0-9._~+/-]+|api[_-]?key|secret|token)/gi,
+      "[REDACTED]",
+    ),
+  );
 }
 
 function unsafeTrustedToggles(config) {

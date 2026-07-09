@@ -289,10 +289,13 @@ approval and requires all of these at once:
 - No stale-claim stealing, follow-up issue creation, review-fix mutation, or
   systemd enablement.
 
-The only accepted auto-merge canary issue contracts are exact-path contracts
-for `workflow-docs-tooling` with `tools/auto-runner/**` and `docs/workflow/**`,
-or `docs-planning` with `docs/planning/**` and `docs/qa/**`, plus
-`autoMergeEligible: true` and `manualMergeRequired: false`. Broader globs,
+The only accepted auto-merge canary issue contracts are non-empty safe subsets
+of the approved low-risk prefixes: `workflow-docs-tooling` may use
+`tools/auto-runner/**` or `docs/workflow/**`, and `docs-planning` may use
+`docs/planning/**` or `docs/qa/**`. Contracts do not need to list every
+approved prefix; least-privilege single-file contracts are preferred for live
+canaries. They must still set `autoMergeEligible: true` and
+`manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
 `scripts/ai/**`, non-docs paths, product/security/storage/money/schema/
 OpenAPI/generated-client/Docker/deployment/env/secret/public/admin scope, stop
 labels, missing Gemini pass when Gemini is configured, missing Codex mechanics
