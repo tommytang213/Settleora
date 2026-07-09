@@ -57,3 +57,21 @@ runtime behavior.
   storage/privacy, money/settlement/bill calculation, schema/migration,
   OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
   release change is intended by this canary entry.
+
+## 2026-07-09 Issue 825
+
+- Source issue: `#825` - Auto-merge canary 1: workflow docs checkpoint.
+- Generated task key: `20260709T172445`.
+- Branch:
+  `feature/auto-825-auto-merge-canary-1-workflow-docs-checkp-2026-07-09t1724`.
+- Lane: `workflow-docs-tooling`.
+- Allowed path: `docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md`.
+- Validation profile: `docs-only`.
+- Merge policy: bounded low-risk canary auto-merge eligible after runner-owned
+  review, validation, PR creation, CI, and auto-merge gates.
+- Canary checkpoint: the first bounded low-risk auto-merge canary issue
+  exercised the DevBox auto-runner auto-merge path after PR `#824`.
+- Forbidden-scope confirmation: no product runtime, API, auth/session/security,
+  storage/privacy, money/settlement/bill calculation, schema/migration,
+  OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
+  release change is intended by this canary entry.
