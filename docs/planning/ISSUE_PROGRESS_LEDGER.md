@@ -20,6 +20,50 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#825/#826 - Auto-merge canary recovery hardening checkpoint
+
+- GitHub state/project status at task start:
+  - #800 `OPEN`; this remains the broader trusted unattended auto-runner
+    tracker.
+  - #825 and #826 `OPEN` with `auto-failed`; this task inspected them
+    read-only and did not relabel, close, reopen, comment on, rerun, or
+    otherwise mutate them.
+  - PR #828 for #825 was `OPEN`, non-draft, base `main`, head
+    `5a24f13c1bed4cb8e732caec183a69ee0fe17275`, `MERGEABLE`, and `CLEAN`
+    during read-only inspection.
+- Verified repo baseline:
+  `origin/main` at
+  `1d3e36028beea52a67eb841438044d62b7894a1c`.
+- This hardening slice:
+  - Adds a bounded auto-merge wait/retry path for refreshable GitHub
+    mergeability states such as `BLOCKED` and `UNKNOWN`, while rechecking the
+    exact PR head, base, mergeability, merge state, checks, review threads,
+    code scanning, issue state, blocking comments/reviews, changed-file scope,
+    and existing gates before any merge attempt.
+  - Adds one bounded retry for transient integrated Gemini/provider failures
+    such as HTTP `429`, HTTP `503`/`UNAVAILABLE`, fetch/network failures, and
+    timeout-like errors, while keeping non-pass verdicts, malformed verdicts,
+    missing keys, unsupported models, budget hard stops, accounting failures,
+    and secret-boundary failures terminal.
+  - Adds a default-off exact-head existing-PR recovery decision path for a
+    configured low-risk canary issue/PR, requiring matching issue linkage,
+    contract-scoped changed files, exact-head validation/review evidence,
+    successful checks, clean mergeability, resolved review threads, no open
+    code-scanning alerts, no issue stop labels, and no manual blockers.
+- Issue posture:
+  keep #800, #825, and #826 open. A later explicit recovery/rerun task may use
+  the hardened runner gates; this task does not merge PR #828 and does not run
+  the live canary.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, runner/workflow
+  docs, example config, and this ledger entry. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release, public/admin exposure, branch deletion, force push, direct main
+  push, live canary execution, or issue label/closure state.
+
 ### Issue #800/#825/#826 - Low-risk auto-merge canary subset-policy checkpoint
 
 - GitHub state/project status:

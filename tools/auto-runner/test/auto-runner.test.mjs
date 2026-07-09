@@ -41,6 +41,7 @@ import {
   routeReviewer,
 } from "../lib/reviewer-policy.mjs";
 import {
+  evaluateExistingPrRecoveryDecision,
   evaluateAutoMergeDecision,
   executeAutoMerge,
   writeAutoMergeEvidence,
@@ -822,6 +823,84 @@ test("malformed and non-pass integrated Gemini verdicts fail closed", async () =
   }
 });
 
+test("transient integrated Gemini provider failure retries once and then passes", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-transient-pass-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, { geminiReviewerRetry: { maxRetries: 1, backoffMs: 0 } }),
+      workflowReviewPackage(),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        sleep: async () => {},
+        fetchImpl: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error("fetch failed");
+          return fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] });
+        },
+      },
+    );
+    assert.equal(calls, 2);
+    assert.equal(result.status, "pass");
+    assert.equal(result.reason, "integrated_review_passed");
+    assert.equal(result.transientAttemptCount, 1);
+    assert.deepEqual(result.providerAttempts.map((attempt) => attempt.transient), [true, false]);
+    assert.doesNotMatch(readFileSync(result.reportPath, "utf8"), /super-secret-key/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("transient integrated Gemini provider failure retries and still fails closed", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-transient-fail-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, { geminiReviewerRetry: { maxRetries: 1, backoffMs: 0 } }),
+      workflowReviewPackage(),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        sleep: async () => {},
+        fetchImpl: async () => {
+          calls += 1;
+          return fakeGeminiResponse({ error: { status: "UNAVAILABLE", message: "temporary unavailable" } }, 503);
+        },
+      },
+    );
+    assert.equal(calls, 2);
+    assert.equal(result.status, "blocked");
+    assert.match(result.reason, /^blocked_provider_transient_http_error:503/);
+    assert.equal(result.transientAttemptCount, 2);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("non-pass integrated Gemini verdict is not retried as a transient failure", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-non-pass-no-retry-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, { geminiReviewerRetry: { maxRetries: 1, backoffMs: 0 } }),
+      workflowReviewPackage(),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        sleep: async () => {},
+        fetchImpl: async () => {
+          calls += 1;
+          return fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "fail" }) }] } }] });
+        },
+      },
+    );
+    assert.equal(calls, 1);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_external_reviewer_non_pass");
+    assert.equal(result.providerAttempts.length, 1);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("integrated Gemini reviewer blocks before provider call at budget hard stop and per-call cap", async () => {
   const hardStopRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-hard-stop-"));
   const capRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-cap-"));
@@ -1473,7 +1552,7 @@ test("stale PR head and base mismatch block auto-merge", () => {
 test("pending/failing checks, review threads, code scanning alerts, and issue stop labels block auto-merge", () => {
   assert.equal(
     evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "IN_PROGRESS", conclusion: null }] })).reason,
-    "required_checks_not_successful",
+    "required_checks_pending",
   );
   assert.equal(
     evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "FAILURE" }] })).reason,
@@ -1482,6 +1561,119 @@ test("pending/failing checks, review threads, code scanning alerts, and issue st
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ codeScanningAlerts: [{ state: "open" }] })).reason, "open_code_scanning_alerts");
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ issue: { labels: ["auto-ready", "blocked"] } })).reason, "issue_stop_label:blocked");
+});
+
+test("auto-merge waits through blocked merge state after checks and then merges when GitHub refreshes clean", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-wait-clean-"));
+  try {
+    const calls = [];
+    const runner = createAutoMergeRunner(calls);
+    let inspections = 0;
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 2, delayMs: 0 } },
+      autoMergeContext({ pr: { mergeStateStatus: "BLOCKED" } }),
+      {
+        runner,
+        sleep: () => {},
+        inspectState: () => {
+          inspections += 1;
+          return {
+            pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+            requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "SUCCESS" }],
+            reviewThreads: [],
+            codeScanningAlerts: [],
+            blockingMarkers: [],
+          };
+        },
+      },
+    );
+    assert.equal(inspections, 1);
+    assert.equal(result.result, "merged");
+    assert.equal(result.waitAttempts.length, 2);
+    assert.ok(calls.includes("gh pr merge 1 --merge"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("auto-merge wait expires when merge state never becomes clean and writes evidence", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-wait-expire-"));
+  try {
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 2, delayMs: 0 } },
+      autoMergeContext({ pr: { mergeStateStatus: "UNKNOWN" } }),
+      {
+        runner: createAutoMergeRunner([]),
+        sleep: () => {},
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", headRefOid: "head123" },
+          requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "SUCCESS" }],
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason, "auto_merge_wait_expired:pr_merge_state_not_clean:BLOCKED");
+    assert.equal(result.waitAttempts.length, 2);
+    assert.match(readFileSync(result.evidence.evidencePath, "utf8"), /auto_merge_wait_expired/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("auto-merge wait fails closed when PR head changes during refresh", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-wait-head-change-"));
+  try {
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 3, delayMs: 0 } },
+      autoMergeContext({ pr: { mergeStateStatus: "BLOCKED" } }),
+      {
+        runner: createAutoMergeRunner([]),
+        sleep: () => {},
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "newhead" },
+          requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "SUCCESS" }],
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason, "pr_head_sha_mismatch");
+    assert.equal(result.waitAttempts.length, 2);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("existing low-risk canary PR recovery proceeds only with exact-head safe evidence and gates", () => {
+  const decision = evaluateExistingPrRecoveryDecision(existingPrRecoveryContext());
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.reason, "existing_pr_recovery_gates_passed");
+});
+
+test("existing PR recovery blocks stale head, broad files, review/code scanning blockers, stop labels, missing evidence, and manual blockers", () => {
+  const cases = [
+    ["stale", existingPrRecoveryContext({ pr: { headRefOid: "other" }, actualHeadSha: "other" }), /evidence_head_mismatch|pr_head_sha_mismatch/],
+    [
+      "broad",
+      existingPrRecoveryContext({ changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"], changedFilesExactlyMatchAllowedPaths: false }),
+      /forbidden_changed_files|changed_files_do_not_match/,
+    ],
+    ["thread", existingPrRecoveryContext({ reviewThreads: [{ isResolved: false }] }), /unresolved_review_threads/],
+    ["scan", existingPrRecoveryContext({ codeScanningAlerts: [{ state: "open" }] }), /open_code_scanning_alerts/],
+    ["stop", existingPrRecoveryContext({ issue: { labels: ["auto-canary-ready", "auto-failed"] } }), /issue_stop_label:auto-failed/],
+    ["missing evidence", existingPrRecoveryContext({ exactHeadEvidence: {} }), /missing_evidence_or_review/],
+    ["manual", existingPrRecoveryContext({ blockingMarkers: ["blocking_comment_or_review_marker"] }), /blocking_markers/],
+  ];
+  for (const [name, context, pattern] of cases) {
+    const decision = evaluateExistingPrRecoveryDecision(context);
+    assert.equal(decision.eligible, false, name);
+    assert.match(decision.reason, pattern, name);
+  }
 });
 
 test("source branch restoration is executed after mocked merge auto-deletes branch", () => {
@@ -1980,6 +2172,76 @@ function autoMergeContext(overrides = {}) {
     reviewThreads: overrides.reviewThreads || [],
     codeScanningAlerts: overrides.codeScanningAlerts || [],
     blockingMarkers: overrides.blockingMarkers || [],
+  };
+}
+
+function existingPrRecoveryContext(overrides = {}) {
+  const pr = {
+    number: 828,
+    url: "https://github.com/tommytang213/Settleora/pull/828",
+    state: "OPEN",
+    isDraft: false,
+    baseRefName: "main",
+    headRefName: "feature/auto-825-auto-merge-canary-1-workflow-docs-checkp-2026-07-09t1724",
+    headRefOid: "head123",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    title: "Auto-runner: #825 Auto-merge canary 1: workflow docs checkpoint",
+    body: "Closes or updates #825.\nIntegrated Gemini review: pass\nPre-PR AI review: approve",
+    ...(overrides.pr || {}),
+  };
+  const context = autoMergeContext({
+    config: { allowAutoMerge: true, allowExistingPrRecovery: true, ...(overrides.config || {}) },
+    issue: {
+      number: 825,
+      title: "Auto-merge canary 1: workflow docs checkpoint",
+      state: "OPEN",
+      labels: ["auto-canary-ready", "canary", "workflow"],
+      ...(overrides.issue || {}),
+    },
+    laneDecision: autoMergeLane({
+      allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+      laneManifestAllowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
+      validationProfile: "docs-only",
+      contract: {
+        allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+        manualMergeRequired: false,
+        autoMergeEligible: true,
+      },
+    }),
+    changedFiles: overrides.changedFiles || ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    changedFilesExactlyMatchAllowedPaths: overrides.changedFilesExactlyMatchAllowedPaths ?? true,
+    pr,
+    expectedHeadSha: overrides.expectedHeadSha || "head123",
+    actualHeadSha: overrides.actualHeadSha || pr.headRefOid,
+    reviewThreads: overrides.reviewThreads || [],
+    codeScanningAlerts: overrides.codeScanningAlerts || [],
+    blockingMarkers: overrides.blockingMarkers || [],
+  });
+  return {
+    ...context,
+    exactHeadEvidence: overrides.exactHeadEvidence ?? {
+      headSha: "head123",
+      validationPassed: true,
+      geminiPass: true,
+      geminiHeadSha: "head123",
+      codexMechanicsApproved: true,
+      codexMechanicsHeadSha: "head123",
+    },
+  };
+}
+
+function createAutoMergeRunner(calls) {
+  return (command, args) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+    if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
+    if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+    if (command === "gh" && args[0] === "issue" && args[1] === "close") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "comment") return ok("");
+    if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
+    return fail(`unexpected ${command} ${args.join(" ")}`);
   };
 }
 

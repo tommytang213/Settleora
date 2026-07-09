@@ -142,60 +142,15 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   if (typeof fetchImpl !== "function") return finishIntegrated(config, base, startedAtMs, "blocked_fetch_unavailable");
 
   base.liveCallAttempted = true;
-  let attemptedResult = {
-    ...base,
-    status: "blocked",
-    reason: "blocked_provider_not_called",
-  };
-  try {
-    const response = await fetchImpl(url.toString(), {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": keyResult.apiKey },
-      body: JSON.stringify(payload),
-    });
-    const responseText = await response.text();
-    const sanitizedText = sanitizeSecretText(responseText, keyResult.apiKey);
-    if (!response.ok) {
-      attemptedResult = {
-        ...base,
-        reason: "blocked_provider_http_error",
-        sanitizedResponseSummary: bounded(sanitizedText),
-      };
-    } else {
-      const parsed = JSON.parse(responseText);
-      const text = extractGeminiText(parsed);
-      const verdict = parseIntegratedVerdict(text);
-      if (!verdict.ok) {
-        attemptedResult = {
-          ...base,
-          reason: "blocked_malformed_json_verdict",
-          actualUsage: sanitizeUsage(parsed.usageMetadata),
-        };
-      } else if (verdict.verdict.verdict !== "pass") {
-        attemptedResult = {
-          ...base,
-          reason: "blocked_external_reviewer_non_pass",
-          verdict: verdict.verdict.verdict,
-          actualUsage: sanitizeUsage(parsed.usageMetadata),
-          sanitizedResponseSummary: verdict.verdict,
-        };
-      } else {
-        attemptedResult = {
-          ...base,
-          status: "pass",
-          reason: "integrated_review_passed",
-          verdict: "pass",
-          actualUsage: sanitizeUsage(parsed.usageMetadata),
-          sanitizedResponseSummary: verdict.verdict,
-        };
-      }
-    }
-  } catch (error) {
-    attemptedResult = {
-      ...base,
-      reason: `blocked_provider_exception:${sanitizeSecretText(bounded(error.message, 160), keyResult.apiKey)}`,
-    };
-  }
+  const attemptedResult = await callIntegratedGeminiWithRetry({
+    config,
+    base,
+    url: url.toString(),
+    payload,
+    fetchImpl,
+    apiKey: keyResult.apiKey,
+    sleep: options.sleep,
+  });
 
   const finalBeforeReport = {
     ...attemptedResult,
@@ -218,6 +173,81 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     );
   }
   return finalBeforeReport;
+}
+
+async function callIntegratedGeminiWithRetry({ config, base, url, payload, fetchImpl, apiKey, sleep }) {
+  const retry = normalizeGeminiRetry(config.geminiReviewerRetry);
+  const attempts = [];
+  let lastResult = {
+    ...base,
+    status: "blocked",
+    reason: "blocked_provider_not_called",
+  };
+  for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
+    lastResult = await callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey });
+    attempts.push(sanitizeAttempt({ attempt, status: lastResult.status, reason: lastResult.reason, transient: isTransientProviderResult(lastResult) }));
+    if (!isTransientProviderResult(lastResult) || attempt === retry.maxAttempts) break;
+    await (sleep || sleepPromise)(retry.backoffMs);
+  }
+  return {
+    ...lastResult,
+    providerAttempts: attempts,
+    transientAttemptCount: attempts.filter((attempt) => attempt.transient).length,
+  };
+}
+
+async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey }) {
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify(payload),
+    });
+    const responseText = await response.text();
+    const sanitizedText = sanitizeSecretText(responseText, apiKey);
+    if (!response.ok) {
+      const transient = isTransientHttpStatus(response.status) || /\b(UNAVAILABLE|timeout|timed out|rate limit|429|503)\b/i.test(sanitizedText);
+      return {
+        ...base,
+        reason: transient ? `blocked_provider_transient_http_error:${response.status || "unknown"}` : "blocked_provider_http_error",
+        sanitizedResponseSummary: bounded(sanitizedText),
+      };
+    }
+    const parsed = JSON.parse(responseText);
+    const text = extractGeminiText(parsed);
+    const verdict = parseIntegratedVerdict(text);
+    if (!verdict.ok) {
+      return {
+        ...base,
+        reason: "blocked_malformed_json_verdict",
+        actualUsage: sanitizeUsage(parsed.usageMetadata),
+      };
+    }
+    if (verdict.verdict.verdict !== "pass") {
+      return {
+        ...base,
+        reason: "blocked_external_reviewer_non_pass",
+        verdict: verdict.verdict.verdict,
+        actualUsage: sanitizeUsage(parsed.usageMetadata),
+        sanitizedResponseSummary: verdict.verdict,
+      };
+    }
+    return {
+      ...base,
+      status: "pass",
+      reason: "integrated_review_passed",
+      verdict: "pass",
+      actualUsage: sanitizeUsage(parsed.usageMetadata),
+      sanitizedResponseSummary: verdict.verdict,
+    };
+  } catch (error) {
+    const message = sanitizeSecretText(bounded(error.message, 160), apiKey);
+    const transient = isTransientProviderError(message);
+    return {
+      ...base,
+      reason: `${transient ? "blocked_provider_transient_exception" : "blocked_provider_exception"}:${message}`,
+    };
+  }
 }
 
 export function parseIntegratedVerdict(text) {
@@ -401,6 +431,32 @@ export function sanitizeSecretText(value, secret) {
   text = text.replace(/Bearer\s+[A-Za-z0-9._~+/-]+/gi, "Bearer [REDACTED]");
   text = text.replace(/(x-goog-api-key|authorization|api[_-]?key)(["':=\s]+)[^\s"',}]+/gi, "$1$2[REDACTED]");
   return text;
+}
+
+function normalizeGeminiRetry(retry = {}) {
+  const configuredRetries = Number.isInteger(retry.maxRetries) && retry.maxRetries >= 0 ? retry.maxRetries : 1;
+  const backoffMs = Number.isFinite(Number(retry.backoffMs)) && Number(retry.backoffMs) >= 0 ? Number(retry.backoffMs) : 2000;
+  return { maxRetries: configuredRetries, maxAttempts: configuredRetries + 1, backoffMs };
+}
+
+function isTransientProviderResult(result) {
+  return /^blocked_provider_transient_(http_error|exception)/.test(String(result?.reason || ""));
+}
+
+function isTransientHttpStatus(status) {
+  return [429, 503].includes(Number(status));
+}
+
+function isTransientProviderError(message) {
+  return /\b(fetch failed|network|timeout|timed out|ECONNRESET|ETIMEDOUT|UNAVAILABLE|503|429)\b/i.test(String(message || ""));
+}
+
+function sanitizeAttempt(attempt) {
+  return JSON.parse(sanitizeSecretText(JSON.stringify(attempt), ""));
+}
+
+function sleepPromise(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 function buildGeminiSmokePayload() {

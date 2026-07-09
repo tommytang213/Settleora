@@ -16,6 +16,7 @@ export const autoMergeStopLabels = Object.freeze([
 
 const successfulCheckConclusions = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const cleanMergeStates = new Set(["CLEAN"]);
+const refreshableMergeStates = new Set(["BLOCKED", "UNKNOWN", "UNSTABLE", "HAS_HOOKS", ""]);
 
 export function evaluateAutoMergeDecision(input) {
   const config = input.config || {};
@@ -74,11 +75,13 @@ export function evaluateAutoMergeDecision(input) {
   if (pr.baseRefName !== "main") return block("pr_base_not_main");
   if (actualHeadSha !== expectedHeadSha) return block("pr_head_sha_mismatch");
   if (pr.mergeable !== "MERGEABLE") return block("pr_not_mergeable");
-  if (!cleanMergeStates.has(pr.mergeStateStatus)) return block(`pr_merge_state_not_clean:${pr.mergeStateStatus || "unknown"}`);
   if (input.expectedOriginMainSha && input.currentOriginMainSha !== input.expectedOriginMainSha) {
     return block("origin_main_base_mismatch");
   }
-  if (!checksPassed(requiredChecks)) return block("required_checks_not_successful");
+  const checkStatus = summarizeCheckStatus(requiredChecks);
+  if (checkStatus.state === "pending") return block("required_checks_pending");
+  if (checkStatus.state !== "success") return block("required_checks_not_successful");
+  if (!cleanMergeStates.has(pr.mergeStateStatus)) return block(`pr_merge_state_not_clean:${pr.mergeStateStatus || "unknown"}`);
   if (reviewThreads.some((thread) => !thread.isResolved)) return block("unresolved_review_threads");
   if (codeScanningAlerts.some((alert) => String(alert.state || "").toLowerCase() === "open")) {
     return block("open_code_scanning_alerts");
@@ -93,6 +96,49 @@ export function evaluateAutoMergeDecision(input) {
     eligible: true,
     result: "eligible",
     reason: "all_auto_merge_gates_passed",
+  };
+}
+
+export function evaluateExistingPrRecoveryDecision(input) {
+  const config = input.config || {};
+  const issue = input.issue || {};
+  const pr = input.pr || {};
+  const evidence = input.exactHeadEvidence || {};
+  const changedFiles = input.changedFiles || [];
+  const baseDecision = evaluateAutoMergeDecision(input);
+  const result = {
+    eligible: false,
+    result: "blocked",
+    reason: null,
+    prHeadSha: input.actualHeadSha || pr.headRefOid || null,
+    expectedHeadSha: input.expectedHeadSha || null,
+    recovery: true,
+  };
+  const block = (reason) => ({ ...result, reason, autoMergeDecision: baseDecision });
+
+  if (!config.allowExistingPrRecovery) return block("existing_pr_recovery_disabled_by_config");
+  if (!pr.number && !pr.url) return block("existing_pr_recovery_missing_pr");
+  if (!pr.headRefName || !/^feature\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
+  const issueText = `${pr.body || ""}\n${pr.title || ""}`;
+  if (!new RegExp(`#${issue.number}\\b`).test(issueText)) return block("existing_pr_recovery_pr_not_linked_to_issue");
+  if (!evidence.geminiPass && !evidence.codexMechanicsApproved) {
+    return block("existing_pr_recovery_missing_evidence_or_review");
+  }
+  if (evidence.headSha && evidence.headSha !== result.prHeadSha) return block("existing_pr_recovery_evidence_head_mismatch");
+  if (evidence.geminiPass && evidence.geminiHeadSha && evidence.geminiHeadSha !== result.prHeadSha) {
+    return block("existing_pr_recovery_gemini_head_mismatch");
+  }
+  if (evidence.codexMechanicsApproved && evidence.codexMechanicsHeadSha && evidence.codexMechanicsHeadSha !== result.prHeadSha) {
+    return block("existing_pr_recovery_codex_review_head_mismatch");
+  }
+  if (changedFiles.length === 0) return block("existing_pr_recovery_missing_changed_files");
+  if (!baseDecision.eligible) return block(`existing_pr_recovery_gate_blocked:${baseDecision.reason}`);
+  return {
+    ...result,
+    eligible: true,
+    result: "eligible",
+    reason: "existing_pr_recovery_gates_passed",
+    autoMergeDecision: baseDecision,
   };
 }
 
@@ -177,6 +223,10 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
 export function executeAutoMerge(config, context, options = {}) {
   const runner = options.runner || defaultRunner;
   const decision = evaluateAutoMergeDecision(context);
+  const wait = normalizeAutoMergeWait(config.autoMergeWait);
+  if (!decision.eligible && shouldWaitForAutoMergeDecision(decision) && wait.maxAttempts > 1) {
+    return executeAutoMergeWithWait(config, context, { ...options, runner, wait, firstDecision: decision });
+  }
   if (!decision.eligible) {
     return { ...decision, evidence: writeAutoMergeEvidence(config, decision, context) };
   }
@@ -213,6 +263,85 @@ export function executeAutoMerge(config, context, options = {}) {
     },
   };
   return { ...merged, evidence: writeAutoMergeEvidence(config, merged, context) };
+}
+
+function executeAutoMergeWithWait(config, initialContext, options) {
+  const runner = options.runner || defaultRunner;
+  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber }));
+  const sleep = options.sleep || sleepSync;
+  const wait = options.wait;
+  const attempts = [];
+  let context = initialContext;
+  let decision = options.firstDecision || evaluateAutoMergeDecision(context);
+
+  for (let attempt = 1; attempt <= wait.maxAttempts; attempt += 1) {
+    attempts.push(snapshotAttempt(attempt, decision, context));
+    if (decision.eligible) {
+      const result = executeAutoMerge(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
+      return { ...result, waitAttempts: attempts };
+    }
+    if (!shouldWaitForAutoMergeDecision(decision) || attempt === wait.maxAttempts) break;
+    sleep(wait.delayMs);
+    const refreshed = inspectState(config, context);
+    context = mergeAutoMergeContext(context, refreshed);
+    if (!config.dryRun && context.expectedOriginMainSha) {
+      const origin = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
+      context.currentOriginMainSha = origin.status === 0 && !origin.error ? origin.stdout.trim() : context.currentOriginMainSha;
+    }
+    decision = evaluateAutoMergeDecision(context);
+  }
+
+  const timedOut = shouldWaitForAutoMergeDecision(decision);
+  const finalDecision = {
+    ...decision,
+    result: "blocked",
+    reason: timedOut ? `auto_merge_wait_expired:${decision.reason}` : decision.reason,
+    waitAttempts: attempts,
+  };
+  return { ...finalDecision, evidence: writeAutoMergeEvidence(config, finalDecision, context) };
+}
+
+function normalizeAutoMergeWait(wait = {}) {
+  const maxAttempts = Number.isInteger(wait.maxAttempts) && wait.maxAttempts > 0 ? wait.maxAttempts : 6;
+  const delayMs = Number.isFinite(Number(wait.delayMs)) && Number(wait.delayMs) >= 0 ? Number(wait.delayMs) : 15000;
+  return { maxAttempts, delayMs };
+}
+
+function shouldWaitForAutoMergeDecision(decision) {
+  const reason = String(decision?.reason || "");
+  if (reason === "required_checks_pending") return true;
+  const mergeState = reason.match(/^pr_merge_state_not_clean:(.*)$/)?.[1];
+  if (mergeState === undefined) return false;
+  return refreshableMergeStates.has(mergeState.toUpperCase()) || refreshableMergeStates.has(mergeState);
+}
+
+function mergeAutoMergeContext(context, githubState = {}) {
+  const refreshedHeadSha = githubState.pr?.headRefOid || context.actualHeadSha || context.pr?.headRefOid || null;
+  return {
+    ...context,
+    ...githubState,
+    issue: githubState.issue || context.issue,
+    pr: { ...(context.pr || {}), ...(githubState.pr || {}) },
+    actualHeadSha: refreshedHeadSha,
+    requiredChecks: githubState.requiredChecks || context.requiredChecks || [],
+    reviewThreads: githubState.reviewThreads || context.reviewThreads || [],
+    codeScanningAlerts: githubState.codeScanningAlerts || context.codeScanningAlerts || [],
+    blockingMarkers: githubState.blockingMarkers || context.blockingMarkers || [],
+  };
+}
+
+function snapshotAttempt(attempt, decision, context) {
+  return sanitizeEvidence({
+    attempt,
+    reason: decision.reason,
+    eligible: Boolean(decision.eligible),
+    prHeadSha: decision.prHeadSha,
+    expectedHeadSha: decision.expectedHeadSha,
+    mergeStateStatus: context.pr?.mergeStateStatus || null,
+    mergeable: context.pr?.mergeable || null,
+    checks: summarizeCheckStatus(context.requiredChecks || []),
+    blockingMarkers: context.blockingMarkers || [],
+  });
 }
 
 function inspectReviewThreads(config, prNumber, blockingMarkers) {
@@ -289,8 +418,21 @@ function detectBlockingMarkers(comments, reviews) {
   return markers;
 }
 
-function checksPassed(checks) {
-  return checks.length > 0 && checks.every((check) => check.status === "COMPLETED" && successfulCheckConclusions.has(check.conclusion));
+function summarizeCheckStatus(checks) {
+  if (checks.length === 0) return { state: "missing", total: 0, pending: 0, failed: 0 };
+  const pending = checks.filter((check) => check.status !== "COMPLETED").length;
+  const failed = checks.filter((check) => check.status === "COMPLETED" && !successfulCheckConclusions.has(check.conclusion)).length;
+  if (pending > 0) return { state: "pending", total: checks.length, pending, failed };
+  if (failed > 0) return { state: "failed", total: checks.length, pending, failed };
+  return { state: "success", total: checks.length, pending, failed };
+}
+
+function sleepSync(delayMs) {
+  if (!delayMs) return;
+  const end = Date.now() + delayMs;
+  while (Date.now() < end) {
+    // Bounded synchronous wait keeps the runner single-process and avoids merge races.
+  }
 }
 
 function restoreSourceBranchIfDeleted(config, context, runner) {
