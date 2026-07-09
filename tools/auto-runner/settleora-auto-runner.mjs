@@ -50,6 +50,10 @@ async function main() {
   if (cliArgs.preflight) {
     const config = loadConfig(cliArgs);
     const result = runPreflight(config);
+    console.error(
+      `Readiness preflight: ${result.summary.pass} pass, ${result.summary.warn} warn, ${result.summary.fail} fail`,
+    );
+    console.error(`Readiness reports: ${result.readinessReports.markdownPath} ${result.readinessReports.jsonPath}`);
     console.log(JSON.stringify(result, null, 2));
     process.exitCode = result.summary.fail > 0 ? 1 : 0;
     return;

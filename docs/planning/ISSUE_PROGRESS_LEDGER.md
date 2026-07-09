@@ -20,6 +20,45 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Overnight readiness preflight checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - #805 `CLOSED` as completed after the bounded canary output PR merged.
+- Verified repo baseline:
+  `origin/main` at
+  `2d1cbe475bf15ed2dc481d1e29b8cfc0a8c54dd3` after PR #813 merged.
+- This readiness slice:
+  - Adds a report-only `--readiness` preflight path for the DevBox
+    auto-runner.
+  - Writes JSON and Markdown readiness reports under
+    `/workspace/logs/settleora-auto-runner/readiness/`.
+  - Checks repo/worktree, `origin/main` reachability, GitHub auth/repo/issue
+    state, eligible issue search shape, risky gate defaults, active/stale
+    claim readouts, `auto-pr-opened` issue readouts, open auto-runner PRs,
+    Codex command resolution without invocation, Node/log/disk sanity, and
+    remaining manual gates.
+  - Treats risky gate enablement as a readiness failure unless future explicit
+    approval flags and documentation are added.
+- Issue posture:
+  keep #800 open. This checkpoint does not approve trusted overnight
+  operation or any runner mutation lane.
+- Remaining #800 manual gates:
+  trusted overnight operation, any auto-merge lane, stale-claim stealing,
+  follow-up issue creation, review-fix mutation, systemd service/timer
+  installation or enablement, and any future expansion beyond approved
+  workflow/planning tooling paths.
+- Scope confirmation:
+  this checkpoint changes only `tools/auto-runner/**`, workflow docs, and this
+  ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, or auto-merge
+  enablement.
+
 ### Issue #800 - Post-canary completion and next gates checkpoint
 
 - GitHub state/project status:

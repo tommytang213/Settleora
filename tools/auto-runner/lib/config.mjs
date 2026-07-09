@@ -54,6 +54,7 @@ export function parseCliArgs(argv) {
     dryRun: false,
     run: false,
     preflight: false,
+    readiness: false,
     once: false,
     maxIterations: null,
     maxRuntimeMs: null,
@@ -72,6 +73,10 @@ export function parseCliArgs(argv) {
     else if (arg === "--run") args.run = true;
     else if (arg === "--canary" || arg === "--trusted-real-run-canary") args.canary = true;
     else if (arg === "--preflight") args.preflight = true;
+    else if (arg === "--readiness" || arg === "--overnight-readiness") {
+      args.preflight = true;
+      args.readiness = true;
+    }
     else if (arg === "--once") args.once = true;
     else if (arg === "--require-pre-pr-review") args.requirePrePrReview = true;
     else if (arg === "--write-summary") args.writeSummary = true;
@@ -142,10 +147,11 @@ export function loadConfig(cliArgs) {
     requirePrePrReview: cliArgs.requirePrePrReview,
   };
   if (cliArgs.preflight) {
-    config.mode = "preflight";
+    config.mode = cliArgs.readiness ? "readiness" : "preflight";
     config.dryRun = true;
     config.run = false;
   }
+  config.configPath = cliArgs.configPath || null;
   if (config.canary) {
     config.mode = config.run ? "canary-run" : "canary-dry-run";
     config.maxIterations = Math.min(config.maxIterations, config.trustedRealRunCanaryMaxIterations);
