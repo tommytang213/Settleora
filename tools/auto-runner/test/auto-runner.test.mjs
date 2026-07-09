@@ -20,6 +20,12 @@ import { classifyIssueLane, filterForbiddenChangedFiles, parseAutoRunnerContract
 import { runPreflight } from "../lib/preflight.mjs";
 import { generateTaskPrompt } from "../lib/task-prompt.mjs";
 import { inspectPreReviewPrOwnership } from "../lib/pr-manager.mjs";
+import {
+  estimateReviewerCostUsd,
+  evaluateReviewerBudget,
+  reviewerReadinessSummary,
+  routeReviewer,
+} from "../lib/reviewer-policy.mjs";
 
 const baseConfig = {
   dryRun: true,
@@ -204,6 +210,112 @@ test("readiness preflight does not call codex or mutate GitHub, branches, PRs, m
   try {
     const runner = createReadinessRunner();
     runPreflight(readinessConfig(tempRoot), { runner });
+    assertNoMutatingReadinessCommands(runner.commands);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("reviewer budget estimates token cost from tier prices", () => {
+  assert.equal(
+    estimateReviewerCostUsd({
+      inputTokens: 1_500_000,
+      outputTokens: 250_000,
+      inputUsdPerMillionTokens: 0.2,
+      outputUsdPerMillionTokens: 0.8,
+    }),
+    0.5,
+  );
+});
+
+test("reviewer budget warns at threshold and blocks at hard stop", () => {
+  const reviewerBudget = {
+    monthlyReviewerBudgetUsd: 80,
+    monthlyReviewerHardStopUsd: 95,
+    totalMonthlyAutomationBudgetUsd: 300,
+    codexSubscriptionBudgetUsd: 200,
+    warnAtPercent: 80,
+  };
+  const warn = evaluateReviewerBudget({ reviewerBudget, currentMonthlySpendUsd: 63, estimatedCostUsd: 1 });
+  assert.equal(warn.warn, true);
+  assert.equal(warn.block, false);
+  assert.equal(warn.projectedReviewerSpendUsd, 64);
+
+  const stop = evaluateReviewerBudget({ reviewerBudget, currentMonthlySpendUsd: 94, estimatedCostUsd: 1.01 });
+  assert.equal(stop.warn, true);
+  assert.equal(stop.hardStop, true);
+  assert.equal(stop.block, true);
+});
+
+test("reviewer routing defaults docs and workflow tooling to cheap independent review", () => {
+  const docs = routeReviewer({
+    changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md", "docs/planning/ISSUE_PROGRESS_LEDGER.md"],
+    laneDecision: { lane: "docs-planning" },
+  });
+  assert.equal(docs.tier, "cheap_independent");
+  assert.equal(docs.block, undefined);
+
+  const tooling = routeReviewer({
+    changedFiles: ["tools/auto-runner/lib/config.mjs", "tools/auto-runner/test/auto-runner.test.mjs"],
+    laneDecision: { lane: "workflow-docs-tooling" },
+    stats: { additions: 40, deletions: 10 },
+  });
+  assert.equal(tooling.tier, "cheap_independent");
+});
+
+test("reviewer routing escalates sensitive paths to strong independent review", () => {
+  const route = routeReviewer({
+    changedFiles: ["services/api/Auth/SessionRuntime.cs", "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+    laneDecision: { lane: "security-runtime" },
+  });
+  assert.equal(route.tier, "strong_independent");
+  assert.equal(route.strongRequired, true);
+  assert.match(route.sensitiveFiles.join("\n"), /services\/api/);
+});
+
+test("reviewer routing blocks or escalates huge cross-domain PRs", () => {
+  const files = [
+    ...Array.from({ length: 12 }, (_, index) => `docs/workflow/file-${index}.md`),
+    ...Array.from({ length: 12 }, (_, index) => `tools/auto-runner/lib/file-${index}.mjs`),
+    ...Array.from({ length: 12 }, (_, index) => `docs/planning/file-${index}.md`),
+    ...Array.from({ length: 5 }, (_, index) => `.ai/file-${index}.json`),
+  ];
+  const route = routeReviewer({ changedFiles: files, laneDecision: { lane: "workflow-docs-tooling" } });
+  assert.equal(route.tier, "block_split_or_escalate");
+  assert.equal(route.block, true);
+});
+
+test("reviewer readiness report includes sanitized providers and no secrets", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-reviewer-readiness-"));
+  try {
+    const config = {
+      ...readinessConfig(tempRoot),
+      reviewerTiers: {
+        cheap_independent: {
+          enabled: true,
+          providerProfile: "cheap-profile",
+          command: "/usr/local/bin/reviewer --api-key super-secret-token",
+          model: "cheap-model",
+          inputUsdPerMillionTokens: 0.1,
+          outputUsdPerMillionTokens: 0.4,
+        },
+      },
+    };
+    const summary = reviewerReadinessSummary(config, {
+      changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+      estimatedInputTokens: 10_000,
+      estimatedOutputTokens: 1_000,
+    });
+    assert.equal(summary.tiers.cheap_independent.providerProfile, "cheap-profile");
+    assert.equal(summary.tiers.cheap_independent.commandConfigured, true);
+    assert.equal("command" in summary.tiers.cheap_independent, false);
+    assert.doesNotMatch(JSON.stringify(summary), /super-secret-token/);
+
+    const runner = createReadinessRunner();
+    const result = runPreflight(config, { runner });
+    const markdown = readFileSync(result.readinessReports.markdownPath, "utf8");
+    assert.match(markdown, /Reviewer Budget Policy/);
+    assert.doesNotMatch(markdown, /super-secret-token/);
     assertNoMutatingReadinessCommands(runner.commands);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });

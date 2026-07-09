@@ -93,6 +93,76 @@ or run review-fix mutation. `allowAutoMerge`,
 default. Enabling any of them is reported as `fail` unless a future explicit
 approval flag and documentation are added.
 
+The readiness output also reports the reviewer-tier and reviewer-budget
+configuration without exposing command strings or secrets. Missing accounting
+state means current reviewer spend is treated as USD 0. If accounting is added
+by a future approved slice, it must live under
+`/workspace/logs/settleora-auto-runner/state/`, not committed repository
+paths.
+
+## Reviewer Tier And Budget Policy
+
+Reviewer routing is a disabled-by-default policy foundation. Codex remains the
+implementation engine, and the legacy `reviewerCommand` behavior is preserved
+unless a future approved config explicitly enables a separate provider tier.
+The built-in tier names are:
+
+- `cheap_independent`
+- `strong_independent`
+- `tie_breaker`
+- `codex_mechanics`
+
+External independent tiers are unconfigured and disabled by default. Tier
+configuration may name a provider profile, command, model, and token prices,
+but repository source must not contain provider API keys, tokens, `.env`
+values, or personal credentials. Readiness and review-package summaries report
+only sanitized provider profile names, whether a command is configured, model
+names, and token-price numbers.
+
+The default reviewer budget policy assumes the Codex subscription is already
+about USD 200/month and leaves normal reviewer budget at USD 80/month, with a
+USD 95/month reviewer hard stop inside a USD 300/month total automation ceiling:
+
+```json
+{
+  "reviewerBudget": {
+    "monthlyReviewerBudgetUsd": 80,
+    "monthlyReviewerHardStopUsd": 95,
+    "totalMonthlyAutomationBudgetUsd": 300,
+    "codexSubscriptionBudgetUsd": 200,
+    "warnAtPercent": 80
+  }
+}
+```
+
+Cost estimates are local arithmetic only:
+
+```text
+(estimated input tokens / 1,000,000 * input USD per million tokens)
++ (estimated output tokens / 1,000,000 * output USD per million tokens)
+```
+
+The runner does not call external provider billing APIs. Budget checks warn at
+the configured percentage of the normal reviewer budget and block when the
+projected reviewer spend exceeds the hard stop.
+
+Deterministic routing uses changed paths, lane, changed-file count, estimated
+additions/deletions when known, and broad domain count:
+
+- Docs-only, ledger, and workflow docs route to `cheap_independent`.
+- Auto-runner tooling routes to `cheap_independent`, escalating to
+  `strong_independent` when large or sensitive.
+- Normal app feature work routes to `cheap_independent` by default,
+  escalating to `strong_independent` when large or risky.
+- Auth/security/storage/privacy/money/schema/OpenAPI/generated-client paths
+  require `strong_independent` review.
+- Huge or cross-domain PRs route to `block_split_or_escalate` unless a future
+  explicit large-bundle lane is approved.
+
+This policy does not approve real canary runs, normal trusted real-runs,
+overnight operation, auto-merge lanes, stale-claim stealing, follow-up issue
+creation, review-fix mutation, or systemd enablement.
+
 ## Label Contract
 
 Eligible issue labels:
