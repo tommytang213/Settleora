@@ -20,6 +20,40 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#818 - Contract-aware danger classifier checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - #805 `CLOSED`; it was not reopened or mutated by this slice.
+  - #818 `OPEN` with `danger-gate` from the prior canary attempt; this slice
+    did not rerun, relabel, close, or otherwise mutate #818.
+- Verified repo baseline:
+  `origin/main` at
+  `a87227aa84c5b77bf0a53f0ebc6715dcc11ecdd5` after PR #817 merged.
+- This classifier slice:
+  - Makes the auto-runner danger classifier parse valid body-level contracts
+    for eligible auto-runner issues before broad danger-word heuristics.
+  - Treats explicit exclusion sections such as `Non-goals`, `Out of scope`,
+    and `Prohibited actions` as negative scope, so the #818 canary body shape
+    is not blocked only because those exclusions mention auth, storage,
+    money, schema, OpenAPI, deployment, secrets, or public/admin exposure.
+  - Preserves fail-closed blocking for malformed contracts, disabled/manual
+    lanes, dangerous contract paths, and positive requests for manual-gated
+    domains.
+- Issue posture:
+  keep #800 and #818 open. A separate explicit canary task is required before
+  any future #818 rerun or label cleanup.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, workflow docs, and
+  this ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, or auto-merge
+  enablement.
+
 ### Issue #800 - Integrated Gemini pre-PR reviewer gate checkpoint
 
 - GitHub state/project status:

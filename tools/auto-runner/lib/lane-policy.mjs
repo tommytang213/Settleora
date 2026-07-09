@@ -1,4 +1,6 @@
 const contractHeadingPattern = /^##\s+Auto-runner contract\s*$/im;
+const markdownHeadingPattern = /^(#{1,6})\s+(.+?)\s*#*\s*$/gm;
+const eligibleContractLabels = new Set(["auto-ready", "auto-bundle", "auto-canary-ready"]);
 
 const contractFields = new Set([
   "contractVersion",
@@ -24,6 +26,19 @@ const dangerPatterns = [
   { key: "destructive_operations", pattern: /\b(destructive operation|delete data|purge|drop table|wipe)\b/i },
   { key: "branch_cleanup", pattern: /\b(delete branch|branch cleanup|force push|history rewrite)\b/i },
   { key: "architecture_replacement", pattern: /\b(replace architecture|reduce day 1 scope|scope reduction)\b/i },
+];
+
+const dangerousPathPatterns = [
+  { key: "auth_security", pattern: /(^|\/)(auth|authentication|authorization|session|security|mfa|passkey|password|credential|token)(\/|$)/i },
+  { key: "storage_privacy", pattern: /(^|\/)(storage|privacy|vault|permission|authz|file)(\/|$)/i },
+  { key: "money_settlement", pattern: /(^|\/)(money|settlement|payment|bill|rounding|currency|balance)(\/|$)/i },
+  { key: "schema_migration", pattern: /(^|\/)(schema|migration|migrations|database|ef)(\/|$)/i },
+  { key: "openapi_generated_client", pattern: /(^|\/)(openapi|generated|client-web|client-dart|contracts)(\/|$)/i },
+  { key: "sync_import_export", pattern: /(^|\/)(sync|restore|backup|import|export|reconciliation)(\/|$)/i },
+  { key: "docker_ci_deploy", pattern: /(^|\/)(docker|compose|ci|workflows|deployment|deploy|infra|truenas|codemagic)(\/|$)/i },
+  { key: "secrets_config", pattern: /(^|\/)(secret|secrets|credential|credentials|env|ssh|config)(\/|$)|(^|\/)\.env(?:\.|$)/i },
+  { key: "public_admin_exposure", pattern: /(^|\/)(public|admin|production|tls|reverse-proxy)(\/|$)/i },
+  { key: "mobile_release", pattern: /(^|\/)(testflight|app-store|signing|mobile-release)(\/|$)/i },
 ];
 
 export const validationProfiles = Object.freeze({
@@ -99,19 +114,67 @@ export const laneManifest = Object.freeze({
 });
 
 export function classifyIssueLane(issue) {
-  const text = `${issue.title || ""}\n${issue.body || ""}\n${(issue.labels || []).join(" ")}`;
-  const hits = dangerPatterns.filter((entry) => entry.pattern.test(text)).map((entry) => entry.key);
   const labels = new Set(issue.labels || []);
 
   if (labels.has("manual-gate") || labels.has("needs-tommy")) {
     return blockedDecision("manual", "Issue already carries a manual gate label.", {
       manualGate: true,
-      dangerReasons: hits,
+      dangerReasons: detectDangerReasons(issueSearchText(issue, "all")),
     });
   }
 
-  if (hits.length > 0 || labels.has("danger-gate")) {
-    return blockedDecision("danger-gated", `Issue appears to request gated scope: ${hits.join(", ") || "danger-gate label"}.`, {
+  if (labels.has("danger-gate")) {
+    return blockedDecision("danger-gated", "Issue already carries a danger gate label.", {
+      manualGate: true,
+      dangerGate: true,
+      dangerReasons: detectDangerReasons(issueSearchText(issue, "all")),
+    });
+  }
+
+  if (hasEligibleContractLabel(labels)) {
+    const parsed = parseAutoRunnerContract(issue.body || "");
+    if (parsed.ok) {
+      const contractDecision = buildContractDecision(parsed.contract);
+      if (!contractDecision.allowedToImplement) {
+        return contractDecision;
+      }
+      const positiveHits = detectDangerReasons(issueSearchText(issue, "positive-scope"));
+      if (positiveHits.length > 0) {
+        return blockedDecision(
+          contractDecision.lane,
+          `Issue positive scope appears to request gated work: ${positiveHits.join(", ")}.`,
+          {
+            contract: parsed.contract,
+            manualGate: true,
+            dangerGate: true,
+            dangerReasons: positiveHits,
+          },
+        );
+      }
+      return contractDecision;
+    }
+
+    const malformedHits = detectDangerReasons(issueSearchText(issue, "all"));
+    if (malformedHits.length > 0) {
+      return blockedDecision(
+        "danger-gated",
+        `Issue has an invalid auto-runner contract and appears to request gated scope: ${malformedHits.join(", ")}.`,
+        {
+          contract: parsed,
+          manualGate: true,
+          dangerGate: true,
+          dangerReasons: malformedHits,
+        },
+      );
+    }
+    return blockedDecision("missing-or-invalid-contract", parsed.reason, {
+      contract: parsed,
+    });
+  }
+
+  const hits = detectDangerReasons(issueSearchText(issue, "all"));
+  if (hits.length > 0) {
+    return blockedDecision("danger-gated", `Issue appears to request gated scope: ${hits.join(", ")}.`, {
       manualGate: true,
       dangerGate: true,
       dangerReasons: hits,
@@ -125,7 +188,11 @@ export function classifyIssueLane(issue) {
     });
   }
 
-  return buildContractDecision(parsed.contract);
+  const contractDecision = buildContractDecision(parsed.contract);
+  if (!contractDecision.allowedToImplement) {
+    return contractDecision;
+  }
+  return contractDecision;
 }
 
 export function parseAutoRunnerContract(body) {
@@ -196,7 +263,12 @@ function buildContractDecision(contract) {
   }
   const unsafePath = contract.allowedPaths.find((glob) => !lane.allowedPaths.some((laneGlob) => globIsSubsetOf(glob, laneGlob)));
   if (unsafePath) {
-    return blockedDecision(contract.lane, `Contract allowed path is outside lane manifest allowlist: ${unsafePath}.`, { contract });
+    const pathDangerReasons = detectDangerousPathReasons(contract.allowedPaths);
+    return blockedDecision(contract.lane, `Contract allowed path is outside lane manifest allowlist: ${unsafePath}.`, {
+      contract,
+      dangerGate: pathDangerReasons.length > 0,
+      dangerReasons: pathDangerReasons,
+    });
   }
 
   const autoMergeEligible = Boolean(contract.autoMergeEligible && lane.autoMergeAllowed);
@@ -217,6 +289,101 @@ function buildContractDecision(contract) {
     followupIssueCreationAllowed: lane.followupIssueCreationAllowed,
     reviewFixMutationAllowed: lane.reviewFixMutationAllowed,
   };
+}
+
+function hasEligibleContractLabel(labels) {
+  return [...labels].some((label) => eligibleContractLabels.has(label));
+}
+
+function detectDangerReasons(text) {
+  return dangerPatterns.filter((entry) => entry.pattern.test(text)).map((entry) => entry.key);
+}
+
+function detectDangerousPathReasons(paths) {
+  return [
+    ...new Set(
+      paths.flatMap((filePath) =>
+        dangerousPathPatterns.filter((entry) => entry.pattern.test(normalizePath(filePath))).map((entry) => entry.key),
+      ),
+    ),
+  ];
+}
+
+function issueSearchText(issue, mode) {
+  const body = String(issue.body || "");
+  const scopedBody = mode === "positive-scope" ? positiveScopeBodyText(body) : body;
+  return [issue.title || "", scopedBody, (issue.labels || []).join(" ")].join("\n");
+}
+
+function positiveScopeBodyText(body) {
+  return stripNegativeSections(stripAutoRunnerContractSection(String(body || "")));
+}
+
+function stripAutoRunnerContractSection(body) {
+  return stripSections(body, (heading) => normalizeHeading(heading) === "auto runner contract");
+}
+
+function stripNegativeSections(body) {
+  return stripSections(body, (heading) => {
+    const normalized = normalizeHeading(heading);
+    return (
+      normalized === "non goals" ||
+      normalized === "non goal" ||
+      normalized === "out of scope" ||
+      normalized === "outside scope" ||
+      normalized === "prohibited actions" ||
+      normalized === "prohibited action" ||
+      normalized === "forbidden actions" ||
+      normalized === "forbidden action" ||
+      normalized === "do not" ||
+      normalized === "exclusions" ||
+      normalized === "excluded scope" ||
+      normalized === "not in scope"
+    );
+  });
+}
+
+function stripSections(body, shouldStrip) {
+  const headings = [...body.matchAll(markdownHeadingPattern)];
+  if (headings.length === 0) {
+    return body;
+  }
+
+  const ranges = [];
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index];
+    if (!shouldStrip(heading[2])) continue;
+    const level = heading[1].length;
+    const start = heading.index;
+    let end = body.length;
+    for (let nextIndex = index + 1; nextIndex < headings.length; nextIndex += 1) {
+      const next = headings[nextIndex];
+      if (next[1].length <= level) {
+        end = next.index;
+        break;
+      }
+    }
+    ranges.push([start, end]);
+  }
+  if (ranges.length === 0) {
+    return body;
+  }
+
+  let stripped = "";
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    stripped += body.slice(cursor, start);
+    cursor = end;
+  }
+  return stripped + body.slice(cursor);
+}
+
+function normalizeHeading(heading) {
+  return String(heading || "")
+    .toLowerCase()
+    .replace(/[`*_()[\]{}:;,.!?'"-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function validateContractShape(contract) {
