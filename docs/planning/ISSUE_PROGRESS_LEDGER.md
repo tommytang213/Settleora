@@ -20,6 +20,47 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Post-canary completion and next gates checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - #805 `CLOSED` as completed after the bounded canary output PR merged.
+- Verified repo baseline:
+  `origin/main` at
+  `78763163aa85ba8464a9dfdcd6b6190131a4c49d` after PR #812 merged.
+- Completed canary slice:
+  - PR #812 `Auto-runner: #805 Auto-runner canary: workflow docs harmless PR`
+    was opened by the DevBox auto-runner from the contracted #805
+    `workflow-docs-tooling` canary issue.
+  - PR #812 changed exactly
+    `docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md`.
+  - The runner accepted the pre-PR review verdict through the selected
+    reviewer stdout boundary, with the raw review log remaining diagnostic
+    evidence only.
+  - Runner docs-only validation passed before PR creation, and the PR merge
+    gate recorded local docs validation plus GitHub checks passing on exact PR
+    head `077ee8e70832611af856a5059a95e5ed69f3f783`.
+  - PR #812 required human review/merge and was merged manually with normal
+    GitHub merge commit
+    `78763163aa85ba8464a9dfdcd6b6190131a4c49d`.
+- Issue posture:
+  keep #800 open. Closing #805 completed only the bounded canary target; it did
+  not approve broader unattended operation or Day 1/product runtime work.
+- Remaining #800 manual gates:
+  trusted overnight operation, any auto-merge lane, stale-claim stealing,
+  follow-up issue creation, review-fix mutation, systemd service/timer
+  installation or enablement, and any future expansion beyond approved
+  workflow/planning tooling paths.
+- Scope confirmation:
+  this checkpoint is documentation/planning only. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment, secrets/env/auth config, production deploy,
+  mobile release, public/admin exposure, branch deletion, force push, direct
+  main push, or auto-merge enablement.
+
 ### Issue #800 - Auto-runner issue-contract and lane-manifest checkpoint
 
 - GitHub state/project status:
