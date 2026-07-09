@@ -37,6 +37,19 @@ export const defaultConfig = Object.freeze({
   codexCommand: "codex-vm-full",
   reviewerTiers: defaultReviewerTiers,
   reviewerBudget: defaultReviewerBudget,
+  reviewerProviderProfiles: {
+    gemini: {
+      provider: "gemini",
+      apiKeyEnv: "GEMINI_API_KEY",
+      envFilePath: null,
+      defaultModel: "gemini-2.5-flash-lite",
+    },
+  },
+  reviewerSmokeTest: {
+    tier: "cheap_independent",
+    maxEstimatedCostUsd: 0.05,
+    envFilePath: null,
+  },
 });
 
 export function parseDuration(value) {
@@ -58,6 +71,9 @@ export function parseCliArgs(argv) {
     run: false,
     preflight: false,
     readiness: false,
+    reviewerSmokeTest: false,
+    liveExternalReviewerCalls: false,
+    reviewerSmokeTier: null,
     once: false,
     maxIterations: null,
     maxRuntimeMs: null,
@@ -80,12 +96,15 @@ export function parseCliArgs(argv) {
       args.preflight = true;
       args.readiness = true;
     }
+    else if (arg === "--reviewer-smoke-test") args.reviewerSmokeTest = true;
+    else if (arg === "--live-external-reviewer-calls") args.liveExternalReviewerCalls = true;
     else if (arg === "--once") args.once = true;
     else if (arg === "--require-pre-pr-review") args.requirePrePrReview = true;
     else if (arg === "--write-summary") args.writeSummary = true;
     else if (arg === "--review-package") args.reviewPackage = readValue(argv, ++index, arg);
     else if (arg === "--config") args.configPath = readValue(argv, ++index, arg);
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
+    else if (arg === "--reviewer-smoke-tier") args.reviewerSmokeTier = readValue(argv, ++index, arg);
     else if (arg === "--since") args.sinceMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-runtime") args.maxRuntimeMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-iterations") {
@@ -99,15 +118,21 @@ export function parseCliArgs(argv) {
     }
   }
 
-  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight;
+  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest;
   if (!specialMode && args.dryRun === args.run) {
     throw new Error("Pass exactly one of --dry-run or --run");
   }
-  if ((args.writeSummary || args.reviewPackage) && (args.dryRun || args.run || args.preflight || args.canary)) {
-    throw new Error("--write-summary and --review-package do not take --dry-run, --run, --canary, or --preflight");
+  if ((args.writeSummary || args.reviewPackage) && (args.dryRun || args.run || args.preflight || args.canary || args.reviewerSmokeTest)) {
+    throw new Error("--write-summary and --review-package do not take --dry-run, --run, --canary, --preflight, or --reviewer-smoke-test");
   }
   if (args.preflight && (args.dryRun || args.run)) {
     throw new Error("--preflight runs as its own non-mutating mode; do not pass --dry-run or --run");
+  }
+  if (args.reviewerSmokeTest && (args.dryRun || args.run || args.preflight || args.canary)) {
+    throw new Error("--reviewer-smoke-test runs as its own non-mutating mode; do not pass --dry-run, --run, --canary, or --preflight");
+  }
+  if (args.liveExternalReviewerCalls && !args.reviewerSmokeTest) {
+    throw new Error("--live-external-reviewer-calls is only valid with --reviewer-smoke-test");
   }
   if (args.fixtureIssuesPath && !args.dryRun) {
     throw new Error("--fixture-issues is dry-run only; pass --dry-run");
@@ -153,6 +178,16 @@ export function loadConfig(cliArgs) {
     config.mode = cliArgs.readiness ? "readiness" : "preflight";
     config.dryRun = true;
     config.run = false;
+  }
+  if (cliArgs.reviewerSmokeTest) {
+    config.mode = "reviewer-smoke-test";
+    config.dryRun = true;
+    config.run = false;
+    config.liveExternalReviewerCalls = Boolean(cliArgs.liveExternalReviewerCalls);
+    config.reviewerSmokeTest = {
+      ...(config.reviewerSmokeTest || {}),
+      tier: cliArgs.reviewerSmokeTier || config.reviewerSmokeTest?.tier || "cheap_independent",
+    };
   }
   config.configPath = cliArgs.configPath || null;
   if (config.canary) {

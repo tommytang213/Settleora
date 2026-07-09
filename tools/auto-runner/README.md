@@ -49,6 +49,48 @@ reviewer hard stop, USD 200/month Codex subscription budget, USD 300/month
 total automation ceiling, and an 80% warning threshold. Cost estimates are
 local token-price arithmetic only and do not call external provider APIs.
 
+The approved independent reviewer provider direction is Google-only for now.
+`cheap_independent` may be configured to use a Gemini Flash or Flash-Lite class
+model such as `gemini-2.5-flash-lite` or `gemini-2.5-flash`, and
+`strong_independent` may be configured to use a Gemini Pro class model such as
+`gemini-2.5-pro`. `tie_breaker` remains disabled. Claude and OpenAI reviewer
+provider wiring is intentionally absent.
+
+Gemini provider configuration is disabled by default in
+`runner-config.example.json`. Model names, token prices, and provider profile
+names are configurable, but API keys must stay outside the repository. The
+runner first reads `GEMINI_API_KEY` from the process environment. An external
+env file can be configured only by explicit path under:
+
+```text
+/workspace/logs/settleora-auto-runner/secrets/
+```
+
+For example, an operator may create
+`/workspace/logs/settleora-auto-runner/secrets/reviewer.env` containing
+`GEMINI_API_KEY=...` and point the local, uncommitted runner config at that
+path. Do not commit live config files from `/workspace/logs/**`, API keys,
+`.env` files, authorization headers, or credentials.
+
+Gemini reviewer smoke-test mode is standalone and non-mutating:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --reviewer-smoke-test --config /workspace/logs/settleora-auto-runner/local-gemini-reviewer-config.json
+node tools/auto-runner/settleora-auto-runner.mjs --reviewer-smoke-test --live-external-reviewer-calls --config /workspace/logs/settleora-auto-runner/local-gemini-reviewer-config.json
+```
+
+The first command performs config, key, budget, tier, and reporting checks
+without opting into a live external reviewer call. The second command may make
+one tiny Gemini `generateContent` call only when the configured Gemini tier is
+enabled, the API key is available from the approved boundary, projected
+reviewer spend is below the hard stop, and the estimated smoke cost is below
+the tiny smoke cap, defaulting to USD 0.05. The payload is synthetic and asks
+for strict JSON only. Output reports provider, model, estimated tokens/cost,
+actual usage if returned by Gemini, verdict, elapsed time, and a sanitized
+response summary under `/workspace/logs/settleora-auto-runner/reviews/smoke-tests/`.
+Missing keys produce `blocked_for_live_smoke_test_key_missing`; that is an
+operator setup blocker, not a repo implementation failure.
+
 The readiness command does not approve trusted overnight operation, normal
 trusted real-run, canary real-run, auto-merge lanes, stale-claim stealing,
 follow-up issue creation, review-fix mutation, or systemd enablement. It does

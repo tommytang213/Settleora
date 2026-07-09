@@ -119,6 +119,38 @@ values, or personal credentials. Readiness and review-package summaries report
 only sanitized provider profile names, whether a command is configured, model
 names, and token-price numbers.
 
+The first approved provider profile direction is Google-only. When explicitly
+configured outside the repository, `cheap_independent` should use a Gemini
+Flash or Flash-Lite class model such as `gemini-2.5-flash-lite` or
+`gemini-2.5-flash` for routine PRs, and `strong_independent` should use a
+Gemini Pro class model such as `gemini-2.5-pro` for risky, large, or sensitive
+PRs. `tie_breaker` remains disabled. This policy does not add or approve
+Claude or OpenAI reviewer provider wiring.
+
+Gemini API keys must be supplied from the process environment as
+`GEMINI_API_KEY` or from an explicitly configured external env file under
+`/workspace/logs/settleora-auto-runner/secrets/`, such as
+`/workspace/logs/settleora-auto-runner/secrets/reviewer.env`. The repository
+must not store live provider config from `/workspace/logs/**`, API keys,
+authorization headers, `.env` files, or secrets.
+
+The Gemini smoke-test command is standalone and non-mutating:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --reviewer-smoke-test --config /workspace/logs/settleora-auto-runner/local-gemini-reviewer-config.json
+node tools/auto-runner/settleora-auto-runner.mjs --reviewer-smoke-test --live-external-reviewer-calls --config /workspace/logs/settleora-auto-runner/local-gemini-reviewer-config.json
+```
+
+It does not run Codex implementation, create branches, commit, push, open or
+update PRs, mutate labels, comment on issues, merge, enable canary/real-run,
+enable auto-merge, enable stale-claim stealing, enable follow-up issue
+creation, enable review-fix mutation, or install/enable systemd. With the live
+flag, it may make one tiny Gemini call only if the API key is available through
+the approved secret boundary, projected reviewer spend stays below the hard
+stop, and the estimated smoke cost stays below the tiny cap. Missing keys are
+reported as `blocked_for_live_smoke_test_key_missing` rather than leaking
+environment details.
+
 The default reviewer budget policy assumes the Codex subscription is already
 about USD 200/month and leaves normal reviewer budget at USD 80/month, with a
 USD 95/month reviewer hard stop inside a USD 300/month total automation ceiling:

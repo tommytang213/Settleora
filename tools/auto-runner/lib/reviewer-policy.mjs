@@ -11,6 +11,7 @@ export const reviewerTierIds = Object.freeze([
 export const defaultReviewerTiers = Object.freeze({
   cheap_independent: Object.freeze({
     enabled: false,
+    provider: null,
     providerProfile: "unconfigured-cheap-independent",
     command: null,
     model: null,
@@ -19,6 +20,7 @@ export const defaultReviewerTiers = Object.freeze({
   }),
   strong_independent: Object.freeze({
     enabled: false,
+    provider: null,
     providerProfile: "unconfigured-strong-independent",
     command: null,
     model: null,
@@ -27,6 +29,7 @@ export const defaultReviewerTiers = Object.freeze({
   }),
   tie_breaker: Object.freeze({
     enabled: false,
+    provider: null,
     providerProfile: "unconfigured-tie-breaker",
     command: null,
     model: null,
@@ -35,6 +38,7 @@ export const defaultReviewerTiers = Object.freeze({
   }),
   codex_mechanics: Object.freeze({
     enabled: true,
+    provider: "codex",
     providerProfile: "codex-mechanics-default",
     command: "codex-vm-full",
     model: "codex-subscription",
@@ -84,6 +88,7 @@ export function mergeReviewerTiers(tiers = {}) {
       ...tier,
       enabled: Boolean(tier.enabled ?? defaultReviewerTiers[tierId].enabled),
       command: tier.command ?? defaultReviewerTiers[tierId].command,
+      provider: tier.provider ?? defaultReviewerTiers[tierId].provider,
       providerProfile: String(tier.providerProfile ?? defaultReviewerTiers[tierId].providerProfile),
       model: tier.model ?? defaultReviewerTiers[tierId].model,
       inputUsdPerMillionTokens: nonNegativeNumber(
@@ -266,6 +271,7 @@ export function reviewerReadinessSummary(config, sample = {}) {
         tierId,
         {
           enabled: Boolean(tier.enabled),
+          provider: tier.provider,
           providerProfile: tier.providerProfile,
           commandConfigured: Boolean(tier.command),
           model: tier.model,

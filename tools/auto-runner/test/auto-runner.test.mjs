@@ -21,6 +21,13 @@ import { runPreflight } from "../lib/preflight.mjs";
 import { generateTaskPrompt } from "../lib/task-prompt.mjs";
 import { inspectPreReviewPrOwnership } from "../lib/pr-manager.mjs";
 import {
+  loadGeminiApiKey,
+  resolveGeminiModelEndpoint,
+  runGeminiReviewerSmokeTest,
+  sanitizeSecretText,
+  supportedGeminiModelEndpoints,
+} from "../lib/gemini-reviewer.mjs";
+import {
   estimateReviewerCostUsd,
   evaluateReviewerBudget,
   reviewerReadinessSummary,
@@ -317,6 +324,257 @@ test("reviewer readiness report includes sanitized providers and no secrets", ()
     assert.match(markdown, /Reviewer Budget Policy/);
     assert.doesNotMatch(markdown, /super-secret-token/);
     assertNoMutatingReadinessCommands(runner.commands);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini smoke test missing key fails safely without external call or secret output", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-missing-key-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiReviewerSmokeTest(geminiSmokeConfig(tempRoot), {
+      liveExternalReviewerCalls: true,
+      env: {},
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_for_live_smoke_test_key_missing");
+    assert.equal(result.liveCallAttempted, false);
+    assert.equal(calls, 0);
+    assert.doesNotMatch(readFileSync(result.reportPath, "utf8"), /GEMINI_API_KEY|super-secret/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini secret redaction removes raw key and auth-like fields", () => {
+  const sanitized = sanitizeSecretText(
+    'provider error api_key="super-secret-key" authorization Bearer live-token x-goog-api-key: other-key super-secret-key',
+    "super-secret-key",
+  );
+  assert.doesNotMatch(sanitized, /super-secret-key/);
+  assert.doesNotMatch(sanitized, /live-token/);
+  assert.doesNotMatch(sanitized, /other-key/);
+  assert.match(sanitized, /\[REDACTED\]/);
+});
+
+test("Gemini API key loader only accepts env or approved external secrets path", () => {
+  assert.equal(loadGeminiApiKey({ env: { GEMINI_API_KEY: "from-env" } }).source, "env:GEMINI_API_KEY");
+  assert.equal(
+    loadGeminiApiKey({ env: {}, envFilePath: "/workspace/repos/Settleora/.env" }).reason,
+    "blocked_unapproved_secret_env_file_path",
+  );
+});
+
+test("Gemini smoke test fails closed for malformed JSON verdict", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-malformed-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiReviewerSmokeTest(geminiSmokeConfig(tempRoot), {
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => {
+        calls += 1;
+        return fakeGeminiResponse({
+          candidates: [{ content: { parts: [{ text: "not json" }] } }],
+          usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 3, totalTokenCount: 15 },
+        });
+      },
+    });
+    assert.equal(calls, 1);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_malformed_json_verdict");
+    assert.equal(result.actualUsage.totalTokenCount, 15);
+    assert.doesNotMatch(readFileSync(result.reportPath, "utf8"), /super-secret-key/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini smoke test blocks before live call when reviewer budget hard stop would be exceeded", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-budget-"));
+  try {
+    mkdirSync(path.join(tempRoot, "state"), { recursive: true });
+    writeFileSync(
+      path.join(tempRoot, "state", "reviewer-accounting.json"),
+      `${JSON.stringify({ entries: [{ monthKey: new Date().toISOString().slice(0, 7), costUsd: 95 }] })}\n`,
+    );
+    let calls = 0;
+    const config = geminiSmokeConfig(tempRoot, {
+      reviewerSmokeTest: { tier: "cheap_independent", maxEstimatedCostUsd: 5 },
+      reviewerTiers: {
+        cheap_independent: {
+          enabled: true,
+          provider: "gemini",
+          providerProfile: "gemini-cheap",
+          model: "gemini-2.5-flash-lite",
+          inputUsdPerMillionTokens: 1000,
+          outputUsdPerMillionTokens: 1000,
+        },
+      },
+    });
+    const result = await runGeminiReviewerSmokeTest(config, {
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_reviewer_budget_hard_stop");
+    assert.equal(result.budget.block, true);
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini smoke test skips disabled provider tiers without external API call", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-disabled-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiReviewerSmokeTest(geminiSmokeConfig(tempRoot, {
+      reviewerTiers: {
+        cheap_independent: {
+          enabled: false,
+          provider: "gemini",
+          providerProfile: "gemini-cheap",
+          model: "gemini-2.5-flash-lite",
+        },
+      },
+    }), {
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.equal(result.status, "skipped");
+    assert.equal(result.reason, "skipped_provider_tier_disabled");
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini smoke test rejects unsupported model names before external API call", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-invalid-model-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiReviewerSmokeTest(geminiSmokeConfig(tempRoot, {
+      reviewerTiers: {
+        cheap_independent: {
+          enabled: true,
+          provider: "gemini",
+          providerProfile: "gemini-cheap",
+          model: "https://metadata.invalid/latest",
+        },
+      },
+    }), {
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_unsupported_gemini_model");
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini model config resolves only to fixed Google endpoint constants", async () => {
+  assert.deepEqual(Object.keys(supportedGeminiModelEndpoints).sort(), [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+  ]);
+  for (const [model, endpoint] of Object.entries(supportedGeminiModelEndpoints)) {
+    assert.equal(resolveGeminiModelEndpoint(model), endpoint);
+    const parsed = new URL(endpoint);
+    assert.equal(parsed.origin, "https://generativelanguage.googleapis.com");
+    assert.equal(parsed.pathname, `/v1beta/models/${model}:generateContent`);
+  }
+  for (const unsupported of [
+    "gemini-2.5-flash/../../metadata",
+    "gemini-2.5-flash?key=attacker",
+    "https://metadata.invalid/v1beta/models/gemini-2.5-flash",
+    "//metadata.invalid/v1beta/models/gemini-2.5-flash",
+    "gemini-2.5-ultra",
+  ]) {
+    assert.equal(resolveGeminiModelEndpoint(unsupported), null);
+  }
+});
+
+test("reviewer smoke CLI mode is standalone and does not mutate repo or GitHub", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-cli-"));
+  const before = gitStatusShort();
+  try {
+    const configPath = path.join(tempRoot, "gemini-smoke-config.json");
+    writeFileSync(configPath, `${JSON.stringify(geminiSmokeConfig(tempRoot), null, 2)}\n`);
+    const result = spawnSync(
+      "node",
+      ["tools/auto-runner/settleora-auto-runner.mjs", "--reviewer-smoke-test", "--config", configPath],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        windowsHide: true,
+        env: { ...process.env, GEMINI_API_KEY: "" },
+      },
+    );
+    const after = gitStatusShort();
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(after, before);
+    assert.match(result.stdout, /"mode": "reviewer-smoke-test"/);
+    assert.match(result.stdout, /blocked_for_live_smoke_test_key_missing/);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /\bgh issue edit\b|\bgh issue comment\b|\bgh pr create\b|\bgit push\b|\bgit switch\b/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini smoke test selects configured cheap and strong Gemini tier models", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-routing-"));
+  try {
+    const requestedUrls = [];
+    const fetchImpl = async (url) => {
+      requestedUrls.push(String(url));
+      return fakeGeminiResponse({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({ verdict: "pass", findings: [] }) }] } }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, totalTokenCount: 15 },
+      });
+    };
+    const config = geminiSmokeConfig(tempRoot, { reviewerSmokeTest: { tier: "cheap_independent", maxEstimatedCostUsd: 1 } });
+    const cheap = await runGeminiReviewerSmokeTest(config, {
+      tierId: "cheap_independent",
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl,
+    });
+    const strong = await runGeminiReviewerSmokeTest(config, {
+      tierId: "strong_independent",
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl,
+    });
+    assert.equal(cheap.status, "pass");
+    assert.equal(cheap.model, "gemini-2.5-flash-lite");
+    assert.equal(strong.status, "pass");
+    assert.equal(strong.model, "gemini-2.5-pro");
+    assert.equal(new URL(requestedUrls[0]).origin, "https://generativelanguage.googleapis.com");
+    assert.equal(new URL(requestedUrls[1]).origin, "https://generativelanguage.googleapis.com");
+    assert.equal(new URL(requestedUrls[0]).pathname, "/v1beta/models/gemini-2.5-flash-lite:generateContent");
+    assert.equal(new URL(requestedUrls[1]).pathname, "/v1beta/models/gemini-2.5-pro:generateContent");
+    assert.doesNotMatch(readFileSync(cheap.reportPath, "utf8"), /super-secret-key/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -966,6 +1224,102 @@ function readinessConfig(logsRoot) {
     canaryEvidenceRoot: path.join(logsRoot, "canary"),
     configPath: null,
   };
+}
+
+function geminiSmokeConfig(logsRoot, overrides = {}) {
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+  return {
+    ...readinessConfig(logsRoot),
+    reviewerBudget: {
+      monthlyReviewerBudgetUsd: 80,
+      monthlyReviewerHardStopUsd: 95,
+      totalMonthlyAutomationBudgetUsd: 300,
+      codexSubscriptionBudgetUsd: 200,
+      warnAtPercent: 80,
+    },
+    reviewerTiers: {
+      cheap_independent: {
+        enabled: true,
+        provider: "gemini",
+        providerProfile: "gemini-cheap",
+        command: null,
+        model: "gemini-2.5-flash-lite",
+        inputUsdPerMillionTokens: 0.1,
+        outputUsdPerMillionTokens: 0.4,
+      },
+      strong_independent: {
+        enabled: true,
+        provider: "gemini",
+        providerProfile: "gemini-strong",
+        command: null,
+        model: "gemini-2.5-pro",
+        inputUsdPerMillionTokens: 1.25,
+        outputUsdPerMillionTokens: 10,
+      },
+      tie_breaker: {
+        enabled: false,
+        provider: null,
+        providerProfile: "unconfigured-tie-breaker",
+        command: null,
+        model: null,
+        inputUsdPerMillionTokens: 0,
+        outputUsdPerMillionTokens: 0,
+      },
+      codex_mechanics: {
+        enabled: true,
+        provider: "codex",
+        providerProfile: "codex-mechanics-default",
+        command: "codex-vm-full",
+        model: "codex-subscription",
+        inputUsdPerMillionTokens: 0,
+        outputUsdPerMillionTokens: 0,
+      },
+      ...(overrides.reviewerTiers || {}),
+    },
+    reviewerProviderProfiles: {
+      gemini: {
+        provider: "gemini",
+        apiKeyEnv: "GEMINI_API_KEY",
+        envFilePath: null,
+        defaultModel: "gemini-2.5-flash-lite",
+      },
+      "gemini-cheap": {
+        provider: "gemini",
+        apiKeyEnv: "GEMINI_API_KEY",
+        envFilePath: null,
+        defaultModel: "gemini-2.5-flash-lite",
+      },
+      "gemini-strong": {
+        provider: "gemini",
+        apiKeyEnv: "GEMINI_API_KEY",
+        envFilePath: null,
+        defaultModel: "gemini-2.5-pro",
+      },
+      ...(overrides.reviewerProviderProfiles || {}),
+    },
+    reviewerSmokeTest: {
+      tier: "cheap_independent",
+      maxEstimatedCostUsd: 0.05,
+      envFilePath: null,
+      ...(overrides.reviewerSmokeTest || {}),
+    },
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => !["reviewerTiers", "reviewerProviderProfiles", "reviewerSmokeTest"].includes(key))),
+  };
+}
+
+function fakeGeminiResponse(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async text() {
+      return JSON.stringify(body);
+    },
+  };
+}
+
+function gitStatusShort() {
+  return spawnSync("git", ["status", "--short"], { cwd: process.cwd(), encoding: "utf8", windowsHide: true }).stdout;
 }
 
 function createReadinessRunner(overrides = {}) {

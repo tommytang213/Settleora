@@ -29,6 +29,7 @@ import { planValidation, runValidationPlan } from "./lib/validation-planner.mjs"
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
+import { runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -57,6 +58,21 @@ async function main() {
     console.error(`Readiness reports: ${result.readinessReports.markdownPath} ${result.readinessReports.jsonPath}`);
     console.log(JSON.stringify(result, null, 2));
     process.exitCode = result.summary.fail > 0 ? 1 : 0;
+    return;
+  }
+  if (cliArgs.reviewerSmokeTest) {
+    const config = loadConfig(cliArgs);
+    const result = await runGeminiReviewerSmokeTest(config, {
+      liveExternalReviewerCalls: cliArgs.liveExternalReviewerCalls,
+      tierId: cliArgs.reviewerSmokeTier || config.reviewerSmokeTest?.tier,
+    });
+    console.error(`Gemini reviewer smoke test: ${result.status} (${result.reason})`);
+    console.error(`Smoke report: ${result.reportPath}`);
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode =
+      result.status === "pass" || result.status === "skipped" || result.reason === "blocked_for_live_smoke_test_key_missing"
+        ? 0
+        : 1;
     return;
   }
 
