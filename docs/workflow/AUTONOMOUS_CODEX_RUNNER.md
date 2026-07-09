@@ -314,6 +314,11 @@ Auto-merge is disabled globally by default. Real mutation requires `--run`.
 Lane classification is contract-first and backed by a trusted lane manifest in
 `tools/auto-runner/lib/lane-policy.mjs`. Text heuristics may still force
 danger/manual gates, but they never authorize implementation or allowed paths.
+For eligible auto-runner issues, explicit exclusion sections such as
+`Non-goals`, `Out of scope`, and `Prohibited actions` are treated as negative
+scope rather than positive implementation requests. Positive scope text,
+dangerous `allowedPaths`, malformed contracts, disabled lanes, and
+manual-gated domains still fail closed.
 
 Implemented lanes:
 

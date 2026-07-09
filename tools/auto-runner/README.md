@@ -208,6 +208,14 @@ fail closed as safe blocked outcomes. Issue text never supplies shell
 commands; it only names a validation profile defined in
 `tools/auto-runner/lib/lane-policy.mjs`.
 
+For eligible auto-runner issues, the classifier parses and validates the
+contract before applying broad danger-word heuristics. Explicit exclusion
+sections such as `## Non-goals`, `## Out of scope`, and
+`## Prohibited actions` are treated as negative scope, not implementation
+requests. Positive scope text, the title, dangerous contract `allowedPaths`,
+malformed contracts, disabled lanes, and manual-gated domains still fail
+closed with the normal danger/manual gate outcomes.
+
 Initial implementation lanes:
 
 - `workflow-docs-tooling`: `tools/auto-runner/**`, `docs/workflow/**`, and

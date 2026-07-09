@@ -1015,6 +1015,94 @@ test("valid docs/planning contract is accepted for planning docs only", () => {
   ]);
 });
 
+test("#818-style workflow docs canary ignores dangerous terms in non-goals", () => {
+  const lane = classifyIssueLane({
+    title: "Auto-runner canary: Gemini integrated workflow docs checkpoint",
+    body: issue818StyleBody(),
+    labels: ["auto-canary-ready", "workflow", "canary"],
+  });
+  assert.equal(lane.allowedToImplement, true);
+  assert.equal(lane.dangerGate, false);
+  assert.equal(lane.lane, "workflow-docs-tooling");
+  assert.deepEqual(lane.dangerReasons, []);
+  assert.deepEqual(lane.allowedPaths, ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"]);
+});
+
+test("valid workflow docs contract still blocks dangerous positive scope text", () => {
+  const lane = classifyIssueLane({
+    title: "Workflow docs canary with unsafe request",
+    body: `${contractBody({
+      allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+      validationProfile: "docs-only",
+    })}
+
+## Scope
+
+Change auth/session/security runtime and settlement payment calculation behavior while updating docs.
+
+## Non-goals
+
+- no Docker/CI/deployment/env/secret changes.
+`,
+    labels: ["auto-ready"],
+  });
+  assert.equal(lane.allowedToImplement, false);
+  assert.equal(lane.dangerGate, true);
+  assert.match(lane.reason, /positive scope/i);
+  assert.ok(lane.dangerReasons.includes("auth_security"));
+  assert.ok(lane.dangerReasons.includes("money_settlement"));
+});
+
+test("valid contract with dangerous allowed path fails closed as danger gate", () => {
+  const lane = classifyIssueLane({
+    title: "Workflow docs canary with runtime path",
+    body: contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["services/api/Auth/**"],
+      validationProfile: "docs-only",
+    }),
+    labels: ["auto-ready"],
+  });
+  assert.equal(lane.allowedToImplement, false);
+  assert.equal(lane.dangerGate, true);
+  assert.ok(lane.dangerReasons.includes("auth_security"));
+  assert.match(lane.reason, /outside lane manifest/i);
+});
+
+test("malformed contract with dangerous text fails closed without leaking secrets", () => {
+  const lane = classifyIssueLane({
+    title: "Malformed workflow contract",
+    body: `## Auto-runner contract
+
+\`\`\`json
+{"contractVersion":1,
+\`\`\`
+
+## Scope
+
+Change deployment config, token storage, and auth security runtime. Secret sample: super-secret-token.
+`,
+    labels: ["auto-ready"],
+  });
+  assert.equal(lane.allowedToImplement, false);
+  assert.equal(lane.dangerGate, true);
+  assert.ok(lane.dangerReasons.includes("auth_security"));
+  assert.ok(lane.dangerReasons.includes("docker_ci_deploy"));
+  assert.doesNotMatch(JSON.stringify(lane), /super-secret-token/);
+});
+
+test("normal dangerous issue without contract remains danger gated", () => {
+  const lane = classifyIssueLane({
+    title: "Change settlement payment calculation",
+    body: "Update money rounding and OpenAPI generated clients for deployment.",
+    labels: ["auto-ready"],
+  });
+  assert.equal(lane.allowedToImplement, false);
+  assert.equal(lane.dangerGate, true);
+  assert.ok(lane.dangerReasons.includes("money_settlement"));
+  assert.ok(lane.dangerReasons.includes("openapi_generated_client"));
+});
+
 test("canary mode accepts only workflow/tooling and docs/planning lanes", () => {
   const config = { canary: true };
   const workflow = classifyIssueLane({
@@ -1740,6 +1828,54 @@ function contractBody(overrides = {}) {
 \`\`\`json
 ${JSON.stringify(contract, null, 2)}
 \`\`\`
+`;
+}
+
+function issue818StyleBody() {
+  return `${contractBody({
+    allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    validationProfile: "docs-only",
+    requiredReading: [
+      "PROGRAM_ARCHITECTURE.md",
+      "README.md",
+      "docs/workflow/CODEX_TASK_GUIDE.md",
+      "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md",
+      "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md",
+      "docs/planning/ISSUE_PROGRESS_LEDGER.md",
+      "tools/auto-runner/README.md",
+    ],
+  })}
+
+## Lane
+
+\`workflow-docs-tooling\`.
+
+## Scope
+
+Docs/workflow canary only. Add one short non-sensitive checkpoint entry to \`docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md\`.
+
+## Allowed paths
+
+- \`docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md\`
+
+## Non-goals
+
+- no product runtime;
+- no API behavior;
+- no auth/session/security runtime;
+- no storage/privacy/authz runtime;
+- no money/settlement/bill/payment calculation;
+- no schema/migration;
+- no OpenAPI/generated-client changes;
+- no Docker/CI/deployment/env/secret changes;
+- no production/mobile/public/admin exposure;
+- no auto-merge.
+
+## Validation required
+
+- \`git diff --check\`
+- \`npm run validate:docs\`
+- \`npm run validate:scaffold\`
 `;
 }
 
