@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveCodexCommand } from "./codex-runner.mjs";
 import { getCurrentBranch, getRefSha, getStatusShort } from "./git-workspace.mjs";
 import { evaluateTrustPolicy } from "./canary-policy.mjs";
+import { buildEligibleLabelSearches } from "./github-issues.mjs";
 
 const repoNameWithOwner = "tommytang213/Settleora";
 
@@ -115,17 +116,29 @@ function checkGhRepoView(config) {
 }
 
 function checkIssuePolling(config) {
-  const search = `repo:${repoNameWithOwner} is:issue is:open (${config.eligibleLabels
-    .map((label) => `label:${label}`)
-    .join(" OR ")})`;
-  const result = spawnSync(
-    "gh",
-    ["issue", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "1", "--json", "number,title,labels", "--search", search],
-    { cwd: config.repoRoot, encoding: "utf8", windowsHide: true },
+  let searches;
+  try {
+    searches = buildEligibleLabelSearches(repoNameWithOwner, config.eligibleLabels);
+  } catch (error) {
+    return { name: "github-issue-polling", status: "fail", detail: bounded(error.message) };
+  }
+  const results = searches.map(({ search }) =>
+    spawnSync(
+      "gh",
+      ["issue", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "1", "--json", "number,title,labels", "--search", search],
+      { cwd: config.repoRoot, encoding: "utf8", windowsHide: true },
+    ),
   );
-  return commandCheck("github-issue-polling", result, {
-    passDetail: `pollable=true; returned=${safeCountJsonArray(result.stdout)}`,
-  });
+  const failed = results.find((result) => result.error || result.status !== 0);
+  if (failed) {
+    return commandCheck("github-issue-polling", failed, { passDetail: "" });
+  }
+  const returned = results.reduce((count, result) => count + safeCountJsonArray(result.stdout), 0);
+  return {
+    name: "github-issue-polling",
+    status: "pass",
+    detail: bounded(`pollable=true; searches=${searches.map((item) => item.search).join(" | ")}; returned=${returned}`),
+  };
 }
 
 function checkCodexResolution(config) {

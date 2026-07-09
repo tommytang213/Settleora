@@ -55,6 +55,13 @@ Eligible issue labels:
 - `auto-ready`
 - `auto-bundle`
 
+Configured eligible labels are polled with one simple GitHub issue search per
+label, such as `repo:tommytang213/Settleora is:issue is:open label:auto-ready`.
+Results from multiple labels are aggregated and deduplicated by issue number.
+Dedicated canary configs may set `eligibleLabels` to only
+`auto-canary-ready`; the runner still requires the body-level contract before
+implementation.
+
 Default stop labels:
 
 - `needs-tommy`

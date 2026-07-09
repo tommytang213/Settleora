@@ -128,7 +128,7 @@ async function runIteration(config, logger, runId, index) {
   };
 
   const polled = pollEligibleIssues(config, logger);
-  iteration.poll = { rawCount: polled.rawCount || 0, warning: polled.warning || null };
+  iteration.poll = { rawCount: polled.rawCount || 0, warning: polled.warning || null, searches: polled.searches || [] };
   if (polled.issues.length === 0) {
     iteration.outcome = "no_eligible_work";
     iteration.finishedAt = new Date().toISOString();
