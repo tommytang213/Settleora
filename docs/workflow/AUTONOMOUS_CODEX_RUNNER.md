@@ -300,21 +300,28 @@ Reviewer output must contain:
 allows it, the requested changes stay inside original scope, and retry budget
 remains. `needs_tommy`, `danger_gate`, and `unable_to_review` block PR creation.
 Reviewer verdict JSON is parsed against the allowed enum values. The parser
-extracts JSON object candidates from raw JSON, fenced `json` blocks, and JSON
-surrounded by prose/tool output, then validates each object against the strict
-verdict schema. It accepts only when exactly one schema-valid verdict object
-exists. Invalid schema/example candidates, including placeholder enum strings
-such as
+does not parse the full diagnostic review log. The runner treats the reviewer
+process `stdout` stream as the selected machine-parseable response payload and
+keeps `stderr`/session transcript material only in the raw review log for human
+diagnostics. If the selected `stdout` payload is empty or invalid, the review
+fails closed; the runner must not fall back to parsing the combined raw log.
+
+Within the selected response payload, the parser extracts JSON object
+candidates from raw JSON, fenced `json` blocks, and JSON surrounded by
+prose/tool output, then validates each object against the strict verdict
+schema. It accepts only when exactly one schema-valid verdict object exists.
+Invalid schema/example candidates, including placeholder enum strings such as
 `approve | changes_requested | needs_tommy | danger_gate | unable_to_review`,
 are counted and ignored only when there is exactly one valid verdict object.
 Malformed JSON candidates, oversized candidates, non-object raw JSON, missing
 required fields, unknown fields, out-of-enum values without a valid verdict,
 zero valid verdicts, or multiple valid verdicts fail closed as
 `unable_to_review`. Review results, canary evidence, and summaries record the
-valid verdict count, invalid candidate count, selected source
-(`raw_json`, `fenced_json`, or `extracted_surrounded_json`) when present, and
-failure reason when review cannot be accepted. Dry-run review diagnostics never
-approve PR creation.
+selected response payload boundary (`process.stdout`), the raw review log path,
+selected-payload verdict candidate counts, raw-log candidate counts when useful,
+selected JSON source (`raw_json`, `fenced_json`, or
+`extracted_surrounded_json`) when present, and failure reason when review cannot
+be accepted. Dry-run review diagnostics never approve PR creation.
 
 ## Follow-Up Issues
 

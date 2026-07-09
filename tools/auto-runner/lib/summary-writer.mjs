@@ -50,13 +50,19 @@ function renderRunMarkdown(summary) {
   ];
   for (const iteration of summary.iterations || []) {
     const reviewSource = iteration.review?.verdict?.json_source ? `, review JSON: ${iteration.review.verdict.json_source}` : "";
+    const boundary = iteration.review?.verdict?.review_output_boundary;
+    const reviewBoundary = boundary
+      ? `, review payload: ${boundary.response_payload_boundary}, raw log candidates: valid=${boundary.raw_valid_verdict_count} invalid=${boundary.raw_invalid_candidate_count}`
+      : "";
     const diagnostics = iteration.review?.verdict?.review_json_diagnostics;
     const reviewDiagnostics = diagnostics
       ? `, review candidates: valid=${diagnostics.valid_verdict_count} invalid=${diagnostics.invalid_candidate_count}${
           diagnostics.failure_reason ? ` failure=${diagnostics.failure_reason}` : ""
         }`
       : "";
-    lines.push(`- #${iteration.issue?.number || "none"}: ${iteration.outcome || "unknown"} (${iteration.laneDecision?.lane || "no-lane"}${reviewSource})`);
+    lines.push(
+      `- #${iteration.issue?.number || "none"}: ${iteration.outcome || "unknown"} (${iteration.laneDecision?.lane || "no-lane"}${reviewSource}${reviewBoundary})`,
+    );
     if (reviewDiagnostics) {
       lines[lines.length - 1] = `${lines[lines.length - 1].replace(/\)$/, "")}${reviewDiagnostics})`;
     }

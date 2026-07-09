@@ -148,20 +148,29 @@ or discarding implementation changes.
 Before review, the runner checks for a remote task branch or PR for the task
 branch and fails closed if either exists unexpectedly.
 
-The review verdict parser extracts JSON object candidates from raw JSON,
-fenced `json`, or JSON surrounded by prose/tool output, validates each object
-against the strict verdict schema, and accepts only when exactly one
-schema-valid verdict object exists. Invalid schema/example candidates,
-including placeholder enum strings such as
+The reviewer subprocess boundary is channel-separated. The runner selects the
+reviewer process `stdout` stream as the only machine-parseable response
+payload and writes the full raw review log, including `stderr` and diagnostic
+session transcript material, for human inspection. The verdict extractor does
+not parse the full raw log. If the selected `stdout` payload is empty, missing,
+or invalid, review fails closed instead of falling back to transcript/log
+content.
+
+Within the selected response payload, the review verdict parser extracts JSON
+object candidates from raw JSON, fenced `json`, or JSON surrounded by
+prose/tool output, validates each object against the strict verdict schema, and
+accepts only when exactly one schema-valid verdict object exists. Invalid
+schema/example candidates, including placeholder enum strings such as
 `approve | changes_requested | needs_tommy | danger_gate | unable_to_review`,
 are counted and ignored only when there is exactly one valid verdict object.
 Malformed JSON candidates, oversized candidates, non-object raw JSON,
 missing-field, unknown-field, out-of-enum without a valid verdict, zero valid
 verdicts, or multiple valid verdicts fail closed as `unable_to_review`.
-Review results, canary evidence, and summaries include diagnostics for valid
-verdict count, invalid candidate count, selected JSON source when present, and
-failure reason when review cannot be accepted. Auto-merge is disabled by
-default.
+Review results, canary evidence, and summaries include diagnostics for the
+selected response payload boundary, raw review log path, selected-payload valid
+and invalid candidate counts, raw-log candidate counts when useful, selected
+JSON source when present, and failure reason when review cannot be accepted.
+Auto-merge is disabled by default.
 
 `auto-claimed` and `auto-running` are active claim labels. Terminal real-run
 outcomes remove both labels. PR-opened outcomes add `auto-pr-opened`,
