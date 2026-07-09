@@ -457,6 +457,35 @@ test("Gemini smoke test skips disabled provider tiers without external API call"
   }
 });
 
+test("Gemini smoke test blocks invalid model names before external API call", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-invalid-model-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiReviewerSmokeTest(geminiSmokeConfig(tempRoot, {
+      reviewerTiers: {
+        cheap_independent: {
+          enabled: true,
+          provider: "gemini",
+          providerProfile: "gemini-cheap",
+          model: "https://metadata.invalid/latest",
+        },
+      },
+    }), {
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_invalid_gemini_model");
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("reviewer smoke CLI mode is standalone and does not mutate repo or GitHub", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-cli-"));
   const before = gitStatusShort();
@@ -1222,21 +1251,18 @@ function geminiSmokeConfig(logsRoot, overrides = {}) {
         provider: "gemini",
         apiKeyEnv: "GEMINI_API_KEY",
         envFilePath: null,
-        endpoint: "https://generativelanguage.googleapis.com/v1beta",
         defaultModel: "gemini-2.5-flash-lite",
       },
       "gemini-cheap": {
         provider: "gemini",
         apiKeyEnv: "GEMINI_API_KEY",
         envFilePath: null,
-        endpoint: "https://generativelanguage.googleapis.com/v1beta",
         defaultModel: "gemini-2.5-flash-lite",
       },
       "gemini-strong": {
         provider: "gemini",
         apiKeyEnv: "GEMINI_API_KEY",
         envFilePath: null,
-        endpoint: "https://generativelanguage.googleapis.com/v1beta",
         defaultModel: "gemini-2.5-pro",
       },
       ...(overrides.reviewerProviderProfiles || {}),

@@ -42,7 +42,6 @@ export const defaultConfig = Object.freeze({
       provider: "gemini",
       apiKeyEnv: "GEMINI_API_KEY",
       envFilePath: null,
-      endpoint: "https://generativelanguage.googleapis.com/v1beta",
       defaultModel: "gemini-2.5-flash-lite",
     },
   },

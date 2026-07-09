@@ -8,7 +8,7 @@ import {
   mergeReviewerPolicyConfig,
 } from "./reviewer-policy.mjs";
 
-const defaultGeminiEndpoint = "https://generativelanguage.googleapis.com/v1beta";
+const geminiApiOrigin = "https://generativelanguage.googleapis.com";
 const approvedSecretRoot = "/workspace/logs/settleora-auto-runner/secrets";
 const smokeInputTokenEstimate = 900;
 const smokeOutputTokenEstimate = 160;
@@ -63,6 +63,7 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
   if (tier.provider !== "gemini") return finishSmoke(config, base, startedAtMs, "skipped_provider_tier_not_gemini");
   if (budget.block) return finishSmoke(config, base, startedAtMs, "blocked_reviewer_budget_hard_stop");
   if (estimatedCostUsd > base.estimated.capUsd) return finishSmoke(config, base, startedAtMs, "blocked_smoke_estimated_cost_over_cap");
+  if (!validGeminiModelName(model)) return finishSmoke(config, base, startedAtMs, "blocked_invalid_gemini_model");
 
   const keyResult = loadGeminiApiKey({
     env: options.env || process.env,
@@ -73,14 +74,14 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
   if (!liveRequested) return finishSmoke(config, base, startedAtMs, "blocked_live_external_reviewer_calls_not_opted_in");
 
   const payload = buildGeminiSmokePayload();
-  const endpoint = profile.endpoint || defaultGeminiEndpoint;
-  const url = `${endpoint.replace(/\/$/, "")}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(keyResult.apiKey)}`;
+  const url = new URL(`/v1beta/models/${model}:generateContent`, geminiApiOrigin);
+  url.searchParams.set("key", keyResult.apiKey);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") return finishSmoke(config, base, startedAtMs, "blocked_fetch_unavailable");
 
   base.liveCallAttempted = true;
   try {
-    const response = await fetchImpl(url, {
+    const response = await fetchImpl(url.toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -197,6 +198,10 @@ function parseEnvFile(text) {
     result[match[1]] = match[2].replace(/^['"]|['"]$/g, "");
   }
   return result;
+}
+
+function validGeminiModelName(model) {
+  return /^gemini-[A-Za-z0-9][A-Za-z0-9.-]{0,80}$/.test(String(model || ""));
 }
 
 function finishSmoke(config, result, startedAtMs, reason) {
