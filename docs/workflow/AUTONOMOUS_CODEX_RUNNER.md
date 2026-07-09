@@ -392,6 +392,12 @@ the parsed contract, lane decision, canary policy decision, changed files,
 validation results, review verdict, PR URL when available, and terminal
 outcome.
 
+Checkpoint: after the #818/#820 canary completed, a normal trusted real-run
+pilot exercised the integrated Gemini pre-PR gate through the DevBox
+auto-runner path for a low-risk workflow-docs task. This was a bounded pilot
+only; it did not approve overnight operation, auto-merge, stale-claim stealing,
+follow-up issue creation, review-fix mutation, or systemd enablement.
+
 ## Validation Profiles
 
 Validation profiles are named, trusted command lists in runner code. Supported
