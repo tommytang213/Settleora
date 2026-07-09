@@ -60,12 +60,13 @@ export function evaluateTrustPolicy(config) {
       unsafeToggles,
     };
   }
-  if (unsafeToggles.length > 0) {
+  const normalUnsafeToggles = unsafeToggles.filter((toggle) => toggle !== "allowAutoMerge");
+  if (normalUnsafeToggles.length > 0) {
     return {
       allowed: false,
       mode: "normal",
-      reason: `Normal trusted real-run requires disabled mutation toggles: ${unsafeToggles.join(", ")}.`,
-      unsafeToggles,
+      reason: `Normal trusted real-run requires disabled mutation toggles: ${normalUnsafeToggles.join(", ")}.`,
+      unsafeToggles: normalUnsafeToggles,
     };
   }
   return { allowed: true, mode: "normal", reason: "Normal trusted real-run approval is enabled.", unsafeToggles };

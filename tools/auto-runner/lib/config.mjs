@@ -213,6 +213,7 @@ export function loadConfig(cliArgs) {
     path.join(config.logsRoot, "summaries"),
     path.join(config.logsRoot, "locks"),
     path.join(config.logsRoot, "canary"),
+    path.join(config.logsRoot, "auto-merge"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }

@@ -87,7 +87,7 @@ export const laneManifest = Object.freeze({
     implementationAllowed: true,
     manualGateBeforeImplementation: false,
     prCreationAllowed: true,
-    autoMergeAllowed: false,
+    autoMergeAllowed: true,
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
   }),
@@ -100,7 +100,7 @@ export const laneManifest = Object.freeze({
     implementationAllowed: true,
     manualGateBeforeImplementation: false,
     prCreationAllowed: true,
-    autoMergeAllowed: false,
+    autoMergeAllowed: true,
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
   }),
@@ -517,6 +517,7 @@ export const terminalOutcomes = [
   "validation_failed",
   "review_changes_requested_retry_exhausted",
   "issue_created_for_followup",
+  "auto_merged",
 ];
 
 export const systemicStopReasons = [

@@ -35,6 +35,11 @@ import {
   reviewerReadinessSummary,
   routeReviewer,
 } from "../lib/reviewer-policy.mjs";
+import {
+  evaluateAutoMergeDecision,
+  executeAutoMerge,
+  writeAutoMergeEvidence,
+} from "../lib/auto-merge-policy.mjs";
 
 const baseConfig = {
   dryRun: true,
@@ -1158,6 +1163,124 @@ test("canary mode rejects auto-merge and non-manual-merge contracts", () => {
   assert.equal(evaluateCanaryIssuePolicy(config, nonManual).allowed, false);
 });
 
+test("built-in default and explicit false config block auto-merge", () => {
+  const builtIn = loadConfig({ ...parseCliArgs(["--dry-run"]), configPath: null });
+  assert.equal(builtIn.allowAutoMerge, false);
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ config: builtIn })).reason, "auto_merge_disabled_by_config");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ config: { ...builtIn, allowAutoMerge: false } })).eligible, false);
+});
+
+test("contract manual merge and non-eligible flags block auto-merge", () => {
+  assert.equal(
+    evaluateAutoMergeDecision({
+      ...autoMergeContext(),
+      laneDecision: autoMergeLane({ manualMergeRequired: true, autoMergeEligible: true }),
+    }).reason,
+    "manual_merge_required",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision({
+      ...autoMergeContext(),
+      laneDecision: autoMergeLane({ manualMergeRequired: false, autoMergeEligible: false }),
+    }).reason,
+    "contract_not_auto_merge_eligible",
+  );
+});
+
+test("approved low-risk lane with exact allowed paths and exact-head checks allows merge decision", () => {
+  const decision = evaluateAutoMergeDecision(autoMergeContext());
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.reason, "all_auto_merge_gates_passed");
+  assert.equal(decision.prHeadSha, "head123");
+});
+
+test("sensitive product/security/storage/money/schema/OpenAPI/deployment/secret/public/admin paths block auto-merge", () => {
+  for (const filePath of [
+    "services/api/Auth/Session.cs",
+    "apps/mobile/lib/main.dart",
+    "infra/docker-compose.yml",
+    ".github/workflows/ci.yml",
+    "packages/contracts/openapi/settleora.v1.yaml",
+    "packages/client-web/src/generated/client.ts",
+    "docs/workflow/.env.example",
+    "admin/exposure.md",
+    "services/api/Migrations/20260709.cs",
+  ]) {
+    const decision = evaluateAutoMergeDecision({
+      ...autoMergeContext({
+        changedFiles: [filePath],
+        laneDecision: autoMergeLane({ allowedPaths: ["tools/auto-runner/**", "docs/workflow/**"] }),
+      }),
+      changedFilesExactlyMatchAllowedPaths: false,
+    });
+    assert.equal(decision.eligible, false, filePath);
+    assert.match(decision.reason, /forbidden_changed_files|changed_files_do_not_match/);
+  }
+});
+
+test("stale PR head and base mismatch block auto-merge", () => {
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({ pr: { headRefOid: "other" }, actualHeadSha: "other" })).reason,
+    "pr_head_sha_mismatch",
+  );
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ currentOriginMainSha: "base-new" })).reason, "origin_main_base_mismatch");
+});
+
+test("pending/failing checks, review threads, code scanning alerts, and issue stop labels block auto-merge", () => {
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "IN_PROGRESS", conclusion: null }] })).reason,
+    "required_checks_not_successful",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "FAILURE" }] })).reason,
+    "required_checks_not_successful",
+  );
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ codeScanningAlerts: [{ state: "open" }] })).reason, "open_code_scanning_alerts");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ issue: { labels: ["auto-ready", "blocked"] } })).reason, "issue_stop_label:blocked");
+});
+
+test("source branch restoration is executed after mocked merge auto-deletes branch", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-"));
+  try {
+    const calls = [];
+    const runner = (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+      if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+      if (command === "git" && args[0] === "ls-remote") return ok("");
+      if (command === "git" && args[0] === "push") return ok("");
+      if (command === "gh" && args[0] === "issue" && args[1] === "close") return ok("");
+      if (command === "gh" && args[0] === "pr" && args[1] === "comment") return ok("");
+      if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
+      return fail(`unexpected ${command} ${args.join(" ")}`);
+    };
+    const result = executeAutoMerge({ repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false }, autoMergeContext(), { runner });
+    assert.equal(result.result, "merged");
+    assert.equal(result.mergeSha, "merge123");
+    assert.equal(result.sourceBranchRestoration.executed, true);
+    assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("auto-merge evidence is sanitized and does not leak secrets", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-evidence-"));
+  try {
+    const evidence = writeAutoMergeEvidence(
+      { logsRoot: tempRoot },
+      { eligible: false, reason: "authorization Bearer live-token GEMINI_API_KEY super-secret-token", result: "blocked" },
+      autoMergeContext({ changedFiles: ["tools/auto-runner/lib/auto-merge-policy.mjs"] }),
+    );
+    const text = readFileSync(evidence.evidencePath, "utf8");
+    assert.doesNotMatch(text, /live-token|GEMINI_API_KEY|super-secret-token/i);
+    assert.match(text, /\[REDACTED\]/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("auto-ready alone is insufficient without issue body contract", () => {
   const lane = classifyIssueLane({
     title: "Auto-runner workflow hardening",
@@ -1519,6 +1642,77 @@ function createTempGitRepo() {
   git(repo, ["add", "--", "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md", "tools/auto-runner/README.md"]);
   git(repo, ["commit", "-m", "initial"]);
   return repo;
+}
+
+function autoMergeLane(overrides = {}) {
+  return {
+    lane: "workflow-docs-tooling",
+    allowedToImplement: true,
+    dangerGate: false,
+    allowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
+    laneManifestAllowedPaths: ["tools/auto-runner/**", "docs/workflow/**", "scripts/ai/**"],
+    validationProfile: "runner-tests",
+    manualMergeRequired: false,
+    autoMergeEligible: true,
+    prCreationAllowed: true,
+    contract: {
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+      allowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
+      ...overrides.contract,
+    },
+    ...overrides,
+  };
+}
+
+function autoMergeContext(overrides = {}) {
+  const laneDecision = overrides.laneDecision || autoMergeLane();
+  const changedFiles = overrides.changedFiles || ["tools/auto-runner/lib/auto-merge-policy.mjs"];
+  const pr = {
+    number: 1,
+    url: "https://example.invalid/pull/1",
+    state: "OPEN",
+    isDraft: false,
+    baseRefName: "main",
+    headRefName: "feature/auto-1-test",
+    headRefOid: "head123",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    ...(overrides.pr || {}),
+  };
+  const issue = {
+    number: 1,
+    title: "Low risk auto merge",
+    url: "https://example.invalid/issues/1",
+    state: "OPEN",
+    labels: ["auto-ready"],
+    ...(overrides.issue || {}),
+  };
+  return {
+    config: { allowAutoMerge: true, ...(overrides.config || {}) },
+    issue,
+    laneDecision,
+    changedFiles,
+    forbiddenChangedFiles: overrides.forbiddenChangedFiles ?? filterForbiddenChangedFiles(changedFiles, laneDecision),
+    changedFilesExactlyMatchAllowedPaths: overrides.changedFilesExactlyMatchAllowedPaths ?? true,
+    externalReviewRequired: overrides.externalReviewRequired ?? true,
+    externalReview: overrides.externalReview || { status: "pass", reason: "integrated_review_passed" },
+    review: overrides.review || { verdict: { verdict: "approve" } },
+    codexMechanicsReviewApproved: overrides.codexMechanicsReviewApproved ?? true,
+    validation: overrides.validation || { passed: true },
+    worktreeClean: overrides.worktreeClean ?? true,
+    pr,
+    actualHeadSha: overrides.actualHeadSha || pr.headRefOid,
+    expectedHeadSha: overrides.expectedHeadSha || "head123",
+    runnerCreatedCommitSha: overrides.runnerCreatedCommitSha || "head123",
+    branchName: overrides.branchName || "feature/auto-1-test",
+    currentOriginMainSha: overrides.currentOriginMainSha || "base123",
+    expectedOriginMainSha: overrides.expectedOriginMainSha || "base123",
+    requiredChecks: overrides.requiredChecks || [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+    reviewThreads: overrides.reviewThreads || [],
+    codeScanningAlerts: overrides.codeScanningAlerts || [],
+    blockingMarkers: overrides.blockingMarkers || [],
+  };
 }
 
 function git(cwd, args) {

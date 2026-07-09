@@ -66,6 +66,11 @@ function renderRunMarkdown(summary) {
     if (reviewDiagnostics) {
       lines[lines.length - 1] = `${lines[lines.length - 1].replace(/\)$/, "")}${reviewDiagnostics})`;
     }
+    if (iteration.autoMerge) {
+      lines.push(
+        `  - Auto-merge: eligible=${iteration.autoMerge.eligible ? "yes" : "no"} attempted=${iteration.autoMerge.attempted ? "yes" : "no"} result=${iteration.autoMerge.result || "unknown"} prHead=${iteration.autoMerge.prHeadSha || "none"} mergeSha=${iteration.autoMerge.mergeSha || "none"} issueClosure=${iteration.autoMerge.issueClosureResult || "n/a"} blockedReason=${iteration.autoMerge.reason || "none"}`,
+      );
+    }
   }
   return `${lines.join("\n")}\n`;
 }

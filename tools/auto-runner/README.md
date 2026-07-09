@@ -148,6 +148,25 @@ issues, create/update/merge PRs, create branches, commit, push, request
 auto-merge, install/enable systemd units, steal stale claims, or create
 follow-up issues.
 
+Low-risk auto-merge foundation:
+
+Auto-merge remains disabled in built-in defaults and in the example config.
+The only initial lane candidates are `workflow-docs-tooling` and
+`docs-planning`, and a merge can be considered only when an external,
+uncommitted config sets `allowAutoMerge: true` and the issue contract sets
+`autoMergeEligible: true` plus `manualMergeRequired: false`.
+
+Even then, the runner fails closed unless the changed files exactly match the
+issue contract and lane allowlists, integrated Gemini passed when configured,
+Codex mechanics review approved, local validation passed, the PR is
+open/non-draft/mergeable/clean against `main`, the PR head is the
+runner-created commit, the expected `origin/main` base still matches, all
+required checks passed on the exact head, review threads are resolved, the PR
+ref has no open code-scanning alerts, no blocking comment/review/manual-gate
+markers exist, and the issue is still open without stop labels. The merge
+method is normal GitHub merge commit only. Sanitized auto-merge evidence is
+written under `/workspace/logs/settleora-auto-runner/auto-merge/`.
+
 Dry-run diagnostics:
 
 ```bash
