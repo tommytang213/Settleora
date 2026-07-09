@@ -163,10 +163,16 @@ export function commentIssueOutcome(config, issue, outcome, body) {
     };
   }
   if (mutations.addLabels.length > 0) {
-    runGh(["issue", "edit", String(issue.number), "--add-label", mutations.addLabels.join(",")]);
+    assertGhSuccess(
+      runGh(["issue", "edit", String(issue.number), "--add-label", mutations.addLabels.join(",")]),
+      `Unable to add terminal outcome labels for issue #${issue.number}`,
+    );
   }
   if (mutations.removeLabels.length > 0) {
-    runGh(["issue", "edit", String(issue.number), "--remove-label", mutations.removeLabels.join(",")]);
+    assertGhSuccess(
+      runGh(["issue", "edit", String(issue.number), "--remove-label", mutations.removeLabels.join(",")]),
+      `Unable to remove active runner labels for issue #${issue.number}`,
+    );
   }
   const result = runGh(["issue", "comment", String(issue.number), "--body", boundedBody]);
   return { skipped: false, status: result.status, stderr: result.stderr };
@@ -220,7 +226,7 @@ function claimComment(claimedAt) {
 }
 
 function outcomeToMutations(outcome) {
-  const mutations = { addLabels: [], removeLabels: ["auto-running"] };
+  const mutations = { addLabels: [], removeLabels: ["auto-running", "auto-claimed"] };
   if (outcome === "approved_pr_opened") mutations.addLabels.push("auto-pr-opened");
   if (outcome === "danger_gate") mutations.addLabels.push("danger-gate");
   if (outcome === "blocked_needs_tommy") mutations.addLabels.push("needs-tommy");
@@ -232,4 +238,10 @@ function outcomeToMutations(outcome) {
     mutations.addLabels.push("auto-failed");
   }
   return mutations;
+}
+
+function assertGhSuccess(result, message) {
+  if (result.error || result.status !== 0) {
+    throw new Error(`${message}: ${result.stderr || result.stdout || result.error}`);
+  }
 }

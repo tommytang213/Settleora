@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { parseCliArgs, loadConfig } from "../lib/config.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "../lib/canary-policy.mjs";
 import { parseReviewVerdict } from "../lib/codex-runner.mjs";
+import { listWorkingTreeChangedFiles } from "../lib/git-workspace.mjs";
 import {
   buildEligibleLabelSearches,
   claimIssue,
@@ -204,11 +206,88 @@ test("dry-run issue claim and terminal outcomes preview bounded mutations", () =
 
   const prOpened = commentIssueOutcome(baseConfig, issue, "approved_pr_opened", "opened");
   assert.deepEqual(prOpened.preview.addLabels, ["auto-pr-opened"]);
-  assert.deepEqual(prOpened.preview.removeLabels, ["auto-running"]);
+  assert.deepEqual(prOpened.preview.removeLabels, ["auto-running", "auto-claimed"]);
 
   const validationFailed = commentIssueOutcome(baseConfig, issue, "validation_failed", "failed");
   assert.deepEqual(validationFailed.preview.addLabels, ["auto-failed"]);
-  assert.deepEqual(validationFailed.preview.removeLabels, ["auto-running"]);
+  assert.deepEqual(validationFailed.preview.removeLabels, ["auto-running", "auto-claimed"]);
+
+  const noChanges = commentIssueOutcome(baseConfig, issue, "no_changes", "none");
+  assert.deepEqual(noChanges.preview.addLabels, []);
+  assert.deepEqual(noChanges.preview.removeLabels, ["auto-running", "auto-claimed"]);
+});
+
+test("failure and gated terminal outcomes remove active claim labels", () => {
+  const issue = { number: 11, title: "terminal", labels: ["auto-ready"] };
+  const expectations = [
+    ["danger_gate", ["danger-gate"]],
+    ["blocked_needs_tommy", ["needs-tommy"]],
+    ["auto_failed", ["auto-failed"]],
+    ["review_changes_requested_retry_exhausted", ["auto-failed"]],
+  ];
+  for (const [outcome, addLabels] of expectations) {
+    const result = commentIssueOutcome(baseConfig, issue, outcome, outcome);
+    assert.deepEqual(result.preview.addLabels, addLabels);
+    assert.deepEqual(result.preview.removeLabels, ["auto-running", "auto-claimed"]);
+  }
+});
+
+test("post-Codex changed-file collection detects tracked modified files", () => {
+  const repo = createTempGitRepo();
+  try {
+    writeFileSync(path.join(repo, "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"), "changed\n");
+    assert.deepEqual(listWorkingTreeChangedFiles({ cwd: repo }), [
+      "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md",
+    ]);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("post-Codex changed-file collection detects staged and untracked files deterministically", () => {
+  const repo = createTempGitRepo();
+  try {
+    writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "staged\n");
+    git(repo, ["add", "tools/auto-runner/README.md"]);
+    mkdirSync(path.join(repo, "tools/auto-runner/lib"), { recursive: true });
+    writeFileSync(path.join(repo, "tools/auto-runner/lib/new-helper.mjs"), "export const ok = true;\n");
+    assert.deepEqual(listWorkingTreeChangedFiles({ cwd: repo }), [
+      "tools/auto-runner/README.md",
+      "tools/auto-runner/lib/new-helper.mjs",
+    ]);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("post-Codex changed-file collection returns no files when worktree and index are clean", () => {
+  const repo = createTempGitRepo();
+  try {
+    assert.deepEqual(listWorkingTreeChangedFiles({ cwd: repo }), []);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("post-Codex changed files outside contract allowlist fail scope filtering", () => {
+  const lane = classifyIssueLane({
+    title: "Canary docs only",
+    body: contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+      validationProfile: "docs-only",
+    }),
+    labels: ["auto-ready"],
+  });
+  const repo = createTempGitRepo();
+  try {
+    writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "outside contract\n");
+    const changedFiles = listWorkingTreeChangedFiles({ cwd: repo });
+    assert.deepEqual(changedFiles, ["tools/auto-runner/README.md"]);
+    assert.deepEqual(filterForbiddenChangedFiles(changedFiles, lane), ["tools/auto-runner/README.md"]);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 test("valid workflow/tooling contract permits only contract and lane paths", () => {
@@ -514,6 +593,26 @@ test("canary dry-run writes bounded evidence without GitHub mutation", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+function createTempGitRepo() {
+  const repo = mkdtempSync(path.join(tmpdir(), "settleora-auto-runner-git-"));
+  mkdirSync(path.join(repo, "docs/workflow"), { recursive: true });
+  mkdirSync(path.join(repo, "tools/auto-runner"), { recursive: true });
+  writeFileSync(path.join(repo, "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"), "initial\n");
+  writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "initial\n");
+  git(repo, ["init", "--initial-branch=main"]);
+  git(repo, ["config", "user.name", "Settleora Test"]);
+  git(repo, ["config", "user.email", "settleora-test@example.invalid"]);
+  git(repo, ["add", "--", "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md", "tools/auto-runner/README.md"]);
+  git(repo, ["commit", "-m", "initial"]);
+  return repo;
+}
+
+function git(cwd, args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  assert.equal(result.status, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout || result.error?.message}`);
+  return result;
+}
 
 function contractBody(overrides = {}) {
   const contract = {

@@ -13,14 +13,14 @@ import { pollEligibleIssues, claimIssue, commentIssueOutcome } from "./lib/githu
 import {
   commitExplicitPaths,
   createTaskBranch,
-  diffHash,
   ensureTaskStartWorkspace,
   fetchOriginMain,
-  getBoundedDiff,
+  getBoundedWorkingTreeDiff,
   getCurrentBranch,
   getRefSha,
   getStatusShort,
-  listChangedFiles,
+  listWorkingTreeChangedFiles,
+  workingTreeDiffHash,
 } from "./lib/git-workspace.mjs";
 import { generateTaskPrompt } from "./lib/task-prompt.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./lib/codex-runner.mjs";
@@ -195,7 +195,7 @@ async function runIteration(config, logger, runId, index) {
     return iteration;
   }
 
-  const changedFiles = listChangedFiles("origin/main", "HEAD");
+  const changedFiles = listWorkingTreeChangedFiles();
   iteration.changedFiles = changedFiles;
   if (changedFiles.length === 0 && !config.dryRun) {
     iteration.outcome = "no_changes";
@@ -360,8 +360,8 @@ async function checkoutFingerprint() {
   return {
     branch: getCurrentBranch(),
     status: getStatusShort(),
-    changedFiles: listChangedFiles("origin/main", "HEAD"),
-    diffHash: await diffHash("origin/main", "HEAD"),
+    changedFiles: listWorkingTreeChangedFiles(),
+    diffHash: await workingTreeDiffHash(),
     head: getRefSha("HEAD"),
   };
 }
@@ -377,7 +377,7 @@ function compareFingerprints(before, after) {
 }
 
 async function writeReviewPackage(config, payload) {
-  const diff = getBoundedDiff("origin/main", "HEAD");
+  const diff = getBoundedWorkingTreeDiff();
   const packagePath = path.join(
     config.logsRoot,
     "reviews",
