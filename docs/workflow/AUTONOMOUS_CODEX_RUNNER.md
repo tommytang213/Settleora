@@ -42,6 +42,7 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
 - `reviews/` stores pre-PR review packages, prompts, and review logs.
 - `reports/` stores copied local Codex reports.
 - `summaries/` stores per-run JSON/Markdown and recent rollups.
+- `auto-merge/` stores sanitized low-risk auto-merge decision evidence.
 - `canary/` stores trusted-real-run canary evidence JSON for dry-run fixture
   exercises and any future manually approved canary real-run.
 - `readiness/` stores report-only overnight readiness preflight JSON and
@@ -325,11 +326,13 @@ Implemented lanes:
 - `workflow-docs-tooling`: implementation and PR creation are allowed after
   validation and pre-PR review. Allowed paths are limited to
   `tools/auto-runner/**`, `docs/workflow/**`, and `scripts/ai/**`.
-  Auto-merge, follow-up issue creation, and review-fix mutation remain
-  disabled.
+  Auto-merge is disabled by default and can only be attempted when external
+  config and the issue contract explicitly opt into the low-risk lane gates.
+  Follow-up issue creation and review-fix mutation remain disabled.
 - `docs-planning`: implementation and PR creation are allowed for planning and
-  QA/reporting docs under `docs/planning/**` and `docs/qa/**`. Auto-merge,
-  follow-up issue creation, and review-fix mutation remain disabled.
+  QA/reporting docs under `docs/planning/**` and `docs/qa/**`. Auto-merge is
+  disabled by default and can only be attempted through the same low-risk lane
+  gates. Follow-up issue creation and review-fix mutation remain disabled.
 
 Disabled/manual-gated placeholder lanes exist for product runtime,
 security runtime, storage/privacy, money/settlement, schema/migrations,
@@ -397,6 +400,38 @@ pilot exercised the integrated Gemini pre-PR gate through the DevBox
 auto-runner path for a low-risk workflow-docs task. This was a bounded pilot
 only; it did not approve overnight operation, auto-merge, stale-claim stealing,
 follow-up issue creation, review-fix mutation, or systemd enablement.
+
+## Low-Risk Auto-Merge Foundation
+
+Auto-merge remains disabled in built-in defaults. A normal trusted run may only
+evaluate a low-risk auto-merge when external, uncommitted config sets
+`allowAutoMerge: true` and the issue contract sets
+`autoMergeEligible: true` with `manualMergeRequired: false`.
+
+The first eligible lanes are limited to `workflow-docs-tooling` and
+`docs-planning`. The runner still fails closed unless changed files are exactly
+inside the issue contract and lane allowlists, local validation passed,
+integrated Gemini passed when configured, Codex mechanics review approved, the
+PR is open/non-draft/mergeable/clean on `main`, the PR head exactly matches the
+runner-created commit, `origin/main` still matches the expected base, required
+GitHub checks passed on the exact head, no unresolved review threads exist, no
+open code-scanning alerts exist for the PR ref, no blocking comments/reviews
+or manual gate markers are present, and the issue is still open without stop
+labels such as `needs-tommy`, `danger-gate`, `blocked`, or `auto-failed`.
+
+The only merge method for this foundation is normal GitHub merge-commit
+semantics, equivalent to `gh pr merge <number> --merge`. The runner must not
+direct-push to `main`, force-push, squash, rebase, delete branches, or merge
+stale PR heads. If GitHub auto-deletes the source branch, the runner restores
+the reviewed source branch SHA with a normal non-force push.
+
+Successful auto-merge closes the linked issue as completed and posts concise
+sanitized PR/issue comments. Blocked auto-merge leaves the PR and issue open,
+records a terminal runner outcome, and writes sanitized local evidence under
+`/workspace/logs/settleora-auto-runner/auto-merge/`. Summaries report
+eligibility, attempted state, result, exact PR head SHA, merge SHA when
+available, issue closure result, and blocked reason. This foundation does not
+run a live auto-merge canary or approve trusted overnight operation.
 
 ## Validation Profiles
 
@@ -623,5 +658,7 @@ systemd user templates and does not install or enable them.
 - Follow-up issue creation is modeled and gated, not enabled by default.
 - Stale-claim stealing is disabled.
 - Safe review-fix cycles are modeled but intentionally conservative.
-- Auto-merge to `main` is disabled.
+- Auto-merge to `main` is disabled by default; the first low-risk lane
+  foundation exists but requires explicit external config and issue-contract
+  opt-in before it can attempt a normal GitHub merge commit.
 - Manual review is still required before enabling real unattended mutation.

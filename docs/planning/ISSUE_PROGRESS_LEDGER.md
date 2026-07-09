@@ -20,6 +20,51 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Low-risk auto-merge lane foundation checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - #821 `CLOSED`; PR #822 merged the normal trusted workflow-docs pilot.
+  - #818 `CLOSED`; this slice did not rerun or mutate the canary issue.
+  - #805 `CLOSED`; this slice did not reopen or mutate the original canary.
+- Verified repo baseline:
+  `origin/main` at
+  `08bfc2766d140bc1be63ecc1d17a5cbfa3560c2b` after PR #822 merged.
+- This foundation slice:
+  - Keeps built-in `allowAutoMerge` disabled and keeps live config under
+    `/workspace/logs/**` out of the repository.
+  - Adds a low-risk auto-merge decision helper for `workflow-docs-tooling` and
+    `docs-planning` only.
+  - Requires external config opt-in plus issue contract
+    `autoMergeEligible: true` and `manualMergeRequired: false`.
+  - Fails closed for changed-file mismatches, forbidden paths, missing Gemini
+    pass when configured, missing Codex mechanics approval, failed local
+    validation, stale PR head, base mismatch, pending/failing checks,
+    unresolved review threads, open code-scanning alerts, blocking markers,
+    issue stop labels, dirty worktree, and PR mergeability/draft/base issues.
+  - Uses only normal GitHub merge-commit semantics and restores the exact
+    reviewed source branch SHA with a normal non-force push if GitHub
+    auto-deletes it after merge.
+  - Writes sanitized auto-merge evidence under
+    `/workspace/logs/settleora-auto-runner/auto-merge/` and extends summaries
+    with eligibility, attempted state, result, PR head SHA, merge SHA, issue
+    closure result, and blocked reason.
+- Issue posture:
+  keep #800 open. This checkpoint does not run a live auto-merge canary and
+  does not approve trusted overnight operation, stale-claim stealing,
+  follow-up issue creation, review-fix mutation, systemd enablement, or lanes
+  beyond low-risk workflow/docs/planning tooling.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, workflow docs, and
+  this ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, or live auto-merge
+  execution.
+
 ### Issue #800/#818 - Contract-aware danger classifier checkpoint
 
 - GitHub state/project status:

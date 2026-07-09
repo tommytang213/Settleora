@@ -30,6 +30,7 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
+import { executeAutoMerge, inspectAutoMergeGithubState, writeAutoMergeEvidence, evaluateAutoMergeDecision } from "./lib/auto-merge-policy.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -198,6 +199,7 @@ async function runIteration(config, logger, runId, index) {
   const branchName = `feature/auto-${issue.number}-${slug}-${safeTimestamp().slice(0, 15).toLowerCase()}`;
   iteration.branchName = branchName;
   fetchOriginMain(config);
+  iteration.baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
   createTaskBranch(config, branchName);
 
   const promptInfo = generateTaskPrompt(config, issue, laneDecision, branchName);
@@ -361,6 +363,7 @@ async function runIteration(config, logger, runId, index) {
   }
 
   iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
+  iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   iteration.push = pushBranch(config, branchName);
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
@@ -377,17 +380,98 @@ async function runIteration(config, logger, runId, index) {
   if (!config.dryRun && iteration.pr.url) {
     iteration.ci = watchChecks(config, iteration.pr.url);
   }
-  iteration.outcome = config.dryRun ? "dry_run_preview_complete" : "approved_pr_opened";
-  if (!config.dryRun) {
+  iteration.autoMerge = await evaluateOrExecuteAutoMerge(config, {
+    issue,
+    iteration,
+    branchName,
+    changedFiles,
+    forbidden,
+  });
+  if (iteration.autoMerge.result === "merged") {
+    iteration.outcome = "auto_merged";
+  } else if (config.allowAutoMerge && !config.dryRun) {
+    iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(
       config,
       issue,
       iteration.outcome,
-      `Auto-runner opened or updated a PR for #${issue.number}: ${iteration.pr?.url || "URL unavailable"}`,
+      `Auto-runner opened a PR for #${issue.number} but did not auto-merge it.\n\nPR: ${iteration.pr?.url || "URL unavailable"}\nReason: ${iteration.autoMerge.reason}`,
     );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  } else {
+    iteration.outcome = config.dryRun ? "dry_run_preview_complete" : "approved_pr_opened";
+  }
+  if (!config.dryRun) {
+    if (iteration.outcome === "approved_pr_opened") {
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner opened or updated a PR for #${issue.number}: ${iteration.pr?.url || "URL unavailable"}`,
+      );
+    }
   }
   iteration.finishedAt = new Date().toISOString();
   return iteration;
+}
+
+async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName, changedFiles, forbidden }) {
+  const baseContext = {
+    config,
+    issue: { ...iteration.issue, state: issue.state || "OPEN", labels: issue.labels || [] },
+    laneDecision: iteration.laneDecision,
+    changedFiles,
+    forbiddenChangedFiles: forbidden,
+    changedFilesExactlyMatchAllowedPaths: forbidden.length === 0,
+    externalReviewRequired: iteration.externalReview?.status !== "skipped",
+    externalReview: iteration.externalReview,
+    review: iteration.review,
+    codexMechanicsReviewApproved: iteration.review?.verdict?.verdict === "approve",
+    validation: iteration.validation,
+    worktreeClean: config.dryRun ? true : getStatusShort() === "",
+    branchName,
+    runnerCreatedCommitSha: iteration.runnerCreatedCommitSha,
+    expectedHeadSha: iteration.runnerCreatedCommitSha,
+    expectedOriginMainSha: iteration.baseOriginMainSha,
+    currentOriginMainSha: iteration.baseOriginMainSha,
+    pr: {
+      state: config.dryRun ? "OPEN" : null,
+      isDraft: false,
+      baseRefName: "main",
+      headRefName: branchName,
+      headRefOid: iteration.runnerCreatedCommitSha,
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+      url: iteration.pr?.url,
+    },
+    requiredChecks: [],
+    reviewThreads: [],
+    codeScanningAlerts: [],
+    blockingMarkers: [],
+  };
+  if (!config.allowAutoMerge) {
+    const decision = evaluateAutoMergeDecision(baseContext);
+    return { ...decision, evidence: writeAutoMergeEvidence(config, decision, baseContext) };
+  }
+  if (!config.dryRun) {
+    fetchOriginMain(config);
+    baseContext.currentOriginMainSha = getRefSha("origin/main");
+  }
+  const githubState =
+    config.dryRun || !iteration.pr?.url
+      ? {}
+      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url });
+  return executeAutoMerge(config, {
+    ...baseContext,
+    ...githubState,
+    issue: githubState.issue || baseContext.issue,
+    pr: { ...baseContext.pr, ...(githubState.pr || {}) },
+    requiredChecks: githubState.requiredChecks || baseContext.requiredChecks,
+    reviewThreads: githubState.reviewThreads || baseContext.reviewThreads,
+    codeScanningAlerts: githubState.codeScanningAlerts || baseContext.codeScanningAlerts,
+    blockingMarkers: githubState.blockingMarkers || baseContext.blockingMarkers,
+  });
 }
 
 function finishIssueOutcome(config, issue, outcome, body) {
