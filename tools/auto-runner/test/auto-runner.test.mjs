@@ -6,7 +6,14 @@ import path from "node:path";
 import { parseCliArgs, loadConfig } from "../lib/config.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "../lib/canary-policy.mjs";
 import { parseReviewVerdict } from "../lib/codex-runner.mjs";
-import { claimIssue, commentIssueOutcome, pollEligibleIssues } from "../lib/github-issues.mjs";
+import {
+  buildEligibleLabelSearches,
+  claimIssue,
+  commentIssueOutcome,
+  dedupeIssuesByNumber,
+  pollEligibleIssues,
+  validateEligibleLabels,
+} from "../lib/github-issues.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles, parseAutoRunnerContract } from "../lib/lane-policy.mjs";
 import { runPreflight } from "../lib/preflight.mjs";
 
@@ -145,6 +152,46 @@ test("fixture polling sorts eligible issues and skips stop labels", () => {
     pollEligibleIssues(config, { warn() {} }).issues.map((issue) => issue.number),
     [2],
   );
+});
+
+test("eligible label searches use one simple non-parenthesized query per label", () => {
+  assert.deepEqual(buildEligibleLabelSearches("tommytang213/Settleora", ["auto-canary-ready"]), [
+    {
+      label: "auto-canary-ready",
+      search: "repo:tommytang213/Settleora is:issue is:open label:auto-canary-ready",
+    },
+  ]);
+  assert.deepEqual(
+    buildEligibleLabelSearches("tommytang213/Settleora", ["auto-ready", "auto-bundle"]).map((item) => item.search),
+    [
+      "repo:tommytang213/Settleora is:issue is:open label:auto-ready",
+      "repo:tommytang213/Settleora is:issue is:open label:auto-bundle",
+    ],
+  );
+});
+
+test("eligible label validation fails closed for empty or unsafe labels", () => {
+  assert.deepEqual(validateEligibleLabels([" auto-ready ", "auto-bundle", "auto-canary-ready"]), [
+    "auto-ready",
+    "auto-bundle",
+    "auto-canary-ready",
+  ]);
+  for (const labels of [[], [""], [" "], ["auto ready"], ["auto-ready)"], ["label:auto-ready"], ["auto-ready OR label:x"]]) {
+    assert.throws(() => validateEligibleLabels(labels), /eligibleLabels/);
+  }
+});
+
+test("multiple eligible label poll results are deduped by issue number", () => {
+  const issues = dedupeIssuesByNumber([
+    { number: 805, title: "canary", labels: ["auto-canary-ready"] },
+    { number: 806, title: "normal", labels: ["auto-ready"] },
+    { number: 805, title: "canary duplicate", labels: ["auto-canary-ready", "auto-ready"] },
+  ]);
+  assert.deepEqual(
+    issues.map((issue) => issue.number),
+    [805, 806],
+  );
+  assert.equal(issues[0].title, "canary");
 });
 
 test("dry-run issue claim and terminal outcomes preview bounded mutations", () => {

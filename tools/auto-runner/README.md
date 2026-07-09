@@ -36,6 +36,13 @@ or enabling auto-merge. Stop labels such as `auto-pr-opened` are honored.
 Canary dry-run writes evidence under
 `/workspace/logs/settleora-auto-runner/canary/` without live GitHub mutation.
 
+Eligible labels are polled with one simple GitHub issue search per label, for
+example `repo:tommytang213/Settleora is:issue is:open label:auto-ready`.
+Multiple label searches are aggregated and deduplicated by issue number. A
+dedicated canary config can set `eligibleLabels` to only
+`auto-canary-ready`; the issue body contract still decides whether any selected
+issue may be implemented.
+
 Issue contracts:
 
 `auto-ready` and `auto-bundle` only make an issue eligible for selection. They

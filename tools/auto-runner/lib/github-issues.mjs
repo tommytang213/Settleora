@@ -22,40 +22,99 @@ export function pollEligibleIssues(config, logger) {
     return { issues: eligible, rawCount: parsed.length, fixture: true };
   }
 
-  const search = `repo:${repoSlug()} is:issue is:open (${config.eligibleLabels.map((label) => `label:${label}`).join(" OR ")})`;
-  const result = runGh([
-    "issue",
-    "list",
-    "--state",
-    "open",
-    "--limit",
-    String(config.pollLimit),
-    "--json",
-    "number,title,body,labels,createdAt,updatedAt,url",
-    "--search",
-    search,
-  ]);
+  let searches;
+  try {
+    searches = buildEligibleLabelSearches(repoSlug(), config.eligibleLabels);
+  } catch (error) {
+    const detail = { error: error.message };
+    if (config.run) {
+      throw new Error(`GitHub issue polling refused unsafe eligible labels in real-run mode: ${JSON.stringify(detail)}`);
+    }
+    logger.warn("Dry-run refused unsafe eligible labels; continuing with no eligible work.", detail);
+    return { issues: [], warning: detail };
+  }
 
-  if (result.error || result.status !== 0) {
+  const results = searches.map(({ search }) =>
+    runGh([
+      "issue",
+      "list",
+      "--state",
+      "open",
+      "--limit",
+      String(config.pollLimit),
+      "--json",
+      "number,title,body,labels,createdAt,updatedAt,url",
+      "--search",
+      search,
+    ]),
+  );
+
+  const failed = results.filter((result) => result.error || result.status !== 0);
+  if (failed.length > 0) {
     const detail = {
-      command: result.command,
-      status: result.status,
-      stderr: result.stderr.trim(),
-      error: result.error,
+      searches,
+      failures: failed.map((result) => ({
+        command: result.command,
+        status: result.status,
+        stderr: result.stderr.trim(),
+        error: result.error,
+      })),
     };
     if (config.run) {
       throw new Error(`GitHub issue polling failed in real-run mode: ${JSON.stringify(detail)}`);
     }
     logger.warn("Dry-run could not poll GitHub issues; continuing with no eligible work.", detail);
-    return { issues: [], warning: detail };
+    return { issues: [], warning: detail, searches };
   }
 
-  const parsed = JSON.parse(result.stdout || "[]").map((issue) => ({
-    ...issue,
-    labels: labelNames(issue),
-  }));
+  const parsed = dedupeIssuesByNumber(
+    results.flatMap((result) =>
+      JSON.parse(result.stdout || "[]").map((issue) => ({
+        ...issue,
+        labels: labelNames(issue),
+      })),
+    ),
+  );
   const eligible = filterAndSortEligibleIssues(config, parsed);
-  return { issues: eligible, rawCount: parsed.length };
+  return { issues: eligible, rawCount: parsed.length, searches };
+}
+
+export function buildEligibleLabelSearches(repo, eligibleLabels) {
+  const labels = validateEligibleLabels(eligibleLabels);
+  if (!repo || !repo.includes("/")) {
+    throw new Error("GitHub repository slug could not be resolved");
+  }
+  return labels.map((label) => ({
+    label,
+    search: `repo:${repo} is:issue is:open label:${label}`,
+  }));
+}
+
+export function validateEligibleLabels(eligibleLabels) {
+  if (!Array.isArray(eligibleLabels) || eligibleLabels.length === 0) {
+    throw new Error("eligibleLabels must include at least one label");
+  }
+  return eligibleLabels.map((label, index) => {
+    if (typeof label !== "string") {
+      throw new Error(`eligibleLabels[${index}] must be a string`);
+    }
+    const normalized = label.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(normalized)) {
+      throw new Error(`eligibleLabels[${index}] is empty or unsafe: ${JSON.stringify(label)}`);
+    }
+    return normalized;
+  });
+}
+
+export function dedupeIssuesByNumber(issues) {
+  const byNumber = new Map();
+  for (const issue of issues) {
+    if (!Number.isInteger(issue.number)) continue;
+    if (!byNumber.has(issue.number)) {
+      byNumber.set(issue.number, issue);
+    }
+  }
+  return [...byNumber.values()];
 }
 
 export function claimIssue(config, issue, logger) {
