@@ -1,15 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { getValidationProfile } from "./lane-policy.mjs";
 
 export function planValidation(changedFiles, laneDecision) {
-  const commands = [
-    ["git", ["status", "--short"]],
-    ["git", ["diff", "--name-only"]],
-    ["git", ["diff", "--check"]],
-  ];
-  const docsOrTooling = changedFiles.some((file) => /^(docs\/|tools\/auto-runner\/|scripts\/ai\/|package\.json$)/.test(file));
-  if (docsOrTooling || laneDecision.lane === "workflow-docs-tooling") {
-    commands.push(["npm", ["run", "validate:docs"]]);
-    commands.push(["npm", ["run", "validate:scaffold"]]);
+  const profileName = laneDecision.validationProfile || fallbackProfileForChangedFiles(changedFiles, laneDecision);
+  const commands = getValidationProfile(profileName);
+  if (!commands) {
+    throw new Error(`Unsupported validation profile: ${profileName}`);
   }
   return commands.map(([command, args]) => ({ command, args, display: `${command} ${args.join(" ")}` }));
 }
@@ -41,4 +37,10 @@ export function runValidationPlan(config, plan) {
 
 function bounded(value, max = 6000) {
   return value.length > max ? `${value.slice(0, max)}\n[truncated]` : value;
+}
+
+function fallbackProfileForChangedFiles(changedFiles, laneDecision) {
+  if (laneDecision.lane === "workflow-docs-tooling") return "workflow-tooling";
+  if (changedFiles.some((file) => /^(docs\/planning\/|docs\/qa\/)/.test(file))) return "docs-only";
+  return "scaffold-docs";
 }

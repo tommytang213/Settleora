@@ -30,6 +30,53 @@ multi-iteration behavior without calling `gh issue edit`, `gh issue comment`,
 `gh issue create`, creating branches, pushing, opening PRs, running real Codex,
 or enabling auto-merge. Stop labels such as `auto-pr-opened` are honored.
 
+Issue contracts:
+
+`auto-ready` and `auto-bundle` only make an issue eligible for selection. They
+do not authorize implementation. Real-run and dry-run implementation require a
+body-level contract:
+
+````markdown
+## Auto-runner contract
+
+```json
+{
+  "contractVersion": 1,
+  "lane": "workflow-docs-tooling",
+  "allowedPaths": [
+    "tools/auto-runner/**",
+    "docs/workflow/**"
+  ],
+  "validationProfile": "workflow-tooling",
+  "manualMergeRequired": true,
+  "autoMergeEligible": false,
+  "requiredReading": [
+    "PROGRAM_ARCHITECTURE.md",
+    "docs/workflow/CODEX_TASK_GUIDE.md",
+    "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"
+  ]
+}
+```
+````
+
+Contracts are parsed from the issue body only. Missing contracts, malformed
+JSON, missing fields, unknown fields, unsupported versions, unsupported lanes,
+unknown validation profiles, and `allowedPaths` outside the lane manifest all
+fail closed as safe blocked outcomes. Issue text never supplies shell
+commands; it only names a validation profile defined in
+`tools/auto-runner/lib/lane-policy.mjs`.
+
+Initial implementation lanes:
+
+- `workflow-docs-tooling`: `tools/auto-runner/**`, `docs/workflow/**`, and
+  `scripts/ai/**`.
+- `docs-planning`: `docs/planning/**` and `docs/qa/**`.
+
+Product/runtime/danger lanes remain disabled or manual-gated placeholders.
+Auto-merge, stale-claim stealing, follow-up issue creation, review-fix
+mutation, trusted overnight real-run operation, and systemd enablement remain
+disabled/gated.
+
 Bounded real-run mode requires an explicit flag:
 
 ```bash
