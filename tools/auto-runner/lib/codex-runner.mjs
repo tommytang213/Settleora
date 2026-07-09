@@ -108,7 +108,29 @@ export function runReviewPrompt(config, packageInfo) {
     input: prompt,
     encoding: "utf8",
   });
-  writeFileSync(logPath, `${result.stdout || ""}\n${result.stderr || ""}`);
+  const stdout = result.stdout || "";
+  const stderr = result.stderr || "";
+  const selectedPayload = stdout;
+  const rawOutput = `${stdout}\n${stderr}`;
+  const rawCandidateDiagnostics = reviewDiagnostics(extractReviewVerdictCandidates(rawOutput));
+  writeFileSync(
+    logPath,
+    [
+      "----- selected reviewer response payload: stdout -----",
+      stdout,
+      "",
+      "----- reviewer stderr / diagnostic transcript -----",
+      stderr,
+      "",
+      "----- review process result -----",
+      `Finished: ${new Date().toISOString()}`,
+      `Finished HKT: ${hktTimestamp()}`,
+      `Status: ${result.status === null ? "null" : result.status}`,
+      `Signal: ${result.signal || ""}`,
+      result.error ? `Launch error: ${result.error.name} ${result.error.code || ""} ${result.error.message}` : "",
+      "",
+    ].join("\n"),
+  );
   return {
     skipped: false,
     promptPath,
@@ -116,8 +138,17 @@ export function runReviewPrompt(config, packageInfo) {
     source: command.source,
     status: result.status,
     logPath,
-    rawOutput: `${result.stdout || ""}\n${result.stderr || ""}`,
-    verdict: parseReviewVerdict(`${result.stdout || ""}\n${result.stderr || ""}`),
+    rawOutput,
+    responsePayload: selectedPayload,
+    responsePayloadSource: "stdout",
+    responsePayloadBoundary: "process.stdout",
+    rawCandidateDiagnostics,
+    verdict: withReviewOutputBoundary(parseReviewVerdict(selectedPayload), {
+      responsePayloadSource: "stdout",
+      responsePayloadBoundary: "process.stdout",
+      rawLogPath: logPath,
+      rawCandidateDiagnostics,
+    }),
   };
 }
 
@@ -426,6 +457,20 @@ function reviewDiagnostics(extraction = {}) {
     selected_json_source: extraction.selectedSource || null,
     failure_reason: extraction.failureReason || null,
     saw_json: Boolean(extraction.sawJson),
+  };
+}
+
+function withReviewOutputBoundary(verdict, boundary) {
+  return {
+    ...verdict,
+    review_output_boundary: {
+      response_payload_source: boundary.responsePayloadSource,
+      response_payload_boundary: boundary.responsePayloadBoundary,
+      raw_log_path: boundary.rawLogPath,
+      raw_valid_verdict_count: boundary.rawCandidateDiagnostics.valid_verdict_count,
+      raw_invalid_candidate_count: boundary.rawCandidateDiagnostics.invalid_candidate_count,
+      raw_saw_json: boundary.rawCandidateDiagnostics.saw_json,
+    },
   };
 }
 

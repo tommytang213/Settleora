@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseCliArgs, loadConfig } from "../lib/config.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "../lib/canary-policy.mjs";
-import { parseReviewVerdict } from "../lib/codex-runner.mjs";
+import { parseReviewVerdict, runReviewPrompt } from "../lib/codex-runner.mjs";
 import { listWorkingTreeChangedFiles } from "../lib/git-workspace.mjs";
 import {
   buildEligibleLabelSearches,
@@ -561,6 +561,96 @@ test("review verdict parsing fails closed when JSON is not an object", () => {
   assert.equal(verdict.review_json_diagnostics.invalid_candidate_count, 1);
 });
 
+test("review prompt parses only stdout response payload and ignores transcript verdicts in raw log", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-boundary-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const reviewer = writeFakeReviewer(tempRoot, [
+      `printf '%s\\n' ${shellArg(`${reviewVerdictJson()}\nReviewer notes after JSON.`)}`,
+      `printf '%s\\n' ${shellArg(`Required JSON shape:\n${reviewVerdictJson({ verdict: "approve | changes_requested | needs_tommy | danger_gate | unable_to_review" })}\nTranscript verdict:\n${reviewVerdictJson({ verdict: "changes_requested" })}`)} >&2`,
+    ]);
+    const result = runReviewPrompt(
+      {
+        dryRun: false,
+        logsRoot,
+        repoRoot: process.cwd(),
+        reviewerCommand: reviewer,
+      },
+      { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+    );
+
+    assert.equal(result.verdict.verdict, "approve");
+    assert.equal(result.responsePayloadSource, "stdout");
+    assert.equal(result.responsePayloadBoundary, "process.stdout");
+    assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 1);
+    assert.equal(result.verdict.review_json_diagnostics.invalid_candidate_count, 0);
+    assert.equal(result.rawCandidateDiagnostics.valid_verdict_count, 2);
+    assert.equal(result.rawCandidateDiagnostics.invalid_candidate_count, 1);
+    assert.equal(result.verdict.review_output_boundary.raw_log_path, result.logPath);
+    assert.equal(result.verdict.review_output_boundary.raw_valid_verdict_count, 2);
+    assert.match(readFileSync(result.logPath, "utf8"), /selected reviewer response payload: stdout/);
+    assert.match(readFileSync(result.logPath, "utf8"), /reviewer stderr \/ diagnostic transcript/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review prompt still fails closed for multiple verdicts inside selected stdout payload", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-boundary-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const reviewer = writeFakeReviewer(tempRoot, [
+      `printf '%s\\n' ${shellArg(`${reviewVerdictJson()}\n${reviewVerdictJson({ verdict: "changes_requested" })}`)}`,
+    ]);
+    const result = runReviewPrompt(
+      {
+        dryRun: false,
+        logsRoot,
+        repoRoot: process.cwd(),
+        reviewerCommand: reviewer,
+      },
+      { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+    );
+
+    assert.equal(result.verdict.verdict, "unable_to_review");
+    assert.match(result.verdict.blocking_findings[0], /multiple verdict JSON objects/);
+    assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 2);
+    assert.equal(result.verdict.review_output_boundary.response_payload_boundary, "process.stdout");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review prompt fails closed when stdout response boundary is missing instead of parsing stderr log", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-boundary-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const reviewer = writeFakeReviewer(tempRoot, [
+      `printf '%s\\n' ${shellArg(`Transcript-only verdict:\n${reviewVerdictJson()}`)} >&2`,
+    ]);
+    const result = runReviewPrompt(
+      {
+        dryRun: false,
+        logsRoot,
+        repoRoot: process.cwd(),
+        reviewerCommand: reviewer,
+      },
+      { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+    );
+
+    assert.equal(result.verdict.verdict, "unable_to_review");
+    assert.match(result.verdict.blocking_findings[0], /did not contain verdict JSON/);
+    assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 0);
+    assert.equal(result.rawCandidateDiagnostics.valid_verdict_count, 1);
+    assert.equal(result.verdict.review_output_boundary.response_payload_source, "stdout");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("generated implementation prompts prohibit implementation Codex GitHub mutation", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-task-prompt-"));
   try {
@@ -659,6 +749,17 @@ function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
   assert.equal(result.status, 0, `git ${args.join(" ")} failed: ${result.stderr || result.stdout || result.error?.message}`);
   return result;
+}
+
+function writeFakeReviewer(root, bodyLines) {
+  const filePath = path.join(root, "fake-reviewer.sh");
+  writeFileSync(filePath, ["#!/usr/bin/env bash", "set -euo pipefail", ...bodyLines, ""].join("\n"));
+  chmodSync(filePath, 0o755);
+  return filePath;
+}
+
+function shellArg(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
 function contractBody(overrides = {}) {
