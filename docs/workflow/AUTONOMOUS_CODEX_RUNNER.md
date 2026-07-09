@@ -44,9 +44,54 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
 - `summaries/` stores per-run JSON/Markdown and recent rollups.
 - `canary/` stores trusted-real-run canary evidence JSON for dry-run fixture
   exercises and any future manually approved canary real-run.
+- `readiness/` stores report-only overnight readiness preflight JSON and
+  Markdown.
 
 Stale locks are removed only when the recorded PID is no longer active. Active
 or unparsable locks stop the runner for human inspection.
+
+## Overnight Readiness Preflight
+
+The report-only readiness command is:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --readiness
+```
+
+`--preflight` remains an alias-compatible diagnostic path; `--readiness` is the
+preferred spelling when checking whether the DevBox is safe to consider for a
+future overnight approval. The command writes machine-readable JSON and
+human-readable Markdown under:
+
+```text
+/workspace/logs/settleora-auto-runner/readiness/
+```
+
+It also prints a concise pass/warn/fail summary to stderr and the full JSON
+object to stdout. `pass` means the checked condition matched the conservative
+readiness expectation. `warn` means the operator should inspect the condition
+before trusting unattended operation, but the check did not prove an unsafe
+configuration. `fail` means the current state is not suitable for unattended
+operation.
+
+The readiness preflight checks repository existence, clean worktree state,
+`origin/main` reachability, local `HEAD` relation to `origin/main`, GitHub
+authentication and repository reachability, #800/#805 state, eligible issue
+searches using simple per-label queries, trusted real-run refusal, separate
+canary approval state, risky gate defaults, active claim labels, stale-claim
+stealing posture, active `auto-pr-opened` issues, open auto-runner PRs, Codex
+command resolution without invocation, Node version, log write sanity, and
+disk-space sanity.
+
+The readiness command does not approve trusted overnight operation. It does not
+install or enable systemd units, run Codex implementation or review prompts,
+create branches, commit, push, open/update/merge PRs, request auto-merge,
+change labels, comment on issues, steal stale claims, create follow-up issues,
+or run review-fix mutation. `allowAutoMerge`,
+`allowFollowupIssueCreation`, `allowStaleClaimSteal`,
+`allowReviewFixMutation`, and `allowSystemdEnablement` remain false by
+default. Enabling any of them is reported as `fail` unless a future explicit
+approval flag and documentation are added.
 
 ## Label Contract
 

@@ -1,22 +1,47 @@
 import { spawnSync } from "node:child_process";
-import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { freemem } from "node:os";
 import path from "node:path";
 import { resolveCodexCommand } from "./codex-runner.mjs";
-import { getCurrentBranch, getRefSha, getStatusShort } from "./git-workspace.mjs";
+import { getCurrentBranch, getRefSha, getStatusShort, runGit } from "./git-workspace.mjs";
 import { evaluateTrustPolicy } from "./canary-policy.mjs";
 import { buildEligibleLabelSearches } from "./github-issues.mjs";
+import { safeTimestamp } from "./logger.mjs";
 
 const repoNameWithOwner = "tommytang213/Settleora";
+const riskyGateKeys = Object.freeze([
+  "allowAutoMerge",
+  "allowFollowupIssueCreation",
+  "allowStaleClaimSteal",
+  "allowReviewFixMutation",
+  "allowSystemdEnablement",
+]);
+const manualGates = Object.freeze([
+  "trusted overnight operation",
+  "systemd service/timer installation or enablement",
+  "auto-merge lanes",
+  "stale-claim stealing",
+  "follow-up issue creation",
+  "review-fix mutation",
+]);
 
-export function runPreflight(config) {
+export function runPreflight(config, options = {}) {
+  const runner = options.runner || defaultRunner;
   const checks = [];
   checks.push(checkRepoRoot(config));
-  checks.push(checkBranchAndStatus(config));
-  checks.push(checkGhAvailable());
-  checks.push(checkGhRepoView(config));
-  checks.push(checkIssuePolling(config));
+  checks.push(checkBranchAndStatus(config, runner));
+  checks.push(checkOriginMainFetchable(config, runner));
+  checks.push(checkGhAvailable(runner));
+  checks.push(checkGhAuthStatus(config, runner));
+  checks.push(checkGhRepoView(config, runner));
+  checks.push(checkIssueState(config, runner, 800, "OPEN"));
+  checks.push(checkIssueState(config, runner, 805, "CLOSED"));
+  checks.push(checkIssuePolling(config, runner));
   checks.push(checkCodexResolution(config));
+  checks.push(checkNodeVersion());
   checks.push(checkLogsRoot(config));
+  checks.push(checkLogWriteSanity(config));
+  checks.push(checkDiskSpace(config, runner));
   checks.push(checkConfig(config));
   checks.push(checkTrustedRealRunPolicy(config));
   checks.push(checkCanaryRealRunPolicy(config));
@@ -50,14 +75,25 @@ export function runPreflight(config) {
     ),
   );
   checks.push(checkSystemdNotTouched());
+  checks.push(checkActiveClaims(config, runner));
+  checks.push(checkOpenAutoRunnerPrs(config, runner));
+  checks.push(checkActivePrOpenedIssues(config, runner));
 
-  return {
-    mode: "preflight",
+  const result = {
+    mode: config.mode || "preflight",
     generatedAt: new Date().toISOString(),
     repo: repoNameWithOwner,
+    branch: safeValue(() => getCurrentBranch(), "unknown"),
+    headSha: safeValue(() => getRefSha("HEAD"), "unknown"),
+    configPathUsed: config.configPath || "default built-in config",
+    logsRoot: config.logsRoot,
+    readinessReports: null,
+    remainingManualGates: [...manualGates],
     summary: summarize(checks),
     checks,
   };
+  result.readinessReports = writeReadinessReports(config, result);
+  return result;
 }
 
 function checkRepoRoot(config) {
@@ -72,11 +108,13 @@ function checkRepoRoot(config) {
   };
 }
 
-function checkBranchAndStatus(config) {
+function checkBranchAndStatus(config, runner) {
   try {
     const branch = getCurrentBranch();
     const status = getStatusShort();
-    const originMainSha = getRefSha("origin/main");
+    const headSha = getRefSha("HEAD");
+    const originMainSha = safeValue(() => getRefSha("origin/main"), null);
+    const relation = originMainSha ? headRelationToOriginMain(runner, headSha, originMainSha) : "origin-main-unavailable";
     const realRunWouldRefuse = branch === "main" || Boolean(status);
     return {
       name: "branch-worktree",
@@ -84,9 +122,11 @@ function checkBranchAndStatus(config) {
       detail: bounded(
         JSON.stringify({
           branch,
+          headSha,
           dirty: Boolean(status),
           realRunWouldRefuse,
           originMainSha,
+          headRelationToOriginMain: relation,
           status: status || "",
         }),
       ),
@@ -96,16 +136,26 @@ function checkBranchAndStatus(config) {
   }
 }
 
-function checkGhAvailable() {
-  const result = spawnSync("gh", ["--version"], { encoding: "utf8", windowsHide: true });
+function checkOriginMainFetchable(config, runner) {
+  const result = runner("git", ["ls-remote", "--exit-code", "origin", "refs/heads/main"], { cwd: config.repoRoot });
+  return commandCheck("origin-main-fetchable", result, {
+    passDetail: bounded(firstLine(result.stdout) || "origin main is reachable"),
+  });
+}
+
+function checkGhAvailable(runner) {
+  const result = runner("gh", ["--version"]);
   return commandCheck("gh-available", result, { passDetail: firstLine(result.stdout) });
 }
 
-function checkGhRepoView(config) {
-  const result = spawnSync("gh", ["repo", "view", repoNameWithOwner, "--json", "nameWithOwner", "-q", ".nameWithOwner"], {
+function checkGhAuthStatus(config, runner) {
+  const result = runner("gh", ["auth", "status"], { cwd: config.repoRoot });
+  return commandCheck("gh-auth-status", result, { passDetail: "gh auth status completed" });
+}
+
+function checkGhRepoView(config, runner) {
+  const result = runner("gh", ["repo", "view", repoNameWithOwner, "--json", "nameWithOwner", "-q", ".nameWithOwner"], {
     cwd: config.repoRoot,
-    encoding: "utf8",
-    windowsHide: true,
   });
   const resolved = result.stdout.trim();
   return {
@@ -115,7 +165,26 @@ function checkGhRepoView(config) {
   };
 }
 
-function checkIssuePolling(config) {
+function checkIssueState(config, runner, number, expectedState) {
+  const result = runner("gh", ["issue", "view", String(number), "--repo", repoNameWithOwner, "--json", "number,state,title,url"], {
+    cwd: config.repoRoot,
+  });
+  if (result.error || result.status !== 0) {
+    return commandCheck(`issue-${number}-state`, result, { passDetail: "" });
+  }
+  try {
+    const issue = JSON.parse(result.stdout || "{}");
+    return {
+      name: `issue-${number}-state`,
+      status: issue.state === expectedState ? "pass" : "fail",
+      detail: bounded(JSON.stringify({ expectedState, actualState: issue.state, title: issue.title, url: issue.url })),
+    };
+  } catch (error) {
+    return { name: `issue-${number}-state`, status: "fail", detail: bounded(error.message) };
+  }
+}
+
+function checkIssuePolling(config, runner) {
   let searches;
   try {
     searches = buildEligibleLabelSearches(repoNameWithOwner, config.eligibleLabels);
@@ -123,10 +192,10 @@ function checkIssuePolling(config) {
     return { name: "github-issue-polling", status: "fail", detail: bounded(error.message) };
   }
   const results = searches.map(({ search }) =>
-    spawnSync(
+    runner(
       "gh",
       ["issue", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "1", "--json", "number,title,labels", "--search", search],
-      { cwd: config.repoRoot, encoding: "utf8", windowsHide: true },
+      { cwd: config.repoRoot },
     ),
   );
   const failed = results.find((result) => result.error || result.status !== 0);
@@ -168,13 +237,65 @@ function checkLogsRoot(config) {
   }
 }
 
+function checkLogWriteSanity(config) {
+  const readinessRoot = path.join(config.logsRoot, "readiness");
+  try {
+    mkdirSync(readinessRoot, { recursive: true });
+    const filePath = path.join(readinessRoot, `.write-test-${process.pid}.tmp`);
+    writeFileSync(filePath, "ok\n", { flag: "w" });
+    unlinkSync(filePath);
+    return {
+      name: "readiness-log-write",
+      status: "pass",
+      detail: bounded(`readiness root writable: ${readinessRoot}`),
+    };
+  } catch (error) {
+    return { name: "readiness-log-write", status: "fail", detail: bounded(error.message) };
+  }
+}
+
+function checkDiskSpace(config, runner) {
+  const result = runner("df", ["-Pk", config.logsRoot], { cwd: config.repoRoot });
+  if (result.error || result.status !== 0) {
+    return {
+      name: "disk-space",
+      status: "warn",
+      detail: bounded(result.stderr || result.stdout || result.error || `free memory bytes=${freemem()}`),
+    };
+  }
+  const lines = result.stdout.trim().split(/\r?\n/);
+  const fields = (lines[1] || "").trim().split(/\s+/);
+  const availableKb = Number.parseInt(fields[3] || "0", 10);
+  return {
+    name: "disk-space",
+    status: availableKb >= 1024 * 1024 ? "pass" : "warn",
+    detail: bounded(`availableKb=${Number.isFinite(availableKb) ? availableKb : "unknown"}; path=${config.logsRoot}`),
+  };
+}
+
+function checkNodeVersion() {
+  const major = Number.parseInt(process.versions.node.split(".")[0], 10);
+  return {
+    name: "node-version",
+    status: major >= 20 ? "pass" : "warn",
+    detail: `node=${process.version}; expected major >= 20 for current repo tooling`,
+  };
+}
+
 function checkConfig(config) {
   const requiredArrays = ["eligibleLabels", "stopLabels", "claimLabels"];
   const missing = requiredArrays.filter((key) => !Array.isArray(config[key]) || config[key].length === 0);
+  const riskyEnabled = riskyGateKeys.filter((key) => Boolean(config[key]));
+  if (config.maxReviewFixCycles > 0 && !riskyEnabled.includes("allowReviewFixMutation")) {
+    riskyEnabled.push("maxReviewFixCycles");
+  }
   return {
     name: "config-parseable",
-    status: missing.length === 0 ? "pass" : "fail",
-    detail: missing.length === 0 ? "required arrays present" : `missing or empty: ${missing.join(", ")}`,
+    status: missing.length === 0 && riskyEnabled.length === 0 ? "pass" : "fail",
+    detail:
+      missing.length === 0 && riskyEnabled.length === 0
+        ? "required arrays present; risky gates disabled"
+        : bounded(JSON.stringify({ missingOrEmpty: missing, riskyEnabled })),
   };
 }
 
@@ -188,7 +309,7 @@ function checkTrustedRealRunPolicy(config) {
   });
   return {
     name: "trusted-real-run-policy",
-    status: policy.allowed ? "warn" : "pass",
+    status: policy.allowed ? "fail" : "pass",
     detail: bounded(
       JSON.stringify({
         trustedRealRunApproved: Boolean(config.trustedRealRunApproved),
@@ -236,9 +357,96 @@ function checkSystemdNotTouched() {
 function policyCheck(name, ok, passDetail) {
   return {
     name,
-    status: ok ? "pass" : "warn",
-    detail: ok ? passDetail : `${name} is explicitly enabled in config; manual gate required before trusted use.`,
+    status: ok ? "pass" : "fail",
+    detail: ok ? passDetail : `${name} is explicitly enabled in config; future explicit approval flag and documentation are required.`,
   };
+}
+
+function checkActiveClaims(config, runner) {
+  const searches = ["auto-claimed", "auto-running"].map((label) => `repo:${repoNameWithOwner} is:issue is:open label:${label}`);
+  const results = searches.map((query) =>
+    runner(
+      "gh",
+      ["issue", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "30", "--json", "number,title,labels,updatedAt,url", "--search", query],
+      { cwd: config.repoRoot },
+    ),
+  );
+  const failed = results.find((result) => result.error || result.status !== 0);
+  if (failed) {
+    return commandCheck("active-claim-labels", failed, { passDetail: "" });
+  }
+  const issues = dedupeByNumber(results.flatMap((result) => parseJsonArray(result.stdout)));
+  const staleThresholdHours = Number(config.staleClaimAfterHours || 12);
+  const staleBeforeMs = Date.now() - staleThresholdHours * 60 * 60 * 1000;
+  const active = issues.map((issue) => ({
+    number: issue.number,
+    title: issue.title,
+    updatedAt: issue.updatedAt,
+    staleByUpdatedAt: Date.parse(issue.updatedAt || "") < staleBeforeMs,
+    labels: (issue.labels || []).map((label) => label.name || label),
+    url: issue.url,
+  }));
+  const staleCount = active.filter((issue) => issue.staleByUpdatedAt).length;
+  return {
+    name: "active-claim-labels",
+    status: staleCount > 0 ? "warn" : "pass",
+    detail: bounded(
+      JSON.stringify({
+        thresholdHours: staleThresholdHours,
+        staleClaimStealingEnabled: Boolean(config.allowStaleClaimSteal),
+        searches,
+        active,
+      }),
+    ),
+  };
+}
+
+function checkOpenAutoRunnerPrs(config, runner) {
+  const result = runner("gh", ["pr", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "50", "--json", "number,title,headRefName,url"], {
+    cwd: config.repoRoot,
+  });
+  if (result.error || result.status !== 0) {
+    return commandCheck("open-auto-runner-prs", result, { passDetail: "" });
+  }
+  const prs = parseJsonArray(result.stdout).filter((pr) => isAutoRunnerBranch(pr.headRefName) || /auto-runner/i.test(pr.title || ""));
+  return {
+    name: "open-auto-runner-prs",
+    status: prs.length > 0 ? "warn" : "pass",
+    detail: bounded(JSON.stringify({ count: prs.length, prs })),
+  };
+}
+
+function checkActivePrOpenedIssues(config, runner) {
+  const query = `repo:${repoNameWithOwner} is:issue is:open label:auto-pr-opened`;
+  const result = runner(
+    "gh",
+    ["issue", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "30", "--json", "number,title,labels,updatedAt,url", "--search", query],
+    { cwd: config.repoRoot },
+  );
+  if (result.error || result.status !== 0) {
+    return commandCheck("active-pr-opened-issues", result, { passDetail: "" });
+  }
+  const issues = parseJsonArray(result.stdout).map((issue) => ({
+    number: issue.number,
+    title: issue.title,
+    url: issue.url,
+    updatedAt: issue.updatedAt,
+  }));
+  return {
+    name: "active-pr-opened-issues",
+    status: issues.length > 0 ? "warn" : "pass",
+    detail: bounded(JSON.stringify({ count: issues.length, selectedByRunner: false, issues })),
+  };
+}
+
+function dedupeByNumber(items) {
+  const byNumber = new Map();
+  for (const item of items) {
+    if (Number.isInteger(item.number) && !byNumber.has(item.number)) {
+      byNumber.set(item.number, item);
+    }
+  }
+  return [...byNumber.values()];
 }
 
 function commandCheck(name, result, { passDetail }) {
@@ -252,6 +460,56 @@ function commandCheck(name, result, { passDetail }) {
   return { name, status: "pass", detail: bounded(passDetail) };
 }
 
+function writeReadinessReports(config, result) {
+  const readinessRoot = path.join(config.logsRoot, "readiness");
+  mkdirSync(readinessRoot, { recursive: true });
+  const stamp = safeTimestamp();
+  const jsonPath = path.join(readinessRoot, `${stamp}-overnight-readiness.json`);
+  const markdownPath = path.join(readinessRoot, `${stamp}-overnight-readiness.md`);
+  const serializable = { ...result, readinessReports: { jsonPath, markdownPath } };
+  writeFileSync(jsonPath, `${JSON.stringify(serializable, null, 2)}\n`);
+  writeFileSync(markdownPath, readinessMarkdown(serializable));
+  return { jsonPath, markdownPath };
+}
+
+function readinessMarkdown(result) {
+  const rows = result.checks.map((check) => `| ${check.status} | ${check.name} | ${String(check.detail || "").replace(/\n/g, " ")} |`);
+  return [
+    "# Settleora Auto-Runner Overnight Readiness Preflight",
+    "",
+    `- Generated: ${result.generatedAt}`,
+    `- Repository: ${result.repo}`,
+    `- Branch: ${result.branch}`,
+    `- HEAD: ${result.headSha}`,
+    `- Config: ${result.configPathUsed}`,
+    `- Logs root: ${result.logsRoot}`,
+    `- Summary: ${result.summary.pass} pass, ${result.summary.warn} warn, ${result.summary.fail} fail`,
+    "",
+    "This report is non-mutating. It does not approve trusted overnight operation, auto-merge, stale-claim stealing, follow-up issue creation, review-fix mutation, or systemd enablement.",
+    "",
+    "## Remaining Manual Gates",
+    "",
+    ...result.remainingManualGates.map((gate) => `- ${gate}`),
+    "",
+    "## Checks",
+    "",
+    "| Status | Check | Detail |",
+    "| --- | --- | --- |",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
+function headRelationToOriginMain(runner, headSha, originMainSha) {
+  if (headSha === originMainSha) return "equal";
+  const headContainsOrigin = runner("git", ["merge-base", "--is-ancestor", originMainSha, headSha]);
+  if (headContainsOrigin.status === 0) return "head-descends-from-origin-main";
+  const originContainsHead = runner("git", ["merge-base", "--is-ancestor", headSha, originMainSha]);
+  if (originContainsHead.status === 0) return "head-behind-origin-main";
+  const mergeBase = runGit(["merge-base", "HEAD", "origin/main"]);
+  return mergeBase.status === 0 ? `diverged; mergeBase=${mergeBase.stdout.trim()}` : "diverged";
+}
+
 function summarize(checks) {
   return checks.reduce(
     (summary, check) => {
@@ -260,6 +518,21 @@ function summarize(checks) {
     },
     { pass: 0, warn: 0, fail: 0 },
   );
+}
+
+function defaultRunner(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return {
+    command: `${command} ${args.join(" ")}`,
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error ? result.error.message : null,
+  };
 }
 
 function bounded(value, max = 2000) {
@@ -277,5 +550,22 @@ function safeCountJsonArray(value) {
     return Array.isArray(parsed) ? parsed.length : 0;
   } catch {
     return "unknown";
+  }
+}
+
+function parseJsonArray(value) {
+  const parsed = JSON.parse(value || "[]");
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function isAutoRunnerBranch(branchName) {
+  return /^feature\/auto-\d+-/.test(branchName || "") || /auto-runner/.test(branchName || "");
+}
+
+function safeValue(fn, fallback) {
+  try {
+    return fn();
+  } catch {
+    return fallback;
   }
 }

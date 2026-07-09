@@ -135,6 +135,81 @@ test("preflight reports canary enabled state when approved", () => {
   assert.match(canary.detail, /"canaryRunWouldRefuse":false/);
 });
 
+test("readiness preflight succeeds with safe defaults and reports manual gates", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-safe-"));
+  try {
+    const runner = createReadinessRunner();
+    const result = runPreflight(readinessConfig(tempRoot), { runner });
+    assert.equal(result.summary.fail, 0);
+    assert.ok(result.summary.pass > 0);
+    assert.ok(result.readinessReports.jsonPath.endsWith(".json"));
+    assert.ok(result.readinessReports.markdownPath.endsWith(".md"));
+    assert.match(readFileSync(result.readinessReports.markdownPath, "utf8"), /Remaining Manual Gates/);
+    assert.match(readFileSync(result.readinessReports.markdownPath, "utf8"), /trusted overnight operation/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight fails when risky gates are enabled without approval", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-risky-"));
+  try {
+    const result = runPreflight(
+      {
+        ...readinessConfig(tempRoot),
+        allowAutoMerge: true,
+        allowFollowupIssueCreation: true,
+        allowStaleClaimSteal: true,
+        allowReviewFixMutation: true,
+        allowSystemdEnablement: true,
+        maxReviewFixCycles: 1,
+      },
+      { runner: createReadinessRunner() },
+    );
+    assert.ok(result.summary.fail >= 6);
+    assert.equal(result.checks.find((check) => check.name === "auto-merge-disabled").status, "fail");
+    assert.equal(result.checks.find((check) => check.name === "stale-claim-stealing-disabled").status, "fail");
+    assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "fail");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight reports active stale claim labels without mutating them", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-claims-"));
+  try {
+    const runner = createReadinessRunner({
+      activeClaims: [
+        {
+          number: 901,
+          title: "Stale auto claim",
+          labels: [{ name: "auto-running" }],
+          updatedAt: "2000-01-01T00:00:00Z",
+          url: "https://example.invalid/issues/901",
+        },
+      ],
+    });
+    const result = runPreflight(readinessConfig(tempRoot), { runner });
+    const claims = result.checks.find((check) => check.name === "active-claim-labels");
+    assert.equal(claims.status, "warn");
+    assert.match(claims.detail, /Stale auto claim/);
+    assertNoMutatingReadinessCommands(runner.commands);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight does not call codex or mutate GitHub, branches, PRs, merges, or issues", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-nonmutating-"));
+  try {
+    const runner = createReadinessRunner();
+    runPreflight(readinessConfig(tempRoot), { runner });
+    assertNoMutatingReadinessCommands(runner.commands);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("fixture polling sorts eligible issues and skips stop labels", () => {
   const config = {
     ...baseConfig,
@@ -756,6 +831,87 @@ function writeFakeReviewer(root, bodyLines) {
   writeFileSync(filePath, ["#!/usr/bin/env bash", "set -euo pipefail", ...bodyLines, ""].join("\n"));
   chmodSync(filePath, 0o755);
   return filePath;
+}
+
+function readinessConfig(logsRoot) {
+  mkdirSync(logsRoot, { recursive: true });
+  return {
+    ...baseConfig,
+    repoRoot: process.cwd(),
+    logsRoot,
+    codexCommand: "codex-vm-full",
+    trustedRealRunApproved: false,
+    trustedRealRunCanaryApproved: false,
+    trustedRealRunCanaryMaxIterations: 2,
+    allowAutoMerge: false,
+    allowFollowupIssueCreation: false,
+    allowStaleClaimSteal: false,
+    staleClaimAfterHours: 12,
+    allowReviewFixMutation: false,
+    maxReviewFixCycles: 0,
+    allowSystemdEnablement: false,
+    maxIterations: 1,
+    canaryEvidenceRoot: path.join(logsRoot, "canary"),
+    configPath: null,
+  };
+}
+
+function createReadinessRunner(overrides = {}) {
+  const commands = [];
+  const activeClaims = overrides.activeClaims || [];
+  const autoPrOpenedIssues = overrides.autoPrOpenedIssues || [];
+  const openPrs = overrides.openPrs || [];
+  const runner = (command, args) => {
+    commands.push(`${command} ${args.join(" ")}`);
+    if (command === "git" && args[0] === "ls-remote") return ok("2d1cbe475bf15ed2dc481d1e29b8cfc0a8c54dd3\trefs/heads/main\n");
+    if (command === "git" && args[0] === "merge-base") return ok("");
+    if (command === "gh" && args[0] === "--version") return ok("gh version 2.0.0\n");
+    if (command === "gh" && args[0] === "auth") return ok("Logged in to github.com\n");
+    if (command === "gh" && args[0] === "repo") return ok("tommytang213/Settleora\n");
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+      const number = Number(args[2]);
+      return ok(
+        JSON.stringify({
+          number,
+          state: number === 805 ? "CLOSED" : "OPEN",
+          title: number === 805 ? "Auto-runner canary" : "Auto-runner foundation",
+          url: `https://example.invalid/issues/${number}`,
+        }),
+      );
+    }
+    if (command === "gh" && args[0] === "issue" && args[1] === "list") {
+      const search = args[args.indexOf("--search") + 1] || "";
+      if (search.includes("label:auto-claimed") || search.includes("label:auto-running")) return ok(JSON.stringify(activeClaims));
+      if (search.includes("label:auto-pr-opened")) return ok(JSON.stringify(autoPrOpenedIssues));
+      return ok("[]");
+    }
+    if (command === "gh" && args[0] === "pr" && args[1] === "list") return ok(JSON.stringify(openPrs));
+    if (command === "df") return ok("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/test 2000000 1 1999999 1% /workspace\n");
+    return fail(`unexpected command: ${command} ${args.join(" ")}`);
+  };
+  runner.commands = commands;
+  return runner;
+}
+
+function ok(stdout = "") {
+  return { status: 0, stdout, stderr: "", error: null };
+}
+
+function fail(stderr = "") {
+  return { status: 1, stdout: "", stderr, error: null };
+}
+
+function assertNoMutatingReadinessCommands(commands) {
+  const joined = commands.join("\n");
+  assert.doesNotMatch(joined, /\bgh issue edit\b/);
+  assert.doesNotMatch(joined, /\bgh issue comment\b/);
+  assert.doesNotMatch(joined, /\bgh issue create\b/);
+  assert.doesNotMatch(joined, /\bgh pr create\b/);
+  assert.doesNotMatch(joined, /\bgh pr merge\b/);
+  assert.doesNotMatch(joined, /\bgit push\b/);
+  assert.doesNotMatch(joined, /\bgit switch\b/);
+  assert.doesNotMatch(joined, /\bgit commit\b/);
+  assert.doesNotMatch(joined, /\bcodex-vm-full\b/);
 }
 
 function shellArg(value) {

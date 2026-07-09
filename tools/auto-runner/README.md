@@ -8,16 +8,43 @@ Preflight diagnostics:
 
 ```bash
 node tools/auto-runner/settleora-auto-runner.mjs --preflight
+node tools/auto-runner/settleora-auto-runner.mjs --readiness
 ```
 
-Preflight prints bounded JSON with pass/warn/fail checks for repo root,
-branch/worktree status, `gh`, GitHub issue polling, `codex-vm-full`
-resolution, logs-root writability, config policy defaults, trusted real-run
-approval state, whether normal `--run` would refuse, whether canary real-run
-would refuse and why, disabled auto-merge/follow-up/stale-claim/review-fix
-mutation/systemd defaults, and the fact that the command does not install or
-enable systemd units. It does not run Codex implementation or review prompts
-and does not mutate GitHub or branches.
+Preflight/readiness is report-only. `--readiness` is the preferred command
+when preparing for a future overnight approval review. It prints a concise
+pass/warn/fail summary to stderr, prints the full machine-readable JSON to
+stdout, and writes both JSON and Markdown reports under:
+
+```text
+/workspace/logs/settleora-auto-runner/readiness/
+```
+
+The readiness report includes timestamp, repository, current branch and `HEAD`,
+config path, pass/warn/fail totals, remaining manual gates, repo-root and clean
+worktree checks, `origin/main` reachability, local `HEAD` relation to
+`origin/main`, `gh auth status`, repository reachability, #800 open state,
+#805 closed state, eligible issue search health using simple per-label
+queries, trusted real-run refusal state, separate canary approval state,
+risky gate defaults, active/stale claim label readouts, active
+`auto-pr-opened` issue readouts, open auto-runner PR readouts, Codex command
+resolution without invocation, Node version, log-write sanity, and disk-space
+sanity.
+
+`pass` means the checked condition matches conservative readiness
+expectations. `warn` means inspect before trusting unattended operation.
+`fail` means the state is not suitable for unattended operation. Enabling
+`allowAutoMerge`, `allowFollowupIssueCreation`, `allowStaleClaimSteal`,
+`allowReviewFixMutation`, or `allowSystemdEnablement` reports `fail` unless a
+future explicit approval flag and documentation exist.
+
+The readiness command does not approve trusted overnight operation, normal
+trusted real-run, canary real-run, auto-merge lanes, stale-claim stealing,
+follow-up issue creation, review-fix mutation, or systemd enablement. It does
+not run Codex implementation or review prompts, change labels, comment on
+issues, create/update/merge PRs, create branches, commit, push, request
+auto-merge, install/enable systemd units, steal stale claims, or create
+follow-up issues.
 
 Dry-run diagnostics:
 
