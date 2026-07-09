@@ -4,7 +4,7 @@ import { freemem } from "node:os";
 import path from "node:path";
 import { resolveCodexCommand } from "./codex-runner.mjs";
 import { getCurrentBranch, getRefSha, getStatusShort, runGit } from "./git-workspace.mjs";
-import { evaluateTrustPolicy } from "./canary-policy.mjs";
+import { evaluateLowRiskAutoMergeCanaryApproval, evaluateTrustPolicy } from "./canary-policy.mjs";
 import { buildEligibleLabelSearches } from "./github-issues.mjs";
 import { safeTimestamp } from "./logger.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
@@ -47,7 +47,7 @@ export function runPreflight(config, options = {}) {
   checks.push(checkReviewerPolicy(config));
   checks.push(checkTrustedRealRunPolicy(config));
   checks.push(checkCanaryRealRunPolicy(config));
-  checks.push(policyCheck("auto-merge-disabled", !config.allowAutoMerge, "allowAutoMerge is disabled."));
+  checks.push(checkAutoMergeApproval(config));
   checks.push(
     policyCheck(
       "follow-up-issue-creation-disabled",
@@ -287,7 +287,12 @@ function checkNodeVersion() {
 function checkConfig(config) {
   const requiredArrays = ["eligibleLabels", "stopLabels", "claimLabels"];
   const missing = requiredArrays.filter((key) => !Array.isArray(config[key]) || config[key].length === 0);
+  const autoMergeApproval = evaluateLowRiskAutoMergeCanaryApproval(config);
   const riskyEnabled = riskyGateKeys.filter((key) => Boolean(config[key]));
+  if (config.allowAutoMerge && autoMergeApproval.approved) {
+    const index = riskyEnabled.indexOf("allowAutoMerge");
+    if (index >= 0) riskyEnabled.splice(index, 1);
+  }
   if (config.maxReviewFixCycles > 0 && !riskyEnabled.includes("allowReviewFixMutation")) {
     riskyEnabled.push("maxReviewFixCycles");
   }
@@ -296,8 +301,15 @@ function checkConfig(config) {
     status: missing.length === 0 && riskyEnabled.length === 0 ? "pass" : "fail",
     detail:
       missing.length === 0 && riskyEnabled.length === 0
-        ? "required arrays present; risky gates disabled"
-        : bounded(JSON.stringify({ missingOrEmpty: missing, riskyEnabled })),
+        ? bounded(
+            JSON.stringify({
+              requiredArrays: "present",
+              riskyGates: "disabled_or_explicit_low_risk_auto_merge_canary",
+              autoMergeCanaryApprovalMode: autoMergeApproval.mode,
+              autoMergeCanaryApprovalReason: autoMergeApproval.reason,
+            }),
+          )
+        : bounded(JSON.stringify({ missingOrEmpty: missing, riskyEnabled, autoMergeCanaryApproval: autoMergeApproval })),
   };
 }
 
@@ -356,14 +368,42 @@ function checkCanaryRealRunPolicy(config) {
     detail: bounded(
       JSON.stringify({
         trustedRealRunCanaryApproved: Boolean(config.trustedRealRunCanaryApproved),
+        lowRiskAutoMergeCanaryApproved: Boolean(config.lowRiskAutoMergeCanaryApproved),
         canaryRunWouldRefuse: !policy.allowed,
         reason: policy.reason,
         maxIterations: config.maxIterations,
+        requestedMaxIterations: config.requestedMaxIterations || config.maxIterations,
         trustedRealRunCanaryMaxIterations: config.trustedRealRunCanaryMaxIterations,
         evidenceRoot: config.canaryEvidenceRoot,
         unsafeToggles: policy.unsafeToggles,
+        autoMergeCanaryApproval: policy.autoMergeCanaryApproval,
       }),
     ),
+  };
+}
+
+function checkAutoMergeApproval(config) {
+  if (!config.allowAutoMerge) {
+    const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
+    return {
+      name: "auto-merge-disabled",
+      status: "pass",
+      detail: bounded(
+        JSON.stringify({
+          allowAutoMerge: false,
+          autoMergeCanaryApprovalMode: approval.mode,
+          reason: approval.reason,
+        }),
+      ),
+    };
+  }
+  const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
+  return {
+    name: "auto-merge-disabled",
+    status: approval.approved ? "pass" : "fail",
+    detail: approval.approved
+      ? bounded(JSON.stringify({ allowAutoMerge: true, autoMergeCanaryApprovalMode: approval.mode, reason: approval.reason }))
+      : bounded(JSON.stringify({ allowAutoMerge: true, autoMergeCanaryApprovalMode: approval.mode, reason: approval.reason })),
   };
 }
 

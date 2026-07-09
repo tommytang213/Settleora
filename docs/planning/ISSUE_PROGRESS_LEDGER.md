@@ -20,6 +20,49 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Low-risk auto-merge canary policy checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - #805, #818, and #821 remain closed and were checked read-only for this
+    policy slice.
+- Verified repo baseline:
+  `origin/main` at
+  `33fd15463451e689c7bba46054162ded79bd3a11` after PR #823 merged.
+- This policy slice:
+  - Adds a distinct `lowRiskAutoMergeCanaryApproved` flag for the one bounded
+    max-2 low-risk auto-merge canary shape.
+  - Keeps built-in/default config blocked for live auto-merge.
+  - Allows canary `allowAutoMerge: true` only with external config,
+    `trustedRealRunCanaryApproved: true`, `trustedRealRunApproved: false`,
+    `lowRiskAutoMergeCanaryApproved: true`, max iterations no greater than
+    `2`, and no stale-claim stealing, follow-up issue creation, review-fix
+    mutation, or systemd enablement.
+  - Limits auto-merge canary contracts to exact `workflow-docs-tooling`
+    paths `tools/auto-runner/**` and `docs/workflow/**`, or exact
+    `docs-planning` paths `docs/planning/**` and `docs/qa/**`, with
+    `autoMergeEligible: true` and `manualMergeRequired: false`.
+  - Preserves fail-closed gates for dangerous text/paths, disabled or unknown
+    lanes, malformed/manual-gated contracts, broad globs, non-docs paths, stop
+    labels, missing Gemini pass when configured, missing Codex mechanics
+    approval, local validation, exact-head checks, review threads, PR-ref
+    code scanning, stale PR head, base mismatch, dirty worktree, issue state,
+    clean worktree, and source-branch restoration.
+- Issue posture:
+  keep #800 open. This checkpoint does not create canary issues, run a live
+  canary, call Gemini, run provider smoke tests, merge PRs, enable overnight
+  operation, or enable lanes beyond the bounded low-risk policy path.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, workflow docs, the
+  issue ledger, and the example config. It does not change product runtime,
+  API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release, public/admin exposure, branch deletion, force push, direct main
+  push, or live auto-merge execution.
+
 ### Issue #800 - Low-risk auto-merge lane foundation checkpoint
 
 - GitHub state/project status:

@@ -35,8 +35,9 @@ sanity, and disk-space sanity.
 expectations. `warn` means inspect before trusting unattended operation.
 `fail` means the state is not suitable for unattended operation. Enabling
 `allowAutoMerge`, `allowFollowupIssueCreation`, `allowStaleClaimSteal`,
-`allowReviewFixMutation`, or `allowSystemdEnablement` reports `fail` unless a
-future explicit approval flag and documentation exist.
+`allowReviewFixMutation`, or `allowSystemdEnablement` reports `fail` unless
+the config matches the explicitly documented bounded low-risk auto-merge
+canary approval path.
 
 Reviewer budget and routing are a report-only policy foundation. External
 reviewer tiers are disabled and unconfigured by default:
@@ -265,15 +266,41 @@ node tools/auto-runner/settleora-auto-runner.mjs --run --canary --max-iterations
 
 The config used for that command must set `trustedRealRunCanaryApproved: true`.
 Canary mode only accepts contracted `workflow-docs-tooling` and `docs-planning`
-lanes, refuses contracts with `autoMergeEligible: true`, requires
-`manualMergeRequired: true`, caps iterations to
-`trustedRealRunCanaryMaxIterations` (default `2`), writes evidence under
-`/workspace/logs/settleora-auto-runner/canary/`, and keeps PRs human-review and
-human-merge only.
+lanes, caps iterations to `trustedRealRunCanaryMaxIterations` (default `2`),
+writes evidence under `/workspace/logs/settleora-auto-runner/canary/`, and
+keeps PRs human-review and human-merge only unless the separate bounded
+auto-merge canary approval below is active.
 
-Canary mode refuses auto-merge, follow-up issue creation, stale-claim stealing,
-review-fix mutation, and systemd enablement. It does not approve overnight
-operation and does not install or enable systemd.
+Normal canary mode refuses contracts with `autoMergeEligible: true`, requires
+`manualMergeRequired: true`, and refuses auto-merge, follow-up issue creation,
+stale-claim stealing, review-fix mutation, and systemd enablement. It does not
+approve overnight operation and does not install or enable systemd.
+
+Bounded low-risk auto-merge canary mode is narrower than normal canary
+approval and requires all of these at once:
+
+- CLI intent: `--run --canary`.
+- External, uncommitted config path under the operator-controlled log area.
+- `trustedRealRunCanaryApproved: true`.
+- `trustedRealRunApproved: false`.
+- `lowRiskAutoMergeCanaryApproved: true`.
+- `allowAutoMerge: true`.
+- `maxIterations` no greater than `2`.
+- No stale-claim stealing, follow-up issue creation, review-fix mutation, or
+  systemd enablement.
+
+The only accepted auto-merge canary issue contracts are exact-path contracts
+for `workflow-docs-tooling` with `tools/auto-runner/**` and `docs/workflow/**`,
+or `docs-planning` with `docs/planning/**` and `docs/qa/**`, plus
+`autoMergeEligible: true` and `manualMergeRequired: false`. Broader globs,
+`scripts/ai/**`, non-docs paths, product/security/storage/money/schema/
+OpenAPI/generated-client/Docker/deployment/env/secret/public/admin scope, stop
+labels, missing Gemini pass when Gemini is configured, missing Codex mechanics
+approval, failing checks, unresolved review threads, PR-ref code-scanning
+alerts, stale PR heads, base mismatch, dirty worktrees, and issue-state
+mismatches remain blocking gates. This max-2 path exists only to prove the
+live auto-merge gates on two bounded low-risk issues after a separate explicit
+task creates and runs that canary.
 
 Summary mode:
 

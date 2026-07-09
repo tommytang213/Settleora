@@ -94,6 +94,7 @@ async function main() {
     iterations: [],
     stopReason: null,
     logPath: logger.logPath,
+    autoMergeCanaryApprovalMode: trustPolicy.autoMergeCanaryApproval?.mode || "not_approved",
   };
 
   try {
