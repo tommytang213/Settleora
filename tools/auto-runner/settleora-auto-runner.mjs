@@ -28,6 +28,7 @@ import { collectReport } from "./lib/report-collector.mjs";
 import { planValidation, runValidationPlan } from "./lib/validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
+import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -396,6 +397,13 @@ async function writeReviewPackage(config, payload) {
     },
     taskPromptPath: payload.promptInfo.promptPath,
     laneDecision: payload.laneDecision,
+    reviewerPolicy: reviewerReadinessSummary(config, {
+      changedFiles: payload.changedFiles,
+      laneDecision: payload.laneDecision,
+      stats: { additions: 0, deletions: 0 },
+      estimatedInputTokens: 0,
+      estimatedOutputTokens: 0,
+    }),
     changedFiles: payload.changedFiles,
     validation: payload.validation,
     report: payload.report,

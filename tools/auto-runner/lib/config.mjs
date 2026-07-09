@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 
@@ -34,6 +35,8 @@ export const defaultConfig = Object.freeze({
   maxReviewFixCycles: 0,
   reviewerCommand: "codex-vm-full",
   codexCommand: "codex-vm-full",
+  reviewerTiers: defaultReviewerTiers,
+  reviewerBudget: defaultReviewerBudget,
 });
 
 export function parseDuration(value) {
@@ -161,6 +164,9 @@ export function loadConfig(cliArgs) {
     config.fixtureIssues = parseFixtureIssues(cliArgs.fixtureIssuesPath);
     config.fixtureIssueCursor = 0;
   }
+  const reviewerPolicy = mergeReviewerPolicyConfig(config);
+  config.reviewerTiers = reviewerPolicy.reviewerTiers;
+  config.reviewerBudget = reviewerPolicy.reviewerBudget;
 
   for (const dir of [
     config.logsRoot,

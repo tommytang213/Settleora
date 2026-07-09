@@ -7,6 +7,7 @@ import { getCurrentBranch, getRefSha, getStatusShort, runGit } from "./git-works
 import { evaluateTrustPolicy } from "./canary-policy.mjs";
 import { buildEligibleLabelSearches } from "./github-issues.mjs";
 import { safeTimestamp } from "./logger.mjs";
+import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
 
 const repoNameWithOwner = "tommytang213/Settleora";
 const riskyGateKeys = Object.freeze([
@@ -43,6 +44,7 @@ export function runPreflight(config, options = {}) {
   checks.push(checkLogWriteSanity(config));
   checks.push(checkDiskSpace(config, runner));
   checks.push(checkConfig(config));
+  checks.push(checkReviewerPolicy(config));
   checks.push(checkTrustedRealRunPolicy(config));
   checks.push(checkCanaryRealRunPolicy(config));
   checks.push(policyCheck("auto-merge-disabled", !config.allowAutoMerge, "allowAutoMerge is disabled."));
@@ -299,6 +301,25 @@ function checkConfig(config) {
   };
 }
 
+function checkReviewerPolicy(config) {
+  try {
+    const summary = reviewerReadinessSummary(config, {
+      changedFiles: ["tools/auto-runner/lib/config.mjs", "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+      laneDecision: { lane: "workflow-docs-tooling" },
+      stats: { additions: 120, deletions: 20 },
+      estimatedInputTokens: 12000,
+      estimatedOutputTokens: 2000,
+    });
+    return {
+      name: "reviewer-tier-budget-policy",
+      status: summary.budget.block ? "fail" : summary.budget.warn ? "warn" : "pass",
+      detail: bounded(JSON.stringify(summary)),
+    };
+  } catch (error) {
+    return { name: "reviewer-tier-budget-policy", status: "fail", detail: bounded(error.message) };
+  }
+}
+
 function checkTrustedRealRunPolicy(config) {
   const policy = evaluateTrustPolicy({
     ...config,
@@ -474,6 +495,7 @@ function writeReadinessReports(config, result) {
 
 function readinessMarkdown(result) {
   const rows = result.checks.map((check) => `| ${check.status} | ${check.name} | ${String(check.detail || "").replace(/\n/g, " ")} |`);
+  const reviewerPolicy = result.checks.find((check) => check.name === "reviewer-tier-budget-policy");
   return [
     "# Settleora Auto-Runner Overnight Readiness Preflight",
     "",
@@ -490,6 +512,15 @@ function readinessMarkdown(result) {
     "## Remaining Manual Gates",
     "",
     ...result.remainingManualGates.map((gate) => `- ${gate}`),
+    "",
+    "## Reviewer Budget Policy",
+    "",
+    reviewerPolicy
+      ? `- Status: ${reviewerPolicy.status}`
+      : "- Status: unavailable",
+    reviewerPolicy
+      ? `- Detail: ${String(reviewerPolicy.detail || "").replace(/\n/g, " ")}`
+      : "- Detail: reviewer tier policy check was not produced.",
     "",
     "## Checks",
     "",

@@ -26,10 +26,10 @@ worktree checks, `origin/main` reachability, local `HEAD` relation to
 `origin/main`, `gh auth status`, repository reachability, #800 open state,
 #805 closed state, eligible issue search health using simple per-label
 queries, trusted real-run refusal state, separate canary approval state,
-risky gate defaults, active/stale claim label readouts, active
-`auto-pr-opened` issue readouts, open auto-runner PR readouts, Codex command
-resolution without invocation, Node version, log-write sanity, and disk-space
-sanity.
+risky gate defaults, reviewer tier/budget policy, active/stale claim label
+readouts, active `auto-pr-opened` issue readouts, open auto-runner PR
+readouts, Codex command resolution without invocation, Node version, log-write
+sanity, and disk-space sanity.
 
 `pass` means the checked condition matches conservative readiness
 expectations. `warn` means inspect before trusting unattended operation.
@@ -37,6 +37,17 @@ expectations. `warn` means inspect before trusting unattended operation.
 `allowAutoMerge`, `allowFollowupIssueCreation`, `allowStaleClaimSteal`,
 `allowReviewFixMutation`, or `allowSystemdEnablement` reports `fail` unless a
 future explicit approval flag and documentation exist.
+
+Reviewer budget and routing are a report-only policy foundation. External
+reviewer tiers are disabled and unconfigured by default:
+`cheap_independent`, `strong_independent`, and `tie_breaker`.
+`codex_mechanics` remains available for the existing Codex-backed mechanics
+review path. Readiness reports provider profile names, model names, token
+prices, and whether a command is configured; it does not print command strings
+or secrets. Defaults assume USD 80/month normal reviewer budget, USD 95/month
+reviewer hard stop, USD 200/month Codex subscription budget, USD 300/month
+total automation ceiling, and an 80% warning threshold. Cost estimates are
+local token-price arithmetic only and do not call external provider APIs.
 
 The readiness command does not approve trusted overnight operation, normal
 trusted real-run, canary real-run, auto-merge lanes, stale-claim stealing,

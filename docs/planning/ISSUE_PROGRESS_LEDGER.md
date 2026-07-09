@@ -20,6 +20,43 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Tiered reviewer budget policy foundation checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - #805 `CLOSED`; it was not reopened or mutated by this slice.
+- Verified repo baseline:
+  `origin/main` at
+  `05dd93e6a71a1cedab0ea213df0949d6248b080b` after PR #814 merged.
+- This policy foundation slice:
+  - Adds disabled-by-default reviewer tiers for `cheap_independent`,
+    `strong_independent`, `tie_breaker`, and `codex_mechanics`.
+  - Adds reviewer budget defaults of USD 80 normal monthly reviewer budget,
+    USD 95 reviewer hard stop, USD 300 total automation ceiling, USD 200 Codex
+    subscription budget assumption, and 80% warning threshold.
+  - Adds local cost-estimation arithmetic based on model/tier token estimates
+    and per-million-token input/output prices.
+  - Adds deterministic report-only reviewer routing for docs/workflow tooling,
+    sensitive domains, large PRs, and huge cross-domain PRs.
+  - Extends readiness and review-package output with sanitized reviewer policy
+    data. Provider commands are reported only as configured/unconfigured and
+    no provider secret is required.
+- Issue posture:
+  keep #800 open. This checkpoint does not approve trusted overnight
+  operation, canary real-run, normal real-run, auto-merge, stale-claim
+  stealing, follow-up issue creation, review-fix mutation, or systemd
+  enablement.
+- Scope confirmation:
+  this checkpoint changes only `tools/auto-runner/**`, workflow docs, and this
+  ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, or auto-merge
+  enablement.
+
 ### Issue #800 - Overnight readiness preflight checkpoint
 
 - GitHub state/project status:

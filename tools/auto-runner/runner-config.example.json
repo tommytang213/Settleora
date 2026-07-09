@@ -28,5 +28,46 @@
   "maxFollowupIssuesPerRun": 3,
   "maxReviewFixCycles": 0,
   "codexCommand": "codex-vm-full",
-  "reviewerCommand": "codex-vm-full"
+  "reviewerCommand": "codex-vm-full",
+  "reviewerBudget": {
+    "monthlyReviewerBudgetUsd": 80,
+    "monthlyReviewerHardStopUsd": 95,
+    "totalMonthlyAutomationBudgetUsd": 300,
+    "codexSubscriptionBudgetUsd": 200,
+    "warnAtPercent": 80
+  },
+  "reviewerTiers": {
+    "cheap_independent": {
+      "enabled": false,
+      "providerProfile": "unconfigured-cheap-independent",
+      "command": null,
+      "model": null,
+      "inputUsdPerMillionTokens": 0,
+      "outputUsdPerMillionTokens": 0
+    },
+    "strong_independent": {
+      "enabled": false,
+      "providerProfile": "unconfigured-strong-independent",
+      "command": null,
+      "model": null,
+      "inputUsdPerMillionTokens": 0,
+      "outputUsdPerMillionTokens": 0
+    },
+    "tie_breaker": {
+      "enabled": false,
+      "providerProfile": "unconfigured-tie-breaker",
+      "command": null,
+      "model": null,
+      "inputUsdPerMillionTokens": 0,
+      "outputUsdPerMillionTokens": 0
+    },
+    "codex_mechanics": {
+      "enabled": true,
+      "providerProfile": "codex-mechanics-default",
+      "command": "codex-vm-full",
+      "model": "codex-subscription",
+      "inputUsdPerMillionTokens": 0,
+      "outputUsdPerMillionTokens": 0
+    }
+  }
 }
