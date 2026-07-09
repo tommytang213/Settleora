@@ -78,19 +78,19 @@
     "gemini": {
       "provider": "gemini",
       "apiKeyEnv": "GEMINI_API_KEY",
-      "envFilePath": null,
+      "envFilePath": "/workspace/logs/settleora-auto-runner/secrets/reviewer.env",
       "defaultModel": "gemini-2.5-flash-lite"
     },
     "gemini-cheap": {
       "provider": "gemini",
       "apiKeyEnv": "GEMINI_API_KEY",
-      "envFilePath": null,
+      "envFilePath": "/workspace/logs/settleora-auto-runner/secrets/reviewer.env",
       "defaultModel": "gemini-2.5-flash-lite"
     },
     "gemini-strong": {
       "provider": "gemini",
       "apiKeyEnv": "GEMINI_API_KEY",
-      "envFilePath": null,
+      "envFilePath": "/workspace/logs/settleora-auto-runner/secrets/reviewer.env",
       "defaultModel": "gemini-2.5-pro"
     }
   },

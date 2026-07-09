@@ -29,7 +29,7 @@ import { planValidation, runValidationPlan } from "./lib/validation-planner.mjs"
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
-import { runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
+import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -300,6 +300,23 @@ async function runIteration(config, logger, runId, index) {
     validation: iteration.validation,
     report: iteration.report,
   });
+  iteration.externalReview = await runGeminiIntegratedReview(config, iteration.reviewPackage);
+  if (iteration.externalReview.status === "blocked") {
+    iteration.outcome =
+      iteration.externalReview.reason === "blocked_external_reviewer_route_not_eligible" ||
+      iteration.externalReview.reason === "blocked_external_reviewer_lane_not_eligible" ||
+      iteration.externalReview.reason === "blocked_external_reviewer_path_not_eligible"
+        ? "blocked_needs_tommy"
+        : "review_changes_requested_retry_exhausted";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner did not open a PR for #${issue.number} because integrated Gemini pre-PR review returned ${iteration.externalReview.reason}.`,
+    );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
   iteration.review = runReviewPrompt(config, iteration.reviewPackage);
   const afterReview = await checkoutFingerprint();
   iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
@@ -426,7 +443,7 @@ async function writeReviewPackage(config, payload) {
     diffTruncated: diff.truncated,
   };
   writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);
-  return { packagePath, summary };
+  return { packagePath, summary, diff: diff.text };
 }
 
 function prSummary(iteration) {
@@ -434,6 +451,7 @@ function prSummary(iteration) {
     `Issue: #${iteration.issue.number}`,
     `Lane: ${iteration.laneDecision.lane}`,
     `Validation: ${iteration.validation.passed ? "passed" : "failed"}`,
+    `Integrated Gemini review: ${iteration.externalReview?.status || "not-run"} (${iteration.externalReview?.reason || "n/a"})`,
     `Pre-PR AI review: ${iteration.review?.verdict?.verdict || "not-run"}`,
     `Report: ${iteration.report?.copyPath || iteration.report?.expectedPath || "not-found"}`,
   ].join("\n");

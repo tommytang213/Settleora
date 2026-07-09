@@ -151,6 +151,29 @@ stop, and the estimated smoke cost stays below the tiny cap. Missing keys are
 reported as `blocked_for_live_smoke_test_key_missing` rather than leaking
 environment details.
 
+The first integrated Gemini reviewer gate runs inside the normal pre-PR review
+flow before branch push or PR creation, but only when external config enables
+the Gemini `cheap_independent` tier. Built-in defaults keep that tier disabled.
+When enabled, the integrated gate is limited to low-risk
+`workflow-docs-tooling` and `docs-planning` work:
+
+- `workflow-docs-tooling`: `tools/auto-runner/**`, `docs/workflow/**`, and
+  `scripts/ai/**`.
+- `docs-planning`: `docs/planning/**` and `docs/qa/**`.
+
+The gate reuses the reviewer routing and budget policy. It requires an
+explicit strict-JSON Gemini pass verdict before PR creation, writes sanitized
+local evidence under
+`/workspace/logs/settleora-auto-runner/reviews/integrated/`, and records
+sanitized accounting under
+`/workspace/logs/settleora-auto-runner/state/reviewer-accounting.json`.
+Missing keys, unsupported or host-like model values, malformed or ambiguous
+verdicts, non-pass verdicts, provider failures, budget hard stops, per-call
+cap failures, malformed accounting, accounting write failures, disallowed
+lanes/paths, secret-boundary risks, strong-review routes, and
+`block_split_or_escalate` routes fail closed before PR creation. The Gemini
+reviewer itself does not mutate GitHub and does not post comments.
+
 The default reviewer budget policy assumes the Codex subscription is already
 about USD 200/month and leaves normal reviewer budget at USD 80/month, with a
 USD 95/month reviewer hard stop inside a USD 300/month total automation ceiling:
@@ -398,12 +421,16 @@ The intended loop is:
 12. Check for unexpected pre-review GitHub mutation evidence, including a
     remote task branch or any PR for the task branch.
 13. Build a mandatory pre-PR review package.
-14. Run a separate review-only AI pass outside the mutable checkout.
-15. Block PR creation unless the review verdict is `approve`.
-16. Stage explicit changed paths only, commit, push the branch, open/update PR,
+14. Run the integrated external reviewer gate when the configured tier and
+    low-risk lane policy require it.
+15. Run a separate Codex mechanics review-only AI pass outside the mutable
+    checkout.
+16. Block PR creation unless required external review passes and the mechanics
+    review verdict is `approve`.
+17. Stage explicit changed paths only, commit, push the branch, open/update PR,
     watch checks, and comment/label the outcome.
-17. Write a per-iteration summary and continue to the next eligible issue.
-18. Write a final run summary.
+18. Write a per-iteration summary and continue to the next eligible issue.
+19. Write a final run summary.
 
 Normal per-issue terminal outcomes do not stop the whole session:
 `approved_pr_opened`, `blocked_needs_tommy`, `danger_gate`, `auto_failed`,

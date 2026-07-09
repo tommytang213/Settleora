@@ -22,7 +22,9 @@ import { generateTaskPrompt } from "../lib/task-prompt.mjs";
 import { inspectPreReviewPrOwnership } from "../lib/pr-manager.mjs";
 import {
   loadGeminiApiKey,
+  parseIntegratedVerdict,
   resolveGeminiModelEndpoint,
+  runGeminiIntegratedReview,
   runGeminiReviewerSmokeTest,
   sanitizeSecretText,
   supportedGeminiModelEndpoints,
@@ -578,6 +580,247 @@ test("Gemini smoke test selects configured cheap and strong Gemini tier models",
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("integrated Gemini reviewer skips when external tier is disabled", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-disabled-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, {
+        reviewerTiers: { cheap_independent: { enabled: false } },
+      }),
+      workflowReviewPackage(),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        fetchImpl: async () => {
+          calls += 1;
+          throw new Error("should not call");
+        },
+      },
+    );
+    assert.equal(result.status, "skipped");
+    assert.equal(result.reason, "skipped_external_reviewer_tier_disabled");
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("eligible low-risk lane selects cheap Gemini reviewer and pass verdict proceeds", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-pass-"));
+  try {
+    const requestedUrls = [];
+    const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async (url) => {
+        requestedUrls.push(String(url));
+        return fakeGeminiResponse({
+          candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }],
+          usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 120 },
+          rawProviderOnlyText: "raw-provider-secret",
+        });
+      },
+    });
+    assert.equal(result.status, "pass");
+    assert.equal(result.tier, "cheap_independent");
+    assert.equal(result.model, "gemini-2.5-flash-lite");
+    assert.equal(new URL(requestedUrls[0]).origin, "https://generativelanguage.googleapis.com");
+    const report = readFileSync(result.reportPath, "utf8");
+    const accounting = readFileSync(path.join(tempRoot, "state", "reviewer-accounting.json"), "utf8");
+    assert.doesNotMatch(report, /super-secret-key|raw-provider-secret/);
+    assert.doesNotMatch(accounting, /super-secret-key|raw-provider-secret|authorization/i);
+    assert.match(accounting, /"mode":|"commandMode": "integrated-pre-pr-review"/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("ineligible sensitive domain blocks integrated Gemini before provider call", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-sensitive-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage({
+      changedFiles: ["services/api/Auth/SessionRuntime.cs"],
+      laneDecision: { lane: "security-runtime", dangerGate: true },
+      diff: "diff --git a/services/api/Auth/SessionRuntime.cs b/services/api/Auth/SessionRuntime.cs\n",
+    }), {
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_external_reviewer_route_not_eligible");
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("required integrated Gemini reviewer with missing key fails closed before provider call", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-missing-key-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
+      env: {},
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_for_live_integrated_review_key_missing");
+    assert.equal(result.liveCallAttempted, false);
+    assert.equal(calls, 0);
+    assert.doesNotMatch(readFileSync(result.reportPath, "utf8"), /GEMINI_API_KEY|super-secret/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("unsupported integrated Gemini model blocks before key loading or fetch", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-invalid-model-"));
+  try {
+    let calls = 0;
+    const env = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("key should not be read");
+        },
+      },
+    );
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, {
+        reviewerTiers: { cheap_independent: { model: "https://metadata.invalid/latest" } },
+      }),
+      workflowReviewPackage(),
+      {
+        env,
+        fetchImpl: async () => {
+          calls += 1;
+          throw new Error("should not call");
+        },
+      },
+    );
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_unsupported_gemini_model");
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("malformed and non-pass integrated Gemini verdicts fail closed", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-verdicts-"));
+  try {
+    const malformed = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: "not json" }] } }] }),
+    });
+    assert.equal(malformed.status, "blocked");
+    assert.equal(malformed.reason, "blocked_malformed_json_verdict");
+
+    const nonPass = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () =>
+        fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "fail" }) }] } }] }),
+    });
+    assert.equal(nonPass.status, "blocked");
+    assert.equal(nonPass.reason, "blocked_external_reviewer_non_pass");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("integrated Gemini reviewer blocks before provider call at budget hard stop and per-call cap", async () => {
+  const hardStopRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-hard-stop-"));
+  const capRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-cap-"));
+  try {
+    mkdirSync(path.join(hardStopRoot, "state"), { recursive: true });
+    writeFileSync(
+      path.join(hardStopRoot, "state", "reviewer-accounting.json"),
+      `${JSON.stringify({ entries: [{ monthKey: new Date().toISOString().slice(0, 7), costUsd: 95 }] })}\n`,
+    );
+    let calls = 0;
+    const hardStop = await runGeminiIntegratedReview(geminiIntegratedConfig(hardStopRoot), workflowReviewPackage(), {
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.equal(hardStop.reason, "blocked_reviewer_budget_hard_stop");
+    assert.equal(calls, 0);
+
+    const overCap = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(capRoot, {
+        reviewerTiers: {
+          cheap_independent: {
+            inputUsdPerMillionTokens: 1_000_000,
+            outputUsdPerMillionTokens: 1_000_000,
+          },
+        },
+      }),
+      workflowReviewPackage(),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        fetchImpl: async () => {
+          calls += 1;
+          throw new Error("should not call");
+        },
+      },
+    );
+    assert.equal(overCap.reason, "blocked_integrated_estimated_cost_over_cap");
+    assert.equal(calls, 0);
+  } finally {
+    rmSync(hardStopRoot, { recursive: true, force: true });
+    rmSync(capRoot, { recursive: true, force: true });
+  }
+});
+
+test("integrated Gemini accounting parse and write failures fail closed", async () => {
+  const parseRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-accounting-parse-"));
+  const writeRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-accounting-write-"));
+  try {
+    mkdirSync(path.join(parseRoot, "state"), { recursive: true });
+    writeFileSync(path.join(parseRoot, "state", "reviewer-accounting.json"), "{not-json\n");
+    let calls = 0;
+    const parseFailure = await runGeminiIntegratedReview(geminiIntegratedConfig(parseRoot), workflowReviewPackage(), {
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("should not call");
+      },
+    });
+    assert.match(parseFailure.reason, /^blocked_reviewer_accounting_parse_error/);
+    assert.equal(calls, 0);
+
+    const writeFailureConfig = geminiIntegratedConfig(writeRoot);
+    rmSync(path.join(writeRoot, "state"), { recursive: true, force: true });
+    writeFileSync(path.join(writeRoot, "state"), "not a directory\n");
+    const writeFailure = await runGeminiIntegratedReview(writeFailureConfig, workflowReviewPackage(), {
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () =>
+        fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] }),
+    });
+    assert.match(writeFailure.reason, /^blocked_reviewer_accounting_write_error/);
+  } finally {
+    rmSync(parseRoot, { recursive: true, force: true });
+    rmSync(writeRoot, { recursive: true, force: true });
+  }
+});
+
+test("integrated Gemini verdict parser rejects extra prose, unknown verdicts, and contradictory pass findings", () => {
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass" })).ok, true);
+  assert.equal(parseIntegratedVerdict(`notes\n${integratedVerdictJson({ verdict: "pass" })}`).ok, false);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "approve" })).ok, false);
+  assert.equal(
+    parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["blocking issue remains"] })).ok,
+    false,
+  );
 });
 
 test("fixture polling sorts eligible issues and skips stop labels", () => {
@@ -1306,6 +1549,99 @@ function geminiSmokeConfig(logsRoot, overrides = {}) {
     },
     ...Object.fromEntries(Object.entries(overrides).filter(([key]) => !["reviewerTiers", "reviewerProviderProfiles", "reviewerSmokeTest"].includes(key))),
   };
+}
+
+function geminiIntegratedConfig(logsRoot, overrides = {}) {
+  return geminiSmokeConfig(logsRoot, {
+    reviewerSmokeTest: { tier: "cheap_independent", maxEstimatedCostUsd: 0.05 },
+    ...overrides,
+    reviewerTiers: {
+      cheap_independent: {
+        enabled: true,
+        provider: "gemini",
+        providerProfile: "gemini-cheap",
+        command: null,
+        model: "gemini-2.5-flash-lite",
+        inputUsdPerMillionTokens: 0.1,
+        outputUsdPerMillionTokens: 0.4,
+        ...(overrides.reviewerTiers?.cheap_independent || {}),
+      },
+      strong_independent: {
+        enabled: true,
+        provider: "gemini",
+        providerProfile: "gemini-strong",
+        command: null,
+        model: "gemini-2.5-pro",
+        inputUsdPerMillionTokens: 1.25,
+        outputUsdPerMillionTokens: 10,
+        ...(overrides.reviewerTiers?.strong_independent || {}),
+      },
+      tie_breaker: {
+        enabled: false,
+        provider: null,
+        providerProfile: "unconfigured-tie-breaker",
+        command: null,
+        model: null,
+        inputUsdPerMillionTokens: 0,
+        outputUsdPerMillionTokens: 0,
+        ...(overrides.reviewerTiers?.tie_breaker || {}),
+      },
+      codex_mechanics: {
+        enabled: true,
+        provider: "codex",
+        providerProfile: "codex-mechanics-default",
+        command: "codex-vm-full",
+        model: "codex-subscription",
+        inputUsdPerMillionTokens: 0,
+        outputUsdPerMillionTokens: 0,
+        ...(overrides.reviewerTiers?.codex_mechanics || {}),
+      },
+    },
+  });
+}
+
+function workflowReviewPackage(overrides = {}) {
+  const changedFiles = overrides.changedFiles || ["tools/auto-runner/lib/gemini-reviewer.mjs"];
+  const laneDecision = overrides.laneDecision || {
+    lane: "workflow-docs-tooling",
+    allowedToImplement: true,
+    dangerGate: false,
+    allowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
+    laneManifestAllowedPaths: ["tools/auto-runner/**", "docs/workflow/**", "scripts/ai/**"],
+    validationProfile: "runner-tests",
+    manualMergeRequired: true,
+    autoMergeEligible: false,
+    prCreationAllowed: true,
+  };
+  const diff = overrides.diff || "diff --git a/tools/auto-runner/lib/gemini-reviewer.mjs b/tools/auto-runner/lib/gemini-reviewer.mjs\n+const ok = true;\n";
+  return {
+    packagePath: "/workspace/logs/settleora-auto-runner/reviews/test-package.json",
+    summary: {
+      issue: {
+        number: 800,
+        title: "Auto-runner integrated Gemini review",
+        labels: ["auto-ready"],
+        url: "https://example.invalid/issues/800",
+      },
+      laneDecision,
+      changedFiles,
+      validation: { passed: true, results: [{ command: "node --test tools/auto-runner/test/*.test.mjs", status: 0 }] },
+      report: { found: true, expectedPath: ".codex/reports/test.md" },
+      diffTruncated: false,
+      ...(overrides.summary || {}),
+    },
+    diff,
+  };
+}
+
+function integratedVerdictJson(overrides = {}) {
+  return JSON.stringify({
+    verdict: "pass",
+    confidence: "high",
+    summary: "Scoped low-risk workflow tooling change is ready for PR creation.",
+    findings: [],
+    ...overrides,
+  });
 }
 
 function fakeGeminiResponse(body, status = 200) {
