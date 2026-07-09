@@ -49,7 +49,8 @@ function renderRunMarkdown(summary) {
     "",
   ];
   for (const iteration of summary.iterations || []) {
-    lines.push(`- #${iteration.issue?.number || "none"}: ${iteration.outcome || "unknown"} (${iteration.laneDecision?.lane || "no-lane"})`);
+    const reviewSource = iteration.review?.verdict?.json_source ? `, review JSON: ${iteration.review.verdict.json_source}` : "";
+    lines.push(`- #${iteration.issue?.number || "none"}: ${iteration.outcome || "unknown"} (${iteration.laneDecision?.lane || "no-lane"}${reviewSource})`);
   }
   return `${lines.join("\n")}\n`;
 }
