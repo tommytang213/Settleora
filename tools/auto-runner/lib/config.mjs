@@ -25,6 +25,7 @@ export const defaultConfig = Object.freeze({
   trustedRealRunApproved: false,
   trustedRealRunCanaryApproved: false,
   trustedRealRunCanaryMaxIterations: 2,
+  lowRiskAutoMergeCanaryApproved: false,
   allowStaleClaimSteal: false,
   staleClaimAfterHours: 12,
   allowAutoMerge: false,
@@ -171,6 +172,7 @@ export function loadConfig(cliArgs) {
     run: cliArgs.run,
     canary: cliArgs.canary,
     maxIterations: cliArgs.maxIterations || fileConfig.maxIterations || defaultConfig.maxIterations,
+    requestedMaxIterations: cliArgs.maxIterations || fileConfig.maxIterations || defaultConfig.maxIterations,
     maxRuntimeMs: cliArgs.maxRuntimeMs ?? fileConfig.maxRuntimeMs ?? defaultConfig.maxRuntimeMs,
     requirePrePrReview: cliArgs.requirePrePrReview,
   };

@@ -19,6 +19,7 @@
   "trustedRealRunApproved": false,
   "trustedRealRunCanaryApproved": false,
   "trustedRealRunCanaryMaxIterations": 2,
+  "lowRiskAutoMergeCanaryApproved": false,
   "allowStaleClaimSteal": false,
   "staleClaimAfterHours": 12,
   "allowAutoMerge": false,

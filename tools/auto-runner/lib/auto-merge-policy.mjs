@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { safeTimestamp } from "./logger.mjs";
+import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning"]);
@@ -45,6 +46,10 @@ export function evaluateAutoMergeDecision(input) {
   const block = (reason) => ({ ...result, reason });
 
   if (!config.allowAutoMerge) return block("auto_merge_disabled_by_config");
+  if (config.canary) {
+    const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
+    if (!approval.approved) return block(`low_risk_auto_merge_canary_not_approved:${approval.reason}`);
+  }
   if (!laneDecision.allowedToImplement) return block("lane_not_allowed_to_implement");
   if (!lowRiskAutoMergeLanes.includes(laneDecision.lane)) return block("lane_not_low_risk_auto_merge_approved");
   if (!laneDecision.autoMergeEligible || laneDecision.contract?.autoMergeEligible !== true) {

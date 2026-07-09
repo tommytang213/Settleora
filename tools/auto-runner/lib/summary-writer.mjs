@@ -44,6 +44,7 @@ function renderRunMarkdown(summary) {
     `- Started: ${summary.startedAt}`,
     `- Finished: ${summary.finishedAt}`,
     `- Stop reason: ${summary.stopReason || "none"}`,
+    `- Auto-merge canary approval mode: \`${summary.autoMergeCanaryApprovalMode || "not_approved"}\``,
     "",
     "## Iterations",
     "",

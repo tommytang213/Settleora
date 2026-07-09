@@ -372,17 +372,40 @@ Canary mode is limited to contracted issues in these manifest lanes:
 - `workflow-docs-tooling`
 - `docs-planning`
 
-Canary mode refuses product/runtime/danger placeholder lanes, contracts with
-`autoMergeEligible: true`, contracts with `manualMergeRequired: false`,
+Normal canary mode refuses product/runtime/danger placeholder lanes, contracts
+with `autoMergeEligible: true`, contracts with `manualMergeRequired: false`,
 auto-merge, follow-up issue creation, stale-claim stealing, review-fix
 mutation, and systemd enablement. Canary iteration count is capped by
 `trustedRealRunCanaryMaxIterations`, defaulting to `2`.
 
 Canary tasks still run scoped validation and the separate pre-PR AI review gate
 before any PR creation. Canary PRs are human-review and human-merge only. This
-policy does not approve overnight operation, auto-merge, follow-up issue
-creation, stale-claim stealing, review-fix mutation, or systemd service/timer
+policy does not approve overnight operation, follow-up issue creation,
+stale-claim stealing, review-fix mutation, or systemd service/timer
 installation or enablement.
+
+A bounded low-risk auto-merge canary is a separate explicit approval mode, not
+a normal canary default. It is allowed only when an external, uncommitted
+config sets `trustedRealRunCanaryApproved: true`,
+`trustedRealRunApproved: false`, `lowRiskAutoMergeCanaryApproved: true`, and
+`allowAutoMerge: true`, the runner is invoked with `--run --canary`, and the
+requested max iteration count is no greater than `2`. This max-2 path exists
+only to prove the live low-risk auto-merge gates in a separate task; it does
+not approve overnight operation or broader unattended operation.
+
+The auto-merge canary accepts only exact issue contracts for:
+
+- `workflow-docs-tooling`: `tools/auto-runner/**` and `docs/workflow/**`.
+- `docs-planning`: `docs/planning/**` and `docs/qa/**`.
+
+Those contracts must set `autoMergeEligible: true` and
+`manualMergeRequired: false`. Broader globs, `scripts/ai/**`, non-docs paths,
+product/security/storage/money/schema/OpenAPI/generated-client/Docker/
+deployment/env/secret/public/admin scope, stop labels, missing Gemini pass
+when Gemini is configured, missing Codex mechanics approval, failing or
+mismatched-head checks, unresolved review threads, PR-ref code-scanning alerts,
+stale PR heads, base mismatch, dirty worktree, and issue-state mismatches all
+remain fail-closed gates.
 
 Canary evidence is written under:
 
@@ -406,7 +429,9 @@ follow-up issue creation, review-fix mutation, or systemd enablement.
 Auto-merge remains disabled in built-in defaults. A normal trusted run may only
 evaluate a low-risk auto-merge when external, uncommitted config sets
 `allowAutoMerge: true` and the issue contract sets
-`autoMergeEligible: true` with `manualMergeRequired: false`.
+`autoMergeEligible: true` with `manualMergeRequired: false`. A canary trusted
+run also requires `lowRiskAutoMergeCanaryApproved: true` and the max-2 exact
+path rules above.
 
 The first eligible lanes are limited to `workflow-docs-tooling` and
 `docs-planning`. The runner still fails closed unless changed files are exactly
@@ -599,8 +624,9 @@ Preflight prints a bounded JSON result with pass/warn/fail checks for the repo
 root, branch/worktree status and whether real-run would refuse, `gh`
 availability, `gh repo view tommytang213/Settleora`, issue polling,
 `codex-vm-full` resolution, logs-root writability, config parseability, trusted
-real-run disabled/enabled state, canary approval state, whether normal `--run`
-would refuse, whether canary real-run would refuse and why, disabled
+real-run disabled/enabled state, canary approval state, explicit
+low-risk-auto-merge canary approval mode, whether normal `--run` would refuse,
+whether canary real-run would refuse and why, disabled or explicitly approved
 auto-merge/follow-up/stale-claim-steal/review-fix/systemd defaults, and the
 fact that this command does not install or enable systemd. Preflight does not
 acquire the runner lock, run implementation Codex, run review Codex, mutate

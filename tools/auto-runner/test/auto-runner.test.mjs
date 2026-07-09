@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseCliArgs, loadConfig } from "../lib/config.mjs";
-import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "../lib/canary-policy.mjs";
+import {
+  evaluateCanaryIssuePolicy,
+  evaluateLowRiskAutoMergeCanaryApproval,
+  evaluateTrustPolicy,
+  writeCanaryEvidence,
+} from "../lib/canary-policy.mjs";
 import { parseReviewVerdict, runReviewPrompt } from "../lib/codex-runner.mjs";
 import { listWorkingTreeChangedFiles } from "../lib/git-workspace.mjs";
 import {
@@ -84,7 +89,7 @@ test("canary real-run requires explicit approval config", () => {
   assert.match(policy.reason, /trustedRealRunCanaryApproved/);
 });
 
-test("canary real-run refuses unsafe mutation toggles", () => {
+test("canary real-run refuses unsafe mutation toggles except explicitly approved low-risk auto-merge canary", () => {
   const base = {
     ...loadConfig({
       ...parseCliArgs(["--run", "--canary"]),
@@ -93,7 +98,6 @@ test("canary real-run refuses unsafe mutation toggles", () => {
     trustedRealRunCanaryApproved: true,
   };
   for (const unsafe of [
-    { allowAutoMerge: true },
     { allowFollowupIssueCreation: true },
     { allowStaleClaimSteal: true },
     { allowReviewFixMutation: true },
@@ -104,6 +108,34 @@ test("canary real-run refuses unsafe mutation toggles", () => {
     assert.equal(policy.allowed, false);
     assert.match(policy.reason, /disabled mutation toggles/);
   }
+  const unapprovedAutoMerge = evaluateTrustPolicy({ ...base, allowAutoMerge: true });
+  assert.equal(unapprovedAutoMerge.allowed, false);
+  assert.match(unapprovedAutoMerge.reason, /low-risk approval/);
+});
+
+test("canary real-run allows auto-merge only for explicit external max-2 low-risk approval", () => {
+  const approved = {
+    ...loadConfig({
+      ...parseCliArgs(["--run", "--canary", "--max-iterations", "2"]),
+      configPath: null,
+    }),
+    configPath: "local-runner-config.json",
+    trustedRealRunCanaryApproved: true,
+    trustedRealRunApproved: false,
+    lowRiskAutoMergeCanaryApproved: true,
+    allowAutoMerge: true,
+  };
+  const policy = evaluateTrustPolicy(approved);
+  assert.equal(policy.allowed, true);
+  assert.equal(policy.autoMergeCanaryApproval.mode, "approved");
+
+  const builtInLike = evaluateTrustPolicy({ ...approved, configPath: null });
+  assert.equal(builtInLike.allowed, false);
+  assert.match(builtInLike.reason, /external config path/);
+
+  const tooMany = evaluateTrustPolicy({ ...approved, requestedMaxIterations: 3, maxIterations: 2 });
+  assert.equal(tooMany.allowed, false);
+  assert.match(tooMany.reason, /maxIterations must be <= 2/);
 });
 
 test("preflight reports trusted run and canary refusal state", () => {
@@ -114,6 +146,7 @@ test("preflight reports trusted run and canary refusal state", () => {
     codexCommand: "codex-vm-full",
     trustedRealRunApproved: false,
     trustedRealRunCanaryApproved: false,
+    lowRiskAutoMergeCanaryApproved: false,
     trustedRealRunCanaryMaxIterations: 2,
     allowAutoMerge: false,
     allowFollowupIssueCreation: false,
@@ -130,6 +163,7 @@ test("preflight reports trusted run and canary refusal state", () => {
   assert.match(normal.detail, /trustedRealRunApproved/);
   assert.match(canary.detail, /canaryRunWouldRefuse/);
   assert.match(canary.detail, /trustedRealRunCanaryApproved/);
+  assert.match(canary.detail, /lowRiskAutoMergeCanaryApproved/);
 });
 
 test("preflight reports canary enabled state when approved", () => {
@@ -140,6 +174,7 @@ test("preflight reports canary enabled state when approved", () => {
     codexCommand: "codex-vm-full",
     trustedRealRunApproved: false,
     trustedRealRunCanaryApproved: true,
+    lowRiskAutoMergeCanaryApproved: false,
     trustedRealRunCanaryMaxIterations: 2,
     allowAutoMerge: false,
     allowFollowupIssueCreation: false,
@@ -190,6 +225,53 @@ test("readiness preflight fails when risky gates are enabled without approval", 
     assert.equal(result.checks.find((check) => check.name === "auto-merge-disabled").status, "fail");
     assert.equal(result.checks.find((check) => check.name === "stale-claim-stealing-disabled").status, "fail");
     assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "fail");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight distinguishes approved low-risk auto-merge canary config", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-auto-merge-canary-"));
+  try {
+    const result = runPreflight(
+      {
+        ...readinessConfig(tempRoot),
+        configPath: "/workspace/logs/settleora-auto-runner/local-low-risk-canary.json",
+        allowAutoMerge: true,
+        trustedRealRunCanaryApproved: true,
+        trustedRealRunApproved: false,
+        lowRiskAutoMergeCanaryApproved: true,
+        requestedMaxIterations: 2,
+        maxIterations: 2,
+      },
+      { runner: createReadinessRunner() },
+    );
+    assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "pass");
+    const autoMerge = result.checks.find((check) => check.name === "auto-merge-disabled");
+    assert.equal(autoMerge.status, "pass");
+    assert.match(autoMerge.detail, /explicit config-scoped low-risk auto-merge canary approval/);
+    const canary = result.checks.find((check) => check.name === "trusted-real-run-canary-policy");
+    assert.equal(canary.status, "pass");
+    assert.match(canary.detail, /"autoMergeCanaryApproval"/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight rejects unsafe auto-merge config without canary approval", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-unsafe-auto-merge-"));
+  try {
+    const result = runPreflight(
+      {
+        ...readinessConfig(tempRoot),
+        configPath: "/workspace/logs/settleora-auto-runner/local-unsafe.json",
+        allowAutoMerge: true,
+        trustedRealRunCanaryApproved: true,
+      },
+      { runner: createReadinessRunner() },
+    );
+    assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "fail");
+    assert.equal(result.checks.find((check) => check.name === "auto-merge-disabled").status, "fail");
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -1163,6 +1245,70 @@ test("canary mode rejects auto-merge and non-manual-merge contracts", () => {
   assert.equal(evaluateCanaryIssuePolicy(config, nonManual).allowed, false);
 });
 
+test("approved low-risk auto-merge canary accepts exact workflow and planning contracts only", () => {
+  const config = approvedLowRiskAutoMergeCanaryConfig();
+  const workflow = classifyIssueLane({
+    title: "Bounded auto merge canary",
+    body: contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
+      validationProfile: "runner-tests",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready"],
+  });
+  assert.equal(evaluateCanaryIssuePolicy(config, workflow).allowed, true);
+
+  const planning = classifyIssueLane({
+    title: "Bounded planning auto merge canary",
+    body: contractBody({
+      lane: "docs-planning",
+      allowedPaths: ["docs/planning/**", "docs/qa/**"],
+      validationProfile: "docs-only",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready"],
+  });
+  assert.equal(evaluateCanaryIssuePolicy(config, planning).allowed, true);
+
+  for (const body of [
+    contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["tools/auto-runner/**"],
+      validationProfile: "runner-tests",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["tools/auto-runner/**", "docs/**"],
+      validationProfile: "runner-tests",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["tools/auto-runner/**", "docs/workflow/**", "scripts/ai/**"],
+      validationProfile: "runner-tests",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+  ]) {
+    const broad = classifyIssueLane({ title: "Broad canary", body, labels: ["auto-canary-ready"] });
+    assert.equal(evaluateCanaryIssuePolicy(config, broad).allowed, false);
+  }
+});
+
+test("low-risk auto-merge canary approval rejects unsafe config shapes", () => {
+  const approved = approvedLowRiskAutoMergeCanaryConfig();
+  assert.equal(evaluateLowRiskAutoMergeCanaryApproval(approved).approved, true);
+  assert.equal(evaluateLowRiskAutoMergeCanaryApproval({ ...approved, trustedRealRunApproved: true }).approved, false);
+  assert.equal(evaluateLowRiskAutoMergeCanaryApproval({ ...approved, allowStaleClaimSteal: true }).approved, false);
+  assert.equal(evaluateLowRiskAutoMergeCanaryApproval({ ...approved, requestedMaxIterations: 3 }).approved, false);
+});
+
 test("built-in default and explicit false config block auto-merge", () => {
   const builtIn = loadConfig({ ...parseCliArgs(["--dry-run"]), configPath: null });
   assert.equal(builtIn.allowAutoMerge, false);
@@ -1192,6 +1338,17 @@ test("approved low-risk lane with exact allowed paths and exact-head checks allo
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "all_auto_merge_gates_passed");
   assert.equal(decision.prHeadSha, "head123");
+});
+
+test("canary auto-merge decision requires explicit low-risk approval", () => {
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({ config: { allowAutoMerge: true, canary: true } })).reason,
+    "low_risk_auto_merge_canary_not_approved:lowRiskAutoMergeCanaryApproved is not true",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({ config: approvedLowRiskAutoMergeCanaryConfig() })).reason,
+    "all_auto_merge_gates_passed",
+  );
 });
 
 test("sensitive product/security/storage/money/schema/OpenAPI/deployment/secret/public/admin paths block auto-merge", () => {
@@ -1737,6 +1894,7 @@ function readinessConfig(logsRoot) {
     codexCommand: "codex-vm-full",
     trustedRealRunApproved: false,
     trustedRealRunCanaryApproved: false,
+    lowRiskAutoMergeCanaryApproved: false,
     trustedRealRunCanaryMaxIterations: 2,
     allowAutoMerge: false,
     allowFollowupIssueCreation: false,
@@ -1748,6 +1906,27 @@ function readinessConfig(logsRoot) {
     maxIterations: 1,
     canaryEvidenceRoot: path.join(logsRoot, "canary"),
     configPath: null,
+  };
+}
+
+function approvedLowRiskAutoMergeCanaryConfig() {
+  return {
+    canary: true,
+    dryRun: false,
+    run: true,
+    configPath: "/workspace/logs/settleora-auto-runner/local-low-risk-canary.json",
+    trustedRealRunApproved: false,
+    trustedRealRunCanaryApproved: true,
+    trustedRealRunCanaryMaxIterations: 2,
+    lowRiskAutoMergeCanaryApproved: true,
+    allowAutoMerge: true,
+    allowFollowupIssueCreation: false,
+    allowStaleClaimSteal: false,
+    allowReviewFixMutation: false,
+    maxReviewFixCycles: 0,
+    allowSystemdEnablement: false,
+    maxIterations: 2,
+    requestedMaxIterations: 2,
   };
 }
 
