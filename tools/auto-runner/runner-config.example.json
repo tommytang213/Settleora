@@ -39,22 +39,25 @@
   "reviewerTiers": {
     "cheap_independent": {
       "enabled": false,
-      "providerProfile": "unconfigured-cheap-independent",
+      "provider": "gemini",
+      "providerProfile": "gemini-cheap",
       "command": null,
-      "model": null,
-      "inputUsdPerMillionTokens": 0,
-      "outputUsdPerMillionTokens": 0
+      "model": "gemini-2.5-flash-lite",
+      "inputUsdPerMillionTokens": 0.1,
+      "outputUsdPerMillionTokens": 0.4
     },
     "strong_independent": {
       "enabled": false,
-      "providerProfile": "unconfigured-strong-independent",
+      "provider": "gemini",
+      "providerProfile": "gemini-strong",
       "command": null,
-      "model": null,
-      "inputUsdPerMillionTokens": 0,
-      "outputUsdPerMillionTokens": 0
+      "model": "gemini-2.5-pro",
+      "inputUsdPerMillionTokens": 1.25,
+      "outputUsdPerMillionTokens": 10
     },
     "tie_breaker": {
       "enabled": false,
+      "provider": null,
       "providerProfile": "unconfigured-tie-breaker",
       "command": null,
       "model": null,
@@ -63,11 +66,40 @@
     },
     "codex_mechanics": {
       "enabled": true,
+      "provider": "codex",
       "providerProfile": "codex-mechanics-default",
       "command": "codex-vm-full",
       "model": "codex-subscription",
       "inputUsdPerMillionTokens": 0,
       "outputUsdPerMillionTokens": 0
     }
+  },
+  "reviewerProviderProfiles": {
+    "gemini": {
+      "provider": "gemini",
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "envFilePath": null,
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "defaultModel": "gemini-2.5-flash-lite"
+    },
+    "gemini-cheap": {
+      "provider": "gemini",
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "envFilePath": null,
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "defaultModel": "gemini-2.5-flash-lite"
+    },
+    "gemini-strong": {
+      "provider": "gemini",
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "envFilePath": null,
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+      "defaultModel": "gemini-2.5-pro"
+    }
+  },
+  "reviewerSmokeTest": {
+    "tier": "cheap_independent",
+    "maxEstimatedCostUsd": 0.05,
+    "envFilePath": null
   }
 }

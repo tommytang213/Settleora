@@ -20,6 +20,49 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Gemini reviewer provider smoke-test foundation checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - #805 `CLOSED`; it was not reopened or mutated by this slice.
+- Verified repo baseline:
+  `origin/main` at
+  `7290d75cb5c124fc2e57a26350ede1c40903ed21` after PR #815 merged.
+- This provider smoke-test slice:
+  - Adds disabled-by-default Gemini provider profile support for reviewer
+    tiers.
+  - Keeps Codex as the developer/mechanics path.
+  - Documents Google-only independent reviewer direction:
+    `cheap_independent` on Gemini Flash/Flash-Lite class models and
+    `strong_independent` on Gemini Pro class models when explicitly
+    configured.
+  - Keeps `tie_breaker` disabled and does not add Claude or OpenAI reviewer
+    provider wiring.
+  - Adds a standalone `--reviewer-smoke-test` mode with an explicit
+    `--live-external-reviewer-calls` gate for at most one tiny synthetic
+    Gemini call.
+  - Loads `GEMINI_API_KEY` only from process environment or an explicitly
+    configured external env file under
+    `/workspace/logs/settleora-auto-runner/secrets/`.
+  - Applies reviewer accounting read and hard-stop checks before any live
+    smoke call, and writes only sanitized smoke reports under
+    `/workspace/logs/settleora-auto-runner/reviews/smoke-tests/`.
+- Issue posture:
+  keep #800 open. This checkpoint does not approve trusted overnight
+  operation, canary real-run, normal real-run, auto-merge, stale-claim
+  stealing, follow-up issue creation, review-fix mutation, systemd enablement,
+  or always-on external reviewer calls.
+- Scope confirmation:
+  this checkpoint changes only `tools/auto-runner/**`, workflow docs, and this
+  ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, or auto-merge
+  enablement.
+
 ### Issue #800 - Tiered reviewer budget policy foundation checkpoint
 
 - GitHub state/project status:
