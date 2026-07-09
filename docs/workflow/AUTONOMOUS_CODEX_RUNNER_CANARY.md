@@ -39,3 +39,21 @@ runtime behavior.
   storage/privacy, money/settlement/bill calculation, schema/migration,
   OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
   release change is intended by this canary entry.
+
+## 2026-07-09 Issue 818
+
+- Source issue: `#818` - Auto-runner canary: Gemini integrated workflow docs
+  checkpoint.
+- Generated task key: `20260709T141831`.
+- Branch:
+  `feature/auto-818-auto-runner-canary-gemini-integrated-wor-2026-07-09t1418`.
+- Lane: `workflow-docs-tooling`.
+- Allowed path: `docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md`.
+- Validation profile: `docs-only`.
+- Merge policy: human review and manual merge required; no auto-merge.
+- Canary checkpoint: the `#800` Gemini-integrated pre-PR reviewer gate
+  canary real-run path was exercised through the DevBox auto-runner workflow.
+- Forbidden-scope confirmation: no product runtime, API, auth/session/security,
+  storage/privacy, money/settlement/bill calculation, schema/migration,
+  OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
+  release change is intended by this canary entry.
