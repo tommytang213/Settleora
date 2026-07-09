@@ -393,19 +393,24 @@ requested max iteration count is no greater than `2`. This max-2 path exists
 only to prove the live low-risk auto-merge gates in a separate task; it does
 not approve overnight operation or broader unattended operation.
 
-The auto-merge canary accepts only exact issue contracts for:
+The auto-merge canary accepts only issue-contract `allowedPaths` that are
+non-empty safe subsets of these approved low-risk lane prefixes:
 
 - `workflow-docs-tooling`: `tools/auto-runner/**` and `docs/workflow/**`.
 - `docs-planning`: `docs/planning/**` and `docs/qa/**`.
 
-Those contracts must set `autoMergeEligible: true` and
-`manualMergeRequired: false`. Broader globs, `scripts/ai/**`, non-docs paths,
-product/security/storage/money/schema/OpenAPI/generated-client/Docker/
-deployment/env/secret/public/admin scope, stop labels, missing Gemini pass
-when Gemini is configured, missing Codex mechanics approval, failing or
-mismatched-head checks, unresolved review threads, PR-ref code-scanning alerts,
-stale PR heads, base mismatch, dirty worktree, and issue-state mismatches all
-remain fail-closed gates.
+Contracts do not need to list every approved lane prefix. Least-privilege
+single-file contracts are preferred for live canary issues, for example
+`docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md` or
+`docs/planning/ISSUE_PROGRESS_LEDGER.md`, as long as every entry is under one
+of the approved prefixes. Those contracts must set `autoMergeEligible: true`
+and `manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
+`scripts/ai/**`, non-docs paths, product/security/storage/money/schema/
+OpenAPI/generated-client/Docker/deployment/env/secret/public/admin scope, stop
+labels, missing Gemini pass when Gemini is configured, missing Codex mechanics
+approval, failing or mismatched-head checks, unresolved review threads, PR-ref
+code-scanning alerts, stale PR heads, base mismatch, dirty worktree, and
+issue-state mismatches all remain fail-closed gates.
 
 Canary evidence is written under:
 
