@@ -21,12 +21,17 @@ export const defaultConfig = Object.freeze({
   maxIterations: 1,
   maxRuntimeMs: null,
   pollLimit: 30,
+  trustedRealRunApproved: false,
+  trustedRealRunCanaryApproved: false,
+  trustedRealRunCanaryMaxIterations: 2,
   allowStaleClaimSteal: false,
   staleClaimAfterHours: 12,
   allowAutoMerge: false,
   allowFollowupIssueCreation: false,
+  allowReviewFixMutation: false,
+  allowSystemdEnablement: false,
   maxFollowupIssuesPerRun: 3,
-  maxReviewFixCycles: 1,
+  maxReviewFixCycles: 0,
   reviewerCommand: "codex-vm-full",
   codexCommand: "codex-vm-full",
 });
@@ -56,6 +61,7 @@ export function parseCliArgs(argv) {
     writeSummary: false,
     sinceMs: 24 * 60 * 60 * 1000,
     requirePrePrReview: false,
+    canary: false,
     configPath: null,
     fixtureIssuesPath: null,
   };
@@ -64,6 +70,7 @@ export function parseCliArgs(argv) {
     const arg = argv[index];
     if (arg === "--dry-run") args.dryRun = true;
     else if (arg === "--run") args.run = true;
+    else if (arg === "--canary" || arg === "--trusted-real-run-canary") args.canary = true;
     else if (arg === "--preflight") args.preflight = true;
     else if (arg === "--once") args.once = true;
     else if (arg === "--require-pre-pr-review") args.requirePrePrReview = true;
@@ -88,8 +95,8 @@ export function parseCliArgs(argv) {
   if (!specialMode && args.dryRun === args.run) {
     throw new Error("Pass exactly one of --dry-run or --run");
   }
-  if ((args.writeSummary || args.reviewPackage) && (args.dryRun || args.run || args.preflight)) {
-    throw new Error("--write-summary and --review-package do not take --dry-run, --run, or --preflight");
+  if ((args.writeSummary || args.reviewPackage) && (args.dryRun || args.run || args.preflight || args.canary)) {
+    throw new Error("--write-summary and --review-package do not take --dry-run, --run, --canary, or --preflight");
   }
   if (args.preflight && (args.dryRun || args.run)) {
     throw new Error("--preflight runs as its own non-mutating mode; do not pass --dry-run or --run");
@@ -99,6 +106,9 @@ export function parseCliArgs(argv) {
   }
   if (args.fixtureIssuesPath && (args.writeSummary || args.reviewPackage || args.preflight)) {
     throw new Error("--fixture-issues can only be used with the normal dry-run loop");
+  }
+  if (args.canary && !args.dryRun && !args.run) {
+    throw new Error("--canary must be paired with --dry-run or --run");
   }
   if (args.once) {
     args.maxIterations = 1;
@@ -126,6 +136,7 @@ export function loadConfig(cliArgs) {
     mode: cliArgs.run ? "run" : "dry-run",
     dryRun: cliArgs.dryRun,
     run: cliArgs.run,
+    canary: cliArgs.canary,
     maxIterations: cliArgs.maxIterations || fileConfig.maxIterations || defaultConfig.maxIterations,
     maxRuntimeMs: cliArgs.maxRuntimeMs ?? fileConfig.maxRuntimeMs ?? defaultConfig.maxRuntimeMs,
     requirePrePrReview: cliArgs.requirePrePrReview,
@@ -134,6 +145,10 @@ export function loadConfig(cliArgs) {
     config.mode = "preflight";
     config.dryRun = true;
     config.run = false;
+  }
+  if (config.canary) {
+    config.mode = config.run ? "canary-run" : "canary-dry-run";
+    config.maxIterations = Math.min(config.maxIterations, config.trustedRealRunCanaryMaxIterations);
   }
   if (cliArgs.fixtureIssuesPath) {
     config.fixtureIssuesPath = cliArgs.fixtureIssuesPath;
@@ -150,9 +165,11 @@ export function loadConfig(cliArgs) {
     path.join(config.logsRoot, "reviews"),
     path.join(config.logsRoot, "summaries"),
     path.join(config.logsRoot, "locks"),
+    path.join(config.logsRoot, "canary"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
+  config.canaryEvidenceRoot = path.join(config.logsRoot, "canary");
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
   if (!existsSync(localConfigPath)) {

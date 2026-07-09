@@ -3,6 +3,7 @@ import { accessSync, constants, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { resolveCodexCommand } from "./codex-runner.mjs";
 import { getCurrentBranch, getRefSha, getStatusShort } from "./git-workspace.mjs";
+import { evaluateTrustPolicy } from "./canary-policy.mjs";
 
 const repoNameWithOwner = "tommytang213/Settleora";
 
@@ -16,6 +17,8 @@ export function runPreflight(config) {
   checks.push(checkCodexResolution(config));
   checks.push(checkLogsRoot(config));
   checks.push(checkConfig(config));
+  checks.push(checkTrustedRealRunPolicy(config));
+  checks.push(checkCanaryRealRunPolicy(config));
   checks.push(policyCheck("auto-merge-disabled", !config.allowAutoMerge, "allowAutoMerge is disabled."));
   checks.push(
     policyCheck(
@@ -29,6 +32,20 @@ export function runPreflight(config) {
       "stale-claim-stealing-disabled",
       !config.allowStaleClaimSteal,
       "allowStaleClaimSteal is disabled.",
+    ),
+  );
+  checks.push(
+    policyCheck(
+      "review-fix-mutation-disabled",
+      !config.allowReviewFixMutation && config.maxReviewFixCycles === 0,
+      "review-fix mutation is disabled.",
+    ),
+  );
+  checks.push(
+    policyCheck(
+      "systemd-enablement-disabled",
+      !config.allowSystemdEnablement,
+      "systemd enablement is disabled.",
     ),
   );
   checks.push(checkSystemdNotTouched());
@@ -145,6 +162,53 @@ function checkConfig(config) {
     name: "config-parseable",
     status: missing.length === 0 ? "pass" : "fail",
     detail: missing.length === 0 ? "required arrays present" : `missing or empty: ${missing.join(", ")}`,
+  };
+}
+
+function checkTrustedRealRunPolicy(config) {
+  const policy = evaluateTrustPolicy({
+    ...config,
+    dryRun: false,
+    run: true,
+    canary: false,
+    mode: "run",
+  });
+  return {
+    name: "trusted-real-run-policy",
+    status: policy.allowed ? "warn" : "pass",
+    detail: bounded(
+      JSON.stringify({
+        trustedRealRunApproved: Boolean(config.trustedRealRunApproved),
+        normalRunWouldRefuse: !policy.allowed,
+        reason: policy.reason,
+        unsafeToggles: policy.unsafeToggles,
+      }),
+    ),
+  };
+}
+
+function checkCanaryRealRunPolicy(config) {
+  const policy = evaluateTrustPolicy({
+    ...config,
+    dryRun: false,
+    run: true,
+    canary: true,
+    mode: "canary-run",
+  });
+  return {
+    name: "trusted-real-run-canary-policy",
+    status: policy.allowed ? "pass" : "warn",
+    detail: bounded(
+      JSON.stringify({
+        trustedRealRunCanaryApproved: Boolean(config.trustedRealRunCanaryApproved),
+        canaryRunWouldRefuse: !policy.allowed,
+        reason: policy.reason,
+        maxIterations: config.maxIterations,
+        trustedRealRunCanaryMaxIterations: config.trustedRealRunCanaryMaxIterations,
+        evidenceRoot: config.canaryEvidenceRoot,
+        unsafeToggles: policy.unsafeToggles,
+      }),
+    ),
   };
 }
 
