@@ -127,25 +127,50 @@ export function parseReviewVerdict(output) {
   if (trimmed.startsWith("[")) {
     try {
       JSON.parse(trimmed);
-      return unableToReview("Reviewer verdict JSON must be a JSON object.");
+      return unableToReview(
+        "Reviewer verdict JSON must be a JSON object.",
+        reviewDiagnostics({
+          sawJson: true,
+          invalidCount: 1,
+          failureReason: "Reviewer verdict JSON must be a JSON object.",
+        }),
+      );
     } catch (error) {
-      return unableToReview(`Reviewer verdict JSON could not be parsed: ${error.message}`);
+      return unableToReview(
+        `Reviewer verdict JSON could not be parsed: ${error.message}`,
+        reviewDiagnostics({ failureReason: `Reviewer verdict JSON could not be parsed: ${error.message}` }),
+      );
     }
   }
   const extraction = extractReviewVerdictCandidates(text);
-  if (extraction.contractLikeErrors.length > 0) {
-    return unableToReview(`Reviewer verdict JSON could not be parsed: ${extraction.contractLikeErrors[0]}`);
+  if (extraction.malformed.length > 0) {
+    const reason = `Reviewer verdict JSON could not be parsed: ${extraction.malformed[0].source}: ${extraction.malformed[0].reason}`;
+    return unableToReview(reason, reviewDiagnostics({ ...extraction, failureReason: reason }));
   }
-  if (extraction.contractLikeInvalid.length > 0) {
-    return unableToReview(extraction.contractLikeInvalid[0]);
+  if (extraction.oversized.length > 0) {
+    const reason = `Reviewer verdict JSON candidate is oversized: ${extraction.oversized[0].source}.`;
+    return unableToReview(reason, reviewDiagnostics({ ...extraction, failureReason: reason }));
   }
   if (extraction.valid.length === 0) {
-    return unableToReview(extraction.sawJson ? "Reviewer output did not contain valid verdict JSON." : "Reviewer output did not contain verdict JSON.");
+    const reason =
+      extraction.invalid.length > 0
+        ? extraction.invalid[0].reason
+        : extraction.sawJson
+          ? "Reviewer output did not contain valid verdict JSON."
+          : "Reviewer output did not contain verdict JSON.";
+    return unableToReview(reason, reviewDiagnostics({ ...extraction, failureReason: reason }));
   }
   if (extraction.valid.length > 1) {
-    return unableToReview("Reviewer output contained multiple verdict JSON objects; refusing ambiguous review output.");
+    const reason = "Reviewer output contained multiple verdict JSON objects; refusing ambiguous review output.";
+    return unableToReview(reason, reviewDiagnostics({ ...extraction, failureReason: reason }));
   }
-  return extraction.valid[0].verdict;
+  return {
+    ...extraction.valid[0].verdict,
+    review_json_diagnostics: reviewDiagnostics({
+      ...extraction,
+      selectedSource: extraction.valid[0].source,
+    }),
+  };
 }
 
 export function extractReviewVerdictCandidates(output) {
@@ -160,18 +185,23 @@ export function extractReviewVerdictCandidates(output) {
     }));
   const candidates = [...fenced, ...raw];
   const valid = [];
-  const contractLikeErrors = [];
-  const contractLikeInvalid = [];
+  const malformed = [];
+  const invalid = [];
+  const oversized = [];
   let sawJson = false;
 
   for (const candidate of candidates) {
+    if (candidate.text.length > maxReviewVerdictJsonCandidateBytes) {
+      oversized.push({ source: candidate.source, reason: `candidate length ${candidate.text.length} exceeds ${maxReviewVerdictJsonCandidateBytes}` });
+      continue;
+    }
     let parsed;
     try {
       parsed = JSON.parse(candidate.text);
       sawJson = true;
     } catch (error) {
       if (candidate.text.includes('"verdict"')) {
-        contractLikeErrors.push(`${candidate.source}: ${error.message}`);
+        malformed.push({ source: candidate.source, reason: error.message });
       }
       continue;
     }
@@ -186,7 +216,7 @@ export function extractReviewVerdictCandidates(output) {
         },
       });
     } else if (isContractLikeReviewObject(parsed)) {
-      contractLikeInvalid.push(validation.reason);
+      invalid.push({ source: candidate.source, reason: validation.reason });
     }
   }
 
@@ -196,15 +226,17 @@ export function extractReviewVerdictCandidates(output) {
       JSON.parse(trimmed);
       sawJson = true;
       if (!trimmed.startsWith("{")) {
-        contractLikeInvalid.push("Reviewer verdict JSON must be a JSON object.");
+        invalid.push({ source: "raw_json", reason: "Reviewer verdict JSON must be a JSON object." });
       }
     } catch (error) {
-      contractLikeErrors.push(error.message);
+      malformed.push({ source: "raw_json", reason: error.message });
     }
   }
 
-  return { valid, contractLikeErrors, contractLikeInvalid, sawJson };
+  return { valid, invalid, malformed, oversized, sawJson };
 }
+
+const maxReviewVerdictJsonCandidateBytes = 128 * 1024;
 
 const reviewVerdictFields = new Set([
   "verdict",
@@ -369,7 +401,7 @@ function dryRunReviewVerdict() {
   };
 }
 
-function unableToReview(reason) {
+function unableToReview(reason, diagnostics = null) {
   return {
     verdict: "unable_to_review",
     confidence: "low",
@@ -380,6 +412,20 @@ function unableToReview(reason) {
     blocking_findings: [reason],
     non_blocking_findings: [],
     recommended_next_action: "mark_auto_failed",
+    review_json_diagnostics: diagnostics || reviewDiagnostics({ failureReason: reason }),
+  };
+}
+
+function reviewDiagnostics(extraction = {}) {
+  return {
+    valid_verdict_count: extraction.valid?.length || extraction.validCount || 0,
+    invalid_candidate_count:
+      extraction.invalid?.length || extraction.malformed?.length || extraction.oversized?.length
+        ? (extraction.invalid?.length || 0) + (extraction.malformed?.length || 0) + (extraction.oversized?.length || 0)
+        : extraction.invalidCount || 0,
+    selected_json_source: extraction.selectedSource || null,
+    failure_reason: extraction.failureReason || null,
+    saw_json: Boolean(extraction.sawJson),
   };
 }
 
