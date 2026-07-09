@@ -241,15 +241,18 @@ The intended loop is:
 7. Create `feature/auto-<issue-number>-<slug>-<timestamp>`.
 8. Generate a Codex task prompt under the external log root.
 9. Invoke DevBox-local Codex with the prompt on stdin.
-10. Collect the report and changed-file list.
+10. Collect the report and changed-file list. Implementation Codex must not
+    push, open/update PRs, merge, or mutate GitHub labels/issues/comments.
 11. Plan and run scoped validation.
-12. Build a mandatory pre-PR review package.
-13. Run a separate review-only AI pass outside the mutable checkout.
-14. Block PR creation unless the review verdict is `approve`.
-15. Stage explicit changed paths only, commit, push the branch, open/update PR,
+12. Check for unexpected pre-review GitHub mutation evidence, including a
+    remote task branch or any PR for the task branch.
+13. Build a mandatory pre-PR review package.
+14. Run a separate review-only AI pass outside the mutable checkout.
+15. Block PR creation unless the review verdict is `approve`.
+16. Stage explicit changed paths only, commit, push the branch, open/update PR,
     watch checks, and comment/label the outcome.
-16. Write a per-iteration summary and continue to the next eligible issue.
-17. Write a final run summary.
+17. Write a per-iteration summary and continue to the next eligible issue.
+18. Write a final run summary.
 
 Normal per-issue terminal outcomes do not stop the whole session:
 `approved_pr_opened`, `blocked_needs_tommy`, `danger_gate`, `auto_failed`,
@@ -293,8 +296,13 @@ Reviewer output must contain:
 allows it, the requested changes stay inside original scope, and retry budget
 remains. `needs_tommy`, `danger_gate`, and `unable_to_review` block PR creation.
 Reviewer verdict JSON is parsed against the allowed enum values. Missing,
-malformed, or out-of-enum verdicts fail closed as `unable_to_review`. Dry-run
-review diagnostics never approve PR creation.
+malformed, out-of-enum, missing required-field, non-object, unknown-field, or
+ambiguous multiple verdict objects fail closed as `unable_to_review`. The
+parser accepts exactly one valid verdict object when it is raw JSON, inside a
+fenced `json` block, or surrounded by prose/tool output, and records whether
+the source was `raw_json`, `fenced_json`, or `extracted_surrounded_json` in
+the verdict object and run summaries. Dry-run review diagnostics never approve
+PR creation.
 
 ## Follow-Up Issues
 
@@ -315,9 +323,16 @@ from `git ls-files --others --exclude-standard`. The runner never uses
 `git add .` and never fabricates empty commits.
 
 PR creation/update is allowed only when validation passes, pre-PR review
-approves, the review did not mutate the checkout, lane policy does not require
-manual/danger gate before PR, and the task report is present enough to link.
-The runner does not merge into `main` by default.
+approves, the implementation path did not create a remote task branch or PR
+before review, the review did not mutate the checkout, lane policy does not
+require manual/danger gate before PR, and the task report is present enough to
+link. The runner does not merge into `main` by default.
+
+Generated implementation prompts tell implementation Codex to implement
+locally, validate locally, write the local report only, and leave intended file
+changes in the checkout. The runner owns explicit-path staging, commit, push,
+PR creation/update, CI watching, and issue outcome labels/comments after
+validation and approved pre-PR review.
 
 ## Running
 

@@ -122,43 +122,209 @@ export function runReviewPrompt(config, packageInfo) {
 }
 
 export function parseReviewVerdict(output) {
-  const match = String(output || "").match(/\{[\s\S]*"verdict"[\s\S]*\}/);
-  if (!match) return unableToReview("Reviewer output did not contain verdict JSON.");
-  try {
-    const parsed = JSON.parse(match[0]);
-    const verdict = enumValue(parsed.verdict, [
-      "approve",
-      "changes_requested",
-      "needs_tommy",
-      "danger_gate",
-      "unable_to_review",
-    ]);
-    if (!verdict) return unableToReview(`Reviewer verdict is invalid: ${parsed.verdict || "missing"}`);
-    const confidence = enumValue(parsed.confidence, ["low", "medium", "high"]) || "low";
-    const triState = ["pass", "partial", "fail", "unclear"];
-    const scopeControl = enumValue(parsed.scope_control, ["pass", "fail", "unclear"]) || "unclear";
-    const recommendedNextAction =
-      enumValue(parsed.recommended_next_action, [
-        "open_pr",
-        "run_safe_fix_cycle",
-        "mark_needs_tommy",
-        "mark_auto_failed",
-        "mark_danger_gate",
-      ]) || "mark_auto_failed";
-    return {
-      verdict,
-      confidence,
-      requirement_match: enumValue(parsed.requirement_match, triState) || "unclear",
-      code_quality: enumValue(parsed.code_quality, triState) || "unclear",
-      scope_control: scopeControl,
-      validation_adequacy: enumValue(parsed.validation_adequacy, triState) || "unclear",
-      blocking_findings: Array.isArray(parsed.blocking_findings) ? parsed.blocking_findings.slice(0, 20) : [],
-      non_blocking_findings: Array.isArray(parsed.non_blocking_findings) ? parsed.non_blocking_findings.slice(0, 20) : [],
-      recommended_next_action: recommendedNextAction,
-    };
-  } catch (error) {
-    return unableToReview(`Reviewer verdict JSON could not be parsed: ${error.message}`);
+  const text = String(output || "");
+  const trimmed = text.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      JSON.parse(trimmed);
+      return unableToReview("Reviewer verdict JSON must be a JSON object.");
+    } catch (error) {
+      return unableToReview(`Reviewer verdict JSON could not be parsed: ${error.message}`);
+    }
   }
+  const extraction = extractReviewVerdictCandidates(text);
+  if (extraction.contractLikeErrors.length > 0) {
+    return unableToReview(`Reviewer verdict JSON could not be parsed: ${extraction.contractLikeErrors[0]}`);
+  }
+  if (extraction.contractLikeInvalid.length > 0) {
+    return unableToReview(extraction.contractLikeInvalid[0]);
+  }
+  if (extraction.valid.length === 0) {
+    return unableToReview(extraction.sawJson ? "Reviewer output did not contain valid verdict JSON." : "Reviewer output did not contain verdict JSON.");
+  }
+  if (extraction.valid.length > 1) {
+    return unableToReview("Reviewer output contained multiple verdict JSON objects; refusing ambiguous review output.");
+  }
+  return extraction.valid[0].verdict;
+}
+
+export function extractReviewVerdictCandidates(output) {
+  const text = String(output || "");
+  const fenced = collectFencedJsonCandidates(text);
+  const fencedRanges = fenced.map((candidate) => candidate.range);
+  const raw = collectJsonObjectCandidates(text)
+    .filter((candidate) => !fencedRanges.some((range) => candidate.range[0] >= range[0] && candidate.range[1] <= range[1]))
+    .map((candidate) => ({
+      ...candidate,
+      source: text.trim() === candidate.text.trim() ? "raw_json" : "extracted_surrounded_json",
+    }));
+  const candidates = [...fenced, ...raw];
+  const valid = [];
+  const contractLikeErrors = [];
+  const contractLikeInvalid = [];
+  let sawJson = false;
+
+  for (const candidate of candidates) {
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate.text);
+      sawJson = true;
+    } catch (error) {
+      if (candidate.text.includes('"verdict"')) {
+        contractLikeErrors.push(`${candidate.source}: ${error.message}`);
+      }
+      continue;
+    }
+
+    const validation = validateReviewVerdictObject(parsed);
+    if (validation.ok) {
+      valid.push({
+        source: candidate.source,
+        verdict: {
+          ...validation.verdict,
+          json_source: candidate.source,
+        },
+      });
+    } else if (isContractLikeReviewObject(parsed)) {
+      contractLikeInvalid.push(validation.reason);
+    }
+  }
+
+  const trimmed = text.trim();
+  if (!sawJson && /^[\[{]/.test(trimmed)) {
+    try {
+      JSON.parse(trimmed);
+      sawJson = true;
+      if (!trimmed.startsWith("{")) {
+        contractLikeInvalid.push("Reviewer verdict JSON must be a JSON object.");
+      }
+    } catch (error) {
+      contractLikeErrors.push(error.message);
+    }
+  }
+
+  return { valid, contractLikeErrors, contractLikeInvalid, sawJson };
+}
+
+const reviewVerdictFields = new Set([
+  "verdict",
+  "confidence",
+  "requirement_match",
+  "code_quality",
+  "scope_control",
+  "validation_adequacy",
+  "blocking_findings",
+  "non_blocking_findings",
+  "recommended_next_action",
+]);
+
+function validateReviewVerdictObject(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "Reviewer verdict JSON must be a JSON object." };
+  }
+  for (const key of Object.keys(parsed)) {
+    if (!reviewVerdictFields.has(key)) {
+      return { ok: false, reason: `Reviewer verdict JSON contains unsupported field: ${key}.` };
+    }
+  }
+  for (const field of reviewVerdictFields) {
+    if (!(field in parsed)) {
+      return { ok: false, reason: `Reviewer verdict JSON is missing required field: ${field}.` };
+    }
+  }
+  const triState = ["pass", "partial", "fail", "unclear"];
+  const enumChecks = [
+    ["verdict", parsed.verdict, ["approve", "changes_requested", "needs_tommy", "danger_gate", "unable_to_review"]],
+    ["confidence", parsed.confidence, ["low", "medium", "high"]],
+    ["requirement_match", parsed.requirement_match, triState],
+    ["code_quality", parsed.code_quality, triState],
+    ["scope_control", parsed.scope_control, ["pass", "fail", "unclear"]],
+    ["validation_adequacy", parsed.validation_adequacy, triState],
+    [
+      "recommended_next_action",
+      parsed.recommended_next_action,
+      ["open_pr", "run_safe_fix_cycle", "mark_needs_tommy", "mark_auto_failed", "mark_danger_gate"],
+    ],
+  ];
+  for (const [field, value, allowed] of enumChecks) {
+    if (!enumValue(value, allowed)) {
+      return { ok: false, reason: `Reviewer verdict field ${field} is invalid: ${String(value || "missing")}.` };
+    }
+  }
+  if (!Array.isArray(parsed.blocking_findings) || !Array.isArray(parsed.non_blocking_findings)) {
+    return { ok: false, reason: "Reviewer verdict findings fields must be arrays." };
+  }
+  return {
+    ok: true,
+    verdict: {
+      verdict: parsed.verdict,
+      confidence: parsed.confidence,
+      requirement_match: parsed.requirement_match,
+      code_quality: parsed.code_quality,
+      scope_control: parsed.scope_control,
+      validation_adequacy: parsed.validation_adequacy,
+      blocking_findings: parsed.blocking_findings.slice(0, 20),
+      non_blocking_findings: parsed.non_blocking_findings.slice(0, 20),
+      recommended_next_action: parsed.recommended_next_action,
+    },
+  };
+}
+
+function isContractLikeReviewObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).some((key) => reviewVerdictFields.has(key)));
+}
+
+function collectFencedJsonCandidates(text) {
+  const candidates = [];
+  const fencePattern = /```json\s*([\s\S]*?)```/gi;
+  let match;
+  while ((match = fencePattern.exec(text)) !== null) {
+    const contentStart = match.index + match[0].indexOf(match[1]);
+    candidates.push({
+      text: match[1].trim(),
+      source: "fenced_json",
+      range: [contentStart, contentStart + match[1].length],
+    });
+  }
+  return candidates;
+}
+
+function collectJsonObjectCandidates(text) {
+  const candidates = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaping = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+      } else if (char === "\\") {
+        escaping = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        candidates.push({ text: text.slice(start, index + 1), range: [start, index + 1] });
+        start = -1;
+      }
+    }
+  }
+  return candidates;
 }
 
 function buildReviewPrompt(packageInfo) {

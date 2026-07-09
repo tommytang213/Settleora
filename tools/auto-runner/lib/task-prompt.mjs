@@ -71,11 +71,19 @@ ${(laneDecision.contract?.requiredReading || []).map((item) => `- Contract requi
 
 - Start from latest \`origin/main\`.
 - Create and work only on \`${targetBranch}\`.
+- Implement locally, validate locally, and write the local report only.
+- Do not push to any remote.
+- Do not open or update pull requests.
+- Do not merge.
+- Do not change GitHub labels, issues, or comments.
+- Do not create follow-up GitHub issues.
+- The runner owns explicit-path staging, commit, push, PR creation/update, CI watching, and issue outcome labels/comments after local validation and an approved pre-PR review verdict.
 - Do not push directly to \`main\`.
 - Do not force push.
 - Do not delete branches.
 - Do not amend commits.
 - Do not use \`git add .\`; stage explicit paths only.
+- Do not commit; leave intended file changes in the local checkout for the runner to stage explicitly after review.
 - Keep \`.codex/reports/\` local unless the task explicitly requires committing a report.
 
 ## Scope and non-goals

@@ -26,7 +26,7 @@ import { generateTaskPrompt } from "./lib/task-prompt.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./lib/codex-runner.mjs";
 import { collectReport } from "./lib/report-collector.mjs";
 import { planValidation, runValidationPlan } from "./lib/validation-planner.mjs";
-import { openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
+import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 
 async function main() {
@@ -257,6 +257,19 @@ async function runIteration(config, logger, runId, index) {
     return iteration;
   }
 
+  iteration.preReviewPrOwnership = inspectPreReviewPrOwnership(config, branchName);
+  if (!iteration.preReviewPrOwnership.clean) {
+    iteration.outcome = "auto_failed";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      preReviewPrOwnershipFailureBody(issue, iteration.preReviewPrOwnership),
+    );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+
   const beforeReview = await checkoutFingerprint();
   iteration.reviewPackage = await writeReviewPackage(config, {
     issue,
@@ -421,6 +434,21 @@ function validationFailureBody(issue, validation) {
     `Status: ${failed?.status}`,
     failed?.stderr || failed?.stdout || failed?.error || "",
   ].join("\n");
+}
+
+function preReviewPrOwnershipFailureBody(issue, ownership) {
+  const prs = (ownership.prs || []).map((pr) => `#${pr.number} ${pr.state} ${pr.url}`).join("\n") || "none";
+  return [
+    `Auto-runner blocked #${issue.number} because GitHub mutation was detected before the runner-owned PR step.`,
+    "",
+    `Remote task branch exists: ${ownership.remoteBranchExists ? "yes" : "no"}`,
+    `Remote task branch SHA: ${ownership.remoteBranchSha || "none"}`,
+    `Pre-review PRs for task branch:`,
+    prs,
+    ownership.commandFailed ? `Inspection error: ${JSON.stringify(ownership.errors)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 main().catch((error) => {

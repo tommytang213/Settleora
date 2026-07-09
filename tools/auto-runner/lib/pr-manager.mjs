@@ -27,6 +27,52 @@ export function pushBranch(config, branchName) {
   };
 }
 
+export function inspectPreReviewPrOwnership(config, branchName) {
+  if (config.dryRun) {
+    return {
+      skipped: true,
+      reason: "dry-run",
+      clean: true,
+      remoteBranchExists: false,
+      prs: [],
+    };
+  }
+  const remote = spawnSync("git", ["ls-remote", "--heads", "origin", branchName], {
+    cwd: config.repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  const prList = runGh(
+    ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,headRefName,headRefOid"],
+    config.repoRoot,
+  );
+  let prs = [];
+  let prParseError = null;
+  if (prList.status === 0 && !prList.error) {
+    try {
+      prs = JSON.parse(prList.stdout || "[]");
+    } catch (error) {
+      prParseError = error.message;
+    }
+  }
+  const remoteBranchExists = remote.status === 0 && Boolean(remote.stdout.trim());
+  const commandFailed = Boolean(remote.error || remote.status !== 0 || prList.error || prList.status !== 0 || prParseError);
+  const clean = !commandFailed && !remoteBranchExists && prs.length === 0;
+  return {
+    skipped: false,
+    clean,
+    remoteBranchExists,
+    remoteBranchSha: remoteBranchExists ? remote.stdout.trim().split(/\s+/)[0] : null,
+    prs,
+    commandFailed,
+    errors: {
+      remote: remote.error || (remote.status === 0 ? null : remote.stderr.trim()),
+      prList: prList.error || (prList.status === 0 ? null : prList.stderr.trim()),
+      prParse: prParseError,
+    },
+  };
+}
+
 export function openOrUpdatePr(config, issue, branchName, summary) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
   const body = [

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseCliArgs, loadConfig } from "../lib/config.mjs";
@@ -16,6 +16,8 @@ import {
 } from "../lib/github-issues.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles, parseAutoRunnerContract } from "../lib/lane-policy.mjs";
 import { runPreflight } from "../lib/preflight.mjs";
+import { generateTaskPrompt } from "../lib/task-prompt.mjs";
+import { inspectPreReviewPrOwnership } from "../lib/pr-manager.mjs";
 
 const baseConfig = {
   dryRun: true,
@@ -389,12 +391,95 @@ test("changed file outside contract allowlist is rejected even inside lane", () 
   ]);
 });
 
-test("review verdict parsing approves only valid verdict JSON", () => {
-  const approve = parseReviewVerdict(`notes\n{"verdict":"approve","confidence":"high","requirement_match":"pass","code_quality":"pass","scope_control":"pass","validation_adequacy":"pass","blocking_findings":[],"non_blocking_findings":[],"recommended_next_action":"open_pr"}`);
+test("review verdict parsing approves valid verdict JSON surrounded by prose", () => {
+  const approve = parseReviewVerdict(`notes\n${reviewVerdictJson()}\nextra review notes`);
   assert.equal(approve.verdict, "approve");
-  const invalid = parseReviewVerdict(`{"verdict":"ship_it","confidence":"high"}`);
+  assert.equal(approve.json_source, "extracted_surrounded_json");
+});
+
+test("review verdict parsing records fenced and raw JSON sources", () => {
+  const fenced = parseReviewVerdict(`\`\`\`json\n${reviewVerdictJson()}\n\`\`\`\nnotes`);
+  assert.equal(fenced.verdict, "approve");
+  assert.equal(fenced.json_source, "fenced_json");
+
+  const raw = parseReviewVerdict(reviewVerdictJson());
+  assert.equal(raw.verdict, "approve");
+  assert.equal(raw.json_source, "raw_json");
+});
+
+test("review verdict parsing fails closed for invalid or ambiguous verdict contracts", () => {
+  const invalid = parseReviewVerdict(reviewVerdictJson({ verdict: "ship_it" }));
   assert.equal(invalid.verdict, "unable_to_review");
   assert.match(invalid.blocking_findings[0], /invalid/);
+
+  const missing = parseReviewVerdict(JSON.stringify({ verdict: "approve", confidence: "high" }));
+  assert.equal(missing.verdict, "unable_to_review");
+  assert.match(missing.blocking_findings[0], /missing required field/);
+
+  const unknown = parseReviewVerdict(reviewVerdictJson({ unexpected: "unsafe" }));
+  assert.equal(unknown.verdict, "unable_to_review");
+  assert.match(unknown.blocking_findings[0], /unsupported field/);
+
+  const malformed = parseReviewVerdict(`\`\`\`json\n{"verdict":"approve",\n\`\`\``);
+  assert.equal(malformed.verdict, "unable_to_review");
+  assert.match(malformed.blocking_findings[0], /could not be parsed/);
+
+  const multiple = parseReviewVerdict(`${reviewVerdictJson()}\n${reviewVerdictJson({ verdict: "changes_requested" })}`);
+  assert.equal(multiple.verdict, "unable_to_review");
+  assert.match(multiple.blocking_findings[0], /multiple verdict JSON objects/);
+});
+
+test("review verdict parsing fails closed when JSON is not an object", () => {
+  const verdict = parseReviewVerdict(`[${reviewVerdictJson()}]`);
+  assert.equal(verdict.verdict, "unable_to_review");
+  assert.match(verdict.blocking_findings[0], /must be a JSON object|did not contain valid verdict JSON/);
+});
+
+test("generated implementation prompts prohibit implementation Codex GitHub mutation", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-task-prompt-"));
+  try {
+    mkdirSync(path.join(tempRoot, "repo", ".codex", "reports"), { recursive: true });
+    mkdirSync(path.join(tempRoot, "logs", "tasks"), { recursive: true });
+    const prompt = generateTaskPrompt(
+      {
+        repoRoot: path.join(tempRoot, "repo"),
+        logsRoot: path.join(tempRoot, "logs"),
+      },
+      {
+        number: 800,
+        title: "Runner hardening",
+        labels: ["auto-ready"],
+        body: "Issue body",
+        url: "https://example.invalid/800",
+      },
+      {
+        lane: "workflow-docs-tooling",
+        reason: "test",
+        allowedPaths: ["tools/auto-runner/**"],
+        validationProfile: "runner-tests",
+        autoMergeEligible: false,
+        manualMergeRequired: true,
+        contract: { requiredReading: [] },
+      },
+      "feature/test",
+    ).prompt;
+    assert.match(prompt, /Do not push to any remote\./);
+    assert.match(prompt, /Do not open or update pull requests\./);
+    assert.match(prompt, /Do not merge\./);
+    assert.match(prompt, /Do not change GitHub labels, issues, or comments\./);
+    assert.match(prompt, /The runner owns explicit-path staging, commit, push, PR creation\/update, CI watching, and issue outcome labels\/comments/);
+    assert.match(prompt, /Do not commit; leave intended file changes in the local checkout/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("pre-review PR ownership guard is clean and non-mutating in dry-run", () => {
+  const ownership = inspectPreReviewPrOwnership({ dryRun: true }, "feature/test");
+  assert.equal(ownership.clean, true);
+  assert.equal(ownership.remoteBranchExists, false);
+  assert.deepEqual(ownership.prs, []);
+  assert.equal(ownership.reason, "dry-run");
 });
 
 test("canary dry-run writes bounded evidence without GitHub mutation", () => {
@@ -451,4 +536,19 @@ function contractBody(overrides = {}) {
 ${JSON.stringify(contract, null, 2)}
 \`\`\`
 `;
+}
+
+function reviewVerdictJson(overrides = {}) {
+  return JSON.stringify({
+    verdict: "approve",
+    confidence: "high",
+    requirement_match: "pass",
+    code_quality: "pass",
+    scope_control: "pass",
+    validation_adequacy: "pass",
+    blocking_findings: [],
+    non_blocking_findings: [],
+    recommended_next_action: "open_pr",
+    ...overrides,
+  });
 }

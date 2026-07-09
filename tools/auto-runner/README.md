@@ -126,6 +126,21 @@ node tools/auto-runner/settleora-auto-runner.mjs --write-summary --since 24h
 ```
 
 Real-run mutation and PR creation stay gated by lane policy, local validation,
-and the mandatory pre-PR AI review verdict. Auto-merge is disabled by default.
+unexpected pre-review GitHub mutation checks, and the mandatory pre-PR AI
+review verdict. Implementation Codex is instructed to implement locally,
+validate locally, write the local report only, and not push, open/update PRs,
+merge, or mutate GitHub labels/issues/comments. The runner owns explicit-path
+staging, commit, push, PR creation/update, CI watching, and issue outcome
+labels/comments after an approved review verdict. Before review, the runner
+checks for a remote task branch or PR for the task branch and fails closed if
+either exists unexpectedly.
+
+The review verdict parser accepts exactly one valid verdict JSON object as raw
+JSON, fenced `json`, or JSON surrounded by prose/tool output. It records the
+source as `raw_json`, `fenced_json`, or `extracted_surrounded_json`. Missing,
+malformed, non-object, missing-field, unknown-field, out-of-enum, or ambiguous
+multiple verdict objects fail closed as `unable_to_review`. The verdict source
+is included in run summaries when review succeeds. Auto-merge is disabled by
+default.
 Terminal real-run outcomes remove `auto-running`; PR-opened outcomes add
 `auto-pr-opened`, and blocked/failure outcomes add the configured stop label.
