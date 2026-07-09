@@ -474,44 +474,91 @@ test("review verdict parsing approves valid verdict JSON surrounded by prose", (
   const approve = parseReviewVerdict(`notes\n${reviewVerdictJson()}\nextra review notes`);
   assert.equal(approve.verdict, "approve");
   assert.equal(approve.json_source, "extracted_surrounded_json");
+  assert.deepEqual(approve.review_json_diagnostics, {
+    valid_verdict_count: 1,
+    invalid_candidate_count: 0,
+    selected_json_source: "extracted_surrounded_json",
+    failure_reason: null,
+    saw_json: true,
+  });
 });
 
 test("review verdict parsing records fenced and raw JSON sources", () => {
   const fenced = parseReviewVerdict(`\`\`\`json\n${reviewVerdictJson()}\n\`\`\`\nnotes`);
   assert.equal(fenced.verdict, "approve");
   assert.equal(fenced.json_source, "fenced_json");
+  assert.equal(fenced.review_json_diagnostics.valid_verdict_count, 1);
+  assert.equal(fenced.review_json_diagnostics.invalid_candidate_count, 0);
+  assert.equal(fenced.review_json_diagnostics.selected_json_source, "fenced_json");
 
   const raw = parseReviewVerdict(reviewVerdictJson());
   assert.equal(raw.verdict, "approve");
   assert.equal(raw.json_source, "raw_json");
+  assert.equal(raw.review_json_diagnostics.valid_verdict_count, 1);
+  assert.equal(raw.review_json_diagnostics.invalid_candidate_count, 0);
+  assert.equal(raw.review_json_diagnostics.selected_json_source, "raw_json");
+});
+
+test("review verdict parsing ignores invalid schema example when exactly one valid verdict follows", () => {
+  const schemaExample = reviewVerdictJson({
+    verdict: "approve | changes_requested | needs_tommy | danger_gate | unable_to_review",
+  });
+  const result = parseReviewVerdict(`Required JSON shape:\n${schemaExample}\nFinal verdict:\n${reviewVerdictJson()}`);
+  assert.equal(result.verdict, "approve");
+  assert.equal(result.json_source, "extracted_surrounded_json");
+  assert.equal(result.review_json_diagnostics.valid_verdict_count, 1);
+  assert.equal(result.review_json_diagnostics.invalid_candidate_count, 1);
+  assert.equal(result.review_json_diagnostics.selected_json_source, "extracted_surrounded_json");
+  assert.equal(result.review_json_diagnostics.failure_reason, null);
 });
 
 test("review verdict parsing fails closed for invalid or ambiguous verdict contracts", () => {
   const invalid = parseReviewVerdict(reviewVerdictJson({ verdict: "ship_it" }));
   assert.equal(invalid.verdict, "unable_to_review");
   assert.match(invalid.blocking_findings[0], /invalid/);
+  assert.equal(invalid.review_json_diagnostics.valid_verdict_count, 0);
+  assert.equal(invalid.review_json_diagnostics.invalid_candidate_count, 1);
+  assert.match(invalid.review_json_diagnostics.failure_reason, /invalid/);
 
   const missing = parseReviewVerdict(JSON.stringify({ verdict: "approve", confidence: "high" }));
   assert.equal(missing.verdict, "unable_to_review");
   assert.match(missing.blocking_findings[0], /missing required field/);
+  assert.equal(missing.review_json_diagnostics.invalid_candidate_count, 1);
 
   const unknown = parseReviewVerdict(reviewVerdictJson({ unexpected: "unsafe" }));
   assert.equal(unknown.verdict, "unable_to_review");
   assert.match(unknown.blocking_findings[0], /unsupported field/);
+  assert.equal(unknown.review_json_diagnostics.invalid_candidate_count, 1);
 
-  const malformed = parseReviewVerdict(`\`\`\`json\n{"verdict":"approve",\n\`\`\``);
+  const malformed = parseReviewVerdict(`\`\`\`json\n{"verdict":"approve",\n\`\`\`\n${reviewVerdictJson()}`);
   assert.equal(malformed.verdict, "unable_to_review");
   assert.match(malformed.blocking_findings[0], /could not be parsed/);
+  assert.equal(malformed.review_json_diagnostics.valid_verdict_count, 0);
+  assert.equal(malformed.review_json_diagnostics.invalid_candidate_count, 1);
 
   const multiple = parseReviewVerdict(`${reviewVerdictJson()}\n${reviewVerdictJson({ verdict: "changes_requested" })}`);
   assert.equal(multiple.verdict, "unable_to_review");
   assert.match(multiple.blocking_findings[0], /multiple verdict JSON objects/);
+  assert.equal(multiple.review_json_diagnostics.valid_verdict_count, 2);
+  assert.equal(multiple.review_json_diagnostics.invalid_candidate_count, 0);
+});
+
+test("review verdict parsing fails closed for placeholder enum without valid verdict", () => {
+  const placeholder = parseReviewVerdict(
+    reviewVerdictJson({ verdict: "approve | changes_requested | needs_tommy | danger_gate | unable_to_review" }),
+  );
+  assert.equal(placeholder.verdict, "unable_to_review");
+  assert.match(placeholder.blocking_findings[0], /field verdict is invalid/);
+  assert.equal(placeholder.review_json_diagnostics.valid_verdict_count, 0);
+  assert.equal(placeholder.review_json_diagnostics.invalid_candidate_count, 1);
 });
 
 test("review verdict parsing fails closed when JSON is not an object", () => {
   const verdict = parseReviewVerdict(`[${reviewVerdictJson()}]`);
   assert.equal(verdict.verdict, "unable_to_review");
   assert.match(verdict.blocking_findings[0], /must be a JSON object|did not contain valid verdict JSON/);
+  assert.equal(verdict.review_json_diagnostics.valid_verdict_count, 0);
+  assert.equal(verdict.review_json_diagnostics.invalid_candidate_count, 1);
 });
 
 test("generated implementation prompts prohibit implementation Codex GitHub mutation", () => {

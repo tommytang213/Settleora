@@ -299,14 +299,22 @@ Reviewer output must contain:
 `changes_requested` may trigger a bounded safe fix cycle only when the lane
 allows it, the requested changes stay inside original scope, and retry budget
 remains. `needs_tommy`, `danger_gate`, and `unable_to_review` block PR creation.
-Reviewer verdict JSON is parsed against the allowed enum values. Missing,
-malformed, out-of-enum, missing required-field, non-object, unknown-field, or
-ambiguous multiple verdict objects fail closed as `unable_to_review`. The
-parser accepts exactly one valid verdict object when it is raw JSON, inside a
-fenced `json` block, or surrounded by prose/tool output, and records whether
-the source was `raw_json`, `fenced_json`, or `extracted_surrounded_json` in
-the verdict object and run summaries. Dry-run review diagnostics never approve
-PR creation.
+Reviewer verdict JSON is parsed against the allowed enum values. The parser
+extracts JSON object candidates from raw JSON, fenced `json` blocks, and JSON
+surrounded by prose/tool output, then validates each object against the strict
+verdict schema. It accepts only when exactly one schema-valid verdict object
+exists. Invalid schema/example candidates, including placeholder enum strings
+such as
+`approve | changes_requested | needs_tommy | danger_gate | unable_to_review`,
+are counted and ignored only when there is exactly one valid verdict object.
+Malformed JSON candidates, oversized candidates, non-object raw JSON, missing
+required fields, unknown fields, out-of-enum values without a valid verdict,
+zero valid verdicts, or multiple valid verdicts fail closed as
+`unable_to_review`. Review results, canary evidence, and summaries record the
+valid verdict count, invalid candidate count, selected source
+(`raw_json`, `fenced_json`, or `extracted_surrounded_json`) when present, and
+failure reason when review cannot be accepted. Dry-run review diagnostics never
+approve PR creation.
 
 ## Follow-Up Issues
 
