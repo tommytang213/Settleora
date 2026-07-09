@@ -20,7 +20,13 @@ import { classifyIssueLane, filterForbiddenChangedFiles, parseAutoRunnerContract
 import { runPreflight } from "../lib/preflight.mjs";
 import { generateTaskPrompt } from "../lib/task-prompt.mjs";
 import { inspectPreReviewPrOwnership } from "../lib/pr-manager.mjs";
-import { loadGeminiApiKey, runGeminiReviewerSmokeTest, sanitizeSecretText } from "../lib/gemini-reviewer.mjs";
+import {
+  loadGeminiApiKey,
+  resolveGeminiModelEndpoint,
+  runGeminiReviewerSmokeTest,
+  sanitizeSecretText,
+  supportedGeminiModelEndpoints,
+} from "../lib/gemini-reviewer.mjs";
 import {
   estimateReviewerCostUsd,
   evaluateReviewerBudget,
@@ -457,7 +463,7 @@ test("Gemini smoke test skips disabled provider tiers without external API call"
   }
 });
 
-test("Gemini smoke test blocks invalid model names before external API call", async () => {
+test("Gemini smoke test rejects unsupported model names before external API call", async () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-invalid-model-"));
   try {
     let calls = 0;
@@ -479,10 +485,33 @@ test("Gemini smoke test blocks invalid model names before external API call", as
       },
     });
     assert.equal(result.status, "blocked");
-    assert.equal(result.reason, "blocked_invalid_gemini_model");
+    assert.equal(result.reason, "blocked_unsupported_gemini_model");
     assert.equal(calls, 0);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini model config resolves only to fixed Google endpoint constants", async () => {
+  assert.deepEqual(Object.keys(supportedGeminiModelEndpoints).sort(), [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+  ]);
+  for (const [model, endpoint] of Object.entries(supportedGeminiModelEndpoints)) {
+    assert.equal(resolveGeminiModelEndpoint(model), endpoint);
+    const parsed = new URL(endpoint);
+    assert.equal(parsed.origin, "https://generativelanguage.googleapis.com");
+    assert.equal(parsed.pathname, `/v1beta/models/${model}:generateContent`);
+  }
+  for (const unsupported of [
+    "gemini-2.5-flash/../../metadata",
+    "gemini-2.5-flash?key=attacker",
+    "https://metadata.invalid/v1beta/models/gemini-2.5-flash",
+    "//metadata.invalid/v1beta/models/gemini-2.5-flash",
+    "gemini-2.5-ultra",
+  ]) {
+    assert.equal(resolveGeminiModelEndpoint(unsupported), null);
   }
 });
 
@@ -541,8 +570,10 @@ test("Gemini smoke test selects configured cheap and strong Gemini tier models",
     assert.equal(cheap.model, "gemini-2.5-flash-lite");
     assert.equal(strong.status, "pass");
     assert.equal(strong.model, "gemini-2.5-pro");
-    assert.match(requestedUrls[0], /gemini-2\.5-flash-lite/);
-    assert.match(requestedUrls[1], /gemini-2\.5-pro/);
+    assert.equal(new URL(requestedUrls[0]).origin, "https://generativelanguage.googleapis.com");
+    assert.equal(new URL(requestedUrls[1]).origin, "https://generativelanguage.googleapis.com");
+    assert.equal(new URL(requestedUrls[0]).pathname, "/v1beta/models/gemini-2.5-flash-lite:generateContent");
+    assert.equal(new URL(requestedUrls[1]).pathname, "/v1beta/models/gemini-2.5-pro:generateContent");
     assert.doesNotMatch(readFileSync(cheap.reportPath, "utf8"), /super-secret-key/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });

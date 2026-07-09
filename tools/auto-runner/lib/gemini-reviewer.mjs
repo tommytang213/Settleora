@@ -9,6 +9,11 @@ import {
 } from "./reviewer-policy.mjs";
 
 const geminiApiOrigin = "https://generativelanguage.googleapis.com";
+export const supportedGeminiModelEndpoints = Object.freeze({
+  "gemini-2.5-flash-lite": `${geminiApiOrigin}/v1beta/models/gemini-2.5-flash-lite:generateContent`,
+  "gemini-2.5-flash": `${geminiApiOrigin}/v1beta/models/gemini-2.5-flash:generateContent`,
+  "gemini-2.5-pro": `${geminiApiOrigin}/v1beta/models/gemini-2.5-pro:generateContent`,
+});
 const approvedSecretRoot = "/workspace/logs/settleora-auto-runner/secrets";
 const smokeInputTokenEstimate = 900;
 const smokeOutputTokenEstimate = 160;
@@ -63,7 +68,8 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
   if (tier.provider !== "gemini") return finishSmoke(config, base, startedAtMs, "skipped_provider_tier_not_gemini");
   if (budget.block) return finishSmoke(config, base, startedAtMs, "blocked_reviewer_budget_hard_stop");
   if (estimatedCostUsd > base.estimated.capUsd) return finishSmoke(config, base, startedAtMs, "blocked_smoke_estimated_cost_over_cap");
-  if (!validGeminiModelName(model)) return finishSmoke(config, base, startedAtMs, "blocked_invalid_gemini_model");
+  const endpoint = resolveGeminiModelEndpoint(model);
+  if (!endpoint) return finishSmoke(config, base, startedAtMs, "blocked_unsupported_gemini_model");
 
   const keyResult = loadGeminiApiKey({
     env: options.env || process.env,
@@ -74,7 +80,7 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
   if (!liveRequested) return finishSmoke(config, base, startedAtMs, "blocked_live_external_reviewer_calls_not_opted_in");
 
   const payload = buildGeminiSmokePayload();
-  const url = new URL(`/v1beta/models/${model}:generateContent`, geminiApiOrigin);
+  const url = new URL(endpoint);
   url.searchParams.set("key", keyResult.apiKey);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") return finishSmoke(config, base, startedAtMs, "blocked_fetch_unavailable");
@@ -200,8 +206,17 @@ function parseEnvFile(text) {
   return result;
 }
 
-function validGeminiModelName(model) {
-  return /^gemini-[A-Za-z0-9][A-Za-z0-9.-]{0,80}$/.test(String(model || ""));
+export function resolveGeminiModelEndpoint(model) {
+  switch (String(model || "")) {
+    case "gemini-2.5-flash-lite":
+      return supportedGeminiModelEndpoints["gemini-2.5-flash-lite"];
+    case "gemini-2.5-flash":
+      return supportedGeminiModelEndpoints["gemini-2.5-flash"];
+    case "gemini-2.5-pro":
+      return supportedGeminiModelEndpoints["gemini-2.5-pro"];
+    default:
+      return null;
+  }
 }
 
 function finishSmoke(config, result, startedAtMs, reason) {
