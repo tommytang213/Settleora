@@ -20,6 +20,45 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Integrated Gemini pre-PR reviewer gate checkpoint
+
+- GitHub state/project status:
+  - #800 `OPEN`; this remains the broader tracker for trusted unattended
+    Codex auto-runner enablement.
+  - #805 `CLOSED`; it was not reopened or mutated by this slice.
+- Verified repo baseline:
+  `origin/main` at
+  `a4406feded63bcb7ac211098bc91d3a912365038` after PR #816 merged.
+- This integrated reviewer slice:
+  - Wires Gemini into the normal auto-runner pre-PR review flow before branch
+    push or PR creation.
+  - Keeps built-in defaults safe: external Gemini review runs only when an
+    external, uncommitted config enables the `cheap_independent` Gemini tier.
+  - Limits the first integrated Gemini gate to low-risk
+    `workflow-docs-tooling` and `docs-planning` paths.
+  - Keeps Codex mechanics review as a separate review gate.
+  - Fails closed for disallowed lanes/paths, strong-review or split/escalate
+    routes, missing keys, unsupported/host-like models, malformed or non-pass
+    verdicts, provider errors, budget hard stops, per-call cap failures,
+    accounting parse/write failures, and secret-boundary violations.
+  - Writes sanitized local integrated review evidence and reviewer accounting
+    under `/workspace/logs/settleora-auto-runner/`.
+- Issue posture:
+  keep #800 open. This checkpoint does not approve trusted overnight
+  operation, normal trusted real-run, canary real-run, auto-merge, stale-claim
+  stealing, follow-up issue creation, review-fix mutation, systemd enablement,
+  strong/tie-breaker tiers, PR comments from Gemini, or broader product/runtime
+  lanes.
+- Scope confirmation:
+  this checkpoint changes only `tools/auto-runner/**`, workflow docs, and this
+  ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/deployment,
+  secrets/env/auth config, production deploy, mobile release, public/admin
+  exposure, branch deletion, force push, direct main push, or auto-merge
+  enablement.
+
 ### Issue #800 - Gemini reviewer provider smoke-test foundation checkpoint
 
 - GitHub state/project status:

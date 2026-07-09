@@ -91,6 +91,55 @@ response summary under `/workspace/logs/settleora-auto-runner/reviews/smoke-test
 Missing keys produce `blocked_for_live_smoke_test_key_missing`; that is an
 operator setup blocker, not a repo implementation failure.
 
+Integrated Gemini pre-PR review is now wired into the normal runner review
+flow before branch push or PR creation. It remains disabled by default because
+the built-in `cheap_independent` tier is disabled. When an external,
+uncommitted config under `/workspace/logs/settleora-auto-runner/` enables the
+Gemini `cheap_independent` tier, the runner requires a passing Gemini verdict
+for the first approved low-risk lanes only:
+
+- `workflow-docs-tooling` with changed files under `tools/auto-runner/**`,
+  `docs/workflow/**`, or `scripts/ai/**`.
+- `docs-planning` with changed files under `docs/planning/**` or
+  `docs/qa/**`.
+
+All other lanes, sensitive routes, strong-review routes, huge/cross-domain
+routes, unsupported models, missing keys, malformed verdicts, provider
+failures, budget failures, accounting failures, and secret-boundary violations
+fail closed before PR creation. The integrated Gemini reviewer writes only
+sanitized local evidence under
+`/workspace/logs/settleora-auto-runner/reviews/integrated/` and sanitized
+accounting under
+`/workspace/logs/settleora-auto-runner/state/reviewer-accounting.json`. It
+does not create GitHub comments, labels, issues, branches, commits, pushes, or
+PRs.
+
+External config activation example:
+
+```json
+{
+  "reviewerTiers": {
+    "cheap_independent": {
+      "enabled": true,
+      "provider": "gemini",
+      "providerProfile": "gemini-cheap",
+      "command": null,
+      "model": "gemini-2.5-flash-lite",
+      "inputUsdPerMillionTokens": 0.1,
+      "outputUsdPerMillionTokens": 0.4
+    }
+  },
+  "reviewerProviderProfiles": {
+    "gemini-cheap": {
+      "provider": "gemini",
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "envFilePath": "/workspace/logs/settleora-auto-runner/secrets/reviewer.env",
+      "defaultModel": "gemini-2.5-flash-lite"
+    }
+  }
+}
+```
+
 The readiness command does not approve trusted overnight operation, normal
 trusted real-run, canary real-run, auto-merge lanes, stale-claim stealing,
 follow-up issue creation, review-fix mutation, or systemd enablement. It does
