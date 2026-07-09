@@ -131,9 +131,22 @@ review verdict. Implementation Codex is instructed to implement locally,
 validate locally, write the local report only, and not push, open/update PRs,
 merge, or mutate GitHub labels/issues/comments. The runner owns explicit-path
 staging, commit, push, PR creation/update, CI watching, and issue outcome
-labels/comments after an approved review verdict. Before review, the runner
-checks for a remote task branch or PR for the task branch and fails closed if
-either exists unexpectedly.
+labels/comments after an approved review verdict.
+
+After implementation Codex exits, the runner treats local checkout state as the
+source of changed-file truth. It collects unstaged tracked paths from
+`git diff --name-only`, staged paths from `git diff --cached --name-only`, and
+untracked paths from `git ls-files --others --exclude-standard`, then
+deduplicates and sorts the combined set. That post-Codex set drives
+contract/lane allowlist checks, validation planning, review-package evidence,
+canary/summaries, and explicit-path staging. `no_changes` is used only when the
+post-Codex working tree, index, and untracked-file set are clean. If any
+changed path is outside the contract or lane allowlist, the runner fails closed
+and leaves the checkout for operator inspection instead of silently restoring
+or discarding implementation changes.
+
+Before review, the runner checks for a remote task branch or PR for the task
+branch and fails closed if either exists unexpectedly.
 
 The review verdict parser accepts exactly one valid verdict JSON object as raw
 JSON, fenced `json`, or JSON surrounded by prose/tool output. It records the
@@ -142,5 +155,9 @@ malformed, non-object, missing-field, unknown-field, out-of-enum, or ambiguous
 multiple verdict objects fail closed as `unable_to_review`. The verdict source
 is included in run summaries when review succeeds. Auto-merge is disabled by
 default.
-Terminal real-run outcomes remove `auto-running`; PR-opened outcomes add
-`auto-pr-opened`, and blocked/failure outcomes add the configured stop label.
+
+`auto-claimed` and `auto-running` are active claim labels. Terminal real-run
+outcomes remove both labels. PR-opened outcomes add `auto-pr-opened`,
+blocked/manual outcomes add `needs-tommy`, danger outcomes add `danger-gate`,
+and validation/review/runner failure outcomes add `auto-failed`. `no_changes`
+removes both active labels, comments the outcome, and leaves the issue open.

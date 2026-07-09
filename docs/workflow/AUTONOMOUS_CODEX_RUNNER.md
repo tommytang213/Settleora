@@ -73,17 +73,19 @@ Default stop labels:
 - `blocked`
 
 Real-run claim behavior adds `auto-claimed` and `auto-running`, then posts a
-bounded claim comment. The runner re-reads and records claim state locally so a
-later stale-claim policy can be implemented. Stale-claim stealing is disabled by
-default and must stay disabled unless config explicitly allows it.
+bounded claim comment. Both labels are active in-flight claim labels, not
+durable terminal labels. The runner re-reads and records claim state locally so
+a later stale-claim policy can be implemented. Stale-claim stealing is disabled
+by default and must stay disabled unless config explicitly allows it.
 
-Terminal real-run outcomes always remove `auto-running`. `approved_pr_opened`
-adds `auto-pr-opened`, which is also a stop label so the issue is not selected
-again while a PR is pending. `blocked_needs_tommy` adds `needs-tommy`,
-`danger_gate` adds `danger-gate`, and `auto_failed`, `validation_failed`, and
-`review_changes_requested_retry_exhausted` add `auto-failed`. `no_changes`
-removes `auto-running` and comments the outcome without closing the issue. The
-runner never closes issues automatically.
+Terminal real-run outcomes always remove `auto-running` and `auto-claimed`.
+`approved_pr_opened` adds `auto-pr-opened`, which is also a stop label so the
+issue is not selected again while a PR is pending. `blocked_needs_tommy` adds
+`needs-tommy`, `danger_gate` adds `danger-gate`, and `auto_failed`,
+`validation_failed`, and `review_changes_requested_retry_exhausted` add
+`auto-failed`. `no_changes` removes both active claim labels and comments the
+outcome without closing the issue. The runner never closes issues
+automatically.
 
 Dry-run mode previews the exact label add/remove/comment operations instead of
 calling `gh issue edit`, `gh issue comment`, or `gh issue create`.
@@ -241,8 +243,10 @@ The intended loop is:
 7. Create `feature/auto-<issue-number>-<slug>-<timestamp>`.
 8. Generate a Codex task prompt under the external log root.
 9. Invoke DevBox-local Codex with the prompt on stdin.
-10. Collect the report and changed-file list. Implementation Codex must not
-    push, open/update PRs, merge, or mutate GitHub labels/issues/comments.
+10. Collect the report and post-Codex changed-file list from the checkout.
+    Implementation Codex must leave intended changes as local files for the
+    runner to own. It must not push, open/update PRs, merge, or mutate GitHub
+    labels/issues/comments.
 11. Plan and run scoped validation.
 12. Check for unexpected pre-review GitHub mutation evidence, including a
     remote task branch or any PR for the task branch.
@@ -318,9 +322,22 @@ Real-run mode fetches latest `origin/main`, starts every task branch from
 `origin/main`, never pushes directly to `main`, never force pushes, never
 deletes branches, never amends commits, and refuses a dirty worktree.
 
-Staging uses explicit paths from `git diff --name-only` plus untracked files
-from `git ls-files --others --exclude-standard`. The runner never uses
-`git add .` and never fabricates empty commits.
+After implementation Codex exits, the runner collects changed paths from the
+post-Codex checkout: unstaged tracked changes with `git diff --name-only`,
+staged/index changes with `git diff --cached --name-only`, and untracked files
+with `git ls-files --others --exclude-standard`. The combined set is
+deduplicated and sorted before lane/contract allowlist checks, validation
+planning, review-package evidence, summaries/canary evidence, and explicit-path
+staging/commit. `no_changes` is allowed only when that post-Codex working tree,
+index, and untracked-file set is clean.
+
+If any post-Codex changed path is outside the issue contract allowlist or lane
+manifest allowlist, the runner fails closed with the offending paths recorded
+and does not silently restore or discard implementation changes. Operator
+cleanup remains a manual inspection step unless a future explicit safe cleanup
+path is designed.
+
+The runner never uses `git add .` and never fabricates empty commits.
 
 PR creation/update is allowed only when validation passes, pre-PR review
 approves, the implementation path did not create a remote task branch or PR

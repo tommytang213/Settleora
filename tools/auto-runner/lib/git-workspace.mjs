@@ -85,10 +85,28 @@ export function listChangedFiles(baseRef = "origin/main", headRef = "HEAD") {
     .sort();
 }
 
+export function listWorkingTreeChangedFiles(options = {}) {
+  const unstaged = runGit(["diff", "--name-only"], options);
+  assertGitSuccess(unstaged, "Unable to list unstaged changed files");
+  const staged = runGit(["diff", "--cached", "--name-only"], options);
+  assertGitSuccess(staged, "Unable to list staged changed files");
+  const untracked = runGit(["ls-files", "--others", "--exclude-standard"], options);
+  assertGitSuccess(untracked, "Unable to list untracked files");
+  return dedupeSorted([
+    ...unstaged.stdout.split(/\r?\n/),
+    ...staged.stdout.split(/\r?\n/),
+    ...untracked.stdout.split(/\r?\n/),
+  ]);
+}
+
 export function diffHash(baseRef = "origin/main", headRef = "HEAD") {
   const result = runGit(["diff", "--binary", `${baseRef}...${headRef}`]);
   assertGitSuccess(result, "Unable to read diff");
   return createHash("sha256").update(result.stdout).digest("hex");
+}
+
+export function workingTreeDiffHash() {
+  return createHash("sha256").update(getWorkingTreeDiffText()).digest("hex");
 }
 
 export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxChars = 120000) {
@@ -100,6 +118,14 @@ export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxCha
   return { truncated: true, text: result.stdout.slice(0, maxChars) };
 }
 
+export function getBoundedWorkingTreeDiff(maxChars = 120000) {
+  const text = getWorkingTreeDiffText();
+  if (text.length <= maxChars) {
+    return { truncated: false, text };
+  }
+  return { truncated: true, text: text.slice(0, maxChars) };
+}
+
 export function commitExplicitPaths(config, files, message) {
   if (files.length === 0) return { skipped: true, reason: "no-changes" };
   if (config.dryRun) return { skipped: true, reason: "dry-run", files };
@@ -108,4 +134,25 @@ export function commitExplicitPaths(config, files, message) {
   const commit = runGit(["commit", "-m", message]);
   assertGitSuccess(commit, "Unable to create commit");
   return { skipped: false, files, commit: commit.stdout.trim() };
+}
+
+function dedupeSorted(lines) {
+  return [...new Set(lines.map((line) => line.trim()).filter(Boolean))].sort();
+}
+
+function getWorkingTreeDiffText() {
+  const unstaged = runGit(["diff", "--binary"]);
+  assertGitSuccess(unstaged, "Unable to read unstaged diff");
+  const staged = runGit(["diff", "--cached", "--binary"]);
+  assertGitSuccess(staged, "Unable to read staged diff");
+  const untracked = runGit(["ls-files", "--others", "--exclude-standard"]);
+  assertGitSuccess(untracked, "Unable to list untracked files for diff");
+  const untrackedDiffs = dedupeSorted(untracked.stdout.split(/\r?\n/)).map((file) => {
+    const result = runGit(["diff", "--no-index", "--binary", "--", "/dev/null", file]);
+    if (result.error || ![0, 1].includes(result.status)) {
+      throw new Error(`Unable to read untracked diff for ${file}\n${result.command}\n${result.stderr || result.stdout || result.error}`);
+    }
+    return result.stdout || "";
+  });
+  return `${staged.stdout || ""}${unstaged.stdout || ""}${untrackedDiffs.join("")}`;
 }
