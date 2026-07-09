@@ -42,6 +42,8 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
 - `reviews/` stores pre-PR review packages, prompts, and review logs.
 - `reports/` stores copied local Codex reports.
 - `summaries/` stores per-run JSON/Markdown and recent rollups.
+- `canary/` stores trusted-real-run canary evidence JSON for dry-run fixture
+  exercises and any future manually approved canary real-run.
 
 Stale locks are removed only when the recorded PID is no longer active. Active
 or unparsable locks stop the runner for human inspection.
@@ -166,6 +168,46 @@ architecture replacement.
 
 AI review cannot clear these gates.
 
+## Trusted Real-Run Canary Policy
+
+Normal `--run` is not trusted by default. It is refused before issue polling,
+claiming, branch creation, or GitHub mutation unless config explicitly sets
+`trustedRealRunApproved: true` and all trusted mutation toggles remain disabled.
+
+Canary real-run is a separate narrower approval path for a future manually
+approved live test. It requires both CLI intent (`--canary` or
+`--trusted-real-run-canary`) and config approval
+(`trustedRealRunCanaryApproved: true`). Canary dry-run may be used with local
+fixtures to exercise policy and evidence writing without GitHub mutation.
+
+Canary mode is limited to contracted issues in these manifest lanes:
+
+- `workflow-docs-tooling`
+- `docs-planning`
+
+Canary mode refuses product/runtime/danger placeholder lanes, contracts with
+`autoMergeEligible: true`, contracts with `manualMergeRequired: false`,
+auto-merge, follow-up issue creation, stale-claim stealing, review-fix
+mutation, and systemd enablement. Canary iteration count is capped by
+`trustedRealRunCanaryMaxIterations`, defaulting to `2`.
+
+Canary tasks still run scoped validation and the separate pre-PR AI review gate
+before any PR creation. Canary PRs are human-review and human-merge only. This
+policy does not approve overnight operation, auto-merge, follow-up issue
+creation, stale-claim stealing, review-fix mutation, or systemd service/timer
+installation or enablement.
+
+Canary evidence is written under:
+
+```text
+/workspace/logs/settleora-auto-runner/canary/
+```
+
+Each evidence JSON records the selected mode, issue number/title/labels/url,
+the parsed contract, lane decision, canary policy decision, changed files,
+validation results, review verdict, PR URL when available, and terminal
+outcome.
+
 ## Validation Profiles
 
 Validation profiles are named, trusted command lists in runner code. Supported
@@ -282,11 +324,13 @@ node tools/auto-runner/settleora-auto-runner.mjs --preflight
 Preflight prints a bounded JSON result with pass/warn/fail checks for the repo
 root, branch/worktree status and whether real-run would refuse, `gh`
 availability, `gh repo view tommytang213/Settleora`, issue polling,
-`codex-vm-full` resolution, logs-root writability, config parseability, disabled
-auto-merge/follow-up/stale-claim-steal defaults, and the fact that this command
-does not install or enable systemd. Preflight does not acquire the runner lock,
-run implementation Codex, run review Codex, mutate GitHub, create branches, or
-enable systemd units.
+`codex-vm-full` resolution, logs-root writability, config parseability, trusted
+real-run disabled/enabled state, canary approval state, whether normal `--run`
+would refuse, whether canary real-run would refuse and why, disabled
+auto-merge/follow-up/stale-claim-steal/review-fix/systemd defaults, and the
+fact that this command does not install or enable systemd. Preflight does not
+acquire the runner lock, run implementation Codex, run review Codex, mutate
+GitHub, create branches, or enable systemd units.
 
 Dry-run:
 
@@ -296,6 +340,7 @@ node tools/auto-runner/settleora-auto-runner.mjs --dry-run --once
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --max-iterations 3
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --once --require-pre-pr-review
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --max-iterations 3 --fixture-issues tools/auto-runner/test/fixtures/issues.safe.json
+node tools/auto-runner/settleora-auto-runner.mjs --dry-run --canary --max-iterations 2 --fixture-issues tools/auto-runner/test/fixtures/issues.safe.json
 ```
 
 `--fixture-issues <json>` is accepted only with `--dry-run`. Fixture mode uses
@@ -304,13 +349,16 @@ continues after terminal dry-run outcomes, skips issues that already carry stop
 labels such as `auto-pr-opened`, and stops on no eligible fixture work or
 `--max-iterations`. It does not call real GitHub mutation commands, create
 branches, push, open PRs, run real Codex, mutate `.codex`, or enable auto-merge.
+Canary dry-run writes canary evidence under the external log root.
 
-Bounded real-run:
+Bounded real-run, still disabled by default unless config explicitly approves
+the selected trusted mode:
 
 ```bash
 node tools/auto-runner/settleora-auto-runner.mjs --run --once
 node tools/auto-runner/settleora-auto-runner.mjs --run --max-iterations 20
 node tools/auto-runner/settleora-auto-runner.mjs --run --max-runtime 8h
+node tools/auto-runner/settleora-auto-runner.mjs --run --canary --max-iterations 1 --config /workspace/logs/settleora-auto-runner/canary-approved-config.json
 ```
 
 Review-package diagnostics:
@@ -326,9 +374,8 @@ node tools/auto-runner/settleora-auto-runner.mjs --write-summary --since 24h
 ls /workspace/logs/settleora-auto-runner/summaries/
 ```
 
-To stop a foreground run, send `Ctrl+C`. For a future service run, stop the user
-service or disable the timer. This PR only provides example systemd user
-templates and does not install or enable them.
+To stop a foreground run, send `Ctrl+C`. This tooling only provides example
+systemd user templates and does not install or enable them.
 
 ## Known Limitations
 

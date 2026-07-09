@@ -12,9 +12,12 @@ node tools/auto-runner/settleora-auto-runner.mjs --preflight
 
 Preflight prints bounded JSON with pass/warn/fail checks for repo root,
 branch/worktree status, `gh`, GitHub issue polling, `codex-vm-full`
-resolution, logs-root writability, config policy defaults, and the fact that
-the command does not install or enable systemd units. It does not run Codex
-implementation or review prompts and does not mutate GitHub or branches.
+resolution, logs-root writability, config policy defaults, trusted real-run
+approval state, whether normal `--run` would refuse, whether canary real-run
+would refuse and why, disabled auto-merge/follow-up/stale-claim/review-fix
+mutation/systemd defaults, and the fact that the command does not install or
+enable systemd units. It does not run Codex implementation or review prompts
+and does not mutate GitHub or branches.
 
 Dry-run diagnostics:
 
@@ -23,12 +26,15 @@ node tools/auto-runner/settleora-auto-runner.mjs --dry-run --once
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --max-iterations 3
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --once --require-pre-pr-review
 node tools/auto-runner/settleora-auto-runner.mjs --dry-run --max-iterations 3 --fixture-issues tools/auto-runner/test/fixtures/issues.safe.json
+node tools/auto-runner/settleora-auto-runner.mjs --dry-run --canary --max-iterations 2 --fixture-issues tools/auto-runner/test/fixtures/issues.safe.json
 ```
 
 `--fixture-issues <json>` is dry-run only. It uses local issue objects to prove
 multi-iteration behavior without calling `gh issue edit`, `gh issue comment`,
 `gh issue create`, creating branches, pushing, opening PRs, running real Codex,
 or enabling auto-merge. Stop labels such as `auto-pr-opened` are honored.
+Canary dry-run writes evidence under
+`/workspace/logs/settleora-auto-runner/canary/` without live GitHub mutation.
 
 Issue contracts:
 
@@ -77,12 +83,34 @@ Auto-merge, stale-claim stealing, follow-up issue creation, review-fix
 mutation, trusted overnight real-run operation, and systemd enablement remain
 disabled/gated.
 
-Bounded real-run mode requires an explicit flag:
+Normal real-run is refused by default. A plain `--run` requires
+`trustedRealRunApproved: true` in config and still refuses unsafe mutation
+toggles. This repository does not currently approve overnight trusted
+operation.
 
 ```bash
 node tools/auto-runner/settleora-auto-runner.mjs --run --max-iterations 20
 node tools/auto-runner/settleora-auto-runner.mjs --run --max-runtime 8h
 ```
+
+Trusted real-run canary mode is a separate, narrower gate. A canary real-run
+requires both CLI intent and config approval:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --run --canary --max-iterations 1 --config /workspace/logs/settleora-auto-runner/canary-approved-config.json
+```
+
+The config used for that command must set `trustedRealRunCanaryApproved: true`.
+Canary mode only accepts contracted `workflow-docs-tooling` and `docs-planning`
+lanes, refuses contracts with `autoMergeEligible: true`, requires
+`manualMergeRequired: true`, caps iterations to
+`trustedRealRunCanaryMaxIterations` (default `2`), writes evidence under
+`/workspace/logs/settleora-auto-runner/canary/`, and keeps PRs human-review and
+human-merge only.
+
+Canary mode refuses auto-merge, follow-up issue creation, stale-claim stealing,
+review-fix mutation, and systemd enablement. It does not approve overnight
+operation and does not install or enable systemd.
 
 Summary mode:
 

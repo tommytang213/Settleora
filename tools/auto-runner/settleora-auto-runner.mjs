@@ -5,6 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { parseCliArgs, loadConfig, defaultLogsRoot } from "./lib/config.mjs";
 import { runPreflight } from "./lib/preflight.mjs";
+import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
 import { acquireRunnerLock, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
@@ -55,6 +56,10 @@ async function main() {
   }
 
   const config = loadConfig(cliArgs);
+  const trustPolicy = evaluateTrustPolicy(config);
+  if (!trustPolicy.allowed) {
+    throw new Error(`Trusted real-run refused: ${trustPolicy.reason}`);
+  }
   const runId = `run-${safeTimestamp()}`;
   const logger = createLogger(config.logsRoot, runId);
   let lockPath = null;
@@ -82,6 +87,10 @@ async function main() {
         break;
       }
       const iteration = await runIteration(config, logger, runId, index);
+      const canaryEvidence = writeCanaryEvidence(config, iteration);
+      if (canaryEvidence) {
+        iteration.canaryEvidence = canaryEvidence;
+      }
       summary.iterations.push(iteration);
       writeIterationState(config, iteration);
       if (config.fixtureIssues && iteration.issue) {
@@ -140,6 +149,18 @@ async function runIteration(config, logger, runId, index) {
 
   const laneDecision = classifyIssueLane(issue);
   iteration.laneDecision = laneDecision;
+  iteration.canaryPolicy = evaluateCanaryIssuePolicy(config, laneDecision);
+  if (!iteration.canaryPolicy.allowed) {
+    iteration.outcome = laneDecision.dangerGate ? "danger_gate" : "blocked_needs_tommy";
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner canary policy did not implement #${issue.number}.\n\nOutcome: ${iteration.outcome}\nReason: ${iteration.canaryPolicy.reason}`,
+    );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
   if (!laneDecision.allowedToImplement) {
     iteration.outcome = laneDecision.dangerGate ? "danger_gate" : "blocked_needs_tommy";
     iteration.issueComment = finishIssueOutcome(

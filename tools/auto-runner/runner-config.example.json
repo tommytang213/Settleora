@@ -16,12 +16,17 @@
   "maxIterations": 3,
   "maxRuntimeMs": null,
   "pollLimit": 30,
+  "trustedRealRunApproved": false,
+  "trustedRealRunCanaryApproved": false,
+  "trustedRealRunCanaryMaxIterations": 2,
   "allowStaleClaimSteal": false,
   "staleClaimAfterHours": 12,
   "allowAutoMerge": false,
   "allowFollowupIssueCreation": false,
+  "allowReviewFixMutation": false,
+  "allowSystemdEnablement": false,
   "maxFollowupIssuesPerRun": 3,
-  "maxReviewFixCycles": 1,
+  "maxReviewFixCycles": 0,
   "codexCommand": "codex-vm-full",
   "reviewerCommand": "codex-vm-full"
 }
