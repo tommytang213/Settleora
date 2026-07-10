@@ -20,6 +20,30 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #826 - Auto-merge canary 2 planning-docs checkpoint
+
+- GitHub state/project status:
+  - #826 was selected as the second bounded low-risk auto-merge canary issue
+    after PR #824.
+  - This checkpoint records that #826 exercised the DevBox auto-runner
+    auto-merge path for the `docs-planning` lane using only this ledger file
+    as the contract-scoped changed path.
+- Verified repo baseline:
+  `origin/main` at
+  `ca58c8073db1d7eccfc0631ae86cf71b9368fcfb`.
+- Issue posture:
+  this entry is a non-sensitive planning checkpoint only. It does not rerun the
+  canary, mutate GitHub issue or PR state, enable broader auto-merge lanes, or
+  change any auto-runner runtime configuration.
+- Scope confirmation:
+  this checkpoint changes only `docs/planning/ISSUE_PROGRESS_LEDGER.md`. It
+  does not change product runtime, API behavior, auth/session/security runtime,
+  storage/privacy/authz, money/settlement/payment/bill calculation,
+  schema/migration, OpenAPI/generated clients, sync/import/export/backup/restore
+  runtime, OCR runtime, Docker/CI/deployment/env, secrets, production deploy,
+  mobile release, public/admin exposure, branch deletion, force push, or direct
+  main push.
+
 ### Issue #800/#825/#826 - Existing-PR recovery linkage and wait tuning checkpoint
 
 - GitHub state/project status at task start:
