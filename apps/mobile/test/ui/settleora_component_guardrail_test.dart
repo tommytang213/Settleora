@@ -557,6 +557,89 @@ void main() {
     }
   });
 
+  testWidgets('shared rows separate interactive and static semantics', (
+    tester,
+  ) async {
+    await _useLargeSurface(tester);
+    var listRowTaps = 0;
+    var settingsRowTaps = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: Column(
+            children: [
+              SettleoraListRow(
+                key: const Key('interactive-list-row'),
+                leadingIcon: Icons.person_outline,
+                title: 'Open profile',
+                subtitle: 'Interactive shared list row',
+                onTap: () => listRowTaps += 1,
+              ),
+              const SettleoraListRow(
+                key: Key('static-list-row'),
+                leadingIcon: Icons.info_outline,
+                title: 'Profile summary',
+                subtitle: 'Static shared list row',
+              ),
+              SettingsRow(
+                key: const Key('interactive-settings-row'),
+                icon: Icons.settings_outlined,
+                title: 'Open settings',
+                subtitle: 'Interactive shared settings row',
+                statusLabel: 'Ready',
+                onTap: () => settingsRowTaps += 1,
+              ),
+              const SettingsRow(
+                key: Key('static-settings-row'),
+                icon: Icons.lock_outline,
+                title: 'Security status',
+                subtitle: 'Static shared settings row',
+                statusLabel: 'Protected',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final semanticsHandle = tester.ensureSemantics();
+    _expectInteractiveRowSemantics(
+      tester,
+      title: 'Open profile',
+      subtitle: 'Interactive shared list row',
+    );
+    _expectStaticRowSemantics(tester, find.text('Profile summary'));
+    _expectInteractiveRowSemantics(
+      tester,
+      title: 'Open settings',
+      subtitle: 'Interactive shared settings row',
+    );
+    _expectStaticRowSemantics(tester, find.text('Security status'));
+    semanticsHandle.dispose();
+
+    for (final key in const [
+      Key('interactive-list-row'),
+      Key('static-list-row'),
+      Key('interactive-settings-row'),
+      Key('static-settings-row'),
+    ]) {
+      expect(
+        tester.getSize(find.byKey(key)).height,
+        greaterThanOrEqualTo(48),
+        reason: '$key must preserve the minimum mobile hit target height.',
+      );
+    }
+
+    await tester.tap(find.byKey(const Key('interactive-list-row')));
+    await tester.tap(find.byKey(const Key('interactive-settings-row')));
+    await tester.pumpAndSettle();
+
+    expect(listRowTaps, 1);
+    expect(settingsRowTaps, 1);
+  });
+
   testWidgets(
     'currency selector preserves supported, blank, and unknown values',
     (tester) async {
@@ -1021,6 +1104,54 @@ void _expectTextFitsInside(
 
   expect(buttonRect.contains(textRect.topLeft), isTrue);
   expect(buttonRect.contains(textRect.bottomRight), isTrue);
+}
+
+void _expectInteractiveRowSemantics(
+  WidgetTester tester, {
+  required String title,
+  required String subtitle,
+}) {
+  final matchingNodes = _semanticsNodes(tester).where((node) {
+    final data = node.getSemanticsData();
+    return data.label.contains(title) && data.label.contains(subtitle);
+  }).toList();
+
+  expect(
+    matchingNodes.any((node) {
+      final data = node.getSemanticsData();
+      return data.hasAction(SemanticsAction.tap) &&
+          data.flagsCollection.isButton;
+    }),
+    isTrue,
+  );
+}
+
+void _expectStaticRowSemantics(WidgetTester tester, Finder finder) {
+  final semanticsData = tester.getSemantics(finder).getSemanticsData();
+  expect(semanticsData.hasAction(SemanticsAction.tap), isFalse);
+  expect(semanticsData.flagsCollection.isButton, isFalse);
+}
+
+List<SemanticsNode> _semanticsNodes(WidgetTester tester) {
+  final root = tester
+      .binding
+      .renderViews
+      .first
+      .owner!
+      .semanticsOwner!
+      .rootSemanticsNode!;
+  final nodes = <SemanticsNode>[];
+
+  void collect(SemanticsNode node) {
+    nodes.add(node);
+    node.visitChildren((child) {
+      collect(child);
+      return true;
+    });
+  }
+
+  collect(root);
+  return nodes;
 }
 
 double _contrastRatio(Color a, Color b) {

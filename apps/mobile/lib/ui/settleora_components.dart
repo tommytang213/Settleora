@@ -652,55 +652,66 @@ class SettleoraListRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
-    final row = Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: SettleoraSpacing.md,
-        vertical: 12,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (leadingIcon != null) ...[
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: colors.primarySoft,
-              foregroundColor: colors.primary,
-              child: Icon(leadingIcon, size: 20),
+    final row = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: SettleoraSpacing.md,
+          vertical: 12,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (leadingIcon != null) ...[
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: colors.primarySoft,
+                foregroundColor: colors.primary,
+                child: Icon(leadingIcon, size: 20),
+              ),
+              const SizedBox(width: SettleoraSpacing.sm),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: SettleoraSpacing.xxs),
+                  Text(subtitle, style: TextStyle(color: colors.textMuted)),
+                ],
+              ),
             ),
-            const SizedBox(width: SettleoraSpacing.sm),
+            if (trailing != null) ...[
+              const SizedBox(width: SettleoraSpacing.sm),
+              trailing!,
+            ],
+            if (onTap != null) ...[
+              const SizedBox(width: SettleoraSpacing.xs),
+              Icon(Icons.chevron_right, color: colors.textSubtle),
+            ],
           ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: SettleoraSpacing.xxs),
-                Text(subtitle, style: TextStyle(color: colors.textMuted)),
-              ],
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: SettleoraSpacing.sm),
-            trailing!,
-          ],
-          if (onTap != null) ...[
-            const SizedBox(width: SettleoraSpacing.xs),
-            Icon(Icons.chevron_right, color: colors.textSubtle),
-          ],
-        ],
+        ),
       ),
     );
+
+    final child = onTap == null
+        ? row
+        : Semantics(
+            button: true,
+            label: '$title\n$subtitle',
+            onTap: onTap,
+            child: InkWell(
+              onTap: onTap,
+              excludeFromSemantics: true,
+              borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+              child: row,
+            ),
+          );
 
     return AppCard(
       color: backgroundColor,
       padding: EdgeInsets.zero,
-      child: onTap == null
-          ? row
-          : InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(SettleoraRadius.lg),
-              child: row,
-            ),
+      child: child,
     );
   }
 }
@@ -1147,58 +1158,66 @@ class SettingsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
-    final row = Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: SettleoraSpacing.md,
-        vertical: 12,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: colors.primarySoft,
-            foregroundColor: colors.primary,
-            child: Icon(icon, size: 20),
-          ),
-          const SizedBox(width: SettleoraSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: SettleoraSpacing.xxs),
-                Text(subtitle, style: TextStyle(color: colors.textMuted)),
-                if (statusLabel != null) ...[
-                  const SizedBox(height: SettleoraSpacing.xs),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: StatusChip(
-                      label: statusLabel!,
-                      variant: statusVariant,
-                      size: StatusChipSize.small,
-                    ),
-                  ),
-                ],
-              ],
+    final row = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: SettleoraSpacing.md,
+          vertical: 12,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: colors.primarySoft,
+              foregroundColor: colors.primary,
+              child: Icon(icon, size: 20),
             ),
-          ),
-          if (onTap != null)
-            Icon(Icons.chevron_right, color: colors.textSubtle),
-        ],
+            const SizedBox(width: SettleoraSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: SettleoraSpacing.xxs),
+                  Text(subtitle, style: TextStyle(color: colors.textMuted)),
+                  if (statusLabel != null) ...[
+                    const SizedBox(height: SettleoraSpacing.xs),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: StatusChip(
+                        label: statusLabel!,
+                        variant: statusVariant,
+                        size: StatusChipSize.small,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (onTap != null)
+              Icon(Icons.chevron_right, color: colors.textSubtle),
+          ],
+        ),
       ),
     );
 
-    return AppCard(
-      padding: EdgeInsets.zero,
-      child: onTap == null
-          ? row
-          : InkWell(
+    final child = onTap == null
+        ? row
+        : Semantics(
+            button: true,
+            label: '$title\n$subtitle',
+            onTap: onTap,
+            child: InkWell(
               onTap: onTap,
+              excludeFromSemantics: true,
               borderRadius: BorderRadius.circular(SettleoraRadius.lg),
               child: row,
             ),
-    );
+          );
+
+    return AppCard(padding: EdgeInsets.zero, child: child);
   }
 }
 
