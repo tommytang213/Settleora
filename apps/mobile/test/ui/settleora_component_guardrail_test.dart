@@ -709,9 +709,7 @@ void main() {
     expect(find.text('My local wallet'), findsOneWidget);
   });
 
-  testWidgets('shared icon button label fits narrow mobile widths', (
-    tester,
-  ) async {
+  testWidgets('shared button labels fit narrow mobile widths', (tester) async {
     tester.view.physicalSize = const Size(280, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -721,16 +719,32 @@ void main() {
       MaterialApp(
         theme: SettleoraTheme.light(),
         home: Scaffold(
-          body: Center(
-            child: SizedBox(
-              width: 148,
-              child: AppButton(
-                key: const Key('narrow-scan-button'),
-                label: 'Scan receipt',
-                icon: Icons.document_scanner_outlined,
-                variant: AppButtonVariant.secondary,
-                expanded: true,
-                onPressed: () {},
+          body: MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(1.8)),
+            child: Center(
+              child: SizedBox(
+                width: 148,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AppButton(
+                      key: const Key('narrow-review-button'),
+                      label: 'Review submitted receipt changes',
+                      variant: AppButtonVariant.secondary,
+                      expanded: true,
+                      onPressed: () {},
+                    ),
+                    const SizedBox(height: 12),
+                    AppButton(
+                      key: const Key('narrow-scan-button'),
+                      label: 'Scan receipt attachment now',
+                      icon: Icons.document_scanner_outlined,
+                      variant: AppButtonVariant.secondary,
+                      expanded: true,
+                      onPressed: () {},
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -738,8 +752,19 @@ void main() {
       ),
     );
 
-    expect(find.text('Scan receipt'), findsOneWidget);
+    expect(find.text('Review submitted receipt changes'), findsOneWidget);
+    expect(find.text('Scan receipt attachment now'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    _expectTextFitsInside(
+      tester,
+      buttonKey: const Key('narrow-review-button'),
+      label: 'Review submitted receipt changes',
+    );
+    _expectTextFitsInside(
+      tester,
+      buttonKey: const Key('narrow-scan-button'),
+      label: 'Scan receipt attachment now',
+    );
   });
 
   testWidgets('amount status row stays readable at high text scale', (
@@ -895,6 +920,18 @@ Future<void> _useLargeSurface(WidgetTester tester) async {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+void _expectTextFitsInside(
+  WidgetTester tester, {
+  required Key buttonKey,
+  required String label,
+}) {
+  final buttonRect = tester.getRect(find.byKey(buttonKey)).inflate(0.1);
+  final textRect = tester.getRect(find.text(label));
+
+  expect(buttonRect.contains(textRect.topLeft), isTrue);
+  expect(buttonRect.contains(textRect.bottomRight), isTrue);
 }
 
 double _contrastRatio(Color a, Color b) {
