@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { processAppearsActive } from "./state-store.mjs";
+import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
 const controlFileName = "runner-control.json";
 const activeRunFileName = "active-run.json";
@@ -228,7 +229,7 @@ export function listEvents(config, runId) {
       }));
     }
     if (iteration.validation) events.push(event(iteration.finishedAt || iteration.startedAt, "checks", iteration.validation.passed ? "local validation passed" : "local validation failed", { commands: (iteration.validation.results || []).map((r) => ({ command: r.command, status: r.status, error: r.error || null })) }));
-    if (iteration.autoMerge) events.push(event(iteration.finishedAt || iteration.startedAt, "merge", mergeEventSummary(iteration.autoMerge), { reason: iteration.autoMerge.reason || null, mergeSha: iteration.autoMerge.mergeSha || null, waitAttempts: summarizeWaitAttempts(iteration.autoMerge.waitAttempts), evidence: iteration.autoMerge.evidence?.evidencePath || null }));
+    if (iteration.autoMerge) events.push(event(iteration.finishedAt || iteration.startedAt, "merge", mergeEventSummary(iteration.autoMerge), { reason: iteration.autoMerge.reason || null, mergeSha: iteration.autoMerge.mergeSha || null, waitAttempts: summarizeWaitAttempts(iteration.autoMerge.waitAttempts), evidence: iteration.autoMerge.evidence?.evidencePath || null, issueLabelCleanupResult: iteration.autoMerge.issueLabelCleanupResult || null }));
     events.push(event(iteration.finishedAt || iteration.startedAt, "outcome", iteration.outcome || "unknown", { finalOutcome: iteration.outcome || "unknown", systemicStop: iteration.systemicStop || null }));
   }
   return { runId, found: true, summaryPath: summaryInfo.path, events: events.sort((a, b) => Date.parse(a.timestamp || 0) - Date.parse(b.timestamp || 0)) };
@@ -300,7 +301,7 @@ function readSummaryFile(filePath) {
     return {
       path: filePath,
       markdownPath: filePath.replace(/\.json$/, ".md"),
-      summary: JSON.parse(readFileSync(filePath, "utf8")),
+      summary: sanitize(JSON.parse(readFileSync(filePath, "utf8"))),
     };
   } catch {
     return null;
@@ -378,7 +379,8 @@ function countIterationOutcomes(iterations) {
 function mergeEventSummary(autoMerge) {
   const attempts = Array.isArray(autoMerge.waitAttempts) ? ` waitAttempts=${autoMerge.waitAttempts.length}` : "";
   const mergeSha = autoMerge.mergeSha ? ` mergeSha=${autoMerge.mergeSha}` : "";
-  return `${autoMerge.result || "unknown"} reason=${autoMerge.reason || "unknown"}${attempts}${mergeSha}`;
+  const cleanup = autoMerge.issueLabelCleanupResult?.status ? ` labelCleanup=${autoMerge.issueLabelCleanupResult.status}` : "";
+  return `${autoMerge.result || "unknown"} reason=${autoMerge.reason || "unknown"}${attempts}${mergeSha}${cleanup}`;
 }
 
 function summarizeWaitAttempts(waitAttempts) {
@@ -447,10 +449,5 @@ function formatDuration(ms) {
 }
 
 function sanitize(value) {
-  return JSON.parse(
-    JSON.stringify(value).replace(
-      /(GEMINI_API_KEY|authorization|x-goog-api-key|bearer\s+[A-Za-z0-9._~+/-]+|api[_-]?key|secret|token|process\.env|\.env)/gi,
-      "[REDACTED]",
-    ),
-  );
+  return sanitizePersistedEvidence(value);
 }

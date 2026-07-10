@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { sanitizePersistedIteration } from "./evidence-sanitizer.mjs";
 
 export function processAppearsActive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
@@ -51,7 +52,7 @@ export function releaseRunnerLock(lockPath) {
 export function writeIterationState(config, iteration) {
   const issueKey = iteration.issue?.number ? `issue-${iteration.issue.number}` : "no-issue";
   const statePath = path.join(config.logsRoot, "state", `${iteration.runId}-${iteration.index}-${issueKey}.json`);
-  writeFileSync(statePath, `${JSON.stringify(iteration, null, 2)}\n`);
+  writeFileSync(statePath, `${JSON.stringify(sanitizePersistedIteration(iteration), null, 2)}\n`);
   return statePath;
 }
 

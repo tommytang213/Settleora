@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { sanitizePersistedSummary } from "./evidence-sanitizer.mjs";
 
 export function writeRunSummary(config, summary) {
   const jsonPath = path.join(config.logsRoot, "summaries", `${summary.runId}.json`);
   const markdownPath = path.join(config.logsRoot, "summaries", `${summary.runId}.md`);
-  writeFileSync(jsonPath, `${JSON.stringify(summary, null, 2)}\n`);
-  writeFileSync(markdownPath, renderRunMarkdown(summary));
+  const sanitized = sanitizePersistedSummary(summary);
+  writeFileSync(jsonPath, `${JSON.stringify(sanitized, null, 2)}\n`);
+  writeFileSync(markdownPath, renderRunMarkdown(sanitized));
   return { jsonPath, markdownPath };
 }
 
@@ -16,7 +18,7 @@ export function writeRecentSummary(config, sinceMs) {
     ? readdirSync(summariesDir)
         .filter((name) => name.endsWith(".json"))
         .map((name) => path.join(summariesDir, name))
-        .map((filePath) => JSON.parse(readFileSync(filePath, "utf8")))
+        .map((filePath) => sanitizePersistedSummary(JSON.parse(readFileSync(filePath, "utf8"))))
         .filter((summary) => Date.parse(summary.finishedAt || summary.startedAt || 0) >= cutoff)
     : [];
   const generatedAt = new Date().toISOString();
@@ -28,11 +30,12 @@ export function writeRecentSummary(config, sinceMs) {
     prsOpened: summaries.flatMap((summary) => summary.iterations || []).filter((it) => it.pr?.url).map((it) => it.pr.url),
     needsTommy: summaries.flatMap((summary) => summary.iterations || []).filter((it) => ["blocked_needs_tommy", "danger_gate"].includes(it.outcome)),
   };
+  const sanitized = sanitizePersistedSummary(rollup);
   const jsonPath = path.join(summariesDir, `recent-summary-${generatedAt.replace(/[:.]/g, "")}.json`);
   const markdownPath = jsonPath.replace(/\.json$/, ".md");
-  writeFileSync(jsonPath, `${JSON.stringify(rollup, null, 2)}\n`);
-  writeFileSync(markdownPath, renderRecentMarkdown(rollup));
-  return { jsonPath, markdownPath, rollup };
+  writeFileSync(jsonPath, `${JSON.stringify(sanitized, null, 2)}\n`);
+  writeFileSync(markdownPath, renderRecentMarkdown(sanitized));
+  return { jsonPath, markdownPath, rollup: sanitized };
 }
 
 function renderRunMarkdown(summary) {
@@ -68,8 +71,9 @@ function renderRunMarkdown(summary) {
       lines[lines.length - 1] = `${lines[lines.length - 1].replace(/\)$/, "")}${reviewDiagnostics})`;
     }
     if (iteration.autoMerge) {
+      const cleanup = iteration.autoMerge.issueLabelCleanupResult;
       lines.push(
-        `  - Auto-merge: eligible=${iteration.autoMerge.eligible ? "yes" : "no"} attempted=${iteration.autoMerge.attempted ? "yes" : "no"} result=${iteration.autoMerge.result || "unknown"} prHead=${iteration.autoMerge.prHeadSha || "none"} mergeSha=${iteration.autoMerge.mergeSha || "none"} issueClosure=${iteration.autoMerge.issueClosureResult || "n/a"} blockedReason=${iteration.autoMerge.reason || "none"}`,
+        `  - Auto-merge: eligible=${iteration.autoMerge.eligible ? "yes" : "no"} attempted=${iteration.autoMerge.attempted ? "yes" : "no"} result=${iteration.autoMerge.result || "unknown"} prHead=${iteration.autoMerge.prHeadSha || "none"} mergeSha=${iteration.autoMerge.mergeSha || "none"} issueClosure=${iteration.autoMerge.issueClosureResult || "n/a"} labelCleanup=${cleanup?.status || "n/a"} blockedReason=${iteration.autoMerge.reason || "none"}`,
       );
     }
     if (iteration.externalReview || iteration.laneDecision?.lane === "client-ui-low-risk") {

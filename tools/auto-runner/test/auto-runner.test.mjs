@@ -43,6 +43,7 @@ import {
 } from "../lib/reviewer-policy.mjs";
 import {
   buildIssueLinkageEvidence,
+  cleanupIssueLifecycleLabels,
   evaluateExistingPrRecoveryDecision,
   evaluateAutoMergeDecision,
   evaluatePrePushReviewGate,
@@ -67,7 +68,8 @@ import {
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
 import { planValidation } from "../lib/validation-planner.mjs";
-import { writeRunSummary } from "../lib/summary-writer.mjs";
+import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
+import { writeIterationState } from "../lib/state-store.mjs";
 import {
   evaluateReviewFixCanaryFixtureApproval,
   normalizeReviewFixCanaryFixtureConfig,
@@ -372,6 +374,176 @@ test("run and event listing summarize existing summary evidence without fabricat
     assert.ok(events.events.some((item) => item.type === "merge" && item.details.mergeSha === "merge839"));
     assert.ok(events.events.some((item) => item.type === "merge" && item.details.waitAttempts.length === 2));
     assert.match(renderStatusText(getRunnerStatus(config)), /PR\/iteration budget:/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("persisted run summary, iteration state, recent summary, and markdown omit raw model payloads", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-sanitized-summary-"));
+  try {
+    mkdirSync(path.join(tempRoot, "summaries"), { recursive: true });
+    mkdirSync(path.join(tempRoot, "state"), { recursive: true });
+    const config = readinessConfig(tempRoot);
+    const rawOutputSentinel = "RAW_OUTPUT_SENTINEL_20260710";
+    const responsePayloadSentinel = "RESPONSE_PAYLOAD_SENTINEL_20260710";
+    const implementationTailSentinel = "IMPLEMENTATION_TAIL_SENTINEL_20260710";
+    const providerSecretSentinel = "PROVIDER_SECRET_SENTINEL_20260710";
+    const promptPath = path.join(tempRoot, "reviews", "codex-prompt.md");
+    const logPath = path.join(tempRoot, "reviews", "codex.log");
+    const stdoutPath = path.join(tempRoot, "reviews", "codex.stdout");
+    const stderrPath = path.join(tempRoot, "reviews", "codex.stderr");
+    const evidencePath = path.join(tempRoot, "reviews", "gemini.json");
+    const iteration = {
+      runId: "run-sanitized-test",
+      index: 1,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      outcome: "auto_merged",
+      issue: { number: 847, title: "Sanitize evidence", url: "https://example.invalid/issues/847" },
+      laneDecision: { lane: "client-ui-low-risk" },
+      changedFiles: ["tools/auto-runner/lib/summary-writer.mjs"],
+      runnerCreatedCommitSha: "head-sanitized",
+      validation: { passed: true, results: [{ command: "node --test tools/auto-runner/test/*.test.mjs", status: 0 }] },
+      codex: {
+        skipped: false,
+        status: 0,
+        signal: null,
+        logPath: path.join(tempRoot, "codex-runs", "implementation.log"),
+        tail: implementationTailSentinel,
+      },
+      externalReview: {
+        status: "pass",
+        reason: "integrated_review_passed",
+        verdict: "pass",
+        provider: "gemini",
+        tier: "cheap_independent",
+        model: "gemini-2.5-flash-lite",
+        reviewedHead: "head-sanitized",
+        changedFiles: ["tools/auto-runner/lib/summary-writer.mjs"],
+        reportPath: evidencePath,
+        rawRequest: providerSecretSentinel,
+        rawResponse: providerSecretSentinel,
+        authorization: providerSecretSentinel,
+        nested: { apiKey: providerSecretSentinel, safeNumber: 7, safeBoolean: false, safeNull: null },
+      },
+      review: {
+        skipped: false,
+        promptPath,
+        logPath,
+        stdoutPath,
+        stderrPath,
+        status: 0,
+        signal: null,
+        rawOutput: rawOutputSentinel,
+        responsePayload: responsePayloadSentinel,
+        responsePayloadSource: "stdout",
+        responsePayloadBoundary: "process.stdout",
+        rawCandidateDiagnostics: { valid_verdict_count: 1, invalid_candidate_count: 0, saw_json: true },
+        reviewStatus: "passed",
+        reviewFailureCategory: null,
+        reviewFailureReason: null,
+        attempts: [
+          {
+            status: 0,
+            signal: null,
+            logPath,
+            stdoutPath,
+            stderrPath,
+            responsePayloadSource: "stdout",
+            responsePayloadBoundary: "process.stdout",
+            reviewStatus: "passed",
+            rawValidVerdictCount: 1,
+            rawInvalidCandidateCount: 0,
+          },
+        ],
+        attemptCount: 1,
+        reviewedHead: "head-sanitized",
+        changedFiles: ["tools/auto-runner/lib/summary-writer.mjs"],
+        verdict: {
+          verdict: "approve",
+          confidence: "medium",
+          review_output_boundary: { raw_log_path: logPath, raw_valid_verdict_count: 1, raw_invalid_candidate_count: 0 },
+        },
+      },
+      reviewPackage: {
+        packagePath: path.join(tempRoot, "reviews", "package.json"),
+        summary: {
+          currentHead: "head-sanitized",
+          changedFiles: ["tools/auto-runner/lib/summary-writer.mjs"],
+          validation: { passed: true },
+          diffTruncated: false,
+        },
+        diff: "diff --git SENTINEL_DIFF_RAW",
+      },
+      autoMerge: {
+        result: "merged",
+        reason: "github_merge_commit_completed",
+        mergeSha: "merge-sanitized",
+        issueLabelCleanupResult: {
+          status: "passed",
+          labelsFound: ["workflow", "auto-running"],
+          labelsRemoved: ["auto-running"],
+          commandStatus: { view: { status: 0, error: null }, remove: { status: 0, error: null } },
+        },
+      },
+      numbers: [1, 2],
+      booleans: [true, false],
+      nullValue: null,
+    };
+    const original = structuredClone(iteration);
+    const summary = {
+      runId: "run-sanitized-test",
+      mode: "canary-run",
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      stopReason: "max-iterations-reached",
+      iterations: [iteration],
+    };
+    const paths = writeRunSummary(config, summary);
+    const statePath = writeIterationState(config, iteration);
+    const summaryText = readFileSync(paths.jsonPath, "utf8");
+    const stateText = readFileSync(statePath, "utf8");
+    const markdownText = readFileSync(paths.markdownPath, "utf8");
+
+    for (const text of [summaryText, stateText, markdownText]) {
+      assert.doesNotMatch(text, new RegExp(rawOutputSentinel));
+      assert.doesNotMatch(text, new RegExp(responsePayloadSentinel));
+      assert.doesNotMatch(text, new RegExp(implementationTailSentinel));
+      assert.doesNotMatch(text, new RegExp(providerSecretSentinel));
+      assert.doesNotMatch(text, /SENTINEL_DIFF_RAW/);
+    }
+    const persisted = JSON.parse(summaryText);
+    const persistedIteration = persisted.iterations[0];
+    assert.equal(persistedIteration.review.rawEvidence.rawPayloadPersisted, false);
+    assert.equal(persistedIteration.review.promptPath, promptPath);
+    assert.equal(persistedIteration.review.logPath, logPath);
+    assert.equal(persistedIteration.review.attemptCount, 1);
+    assert.equal(persistedIteration.review.reviewStatus, "passed");
+    assert.equal(persistedIteration.review.verdict.verdict, "approve");
+    assert.equal(persistedIteration.externalReview.status, "pass");
+    assert.equal(persistedIteration.externalReview.provider, "gemini");
+    assert.equal(persistedIteration.externalReview.reportPath, evidencePath);
+    assert.deepEqual(persistedIteration.changedFiles, ["tools/auto-runner/lib/summary-writer.mjs"]);
+    assert.equal(persistedIteration.validation.passed, true);
+    assert.deepEqual(persistedIteration.numbers, [1, 2]);
+    assert.deepEqual(persistedIteration.booleans, [true, false]);
+    assert.equal(persistedIteration.nullValue, null);
+    assert.deepEqual(iteration, original);
+
+    writeFileSync(
+      path.join(tempRoot, "summaries", "run-old-unsanitized.json"),
+      `${JSON.stringify({ ...summary, runId: "run-old-unsanitized", iterations: [{ ...iteration, outcome: "blocked_needs_tommy" }] }, null, 2)}\n`,
+    );
+    const recent = writeRecentSummary(config, 60 * 60 * 1000);
+    const recentText = `${readFileSync(recent.jsonPath, "utf8")}\n${readFileSync(recent.markdownPath, "utf8")}`;
+    assert.doesNotMatch(recentText, new RegExp(rawOutputSentinel));
+    assert.doesNotMatch(recentText, new RegExp(responsePayloadSentinel));
+    assert.ok(listRuns(config).some((run) => run.runId === "run-sanitized-test"));
+    const events = listEvents(config, "run-sanitized-test");
+    assert.equal(events.found, true);
+    assert.doesNotMatch(JSON.stringify(events), new RegExp(rawOutputSentinel));
+    assert.ok(events.events.some((item) => item.type === "merge" && item.details.issueLabelCleanupResult.status === "passed"));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -3027,6 +3199,10 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
       if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
       if (command === "git" && args[0] === "ls-remote") return ok("");
       if (command === "git" && args[0] === "push") return ok("");
+      if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+        return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }] }));
+      }
+      if (command === "gh" && args[0] === "issue" && args[1] === "edit") return ok("");
       if (command === "gh" && args[0] === "issue" && args[1] === "close") return ok("");
       if (command === "gh" && args[0] === "pr" && args[1] === "comment") return ok("");
       if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
@@ -3037,6 +3213,134 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
     assert.equal(result.mergeSha, "merge123");
     assert.equal(result.sourceBranchRestoration.executed, true);
     assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("successful auto-merge removes only present transient issue labels", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-label-cleanup-merge-"));
+  try {
+    const calls = [];
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false },
+      autoMergeContext({ issue: { labels: ["workflow", "auto-running", "auto-claimed", "auto-pr-opened", "area:mobile-ui"] } }),
+      { runner: createAutoMergeRunner(calls) },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.issueLabelCleanupResult.status, "passed");
+    assert.deepEqual(result.issueLabelCleanupResult.labelsRemoved, ["auto-running", "auto-claimed"]);
+    const editCall = calls.find((call) => call.startsWith("gh issue edit 1 --remove-label"));
+    assert.equal(editCall, "gh issue edit 1 --remove-label auto-running,auto-claimed");
+    assert.doesNotMatch(editCall, /workflow|area:mobile-ui/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("label cleanup succeeds as no-op when no transient labels are present", () => {
+  const calls = [];
+  const result = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), dryRun: false },
+    autoMergeContext({ issue: { labels: ["workflow", "canary"] } }),
+    (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+        return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "canary" }] }));
+      }
+      return fail(`unexpected ${command} ${args.join(" ")}`);
+    },
+  );
+  assert.equal(result.status, "passed_noop");
+  assert.deepEqual(result.labelsRemoved, []);
+  assert.equal(calls.length, 1);
+});
+
+test("label cleanup records view and removal failures without changing merge success", () => {
+  const viewFailure = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), dryRun: false },
+    autoMergeContext(),
+    (command, args) => {
+      if (command === "gh" && args[0] === "issue" && args[1] === "view") return fail("view denied");
+      return ok("");
+    },
+  );
+  assert.equal(viewFailure.status, "failed");
+  assert.match(viewFailure.failureReason, /view denied/);
+
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-label-cleanup-remove-fail-"));
+  try {
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false },
+      autoMergeContext(),
+      {
+        runner: (command, args) => {
+          if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+          if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
+          if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+            return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }] }));
+          }
+          if (command === "gh" && args[0] === "issue" && args[1] === "edit") return fail("remove denied");
+          if (command === "gh" && args[0] === "issue" && args[1] === "close") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "comment") return ok("");
+          if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
+          return fail(`unexpected ${command} ${args.join(" ")}`);
+        },
+      },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.issueClosureResult, "closed_completed");
+    assert.equal(result.issueLabelCleanupResult.status, "failed");
+    assert.match(result.issueLabelCleanupResult.failureReason, /remove denied/);
+    assert.match(readFileSync(result.evidence.evidencePath, "utf8"), /issueLabelCleanupResult/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("issue close failure and label cleanup failure are independently represented", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-label-close-independent-"));
+  try {
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false },
+      autoMergeContext(),
+      {
+        runner: (command, args) => {
+          if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+          if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
+          if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+            return ok(JSON.stringify({ labels: [{ name: "auto-running" }] }));
+          }
+          if (command === "gh" && args[0] === "issue" && args[1] === "edit") return fail("remove failed");
+          if (command === "gh" && args[0] === "issue" && args[1] === "close") return fail("close failed");
+          if (command === "gh" && args[0] === "pr" && args[1] === "comment") return ok("");
+          if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
+          return fail(`unexpected ${command} ${args.join(" ")}`);
+        },
+      },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.issueLabelCleanupResult.status, "failed");
+    assert.equal(result.issueClosureResult, "close_failed");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("dry-run auto-merge previews exact transient labels only", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-label-cleanup-dry-run-"));
+  try {
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: true },
+      autoMergeContext({ issue: { labels: ["workflow", "auto-running", "auto-pr-opened", "canary"] } }),
+      { runner: createAutoMergeRunner([]) },
+    );
+    assert.equal(result.result, "dry_run_eligible");
+    assert.equal(result.issueLabelCleanupResult.status, "dry_run_preview");
+    assert.deepEqual(result.issueLabelCleanupResult.labelsRemoved, ["auto-running", "auto-pr-opened"]);
+    assert.deepEqual(result.issueLabelCleanupResult.labelsFound, ["workflow", "auto-running", "auto-pr-opened", "canary"]);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -3703,6 +4007,10 @@ function createAutoMergeRunner(calls) {
     if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
     if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
     if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+      return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }, { name: "auto-claimed" }] }));
+    }
+    if (command === "gh" && args[0] === "issue" && args[1] === "edit") return ok("");
     if (command === "gh" && args[0] === "issue" && args[1] === "close") return ok("");
     if (command === "gh" && args[0] === "pr" && args[1] === "comment") return ok("");
     if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");

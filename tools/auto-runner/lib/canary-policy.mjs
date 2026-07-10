@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { safeTimestamp, slugify } from "./logger.mjs";
+import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 
 export const canaryAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
@@ -307,12 +308,7 @@ function globIsSubsetOf(childGlob, parentGlob) {
 }
 
 function sanitizeEvidence(value) {
-  return JSON.parse(
-    JSON.stringify(value).replace(
-      /(GEMINI_API_KEY|authorization|x-goog-api-key|bearer\s+[A-Za-z0-9._~+/-]+|api[_-]?key|secret|token)/gi,
-      "[REDACTED]",
-    ),
-  );
+  return sanitizePersistedEvidence(value);
 }
 
 function unsafeTrustedToggles(config) {

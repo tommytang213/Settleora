@@ -35,7 +35,15 @@ and active control flags. `--json` emits the same sanitized data as JSON,
 including `maxPrs`/`completedPrs` aliases for the iteration budget used by
 current canary/trusted runner loops. The status surface does not print
 environment variables, provider payloads, API keys, authorization headers,
-`.env` values, raw Gemini output, or provider request bodies.
+`.env` values, raw Gemini output, raw Codex mechanics output, selected
+response payloads, or provider request bodies. New run summaries,
+iteration-state JSON, active-run JSON, recent summaries, Markdown summaries,
+and list/status/event surfaces persist sanitized metadata and evidence paths
+only. Raw model output, prompts, stdout/stderr, full diffs, and provider
+payloads remain in dedicated local evidence files under
+`/workspace/logs/settleora-auto-runner/`. Historical local summary/state files
+are not automatically rewritten; readback surfaces sanitize old local files
+before displaying or rolling them up.
 
 `--list-runs` reads recent run summaries from
 `/workspace/logs/settleora-auto-runner/summaries/`. `--list-events --run
@@ -240,6 +248,16 @@ ref has no open code-scanning alerts, no blocking comment/review/manual-gate
 markers exist, and the issue is still open without stop labels. The merge
 method is normal GitHub merge commit only. Sanitized auto-merge evidence is
 written under `/workspace/logs/settleora-auto-runner/auto-merge/`.
+
+After a successful normal auto-merge, the runner re-reads the linked issue's
+current labels and removes only present transient lifecycle labels from this
+fixed allowlist: `auto-running`, `auto-claimed`, `auto-pr-opened`, and
+`auto-failed`. Durable labels such as area labels, `workflow`, `canary`,
+`auto-canary-ready`, priority, day-scope, and project labels are preserved.
+Merge success remains authoritative if label cleanup, issue closure, or
+post-merge comments fail; cleanup status and failure reasons are recorded in
+auto-merge evidence, summaries, and event listings for operator follow-up.
+Dry-run mode previews the exact transient labels without mutating GitHub.
 
 Fresh implementation ordering is exact-head-first. After Codex implementation
 and local validation, the runner creates a normal local commit containing the
@@ -595,3 +613,5 @@ outcomes remove both labels. PR-opened outcomes add `auto-pr-opened`,
 blocked/manual outcomes add `needs-tommy`, danger outcomes add `danger-gate`,
 and validation/review/runner failure outcomes add `auto-failed`. `no_changes`
 removes both active labels, comments the outcome, and leaves the issue open.
+Successful auto-merge performs the post-merge transient-label cleanup above;
+it does not remove stop/manual labels before merge to bypass gates.
