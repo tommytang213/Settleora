@@ -39,19 +39,14 @@ class AppButton extends StatelessWidget {
         ? BorderSide(color: colors.borderStrong)
         : BorderSide.none;
     final child = icon == null
-        ? FittedBox(fit: BoxFit.scaleDown, child: Text(label))
+        ? _AppButtonLabel(label: label)
         : Row(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(icon, size: 18),
               const SizedBox(width: 8),
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(label, maxLines: 1),
-                ),
-              ),
+              Flexible(child: _AppButtonLabel(label: label)),
             ],
           );
     final button = FilledButton(
@@ -67,6 +62,29 @@ class AppButton extends StatelessWidget {
     );
 
     return expanded ? SizedBox(width: double.infinity, child: button) : button;
+  }
+}
+
+class _AppButtonLabel extends StatelessWidget {
+  const _AppButtonLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.visible,
+          softWrap: false,
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
   }
 }
 
