@@ -377,6 +377,25 @@ changed-file policy checks, local validation, integrated Gemini when
 configured, and Codex mechanics review. Evidence is written only under
 `/workspace/logs/settleora-auto-runner/review-fix/`.
 
+Review-fix canary fixture:
+
+A deterministic review-fix canary fixture exists only for a future one-issue
+live canary. It is disabled by default and has no effect on normal Gemini or
+Codex mechanics review. To use it, an external uncommitted config must enable
+`reviewFixCanaryFixture.enabled`, provide a bounded single-line `marker` such
+as `review-fix-cycle: completed`, and invoke the runner with the same
+`--run --canary`, low-risk auto-merge canary, and review-fix mutation approval
+shape above.
+
+In fixture mode, the runner does not call Gemini for the integrated review
+source. It checks only the changed low-risk issue-contract files for the exact
+configured marker, writes sanitized evidence under
+`/workspace/logs/settleora-auto-runner/review-fix/`, returns a structured
+actionable finding when the marker is absent, and returns pass only after the
+marker is present. The fixture still refuses broad paths, dangerous paths,
+missing validation, non-auto-merge contracts, non-canary real-runs, broad
+trusted real-run approval, and disabled review-fix mutation.
+
 Summary mode:
 
 ```bash

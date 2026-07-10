@@ -31,6 +31,7 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
+import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
   buildReviewFixPrompt,
   evaluateReviewFixMutationDecision,
@@ -341,7 +342,7 @@ async function runIteration(config, logger, runId, index) {
     validation: iteration.validation,
     report: iteration.report,
   });
-  iteration.externalReview = await runGeminiIntegratedReview(config, iteration.reviewPackage);
+  iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
   if (iteration.externalReview.status === "blocked") {
     const fixAttempt = await runReviewFixCycle(config, {
       issue,
@@ -804,7 +805,7 @@ async function runReviewFixCycle(config, context) {
     validation: validationAfter,
     report: context.report,
   });
-  const externalReviewAfter = await runGeminiIntegratedReview(config, reviewPackageAfter);
+  const externalReviewAfter = await runIntegratedReviewSource(config, reviewPackageAfter, "post-fix");
   if (externalReviewAfter.status === "blocked") {
     return finishBlocked("review_fix_integrated_review_still_blocking", {
       validationAfter: summarizeValidation(validationAfter),
@@ -919,6 +920,16 @@ async function writeReviewPackage(config, payload) {
   };
   writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);
   return { packagePath, summary, diff: diff.text };
+}
+
+async function runIntegratedReviewSource(config, reviewPackage, phase) {
+  if (config.reviewFixCanaryFixture?.requestedEnabled) {
+    return runReviewFixCanaryFixtureReview(config, reviewPackage, {
+      phase,
+      reviewedHead: config.dryRun ? null : getRefSha("HEAD"),
+    });
+  }
+  return runGeminiIntegratedReview(config, reviewPackage);
 }
 
 function prSummary(iteration) {

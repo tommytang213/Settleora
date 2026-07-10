@@ -526,6 +526,41 @@ continued, and a secret-boundary confirmation. Provider payloads, tokens,
 `reviewer.env` values, authorization headers, raw local config data, and
 secrets must not be logged, prompted, commented, or committed.
 
+### Deterministic Review-Fix Canary Fixture
+
+The review-fix canary fixture is a local deterministic review source for a
+future one-issue live canary. It is disabled in built-in config and requires
+external, uncommitted config. It is accepted only with `--run --canary`, the
+trusted real-run canary approval, broad trusted real-run disabled, low-risk
+auto-merge canary approval, `allowAutoMerge: true`, review-fix mutation
+enabled, and a positive review-fix cycle count clamped to one.
+
+The fixture is restricted to `workflow-docs-tooling` and `docs-planning`
+contracts with `autoMergeEligible: true`, `manualMergeRequired: false`, and
+non-empty exact `allowedPaths` under the approved low-risk canary prefixes. It
+refuses broad paths, dangerous product/runtime/API/auth/session/security/
+storage/privacy/money/settlement/schema/migration/OpenAPI/generated-client/
+Docker/deployment/env/secret/public/admin/mobile/OCR/sync/import/export/
+backup/restore paths, missing validation, stop-label scopes, and malformed
+fixture config.
+
+When enabled, the fixture replaces only the integrated reviewer source for that
+explicit canary mode; normal Gemini and Codex mechanics review paths are
+unchanged when it is disabled. It scans the changed allowed files for the exact
+configured marker, for example `review-fix-cycle: completed`. If absent, it
+returns the same structured actionable failure shape consumed by the
+review-fix loop. If present after the fix cycle, it returns a pass verdict.
+Sanitized fixture evidence is written under:
+
+```text
+/workspace/logs/settleora-auto-runner/review-fix/
+```
+
+Fixture evidence includes fixture mode, issue number, lane, allowed paths,
+reviewed head, marker identifier, finding count, and pre/post-fix phase. It
+does not include raw provider payloads, secrets, local config bodies, or raw
+marker values.
+
 ## Low-Risk Auto-Merge Foundation
 
 Auto-merge remains disabled in built-in defaults. A normal trusted run may only
