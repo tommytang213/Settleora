@@ -494,6 +494,91 @@ void main() {
     semanticsHandle.dispose();
   });
 
+  testWidgets('MoneyText exposes one normalized amount semantics label', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: MoneyText(amount: ' 42.00 ', currencyCode: ' hkd '),
+        ),
+      ),
+    );
+
+    expect(find.text('42.00 HKD'), findsOneWidget);
+    _expectSingleSemanticsLabel(tester, '42.00 HKD');
+
+    semanticsHandle.dispose();
+  });
+
+  testWidgets('MoneyText custom semantic label replaces the default label', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: MoneyText(
+            amount: '42.00',
+            currencyCode: 'HKD',
+            semanticLabel: 'Forty-two Hong Kong dollars',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('42.00 HKD'), findsOneWidget);
+    _expectSingleSemanticsLabel(tester, 'Forty-two Hong Kong dollars');
+    _expectNoSemanticsLabel(tester, '42.00 HKD');
+
+    semanticsHandle.dispose();
+  });
+
+  testWidgets('MoneyText blank amount keeps zero display and semantics', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: MoneyText(amount: '   ', currencyCode: 'usd'),
+        ),
+      ),
+    );
+
+    expect(find.text('0 USD'), findsOneWidget);
+    _expectSingleSemanticsLabel(tester, '0 USD');
+
+    semanticsHandle.dispose();
+  });
+
+  testWidgets('MoneyText blank currency keeps fallback display and semantics', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: MoneyText(amount: '128.00', currencyCode: '   '),
+        ),
+      ),
+    );
+
+    expect(find.text('128.00 Currency not set'), findsOneWidget);
+    _expectSingleSemanticsLabel(tester, '128.00 Currency not set');
+
+    semanticsHandle.dispose();
+  });
+
   testWidgets(
     'shared header primitives expose only visible titles as semantic headers',
     (tester) async {
@@ -1260,6 +1345,28 @@ void _expectInteractiveNotHeaderSemantics(WidgetTester tester, String label) {
     }),
     isTrue,
   );
+}
+
+void _expectSingleSemanticsLabel(WidgetTester tester, String label) {
+  expect(
+    _semanticsLabelCount(tester, label),
+    1,
+    reason: '$label must be announced by exactly one semantics node.',
+  );
+}
+
+void _expectNoSemanticsLabel(WidgetTester tester, String label) {
+  expect(
+    _semanticsLabelCount(tester, label),
+    0,
+    reason: '$label must not be announced as a duplicate/default label.',
+  );
+}
+
+int _semanticsLabelCount(WidgetTester tester, String label) {
+  return _semanticsNodes(tester)
+      .where((node) => node.getSemanticsData().label == label)
+      .length;
 }
 
 List<SemanticsNode> _semanticsNodes(WidgetTester tester) {
