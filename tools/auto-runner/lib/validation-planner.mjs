@@ -41,6 +41,7 @@ function bounded(value, max = 6000) {
 
 function fallbackProfileForChangedFiles(changedFiles, laneDecision) {
   if (laneDecision.lane === "workflow-docs-tooling") return "workflow-tooling";
+  if (laneDecision.lane === "client-ui-low-risk") return "mobile-ui-low-risk";
   if (changedFiles.some((file) => /^(docs\/planning\/|docs\/qa\/)/.test(file))) return "docs-only";
   return "scaffold-docs";
 }

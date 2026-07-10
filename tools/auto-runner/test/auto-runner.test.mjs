@@ -55,6 +55,7 @@ import {
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
+import { planValidation } from "../lib/validation-planner.mjs";
 import {
   evaluateReviewFixCanaryFixtureApproval,
   normalizeReviewFixCanaryFixtureConfig,
@@ -1631,6 +1632,120 @@ test("valid docs/planning contract is accepted for planning docs only", () => {
   ]);
 });
 
+test("client-ui-low-risk contract accepts only narrow mobile shared UI paths", () => {
+  const lane = classifyIssueLane({
+    title: "Mobile shared UI copy polish",
+    body: contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready", "canary"],
+  });
+  assert.equal(lane.allowedToImplement, true);
+  assert.equal(lane.lane, "client-ui-low-risk");
+  assert.equal(lane.validationProfile, "mobile-ui-low-risk");
+  assert.equal(lane.autoMergeEligible, true);
+  assert.equal(lane.manualMergeRequired, false);
+  assert.deepEqual(
+    filterForbiddenChangedFiles(
+      ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+      lane,
+    ),
+    [],
+  );
+  assert.deepEqual(filterForbiddenChangedFiles(["apps/mobile/lib/app/server_mode_shell.dart"], lane), [
+    "apps/mobile/lib/app/server_mode_shell.dart",
+  ]);
+});
+
+test("client-ui-low-risk refuses broad mobile paths and forbidden domains", () => {
+  for (const body of [
+    contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/**"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/bills/**"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/auth/**"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["packages/client-dart/lib/generated/**"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+  ]) {
+    const lane = classifyIssueLane({ title: "Unsafe mobile UI canary", body, labels: ["auto-canary-ready", "canary"] });
+    assert.equal(lane.allowedToImplement, false);
+    assert.match(lane.reason, /outside lane manifest/i);
+  }
+
+  const positiveScope = classifyIssueLane({
+    title: "Mobile UI canary with unsafe scope",
+    body: `${contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    })}
+
+## Scope
+
+Change auth session behavior, storage privacy checks, money settlement calculations, OpenAPI generated clients, schema migrations, and deployment config.
+`,
+    labels: ["auto-canary-ready", "canary"],
+  });
+  assert.equal(positiveScope.allowedToImplement, false);
+  assert.equal(positiveScope.dangerGate, true);
+  assert.ok(positiveScope.dangerReasons.includes("auth_security"));
+  assert.ok(positiveScope.dangerReasons.includes("storage_privacy"));
+  assert.ok(positiveScope.dangerReasons.includes("money_settlement"));
+  assert.ok(positiveScope.dangerReasons.includes("openapi_generated_client"));
+  assert.ok(positiveScope.dangerReasons.includes("schema_migration"));
+  assert.ok(positiveScope.dangerReasons.includes("docker_ci_deploy"));
+});
+
+test("client-ui-low-risk validation profile uses bounded Flutter mobile UI checks", () => {
+  const lane = classifyIssueLane({
+    title: "Mobile shared UI canary",
+    body: contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready", "canary"],
+  });
+  const plan = planValidation(["apps/mobile/lib/ui/settleora_components.dart"], lane).map((item) => item.display);
+  assert.deepEqual(plan, [
+    "git status --short",
+    "git diff --name-only",
+    "git diff --check",
+    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter pub get",
+    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter analyze",
+    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart",
+  ]);
+});
+
 test("#818-style workflow docs canary ignores dangerous terms in non-goals", () => {
   const lane = classifyIssueLane({
     title: "Auto-runner canary: Gemini integrated workflow docs checkpoint",
@@ -1719,7 +1834,7 @@ test("normal dangerous issue without contract remains danger gated", () => {
   assert.ok(lane.dangerReasons.includes("openapi_generated_client"));
 });
 
-test("canary mode accepts only workflow/tooling and docs/planning lanes", () => {
+test("canary mode accepts only approved low-risk lanes", () => {
   const config = { canary: true };
   const workflow = classifyIssueLane({
     title: "Auto-runner workflow hardening",
@@ -1742,6 +1857,30 @@ test("canary mode accepts only workflow/tooling and docs/planning lanes", () => 
     labels: ["auto-ready"],
   });
   assert.equal(evaluateCanaryIssuePolicy(config, planning).allowed, true);
+
+  const lowRiskUi = classifyIssueLane({
+    title: "Mobile shared UI canary",
+    body: contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready", "canary"],
+  });
+  assert.equal(evaluateCanaryIssuePolicy(config, lowRiskUi).allowed, false);
+
+  const approvedLowRiskUi = classifyIssueLane({
+    title: "Mobile shared UI manual canary",
+    body: contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+      validationProfile: "mobile-ui-low-risk",
+    }),
+    labels: ["auto-canary-ready", "canary"],
+  });
+  assert.equal(evaluateCanaryIssuePolicy(config, approvedLowRiskUi).allowed, true);
 
   const danger = classifyIssueLane({
     title: "Product runtime placeholder",
@@ -1840,6 +1979,19 @@ test("approved low-risk auto-merge canary accepts exact lane globs and least-pri
     labels: ["auto-canary-ready"],
   });
   assert.equal(evaluateCanaryIssuePolicy(config, qaSingleFile).allowed, true);
+
+  const lowRiskUi = classifyIssueLane({
+    title: "Low-risk mobile UI auto merge canary",
+    body: contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready", "canary"],
+  });
+  assert.equal(evaluateCanaryIssuePolicy(config, lowRiskUi).allowed, true);
 });
 
 test("approved low-risk auto-merge canary rejects broad, runtime, traversal, and non-canary lane paths", () => {
@@ -1877,6 +2029,27 @@ test("approved low-risk auto-merge canary rejects broad, runtime, traversal, and
       lane: "workflow-docs-tooling",
       allowedPaths: ["services/api/Auth/**"],
       validationProfile: "runner-tests",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/**"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/**", "apps/mobile/lib/auth/**"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["packages/client-dart/lib/generated/**"],
+      validationProfile: "mobile-ui-low-risk",
       manualMergeRequired: false,
       autoMergeEligible: true,
     }),
@@ -1933,6 +2106,29 @@ test("approved low-risk lane with exact allowed paths and exact-head checks allo
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "all_auto_merge_gates_passed");
   assert.equal(decision.prHeadSha, "head123");
+});
+
+test("client-ui-low-risk lane with exact mobile UI paths allows merge decision", () => {
+  const laneDecision = autoMergeLane({
+    lane: "client-ui-low-risk",
+    allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+    laneManifestAllowedPaths: ["apps/mobile/lib/ui/**", "apps/mobile/test/ui/**"],
+    validationProfile: "mobile-ui-low-risk",
+    contract: {
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const decision = evaluateAutoMergeDecision(
+    autoMergeContext({
+      laneDecision,
+      changedFiles: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+    }),
+  );
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.reason, "all_auto_merge_gates_passed");
 });
 
 test("auto-merge decision enforces exact issue contract paths even under approved lane prefix", () => {

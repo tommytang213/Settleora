@@ -5,7 +5,7 @@ import { safeTimestamp } from "./logger.mjs";
 import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 
-export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning"]);
+export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const autoMergeStopLabels = Object.freeze([
   "needs-tommy",
   "manual-gate",

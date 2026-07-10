@@ -373,6 +373,12 @@ Implemented lanes:
   gates. Follow-up issue creation remains disabled. Review-fix mutation
   remains disabled by default and can only be considered through the separate
   low-risk foundation below.
+- `client-ui-low-risk`: implementation and PR creation are allowed only for
+  narrow shared Flutter UI component copy/styling and directly tied component
+  tests under `apps/mobile/lib/ui/**` and `apps/mobile/test/ui/**`. Auto-merge
+  is disabled by default and can only be attempted through the bounded canary
+  low-risk lane gates. Follow-up issue creation and review-fix mutation remain
+  disabled for this lane.
 
 Disabled/manual-gated placeholder lanes exist for product runtime,
 security runtime, storage/privacy, money/settlement, schema/migrations,
@@ -411,6 +417,7 @@ Canary mode is limited to contracted issues in these manifest lanes:
 
 - `workflow-docs-tooling`
 - `docs-planning`
+- `client-ui-low-risk`
 
 Normal canary mode refuses product/runtime/danger placeholder lanes, contracts
 with `autoMergeEligible: true`, contracts with `manualMergeRequired: false`,
@@ -438,6 +445,8 @@ non-empty safe subsets of these approved low-risk lane prefixes:
 
 - `workflow-docs-tooling`: `tools/auto-runner/**` and `docs/workflow/**`.
 - `docs-planning`: `docs/planning/**` and `docs/qa/**`.
+- `client-ui-low-risk`: `apps/mobile/lib/ui/**` and
+  `apps/mobile/test/ui/**`.
 
 Contracts do not need to list every approved lane prefix. Least-privilege
 single-file contracts are preferred for live canary issues, for example
@@ -445,12 +454,20 @@ single-file contracts are preferred for live canary issues, for example
 `docs/planning/ISSUE_PROGRESS_LEDGER.md`, as long as every entry is under one
 of the approved prefixes. Those contracts must set `autoMergeEligible: true`
 and `manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
-`scripts/ai/**`, non-docs paths, product/security/storage/money/schema/
-OpenAPI/generated-client/Docker/deployment/env/secret/public/admin scope, stop
-labels, missing Gemini pass when Gemini is configured, missing Codex mechanics
+`apps/mobile/**`, `scripts/ai/**`, generated clients, product/security/
+storage/money/schema/OpenAPI/generated-client/Docker/deployment/env/secret/
+public/admin scope, stop labels, missing Gemini pass when Gemini is
+configured, missing Codex mechanics
 approval, failing or mismatched-head checks, unresolved review threads, PR-ref
 code-scanning alerts, stale PR heads, base mismatch, dirty worktree, and
 issue-state mismatches all remain fail-closed gates.
+
+The `client-ui-low-risk` validation profile is fixed in runner source and
+runs `git status --short`, `git diff --name-only`, `git diff --check`,
+Flutter `pub get`, Flutter `analyze`, and
+`flutter test test/ui/settleora_component_guardrail_test.dart` from
+`apps/mobile`. Issue contracts cannot provide shell commands or substitute a
+broader mobile validation profile.
 
 Canary evidence is written under:
 
@@ -579,8 +596,9 @@ evaluate a low-risk auto-merge when external, uncommitted config sets
 run also requires `lowRiskAutoMergeCanaryApproved: true` and the max-2 exact
 path rules above.
 
-The first eligible lanes are limited to `workflow-docs-tooling` and
-`docs-planning`. The runner still fails closed unless changed files are exactly
+The eligible low-risk auto-merge lanes are limited to
+`workflow-docs-tooling`, `docs-planning`, and `client-ui-low-risk`. The runner
+still fails closed unless changed files are exactly
 inside the issue contract and lane allowlists, local validation passed,
 integrated Gemini passed when configured, Codex mechanics review approved, the
 PR is open/non-draft/mergeable/clean on `main`, the PR head exactly matches the

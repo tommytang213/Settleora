@@ -152,10 +152,11 @@ follow-up issues.
 Low-risk auto-merge foundation:
 
 Auto-merge remains disabled in built-in defaults and in the example config.
-The only initial lane candidates are `workflow-docs-tooling` and
-`docs-planning`, and a merge can be considered only when an external,
-uncommitted config sets `allowAutoMerge: true` and the issue contract sets
-`autoMergeEligible: true` plus `manualMergeRequired: false`.
+The low-risk lane candidates are `workflow-docs-tooling`, `docs-planning`,
+and the default-off real-code canary lane `client-ui-low-risk`. A merge can be
+considered only when an external, uncommitted config sets `allowAutoMerge:
+true` and the issue contract sets `autoMergeEligible: true` plus
+`manualMergeRequired: false`.
 
 Even then, the runner fails closed unless the changed files exactly match the
 issue contract and lane allowlists, integrated Gemini passed when configured,
@@ -276,8 +277,16 @@ Initial implementation lanes:
 - `workflow-docs-tooling`: `tools/auto-runner/**`, `docs/workflow/**`, and
   `scripts/ai/**`.
 - `docs-planning`: `docs/planning/**` and `docs/qa/**`.
+- `client-ui-low-risk`: `apps/mobile/lib/ui/**` and
+  `apps/mobile/test/ui/**` only, for narrow shared Flutter UI component
+  copy/styling and directly tied component tests.
 
 Product/runtime/danger lanes remain disabled or manual-gated placeholders.
+The `client-ui-low-risk` lane does not allow auth/session/security,
+storage/privacy/authz, money/settlement/payment/bill calculation,
+schema/migration, OpenAPI/generated-client, sync/import/export, OCR runtime,
+Docker/CI/deployment/env, mobile release/signing, public/admin exposure, broad
+`apps/mobile/**`, or generated files.
 Auto-merge, stale-claim stealing, follow-up issue creation, review-fix
 mutation, trusted overnight real-run operation, and systemd enablement remain
 disabled/gated. Review-fix mutation is built as a default-off low-risk
@@ -302,11 +311,12 @@ node tools/auto-runner/settleora-auto-runner.mjs --run --canary --max-iterations
 ```
 
 The config used for that command must set `trustedRealRunCanaryApproved: true`.
-Canary mode only accepts contracted `workflow-docs-tooling` and `docs-planning`
-lanes, caps iterations to `trustedRealRunCanaryMaxIterations` (default `2`),
-writes evidence under `/workspace/logs/settleora-auto-runner/canary/`, and
-keeps PRs human-review and human-merge only unless the separate bounded
-auto-merge canary approval below is active.
+Canary mode only accepts contracted `workflow-docs-tooling`, `docs-planning`,
+and `client-ui-low-risk` lanes, caps iterations to
+`trustedRealRunCanaryMaxIterations` (default `2`), writes evidence under
+`/workspace/logs/settleora-auto-runner/canary/`, and keeps PRs human-review
+and human-merge only unless the separate bounded auto-merge canary approval
+below is active.
 
 Normal canary mode refuses contracts with `autoMergeEligible: true`, requires
 `manualMergeRequired: true`, and refuses auto-merge, follow-up issue creation,
@@ -330,19 +340,27 @@ approval and requires all of these at once:
 
 The only accepted auto-merge canary issue contracts are non-empty safe subsets
 of the approved low-risk prefixes: `workflow-docs-tooling` may use
-`tools/auto-runner/**` or `docs/workflow/**`, and `docs-planning` may use
-`docs/planning/**` or `docs/qa/**`. Contracts do not need to list every
-approved prefix; least-privilege single-file contracts are preferred for live
-canaries. They must still set `autoMergeEligible: true` and
-`manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
-`scripts/ai/**`, non-docs paths, product/security/storage/money/schema/
-OpenAPI/generated-client/Docker/deployment/env/secret/public/admin scope, stop
-labels, missing Gemini pass when Gemini is configured, missing Codex mechanics
+`tools/auto-runner/**` or `docs/workflow/**`, `docs-planning` may use
+`docs/planning/**` or `docs/qa/**`, and `client-ui-low-risk` may use only
+`apps/mobile/lib/ui/**` or `apps/mobile/test/ui/**`. Contracts do not need to
+list every approved prefix; least-privilege single-file contracts are
+preferred for live canaries. They must still set `autoMergeEligible: true`
+and `manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
+`apps/mobile/**`, `scripts/ai/**`, generated clients, product/security/
+storage/money/schema/OpenAPI/generated-client/Docker/deployment/env/secret/
+public/admin scope, stop labels, missing Gemini pass when Gemini is
+configured, missing Codex mechanics
 approval, failing checks, unresolved review threads, PR-ref code-scanning
 alerts, stale PR heads, base mismatch, dirty worktrees, and issue-state
 mismatches remain blocking gates. This max-2 path exists only to prove the
 live auto-merge gates on two bounded low-risk issues after a separate explicit
 task creates and runs that canary.
+
+The `client-ui-low-risk` validation profile is fixed in runner source as:
+`git status --short`, `git diff --name-only`, `git diff --check`, Flutter
+`pub get`, Flutter `analyze`, and
+`flutter test test/ui/settleora_component_guardrail_test.dart` from
+`apps/mobile`. Issue contracts cannot provide shell commands.
 
 Low-risk review-fix mutation foundation:
 
