@@ -526,6 +526,15 @@ continued, and a secret-boundary confirmation. Provider payloads, tokens,
 `reviewer.env` values, authorization headers, raw local config data, and
 secrets must not be logged, prompted, commented, or committed.
 
+Post-fix Codex mechanics review receives a dedicated
+`post-review-fix-mechanics` package. That package labels the initial
+implementation report as `pre_fix_report` and stale background only, then
+provides the structured finding that triggered the fix, the review-fix
+decision, changed files before/after, post-fix validation, final integrated
+review or fixture pass status, and current authoritative status. Missing,
+malformed, stale-head, wrong-issue, or wrong-file post-fix evidence fails
+closed before mechanics review.
+
 ### Deterministic Review-Fix Canary Fixture
 
 The review-fix canary fixture is a local deterministic review source for a

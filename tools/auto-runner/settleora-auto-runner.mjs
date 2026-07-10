@@ -33,6 +33,7 @@ import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
+  buildPostReviewFixMechanicsContext,
   buildReviewFixPrompt,
   evaluateReviewFixMutationDecision,
   extractReviewFixTrigger,
@@ -797,7 +798,7 @@ async function runReviewFixCycle(config, context) {
   }
 
   const beforeReview = await checkoutFingerprint();
-  const reviewPackageAfter = await writeReviewPackage(config, {
+  const integratedReviewPackageAfter = await writeReviewPackage(config, {
     issue: context.issue,
     promptInfo: context.promptInfo,
     laneDecision: context.laneDecision,
@@ -805,14 +806,44 @@ async function runReviewFixCycle(config, context) {
     validation: validationAfter,
     report: context.report,
   });
-  const externalReviewAfter = await runIntegratedReviewSource(config, reviewPackageAfter, "post-fix");
+  const externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
   if (externalReviewAfter.status === "blocked") {
     return finishBlocked("review_fix_integrated_review_still_blocking", {
       validationAfter: summarizeValidation(validationAfter),
       externalReviewAfter: summarizeExternalReview(externalReviewAfter),
-      reviewPackageAfter: { packagePath: reviewPackageAfter.packagePath },
+      reviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
     });
   }
+  const postFixContext = buildPostReviewFixMechanicsContext({
+    issue: context.issue,
+    laneDecision: context.laneDecision,
+    trigger,
+    decision,
+    changedFilesBefore: context.changedFiles || [],
+    changedFilesAfter,
+    forbiddenChangedFilesAfter,
+    validationAfter,
+    externalReviewAfter,
+    preFixReport: context.report,
+    currentHead: config.dryRun ? null : getRefSha("HEAD"),
+  });
+  if (!postFixContext.ok) {
+    return finishBlocked(`review_fix_post_fix_mechanics_context_invalid:${postFixContext.reason}`, {
+      validationAfter: summarizeValidation(validationAfter),
+      externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+      reviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
+    });
+  }
+  const reviewPackageAfter = await writeReviewPackage(config, {
+    issue: context.issue,
+    promptInfo: context.promptInfo,
+    laneDecision: context.laneDecision,
+    changedFiles: changedFilesAfter,
+    validation: validationAfter,
+    report: context.report,
+    reviewPhase: "post-review-fix-mechanics",
+    reviewFixMechanicsContext: postFixContext.context,
+  });
   const reviewAfter = runReviewPrompt(config, reviewPackageAfter);
   const afterReview = await checkoutFingerprint();
   const reviewMutationGuardAfter = compareFingerprints(beforeReview, afterReview);
@@ -846,6 +877,7 @@ async function runReviewFixCycle(config, context) {
     externalReviewAfter: summarizeExternalReview(externalReviewAfter),
     reviewAfter: summarizeCodexReview(reviewAfter),
     reviewPackageAfter: { packagePath: reviewPackageAfter.packagePath },
+    integratedReviewPackageAfter: { packagePath: integratedReviewPackageAfter.packagePath },
     stopReason: null,
   });
   return {
@@ -898,6 +930,7 @@ async function writeReviewPackage(config, payload) {
     `${safeTimestamp()}-issue-${payload.issue.number}-${slugify(payload.issue.title, 40)}.json`,
   );
   const summary = {
+    reviewPhase: payload.reviewPhase || "pre-pr-review",
     issue: {
       number: payload.issue.number,
       title: payload.issue.title,
@@ -916,6 +949,7 @@ async function writeReviewPackage(config, payload) {
     changedFiles: payload.changedFiles,
     validation: payload.validation,
     report: payload.report,
+    reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };
   writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);

@@ -192,6 +192,97 @@ export function buildReviewFixPrompt({ issue, laneDecision, branchName, changedF
   ].join("\n");
 }
 
+export function buildPostReviewFixMechanicsContext(input = {}) {
+  const issue = input.issue || {};
+  const laneDecision = input.laneDecision || {};
+  const trigger = input.trigger || {};
+  const decision = input.decision || {};
+  const changedFilesBefore = normalizeChangedFiles(input.changedFilesBefore || []);
+  const changedFilesAfter = normalizeChangedFiles(input.changedFilesAfter || []);
+  const forbiddenChangedFilesAfter = normalizeChangedFiles(input.forbiddenChangedFilesAfter || []);
+  const validationAfter = input.validationAfter || null;
+  const externalReviewAfter = input.externalReviewAfter || null;
+  const preFixReport = input.preFixReport || null;
+  const currentHead = input.currentHead || null;
+  const currentIssueNumber = Number(issue.number);
+  const block = (reason) => ({ ok: false, reason, context: null });
+
+  if (!Number.isInteger(currentIssueNumber) || currentIssueNumber <= 0) {
+    return block("post_fix_context_missing_issue_number");
+  }
+  if (!laneDecision.lane) return block("post_fix_context_missing_lane");
+  if (!changedFilesAfter.length) return block("post_fix_context_missing_changed_files_after");
+  if (forbiddenChangedFilesAfter.length > 0) return block(`post_fix_context_forbidden_changed_files:${forbiddenChangedFilesAfter.join(",")}`);
+  if (validationAfter?.passed !== true) return block("post_fix_context_validation_after_not_passed");
+  if (!externalReviewAfter || typeof externalReviewAfter !== "object") return block("post_fix_context_missing_final_integrated_review");
+  if (!["pass", "skipped"].includes(externalReviewAfter.status)) {
+    return block(`post_fix_context_final_integrated_review_not_passed:${externalReviewAfter.status || "missing"}`);
+  }
+  if (externalReviewAfter.issue?.number && Number(externalReviewAfter.issue.number) !== currentIssueNumber) {
+    return block("post_fix_context_final_review_issue_mismatch");
+  }
+  const finalReviewChangedFiles = normalizeChangedFiles(externalReviewAfter.changedFiles || []);
+  if (finalReviewChangedFiles.length > 0 && finalReviewChangedFiles.join("\n") !== changedFilesAfter.join("\n")) {
+    return block("post_fix_context_final_review_files_mismatch");
+  }
+  if (currentHead && externalReviewAfter.reviewedHead && externalReviewAfter.reviewedHead !== currentHead) {
+    return block("post_fix_context_final_review_head_mismatch");
+  }
+  if (!trigger.actionable || !trigger.source || !(trigger.findings || []).length) {
+    return block("post_fix_context_missing_structured_trigger");
+  }
+  if (!decision.allowed) return block(`post_fix_context_review_fix_decision_not_allowed:${decision.reason || "missing"}`);
+
+  return {
+    ok: true,
+    reason: "post_review_fix_mechanics_context_ready",
+    context: {
+      phase: "post_review_fix_mechanics",
+      authoritativeStatus: "post_fix_validation_and_final_review_passed",
+      issue: {
+        number: currentIssueNumber,
+        title: issue.title || null,
+        url: issue.url || null,
+      },
+      lane: laneDecision.lane,
+      currentHead,
+      preFixReport: preFixReport
+        ? {
+            role: "pre_fix_report",
+            staleAfterReviewFix: true,
+            found: Boolean(preFixReport.found),
+            expectedPath: preFixReport.expectedPath || null,
+            copyPath: preFixReport.copyPath || null,
+            statusMentioned: Boolean(preFixReport.statusMentioned),
+            summary: sanitizeText(preFixReport.summary || "", 1200),
+            reviewerInstruction:
+              "This report describes the initial implementation before the review-fix cycle and is background only, not current truth.",
+          }
+        : null,
+      structuredReviewFixTrigger: {
+        source: trigger.source,
+        verdict: trigger.verdict || null,
+        findings: sanitizeFindings(trigger.findings || []),
+      },
+      reviewFixDecision: {
+        allowed: Boolean(decision.allowed),
+        reason: decision.reason || null,
+        maxAttempts: decision.maxAttempts ?? null,
+        attemptCount: decision.attemptCount ?? null,
+      },
+      changedFilesBefore,
+      changedFilesAfter,
+      forbiddenChangedFilesAfter,
+      postFixValidation: summarizeValidationForContext(validationAfter),
+      finalIntegratedReview: summarizeExternalReviewForContext(externalReviewAfter),
+      reviewerInstruction:
+        "Judge the current post-fix checkout from changedFilesAfter, postFixValidation, finalIntegratedReview, and the diff. Do not fail solely because preFixReport says an earlier missing item was absent when post-fix evidence shows it is now resolved.",
+      secretBoundaryConfirmation:
+        "This context contains sanitized marker IDs/status only and no raw fixture marker values, provider payloads, local config bodies, /workspace/logs contents, credentials, tokens, or secrets.",
+    },
+  };
+}
+
 export function writeReviewFixEvidence(config, evidence) {
   const evidenceRoot = path.join(config.logsRoot, "review-fix");
   mkdirSync(evidenceRoot, { recursive: true });
@@ -233,11 +324,44 @@ function sanitizeEvidence(value) {
   return JSON.parse(JSON.stringify(value).replace(secretLikePatterns[0], "[REDACTED]").replace(secretLikePatterns[1], "[REDACTED]"));
 }
 
+function summarizeValidationForContext(validation) {
+  return {
+    passed: Boolean(validation?.passed),
+    commands: (validation?.results || []).map((result) => ({
+      command: result.command,
+      status: result.status,
+      error: result.error || null,
+    })),
+  };
+}
+
+function summarizeExternalReviewForContext(review) {
+  return {
+    status: review.status || null,
+    reason: review.reason || null,
+    verdict: review.verdict || null,
+    provider: review.provider || null,
+    tier: review.tier || null,
+    phase: review.phase || null,
+    markerId: review.markerId || null,
+    findingCount: review.findingCount ?? null,
+    reviewedHead: review.reviewedHead || null,
+    reportPath: review.reportPath || null,
+  };
+}
+
 function sanitizeText(value, max) {
   return String(value || "")
     .replace(secretLikePatterns[0], "[REDACTED]")
     .replace(secretLikePatterns[1], "[REDACTED]")
     .slice(0, max);
+}
+
+function normalizeChangedFiles(files) {
+  return (Array.isArray(files) ? files : [])
+    .map((file) => normalizePath(file))
+    .filter(Boolean)
+    .sort();
 }
 
 function labelNames(labels = []) {
