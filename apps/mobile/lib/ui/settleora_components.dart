@@ -293,12 +293,7 @@ class MoneyText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final normalizedCurrency = currencyCode.trim().toUpperCase();
-    final displayCurrency = normalizedCurrency.isEmpty
-        ? 'Currency not set'
-        : normalizedCurrency;
-    final displayAmount = amount.trim().isEmpty ? '0' : amount.trim();
-    final text = '$displayAmount $displayCurrency';
+    final text = _moneyDisplayText(amount: amount, currencyCode: currencyCode);
     final effectiveStyle = (style ?? Theme.of(context).textTheme.titleMedium)
         ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
 
@@ -541,37 +536,59 @@ class SettleoraMoneyChip extends StatelessWidget {
       StatusChipVariant.info => (colors.infoSoft, colors.onInfoSoft),
       StatusChipVariant.neutral => (colors.primarySoft, colors.textMuted),
     };
+    final semanticLabel = _moneyDisplayText(
+      amount: amount,
+      currencyCode: currencyCode,
+    );
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 15, color: foreground),
-              const SizedBox(width: 5),
-            ],
-            Flexible(
-              child: MoneyText(
-                amount: amount,
-                currencyCode: currencyCode,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: foreground,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0,
+    return Semantics(
+      container: true,
+      label: semanticLabel,
+      child: ExcludeSemantics(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 15, color: foreground),
+                  const SizedBox(width: 5),
+                ],
+                Flexible(
+                  child: MoneyText(
+                    amount: amount,
+                    currencyCode: currencyCode,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
+}
+
+String _moneyDisplayText({
+  required String amount,
+  required String currencyCode,
+}) {
+  final normalizedCurrency = currencyCode.trim().toUpperCase();
+  final displayCurrency = normalizedCurrency.isEmpty
+      ? 'Currency not set'
+      : normalizedCurrency;
+  final displayAmount = amount.trim().isEmpty ? '0' : amount.trim();
+  return '$displayAmount $displayCurrency';
 }
 
 class SettleoraInlinePanel extends StatelessWidget {

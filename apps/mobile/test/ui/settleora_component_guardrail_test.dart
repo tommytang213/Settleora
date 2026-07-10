@@ -580,6 +580,77 @@ void main() {
   });
 
   testWidgets(
+    'SettleoraMoneyChip without icon exposes one static amount label',
+    (tester) async {
+      final semanticsHandle = tester.ensureSemantics();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: const Scaffold(
+            body: SettleoraMoneyChip(amount: ' 128.00 ', currencyCode: ' hkd '),
+          ),
+        ),
+      );
+
+      expect(find.text('128.00 HKD'), findsOneWidget);
+      _expectStaticSemanticsLabel(tester, '128.00 HKD');
+
+      semanticsHandle.dispose();
+    },
+  );
+
+  testWidgets('SettleoraMoneyChip icon is decorative for amount semantics', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: SettleoraMoneyChip(
+            amount: '42.00',
+            currencyCode: 'HKD',
+            icon: Icons.payments_outlined,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byIcon(Icons.payments_outlined), findsOneWidget);
+    expect(find.text('42.00 HKD'), findsOneWidget);
+    _expectStaticSemanticsLabel(tester, '42.00 HKD');
+
+    semanticsHandle.dispose();
+  });
+
+  testWidgets(
+    'SettleoraMoneyChip fallback display drives one semantics label',
+    (tester) async {
+      final semanticsHandle = tester.ensureSemantics();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: const Scaffold(
+            body: SettleoraMoneyChip(
+              amount: '   ',
+              currencyCode: '   ',
+              icon: Icons.attach_money,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('0 Currency not set'), findsOneWidget);
+      _expectStaticSemanticsLabel(tester, '0 Currency not set');
+
+      semanticsHandle.dispose();
+    },
+  );
+
+  testWidgets(
     'shared header primitives expose only visible titles as semantic headers',
     (tester) async {
       await _useLargeSurface(tester);
