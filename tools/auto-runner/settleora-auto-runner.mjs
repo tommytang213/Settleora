@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -30,7 +31,13 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
-import { executeAutoMerge, inspectAutoMergeGithubState, writeAutoMergeEvidence, evaluateAutoMergeDecision } from "./lib/auto-merge-policy.mjs";
+import {
+  evaluateExistingPrRecoveryDecision,
+  executeAutoMerge,
+  inspectAutoMergeGithubState,
+  writeAutoMergeEvidence,
+  evaluateAutoMergeDecision,
+} from "./lib/auto-merge-policy.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -192,6 +199,30 @@ async function runIteration(config, logger, runId, index) {
       iteration.outcome,
       `Auto-runner did not implement #${issue.number}.\n\nOutcome: ${iteration.outcome}\nReason: ${laneDecision.reason}`,
     );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+
+  const recovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision);
+  if (recovery) {
+    iteration.existingPrRecovery = recovery;
+    iteration.autoMerge = recovery.autoMerge;
+    iteration.pr = recovery.pr;
+    iteration.changedFiles = recovery.changedFiles;
+    iteration.validation = recovery.validation;
+    iteration.review = recovery.review;
+    iteration.externalReview = recovery.externalReview;
+    iteration.baseOriginMainSha = recovery.baseOriginMainSha;
+    iteration.runnerCreatedCommitSha = recovery.expectedHeadSha;
+    iteration.outcome = recovery.autoMerge?.result === "merged" ? "auto_merged" : "auto_failed";
+    if (iteration.outcome !== "auto_merged") {
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner existing-PR recovery did not auto-merge #${issue.number}.\n\nPR: ${recovery.pr?.url || recovery.pr?.number || "unavailable"}\nReason: ${recovery.autoMerge?.reason || recovery.reason}`,
+      );
+    }
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -415,6 +446,97 @@ async function runIteration(config, logger, runId, index) {
   }
   iteration.finishedAt = new Date().toISOString();
   return iteration;
+}
+
+async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision) {
+  if (!config.allowExistingPrRecovery) return null;
+  const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
+  if (!recoveryConfig) return null;
+  logger.info(`Issue #${issue.number}: evaluating configured existing-PR recovery for PR ${recoveryConfig.prNumber || recoveryConfig.prUrl}.`);
+  if (!config.allowAutoMerge) {
+    return { reason: "existing_pr_recovery_requires_allow_auto_merge", autoMerge: { result: "blocked", reason: "auto_merge_disabled_by_config" } };
+  }
+  fetchOriginMain(config);
+  const baseOriginMainSha = getRefSha("origin/main");
+  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl });
+  const prNumber = githubState.pr?.number || recoveryConfig.prNumber || recoveryConfig.prUrl;
+  const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
+    ? recoveryConfig.changedFiles
+    : readPrChangedFiles(config, prNumber);
+  const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
+  const exactHeadEvidence = recoveryConfig.exactHeadEvidence || {};
+  const expectedHeadSha = recoveryConfig.expectedHeadSha || exactHeadEvidence.headSha || githubState.pr?.headRefOid || null;
+  const context = {
+    config,
+    issue: githubState.issue || { ...issue, state: issue.state || "OPEN", labels: issue.labels || [] },
+    laneDecision,
+    changedFiles,
+    forbiddenChangedFiles: forbidden,
+    changedFilesExactlyMatchAllowedPaths: forbidden.length === 0,
+    externalReviewRequired: Boolean(exactHeadEvidence.geminiPass),
+    externalReview: exactHeadEvidence.geminiPass ? { status: "pass", reason: "recovered_exact_head_gemini_evidence" } : { status: "skipped" },
+    review: exactHeadEvidence.codexMechanicsApproved ? { verdict: { verdict: "approve" } } : null,
+    codexMechanicsReviewApproved: Boolean(exactHeadEvidence.codexMechanicsApproved),
+    validation: { passed: Boolean(exactHeadEvidence.validationPassed), recovered: true },
+    worktreeClean: getStatusShort() === "",
+    branchName: githubState.pr?.headRefName || recoveryConfig.branchName || null,
+    runnerCreatedCommitSha: expectedHeadSha,
+    expectedHeadSha,
+    expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+    currentOriginMainSha: baseOriginMainSha,
+    pr: {
+      ...(githubState.pr || {}),
+      body: recoveryConfig.prBody || githubState.pr?.body || "",
+      title: recoveryConfig.prTitle || githubState.pr?.title || "",
+    },
+    requiredChecks: githubState.requiredChecks || [],
+    reviewThreads: githubState.reviewThreads || [],
+    codeScanningAlerts: githubState.codeScanningAlerts || [],
+    blockingMarkers: githubState.blockingMarkers || [],
+    actualHeadSha: githubState.pr?.headRefOid || null,
+    exactHeadEvidence,
+  };
+  const recoveryDecision = evaluateExistingPrRecoveryDecision(context);
+  if (!recoveryDecision.eligible) {
+    const blocked = { ...recoveryDecision, evidence: writeAutoMergeEvidence(config, recoveryDecision, context) };
+    return {
+      reason: recoveryDecision.reason,
+      pr: context.pr,
+      changedFiles,
+      validation: context.validation,
+      review: context.review,
+      externalReview: context.externalReview,
+      baseOriginMainSha,
+      expectedHeadSha,
+      autoMerge: blocked,
+    };
+  }
+  const autoMerge = executeAutoMerge(config, context, {
+    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }),
+  });
+  return {
+    reason: recoveryDecision.reason,
+    pr: context.pr,
+    changedFiles,
+    validation: context.validation,
+    review: context.review,
+    externalReview: context.externalReview,
+    baseOriginMainSha,
+    expectedHeadSha,
+    autoMerge,
+  };
+}
+
+function readPrChangedFiles(config, prNumber) {
+  if (!prNumber || config.dryRun) return [];
+  const result = spawnLike("gh", ["pr", "diff", String(prNumber), "--name-only"], config.repoRoot);
+  if (result.status !== 0 || result.error) return [];
+  return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).sort();
+}
+
+function spawnLike(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8", windowsHide: true });
+  return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 
 async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName, changedFiles, forbidden }) {

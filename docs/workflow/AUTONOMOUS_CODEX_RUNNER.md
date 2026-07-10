@@ -202,6 +202,14 @@ The runner does not call external provider billing APIs. Budget checks warn at
 the configured percentage of the normal reviewer budget and block when the
 projected reviewer spend exceeds the hard stop.
 
+Transient integrated Gemini/provider failures are retried only for bounded
+transport or provider availability cases: HTTP `429`, HTTP `503` or
+`UNAVAILABLE`, fetch/network failures, and timeout-style errors. The default
+is one retry after the initial attempt. Non-pass verdicts, malformed verdicts,
+missing keys, unsupported models, per-call caps, monthly hard stops,
+accounting failures, and secret-boundary failures are terminal and are not
+retried as transient provider errors.
+
 Deterministic routing uses changed paths, lane, changed-file count, estimated
 additions/deletions when known, and broad domain count:
 
@@ -454,6 +462,25 @@ semantics, equivalent to `gh pr merge <number> --merge`. The runner must not
 direct-push to `main`, force-push, squash, rebase, delete branches, or merge
 stale PR heads. If GitHub auto-deletes the source branch, the runner restores
 the reviewed source branch SHA with a normal non-force push.
+
+The auto-merge decision uses a bounded refresh loop for GitHub mergeability
+states that can lag behind newly completed checks. While checks are pending or
+the PR reports a refreshable state such as `BLOCKED` or `UNKNOWN`, the runner
+rechecks PR metadata, exact head SHA, base branch, mergeability, merge state,
+checks, review threads, code scanning, issue state, and blocking comments or
+reviews. It still proceeds only when every existing gate passes on the exact
+head. A stale head, changed base, failed check, unresolved review thread, open
+code-scanning alert, stop label, manual marker, broad changed file, or wait
+timeout fails closed with sanitized evidence.
+
+Existing-PR recovery is disabled by default. A later explicit external config
+may enable `allowExistingPrRecovery` for a specific low-risk canary issue and
+PR. Recovery requires the PR branch/body to link the issue, exact changed
+files within the issue contract, exact-head local validation evidence,
+exact-head Gemini and/or Codex mechanics evidence, current successful checks,
+clean mergeability, resolved review threads, no open PR-ref code-scanning
+alerts, no issue stop labels, no blocking comments/reviews, and the unchanged
+expected PR head. Missing or stale evidence fails closed.
 
 Successful auto-merge closes the linked issue as completed and posts concise
 sanitized PR/issue comments. Blocked auto-merge leaves the PR and issue open,

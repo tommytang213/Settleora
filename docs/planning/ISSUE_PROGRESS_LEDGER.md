@@ -20,6 +20,92 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#825/#826 - PR #829 CodeQL/review-thread fix checkpoint
+
+- GitHub state/project status at task start:
+  - PR #829 was `OPEN`, non-draft, base `main`, head
+    `fd3a64b170d2be22a63501ecf759a112fb66e6cf`, with failed CodeQL,
+    three unresolved GitHub Advanced Security review threads, and two open
+    PR-ref CodeQL code-scanning alerts.
+  - PR #828 was `OPEN`; this task inspected it read-only and did not merge or
+    mutate it.
+  - #800, #825, and #826 were `OPEN`; #825/#826 retained `auto-failed`. This
+    task inspected them read-only and did not relabel, close, reopen, comment
+    on, rerun, or otherwise mutate them.
+- Verified repo baseline:
+  `origin/main` at
+  `1d3e36028beea52a67eb841438044d62b7894a1c`.
+- This CodeQL/review-thread fix:
+  - Removes the dynamic issue-link `RegExp` construction from the existing-PR
+    recovery gate and replaces it with bounded numeric issue normalization plus
+    deterministic exact `#<issue>` text scanning.
+  - Bounds Gemini reviewer retry configuration to at most two retries and a
+    10-second retry delay, with the timer sink also clamped locally.
+  - Reads Gemini provider response bodies through a 64 KiB bound before
+    parsing or summarizing provider output, preserving secret redaction and
+    fail-closed malformed/non-pass/error handling.
+  - Adds regression tests for regex-looking issue text, exact issue-link
+    matching, bounded retry delay/attempt behavior, and oversized sanitized
+    provider error responses.
+- Issue posture:
+  keep #800, #825, and #826 open. Keep PR #828 open. This task updates only
+  PR #829's branch and does not merge PR #829.
+- Scope confirmation:
+  this checkpoint changes only auto-runner policy/provider code, auto-runner
+  tests, and this ledger entry. It does not change product runtime, API
+  behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release, public/admin exposure, branch deletion, force push, direct main
+  push, live canary execution, external reviewer/provider calls, or issue
+  label/closure state. The preserved #826 dirty diff/stash was not applied,
+  dropped, or committed.
+
+### Issue #800/#825/#826 - Auto-merge canary recovery hardening checkpoint
+
+- GitHub state/project status at task start:
+  - #800 `OPEN`; this remains the broader trusted unattended auto-runner
+    tracker.
+  - #825 and #826 `OPEN` with `auto-failed`; this task inspected them
+    read-only and did not relabel, close, reopen, comment on, rerun, or
+    otherwise mutate them.
+  - PR #828 for #825 was `OPEN`, non-draft, base `main`, head
+    `5a24f13c1bed4cb8e732caec183a69ee0fe17275`, `MERGEABLE`, and `CLEAN`
+    during read-only inspection.
+- Verified repo baseline:
+  `origin/main` at
+  `1d3e36028beea52a67eb841438044d62b7894a1c`.
+- This hardening slice:
+  - Adds a bounded auto-merge wait/retry path for refreshable GitHub
+    mergeability states such as `BLOCKED` and `UNKNOWN`, while rechecking the
+    exact PR head, base, mergeability, merge state, checks, review threads,
+    code scanning, issue state, blocking comments/reviews, changed-file scope,
+    and existing gates before any merge attempt.
+  - Adds one bounded retry for transient integrated Gemini/provider failures
+    such as HTTP `429`, HTTP `503`/`UNAVAILABLE`, fetch/network failures, and
+    timeout-like errors, while keeping non-pass verdicts, malformed verdicts,
+    missing keys, unsupported models, budget hard stops, accounting failures,
+    and secret-boundary failures terminal.
+  - Adds a default-off exact-head existing-PR recovery decision path for a
+    configured low-risk canary issue/PR, requiring matching issue linkage,
+    contract-scoped changed files, exact-head validation/review evidence,
+    successful checks, clean mergeability, resolved review threads, no open
+    code-scanning alerts, no issue stop labels, and no manual blockers.
+- Issue posture:
+  keep #800, #825, and #826 open. A later explicit recovery/rerun task may use
+  the hardened runner gates; this task does not merge PR #828 and does not run
+  the live canary.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, runner/workflow
+  docs, example config, and this ledger entry. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release, public/admin exposure, branch deletion, force push, direct main
+  push, live canary execution, or issue label/closure state.
+
 ### Issue #800/#825/#826 - Low-risk auto-merge canary subset-policy checkpoint
 
 - GitHub state/project status:

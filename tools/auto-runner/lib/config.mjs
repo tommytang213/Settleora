@@ -29,6 +29,15 @@ export const defaultConfig = Object.freeze({
   allowStaleClaimSteal: false,
   staleClaimAfterHours: 12,
   allowAutoMerge: false,
+  allowExistingPrRecovery: false,
+  autoMergeWait: {
+    maxAttempts: 6,
+    delayMs: 15000,
+  },
+  geminiReviewerRetry: {
+    maxRetries: 1,
+    backoffMs: 2000,
+  },
   allowFollowupIssueCreation: false,
   allowReviewFixMutation: false,
   allowSystemdEnablement: false,
