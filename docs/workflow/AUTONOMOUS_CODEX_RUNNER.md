@@ -104,10 +104,11 @@ paths.
 ## Low-Risk Auto-Merge Wait And Recovery Evidence
 
 Low-risk canary auto-merge keeps fail-closed semantics while waiting long
-enough for normal GitHub check latency. The default bounded wait is 24
-attempts with a 30-second delay bucket. External config values are normalized
-to fixed safe bounds and delay buckets, with a hard cap of 30 attempts, so
-operator-provided values are not passed directly into timers.
+enough for normal GitHub check latency. The default bounded wait is 60
+attempts with a 30-second delay bucket, giving slow ordinary validation checks
+up to 30 minutes before the runner fails closed. External config values are
+normalized to fixed safe bounds and delay buckets, with a hard cap of 60
+attempts, so operator-provided values are not passed directly into timers.
 
 Every wait attempt rechecks the exact PR head, base, mergeability, merge state,
 checks, review threads, code scanning, issue state, changed-file scope, and
@@ -115,8 +116,8 @@ blocking labels/comments/reviews. Pending or refreshable merge states can be
 retried. Stale heads or bases, failed or cancelled checks, unresolved threads,
 open code-scanning alerts, stop labels, changed files outside the contract, or
 manual blockers remain terminal blockers. Sanitized evidence records each
-attempt, pending check names, final outcome, and whether pending check counts
-were decreasing.
+attempt, elapsed wait, pending check names, final outcome, and whether pending
+check counts were decreasing.
 
 Existing-PR recovery is default-off and only applies when an external config
 names the issue/PR. The recovery inspection reads current PR metadata,
@@ -184,11 +185,13 @@ The first integrated Gemini reviewer gate runs inside the normal pre-PR review
 flow before branch push or PR creation, but only when external config enables
 the Gemini `cheap_independent` tier. Built-in defaults keep that tier disabled.
 When enabled, the integrated gate is limited to low-risk
-`workflow-docs-tooling` and `docs-planning` work:
+`workflow-docs-tooling`, `docs-planning`, and `client-ui-low-risk` work:
 
 - `workflow-docs-tooling`: `tools/auto-runner/**`, `docs/workflow/**`, and
   `scripts/ai/**`.
 - `docs-planning`: `docs/planning/**` and `docs/qa/**`.
+- `client-ui-low-risk`: `apps/mobile/lib/ui/**` and
+  `apps/mobile/test/ui/**`.
 
 The gate reuses the reviewer routing and budget policy. It requires an
 explicit strict-JSON Gemini pass verdict before PR creation, writes sanitized
@@ -600,13 +603,21 @@ The eligible low-risk auto-merge lanes are limited to
 `workflow-docs-tooling`, `docs-planning`, and `client-ui-low-risk`. The runner
 still fails closed unless changed files are exactly
 inside the issue contract and lane allowlists, local validation passed,
-integrated Gemini passed when configured, Codex mechanics review approved, the
+Codex mechanics review approved, the
 PR is open/non-draft/mergeable/clean on `main`, the PR head exactly matches the
 runner-created commit, `origin/main` still matches the expected base, required
 GitHub checks passed on the exact head, no unresolved review threads exist, no
 open code-scanning alerts exist for the PR ref, no blocking comments/reviews
 or manual gate markers are present, and the issue is still open without stop
 labels such as `needs-tommy`, `danger-gate`, `blocked`, or `auto-failed`.
+
+Because `client-ui-low-risk` is real code, auto-merge for that lane also
+requires a passing independent Gemini review on the same head and changed-file
+set. Disabled, skipped, missing, malformed, stale-head, mismatched-file,
+provider-failed, or non-pass independent review evidence fails closed.
+Codex mechanics review remains required, but it is not sufficient by itself
+for real-code auto-merge. Existing-PR recovery for this lane requires both
+independent Gemini evidence and Codex mechanics evidence on the exact PR head.
 
 The only merge method for this foundation is normal GitHub merge-commit
 semantics, equivalent to `gh pr merge <number> --merge`. The runner must not

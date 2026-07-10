@@ -24,13 +24,15 @@ const maxGeminiProviderResponseBytes = 64 * 1024;
 const maxGeminiReviewerRetries = 2;
 const maxGeminiRetryBackoffMs = 10_000;
 const geminiRetryDelayBucketsMs = Object.freeze([0, 100, 500, 1000, 2000, 5000, 10_000]);
-const integratedAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning"]);
+const integratedAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 const integratedAllowedPathPatterns = Object.freeze([
   /^tools\/auto-runner(?:\/|$)/,
   /^docs\/workflow(?:\/|$)/,
   /^scripts\/ai(?:\/|$)/,
   /^docs\/planning(?:\/|$)/,
   /^docs\/qa(?:\/|$)/,
+  /^apps\/mobile\/lib\/ui(?:\/|$)/,
+  /^apps\/mobile\/test\/ui(?:\/|$)/,
 ]);
 const secretLikePatterns = Object.freeze([
   /(^|\/)\.env($|[./-])/i,
@@ -78,6 +80,8 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     route,
     lane: laneDecision.lane || null,
     changedFiles,
+    reviewedHead: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null,
+    issueNumber: summary.issue?.number || null,
     liveCallAttempted: false,
     status: "blocked",
     reason: null,
@@ -574,7 +578,8 @@ function buildIntegratedReviewPrompt(summary, diff) {
       "Repo source is the source of truth.",
       "Runner dangerous/trusted/auto-merge capabilities remain disabled.",
       "External reviewer output may only approve or block; it must not request GitHub mutations.",
-      "Approved first lanes are workflow-docs-tooling and docs-planning only.",
+      "Approved first lanes are workflow-docs-tooling, docs-planning, and client-ui-low-risk only.",
+      "The client-ui-low-risk lane is real code and must stay limited to shared mobile UI component files and directly tied UI tests.",
     ],
     diffTruncated: Boolean(summary.diffTruncated),
   };

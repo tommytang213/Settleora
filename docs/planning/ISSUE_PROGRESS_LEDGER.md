@@ -20,6 +20,55 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#839/#840 - Real-code independent review and recovery gate checkpoint
+
+- GitHub state/project status at task start:
+  - PR #838 was `MERGED` to `main` with merge SHA
+    `b5331be52d04064f362e589f5306801b3779acfb`.
+  - PR #841 for #839 was `OPEN`, non-draft, base `main`, head
+    `1861ff04bef50e33c169b380d4773c848bdeeb03`, and changed only
+    `apps/mobile/lib/ui/settleora_components.dart` plus
+    `apps/mobile/test/ui/settleora_component_guardrail_test.dart`.
+  - PR #842 for #840 was `OPEN`, non-draft, base `main`, head
+    `b0e97dbb0f3c893c34197846ac707c6008f26c07`, and changed only
+    `apps/mobile/test/ui/settleora_component_guardrail_test.dart`.
+  - #839 and #840 were `OPEN` with `auto-failed`; #800 was `OPEN` with no
+    labels. No unrelated open auto-runner PRs or active collision labels were
+    found.
+- Verified repo baseline:
+  `origin/main` at
+  `b5331be52d04064f362e589f5306801b3779acfb`.
+- This tooling slice:
+  - Makes `client-ui-low-risk` real-code auto-merge require an independent
+    Gemini pass on the exact head and changed-file set.
+  - Fails closed for disabled, skipped, missing, malformed, stale-head,
+    mismatched-file, provider-failed, or non-pass independent review evidence.
+  - Keeps Codex mechanics review required, while making clear that Codex
+    mechanics alone is not enough for real-code auto-merge.
+  - Extends the low-risk auto-merge wait default to 60 attempts at a
+    30-second bucketed delay, records elapsed wait and pending check names,
+    continues waiting on pending/in-progress checks until the bounded cap, and
+    fails immediately on failed or cancelled checks.
+  - Keeps broad trusted real-run, strong/tie-breaker tiers, review-fix
+    mutation, stale-claim stealing, follow-up issue creation, and systemd
+    enablement disabled unless separately approved.
+- Issue posture:
+  after this policy lands on `main`, #839/#840 may be recovered only through
+  the runner-managed existing-PR recovery path with exact-head independent
+  Gemini and Codex mechanics evidence. Keep #800 open for broader unattended
+  runner work.
+- Scope confirmation:
+  this checkpoint changes only auto-runner policy/tests, runner/workflow docs,
+  example config, and this ledger entry. It does not change product runtime,
+  API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release/signing, public/admin exposure, stale-claim stealing, follow-up
+  issue creation, review-fix mutation, systemd enablement, branch deletion,
+  force push, direct main push, or live provider payload/accounting files in
+  the repository.
+
 ### Issue #800 - Low-risk real-code canary lane foundation checkpoint
 
 - GitHub state/project status at task start:

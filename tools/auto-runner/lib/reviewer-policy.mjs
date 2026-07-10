@@ -195,6 +195,10 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
   const large = files.length >= 15 || totalChangedLines >= 800;
   const docsOnly = files.length > 0 && files.every(isDocsPath);
   const workflowTooling = files.some(isWorkflowPath) || laneDecision?.lane === "workflow-docs-tooling";
+  const clientUiLowRisk =
+    laneDecision?.lane === "client-ui-low-risk" &&
+    files.length > 0 &&
+    files.every((file) => /^apps\/mobile\/(lib|test)\/ui(?:\/|$)/.test(file));
 
   if (huge) {
     return decision("block_split_or_escalate", "Huge or cross-domain PR; split or approve a large-bundle lane before review.", {
@@ -203,6 +207,15 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
       totalChangedLines,
       changedFileCount: files.length,
       block: true,
+    });
+  }
+  if (clientUiLowRisk && !large) {
+    return decision("cheap_independent", "Real-code client UI low-risk canary requires cheap independent review before auto-merge.", {
+      sensitiveFiles,
+      domains,
+      totalChangedLines,
+      changedFileCount: files.length,
+      realCodeIndependentRequired: true,
     });
   }
   if (sensitiveFiles.length > 0 || laneDecision?.dangerGate) {

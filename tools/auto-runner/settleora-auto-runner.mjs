@@ -44,6 +44,7 @@ import {
   evaluateExistingPrRecoveryDecision,
   executeAutoMerge,
   inspectAutoMergeGithubState,
+  requiresIndependentAiReview,
   writeAutoMergeEvidence,
   evaluateAutoMergeDecision,
 } from "./lib/auto-merge-policy.mjs";
@@ -555,13 +556,34 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     ? recoveryConfig.changedFiles
     : readPrChangedFiles(config, prNumber);
   const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
-  const exactHeadEvidence = recoveryConfig.exactHeadEvidence || {};
+  let exactHeadEvidence = recoveryConfig.exactHeadEvidence || {};
   const expectedHeadSha = recoveryConfig.expectedHeadSha || exactHeadEvidence.headSha || githubState.pr?.headRefOid || null;
   const prMetadata = {
     ...(githubState.pr || {}),
     body: recoveryConfig.prBody ?? githubState.pr?.body,
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
+  let generatedRecoveryEvidence = null;
+  if (requiresIndependentAiReview(laneDecision) && (!exactHeadEvidence.geminiPass || !exactHeadEvidence.codexMechanicsApproved || !exactHeadEvidence.validationPassed)) {
+    generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {
+      issue,
+      laneDecision,
+      pr: prMetadata,
+      changedFiles,
+      expectedHeadSha,
+    });
+    exactHeadEvidence = {
+      ...exactHeadEvidence,
+      headSha: expectedHeadSha,
+      validationPassed: generatedRecoveryEvidence.validation?.passed === true,
+      geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
+      geminiHeadSha: expectedHeadSha,
+      geminiChangedFiles: changedFiles,
+      codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
+      codexMechanicsHeadSha: expectedHeadSha,
+      codexMechanicsChangedFiles: changedFiles,
+    };
+  }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
   const context = {
     config,
@@ -570,8 +592,16 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     changedFiles,
     forbiddenChangedFiles: forbidden,
     changedFilesExactlyMatchAllowedPaths: forbidden.length === 0,
-    externalReviewRequired: Boolean(exactHeadEvidence.geminiPass),
-    externalReview: exactHeadEvidence.geminiPass ? { status: "pass", reason: "recovered_exact_head_gemini_evidence" } : { status: "skipped" },
+    externalReviewRequired: requiresIndependentAiReview(laneDecision),
+    externalReview: exactHeadEvidence.geminiPass
+      ? {
+          status: "pass",
+          verdict: "pass",
+          reason: "recovered_exact_head_gemini_evidence",
+          reviewedHead: exactHeadEvidence.geminiHeadSha || exactHeadEvidence.headSha || null,
+          changedFiles: exactHeadEvidence.geminiChangedFiles || changedFiles,
+        }
+      : { status: "blocked", reason: "missing_recovered_exact_head_gemini_evidence" },
     review: exactHeadEvidence.codexMechanicsApproved ? { verdict: { verdict: "approve" } } : null,
     codexMechanicsReviewApproved: Boolean(exactHeadEvidence.codexMechanicsApproved),
     validation: { passed: Boolean(exactHeadEvidence.validationPassed), recovered: true },
@@ -600,6 +630,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       validation: context.validation,
       review: context.review,
       externalReview: context.externalReview,
+      generatedRecoveryEvidence,
       baseOriginMainSha,
       expectedHeadSha,
       autoMerge: blocked,
@@ -615,10 +646,82 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     validation: context.validation,
     review: context.review,
     externalReview: context.externalReview,
+    generatedRecoveryEvidence,
     baseOriginMainSha,
     expectedHeadSha,
     autoMerge,
   };
+}
+
+async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision, pr, changedFiles, expectedHeadSha }) {
+  if (config.dryRun) return { reason: "dry_run_no_recovery_evidence_generation" };
+  const originalBranch = getCurrentBranch();
+  const originalHead = getRefSha("HEAD");
+  const restore = () => {
+    if (originalBranch) {
+      const result = spawnLike("git", ["switch", originalBranch], config.repoRoot);
+      if (result.status === 0 && !result.error) return result;
+    }
+    return spawnLike("git", ["switch", "--detach", originalHead], config.repoRoot);
+  };
+  if (getStatusShort() !== "") {
+    return {
+      reason: "recovery_evidence_generation_worktree_not_clean",
+      validation: { passed: false, results: [] },
+      externalReview: { status: "blocked", reason: "recovery_evidence_generation_worktree_not_clean" },
+      review: null,
+    };
+  }
+  try {
+    const fetch = spawnLike("git", ["fetch", "origin", pr.headRefName], config.repoRoot);
+    if (fetch.status !== 0 || fetch.error) {
+      return {
+        reason: "recovery_evidence_generation_fetch_failed",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_fetch_failed" },
+        review: null,
+      };
+    }
+    const checkout = spawnLike("git", ["switch", "--detach", expectedHeadSha], config.repoRoot);
+    if (checkout.status !== 0 || checkout.error) {
+      return {
+        reason: "recovery_evidence_generation_checkout_failed",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_checkout_failed" },
+        review: null,
+      };
+    }
+    const validation = runValidationPlan(config, planValidation(changedFiles, laneDecision));
+    if (!validation.passed) {
+      return {
+        reason: "recovery_evidence_generation_validation_failed",
+        validation,
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_validation_failed" },
+        review: null,
+      };
+    }
+    const reviewPackage = await writeReviewPackage(config, {
+      reviewPhase: "existing-pr-recovery",
+      issue,
+      promptInfo: { promptPath: `existing-pr-recovery:${pr.number || pr.url}` },
+      laneDecision,
+      changedFiles,
+      validation,
+      report: { found: true, expectedPath: "existing-pr-recovery" },
+      diffText: readPrDiff(config, pr.number || pr.url),
+    });
+    const externalReview = await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery");
+    const review = externalReview.status === "pass" ? runReviewPrompt(config, reviewPackage) : null;
+    return {
+      reason: "recovery_evidence_generated",
+      validation,
+      reviewPackage,
+      externalReview,
+      review,
+    };
+  } finally {
+    restore();
+  }
 }
 
 function readPrChangedFiles(config, prNumber) {
@@ -626,6 +729,13 @@ function readPrChangedFiles(config, prNumber) {
   const result = spawnLike("gh", ["pr", "diff", String(prNumber), "--name-only"], config.repoRoot);
   if (result.status !== 0 || result.error) return [];
   return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).sort();
+}
+
+function readPrDiff(config, prNumber) {
+  if (!prNumber || config.dryRun) return "";
+  const result = spawnLike("gh", ["pr", "diff", String(prNumber)], config.repoRoot);
+  if (result.status !== 0 || result.error) return "";
+  return result.stdout || "";
 }
 
 function spawnLike(command, args, cwd) {
@@ -641,7 +751,7 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     changedFiles,
     forbiddenChangedFiles: forbidden,
     changedFilesExactlyMatchAllowedPaths: forbidden.length === 0,
-    externalReviewRequired: iteration.externalReview?.status !== "skipped",
+    externalReviewRequired: iteration.externalReview?.status !== "skipped" || requiresIndependentAiReview(iteration.laneDecision),
     externalReview: iteration.externalReview,
     review: iteration.review,
     codexMechanicsReviewApproved: iteration.review?.verdict?.verdict === "approve",
@@ -923,7 +1033,9 @@ function compareFingerprints(before, after) {
 }
 
 async function writeReviewPackage(config, payload) {
-  const diff = getBoundedWorkingTreeDiff();
+  const diff = Object.hasOwn(payload, "diffText")
+    ? { text: String(payload.diffText || ""), truncated: false }
+    : getBoundedWorkingTreeDiff();
   const packagePath = path.join(
     config.logsRoot,
     "reviews",
@@ -947,6 +1059,7 @@ async function writeReviewPackage(config, payload) {
       estimatedOutputTokens: 0,
     }),
     changedFiles: payload.changedFiles,
+    currentHead: config.dryRun ? null : getRefSha("HEAD"),
     validation: payload.validation,
     report: payload.report,
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
