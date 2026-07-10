@@ -101,6 +101,34 @@ by a future approved slice, it must live under
 `/workspace/logs/settleora-auto-runner/state/`, not committed repository
 paths.
 
+## Low-Risk Auto-Merge Wait And Recovery Evidence
+
+Low-risk canary auto-merge keeps fail-closed semantics while waiting long
+enough for normal GitHub check latency. The default bounded wait is 24
+attempts with a 30-second delay bucket. External config values are normalized
+to fixed safe bounds and delay buckets, with a hard cap of 30 attempts, so
+operator-provided values are not passed directly into timers.
+
+Every wait attempt rechecks the exact PR head, base, mergeability, merge state,
+checks, review threads, code scanning, issue state, changed-file scope, and
+blocking labels/comments/reviews. Pending or refreshable merge states can be
+retried. Stale heads or bases, failed or cancelled checks, unresolved threads,
+open code-scanning alerts, stop labels, changed files outside the contract, or
+manual blockers remain terminal blockers. Sanitized evidence records each
+attempt, pending check names, final outcome, and whether pending check counts
+were decreasing.
+
+Existing-PR recovery is default-off and only applies when an external config
+names the issue/PR. The recovery inspection reads current PR metadata,
+including title and body, then passes sanitized issue-linkage evidence into the
+decision. A PR is linked only when current PR title or body contains the exact
+`#<issue>` reference with numeric boundary safety. Near-misses such as
+`#8250`, `#0825`, embedded token text, or regex-looking text do not match.
+Missing title/body evidence, stale exact-head evidence, broad changed files,
+unresolved review threads, open PR-ref code-scanning alerts, issue stop labels,
+manual blockers, failed checks, or missing exact-head validation/review
+evidence all fail closed.
+
 ## Reviewer Tier And Budget Policy
 
 Reviewer routing is a disabled-by-default policy foundation. Codex remains the

@@ -17,6 +17,9 @@ export const autoMergeStopLabels = Object.freeze([
 const successfulCheckConclusions = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const cleanMergeStates = new Set(["CLEAN"]);
 const refreshableMergeStates = new Set(["BLOCKED", "UNKNOWN", "UNSTABLE", "HAS_HOOKS", ""]);
+const defaultAutoMergeWait = Object.freeze({ maxAttempts: 24, delayMs: 30_000 });
+const maxAutoMergeWaitAttempts = 30;
+const autoMergeWaitDelayBucketsMs = Object.freeze([0, 5000, 15000, 30000]);
 
 export function evaluateAutoMergeDecision(input) {
   const config = input.config || {};
@@ -104,6 +107,7 @@ export function evaluateExistingPrRecoveryDecision(input) {
   const issue = input.issue || {};
   const pr = input.pr || {};
   const evidence = input.exactHeadEvidence || {};
+  const linkageEvidence = input.issueLinkageEvidence || buildIssueLinkageEvidence(pr, issue.number);
   const changedFiles = input.changedFiles || [];
   const baseDecision = evaluateAutoMergeDecision(input);
   const result = {
@@ -114,13 +118,13 @@ export function evaluateExistingPrRecoveryDecision(input) {
     expectedHeadSha: input.expectedHeadSha || null,
     recovery: true,
   };
-  const block = (reason) => ({ ...result, reason, autoMergeDecision: baseDecision });
+  const block = (reason) => ({ ...result, reason, issueLinkageEvidence: linkageEvidence, autoMergeDecision: baseDecision });
 
   if (!config.allowExistingPrRecovery) return block("existing_pr_recovery_disabled_by_config");
   if (!pr.number && !pr.url) return block("existing_pr_recovery_missing_pr");
   if (!pr.headRefName || !/^feature\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
-  const issueText = `${pr.body || ""}\n${pr.title || ""}`;
-  if (!referencesIssueNumber(issueText, issue.number)) return block("existing_pr_recovery_pr_not_linked_to_issue");
+  if (!linkageEvidence.available) return block("existing_pr_recovery_missing_pr_linkage_evidence");
+  if (!linkageEvidence.linked) return block("existing_pr_recovery_pr_not_linked_to_issue");
   if (!evidence.geminiPass && !evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_evidence_or_review");
   }
@@ -138,8 +142,36 @@ export function evaluateExistingPrRecoveryDecision(input) {
     eligible: true,
     result: "eligible",
     reason: "existing_pr_recovery_gates_passed",
+    issueLinkageEvidence: linkageEvidence,
     autoMergeDecision: baseDecision,
   };
+}
+
+export function buildIssueLinkageEvidence(pr = {}, issueNumber) {
+  const normalizedNumber = normalizeIssueNumber(issueNumber);
+  const hasTitle = Object.hasOwn(pr, "title") && typeof pr.title === "string";
+  const hasBody = Object.hasOwn(pr, "body") && typeof pr.body === "string";
+  const sources = [];
+  if (hasTitle) {
+    sources.push({ source: "pr.title", text: pr.title });
+  }
+  if (hasBody) {
+    sources.push({ source: "pr.body", text: pr.body });
+  }
+  const matchedSources = normalizedNumber
+    ? sources.filter((source) => referencesIssueNumber(source.text, normalizedNumber)).map((source) => source.source)
+    : [];
+  return sanitizeEvidence({
+    issueNumber: normalizedNumber,
+    available: Boolean(normalizedNumber && hasTitle && hasBody),
+    evaluatedSources: sources.map((source) => source.source),
+    matchedSources,
+    linked: matchedSources.length > 0,
+    titleLength: hasTitle ? pr.title.length : null,
+    bodyLength: hasBody ? pr.body.length : null,
+    titlePreview: hasTitle ? bounded(pr.title, 240) : null,
+    bodyPreview: hasBody ? bounded(pr.body, 480) : null,
+  });
 }
 
 export function writeAutoMergeEvidence(config, decision, context = {}) {
@@ -161,6 +193,7 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
     lane: context.laneDecision?.lane || null,
     changedFiles: context.changedFiles || [],
     autoMerge: decision,
+    issueLinkageEvidence: context.issueLinkageEvidence || decision.issueLinkageEvidence || null,
   });
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
   return { evidencePath };
@@ -184,7 +217,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
       "view",
       String(prUrlOrNumber),
       "--json",
-      "number,url,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,comments,reviews",
+      "number,url,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,title,body,statusCheckRollup,comments,reviews",
     ],
     { cwd: config.repoRoot },
   );
@@ -273,9 +306,12 @@ function executeAutoMergeWithWait(config, initialContext, options) {
   const attempts = [];
   let context = initialContext;
   let decision = options.firstDecision || evaluateAutoMergeDecision(context);
+  let previousAttempt = null;
 
   for (let attempt = 1; attempt <= wait.maxAttempts; attempt += 1) {
-    attempts.push(snapshotAttempt(attempt, decision, context));
+    const attemptSnapshot = snapshotAttempt(attempt, decision, context, previousAttempt);
+    attempts.push(attemptSnapshot);
+    previousAttempt = attemptSnapshot;
     if (decision.eligible) {
       const result = executeAutoMerge(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
       return { ...result, waitAttempts: attempts };
@@ -301,9 +337,15 @@ function executeAutoMergeWithWait(config, initialContext, options) {
   return { ...finalDecision, evidence: writeAutoMergeEvidence(config, finalDecision, context) };
 }
 
-function normalizeAutoMergeWait(wait = {}) {
-  const maxAttempts = Number.isInteger(wait.maxAttempts) && wait.maxAttempts > 0 ? wait.maxAttempts : 6;
-  const delayMs = Number.isFinite(Number(wait.delayMs)) && Number(wait.delayMs) >= 0 ? Number(wait.delayMs) : 15000;
+export function normalizeAutoMergeWait(wait = {}) {
+  const requestedAttempts = Number(wait.maxAttempts);
+  const maxAttempts = Number.isSafeInteger(requestedAttempts)
+    ? Math.min(Math.max(requestedAttempts, 1), maxAutoMergeWaitAttempts)
+    : defaultAutoMergeWait.maxAttempts;
+  const requestedDelayMs = Number(wait.delayMs);
+  const delayMs = Number.isFinite(requestedDelayMs)
+    ? nearestDelayBucket(Math.max(0, requestedDelayMs))
+    : defaultAutoMergeWait.delayMs;
   return { maxAttempts, delayMs };
 }
 
@@ -330,7 +372,14 @@ function mergeAutoMergeContext(context, githubState = {}) {
   };
 }
 
-function snapshotAttempt(attempt, decision, context) {
+function snapshotAttempt(attempt, decision, context, previousAttempt = null) {
+  const checks = summarizeCheckStatus(context.requiredChecks || []);
+  const pendingCheckNames = (context.requiredChecks || [])
+    .filter((check) => check.status !== "COMPLETED")
+    .map((check) => check.name || "unknown")
+    .sort();
+  const pendingChecksDecreasing =
+    previousAttempt?.checks?.pending !== undefined ? checks.pending < previousAttempt.checks.pending : false;
   return sanitizeEvidence({
     attempt,
     reason: decision.reason,
@@ -339,9 +388,20 @@ function snapshotAttempt(attempt, decision, context) {
     expectedHeadSha: decision.expectedHeadSha,
     mergeStateStatus: context.pr?.mergeStateStatus || null,
     mergeable: context.pr?.mergeable || null,
-    checks: summarizeCheckStatus(context.requiredChecks || []),
+    checks,
+    pendingCheckNames,
+    pendingChecksDecreasing,
+    pendingChecksProgressing: pendingChecksDecreasing,
     blockingMarkers: context.blockingMarkers || [],
   });
+}
+
+function nearestDelayBucket(delayMs) {
+  let selected = autoMergeWaitDelayBucketsMs[0];
+  for (const bucket of autoMergeWaitDelayBucketsMs) {
+    if (delayMs >= bucket) selected = bucket;
+  }
+  return selected;
 }
 
 function inspectReviewThreads(config, prNumber, blockingMarkers) {
@@ -488,8 +548,9 @@ function referencesIssueNumber(text, issueNumber) {
   while (offset < haystack.length) {
     const index = haystack.indexOf(needle, offset);
     if (index === -1) return false;
+    const previous = haystack[index - 1] || "";
     const next = haystack[index + needle.length] || "";
-    if (!/[A-Za-z0-9_]/.test(next)) return true;
+    if (!/[A-Za-z0-9_]/.test(previous) && !/[A-Za-z0-9_]/.test(next)) return true;
     offset = index + needle.length;
   }
   return false;

@@ -32,6 +32,7 @@ import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import {
+  buildIssueLinkageEvidence,
   evaluateExistingPrRecoveryDecision,
   executeAutoMerge,
   inspectAutoMergeGithubState,
@@ -466,6 +467,12 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
   const exactHeadEvidence = recoveryConfig.exactHeadEvidence || {};
   const expectedHeadSha = recoveryConfig.expectedHeadSha || exactHeadEvidence.headSha || githubState.pr?.headRefOid || null;
+  const prMetadata = {
+    ...(githubState.pr || {}),
+    body: recoveryConfig.prBody ?? githubState.pr?.body,
+    title: recoveryConfig.prTitle ?? githubState.pr?.title,
+  };
+  const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
   const context = {
     config,
     issue: githubState.issue || { ...issue, state: issue.state || "OPEN", labels: issue.labels || [] },
@@ -484,17 +491,14 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     expectedHeadSha,
     expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
     currentOriginMainSha: baseOriginMainSha,
-    pr: {
-      ...(githubState.pr || {}),
-      body: recoveryConfig.prBody || githubState.pr?.body || "",
-      title: recoveryConfig.prTitle || githubState.pr?.title || "",
-    },
+    pr: prMetadata,
     requiredChecks: githubState.requiredChecks || [],
     reviewThreads: githubState.reviewThreads || [],
     codeScanningAlerts: githubState.codeScanningAlerts || [],
     blockingMarkers: githubState.blockingMarkers || [],
     actualHeadSha: githubState.pr?.headRefOid || null,
     exactHeadEvidence,
+    issueLinkageEvidence,
   };
   const recoveryDecision = evaluateExistingPrRecoveryDecision(context);
   if (!recoveryDecision.eligible) {
