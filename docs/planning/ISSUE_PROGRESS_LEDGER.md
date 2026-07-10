@@ -20,6 +20,20 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #826 - Auto-merge canary 2 planning-docs checkpoint
+
+- GitHub state/project status: #826 was the second bounded low-risk
+  auto-merge canary issue after PR #824; project fields are `unverified`.
+- Verified repo baseline:
+  `origin/main` at
+  `9c23fbd4c2743a1a5536a012dd2acfa113261f66`.
+- Checkpoint:
+  this docs-planning canary exercised the DevBox auto-runner auto-merge path
+  for the single allowed ledger file without changing product runtime,
+  API/auth/security, storage/privacy, money/settlement/bill calculations,
+  schema/migrations, OpenAPI/generated clients, Docker/CI/deployment/env, or
+  secrets.
+
 ### Issue #800/#825/#826 - PR #829 CodeQL/review-thread fix checkpoint
 
 - GitHub state/project status at task start:
