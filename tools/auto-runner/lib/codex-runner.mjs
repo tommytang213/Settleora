@@ -99,24 +99,97 @@ export function runReviewPrompt(config, packageInfo) {
       verdict: dryRunReviewVerdict(),
       mutationChecked: true,
       mutationDetected: false,
+      reviewStatus: "skipped",
+      reviewFailureReason: "dry-run",
+      attempts: [],
     };
   }
   const command = resolveCodexCommand(config.reviewerCommand || config.codexCommand);
-  const logPath = path.join(config.logsRoot, "reviews", `${safeTimestamp()}-review.log`);
-  const result = spawnSync(command.command, [], {
-    cwd: config.logsRoot,
-    input: prompt,
-    encoding: "utf8",
-  });
-  const stdout = result.stdout || "";
-  const stderr = result.stderr || "";
-  const selectedPayload = stdout;
+  const retry = normalizeMechanicsReviewRetry(config.codexMechanicsReviewRetry || config.mechanicsReviewRetry);
+  const attempts = [];
+  let selected = null;
+  for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
+    const attemptResult = runReviewPromptAttempt(config, command, prompt, attempt);
+    attempts.push(summarizeReviewAttempt(attemptResult));
+    selected = attemptResult;
+    if (!isRetryableReviewAttempt(attemptResult) || attempt === retry.maxAttempts) break;
+  }
+  return {
+    skipped: false,
+    promptPath,
+    command: command.command,
+    source: command.source,
+    status: selected.status,
+    signal: selected.signal,
+    error: selected.error,
+    logPath: selected.logPath,
+    rawOutput: selected.rawOutput,
+    responsePayload: selected.responsePayload,
+    responsePayloadSource: selected.responsePayloadSource,
+    responsePayloadBoundary: selected.responsePayloadBoundary,
+    rawCandidateDiagnostics: selected.rawCandidateDiagnostics,
+    reviewStatus: selected.reviewStatus,
+    reviewFailureCategory: selected.reviewFailureCategory,
+    reviewFailureReason: selected.reviewFailureReason,
+    attempts,
+    attemptCount: attempts.length,
+    reviewedHead: packageInfo.summary?.currentHead || packageInfo.summary?.headSha || null,
+    changedFiles: packageInfo.summary?.changedFiles || [],
+    verdict: selected.verdict,
+  };
+}
+
+function runReviewPromptAttempt(config, command, prompt, attempt) {
+  const timestamp = safeTimestamp();
+  const logPath = path.join(config.logsRoot, "reviews", `${timestamp}-review${attempt > 1 ? `-attempt-${attempt}` : ""}.log`);
+  const stdoutPath = path.join(config.logsRoot, "reviews", `${timestamp}-review${attempt > 1 ? `-attempt-${attempt}` : ""}.stdout`);
+  const stderrPath = path.join(config.logsRoot, "reviews", `${timestamp}-review${attempt > 1 ? `-attempt-${attempt}` : ""}.stderr`);
+  const stdoutFd = openSync(stdoutPath, "w");
+  const stderrFd = openSync(stderrPath, "w");
+  let result;
+  try {
+    result = spawnSync(command.command, [], {
+      cwd: config.logsRoot,
+      input: prompt,
+      stdio: ["pipe", stdoutFd, stderrFd],
+      encoding: "utf8",
+    });
+  } finally {
+    closeSync(stdoutFd);
+    closeSync(stderrFd);
+  }
+  const stdout = readFileSync(stdoutPath, "utf8");
+  const stderr = readFileSync(stderrPath, "utf8");
+  const selected = selectReviewResponseBoundary(stdout, stderr);
+  const selectedPayload = selected.payload;
   const rawOutput = `${stdout}\n${stderr}`;
   const rawCandidateDiagnostics = reviewDiagnostics(extractReviewVerdictCandidates(rawOutput));
+  const selectedVerdict = parseReviewVerdict(selectedPayload);
+  const parsedVerdict = withReviewOutputBoundary(
+    rawCandidateDiagnostics.valid_verdict_count > 1
+      ? unableToReview("Reviewer output contained multiple verdict JSON objects across stdout/stderr; refusing ambiguous review output.", {
+          valid_verdict_count: rawCandidateDiagnostics.valid_verdict_count,
+          invalid_candidate_count: rawCandidateDiagnostics.invalid_candidate_count,
+          selected_json_source: null,
+          failure_reason: "multiple_verdict_json_objects_across_streams",
+          saw_json: rawCandidateDiagnostics.saw_json,
+        })
+      : selectedVerdict,
+    {
+      responsePayloadSource: selected.source,
+      responsePayloadBoundary: selected.boundary,
+      rawLogPath: logPath,
+      rawCandidateDiagnostics,
+    },
+  );
+  const classification = classifyReviewAttempt({ result, selected, verdict: parsedVerdict, rawCandidateDiagnostics });
   writeFileSync(
     logPath,
     [
-      "----- selected reviewer response payload: stdout -----",
+      `----- review attempt ${attempt} selected reviewer response payload: ${selected.source} -----`,
+      selectedPayload,
+      "",
+      "----- reviewer stdout -----",
       stdout,
       "",
       "----- reviewer stderr / diagnostic transcript -----",
@@ -128,28 +201,116 @@ export function runReviewPrompt(config, packageInfo) {
       `Status: ${result.status === null ? "null" : result.status}`,
       `Signal: ${result.signal || ""}`,
       result.error ? `Launch error: ${result.error.name} ${result.error.code || ""} ${result.error.message}` : "",
+      `Selected response boundary: ${selected.boundary}`,
+      `Review status: ${classification.reviewStatus}`,
+      `Review failure category: ${classification.reviewFailureCategory || ""}`,
+      `Review failure reason: ${classification.reviewFailureReason || ""}`,
       "",
     ].join("\n"),
   );
   return {
-    skipped: false,
-    promptPath,
-    command: command.command,
-    source: command.source,
     status: result.status,
+    signal: result.signal || null,
+    error: result.error ? result.error.message : null,
+    errorCode: result.error?.code || null,
     logPath,
+    stdoutPath,
+    stderrPath,
     rawOutput,
     responsePayload: selectedPayload,
-    responsePayloadSource: "stdout",
-    responsePayloadBoundary: "process.stdout",
+    responsePayloadSource: selected.source,
+    responsePayloadBoundary: selected.boundary,
     rawCandidateDiagnostics,
-    verdict: withReviewOutputBoundary(parseReviewVerdict(selectedPayload), {
-      responsePayloadSource: "stdout",
-      responsePayloadBoundary: "process.stdout",
-      rawLogPath: logPath,
-      rawCandidateDiagnostics,
-    }),
+    verdict: parsedVerdict,
+    ...classification,
   };
+}
+
+function selectReviewResponseBoundary(stdout, stderr) {
+  const stdoutDiagnostics = reviewDiagnostics(extractReviewVerdictCandidates(stdout));
+  const stderrDiagnostics = reviewDiagnostics(extractReviewVerdictCandidates(stderr));
+  if (String(stdout || "").trim()) {
+    return { source: "stdout", boundary: "process.stdout", payload: stdout };
+  }
+  if (stdoutDiagnostics.valid_verdict_count === 0 && stderrDiagnostics.valid_verdict_count === 1) {
+    return { source: "stderr", boundary: "process.stderr:fallback_single_verdict_stdout_empty", payload: stderr };
+  }
+  return { source: "stdout", boundary: "process.stdout", payload: stdout };
+}
+
+function classifyReviewAttempt({ result, selected, verdict, rawCandidateDiagnostics }) {
+  if (result.error) {
+    return {
+      reviewStatus: "failed",
+      reviewFailureCategory: isOutputTransportError(result.error) ? "transport" : "process",
+      reviewFailureReason: `${result.error.code || result.error.name || "launch_error"}:${result.error.message}`,
+    };
+  }
+  if (result.status !== 0 || result.signal) {
+    return {
+      reviewStatus: "failed",
+      reviewFailureCategory: "process",
+      reviewFailureReason: result.signal ? `signal:${result.signal}` : `nonzero_status:${result.status}`,
+    };
+  }
+  if (!String(selected.payload || "").trim()) {
+    return {
+      reviewStatus: "failed",
+      reviewFailureCategory: "transport",
+      reviewFailureReason: "missing_selected_response_payload",
+    };
+  }
+  if (verdict.verdict === "unable_to_review" && verdict.review_json_diagnostics?.failure_reason) {
+    return {
+      reviewStatus: "failed",
+      reviewFailureCategory: rawCandidateDiagnostics.valid_verdict_count > 1 ? "ambiguous" : "parse",
+      reviewFailureReason: verdict.review_json_diagnostics.failure_reason,
+    };
+  }
+  if (verdict.verdict !== "approve") {
+    return {
+      reviewStatus: "completed",
+      reviewFailureCategory: "substantive",
+      reviewFailureReason: `non_approve_verdict:${verdict.verdict}`,
+    };
+  }
+  return { reviewStatus: "passed", reviewFailureCategory: null, reviewFailureReason: null };
+}
+
+function summarizeReviewAttempt(attempt) {
+  return {
+    status: attempt.status,
+    signal: attempt.signal,
+    error: attempt.error,
+    logPath: attempt.logPath,
+    stdoutPath: attempt.stdoutPath,
+    stderrPath: attempt.stderrPath,
+    responsePayloadSource: attempt.responsePayloadSource,
+    responsePayloadBoundary: attempt.responsePayloadBoundary,
+    reviewStatus: attempt.reviewStatus,
+    reviewFailureCategory: attempt.reviewFailureCategory,
+    reviewFailureReason: attempt.reviewFailureReason,
+    verdict: attempt.verdict?.verdict || null,
+    parseDiagnosticCategory: attempt.verdict?.review_json_diagnostics?.failure_reason ? "parse_or_contract" : "none",
+    rawValidVerdictCount: attempt.rawCandidateDiagnostics?.valid_verdict_count || 0,
+    rawInvalidCandidateCount: attempt.rawCandidateDiagnostics?.invalid_candidate_count || 0,
+  };
+}
+
+function isRetryableReviewAttempt(attempt) {
+  if (attempt.reviewStatus === "passed") return false;
+  if (attempt.reviewFailureCategory === "substantive" || attempt.reviewFailureCategory === "ambiguous") return false;
+  return ["process", "transport"].includes(attempt.reviewFailureCategory);
+}
+
+function normalizeMechanicsReviewRetry(retry = {}) {
+  const requested = Number(retry.maxAttempts ?? retry.maxRetries);
+  const maxAttempts = Number.isSafeInteger(requested) ? Math.min(Math.max(requested, 1), 2) : 2;
+  return { maxAttempts };
+}
+
+function isOutputTransportError(error) {
+  return ["ENOBUFS", "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"].includes(error?.code);
 }
 
 export function parseReviewVerdict(output) {

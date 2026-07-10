@@ -203,7 +203,33 @@ decision. A PR is linked only when current PR title or body contains the exact
 Missing title/body evidence, stale exact-head evidence, broad changed files,
 unresolved review threads, open PR-ref code-scanning alerts, issue stop labels,
 manual blockers, failed checks, or missing exact-head validation/review
-evidence all fail closed.
+evidence all fail closed. When all recovery evidence and terminal gates pass
+and only required checks are pending or mergeability is in a refreshable state,
+existing-PR recovery enters the same bounded wait loop as normal auto-merge
+instead of requiring a second operator invocation.
+
+Fresh implementation runs create the runner-owned commit locally before any
+independent Gemini or Codex mechanics review runs. That local commit stays
+unpushed until local validation and both required reviews pass. Review packages
+use the committed `origin/main...HEAD` diff, record the reviewed commit SHA and
+exact changed-file set, and the later push/PR step must use that same SHA. If a
+review-fix mode is separately approved and changes files, the runner creates a
+new normal local follow-up commit and reruns exact-head reviews for the new
+head; old evidence cannot authorize the new commit. Stale, missing-head, or
+changed-file-mismatched review evidence fails closed.
+
+Codex mechanics review evidence is machine-readable. Each attempt records
+status, signal, selected response boundary, parse/contract diagnostics, final
+verdict when present, sanitized prompt/log paths, reviewed head, and changed
+files. Reviewer stdout is the primary response boundary. If stdout is empty,
+stderr may be selected only when it contains exactly one valid verdict object;
+multiple verdict objects across stdout/stderr are ambiguous and fail closed.
+The runner captures stdout/stderr through files to avoid buffered-output
+transport failures. A bounded retry, capped at two total attempts, is reserved
+for process/transport categories such as missing selected payload or launch
+transport failure. Valid non-approve verdicts, ambiguous output, malformed
+contract output, scope/policy failures, manual/security blockers, and
+substantive `unable_to_review` verdicts are not retried into approval.
 
 For `client-ui-low-risk` and any future real-code auto-merge lane,
 independent review evidence must be unambiguous in PR bodies, PR comments,

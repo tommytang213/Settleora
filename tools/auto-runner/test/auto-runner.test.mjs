@@ -2431,7 +2431,7 @@ test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mi
     evaluateAutoMergeDecision(
       autoMergeContext({
         ...base,
-        externalReview: { status: "pass", verdict: "pass", changedFiles: ["apps/mobile/test/ui/other_test.dart"] },
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", changedFiles: ["apps/mobile/test/ui/other_test.dart"] },
       }),
     ).reason,
     "independent_review_files_mismatch",
@@ -2910,6 +2910,17 @@ test("existing client-ui-low-risk PR recovery requires independent Gemini and Co
   );
 });
 
+test("existing PR recovery treats pending checks as refreshable wait state after evidence gates pass", () => {
+  const decision = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      requiredChecks: [{ name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null }],
+    }),
+  );
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.reason, "existing_pr_recovery_waiting_for_refreshable_gate:required_checks_pending");
+  assert.equal(decision.autoMergeDecision.reason, "required_checks_pending");
+});
+
 test("source branch restoration is executed after mocked merge auto-deletes branch", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-"));
   try {
@@ -3154,7 +3165,7 @@ test("review verdict parsing fails closed when JSON is not an object", () => {
   assert.equal(verdict.review_json_diagnostics.invalid_candidate_count, 1);
 });
 
-test("review prompt parses only stdout response payload and ignores transcript verdicts in raw log", () => {
+test("review prompt fails closed for conflicting verdicts across stdout and stderr", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-boundary-"));
   try {
     const logsRoot = path.join(tempRoot, "logs");
@@ -3173,11 +3184,11 @@ test("review prompt parses only stdout response payload and ignores transcript v
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
     );
 
-    assert.equal(result.verdict.verdict, "approve");
+    assert.equal(result.verdict.verdict, "unable_to_review");
     assert.equal(result.responsePayloadSource, "stdout");
     assert.equal(result.responsePayloadBoundary, "process.stdout");
-    assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 1);
-    assert.equal(result.verdict.review_json_diagnostics.invalid_candidate_count, 0);
+    assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 2);
+    assert.equal(result.verdict.review_json_diagnostics.invalid_candidate_count, 1);
     assert.equal(result.rawCandidateDiagnostics.valid_verdict_count, 2);
     assert.equal(result.rawCandidateDiagnostics.invalid_candidate_count, 1);
     assert.equal(result.verdict.review_output_boundary.raw_log_path, result.logPath);
@@ -3216,7 +3227,7 @@ test("review prompt still fails closed for multiple verdicts inside selected std
   }
 });
 
-test("review prompt fails closed when stdout response boundary is missing instead of parsing stderr log", () => {
+test("review prompt falls back to stderr only when stdout is empty and stderr has one verdict", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-boundary-"));
   try {
     const logsRoot = path.join(tempRoot, "logs");
@@ -3234,11 +3245,100 @@ test("review prompt fails closed when stdout response boundary is missing instea
       { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
     );
 
-    assert.equal(result.verdict.verdict, "unable_to_review");
-    assert.match(result.verdict.blocking_findings[0], /did not contain verdict JSON/);
-    assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 0);
+    assert.equal(result.verdict.verdict, "approve");
+    assert.equal(result.responsePayloadSource, "stderr");
+    assert.equal(result.responsePayloadBoundary, "process.stderr:fallback_single_verdict_stdout_empty");
+    assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 1);
     assert.equal(result.rawCandidateDiagnostics.valid_verdict_count, 1);
-    assert.equal(result.verdict.review_output_boundary.response_payload_source, "stdout");
+    assert.equal(result.verdict.review_output_boundary.response_payload_source, "stderr");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review prompt rejects conflicting stdout and stderr verdicts without fallback", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-conflict-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const reviewer = writeFakeReviewer(tempRoot, [
+      `printf '%s\\n' ${shellArg(reviewVerdictJson())}`,
+      `printf '%s\\n' ${shellArg(reviewVerdictJson({ verdict: "changes_requested" }))} >&2`,
+    ]);
+    const result = runReviewPrompt(
+      {
+        dryRun: false,
+        logsRoot,
+        repoRoot: process.cwd(),
+        reviewerCommand: reviewer,
+      },
+      { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 }, currentHead: "head1", changedFiles: ["a.md"] } },
+    );
+
+    assert.equal(result.verdict.verdict, "unable_to_review");
+    assert.equal(result.responsePayloadBoundary, "process.stdout");
+    assert.equal(result.rawCandidateDiagnostics.valid_verdict_count, 2);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review prompt retries missing selected response once and records attempts", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-retry-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const counter = path.join(tempRoot, "count");
+    const reviewer = writeFakeReviewer(tempRoot, [
+      `count=0; test -f ${shellArg(counter)} && count=$(cat ${shellArg(counter)})`,
+      "count=$((count + 1))",
+      `printf '%s' "$count" > ${shellArg(counter)}`,
+      "if [ \"$count\" = \"1\" ]; then exit 0; fi",
+      `printf '%s\\n' ${shellArg(reviewVerdictJson())}`,
+    ]);
+    const result = runReviewPrompt(
+      {
+        dryRun: false,
+        logsRoot,
+        repoRoot: process.cwd(),
+        reviewerCommand: reviewer,
+        codexMechanicsReviewRetry: { maxAttempts: 2 },
+      },
+      { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 }, currentHead: "head1", changedFiles: ["a.md"] } },
+    );
+
+    assert.equal(result.verdict.verdict, "approve");
+    assert.equal(result.attemptCount, 2);
+    assert.equal(result.attempts[0].reviewFailureCategory, "transport");
+    assert.equal(result.reviewedHead, "head1");
+    assert.deepEqual(result.changedFiles, ["a.md"]);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review prompt does not retry substantive changes_requested verdict", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-no-retry-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const reviewer = writeFakeReviewer(tempRoot, [
+      `printf '%s\\n' ${shellArg(reviewVerdictJson({ verdict: "changes_requested" }))}`,
+    ]);
+    const result = runReviewPrompt(
+      {
+        dryRun: false,
+        logsRoot,
+        repoRoot: process.cwd(),
+        reviewerCommand: reviewer,
+        codexMechanicsReviewRetry: { maxAttempts: 2 },
+      },
+      { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 }, currentHead: "head1", changedFiles: ["a.md"] } },
+    );
+
+    assert.equal(result.verdict.verdict, "changes_requested");
+    assert.equal(result.attemptCount, 1);
+    assert.equal(result.reviewFailureCategory, "substantive");
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -3390,8 +3490,10 @@ function autoMergeContext(overrides = {}) {
     forbiddenChangedFiles: overrides.forbiddenChangedFiles ?? filterForbiddenChangedFiles(changedFiles, laneDecision),
     changedFilesExactlyMatchAllowedPaths: overrides.changedFilesExactlyMatchAllowedPaths ?? true,
     externalReviewRequired: overrides.externalReviewRequired ?? true,
-    externalReview: Object.hasOwn(overrides, "externalReview") ? overrides.externalReview : { status: "pass", reason: "integrated_review_passed" },
-    review: overrides.review || { verdict: { verdict: "approve" } },
+    externalReview: Object.hasOwn(overrides, "externalReview")
+      ? overrides.externalReview
+      : { status: "pass", reason: "integrated_review_passed", reviewedHead: "head123", changedFiles },
+    review: overrides.review || { verdict: { verdict: "approve" }, reviewedHead: "head123", changedFiles },
     codexMechanicsReviewApproved: overrides.codexMechanicsReviewApproved ?? true,
     validation: overrides.validation || { passed: true },
     worktreeClean: overrides.worktreeClean ?? true,
@@ -3451,6 +3553,7 @@ function existingPrRecoveryContext(overrides = {}) {
     reviewThreads: overrides.reviewThreads || [],
     codeScanningAlerts: overrides.codeScanningAlerts || [],
     blockingMarkers: overrides.blockingMarkers || [],
+    requiredChecks: overrides.requiredChecks,
   });
   return {
     ...context,

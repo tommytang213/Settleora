@@ -66,21 +66,27 @@ export function evaluateAutoMergeDecision(input) {
   if (forbiddenChangedFiles.length > 0) return block(`forbidden_changed_files:${forbiddenChangedFiles.join(",")}`);
   if (changedFiles.length === 0) return block("no_changed_files");
   if (!input.changedFilesExactlyMatchAllowedPaths) return block("changed_files_do_not_match_allowed_paths");
+  if (pr.state !== "OPEN") return block("pr_not_open");
+  if (pr.isDraft) return block("pr_is_draft");
+  if (pr.baseRefName !== "main") return block("pr_base_not_main");
+  if (actualHeadSha !== expectedHeadSha) return block("pr_head_sha_mismatch");
+  if (input.expectedOriginMainSha && input.currentOriginMainSha !== input.expectedOriginMainSha) {
+    return block("origin_main_base_mismatch");
+  }
   const independentReview = evaluateIndependentReviewEvidence(input);
   if (!independentReview.ok) return block(independentReview.reason);
   if (input.codexMechanicsReviewApproved !== true && input.review?.verdict?.verdict !== "approve") {
     return block("codex_mechanics_review_not_approved");
   }
+  const codexReviewHead = input.review?.reviewedHead || input.review?.headSha || null;
+  if (!codexReviewHead) return block("codex_mechanics_review_head_missing");
+  if (codexReviewHead && codexReviewHead !== (actualHeadSha || expectedHeadSha)) return block("codex_mechanics_review_head_mismatch");
+  if (input.review?.changedFiles && !sameStringSet(input.review.changedFiles, changedFiles)) {
+    return block("codex_mechanics_review_files_mismatch");
+  }
   if (!input.validation?.passed) return block("local_validation_not_passed");
   if (input.worktreeClean !== true) return block("worktree_not_clean");
-  if (pr.state !== "OPEN") return block("pr_not_open");
-  if (pr.isDraft) return block("pr_is_draft");
-  if (pr.baseRefName !== "main") return block("pr_base_not_main");
-  if (actualHeadSha !== expectedHeadSha) return block("pr_head_sha_mismatch");
   if (pr.mergeable !== "MERGEABLE") return block("pr_not_mergeable");
-  if (input.expectedOriginMainSha && input.currentOriginMainSha !== input.expectedOriginMainSha) {
-    return block("origin_main_base_mismatch");
-  }
   const checkStatus = summarizeCheckStatus(requiredChecks);
   if (checkStatus.state === "pending") return block("required_checks_pending");
   if (checkStatus.state !== "success") return block("required_checks_not_successful");
@@ -152,12 +158,14 @@ export function evaluateExistingPrRecoveryDecision(input) {
     return block("existing_pr_recovery_codex_review_files_mismatch");
   }
   if (changedFiles.length === 0) return block("existing_pr_recovery_missing_changed_files");
-  if (!baseDecision.eligible) return block(`existing_pr_recovery_gate_blocked:${baseDecision.reason}`);
+  if (!baseDecision.eligible && !shouldWaitForAutoMergeDecision(baseDecision)) {
+    return block(`existing_pr_recovery_gate_blocked:${baseDecision.reason}`);
+  }
   return {
     ...result,
     eligible: true,
     result: "eligible",
-    reason: "existing_pr_recovery_gates_passed",
+    reason: baseDecision.eligible ? "existing_pr_recovery_gates_passed" : `existing_pr_recovery_waiting_for_refreshable_gate:${baseDecision.reason}`,
     issueLinkageEvidence: linkageEvidence,
     autoMergeDecision: baseDecision,
   };
@@ -391,6 +399,7 @@ function evaluateIndependentReviewEvidence(input) {
   const reviewedHead = review.reviewedHead || review.headSha || review.prHeadSha || null;
   const expectedHead = input.expectedHeadSha || input.runnerCreatedCommitSha || null;
   const actualHead = input.actualHeadSha || input.pr?.headRefOid || null;
+  if (!reviewedHead) return { ok: false, reason: "independent_review_head_missing" };
   if (reviewedHead && reviewedHead !== (actualHead || expectedHead)) {
     return { ok: false, reason: "independent_review_head_mismatch" };
   }
