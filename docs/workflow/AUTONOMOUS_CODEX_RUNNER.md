@@ -253,6 +253,29 @@ blocked/fail-closed. The runner must not describe required real-code
 independent review as optional wording such as `Gemini when configured`, and
 must not post raw Gemini output to GitHub.
 
+Positive-scope danger scanning also stays fail-closed before implementation.
+Validated `client-ui-low-risk` contracts may use financial-domain display
+nouns only through a narrow presentation-only proof. The exception is
+available solely when the contract is valid, the lane is exactly
+`client-ui-low-risk`, the validation profile is exactly
+`mobile-ui-low-risk`, every contracted path remains within the lane manifest
+and under `apps/mobile/lib/ui/**` or `apps/mobile/test/ui/**`, and the only
+detected danger reason is `money_settlement`. The positive scope must contain
+explicit presentation proof such as accessibility, semantics, visible display
+text, UI copy, layout/style-only behavior, or read-only shared-widget
+rendering, and must contain no money-authority or mutation signal.
+
+Money authority and mutation still block. This includes arithmetic,
+calculation, rounding or precision policy, currency conversion, exchange
+rates/FX, amount entry or persistence, payment/settlement/refund transitions,
+balance/debt/owed mutations, split/allocation math, amount-derived
+authorization or policy, API/domain/database/storage writes, and settlement,
+payment, or billing behavior. Multiple danger reasons, auth/security,
+storage/privacy, schema, OpenAPI/generated-client, sync/import/export,
+deployment, secrets, public/admin exposure, release, destructive, branch, or
+architecture danger cannot use the exception. The lane decision records
+bounded sanitized classifier evidence and does not emit full issue bodies.
+
 ## Reviewer Tier And Budget Policy
 
 Reviewer routing is a disabled-by-default policy foundation. Codex remains the

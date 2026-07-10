@@ -1,9 +1,9 @@
 # Autonomous Codex Runner Canary
 
 This file records harmless canary entries for contracted DevBox auto-runner
-workflow-docs issues. Entries are documentation-only evidence that the runner
-can create a scoped branch and human-review PR without touching product
-runtime behavior.
+workflow-docs and low-risk UI issues. Entries are documentation-only evidence
+that the runner can create a scoped branch and human-review PR without
+touching product runtime behavior.
 
 ## 2026-07-09 Issue 805
 
@@ -21,6 +21,32 @@ runtime behavior.
   storage/privacy, money/settlement/bill calculation, schema/migration,
   OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
   release change is intended by this canary entry.
+
+## 2026-07-10 Issues 852 And 853
+
+- Source issue #852:
+  `Mobile UI canary: MoneyText single-announcement semantics guardrail`.
+- Source issue #853:
+  `Mobile UI canary: shared header semantic heading guardrail`.
+- Run ID: `run-2026-07-10T161551Z`.
+- Lane: `client-ui-low-risk`.
+- Allowed paths:
+  `apps/mobile/lib/ui/settleora_components.dart` and
+  `apps/mobile/test/ui/settleora_component_guardrail_test.dart`.
+- Validation profile: `mobile-ui-low-risk`.
+- Canary outcome:
+  - #852 stopped before implementation with `danger-gate` because the
+    positive-scope scanner classified presentation-only MoneyText amount and
+    currency wording as `money_settlement`.
+  - #853 completed through PR #854 and merged with reviewed head
+    `d707c2240a95988a2db64bca8e23908a4f87fca1` and merge SHA
+    `10e47554fa4d0329e1164786ade70217605d817b`.
+- Current posture:
+  #852 remains open and danger-gated pending merge of a focused classifier
+  hardening PR plus a separately authorized rerun. This partial max-2 result
+  does not approve broad trusted operation, a long run, stale-claim stealing,
+  follow-up issue creation, review-fix mutation, systemd enablement, or
+  sensitive/product-runtime work.
 
 ## 2026-07-09 Issue 805 Follow-up
 

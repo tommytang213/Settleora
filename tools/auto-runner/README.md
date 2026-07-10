@@ -404,6 +404,28 @@ requests. Positive scope text, the title, dangerous contract `allowedPaths`,
 malformed contracts, disabled lanes, and manual-gated domains still fail
 closed with the normal danger/manual gate outcomes.
 
+Positive-scope scanning remains fail-closed. The only context-aware exception
+is for validated `client-ui-low-risk` contracts using the exact
+`mobile-ui-low-risk` profile, with every contracted path under
+`apps/mobile/lib/ui/**` or `apps/mobile/test/ui/**`, when the only detected
+danger reason is `money_settlement`. In that case, presentation-only proof
+such as accessibility, semantics, visible display text, UI copy, layout/style
+only, or read-only shared-widget rendering may suppress the active gate for
+financial display nouns such as amount, currency, MoneyText, Payment, or
+Balance. The lane decision records bounded evidence with detected danger
+reasons, matched presentation proof, matched authority/mutation signals, and
+whether the exception was applied; it does not include the full issue body.
+
+The exception does not apply to any other danger category, invalid or missing
+contracts, non-`client-ui-low-risk` lanes, broad paths, dangerous path names,
+or ambiguous financial-authority wording. Calculation, rounding policy,
+currency conversion, exchange-rate/FX behavior, amount entry or persistence,
+payment/settlement/refund transitions, split/allocation math, amount-derived
+authorization/policy, API/domain/database/storage writes, and settlement,
+payment, or billing behavior continue to block as `money_settlement` or the
+more specific danger category. Changed-file enforcement, independent review,
+CI, security, and auto-merge gates are unchanged.
+
 Initial implementation lanes:
 
 - `workflow-docs-tooling`: `tools/auto-runner/**`, `docs/workflow/**`, and
