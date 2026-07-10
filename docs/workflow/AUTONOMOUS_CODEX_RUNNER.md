@@ -51,6 +51,52 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
 Stale locks are removed only when the recorded PID is no longer active. Active
 or unparsable locks stop the runner for human inspection.
 
+## Status And Local Control
+
+The local status surface is:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --status
+node tools/auto-runner/settleora-auto-runner.mjs --status --json
+```
+
+It reads the lock, active-run state, latest summaries, and the local control
+file. Output reports whether a runner appears active, active run id, mode and
+config path, started time, elapsed/max/remaining runtime, iteration budget and
+remaining count, current or latest issue and PR, terminal outcome or stop
+reason, last event time, summary/report/log paths, and active control flags.
+It must remain sanitized: no provider payloads, raw Gemini output, environment
+variables, API keys, authorization headers, `.env` values, or secrets.
+
+Recent run and event inspection is local and read-only:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --list-runs
+node tools/auto-runner/settleora-auto-runner.mjs --list-events --run <run-id>
+```
+
+Run listing reads `/workspace/logs/settleora-auto-runner/summaries/`. Event
+listing reconstructs issue, branch, PR, review, checks, merge/failure, and
+outcome evidence from existing summary/state/evidence files where available.
+Missing or partially written evidence is `unknown`, not inferred.
+
+Safe local control is file-based under
+`/workspace/logs/settleora-auto-runner/state/runner-control.json`:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --stop-after-current
+node tools/auto-runner/settleora-auto-runner.mjs --pause
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-iterations +N
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
+```
+
+The runner observes control only at safe boundaries before selecting new work.
+It does not pause or stop mid-commit, mid-review, mid-check wait, or mid-merge.
+Extensions are explicit and bounded, and they increase only loop budgets. They
+do not override lane safety, manual gates, danger gates, provider budget hard
+stops, changed-file policy, auto-merge gates, or max-frequency/safety policy.
+If no active runner exists, control commands fail gracefully.
+
 ## Overnight Readiness Preflight
 
 The report-only readiness command is:
@@ -129,6 +175,20 @@ Missing title/body evidence, stale exact-head evidence, broad changed files,
 unresolved review threads, open PR-ref code-scanning alerts, issue stop labels,
 manual blockers, failed checks, or missing exact-head validation/review
 evidence all fail closed.
+
+For `client-ui-low-risk` and any future real-code auto-merge lane,
+independent review evidence must be unambiguous in PR bodies, PR comments,
+issue comments, summaries, and event listings:
+
+```text
+Independent AI review: required; provider/tier: Gemini cheap_independent; verdict: pass; exact head: <sha>; evidence: <sanitized local path>
+```
+
+Disabled, skipped, missing, malformed, stale-head, mismatched-file,
+provider-failed, or non-pass independent review evidence is reported as
+blocked/fail-closed. The runner must not describe required real-code
+independent review as optional wording such as `Gemini when configured`, and
+must not post raw Gemini output to GitHub.
 
 ## Reviewer Tier And Budget Policy
 
@@ -531,8 +591,9 @@ and live provider calls. The runner still owns explicit-path staging; no
 `git add .` rule is relaxed.
 
 After a fix attempt, the runner rechecks changed files against the contract,
-reruns local validation, reruns integrated Gemini when configured, reruns Codex
-mechanics review, and fails closed if any review remains blocking. Sanitized
+reruns local validation, reruns any required or active integrated independent
+review gate, reruns Codex mechanics review, and fails closed if any review
+remains blocking. Sanitized
 attempt evidence is written under:
 
 ```text

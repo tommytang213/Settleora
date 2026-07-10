@@ -48,6 +48,18 @@ import {
   writeAutoMergeEvidence,
   evaluateAutoMergeDecision,
 } from "./lib/auto-merge-policy.mjs";
+import {
+  applyControlAtSafeBoundary,
+  clearActiveRunState,
+  getRunnerStatus,
+  listEvents,
+  listRuns,
+  renderEventsText,
+  renderRunsText,
+  renderStatusText,
+  writeActiveRunState,
+  writeControlCommand,
+} from "./lib/control-plane.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -55,6 +67,29 @@ async function main() {
     const config = { logsRoot: defaultLogsRoot };
     const result = writeRecentSummary(config, cliArgs.sinceMs);
     console.log(`Wrote summary: ${result.markdownPath}`);
+    return;
+  }
+  if (cliArgs.status || cliArgs.listRuns || cliArgs.listEvents || cliArgs.controlCommand) {
+    const config = loadConfig({ ...cliArgs, dryRun: true, run: false });
+    if (cliArgs.status) {
+      const status = getRunnerStatus(config);
+      console.log(cliArgs.json ? JSON.stringify(status, null, 2) : renderStatusText(status));
+      return;
+    }
+    if (cliArgs.listRuns) {
+      const runs = listRuns(config);
+      console.log(cliArgs.json ? JSON.stringify(runs, null, 2) : renderRunsText(runs));
+      return;
+    }
+    if (cliArgs.listEvents) {
+      const result = listEvents(config, cliArgs.eventRunId);
+      console.log(cliArgs.json ? JSON.stringify(result, null, 2) : renderEventsText(result));
+      process.exitCode = result.found ? 0 : 1;
+      return;
+    }
+    const result = writeControlCommand(config, cliArgs);
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = result.ok ? 0 : 1;
     return;
   }
   if (cliArgs.reviewPackage) {
@@ -115,13 +150,30 @@ async function main() {
   };
 
   try {
-    lockPath = acquireRunnerLock(config);
+    lockPath = acquireRunnerLock(config, {
+      runId,
+      mode: config.mode,
+      configPath: config.configPath || null,
+      maxIterations: config.maxIterations,
+      maxRuntimeMs: config.maxRuntimeMs,
+    });
     const workspace = ensureTaskStartWorkspace(config, logger);
     summary.baseOriginMainSha = workspace.originMainSha;
+    summary.maxIterations = config.maxIterations;
+    summary.maxRuntimeMs = config.maxRuntimeMs;
+    summary.configPath = config.configPath || null;
+    writeActiveRunState(config, summary);
     logger.info(`Settleora auto-runner started in ${config.mode} mode.`);
 
     const startedAtMs = Date.now();
     for (let index = 1; index <= config.maxIterations; index += 1) {
+      const control = applyControlAtSafeBoundary(config, summary);
+      if (control.action === "stop") {
+        summary.stopReason = control.reason;
+        break;
+      }
+      summary.maxIterations = config.maxIterations;
+      summary.maxRuntimeMs = config.maxRuntimeMs;
       if (config.maxRuntimeMs && Date.now() - startedAtMs >= config.maxRuntimeMs) {
         summary.stopReason = "max-runtime-reached";
         break;
@@ -144,6 +196,7 @@ async function main() {
         summary.stopReason = "no-eligible-work";
         break;
       }
+      writeActiveRunState(config, summary);
     }
     if (!summary.stopReason) {
       summary.stopReason = "max-iterations-reached";
@@ -152,6 +205,7 @@ async function main() {
     releaseRunnerLock(lockPath);
     summary.finishedAt = new Date().toISOString();
     const paths = writeRunSummary(config, summary);
+    clearActiveRunState(config, paths.jsonPath);
     logger.info(`Settleora auto-runner finished: ${paths.markdownPath}`);
   }
 }
@@ -579,6 +633,13 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
       geminiHeadSha: expectedHeadSha,
       geminiChangedFiles: changedFiles,
+      geminiProvider: generatedRecoveryEvidence.externalReview?.provider || exactHeadEvidence.geminiProvider || null,
+      geminiTier: generatedRecoveryEvidence.externalReview?.tier || exactHeadEvidence.geminiTier || null,
+      geminiEvidencePath:
+        generatedRecoveryEvidence.externalReview?.reportPath ||
+        generatedRecoveryEvidence.externalReview?.evidencePath ||
+        exactHeadEvidence.geminiEvidencePath ||
+        null,
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
       codexMechanicsChangedFiles: changedFiles,
@@ -600,6 +661,9 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
           reason: "recovered_exact_head_gemini_evidence",
           reviewedHead: exactHeadEvidence.geminiHeadSha || exactHeadEvidence.headSha || null,
           changedFiles: exactHeadEvidence.geminiChangedFiles || changedFiles,
+          provider: exactHeadEvidence.geminiProvider || "gemini",
+          tier: exactHeadEvidence.geminiTier || "cheap_independent",
+          reportPath: exactHeadEvidence.geminiEvidencePath || null,
         }
       : { status: "blocked", reason: "missing_recovered_exact_head_gemini_evidence" },
     review: exactHeadEvidence.codexMechanicsApproved ? { verdict: { verdict: "approve" } } : null,
@@ -1084,10 +1148,26 @@ function prSummary(iteration) {
     `Issue: #${iteration.issue.number}`,
     `Lane: ${iteration.laneDecision.lane}`,
     `Validation: ${iteration.validation.passed ? "passed" : "failed"}`,
-    `Integrated Gemini review: ${iteration.externalReview?.status || "not-run"} (${iteration.externalReview?.reason || "n/a"})`,
+    independentReviewSummaryLine(iteration),
     `Pre-PR AI review: ${iteration.review?.verdict?.verdict || "not-run"}`,
     `Report: ${iteration.report?.copyPath || iteration.report?.expectedPath || "not-found"}`,
   ].join("\n");
+}
+
+function independentReviewSummaryLine(iteration) {
+  const required = requiresIndependentAiReview(iteration.laneDecision);
+  const review = iteration.externalReview || {};
+  if (!required) {
+    return `Independent AI review: not required for lane ${iteration.laneDecision.lane}; status: ${review.status || "not-run"}; provider/tier: ${review.provider || "none"} ${review.tier || "none"}; verdict: ${review.verdict || review.status || "n/a"}`;
+  }
+  const passed = review.status === "pass" && (!review.verdict || review.verdict === "pass");
+  return [
+    "Independent AI review: required",
+    `provider/tier: ${review.provider || "unknown"} ${review.tier || "unknown"}`,
+    `verdict: ${passed ? "pass" : `blocked/fail-closed (${review.reason || review.status || "missing"})`}`,
+    `exact head: ${review.reviewedHead || iteration.runnerCreatedCommitSha || "unknown"}`,
+    `evidence: ${review.reportPath || review.evidencePath || "unknown"}`,
+  ].join("; ");
 }
 
 function codexFailureBody(issue, codexResult) {

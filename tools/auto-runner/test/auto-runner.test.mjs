@@ -50,12 +50,22 @@ import {
   writeAutoMergeEvidence,
 } from "../lib/auto-merge-policy.mjs";
 import {
+  applyControlAtSafeBoundary,
+  getRunnerStatus,
+  listEvents,
+  listRuns,
+  renderStatusText,
+  writeActiveRunState,
+  writeControlCommand,
+} from "../lib/control-plane.mjs";
+import {
   buildPostReviewFixMechanicsContext,
   evaluateReviewFixMutationDecision,
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
 import { planValidation } from "../lib/validation-planner.mjs";
+import { writeRunSummary } from "../lib/summary-writer.mjs";
 import {
   evaluateReviewFixCanaryFixtureApproval,
   normalizeReviewFixCanaryFixtureConfig,
@@ -83,6 +93,21 @@ test("CLI treats preflight as standalone mode", () => {
   const parsed = parseCliArgs(["--preflight"]);
   assert.equal(parsed.preflight, true);
   assert.throws(() => parseCliArgs(["--preflight", "--dry-run"]), /non-mutating mode/);
+});
+
+test("CLI parses status, event listing, and bounded control commands", () => {
+  assert.equal(parseCliArgs(["--status"]).status, true);
+  assert.equal(parseCliArgs(["--status", "--json"]).json, true);
+  assert.equal(parseCliArgs(["--list-events", "--run", "run-123"]).eventRunId, "run-123");
+  assert.equal(parseCliArgs(["--stop-after-current"]).controlCommand, "stop-after-current");
+  assert.equal(parseCliArgs(["--pause"]).controlCommand, "pause");
+  const extend = parseCliArgs(["--extend", "--max-iterations", "+4", "--max-runtime", "+12h"]);
+  assert.equal(extend.controlCommand, "extend");
+  assert.equal(extend.maxIterationsExtension, 4);
+  assert.equal(extend.maxRuntimeExtensionMs, 12 * 60 * 60 * 1000);
+  assert.throws(() => parseCliArgs(["--extend", "--max-iterations", "-1"]), /explicit \+N/);
+  assert.throws(() => parseCliArgs(["--extend", "--max-runtime", "12h"]), /explicit \+ duration/);
+  assert.throws(() => parseCliArgs(["--extend", "--max-iterations", "+999999"]), /between \+1 and \+500/);
 });
 
 test("trust policy refuses normal --run by default", () => {
@@ -189,6 +214,131 @@ test("built-in default config keeps review-fix canary fixture disabled", () => {
   assert.equal(config.reviewFixCanaryFixture.enabled, false);
   assert.equal(config.reviewFixCanaryFixture.requestedEnabled, false);
   assert.equal(evaluateReviewFixCanaryFixtureApproval(config).approved, false);
+});
+
+test("status reports active run budgets, latest issue and safe control flags", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-status-"));
+  try {
+    mkdirSync(path.join(tempRoot, "state"), { recursive: true });
+    mkdirSync(path.join(tempRoot, "summaries"), { recursive: true });
+    mkdirSync(path.join(tempRoot, "locks"), { recursive: true });
+    const config = readinessConfig(tempRoot);
+    const summary = {
+      runId: "run-status-test",
+      mode: "canary-run",
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      stopReason: null,
+      logPath: path.join(tempRoot, "runner.log"),
+      baseOriginMainSha: "base",
+      iterations: [
+        {
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          outcome: "approved_pr_opened",
+          issue: { number: 839, title: "Mobile UI", url: "https://example.invalid/issues/839" },
+          pr: { number: 841, url: "https://example.invalid/pull/841", headRefOid: "head841" },
+          runnerCreatedCommitSha: "head841",
+        },
+      ],
+    };
+    writeActiveRunState(config, summary);
+    const control = writeControlCommand(config, { controlCommand: "pause" });
+    assert.equal(control.ok, true);
+    const status = getRunnerStatus(config);
+    assert.equal(status.active, true);
+    assert.equal(status.activeRunId, "run-status-test");
+    assert.equal(status.currentOrLastIssue.number, 839);
+    assert.equal(status.currentOrLastPr.headSha, "head841");
+    assert.equal(status.control.pause, true);
+    assert.doesNotMatch(JSON.stringify(status), /GEMINI_API_KEY|process\.env|authorization/i);
+    assert.match(renderStatusText(status), /Runner active: yes/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("control commands fail gracefully without active run and apply extensions at safe boundary", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-control-"));
+  try {
+    mkdirSync(path.join(tempRoot, "state"), { recursive: true });
+    mkdirSync(path.join(tempRoot, "summaries"), { recursive: true });
+    mkdirSync(path.join(tempRoot, "locks"), { recursive: true });
+    const config = readinessConfig(tempRoot);
+    const missing = writeControlCommand(config, { controlCommand: "stop-after-current" });
+    assert.equal(missing.ok, false);
+    const summary = {
+      runId: "run-control-test",
+      mode: "canary-run",
+      startedAt: new Date().toISOString(),
+      iterations: [],
+    };
+    writeActiveRunState(config, summary);
+    const written = writeControlCommand(config, {
+      controlCommand: "extend",
+      maxIterationsExtension: 3,
+      maxRuntimeExtensionMs: 2 * 60 * 60 * 1000,
+    });
+    assert.equal(written.ok, true);
+    assert.equal(config.maxIterations, 1);
+    const boundary = applyControlAtSafeBoundary(config, summary);
+    assert.equal(boundary.action, "continue");
+    assert.equal(config.maxIterations, 4);
+    assert.equal(config.maxRuntimeMs, 2 * 60 * 60 * 1000);
+    const pause = writeControlCommand(config, { controlCommand: "pause" });
+    assert.equal(pause.ok, true);
+    assert.equal(applyControlAtSafeBoundary(config, summary).reason, "paused_by_control");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("run and event listing summarize existing summary evidence without fabrication", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-list-runs-"));
+  try {
+    mkdirSync(path.join(tempRoot, "summaries"), { recursive: true });
+    const config = readinessConfig(tempRoot);
+    const summary = {
+      runId: "run-list-test",
+      mode: "canary-run",
+      startedAt: "2026-07-10T10:00:00.000Z",
+      finishedAt: "2026-07-10T10:05:00.000Z",
+      stopReason: "max-iterations-reached",
+      iterations: [
+        {
+          startedAt: "2026-07-10T10:01:00.000Z",
+          finishedAt: "2026-07-10T10:04:00.000Z",
+          outcome: "auto_merged",
+          branchName: "feature/auto-839-example",
+          issue: { number: 839, title: "Example", url: "https://example.invalid/issues/839" },
+          laneDecision: { lane: "client-ui-low-risk" },
+          changedFiles: ["apps/mobile/lib/ui/example.dart"],
+          runnerCreatedCommitSha: "head839",
+          validation: { passed: true, results: [{ command: "git diff --check", status: 0 }] },
+          externalReview: {
+            status: "pass",
+            provider: "gemini",
+            tier: "cheap_independent",
+            verdict: "pass",
+            reviewedHead: "head839",
+            reportPath: path.join(tempRoot, "reviews", "gemini.json"),
+          },
+          review: { verdict: { verdict: "approve" }, logPath: path.join(tempRoot, "reviews", "codex.log") },
+          pr: { number: 841, url: "https://example.invalid/pull/841", headRefOid: "head839" },
+          autoMerge: { result: "merged", reason: "github_merge_commit_completed", mergeSha: "merge839", evidence: { evidencePath: path.join(tempRoot, "auto-merge", "839.json") } },
+        },
+      ],
+    };
+    writeRunSummary(config, summary);
+    const runs = listRuns(config);
+    assert.equal(runs[0].runId, "run-list-test");
+    assert.equal(runs[0].latestIssue.number, 839);
+    const events = listEvents(config, "run-list-test");
+    assert.equal(events.found, true);
+    assert.ok(events.events.some((item) => item.type === "review" && item.summary.includes("Independent AI review: required")));
+    assert.ok(events.events.some((item) => item.type === "merge" && item.details.mergeSha === "merge839"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("review-fix canary fixture requires external canary real-run approvals and review-fix mutation approval", () => {

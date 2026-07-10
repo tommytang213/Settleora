@@ -72,6 +72,9 @@ function renderRunMarkdown(summary) {
         `  - Auto-merge: eligible=${iteration.autoMerge.eligible ? "yes" : "no"} attempted=${iteration.autoMerge.attempted ? "yes" : "no"} result=${iteration.autoMerge.result || "unknown"} prHead=${iteration.autoMerge.prHeadSha || "none"} mergeSha=${iteration.autoMerge.mergeSha || "none"} issueClosure=${iteration.autoMerge.issueClosureResult || "n/a"} blockedReason=${iteration.autoMerge.reason || "none"}`,
       );
     }
+    if (iteration.externalReview || iteration.laneDecision?.lane === "client-ui-low-risk") {
+      lines.push(`  - ${independentReviewSummaryLine(iteration)}`);
+    }
   }
   return `${lines.join("\n")}\n`;
 }
@@ -97,6 +100,22 @@ function renderRecentMarkdown(rollup) {
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+function independentReviewSummaryLine(iteration) {
+  const review = iteration.externalReview || {};
+  const required = iteration.laneDecision?.lane === "client-ui-low-risk" || iteration.externalReviewRequired === true;
+  const passed = review.status === "pass" && (!review.verdict || review.verdict === "pass");
+  if (!required) {
+    return `Independent AI review: not required; provider/tier: ${review.provider || "none"} ${review.tier || "none"}; verdict: ${review.verdict || review.status || "n/a"}; exact head: ${review.reviewedHead || iteration.runnerCreatedCommitSha || "unknown"}; evidence: ${review.reportPath || review.evidencePath || "n/a"}`;
+  }
+  return [
+    "Independent AI review: required",
+    `provider/tier: ${review.provider || "unknown"} ${review.tier || "unknown"}`,
+    `verdict: ${passed ? "pass" : `blocked/fail-closed (${review.reason || review.status || "missing"})`}`,
+    `exact head: ${review.reviewedHead || iteration.runnerCreatedCommitSha || "unknown"}`,
+    `evidence: ${review.reportPath || review.evidencePath || "unknown"}`,
+  ].join("; ");
 }
 
 function countOutcomes(summaries) {

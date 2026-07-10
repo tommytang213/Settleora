@@ -20,6 +20,45 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Status/control plane and evidence hygiene checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained open as the broader DevBox-native unattended runner
+    foundation tracker.
+  - Final known `origin/main` from the prior recovery task was
+    `a577a54a962fe47c6ce2f27eba8eea9f4d7cda63`.
+- This tooling slice:
+  - Adds local `--status`/`--status --json`, `--list-runs`, and
+    `--list-events --run <run-id>` inspection surfaces over runner locks,
+    active-run state, summaries, and existing evidence.
+  - Adds atomic local control-file commands for `--pause`,
+    `--stop-after-current`, and explicit bounded `--extend` requests.
+  - Makes the active runner observe control only at safe boundaries before
+    selecting new work, and applies runtime/iteration extensions without
+    bypassing lane, manual, danger, provider-budget, changed-file, or
+    auto-merge safety gates.
+  - Hardens real-code independent-review wording so required independent AI
+    review is reported as required/pass or blocked/fail-closed in summaries,
+    PR/issue comments, and event listings.
+  - Investigates the 20260710-1737 false non-zero and finds the task completed
+    successfully before the external Codex wrapper failed during remote
+    compaction; no repo-owned runner exit-code fix was indicated.
+- Issue posture:
+  keep #800 open for broader trusted overnight operation, systemd/service
+  enablement, stale-claim policy, expanded real-code lanes, follow-up issue
+  creation, review-fix mutation, and the eventual 99 PR / 240 hour approval
+  gates. This checkpoint does not start a large run.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, runner/workflow docs,
+  and this ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/
+  deployment/env, secrets, production deploy, mobile release, public/admin
+  exposure, stale-claim stealing, follow-up issue creation, review-fix
+  mutation enablement, systemd enablement, branch deletion, force push, direct
+  main push, live canary execution, or external reviewer/provider calls.
+
 ### Issue #800/#839/#840 - Real-code independent review and recovery gate checkpoint
 
 - GitHub state/project status at task start:

@@ -12,7 +12,7 @@ export function processAppearsActive(pid) {
   }
 }
 
-export function acquireRunnerLock(config) {
+export function acquireRunnerLock(config, metadata = {}) {
   const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
   if (existsSync(lockPath)) {
     let lock;
@@ -32,7 +32,7 @@ export function acquireRunnerLock(config) {
   }
   writeFileSync(
     lockPath,
-    `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }, null, 2)}\n`,
+    `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), ...metadata }, null, 2)}\n`,
     { flag: "wx" },
   );
   return lockPath;
