@@ -17,9 +17,10 @@ export const autoMergeStopLabels = Object.freeze([
 const successfulCheckConclusions = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const cleanMergeStates = new Set(["CLEAN"]);
 const refreshableMergeStates = new Set(["BLOCKED", "UNKNOWN", "UNSTABLE", "HAS_HOOKS", ""]);
-const defaultAutoMergeWait = Object.freeze({ maxAttempts: 24, delayMs: 30_000 });
-const maxAutoMergeWaitAttempts = 30;
+const defaultAutoMergeWait = Object.freeze({ maxAttempts: 60, delayMs: 30_000 });
+const maxAutoMergeWaitAttempts = 60;
 const autoMergeWaitDelayBucketsMs = Object.freeze([0, 5000, 15000, 30000]);
+const independentReviewRequiredLanes = new Set(["client-ui-low-risk"]);
 
 export function evaluateAutoMergeDecision(input) {
   const config = input.config || {};
@@ -65,9 +66,8 @@ export function evaluateAutoMergeDecision(input) {
   if (forbiddenChangedFiles.length > 0) return block(`forbidden_changed_files:${forbiddenChangedFiles.join(",")}`);
   if (changedFiles.length === 0) return block("no_changed_files");
   if (!input.changedFilesExactlyMatchAllowedPaths) return block("changed_files_do_not_match_allowed_paths");
-  if (input.externalReviewRequired && input.externalReview?.status !== "pass") {
-    return block(`integrated_gemini_not_passed:${input.externalReview?.reason || "missing"}`);
-  }
+  const independentReview = evaluateIndependentReviewEvidence(input);
+  if (!independentReview.ok) return block(independentReview.reason);
   if (input.codexMechanicsReviewApproved !== true && input.review?.verdict?.verdict !== "approve") {
     return block("codex_mechanics_review_not_approved");
   }
@@ -125,15 +125,31 @@ export function evaluateExistingPrRecoveryDecision(input) {
   if (!pr.headRefName || !/^feature\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
   if (!linkageEvidence.available) return block("existing_pr_recovery_missing_pr_linkage_evidence");
   if (!linkageEvidence.linked) return block("existing_pr_recovery_pr_not_linked_to_issue");
+  if (requiresIndependentAiReview(input.laneDecision) && !evidence.geminiPass) {
+    return block("existing_pr_recovery_missing_independent_review_evidence");
+  }
   if (!evidence.geminiPass && !evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_evidence_or_review");
+  }
+  if (!evidence.codexMechanicsApproved) {
+    return block("existing_pr_recovery_missing_codex_mechanics_evidence");
   }
   if (evidence.headSha && evidence.headSha !== result.prHeadSha) return block("existing_pr_recovery_evidence_head_mismatch");
   if (evidence.geminiPass && evidence.geminiHeadSha && evidence.geminiHeadSha !== result.prHeadSha) {
     return block("existing_pr_recovery_gemini_head_mismatch");
   }
+  if (evidence.geminiPass && Array.isArray(evidence.geminiChangedFiles) && !sameStringSet(evidence.geminiChangedFiles, changedFiles)) {
+    return block("existing_pr_recovery_gemini_files_mismatch");
+  }
   if (evidence.codexMechanicsApproved && evidence.codexMechanicsHeadSha && evidence.codexMechanicsHeadSha !== result.prHeadSha) {
     return block("existing_pr_recovery_codex_review_head_mismatch");
+  }
+  if (
+    evidence.codexMechanicsApproved &&
+    Array.isArray(evidence.codexMechanicsChangedFiles) &&
+    !sameStringSet(evidence.codexMechanicsChangedFiles, changedFiles)
+  ) {
+    return block("existing_pr_recovery_codex_review_files_mismatch");
   }
   if (changedFiles.length === 0) return block("existing_pr_recovery_missing_changed_files");
   if (!baseDecision.eligible) return block(`existing_pr_recovery_gate_blocked:${baseDecision.reason}`);
@@ -307,9 +323,10 @@ function executeAutoMergeWithWait(config, initialContext, options) {
   let context = initialContext;
   let decision = options.firstDecision || evaluateAutoMergeDecision(context);
   let previousAttempt = null;
+  const startedAtMs = Date.now();
 
   for (let attempt = 1; attempt <= wait.maxAttempts; attempt += 1) {
-    const attemptSnapshot = snapshotAttempt(attempt, decision, context, previousAttempt);
+    const attemptSnapshot = snapshotAttempt(attempt, decision, context, previousAttempt, startedAtMs);
     attempts.push(attemptSnapshot);
     previousAttempt = attemptSnapshot;
     if (decision.eligible) {
@@ -357,6 +374,32 @@ function shouldWaitForAutoMergeDecision(decision) {
   return refreshableMergeStates.has(mergeState.toUpperCase()) || refreshableMergeStates.has(mergeState);
 }
 
+export function requiresIndependentAiReview(laneDecision = {}) {
+  return independentReviewRequiredLanes.has(laneDecision.lane);
+}
+
+function evaluateIndependentReviewEvidence(input) {
+  const review = input.externalReview || {};
+  const required = Boolean(input.externalReviewRequired) || requiresIndependentAiReview(input.laneDecision);
+  if (!required) return { ok: true };
+  if (review.status !== "pass") {
+    return { ok: false, reason: `independent_review_not_passed:${review.reason || review.status || "missing"}` };
+  }
+  if (review.verdict && review.verdict !== "pass") {
+    return { ok: false, reason: "independent_review_malformed_or_non_pass_verdict" };
+  }
+  const reviewedHead = review.reviewedHead || review.headSha || review.prHeadSha || null;
+  const expectedHead = input.expectedHeadSha || input.runnerCreatedCommitSha || null;
+  const actualHead = input.actualHeadSha || input.pr?.headRefOid || null;
+  if (reviewedHead && reviewedHead !== (actualHead || expectedHead)) {
+    return { ok: false, reason: "independent_review_head_mismatch" };
+  }
+  if (Array.isArray(review.changedFiles) && !sameStringSet(review.changedFiles, input.changedFiles || [])) {
+    return { ok: false, reason: "independent_review_files_mismatch" };
+  }
+  return { ok: true };
+}
+
 function mergeAutoMergeContext(context, githubState = {}) {
   const refreshedHeadSha = githubState.pr?.headRefOid || context.actualHeadSha || context.pr?.headRefOid || null;
   return {
@@ -372,7 +415,7 @@ function mergeAutoMergeContext(context, githubState = {}) {
   };
 }
 
-function snapshotAttempt(attempt, decision, context, previousAttempt = null) {
+function snapshotAttempt(attempt, decision, context, previousAttempt = null, startedAtMs = Date.now()) {
   const checks = summarizeCheckStatus(context.requiredChecks || []);
   const pendingCheckNames = (context.requiredChecks || [])
     .filter((check) => check.status !== "COMPLETED")
@@ -382,6 +425,7 @@ function snapshotAttempt(attempt, decision, context, previousAttempt = null) {
     previousAttempt?.checks?.pending !== undefined ? checks.pending < previousAttempt.checks.pending : false;
   return sanitizeEvidence({
     attempt,
+    elapsedMs: Date.now() - startedAtMs,
     reason: decision.reason,
     eligible: Boolean(decision.eligible),
     prHeadSha: decision.prHeadSha,
@@ -485,6 +529,11 @@ function summarizeCheckStatus(checks) {
   if (pending > 0) return { state: "pending", total: checks.length, pending, failed };
   if (failed > 0) return { state: "failed", total: checks.length, pending, failed };
   return { state: "success", total: checks.length, pending, failed };
+}
+
+function sameStringSet(left = [], right = []) {
+  const normalize = (items) => items.map((item) => String(item || "")).filter(Boolean).sort();
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 
 function sleepSync(delayMs) {

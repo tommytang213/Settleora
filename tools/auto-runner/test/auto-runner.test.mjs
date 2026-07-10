@@ -1125,6 +1125,74 @@ test("eligible low-risk lane selects cheap Gemini reviewer and pass verdict proc
   }
 });
 
+test("client-ui-low-risk real-code lane selects cheap Gemini reviewer and pass verdict proceeds", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-client-ui-pass-"));
+  try {
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot),
+      workflowReviewPackage({
+        changedFiles: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+        laneDecision: {
+          lane: "client-ui-low-risk",
+          allowedToImplement: true,
+          dangerGate: false,
+          allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+          laneManifestAllowedPaths: ["apps/mobile/lib/ui/**", "apps/mobile/test/ui/**"],
+          validationProfile: "mobile-ui-low-risk",
+          manualMergeRequired: false,
+          autoMergeEligible: true,
+        },
+        diff: "diff --git a/apps/mobile/lib/ui/settleora_components.dart b/apps/mobile/lib/ui/settleora_components.dart\n+const ok = true;\n",
+        summary: { currentHead: "head123" },
+      }),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        fetchImpl: async () =>
+          fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] }),
+      },
+    );
+    assert.equal(result.status, "pass");
+    assert.equal(result.tier, "cheap_independent");
+    assert.equal(result.reviewedHead, "head123");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("client-ui-low-risk real-code integrated reviewer fails closed when tier is disabled", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-client-ui-disabled-"));
+  try {
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, {
+        reviewerTiers: { cheap_independent: { enabled: false } },
+      }),
+      workflowReviewPackage({
+        changedFiles: ["apps/mobile/lib/ui/settleora_components.dart"],
+        laneDecision: {
+          lane: "client-ui-low-risk",
+          allowedToImplement: true,
+          dangerGate: false,
+          allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+          laneManifestAllowedPaths: ["apps/mobile/lib/ui/**", "apps/mobile/test/ui/**"],
+          validationProfile: "mobile-ui-low-risk",
+          manualMergeRequired: false,
+          autoMergeEligible: true,
+        },
+      }),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        fetchImpl: async () => {
+          throw new Error("should not call");
+        },
+      },
+    );
+    assert.equal(result.status, "skipped");
+    assert.equal(result.reason, "skipped_external_reviewer_tier_disabled");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("ineligible sensitive domain blocks integrated Gemini before provider call", async () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-sensitive-"));
   try {
@@ -2131,6 +2199,61 @@ test("client-ui-low-risk lane with exact mobile UI paths allows merge decision",
   assert.equal(decision.reason, "all_auto_merge_gates_passed");
 });
 
+test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mismatched independent review", () => {
+  const laneDecision = autoMergeLane({
+    lane: "client-ui-low-risk",
+    allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+    laneManifestAllowedPaths: ["apps/mobile/lib/ui/**", "apps/mobile/test/ui/**"],
+    validationProfile: "mobile-ui-low-risk",
+    contract: {
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const base = {
+    laneDecision,
+    changedFiles: ["apps/mobile/lib/ui/settleora_components.dart"],
+  };
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        ...base,
+        externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
+      }),
+    ).reason,
+    "independent_review_not_passed:skipped_external_reviewer_tier_disabled",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        ...base,
+        externalReview: null,
+      }),
+    ).reason,
+    "independent_review_not_passed:missing",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        ...base,
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "oldhead" },
+      }),
+    ).reason,
+    "independent_review_head_mismatch",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        ...base,
+        externalReview: { status: "pass", verdict: "pass", changedFiles: ["apps/mobile/test/ui/other_test.dart"] },
+      }),
+    ).reason,
+    "independent_review_files_mismatch",
+  );
+});
+
 test("auto-merge decision enforces exact issue contract paths even under approved lane prefix", () => {
   const laneDecision = autoMergeLane({
     allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
@@ -2402,7 +2525,7 @@ test("auto-merge does not wait on failed or cancelled checks", () => {
 
 test("auto-merge wait config clamps pathological values to safe bounds and buckets", () => {
   assert.deepEqual(normalizeAutoMergeWait({ maxAttempts: 999_999, delayMs: 999_999_999 }), {
-    maxAttempts: 30,
+    maxAttempts: 60,
     delayMs: 30000,
   });
   assert.deepEqual(normalizeAutoMergeWait({ maxAttempts: -10, delayMs: -1 }), {
@@ -2414,7 +2537,7 @@ test("auto-merge wait config clamps pathological values to safe bounds and bucke
     delayMs: 5000,
   });
   assert.deepEqual(normalizeAutoMergeWait({ maxAttempts: "not-a-number", delayMs: "also-bad" }), {
-    maxAttempts: 24,
+    maxAttempts: 60,
     delayMs: 30000,
   });
 });
@@ -2544,6 +2667,63 @@ test("existing PR recovery blocks stale head, broad files, review/code scanning 
     assert.equal(decision.eligible, false, name);
     assert.match(decision.reason, pattern, name);
   }
+});
+
+test("existing client-ui-low-risk PR recovery requires independent Gemini and Codex evidence on exact head and files", () => {
+  const laneDecision = autoMergeLane({
+    lane: "client-ui-low-risk",
+    allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+    laneManifestAllowedPaths: ["apps/mobile/lib/ui/**", "apps/mobile/test/ui/**"],
+    validationProfile: "mobile-ui-low-risk",
+    contract: {
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const base = existingPrRecoveryContext({
+    issue: { number: 839, title: "Mobile UI canary", labels: ["auto-canary-ready"] },
+    pr: {
+      title: "Auto-runner: #839 Mobile UI canary",
+      body: "Closes or updates #839.",
+      headRefName: "feature/auto-839-mobile-ui-canary-button-label-fit-guardr-2026-07-10t0851",
+    },
+    laneDecision,
+    changedFiles: ["apps/mobile/lib/ui/settleora_components.dart"],
+    exactHeadEvidence: {
+      headSha: "head123",
+      validationPassed: true,
+      geminiPass: true,
+      geminiHeadSha: "head123",
+      geminiChangedFiles: ["apps/mobile/lib/ui/settleora_components.dart"],
+      codexMechanicsApproved: true,
+      codexMechanicsHeadSha: "head123",
+      codexMechanicsChangedFiles: ["apps/mobile/lib/ui/settleora_components.dart"],
+    },
+  });
+  assert.equal(evaluateExistingPrRecoveryDecision(base).eligible, true);
+  assert.equal(
+    evaluateExistingPrRecoveryDecision({
+      ...base,
+      exactHeadEvidence: { ...base.exactHeadEvidence, geminiPass: false },
+    }).reason,
+    "existing_pr_recovery_missing_independent_review_evidence",
+  );
+  assert.equal(
+    evaluateExistingPrRecoveryDecision({
+      ...base,
+      exactHeadEvidence: { ...base.exactHeadEvidence, codexMechanicsApproved: false },
+    }).reason,
+    "existing_pr_recovery_missing_codex_mechanics_evidence",
+  );
+  assert.equal(
+    evaluateExistingPrRecoveryDecision({
+      ...base,
+      exactHeadEvidence: { ...base.exactHeadEvidence, geminiChangedFiles: ["apps/mobile/test/ui/other_test.dart"] },
+    }).reason,
+    "existing_pr_recovery_gemini_files_mismatch",
+  );
 });
 
 test("source branch restoration is executed after mocked merge auto-deletes branch", () => {
@@ -3026,7 +3206,7 @@ function autoMergeContext(overrides = {}) {
     forbiddenChangedFiles: overrides.forbiddenChangedFiles ?? filterForbiddenChangedFiles(changedFiles, laneDecision),
     changedFilesExactlyMatchAllowedPaths: overrides.changedFilesExactlyMatchAllowedPaths ?? true,
     externalReviewRequired: overrides.externalReviewRequired ?? true,
-    externalReview: overrides.externalReview || { status: "pass", reason: "integrated_review_passed" },
+    externalReview: Object.hasOwn(overrides, "externalReview") ? overrides.externalReview : { status: "pass", reason: "integrated_review_passed" },
     review: overrides.review || { verdict: { verdict: "approve" } },
     codexMechanicsReviewApproved: overrides.codexMechanicsReviewApproved ?? true,
     validation: overrides.validation || { passed: true },
@@ -3069,7 +3249,7 @@ function existingPrRecoveryContext(overrides = {}) {
       labels: ["auto-canary-ready", "canary", "workflow"],
       ...(overrides.issue || {}),
     },
-    laneDecision: autoMergeLane({
+    laneDecision: overrides.laneDecision || autoMergeLane({
       allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
       laneManifestAllowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
       validationProfile: "docs-only",

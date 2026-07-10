@@ -103,6 +103,8 @@ for the first approved low-risk lanes only:
   `docs/workflow/**`, or `scripts/ai/**`.
 - `docs-planning` with changed files under `docs/planning/**` or
   `docs/qa/**`.
+- `client-ui-low-risk` with changed files under `apps/mobile/lib/ui/**` or
+  `apps/mobile/test/ui/**`.
 
 All other lanes, sensitive routes, strong-review routes, huge/cross-domain
 routes, unsupported models, missing keys, malformed verdicts, provider
@@ -159,8 +161,8 @@ true` and the issue contract sets `autoMergeEligible: true` plus
 `manualMergeRequired: false`.
 
 Even then, the runner fails closed unless the changed files exactly match the
-issue contract and lane allowlists, integrated Gemini passed when configured,
-Codex mechanics review approved, local validation passed, the PR is
+issue contract and lane allowlists, Codex mechanics review approved, local
+validation passed, the PR is
 open/non-draft/mergeable/clean against `main`, the PR head is the
 runner-created commit, the expected `origin/main` base still matches, all
 required checks passed on the exact head, review threads are resolved, the PR
@@ -169,19 +171,27 @@ markers exist, and the issue is still open without stop labels. The merge
 method is normal GitHub merge commit only. Sanitized auto-merge evidence is
 written under `/workspace/logs/settleora-auto-runner/auto-merge/`.
 
+For the real-code `client-ui-low-risk` lane, auto-merge additionally requires
+a passing independent Gemini review for the exact head and changed-file set.
+Disabled, skipped, missing, malformed, stale-head, mismatched-file,
+provider-failed, or non-pass independent review evidence blocks. Codex
+mechanics review is still required but does not replace the independent
+real-code review gate. Existing-PR recovery for this lane requires both
+independent Gemini evidence and Codex mechanics evidence on the exact PR head.
+
 Auto-merge mergeability is rechecked through a bounded wait loop before
 failing closed for refreshable GitHub states. If checks are still pending, or
 GitHub reports a refreshable merge state such as `BLOCKED` or `UNKNOWN`, the
 runner re-reads PR metadata, exact head SHA, base branch, mergeability, merge
 state, checks, review threads, code scanning, issue state, and blocking
-comments/reviews before deciding. The default wait is 24 attempts with a
+comments/reviews before deciding. The default wait is 60 attempts with a
 30-second bucketed delay, and config values are normalized to strict safe
 bounds rather than passed directly into timers. Wait evidence records attempts,
-pending check names, and whether pending counts decreased. It still merges
-only after every existing gate passes on the exact PR head. Stale heads, wrong
-bases, failed or cancelled checks, unresolved threads, open alerts, stop
-labels, broad changed files, manual markers, or timeout all block with
-sanitized evidence.
+elapsed wait, pending check names, and whether pending counts decreased. It
+still merges only after every existing gate passes on the exact PR head. Stale
+heads, wrong bases, failed or cancelled checks, unresolved threads, open
+alerts, stop labels, broad changed files, manual markers, or timeout all block
+with sanitized evidence.
 
 Integrated Gemini retry is limited to transient provider/transport failures:
 HTTP `429`, HTTP `503`/`UNAVAILABLE`, fetch/network failures, and timeout-like
@@ -350,7 +360,7 @@ and `manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
 storage/money/schema/OpenAPI/generated-client/Docker/deployment/env/secret/
 public/admin scope, stop labels, missing Gemini pass when Gemini is
 configured, missing Codex mechanics
-approval, failing checks, unresolved review threads, PR-ref code-scanning
+approval, missing independent Gemini pass for `client-ui-low-risk`, failing checks, unresolved review threads, PR-ref code-scanning
 alerts, stale PR heads, base mismatch, dirty worktrees, and issue-state
 mismatches remain blocking gates. This max-2 path exists only to prove the
 live auto-merge gates on two bounded low-risk issues after a separate explicit
