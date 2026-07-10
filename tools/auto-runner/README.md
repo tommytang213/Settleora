@@ -21,23 +21,29 @@ node tools/auto-runner/settleora-auto-runner.mjs --list-events --run run-2026-07
 node tools/auto-runner/settleora-auto-runner.mjs --stop-after-current
 node tools/auto-runner/settleora-auto-runner.mjs --pause
 node tools/auto-runner/settleora-auto-runner.mjs --extend --max-iterations +5
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-prs +5
 node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
 ```
 
 Status reads the runner lock, active-run state, latest summaries, and local
 control file under `/workspace/logs/settleora-auto-runner/`. It reports the
 active run id when known, mode/config path, start time, elapsed/max/remaining
-runtime, iteration budget and remaining count, current or latest issue/PR,
+runtime, PR/iteration budget and remaining count, completed/merged/failed/
+blocked/skipped counts, current or latest issue/PR with head SHA where known,
 terminal outcome or stop reason, last event time, summary/log/control paths,
-and active control flags. `--json` emits the same sanitized data as JSON. The
-status surface does not print environment variables, provider payloads, API
-keys, authorization headers, `.env` values, raw Gemini output, or provider
-request bodies.
+and active control flags. `--json` emits the same sanitized data as JSON,
+including `maxPrs`/`completedPrs` aliases for the iteration budget used by
+current canary/trusted runner loops. The status surface does not print
+environment variables, provider payloads, API keys, authorization headers,
+`.env` values, raw Gemini output, or provider request bodies.
 
 `--list-runs` reads recent run summaries from
 `/workspace/logs/settleora-auto-runner/summaries/`. `--list-events --run
 <run-id>` reconstructs ordered issue, branch, PR, review, checks, merge, and
 outcome evidence from the existing summary and iteration state where present.
+Text and JSON output include branch names, issue/PR numbers, PR head SHAs,
+review verdicts, independent AI provider/tier/verdict, local validation
+commands, check-wait attempts, merge SHAs, and final outcomes where available.
 Missing or partially written evidence is reported as unknown rather than
 fabricated.
 
@@ -47,11 +53,33 @@ runtime state and must not be committed. The active runner reads it only at
 safe boundaries before selecting the next issue. `--pause` and
 `--stop-after-current` therefore do not interrupt a mid-commit, mid-review,
 mid-check, or mid-merge step. Extensions require explicit bounded syntax:
-`--max-iterations +N` accepts `+1` through `+500`, and `--max-runtime +12h`
-accepts `+1m` through `+14d`. Extension requests increase only the bounded
-runner loop budgets; they do not override lane safety, manual gates, provider
-budget hard stops, danger gates, changed-file policy, or max-frequency/safety
-policy.
+`--max-iterations +N` and its operator alias `--max-prs +N` accept `+1`
+through `+500`, and `--max-runtime +12h` accepts `+1m` through `+14d`.
+Extension requests increase only the bounded runner loop budgets at the next
+safe boundary before selecting new work; they do not override lane safety,
+manual gates, provider budget hard stops, independent-review gates, danger
+gates, changed-file policy, checks, code scanning, secrets policy, stop
+labels, or max-frequency/safety policy. If no active runner exists, control
+commands return a clear non-zero no-active-runner response instead of creating
+misleading pending control state.
+
+Operator command card for a future manually approved long run:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --status
+node tools/auto-runner/settleora-auto-runner.mjs --status --json
+node tools/auto-runner/settleora-auto-runner.mjs --list-runs
+node tools/auto-runner/settleora-auto-runner.mjs --list-events --run <run-id>
+node tools/auto-runner/settleora-auto-runner.mjs --pause
+node tools/auto-runner/settleora-auto-runner.mjs --stop-after-current
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-prs +5
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
+```
+
+`--pause` and `--stop-after-current` are safe-boundary controls only. The
+active runner observes them before selecting new work, not mid-PR mutation,
+mid-review, mid-check wait, or mid-merge. A `99 PR / 240h` run remains manually
+gated and is not approved by this tooling surface.
 
 Preflight/readiness is report-only. `--readiness` is the preferred command
 when preparing for a future overnight approval review. It prints a concise

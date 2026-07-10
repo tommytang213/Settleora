@@ -165,21 +165,21 @@ export function parseCliArgs(argv) {
         args.maxRuntimeMs = parseDuration(value);
       }
     }
-    else if (arg === "--max-iterations") {
+    else if (arg === "--max-iterations" || arg === "--max-prs") {
       const raw = readValue(argv, ++index, arg);
       if (args.controlCommand === "extend") {
         if (!/^\+\d+$/.test(raw)) {
-          throw new Error("Iteration extension must use explicit +N syntax");
+          throw new Error("Iteration/PR budget extension must use explicit +N syntax");
         }
         const value = Number.parseInt(raw.slice(1), 10);
         if (!Number.isSafeInteger(value) || value < 1 || value > 500) {
-          throw new Error("Iteration extension must be between +1 and +500");
+          throw new Error("Iteration/PR budget extension must be between +1 and +500");
         }
         args.maxIterationsExtension = value;
       } else {
         const value = Number.parseInt(raw, 10);
         if (!Number.isInteger(value) || value < 1) {
-          throw new Error("--max-iterations must be a positive integer");
+          throw new Error(`${arg} must be a positive integer`);
         }
         args.maxIterations = value;
       }
