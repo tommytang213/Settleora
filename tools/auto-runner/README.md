@@ -11,6 +11,48 @@ node tools/auto-runner/settleora-auto-runner.mjs --preflight
 node tools/auto-runner/settleora-auto-runner.mjs --readiness
 ```
 
+Local status and control:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --status
+node tools/auto-runner/settleora-auto-runner.mjs --status --json
+node tools/auto-runner/settleora-auto-runner.mjs --list-runs
+node tools/auto-runner/settleora-auto-runner.mjs --list-events --run run-2026-07-10T100439Z
+node tools/auto-runner/settleora-auto-runner.mjs --stop-after-current
+node tools/auto-runner/settleora-auto-runner.mjs --pause
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-iterations +5
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
+```
+
+Status reads the runner lock, active-run state, latest summaries, and local
+control file under `/workspace/logs/settleora-auto-runner/`. It reports the
+active run id when known, mode/config path, start time, elapsed/max/remaining
+runtime, iteration budget and remaining count, current or latest issue/PR,
+terminal outcome or stop reason, last event time, summary/log/control paths,
+and active control flags. `--json` emits the same sanitized data as JSON. The
+status surface does not print environment variables, provider payloads, API
+keys, authorization headers, `.env` values, raw Gemini output, or provider
+request bodies.
+
+`--list-runs` reads recent run summaries from
+`/workspace/logs/settleora-auto-runner/summaries/`. `--list-events --run
+<run-id>` reconstructs ordered issue, branch, PR, review, checks, merge, and
+outcome evidence from the existing summary and iteration state where present.
+Missing or partially written evidence is reported as unknown rather than
+fabricated.
+
+Control commands write an atomic local control file under
+`/workspace/logs/settleora-auto-runner/state/runner-control.json`; this file is
+runtime state and must not be committed. The active runner reads it only at
+safe boundaries before selecting the next issue. `--pause` and
+`--stop-after-current` therefore do not interrupt a mid-commit, mid-review,
+mid-check, or mid-merge step. Extensions require explicit bounded syntax:
+`--max-iterations +N` accepts `+1` through `+500`, and `--max-runtime +12h`
+accepts `+1m` through `+14d`. Extension requests increase only the bounded
+runner loop budgets; they do not override lane safety, manual gates, provider
+budget hard stops, danger gates, changed-file policy, or max-frequency/safety
+policy.
+
 Preflight/readiness is report-only. `--readiness` is the preferred command
 when preparing for a future overnight approval review. It prints a concise
 pass/warn/fail summary to stderr, prints the full machine-readable JSON to
@@ -173,11 +215,19 @@ written under `/workspace/logs/settleora-auto-runner/auto-merge/`.
 
 For the real-code `client-ui-low-risk` lane, auto-merge additionally requires
 a passing independent Gemini review for the exact head and changed-file set.
+Runner PR bodies, PR comments, issue comments, summaries, and event listings
+use explicit wording such as:
+
+```text
+Independent AI review: required; provider/tier: Gemini cheap_independent; verdict: pass; exact head: <sha>; evidence: <sanitized local path>
+```
+
 Disabled, skipped, missing, malformed, stale-head, mismatched-file,
-provider-failed, or non-pass independent review evidence blocks. Codex
-mechanics review is still required but does not replace the independent
-real-code review gate. Existing-PR recovery for this lane requires both
-independent Gemini evidence and Codex mechanics evidence on the exact PR head.
+provider-failed, or non-pass independent review evidence is reported as
+blocked/fail-closed, not as optional or merely unconfigured. Codex mechanics
+review is still required but does not replace the independent real-code review
+gate. Existing-PR recovery for this lane requires both independent Gemini
+evidence and Codex mechanics evidence on the exact PR head.
 
 Auto-merge mergeability is rechecked through a bounded wait loop before
 failing closed for refreshable GitHub states. If checks are still pending, or
@@ -358,8 +408,8 @@ preferred for live canaries. They must still set `autoMergeEligible: true`
 and `manualMergeRequired: false`. Broad root paths, `**`, `docs/**`,
 `apps/mobile/**`, `scripts/ai/**`, generated clients, product/security/
 storage/money/schema/OpenAPI/generated-client/Docker/deployment/env/secret/
-public/admin scope, stop labels, missing Gemini pass when Gemini is
-configured, missing Codex mechanics
+public/admin scope, stop labels, missing required independent AI review pass,
+missing Codex mechanics
 approval, missing independent Gemini pass for `client-ui-low-risk`, failing checks, unresolved review threads, PR-ref code-scanning
 alerts, stale PR heads, base mismatch, dirty worktrees, and issue-state
 mismatches remain blocking gates. This max-2 path exists only to prove the

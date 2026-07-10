@@ -82,6 +82,18 @@ export function parseDuration(value) {
   throw new Error(`Invalid duration unit: ${unit}`);
 }
 
+export function parseDurationExtension(value) {
+  const raw = String(value || "").trim();
+  if (!raw.startsWith("+")) {
+    throw new Error("Runtime extension must use explicit + duration, for example +12h");
+  }
+  const durationMs = parseDuration(raw.slice(1));
+  if (durationMs < 60 * 1000 || durationMs > 14 * 24 * 60 * 60 * 1000) {
+    throw new Error("Runtime extension must be between +1m and +14d");
+  }
+  return durationMs;
+}
+
 export function parseCliArgs(argv) {
   const args = {
     dryRun: false,
@@ -91,6 +103,14 @@ export function parseCliArgs(argv) {
     reviewerSmokeTest: false,
     liveExternalReviewerCalls: false,
     reviewerSmokeTier: null,
+    status: false,
+    listRuns: false,
+    listEvents: false,
+    json: false,
+    eventRunId: null,
+    controlCommand: null,
+    maxIterationsExtension: null,
+    maxRuntimeExtensionMs: null,
     once: false,
     maxIterations: null,
     maxRuntimeMs: null,
@@ -106,7 +126,13 @@ export function parseCliArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--dry-run") args.dryRun = true;
-    else if (arg === "--run") args.run = true;
+    else if (arg === "--run") {
+      if (args.listEvents && argv[index + 1] && !argv[index + 1].startsWith("--")) {
+        args.eventRunId = readValue(argv, ++index, arg);
+      } else {
+        args.run = true;
+      }
+    }
     else if (arg === "--canary" || arg === "--trusted-real-run-canary") args.canary = true;
     else if (arg === "--preflight") args.preflight = true;
     else if (arg === "--readiness" || arg === "--overnight-readiness") {
@@ -115,6 +141,14 @@ export function parseCliArgs(argv) {
     }
     else if (arg === "--reviewer-smoke-test") args.reviewerSmokeTest = true;
     else if (arg === "--live-external-reviewer-calls") args.liveExternalReviewerCalls = true;
+    else if (arg === "--status") args.status = true;
+    else if (arg === "--json") args.json = true;
+    else if (arg === "--list-runs") args.listRuns = true;
+    else if (arg === "--list-events") args.listEvents = true;
+    else if (arg === "--run-id") args.eventRunId = readValue(argv, ++index, arg);
+    else if (arg === "--stop-after-current") args.controlCommand = "stop-after-current";
+    else if (arg === "--pause") args.controlCommand = "pause";
+    else if (arg === "--extend") args.controlCommand = "extend";
     else if (arg === "--once") args.once = true;
     else if (arg === "--require-pre-pr-review") args.requirePrePrReview = true;
     else if (arg === "--write-summary") args.writeSummary = true;
@@ -123,24 +157,44 @@ export function parseCliArgs(argv) {
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--reviewer-smoke-tier") args.reviewerSmokeTier = readValue(argv, ++index, arg);
     else if (arg === "--since") args.sinceMs = parseDuration(readValue(argv, ++index, arg));
-    else if (arg === "--max-runtime") args.maxRuntimeMs = parseDuration(readValue(argv, ++index, arg));
-    else if (arg === "--max-iterations") {
-      const value = Number.parseInt(readValue(argv, ++index, arg), 10);
-      if (!Number.isInteger(value) || value < 1) {
-        throw new Error("--max-iterations must be a positive integer");
+    else if (arg === "--max-runtime") {
+      const value = readValue(argv, ++index, arg);
+      if (args.controlCommand === "extend") {
+        args.maxRuntimeExtensionMs = parseDurationExtension(value);
+      } else {
+        args.maxRuntimeMs = parseDuration(value);
       }
-      args.maxIterations = value;
+    }
+    else if (arg === "--max-iterations") {
+      const raw = readValue(argv, ++index, arg);
+      if (args.controlCommand === "extend") {
+        if (!/^\+\d+$/.test(raw)) {
+          throw new Error("Iteration extension must use explicit +N syntax");
+        }
+        const value = Number.parseInt(raw.slice(1), 10);
+        if (!Number.isSafeInteger(value) || value < 1 || value > 500) {
+          throw new Error("Iteration extension must be between +1 and +500");
+        }
+        args.maxIterationsExtension = value;
+      } else {
+        const value = Number.parseInt(raw, 10);
+        if (!Number.isInteger(value) || value < 1) {
+          throw new Error("--max-iterations must be a positive integer");
+        }
+        args.maxIterations = value;
+      }
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
 
-  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest;
+  const controlMode = args.status || args.listRuns || args.listEvents || Boolean(args.controlCommand);
+  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest || controlMode;
   if (!specialMode && args.dryRun === args.run) {
     throw new Error("Pass exactly one of --dry-run or --run");
   }
-  if ((args.writeSummary || args.reviewPackage) && (args.dryRun || args.run || args.preflight || args.canary || args.reviewerSmokeTest)) {
-    throw new Error("--write-summary and --review-package do not take --dry-run, --run, --canary, --preflight, or --reviewer-smoke-test");
+  if ((args.writeSummary || args.reviewPackage || controlMode) && (args.dryRun || (args.run && !args.listEvents) || args.preflight || args.canary || args.reviewerSmokeTest)) {
+    throw new Error("Special modes do not take --dry-run, --run, --canary, --preflight, or --reviewer-smoke-test");
   }
   if (args.preflight && (args.dryRun || args.run)) {
     throw new Error("--preflight runs as its own non-mutating mode; do not pass --dry-run or --run");
@@ -156,6 +210,18 @@ export function parseCliArgs(argv) {
   }
   if (args.fixtureIssuesPath && (args.writeSummary || args.reviewPackage || args.preflight)) {
     throw new Error("--fixture-issues can only be used with the normal dry-run loop");
+  }
+  if (args.json && !(args.status || args.listRuns || args.listEvents)) {
+    throw new Error("--json is only valid with --status, --list-runs, or --list-events");
+  }
+  if (args.listEvents && !args.eventRunId) {
+    throw new Error("--list-events requires --run-id <run-id> or --list-events --run <run-id>");
+  }
+  if (args.controlCommand === "extend" && !args.maxIterationsExtension && !args.maxRuntimeExtensionMs) {
+    throw new Error("--extend requires --max-iterations +N or --max-runtime +12h");
+  }
+  if (args.controlCommand && (args.maxIterations !== null || args.maxRuntimeMs !== null)) {
+    throw new Error("Control commands accept only extension-form budget arguments");
   }
   if (args.canary && !args.dryRun && !args.run) {
     throw new Error("--canary must be paired with --dry-run or --run");

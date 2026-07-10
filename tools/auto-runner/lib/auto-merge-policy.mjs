@@ -566,7 +566,8 @@ function mergeSummaryBody(context, mergeSha) {
     `Issue: #${context.issue.number}`,
     `Reviewed PR head: ${context.expectedHeadSha || context.runnerCreatedCommitSha}`,
     `Merge SHA: ${mergeSha || "unavailable"}`,
-    "Gates: contract, lane, changed files, Gemini when configured, Codex mechanics, local validation, exact-head checks, review threads, code scanning, and issue stop labels passed.",
+    independentReviewSummaryLine(context),
+    "Gates: contract, lane, changed files, independent AI review where required, Codex mechanics, local validation, exact-head checks, review threads, code scanning, and issue stop labels passed.",
   ].join("\n");
 }
 
@@ -577,7 +578,24 @@ function issueSummaryBody(context, mergeSha) {
     `PR: ${context.pr?.url || context.pr?.number || "unavailable"}`,
     `Reviewed PR head: ${context.expectedHeadSha || context.runnerCreatedCommitSha}`,
     `Merge SHA: ${mergeSha || "unavailable"}`,
+    independentReviewSummaryLine(context),
   ].join("\n");
+}
+
+function independentReviewSummaryLine(context) {
+  const required = Boolean(context.externalReviewRequired) || requiresIndependentAiReview(context.laneDecision);
+  const review = context.externalReview || {};
+  if (!required) {
+    return `Independent AI review: not required; provider/tier: ${review.provider || "none"} ${review.tier || "none"}; verdict: ${review.verdict || review.status || "n/a"}; exact head: ${review.reviewedHead || context.expectedHeadSha || context.runnerCreatedCommitSha || "unknown"}; evidence: ${review.reportPath || review.evidencePath || "n/a"}`;
+  }
+  const passed = review.status === "pass" && (!review.verdict || review.verdict === "pass");
+  return [
+    "Independent AI review: required",
+    `provider/tier: ${review.provider || "unknown"} ${review.tier || "unknown"}`,
+    `verdict: ${passed ? "pass" : `blocked/fail-closed (${review.reason || review.status || "missing"})`}`,
+    `exact head: ${review.reviewedHead || context.expectedHeadSha || context.runnerCreatedCommitSha || "unknown"}`,
+    `evidence: ${review.reportPath || review.evidencePath || "unknown"}`,
+  ].join("; ");
 }
 
 function commandStatus(result) {
