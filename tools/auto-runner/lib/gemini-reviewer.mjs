@@ -23,6 +23,7 @@ const integratedMaxEstimatedCostUsd = 0.25;
 const maxGeminiProviderResponseBytes = 64 * 1024;
 const maxGeminiReviewerRetries = 2;
 const maxGeminiRetryBackoffMs = 10_000;
+const geminiRetryDelayBucketsMs = Object.freeze([0, 100, 500, 1000, 2000, 5000, 10_000]);
 const integratedAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning"]);
 const integratedAllowedPathPatterns = Object.freeze([
   /^tools\/auto-runner(?:\/|$)/,
@@ -463,7 +464,14 @@ function sanitizeAttempt(attempt) {
 }
 
 function sleepPromise(delayMs) {
-  return new Promise((resolve) => setTimeout(resolve, boundedGeminiRetryDelayMs(delayMs)));
+  const safeDelayMs = boundedGeminiRetryDelayMs(delayMs);
+  if (safeDelayMs <= 0) return Promise.resolve();
+  if (safeDelayMs <= 100) return new Promise((resolve) => setTimeout(resolve, 100));
+  if (safeDelayMs <= 500) return new Promise((resolve) => setTimeout(resolve, 500));
+  if (safeDelayMs <= 1000) return new Promise((resolve) => setTimeout(resolve, 1000));
+  if (safeDelayMs <= 2000) return new Promise((resolve) => setTimeout(resolve, 2000));
+  if (safeDelayMs <= 5000) return new Promise((resolve) => setTimeout(resolve, 5000));
+  return new Promise((resolve) => setTimeout(resolve, 10_000));
 }
 
 async function readBoundedProviderResponseText(response, maxBytes = maxGeminiProviderResponseBytes) {
@@ -507,7 +515,8 @@ async function readBoundedProviderResponseText(response, maxBytes = maxGeminiPro
 function boundedGeminiRetryDelayMs(delayMs) {
   const value = Number(delayMs);
   if (!Number.isFinite(value) || value < 0) return 0;
-  return Math.min(value, maxGeminiRetryBackoffMs);
+  const capped = Math.min(value, maxGeminiRetryBackoffMs);
+  return geminiRetryDelayBucketsMs.find((bucket) => bucket >= capped) ?? maxGeminiRetryBackoffMs;
 }
 
 function truncateProviderTextByBytes(text, maxBytes) {
