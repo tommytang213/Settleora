@@ -417,55 +417,67 @@ class SummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final (background, foreground) = _surfaceColors(context, variant);
+    final captionText = caption;
+    final semanticLabel = [
+      title,
+      value,
+      if (captionText != null && captionText.trim().isNotEmpty) captionText,
+    ].join(', ');
 
-    return AppCard(
-      color: background,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Semantics(
+      container: true,
+      label: semanticLabel,
+      child: ExcludeSemantics(
+        child: AppCard(
+          color: background,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (icon != null) ...[
-                Icon(icon, size: 20, color: foreground),
-                const SizedBox(width: SettleoraSpacing.xs),
-              ],
-              Expanded(
+              Row(
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 20, color: foreground),
+                    const SizedBox(width: SettleoraSpacing.xs),
+                  ],
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: SettleoraSpacing.xs),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
                 child: Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelLarge?.copyWith(
+                  value,
+                  maxLines: 1,
+                  style: theme.textTheme.titleLarge?.copyWith(
                     color: foreground,
                     fontWeight: FontWeight.w800,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ),
+              if (caption != null) ...[
+                const SizedBox(height: SettleoraSpacing.xxs),
+                Text(
+                  caption!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: foreground),
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: SettleoraSpacing.xs),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: AlignmentDirectional.centerStart,
-            child: Text(
-              value,
-              maxLines: 1,
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w800,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-          ),
-          if (caption != null) ...[
-            const SizedBox(height: SettleoraSpacing.xxs),
-            Text(
-              caption!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: foreground),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
