@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { safeTimestamp, slugify } from "./logger.mjs";
+import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 
 export const canaryAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning"]);
 export const lowRiskAutoMergeCanaryAllowedPathsByLane = Object.freeze({
@@ -12,6 +13,7 @@ const lowRiskAutoMergeCanaryMaxIterations = 2;
 export function evaluateTrustPolicy(config) {
   const unsafeToggles = unsafeTrustedToggles(config);
   const autoMergeCanaryApproval = evaluateLowRiskAutoMergeCanaryApproval(config);
+  const reviewFixMutationApproval = evaluateReviewFixMutationApproval(config);
   if (config.dryRun) {
     return {
       allowed: true,
@@ -19,6 +21,7 @@ export function evaluateTrustPolicy(config) {
       reason: config.canary ? "Canary dry-run is non-mutating." : "Dry-run is non-mutating.",
       unsafeToggles,
       autoMergeCanaryApproval,
+      reviewFixMutationApproval,
     };
   }
 
@@ -29,6 +32,7 @@ export function evaluateTrustPolicy(config) {
       reason: "No trusted real-run mode was selected.",
       unsafeToggles,
       autoMergeCanaryApproval,
+      reviewFixMutationApproval,
     };
   }
 
@@ -40,6 +44,7 @@ export function evaluateTrustPolicy(config) {
         reason: "Canary real-run requires trustedRealRunCanaryApproved: true in config.",
         unsafeToggles,
         autoMergeCanaryApproval,
+        reviewFixMutationApproval,
       };
     }
     if (config.allowAutoMerge) {
@@ -53,7 +58,11 @@ export function evaluateTrustPolicy(config) {
         };
       }
     }
-    const canaryUnsafeToggles = unsafeToggles.filter((toggle) => toggle !== "allowAutoMerge");
+    const canaryUnsafeToggles = unsafeToggles.filter((toggle) => {
+      if (toggle === "allowAutoMerge") return false;
+      if (toggle === "reviewFixMutation" && reviewFixMutationApproval.approved) return false;
+      return true;
+    });
     if (canaryUnsafeToggles.length > 0) {
       return {
         allowed: false,
@@ -61,6 +70,7 @@ export function evaluateTrustPolicy(config) {
         reason: `Canary real-run requires disabled mutation toggles: ${canaryUnsafeToggles.join(", ")}.`,
         unsafeToggles: canaryUnsafeToggles,
         autoMergeCanaryApproval,
+        reviewFixMutationApproval,
       };
     }
     const requestedMaxIterations = requestedMax(config);
@@ -71,6 +81,7 @@ export function evaluateTrustPolicy(config) {
         reason: `Canary real-run maxIterations ${requestedMaxIterations} exceeds trustedRealRunCanaryMaxIterations ${config.trustedRealRunCanaryMaxIterations}.`,
         unsafeToggles: canaryUnsafeToggles,
         autoMergeCanaryApproval,
+        reviewFixMutationApproval,
       };
     }
     return {
@@ -81,6 +92,7 @@ export function evaluateTrustPolicy(config) {
         : "Canary real-run approval and conservative controls are enabled.",
       unsafeToggles: canaryUnsafeToggles,
       autoMergeCanaryApproval,
+      reviewFixMutationApproval,
     };
   }
 
@@ -91,6 +103,7 @@ export function evaluateTrustPolicy(config) {
       reason: "Normal --run requires trustedRealRunApproved: true in config; trusted real-run is disabled by default.",
       unsafeToggles,
       autoMergeCanaryApproval,
+      reviewFixMutationApproval,
     };
   }
   const normalUnsafeToggles = unsafeToggles.filter((toggle) => toggle !== "allowAutoMerge");
@@ -101,9 +114,17 @@ export function evaluateTrustPolicy(config) {
       reason: `Normal trusted real-run requires disabled mutation toggles: ${normalUnsafeToggles.join(", ")}.`,
       unsafeToggles: normalUnsafeToggles,
       autoMergeCanaryApproval,
+      reviewFixMutationApproval,
     };
   }
-  return { allowed: true, mode: "normal", reason: "Normal trusted real-run approval is enabled.", unsafeToggles, autoMergeCanaryApproval };
+  return {
+    allowed: true,
+    mode: "normal",
+    reason: "Normal trusted real-run approval is enabled.",
+    unsafeToggles,
+    autoMergeCanaryApproval,
+    reviewFixMutationApproval,
+  };
 }
 
 export function evaluateCanaryIssuePolicy(config, laneDecision) {
@@ -144,8 +165,11 @@ export function evaluateCanaryIssuePolicy(config, laneDecision) {
     if (laneDecision.dangerGate || (laneDecision.dangerReasons || []).length > 0) {
       return { allowed: false, reason: "Low-risk auto-merge canary refuses dangerous issue scope." };
     }
-    if (laneDecision.followupIssueCreationAllowed || laneDecision.reviewFixMutationAllowed) {
-      return { allowed: false, reason: "Canary mode refuses follow-up issue creation and review-fix mutation." };
+    if (laneDecision.followupIssueCreationAllowed) {
+      return { allowed: false, reason: "Canary mode refuses follow-up issue creation." };
+    }
+    if ((config.allowReviewFixMutation || normalizeReviewFixMutationConfig(config).maxAttempts > 0) && !evaluateReviewFixMutationApproval(config).approved) {
+      return { allowed: false, reason: `Canary review-fix mutation requires explicit low-risk approval: ${evaluateReviewFixMutationApproval(config).reason}.` };
     }
     return { allowed: true, reason: "Low-risk auto-merge canary issue policy accepted the contracted safe subset." };
   }
@@ -163,7 +187,12 @@ export function evaluateCanaryIssuePolicy(config, laneDecision) {
 
 export function evaluateLowRiskAutoMergeCanaryApproval(config) {
   const requestedMaxIterations = requestedMax(config);
-  const unsafeToggles = unsafeTrustedToggles(config).filter((toggle) => toggle !== "allowAutoMerge");
+  const reviewFixApproval = evaluateReviewFixMutationApproval(config);
+  const unsafeToggles = unsafeTrustedToggles(config).filter((toggle) => {
+    if (toggle === "allowAutoMerge") return false;
+    if (toggle === "reviewFixMutation" && reviewFixApproval.approved) return false;
+    return true;
+  });
   const base = {
     approved: false,
     mode: "not_approved",
@@ -177,6 +206,7 @@ export function evaluateLowRiskAutoMergeCanaryApproval(config) {
     maxAllowedIterations: lowRiskAutoMergeCanaryMaxIterations,
     allowedLanes: [...canaryAllowedLanes],
     allowedPathsByLane: lowRiskAutoMergeCanaryAllowedPathsByLane,
+    reviewFixMutationApproval: reviewFixApproval,
   };
   if (!config.lowRiskAutoMergeCanaryApproved) return base;
   if (!config.configPath) return { ...base, mode: "unsafe", reason: "external config path is required" };
@@ -199,6 +229,44 @@ export function evaluateLowRiskAutoMergeCanaryApproval(config) {
     return { ...base, mode: "unsafe", reason: `unsafe mutation toggles enabled: ${unsafeToggles.join(", ")}` };
   }
   return { ...base, approved: true, mode: "approved", reason: "explicit config-scoped low-risk auto-merge canary approval" };
+}
+
+export function evaluateReviewFixMutationApproval(config) {
+  const reviewFix = normalizeReviewFixMutationConfig(config);
+  const base = {
+    approved: false,
+    mode: "not_approved",
+    reason: "allowReviewFixMutation is not true with a positive maxReviewFixCycles",
+    configPathUsed: config.configPath || null,
+    allowReviewFixMutation: Boolean(config.allowReviewFixMutation),
+    maxReviewFixCycles: reviewFix.maxAttempts,
+    requestedMaxReviewFixCycles: reviewFix.requestedMaxAttempts,
+    maxAllowedReviewFixCycles: reviewFix.maxAllowedAttempts,
+    trustedRealRunCanaryApproved: Boolean(config.trustedRealRunCanaryApproved),
+    trustedRealRunApproved: Boolean(config.trustedRealRunApproved),
+    allowAutoMerge: Boolean(config.allowAutoMerge),
+    lowRiskAutoMergeCanaryApproved: Boolean(config.lowRiskAutoMergeCanaryApproved),
+    allowFollowupIssueCreation: Boolean(config.allowFollowupIssueCreation),
+    allowStaleClaimSteal: Boolean(config.allowStaleClaimSteal),
+    allowSystemdEnablement: Boolean(config.allowSystemdEnablement),
+    allowedLanes: [...canaryAllowedLanes],
+  };
+  if (!config.allowReviewFixMutation || reviewFix.maxAttempts <= 0) return base;
+  if (!config.configPath) return { ...base, mode: "unsafe", reason: "external config path is required" };
+  if (!config.trustedRealRunCanaryApproved) {
+    return { ...base, mode: "unsafe", reason: "trustedRealRunCanaryApproved must be true" };
+  }
+  if (config.trustedRealRunApproved) return { ...base, mode: "unsafe", reason: "trustedRealRunApproved must remain false" };
+  if (!config.allowAutoMerge || !config.lowRiskAutoMergeCanaryApproved) {
+    return { ...base, mode: "unsafe", reason: "review-fix mutation requires the bounded low-risk auto-merge canary approval path" };
+  }
+  if (config.allowFollowupIssueCreation || config.allowStaleClaimSteal || config.allowSystemdEnablement) {
+    return { ...base, mode: "unsafe", reason: "review-fix mutation cannot mix with follow-up issue creation, stale-claim stealing, or systemd enablement" };
+  }
+  if (reviewFix.requestedMaxAttempts > reviewFix.maxAllowedAttempts) {
+    return { ...base, mode: "approved_clamped", approved: true, reason: "explicit low-risk review-fix approval with attempts clamped to safe maximum" };
+  }
+  return { ...base, approved: true, mode: "approved", reason: "explicit config-scoped low-risk review-fix mutation approval" };
 }
 
 export function writeCanaryEvidence(config, iteration) {
@@ -251,7 +319,7 @@ function unsafeTrustedToggles(config) {
   if (config.allowAutoMerge) unsafe.push("allowAutoMerge");
   if (config.allowFollowupIssueCreation) unsafe.push("allowFollowupIssueCreation");
   if (config.allowStaleClaimSteal) unsafe.push("allowStaleClaimSteal");
-  if (config.allowReviewFixMutation || config.maxReviewFixCycles > 0) unsafe.push("reviewFixMutation");
+  if (config.allowReviewFixMutation || Number(config.maxReviewFixCycles || 0) > 0) unsafe.push("reviewFixMutation");
   if (config.allowSystemdEnablement) unsafe.push("allowSystemdEnablement");
   return unsafe;
 }

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
+import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 
@@ -213,6 +214,8 @@ export function loadConfig(cliArgs) {
   const reviewerPolicy = mergeReviewerPolicyConfig(config);
   config.reviewerTiers = reviewerPolicy.reviewerTiers;
   config.reviewerBudget = reviewerPolicy.reviewerBudget;
+  config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
+  config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
 
   for (const dir of [
     config.logsRoot,
@@ -221,6 +224,7 @@ export function loadConfig(cliArgs) {
     path.join(config.logsRoot, "codex-runs"),
     path.join(config.logsRoot, "reports"),
     path.join(config.logsRoot, "reviews"),
+    path.join(config.logsRoot, "review-fix"),
     path.join(config.logsRoot, "summaries"),
     path.join(config.logsRoot, "locks"),
     path.join(config.logsRoot, "canary"),

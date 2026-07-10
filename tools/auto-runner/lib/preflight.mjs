@@ -4,7 +4,7 @@ import { freemem } from "node:os";
 import path from "node:path";
 import { resolveCodexCommand } from "./codex-runner.mjs";
 import { getCurrentBranch, getRefSha, getStatusShort, runGit } from "./git-workspace.mjs";
-import { evaluateLowRiskAutoMergeCanaryApproval, evaluateTrustPolicy } from "./canary-policy.mjs";
+import { evaluateLowRiskAutoMergeCanaryApproval, evaluateReviewFixMutationApproval, evaluateTrustPolicy } from "./canary-policy.mjs";
 import { buildEligibleLabelSearches } from "./github-issues.mjs";
 import { safeTimestamp } from "./logger.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
@@ -65,8 +65,10 @@ export function runPreflight(config, options = {}) {
   checks.push(
     policyCheck(
       "review-fix-mutation-disabled",
-      !config.allowReviewFixMutation && config.maxReviewFixCycles === 0,
-      "review-fix mutation is disabled.",
+      (!config.allowReviewFixMutation && config.maxReviewFixCycles === 0) || evaluateReviewFixMutationApproval(config).approved,
+      evaluateReviewFixMutationApproval(config).approved
+        ? `review-fix mutation has explicit low-risk approval: ${evaluateReviewFixMutationApproval(config).reason}`
+        : "review-fix mutation is disabled.",
     ),
   );
   checks.push(
@@ -288,12 +290,17 @@ function checkConfig(config) {
   const requiredArrays = ["eligibleLabels", "stopLabels", "claimLabels"];
   const missing = requiredArrays.filter((key) => !Array.isArray(config[key]) || config[key].length === 0);
   const autoMergeApproval = evaluateLowRiskAutoMergeCanaryApproval(config);
+  const reviewFixApproval = evaluateReviewFixMutationApproval(config);
   const riskyEnabled = riskyGateKeys.filter((key) => Boolean(config[key]));
   if (config.allowAutoMerge && autoMergeApproval.approved) {
     const index = riskyEnabled.indexOf("allowAutoMerge");
     if (index >= 0) riskyEnabled.splice(index, 1);
   }
-  if (config.maxReviewFixCycles > 0 && !riskyEnabled.includes("allowReviewFixMutation")) {
+  if (config.allowReviewFixMutation && reviewFixApproval.approved) {
+    const index = riskyEnabled.indexOf("allowReviewFixMutation");
+    if (index >= 0) riskyEnabled.splice(index, 1);
+  }
+  if (config.maxReviewFixCycles > 0 && !reviewFixApproval.approved && !riskyEnabled.includes("allowReviewFixMutation")) {
     riskyEnabled.push("maxReviewFixCycles");
   }
   return {
@@ -307,9 +314,11 @@ function checkConfig(config) {
               riskyGates: "disabled_or_explicit_low_risk_auto_merge_canary",
               autoMergeCanaryApprovalMode: autoMergeApproval.mode,
               autoMergeCanaryApprovalReason: autoMergeApproval.reason,
+              reviewFixMutationApprovalMode: reviewFixApproval.mode,
+              reviewFixMutationApprovalReason: reviewFixApproval.reason,
             }),
           )
-        : bounded(JSON.stringify({ missingOrEmpty: missing, riskyEnabled, autoMergeCanaryApproval: autoMergeApproval })),
+        : bounded(JSON.stringify({ missingOrEmpty: missing, riskyEnabled, autoMergeCanaryApproval: autoMergeApproval, reviewFixMutationApproval: reviewFixApproval })),
   };
 }
 
