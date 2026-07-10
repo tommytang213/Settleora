@@ -246,13 +246,6 @@ function classifyReviewAttempt({ result, selected, verdict, rawCandidateDiagnost
       reviewFailureReason: `${result.error.code || result.error.name || "launch_error"}:${result.error.message}`,
     };
   }
-  if (result.status !== 0 || result.signal) {
-    return {
-      reviewStatus: "failed",
-      reviewFailureCategory: "process",
-      reviewFailureReason: result.signal ? `signal:${result.signal}` : `nonzero_status:${result.status}`,
-    };
-  }
   if (!String(selected.payload || "").trim()) {
     return {
       reviewStatus: "failed",
@@ -272,6 +265,13 @@ function classifyReviewAttempt({ result, selected, verdict, rawCandidateDiagnost
       reviewStatus: "completed",
       reviewFailureCategory: "substantive",
       reviewFailureReason: `non_approve_verdict:${verdict.verdict}`,
+    };
+  }
+  if (result.status !== 0 || result.signal) {
+    return {
+      reviewStatus: "failed",
+      reviewFailureCategory: "process",
+      reviewFailureReason: result.signal ? `signal:${result.signal}` : `nonzero_status:${result.status}`,
     };
   }
   return { reviewStatus: "passed", reviewFailureCategory: null, reviewFailureReason: null };

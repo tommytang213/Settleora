@@ -50,6 +50,7 @@ import {
   writeAutoMergeEvidence,
   evaluateAutoMergeDecision,
   evaluatePrePushReviewGate,
+  shouldGenerateExistingPrRecoveryEvidence,
 } from "./lib/auto-merge-policy.mjs";
 import {
   applyControlAtSafeBoundary,
@@ -695,7 +696,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
   let generatedRecoveryEvidence = null;
-  if (requiresIndependentAiReview(laneDecision) && (!exactHeadEvidence.geminiPass || !exactHeadEvidence.codexMechanicsApproved || !exactHeadEvidence.validationPassed)) {
+  if (shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)) {
     generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {
       issue,
       laneDecision,

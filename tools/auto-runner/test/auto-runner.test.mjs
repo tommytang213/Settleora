@@ -46,6 +46,7 @@ import {
   evaluateExistingPrRecoveryDecision,
   evaluateAutoMergeDecision,
   evaluatePrePushReviewGate,
+  shouldGenerateExistingPrRecoveryEvidence,
   executeAutoMerge,
   normalizeAutoMergeWait,
   writeAutoMergeEvidence,
@@ -2783,6 +2784,36 @@ test("existing low-risk canary PR recovery proceeds only with exact-head safe ev
   assert.deepEqual(decision.issueLinkageEvidence.matchedSources, ["pr.title", "pr.body"]);
 });
 
+test("existing PR recovery regenerates missing Codex evidence outside independent-review lanes", () => {
+  assert.equal(
+    shouldGenerateExistingPrRecoveryEvidence(autoMergeLane({ lane: "workflow-docs-tooling" }), {
+      validationPassed: true,
+      codexMechanicsApproved: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldGenerateExistingPrRecoveryEvidence(autoMergeLane({ lane: "workflow-docs-tooling" }), {
+      validationPassed: true,
+      codexMechanicsApproved: true,
+      codexMechanicsHeadSha: "head123",
+      codexMechanicsChangedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    }),
+    false,
+  );
+  assert.equal(
+    shouldGenerateExistingPrRecoveryEvidence(autoMergeLane({ lane: "client-ui-low-risk" }), {
+      validationPassed: true,
+      codexMechanicsApproved: true,
+      codexMechanicsHeadSha: "head123",
+      codexMechanicsChangedFiles: ["apps/mobile/lib/ui/settleora_components.dart"],
+      geminiPass: true,
+      geminiHeadSha: "head123",
+    }),
+    true,
+  );
+});
+
 test("existing PR recovery issue links are exact text matches without dynamic regex behavior", () => {
   const nearMiss = evaluateExistingPrRecoveryDecision(
     existingPrRecoveryContext({
@@ -3402,6 +3433,35 @@ test("review prompt does not retry substantive changes_requested verdict", () =>
     );
 
     assert.equal(result.verdict.verdict, "changes_requested");
+    assert.equal(result.attemptCount, 1);
+    assert.equal(result.reviewFailureCategory, "substantive");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review prompt does not retry substantive non-approve verdict with nonzero process status", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-no-retry-nonzero-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const reviewer = writeFakeReviewer(tempRoot, [
+      `printf '%s\\n' ${shellArg(reviewVerdictJson({ verdict: "changes_requested" }))}`,
+      "exit 1",
+    ]);
+    const result = runReviewPrompt(
+      {
+        dryRun: false,
+        logsRoot,
+        repoRoot: process.cwd(),
+        reviewerCommand: reviewer,
+        codexMechanicsReviewRetry: { maxAttempts: 2 },
+      },
+      { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 }, currentHead: "head1", changedFiles: ["a.md"] } },
+    );
+
+    assert.equal(result.verdict.verdict, "changes_requested");
+    assert.equal(result.status, 1);
     assert.equal(result.attemptCount, 1);
     assert.equal(result.reviewFailureCategory, "substantive");
   } finally {

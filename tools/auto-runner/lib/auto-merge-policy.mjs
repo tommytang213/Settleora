@@ -408,6 +408,19 @@ export function evaluatePrePushReviewGate(input = {}) {
   return { ok: true, reason: "pre_push_review_gates_passed" };
 }
 
+export function shouldGenerateExistingPrRecoveryEvidence(laneDecision = {}, exactHeadEvidence = {}) {
+  return Boolean(
+    !exactHeadEvidence.validationPassed ||
+      !exactHeadEvidence.codexMechanicsApproved ||
+      !exactHeadEvidence.codexMechanicsHeadSha ||
+      !Array.isArray(exactHeadEvidence.codexMechanicsChangedFiles) ||
+      (requiresIndependentAiReview(laneDecision) &&
+        (!exactHeadEvidence.geminiPass ||
+          !exactHeadEvidence.geminiHeadSha ||
+          !Array.isArray(exactHeadEvidence.geminiChangedFiles))),
+  );
+}
+
 function evaluateIndependentReviewEvidence(input) {
   const review = input.externalReview || {};
   const required = Boolean(input.externalReviewRequired) || requiresIndependentAiReview(input.laneDecision);
