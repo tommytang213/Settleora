@@ -911,6 +911,34 @@ void main() {
     }
   });
 
+  testWidgets('SettleoraAssignedMemberChip announces one static member label', (
+    tester,
+  ) async {
+    await _useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: Center(
+            child: SettleoraAssignedMemberChip(
+              label: 'Morgan',
+              avatarLabel: 'MO',
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Morgan'), findsOneWidget);
+    expect(find.text('MO'), findsOneWidget);
+
+    final semanticsHandle = tester.ensureSemantics();
+    _expectStaticSemanticsLabel(tester, 'Morgan');
+    _expectNoSemanticsLabel(tester, 'MO');
+    semanticsHandle.dispose();
+  });
+
   testWidgets('shared rows separate interactive and static semantics', (
     tester,
   ) async {
