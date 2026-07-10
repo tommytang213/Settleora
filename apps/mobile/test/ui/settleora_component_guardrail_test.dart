@@ -468,6 +468,32 @@ void main() {
     );
   });
 
+  testWidgets('SettleoraLoadingPanel exposes one live-region loading label', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: SettleoraLoadingPanel(label: 'Loading shared rows'),
+        ),
+      ),
+    );
+
+    expect(find.text('Loading shared rows'), findsOneWidget);
+    expect(find.bySemanticsLabel('Loading shared rows'), findsOneWidget);
+
+    final semanticsData = tester
+        .getSemantics(find.bySemanticsLabel('Loading shared rows'))
+        .getSemanticsData();
+    expect(semanticsData.label, 'Loading shared rows');
+    expect(semanticsData.flagsCollection.isLiveRegion, isTrue);
+
+    semanticsHandle.dispose();
+  });
+
   testWidgets('static status chips stay compact and non-interactive', (
     tester,
   ) async {
