@@ -32,6 +32,12 @@ import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import {
+  buildReviewFixPrompt,
+  evaluateReviewFixMutationDecision,
+  extractReviewFixTrigger,
+  writeReviewFixEvidence,
+} from "./lib/review-fix-policy.mjs";
+import {
   buildIssueLinkageEvidence,
   evaluateExistingPrRecoveryDecision,
   executeAutoMerge,
@@ -251,7 +257,7 @@ async function runIteration(config, logger, runId, index) {
     return iteration;
   }
 
-  const changedFiles = listWorkingTreeChangedFiles();
+  let changedFiles = listWorkingTreeChangedFiles();
   iteration.changedFiles = changedFiles;
   if (changedFiles.length === 0 && !config.dryRun) {
     iteration.outcome = "no_changes";
@@ -265,7 +271,7 @@ async function runIteration(config, logger, runId, index) {
     return iteration;
   }
 
-  const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
+  let forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
   iteration.forbiddenChangedFiles = forbidden;
   if (forbidden.length > 0) {
     iteration.outcome = "danger_gate";
@@ -337,34 +343,89 @@ async function runIteration(config, logger, runId, index) {
   });
   iteration.externalReview = await runGeminiIntegratedReview(config, iteration.reviewPackage);
   if (iteration.externalReview.status === "blocked") {
-    iteration.outcome =
-      iteration.externalReview.reason === "blocked_external_reviewer_route_not_eligible" ||
-      iteration.externalReview.reason === "blocked_external_reviewer_lane_not_eligible" ||
-      iteration.externalReview.reason === "blocked_external_reviewer_path_not_eligible"
-        ? "blocked_needs_tommy"
-        : "review_changes_requested_retry_exhausted";
-    iteration.issueComment = finishIssueOutcome(
-      config,
+    const fixAttempt = await runReviewFixCycle(config, {
       issue,
-      iteration.outcome,
-      `Auto-runner did not open a PR for #${issue.number} because integrated Gemini pre-PR review returned ${iteration.externalReview.reason}.`,
-    );
-    iteration.finishedAt = new Date().toISOString();
-    return iteration;
+      laneDecision,
+      branchName,
+      promptInfo,
+      changedFiles,
+      forbiddenChangedFiles: forbidden,
+      validation: iteration.validation,
+      report: iteration.report,
+      externalReview: iteration.externalReview,
+      review: null,
+      attemptCount: iteration.reviewFixAttempts?.length || 0,
+    });
+    iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (!fixAttempt.proceeded) {
+      iteration.outcome =
+        iteration.externalReview.reason === "blocked_external_reviewer_route_not_eligible" ||
+        iteration.externalReview.reason === "blocked_external_reviewer_lane_not_eligible" ||
+        iteration.externalReview.reason === "blocked_external_reviewer_path_not_eligible"
+          ? "blocked_needs_tommy"
+          : "review_changes_requested_retry_exhausted";
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner did not open a PR for #${issue.number} because integrated Gemini pre-PR review returned ${iteration.externalReview.reason}. Review-fix status: ${fixAttempt.reason}.`,
+      );
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    changedFiles = fixAttempt.changedFilesAfter;
+    forbidden = fixAttempt.forbiddenChangedFilesAfter;
+    iteration.changedFiles = changedFiles;
+    iteration.forbiddenChangedFiles = forbidden;
+    iteration.validation = fixAttempt.validationAfter;
+    iteration.reviewPackage = fixAttempt.reviewPackageAfter;
+    iteration.externalReview = fixAttempt.externalReviewAfter;
+    iteration.review = fixAttempt.reviewAfter;
+    iteration.reviewMutationGuard = fixAttempt.reviewMutationGuardAfter;
   }
-  iteration.review = runReviewPrompt(config, iteration.reviewPackage);
-  const afterReview = await checkoutFingerprint();
-  iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
-  if (iteration.reviewMutationGuard.mutationDetected) {
-    iteration.outcome = "auto_failed";
-    iteration.issueComment = finishIssueOutcome(
-      config,
+  if (!iteration.review) {
+    iteration.review = runReviewPrompt(config, iteration.reviewPackage);
+    const afterReview = await checkoutFingerprint();
+    iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
+    if (iteration.reviewMutationGuard.mutationDetected) {
+      iteration.outcome = "auto_failed";
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner blocked #${issue.number} because pre-PR review mutated the checkout.`,
+      );
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+  }
+
+  if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
+    const fixAttempt = await runReviewFixCycle(config, {
       issue,
-      iteration.outcome,
-      `Auto-runner blocked #${issue.number} because pre-PR review mutated the checkout.`,
-    );
-    iteration.finishedAt = new Date().toISOString();
-    return iteration;
+      laneDecision,
+      branchName,
+      promptInfo,
+      changedFiles,
+      forbiddenChangedFiles: forbidden,
+      validation: iteration.validation,
+      report: iteration.report,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      attemptCount: iteration.reviewFixAttempts?.length || 0,
+    });
+    iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (fixAttempt.proceeded) {
+      changedFiles = fixAttempt.changedFilesAfter;
+      forbidden = fixAttempt.forbiddenChangedFilesAfter;
+      iteration.changedFiles = changedFiles;
+      iteration.forbiddenChangedFiles = forbidden;
+      iteration.validation = fixAttempt.validationAfter;
+      iteration.reviewPackage = fixAttempt.reviewPackageAfter;
+      iteration.externalReview = fixAttempt.externalReviewAfter;
+      iteration.review = fixAttempt.reviewAfter;
+      iteration.reviewMutationGuard = fixAttempt.reviewMutationGuardAfter;
+    }
   }
 
   if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
@@ -382,6 +443,33 @@ async function runIteration(config, logger, runId, index) {
     );
     iteration.finishedAt = new Date().toISOString();
     return iteration;
+  }
+  if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
+    const fixAttempt = await runReviewFixCycle(config, {
+      issue,
+      laneDecision,
+      branchName,
+      promptInfo,
+      changedFiles,
+      forbiddenChangedFiles: forbidden,
+      validation: iteration.validation,
+      report: iteration.report,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      attemptCount: iteration.reviewFixAttempts?.length || 0,
+    });
+    iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (fixAttempt.proceeded) {
+      changedFiles = fixAttempt.changedFilesAfter;
+      forbidden = fixAttempt.forbiddenChangedFilesAfter;
+      iteration.changedFiles = changedFiles;
+      iteration.forbiddenChangedFiles = forbidden;
+      iteration.validation = fixAttempt.validationAfter;
+      iteration.reviewPackage = fixAttempt.reviewPackageAfter;
+      iteration.externalReview = fixAttempt.externalReviewAfter;
+      iteration.review = fixAttempt.reviewAfter;
+      iteration.reviewMutationGuard = fixAttempt.reviewMutationGuardAfter;
+    }
   }
   if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
     iteration.outcome = "review_changes_requested_retry_exhausted";
@@ -601,6 +689,182 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
   });
 }
 
+async function runReviewFixCycle(config, context) {
+  const trigger = extractReviewFixTrigger(context);
+  const decision = evaluateReviewFixMutationDecision({ ...context, config, trigger });
+  const baseEvidence = {
+    issue: {
+      number: context.issue.number,
+      title: context.issue.title,
+      url: context.issue.url,
+      labels: context.issue.labels || [],
+    },
+    lane: context.laneDecision.lane,
+    branchName: context.branchName,
+    baseSha: config.dryRun ? null : getRefSha("origin/main"),
+    headShaBefore: config.dryRun ? null : getRefSha("HEAD"),
+    changedFilesBefore: context.changedFiles || [],
+    reviewerSource: trigger.source,
+    sanitizedFindings: trigger.findings || [],
+    validationBefore: summarizeValidation(context.validation),
+    reviewBefore: summarizeReview(context.externalReview, context.review),
+    decision,
+    fixAttemptHappened: false,
+    proceededToPrOrMergeEligibility: false,
+  };
+  if (!decision.allowed) {
+    const evidence = writeReviewFixEvidence(config, { ...baseEvidence, stopReason: decision.reason });
+    return {
+      attempted: false,
+      proceeded: false,
+      reason: decision.reason,
+      decision,
+      evidence,
+    };
+  }
+
+  const prompt = buildReviewFixPrompt({
+    issue: context.issue,
+    laneDecision: context.laneDecision,
+    branchName: context.branchName,
+    changedFiles: context.changedFiles || [],
+    trigger,
+    validation: context.validation,
+  });
+  const promptPath = path.join(
+    config.logsRoot,
+    "review-fix",
+    `${safeTimestamp()}-issue-${context.issue.number}-${slugify(context.issue.title, 40)}-prompt.md`,
+  );
+  writeFileSync(promptPath, prompt);
+  const codex = runCodexPrompt(
+    config,
+    {
+      ...context.promptInfo,
+      branchName: context.branchName,
+      prompt,
+      promptPath,
+    },
+    "review-fix",
+  );
+  const changedFilesAfter = listWorkingTreeChangedFiles();
+  const forbiddenChangedFilesAfter = filterForbiddenChangedFiles(changedFilesAfter, context.laneDecision);
+  const finishBlocked = (reason, extra = {}) => {
+    const evidence = writeReviewFixEvidence(config, {
+      ...baseEvidence,
+      fixAttemptHappened: true,
+      promptPath,
+      codex: summarizeCodex(codex),
+      changedFilesAfter,
+      forbiddenChangedFilesAfter,
+      stopReason: reason,
+      ...extra,
+    });
+    return {
+      attempted: true,
+      proceeded: false,
+      reason,
+      decision,
+      promptPath,
+      codex,
+      changedFilesAfter,
+      forbiddenChangedFilesAfter,
+      evidence,
+      ...extra,
+    };
+  };
+
+  if (!codex.skipped && (codex.error || codex.status !== 0)) {
+    return finishBlocked("review_fix_codex_failed");
+  }
+  if (forbiddenChangedFilesAfter.length > 0) {
+    return finishBlocked(`review_fix_forbidden_changed_files:${forbiddenChangedFilesAfter.join(",")}`);
+  }
+  if (changedFilesAfter.length === 0 && !config.dryRun) {
+    return finishBlocked("review_fix_left_no_changed_files");
+  }
+
+  const validationPlan = planValidation(changedFilesAfter, context.laneDecision);
+  const validationAfter = runValidationPlan(config, validationPlan);
+  if (!validationAfter.passed) {
+    return finishBlocked("review_fix_validation_failed", { validationAfter: summarizeValidation(validationAfter) });
+  }
+
+  const ownership = inspectPreReviewPrOwnership(config, context.branchName);
+  if (!ownership.clean) {
+    return finishBlocked("review_fix_pre_review_pr_ownership_failed", { preReviewPrOwnershipAfter: ownership });
+  }
+
+  const beforeReview = await checkoutFingerprint();
+  const reviewPackageAfter = await writeReviewPackage(config, {
+    issue: context.issue,
+    promptInfo: context.promptInfo,
+    laneDecision: context.laneDecision,
+    changedFiles: changedFilesAfter,
+    validation: validationAfter,
+    report: context.report,
+  });
+  const externalReviewAfter = await runGeminiIntegratedReview(config, reviewPackageAfter);
+  if (externalReviewAfter.status === "blocked") {
+    return finishBlocked("review_fix_integrated_review_still_blocking", {
+      validationAfter: summarizeValidation(validationAfter),
+      externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+      reviewPackageAfter: { packagePath: reviewPackageAfter.packagePath },
+    });
+  }
+  const reviewAfter = runReviewPrompt(config, reviewPackageAfter);
+  const afterReview = await checkoutFingerprint();
+  const reviewMutationGuardAfter = compareFingerprints(beforeReview, afterReview);
+  if (reviewMutationGuardAfter.mutationDetected) {
+    return finishBlocked("review_fix_post_fix_review_mutated_checkout", {
+      validationAfter: summarizeValidation(validationAfter),
+      externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+      reviewAfter: summarizeCodexReview(reviewAfter),
+      reviewMutationGuardAfter,
+    });
+  }
+  if (reviewAfter.verdict?.verdict !== "approve") {
+    return finishBlocked("review_fix_codex_mechanics_still_blocking", {
+      validationAfter: summarizeValidation(validationAfter),
+      externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+      reviewAfter: summarizeCodexReview(reviewAfter),
+      reviewPackageAfter: { packagePath: reviewPackageAfter.packagePath },
+    });
+  }
+
+  const evidence = writeReviewFixEvidence(config, {
+    ...baseEvidence,
+    fixAttemptHappened: true,
+    proceededToPrOrMergeEligibility: true,
+    promptPath,
+    codex: summarizeCodex(codex),
+    headShaAfter: config.dryRun ? null : getRefSha("HEAD"),
+    changedFilesAfter,
+    forbiddenChangedFilesAfter,
+    validationAfter: summarizeValidation(validationAfter),
+    externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+    reviewAfter: summarizeCodexReview(reviewAfter),
+    reviewPackageAfter: { packagePath: reviewPackageAfter.packagePath },
+    stopReason: null,
+  });
+  return {
+    attempted: true,
+    proceeded: true,
+    reason: "review_fix_passed_revalidation_and_reviews",
+    decision,
+    promptPath,
+    codex,
+    changedFilesAfter,
+    forbiddenChangedFilesAfter,
+    validationAfter,
+    reviewPackageAfter,
+    externalReviewAfter,
+    reviewAfter,
+    reviewMutationGuardAfter,
+    evidence,
+  };
+}
+
 function finishIssueOutcome(config, issue, outcome, body) {
   return commentIssueOutcome(config, issue, outcome, body);
 }
@@ -706,6 +970,60 @@ function preReviewPrOwnershipFailureBody(issue, ownership) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function summarizeValidation(validation) {
+  if (!validation) return null;
+  return {
+    passed: Boolean(validation.passed),
+    commands: (validation.results || []).map((result) => ({
+      command: result.command,
+      status: result.status,
+      error: result.error || null,
+    })),
+  };
+}
+
+function summarizeReview(externalReview, review) {
+  return {
+    externalReview: externalReview ? summarizeExternalReview(externalReview) : null,
+    codexMechanicsReview: review ? summarizeCodexReview(review) : null,
+  };
+}
+
+function summarizeExternalReview(externalReview) {
+  if (!externalReview) return null;
+  return {
+    status: externalReview.status,
+    reason: externalReview.reason,
+    verdict: externalReview.verdict,
+    provider: externalReview.provider,
+    tier: externalReview.tier,
+  };
+}
+
+function summarizeCodexReview(review) {
+  if (!review) return null;
+  return {
+    skipped: Boolean(review.skipped),
+    status: review.status,
+    verdict: review.verdict?.verdict || null,
+    recommended_next_action: review.verdict?.recommended_next_action || null,
+    blocking_findings: review.verdict?.blocking_findings || [],
+    promptPath: review.promptPath || null,
+    logPath: review.logPath || null,
+  };
+}
+
+function summarizeCodex(codex) {
+  if (!codex) return null;
+  return {
+    skipped: Boolean(codex.skipped),
+    status: codex.status,
+    error: codex.error || null,
+    purpose: codex.purpose || null,
+    logPath: codex.logPath || null,
+  };
 }
 
 main().catch((error) => {

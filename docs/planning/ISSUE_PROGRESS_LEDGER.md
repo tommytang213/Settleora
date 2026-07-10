@@ -20,6 +20,46 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Review-fix mutation foundation checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained `OPEN` with no labels during read-only inspection.
+  - #825 and #826 were `CLOSED` after the bounded low-risk auto-merge canary
+    completed.
+  - PR #828 and PR #832 were `MERGED`; PR #830 was `CLOSED` unmerged as the
+    stale/conflicting superseded PR.
+  - No open PRs were returned by the live repository readback.
+- Verified repo baseline:
+  `origin/main` at
+  `9845959589889ae12ad270e35d442f372494f1a1`.
+- This tooling slice:
+  - Adds a default-off review-fix mutation policy foundation for low-risk
+    `workflow-docs-tooling` and `docs-planning` auto-runner contracts only.
+  - Requires external config approval, bounded low-risk canary/auto-merge
+    approval shape, `autoMergeEligible: true`,
+    `manualMergeRequired: false`, safe contract paths, passed local
+    validation, and a structured actionable blocking review finding before
+    one Codex fix attempt can be invoked.
+  - Clamps pathological review-fix attempt counts to a safe maximum of one and
+    keeps built-in/default attempts at zero.
+  - Re-runs changed-file policy checks, local validation, integrated Gemini
+    review when configured, and Codex mechanics review after a fix attempt.
+  - Writes sanitized local evidence under
+    `/workspace/logs/settleora-auto-runner/review-fix/`.
+- Issue posture:
+  keep #800 open for broader unattended/overnight/systemd/lane-expansion gates.
+  This checkpoint does not run a live review-fix canary and does not mutate
+  #800, #825, #826, PR #828, PR #830, or PR #832.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, workflow docs, the
+  issue ledger, and example/operator documentation. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release, public/admin exposure, branch deletion, force push, direct main
+  push, live canary execution, or external reviewer/provider calls.
+
 ### Issue #826 - Auto-merge canary 2 planning-docs checkpoint
 
 - GitHub state/project status:

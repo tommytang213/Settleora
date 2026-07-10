@@ -280,7 +280,9 @@ Initial implementation lanes:
 Product/runtime/danger lanes remain disabled or manual-gated placeholders.
 Auto-merge, stale-claim stealing, follow-up issue creation, review-fix
 mutation, trusted overnight real-run operation, and systemd enablement remain
-disabled/gated.
+disabled/gated. Review-fix mutation is built as a default-off low-risk
+foundation only; built-in config keeps `allowReviewFixMutation: false` and
+`maxReviewFixCycles: 0`.
 
 Normal real-run is refused by default. A plain `--run` requires
 `trustedRealRunApproved: true` in config and still refuses unsafe mutation
@@ -321,8 +323,10 @@ approval and requires all of these at once:
 - `lowRiskAutoMergeCanaryApproved: true`.
 - `allowAutoMerge: true`.
 - `maxIterations` no greater than `2`.
-- No stale-claim stealing, follow-up issue creation, review-fix mutation, or
-  systemd enablement.
+- No stale-claim stealing, follow-up issue creation, or systemd enablement.
+- Review-fix mutation remains off unless a separate explicit low-risk
+  approval also sets `allowReviewFixMutation: true` with a positive
+  `maxReviewFixCycles`.
 
 The only accepted auto-merge canary issue contracts are non-empty safe subsets
 of the approved low-risk prefixes: `workflow-docs-tooling` may use
@@ -339,6 +343,39 @@ alerts, stale PR heads, base mismatch, dirty worktrees, and issue-state
 mismatches remain blocking gates. This max-2 path exists only to prove the
 live auto-merge gates on two bounded low-risk issues after a separate explicit
 task creates and runs that canary.
+
+Low-risk review-fix mutation foundation:
+
+Review-fix mutation can only be considered in the same bounded low-risk canary
+shape as auto-merge: `--run --canary`, external config,
+`trustedRealRunCanaryApproved: true`, `trustedRealRunApproved: false`,
+`lowRiskAutoMergeCanaryApproved: true`, `allowAutoMerge: true`,
+`allowReviewFixMutation: true`, and a positive `maxReviewFixCycles`. Values
+above one are clamped to one attempt. It cannot mix with stale-claim stealing,
+follow-up issue creation, systemd enablement, broad trusted real-run approval,
+dangerous lanes, stop labels, broad root paths, `**`, `docs/**`, traversal,
+generated clients, secrets/env files, product/runtime/API/auth/session/
+security/storage/privacy/money/settlement/schema/OpenAPI/Docker/deployment/
+public/admin/mobile/OCR/sync/import/export/backup/restore scope, or files
+outside the issue contract.
+
+The trigger must be structured and actionable: integrated Gemini must return a
+bounded strict-JSON blocking finding, or Codex mechanics review must return
+`changes_requested` with `recommended_next_action: "run_safe_fix_cycle"` and
+blocking findings. Malformed review output, provider/accounting/key failures,
+unsupported models, budget hard stops, non-actionable findings, code scanning,
+GitHub checks, unresolved review threads, manual blocker comments, dirty or
+stale branch/base/head state, and dangerous paths fail closed without a fix.
+
+When a fix attempt is allowed, the prompt includes only sanitized finding
+summaries and the issue contract authority, restricts Codex to the current
+branch and exact `allowedPaths`, and prohibits unrelated cleanup, broad
+refactors, generated-client edits, secrets/env files, product/runtime/security/
+money/schema/OpenAPI changes, pushes, PR updates, GitHub comments, merges,
+branch deletion, and live provider calls. After the attempt, the runner reruns
+changed-file policy checks, local validation, integrated Gemini when
+configured, and Codex mechanics review. Evidence is written only under
+`/workspace/logs/settleora-auto-runner/review-fix/`.
 
 Summary mode:
 

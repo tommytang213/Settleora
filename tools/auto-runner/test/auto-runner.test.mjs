@@ -8,6 +8,7 @@ import { parseCliArgs, loadConfig } from "../lib/config.mjs";
 import {
   evaluateCanaryIssuePolicy,
   evaluateLowRiskAutoMergeCanaryApproval,
+  evaluateReviewFixMutationApproval,
   evaluateTrustPolicy,
   writeCanaryEvidence,
 } from "../lib/canary-policy.mjs";
@@ -48,6 +49,10 @@ import {
   normalizeAutoMergeWait,
   writeAutoMergeEvidence,
 } from "../lib/auto-merge-policy.mjs";
+import {
+  evaluateReviewFixMutationDecision,
+  normalizeReviewFixMutationConfig,
+} from "../lib/review-fix-policy.mjs";
 
 const baseConfig = {
   dryRun: true,
@@ -139,6 +144,134 @@ test("canary real-run allows auto-merge only for explicit external max-2 low-ris
   const tooMany = evaluateTrustPolicy({ ...approved, requestedMaxIterations: 3, maxIterations: 2 });
   assert.equal(tooMany.allowed, false);
   assert.match(tooMany.reason, /maxIterations must be <= 2/);
+});
+
+test("review-fix mutation defaults off and clamps explicit low-risk approval to one attempt", () => {
+  const defaults = normalizeReviewFixMutationConfig({});
+  assert.equal(defaults.enabled, false);
+  assert.equal(defaults.maxAttempts, 0);
+
+  const approved = {
+    ...loadConfig({
+      ...parseCliArgs(["--run", "--canary", "--max-iterations", "1"]),
+      configPath: null,
+    }),
+    configPath: "/workspace/logs/settleora-auto-runner/local-review-fix.json",
+    trustedRealRunCanaryApproved: true,
+    trustedRealRunApproved: false,
+    lowRiskAutoMergeCanaryApproved: true,
+    allowAutoMerge: true,
+    allowReviewFixMutation: true,
+    maxReviewFixCycles: 99,
+  };
+  const normalized = normalizeReviewFixMutationConfig(approved);
+  assert.equal(normalized.enabled, true);
+  assert.equal(normalized.maxAttempts, 1);
+  const approval = evaluateReviewFixMutationApproval(approved);
+  assert.equal(approval.approved, true);
+  assert.equal(approval.mode, "approved_clamped");
+
+  const trust = evaluateTrustPolicy({ ...approved, reviewFixMutation: normalized, maxReviewFixCycles: normalized.maxAttempts });
+  assert.equal(trust.allowed, true);
+  assert.equal(trust.reviewFixMutationApproval.approved, true);
+});
+
+test("review-fix mutation decision requires actionable low-risk auto-merge contract and safe files", () => {
+  const issue = {
+    number: 900,
+    title: "Review fix canary",
+    labels: ["auto-canary-ready"],
+    url: "https://example.invalid/issues/900",
+  };
+  const laneDecision = reviewFixLaneDecision({
+    allowedPaths: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+  });
+  const config = {
+    configPath: "/workspace/logs/settleora-auto-runner/local-review-fix.json",
+    allowReviewFixMutation: true,
+    allowAutoMerge: true,
+    lowRiskAutoMergeCanaryApproved: true,
+    trustedRealRunCanaryApproved: true,
+    trustedRealRunApproved: false,
+    allowFollowupIssueCreation: false,
+    allowStaleClaimSteal: false,
+    allowSystemdEnablement: false,
+    maxReviewFixCycles: 1,
+  };
+  const decision = evaluateReviewFixMutationDecision({
+    config: { ...config, reviewFixMutation: normalizeReviewFixMutationConfig(config) },
+    issue,
+    laneDecision,
+    changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+    validation: { passed: true },
+    review: {
+      verdict: {
+        verdict: "changes_requested",
+        recommended_next_action: "run_safe_fix_cycle",
+        blocking_findings: ["Tighten the policy guard."],
+      },
+    },
+  });
+  assert.equal(decision.allowed, true);
+  assert.equal(decision.reason, "review_fix_mutation_gates_passed");
+
+  const broad = evaluateReviewFixMutationDecision({
+    config: { ...config, reviewFixMutation: normalizeReviewFixMutationConfig(config) },
+    issue,
+    laneDecision: reviewFixLaneDecision({ allowedPaths: ["docs/**"] }),
+    changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+    validation: { passed: true },
+    review: {
+      verdict: {
+        verdict: "changes_requested",
+        recommended_next_action: "run_safe_fix_cycle",
+        blocking_findings: ["Fix docs."],
+      },
+    },
+  });
+  assert.match(broad.reason, /unsafe_contract_allowed_path/);
+});
+
+test("review-fix mutation blocks stop labels, broad trusted run, and non-actionable reviewer output", () => {
+  const config = {
+    configPath: "/workspace/logs/settleora-auto-runner/local-review-fix.json",
+    allowReviewFixMutation: true,
+    allowAutoMerge: true,
+    lowRiskAutoMergeCanaryApproved: true,
+    trustedRealRunCanaryApproved: true,
+    trustedRealRunApproved: false,
+    maxReviewFixCycles: 1,
+    reviewFixMutation: { enabled: true, maxAttempts: 1 },
+  };
+  const common = {
+    config,
+    issue: { number: 901, title: "Review fix blocked", labels: [], url: "https://example.invalid/issues/901" },
+    laneDecision: reviewFixLaneDecision({ allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"] }),
+    changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+    validation: { passed: true },
+    review: {
+      verdict: {
+        verdict: "changes_requested",
+        recommended_next_action: "run_safe_fix_cycle",
+        blocking_findings: ["Fix the review finding."],
+      },
+    },
+  };
+  assert.match(evaluateReviewFixMutationDecision({ ...common, issue: { ...common.issue, labels: ["blocked"] } }).reason, /issue_stop_label/);
+  assert.equal(evaluateReviewFixMutationDecision({ ...common, config: { ...config, trustedRealRunApproved: true } }).reason, "review_fix_refuses_broad_trusted_real_run");
+  assert.match(
+    evaluateReviewFixMutationDecision({
+      ...common,
+      review: {
+        verdict: {
+          verdict: "unable_to_review",
+          recommended_next_action: "mark_auto_failed",
+          blocking_findings: ["Malformed output."],
+        },
+      },
+    }).reason,
+    /codex_review_not_actionable/,
+  );
 });
 
 test("preflight reports trusted run and canary refusal state", () => {
@@ -2946,4 +3079,31 @@ function reviewVerdictJson(overrides = {}) {
     recommended_next_action: "open_pr",
     ...overrides,
   });
+}
+
+function reviewFixLaneDecision({ allowedPaths }) {
+  return {
+    lane: "workflow-docs-tooling",
+    allowedToImplement: true,
+    manualGate: false,
+    dangerGate: false,
+    dangerReasons: [],
+    contract: {
+      contractVersion: 1,
+      lane: "workflow-docs-tooling",
+      allowedPaths,
+      validationProfile: "workflow-tooling",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+      requiredReading: ["PROGRAM_ARCHITECTURE.md"],
+    },
+    allowedPaths,
+    laneManifestAllowedPaths: ["tools/auto-runner/**", "docs/workflow/**", "scripts/ai/**"],
+    validationProfile: "workflow-tooling",
+    manualMergeRequired: false,
+    autoMergeEligible: true,
+    prCreationAllowed: true,
+    followupIssueCreationAllowed: false,
+    reviewFixMutationAllowed: false,
+  };
 }

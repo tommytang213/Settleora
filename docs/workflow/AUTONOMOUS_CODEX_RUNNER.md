@@ -364,11 +364,15 @@ Implemented lanes:
   `tools/auto-runner/**`, `docs/workflow/**`, and `scripts/ai/**`.
   Auto-merge is disabled by default and can only be attempted when external
   config and the issue contract explicitly opt into the low-risk lane gates.
-  Follow-up issue creation and review-fix mutation remain disabled.
+  Follow-up issue creation remains disabled. Review-fix mutation remains
+  disabled by default and can only be considered through the separate
+  low-risk foundation below.
 - `docs-planning`: implementation and PR creation are allowed for planning and
   QA/reporting docs under `docs/planning/**` and `docs/qa/**`. Auto-merge is
   disabled by default and can only be attempted through the same low-risk lane
-  gates. Follow-up issue creation and review-fix mutation remain disabled.
+  gates. Follow-up issue creation remains disabled. Review-fix mutation
+  remains disabled by default and can only be considered through the separate
+  low-risk foundation below.
 
 Disabled/manual-gated placeholder lanes exist for product runtime,
 security runtime, storage/privacy, money/settlement, schema/migrations,
@@ -464,6 +468,63 @@ pilot exercised the integrated Gemini pre-PR gate through the DevBox
 auto-runner path for a low-risk workflow-docs task. This was a bounded pilot
 only; it did not approve overnight operation, auto-merge, stale-claim stealing,
 follow-up issue creation, review-fix mutation, or systemd enablement.
+
+## Low-Risk Review-Fix Mutation Foundation
+
+Review-fix mutation remains disabled in built-in defaults:
+`allowReviewFixMutation: false` and `maxReviewFixCycles: 0`. Pathological
+external values are normalized to a safe maximum of one attempt. A fix attempt
+requires an external, uncommitted config path and the bounded low-risk canary
+approval shape: `--run --canary`, `trustedRealRunCanaryApproved: true`,
+`trustedRealRunApproved: false`, `lowRiskAutoMergeCanaryApproved: true`,
+`allowAutoMerge: true`, `allowReviewFixMutation: true`, and
+`maxReviewFixCycles` greater than zero. It cannot be mixed with stale-claim
+stealing, follow-up issue creation, systemd enablement, or broad trusted
+real-run approval.
+
+The first eligible lanes are only `workflow-docs-tooling` and `docs-planning`.
+The issue contract must set `autoMergeEligible: true` and
+`manualMergeRequired: false`, and changed files must remain inside the exact
+contract `allowedPaths` plus low-risk lane prefixes. Broad root paths, `**`,
+`docs/**`, traversal, generated clients, `scripts/ai/**`, product/runtime,
+API, auth/session/security, storage/privacy, money/settlement, schema/
+migration, OpenAPI/generated-client, Docker/deployment/env/secret, public/
+admin, mobile, OCR, sync, import/export, backup/restore, stop labels, dirty or
+stale branches, and missing local validation remain fail-closed blockers.
+
+A review-fix attempt is considered only after local validation has passed and a
+structured actionable review result blocks PR creation: either integrated
+Gemini returns a strict JSON non-pass finding with bounded findings, or Codex
+mechanics review returns `changes_requested` with
+`recommended_next_action: "run_safe_fix_cycle"` and bounded blocking findings.
+Malformed reviewer output, missing output, provider/accounting/secret-boundary
+failures, unsupported models, budget hard stops, non-actionable findings,
+GitHub checks/code-scanning/review-thread failures, manual blocker comments,
+and dangerous lane/path/scope do not trigger mutation.
+
+The fix prompt uses the issue contract as authority, includes only sanitized
+finding summaries, restricts Codex to the existing branch and exact
+`allowedPaths`, and prohibits broad refactors, unrelated cleanup, generated
+client edits, secrets/env files, product/runtime/security/money/schema/
+OpenAPI changes, pushes, PR updates, GitHub comments, merges, branch deletion,
+and live provider calls. The runner still owns explicit-path staging; no
+`git add .` rule is relaxed.
+
+After a fix attempt, the runner rechecks changed files against the contract,
+reruns local validation, reruns integrated Gemini when configured, reruns Codex
+mechanics review, and fails closed if any review remains blocking. Sanitized
+attempt evidence is written under:
+
+```text
+/workspace/logs/settleora-auto-runner/review-fix/
+```
+
+Evidence records issue/lane, branch and SHA context, changed files before and
+after, reviewer source, sanitized findings, validation and review before/after,
+whether a fix attempt happened, stop reason, whether PR/merge eligibility
+continued, and a secret-boundary confirmation. Provider payloads, tokens,
+`reviewer.env` values, authorization headers, raw local config data, and
+secrets must not be logged, prompted, commented, or committed.
 
 ## Low-Risk Auto-Merge Foundation
 
