@@ -81,7 +81,8 @@ export function evaluateAutoMergeDecision(input) {
   const codexReviewHead = input.review?.reviewedHead || input.review?.headSha || null;
   if (!codexReviewHead) return block("codex_mechanics_review_head_missing");
   if (codexReviewHead && codexReviewHead !== (actualHeadSha || expectedHeadSha)) return block("codex_mechanics_review_head_mismatch");
-  if (input.review?.changedFiles && !sameStringSet(input.review.changedFiles, changedFiles)) {
+  if (!Array.isArray(input.review?.changedFiles)) return block("codex_mechanics_review_files_missing");
+  if (!sameStringSet(input.review.changedFiles, changedFiles)) {
     return block("codex_mechanics_review_files_mismatch");
   }
   if (!input.validation?.passed) return block("local_validation_not_passed");
@@ -150,11 +151,10 @@ export function evaluateExistingPrRecoveryDecision(input) {
   if (evidence.codexMechanicsApproved && evidence.codexMechanicsHeadSha && evidence.codexMechanicsHeadSha !== result.prHeadSha) {
     return block("existing_pr_recovery_codex_review_head_mismatch");
   }
-  if (
-    evidence.codexMechanicsApproved &&
-    Array.isArray(evidence.codexMechanicsChangedFiles) &&
-    !sameStringSet(evidence.codexMechanicsChangedFiles, changedFiles)
-  ) {
+  if (evidence.codexMechanicsApproved && !Array.isArray(evidence.codexMechanicsChangedFiles)) {
+    return block("existing_pr_recovery_codex_review_files_missing");
+  }
+  if (evidence.codexMechanicsApproved && !sameStringSet(evidence.codexMechanicsChangedFiles, changedFiles)) {
     return block("existing_pr_recovery_codex_review_files_mismatch");
   }
   if (changedFiles.length === 0) return block("existing_pr_recovery_missing_changed_files");

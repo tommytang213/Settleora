@@ -752,7 +752,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
         ? {
             verdict: { verdict: "approve" },
             reviewedHead: exactHeadEvidence.codexMechanicsHeadSha || exactHeadEvidence.headSha || null,
-            changedFiles: exactHeadEvidence.codexMechanicsChangedFiles || changedFiles,
+            changedFiles: exactHeadEvidence.codexMechanicsChangedFiles,
             logPath: exactHeadEvidence.codexMechanicsEvidencePath || null,
           }
         : null),

@@ -2541,6 +2541,17 @@ test("stale PR head and base mismatch block auto-merge", () => {
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ currentOriginMainSha: "base-new" })).reason, "origin_main_base_mismatch");
 });
 
+test("auto-merge requires Codex mechanics review changed-file metadata", () => {
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        review: { verdict: { verdict: "approve" }, reviewedHead: "head123" },
+      }),
+    ).reason,
+    "codex_mechanics_review_files_missing",
+  );
+});
+
 test("pending/failing checks, review threads, code scanning alerts, and issue stop labels block auto-merge", () => {
   assert.equal(
     evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "IN_PROGRESS", conclusion: null }] })).reason,
@@ -2946,6 +2957,21 @@ test("existing client-ui-low-risk PR recovery requires independent Gemini and Co
       exactHeadEvidence: { ...base.exactHeadEvidence, geminiChangedFiles: ["apps/mobile/test/ui/other_test.dart"] },
     }).reason,
     "existing_pr_recovery_gemini_files_mismatch",
+  );
+  assert.equal(
+    evaluateExistingPrRecoveryDecision({
+      ...base,
+      exactHeadEvidence: { ...base.exactHeadEvidence, codexMechanicsChangedFiles: undefined },
+      review: { verdict: { verdict: "approve" }, reviewedHead: "head123" },
+    }).reason,
+    "existing_pr_recovery_codex_review_files_missing",
+  );
+  assert.equal(
+    evaluateExistingPrRecoveryDecision({
+      ...base,
+      exactHeadEvidence: { ...base.exactHeadEvidence, codexMechanicsChangedFiles: ["apps/mobile/test/ui/other_test.dart"] },
+    }).reason,
+    "existing_pr_recovery_codex_review_files_mismatch",
   );
 });
 
@@ -3551,6 +3577,7 @@ function autoMergeContext(overrides = {}) {
 }
 
 function existingPrRecoveryContext(overrides = {}) {
+  const changedFiles = overrides.changedFiles || ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"];
   const pr = {
     number: 828,
     url: "https://github.com/tommytang213/Settleora/pull/828",
@@ -3584,7 +3611,7 @@ function existingPrRecoveryContext(overrides = {}) {
         autoMergeEligible: true,
       },
     }),
-    changedFiles: overrides.changedFiles || ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    changedFiles,
     changedFilesExactlyMatchAllowedPaths: overrides.changedFilesExactlyMatchAllowedPaths ?? true,
     pr,
     expectedHeadSha: overrides.expectedHeadSha || "head123",
@@ -3601,8 +3628,10 @@ function existingPrRecoveryContext(overrides = {}) {
       validationPassed: true,
       geminiPass: true,
       geminiHeadSha: "head123",
+      geminiChangedFiles: changedFiles,
       codexMechanicsApproved: true,
       codexMechanicsHeadSha: "head123",
+      codexMechanicsChangedFiles: changedFiles,
     },
   };
 }
