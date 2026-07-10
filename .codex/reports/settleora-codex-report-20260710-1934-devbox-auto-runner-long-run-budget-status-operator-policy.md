@@ -1,10 +1,10 @@
 # Settleora Codex Report - DevBox Auto-Runner Long-Run Budget Status + Operator Policy
 
-- Status: `pr_opened` after PR creation; initial report commit prepared before PR URL existed.
+- Status: `pr_opened`
 - Branch: `feature/devbox-auto-runner-long-run-budget-status-20260710-1934`
 - Base commit: `bd81cf72d9858a861817429351e9fbf4242b29c8`
-- Commit SHA: pending final PR URL update
-- PR URL: pending final PR creation
+- Implementation commit SHA: `308e4b292561455ffaf433e7483111cb9077f191`
+- PR URL: `https://github.com/tommytang213/Settleora/pull/845`
 
 ## Files Changed
 
