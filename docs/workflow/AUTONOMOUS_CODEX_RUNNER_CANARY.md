@@ -75,3 +75,22 @@ runtime behavior.
   storage/privacy, money/settlement/bill calculation, schema/migration,
   OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
   release change is intended by this canary entry.
+
+## 2026-07-10 Issue 835
+
+- Source issue: `#835` - Review-fix fixture canary: workflow docs checkpoint.
+- Generated task key: `20260710T071153`.
+- Branch:
+  `feature/auto-835-review-fix-fixture-canary-workflow-docs--2026-07-10t0711`.
+- Lane: `workflow-docs-tooling`.
+- Allowed path: `docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md`.
+- Validation profile: `docs-only`.
+- Merge policy: bounded low-risk canary auto-merge eligible after runner-owned
+  review, validation, PR creation, CI, and auto-merge gates.
+- Canary checkpoint: this issue exercises the deterministic review-fix fixture
+  path for low-risk review-fix mutation after PR `#834`.
+- Review-fix canary marker: `review-fix-cycle-completed`.
+- Forbidden-scope confirmation: no product runtime, API, auth/session/security,
+  storage/privacy, money/settlement/bill calculation, schema/migration,
+  OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
+  release change is intended by this canary entry.
