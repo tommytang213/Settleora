@@ -495,6 +495,64 @@ void main() {
   });
 
   testWidgets(
+    'SummaryCard groups title value and caption without duplicate labels',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: const Scaffold(
+            body: SummaryCard(
+              icon: Icons.summarize_outlined,
+              title: 'Total due',
+              value: 'HKD 128.00',
+              caption: 'Across two bills',
+              variant: SettleoraSurfaceVariant.info,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.summarize_outlined), findsOneWidget);
+      expect(find.text('Total due'), findsOneWidget);
+      expect(find.text('HKD 128.00'), findsOneWidget);
+      expect(find.text('Across two bills'), findsOneWidget);
+
+      final semanticsHandle = tester.ensureSemantics();
+      _expectStaticSemanticsLabel(
+        tester,
+        'Total due, HKD 128.00, Across two bills',
+      );
+      _expectNoSemanticsLabel(tester, 'Total due');
+      _expectNoSemanticsLabel(tester, 'HKD 128.00');
+      _expectNoSemanticsLabel(tester, 'Across two bills');
+      semanticsHandle.dispose();
+    },
+  );
+
+  testWidgets('SummaryCard omits absent caption from static semantics', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: SummaryCard(title: 'You owe', value: 'HKD 42.00'),
+        ),
+      ),
+    );
+
+    expect(find.byType(Icon), findsNothing);
+    expect(find.text('You owe'), findsOneWidget);
+    expect(find.text('HKD 42.00'), findsOneWidget);
+
+    final semanticsHandle = tester.ensureSemantics();
+    _expectStaticSemanticsLabel(tester, 'You owe, HKD 42.00');
+    _expectNoSemanticsLabel(tester, 'You owe');
+    _expectNoSemanticsLabel(tester, 'HKD 42.00');
+    semanticsHandle.dispose();
+  });
+
+  testWidgets(
     'AppButton label-only enabled state exposes one actionable button label',
     (tester) async {
       var taps = 0;
