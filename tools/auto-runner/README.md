@@ -377,6 +377,15 @@ changed-file policy checks, local validation, integrated Gemini when
 configured, and Codex mechanics review. Evidence is written only under
 `/workspace/logs/settleora-auto-runner/review-fix/`.
 
+For the post-fix Codex mechanics review, the runner writes a dedicated
+`post-review-fix-mechanics` review package. That package marks the initial
+implementation report as `pre_fix_report` and stale background, includes the
+structured finding that triggered the fix, the review-fix decision, changed
+files before/after, post-fix validation results, and the final integrated
+review or fixture pass status. The runner fails closed before mechanics review
+if that post-fix evidence is missing, malformed, or not tied to the current
+issue, head, or changed-file list.
+
 Review-fix canary fixture:
 
 A deterministic review-fix canary fixture exists only for a future one-issue

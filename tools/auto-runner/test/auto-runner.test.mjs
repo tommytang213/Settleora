@@ -50,6 +50,7 @@ import {
   writeAutoMergeEvidence,
 } from "../lib/auto-merge-policy.mjs";
 import {
+  buildPostReviewFixMechanicsContext,
   evaluateReviewFixMutationDecision,
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
@@ -334,6 +335,110 @@ test("review-fix canary fixture evidence is sanitized and omits raw marker and s
     rmSync(tempRoot, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });
   }
+});
+
+test("post-review-fix mechanics context labels stale initial report and prioritizes final fixture pass", () => {
+  const context = buildPostReviewFixMechanicsContext({
+    issue: { number: 835, title: "Review-fix fixture canary", url: "https://example.invalid/835" },
+    laneDecision: { lane: "workflow-docs-tooling" },
+    trigger: {
+      actionable: true,
+      source: "review_fix_canary_fixture",
+      verdict: "fail",
+      findings: ["Configured review-fix canary fixture marker is absent."],
+    },
+    decision: {
+      allowed: true,
+      reason: "review_fix_mutation_gates_passed",
+      maxAttempts: 1,
+      attemptCount: 0,
+    },
+    changedFilesBefore: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    changedFilesAfter: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    forbiddenChangedFilesAfter: [],
+    validationAfter: {
+      passed: true,
+      results: [{ command: "npm run validate:docs", status: 0 }],
+    },
+    externalReviewAfter: {
+      status: "pass",
+      reason: "review_fix_canary_fixture_marker_present",
+      verdict: "pass",
+      provider: "review_fix_canary_fixture",
+      tier: "review_fix_canary_fixture",
+      phase: "post-fix",
+      markerId: "review-fix-cycle-completed",
+      findingCount: 0,
+      reviewedHead: "abc123",
+      changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+      issue: { number: 835 },
+    },
+    preFixReport: {
+      found: true,
+      expectedPath: ".codex/reports/initial.md",
+      copyPath: "/workspace/logs/settleora-auto-runner/reports/initial.md",
+      statusMentioned: true,
+      summary: "Initial implementation report says the marker was not added.",
+    },
+    currentHead: "abc123",
+  });
+
+  assert.equal(context.ok, true);
+  assert.equal(context.context.phase, "post_review_fix_mechanics");
+  assert.equal(context.context.authoritativeStatus, "post_fix_validation_and_final_review_passed");
+  assert.equal(context.context.preFixReport.role, "pre_fix_report");
+  assert.equal(context.context.preFixReport.staleAfterReviewFix, true);
+  assert.match(context.context.preFixReport.reviewerInstruction, /background only/);
+  assert.equal(context.context.finalIntegratedReview.status, "pass");
+  assert.equal(context.context.finalIntegratedReview.markerId, "review-fix-cycle-completed");
+  assert.match(context.context.reviewerInstruction, /Do not fail solely because preFixReport/);
+  assert.doesNotMatch(JSON.stringify(context.context), /review-fix-cycle: completed/);
+});
+
+test("post-review-fix mechanics context fails closed without current final review evidence", () => {
+  const base = {
+    issue: { number: 835, title: "Review-fix fixture canary" },
+    laneDecision: { lane: "workflow-docs-tooling" },
+    trigger: { actionable: true, source: "review_fix_canary_fixture", verdict: "fail", findings: ["marker absent"] },
+    decision: { allowed: true, reason: "review_fix_mutation_gates_passed" },
+    changedFilesBefore: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    changedFilesAfter: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    forbiddenChangedFilesAfter: [],
+    validationAfter: { passed: true, results: [] },
+    currentHead: "abc123",
+  };
+
+  const missing = buildPostReviewFixMechanicsContext(base);
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reason, "post_fix_context_missing_final_integrated_review");
+
+  const staleHead = buildPostReviewFixMechanicsContext({
+    ...base,
+    externalReviewAfter: {
+      status: "pass",
+      reason: "review_fix_canary_fixture_marker_present",
+      verdict: "pass",
+      changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+      issue: { number: 835 },
+      reviewedHead: "stale",
+    },
+  });
+  assert.equal(staleHead.ok, false);
+  assert.equal(staleHead.reason, "post_fix_context_final_review_head_mismatch");
+
+  const wrongFiles = buildPostReviewFixMechanicsContext({
+    ...base,
+    externalReviewAfter: {
+      status: "pass",
+      reason: "review_fix_canary_fixture_marker_present",
+      verdict: "pass",
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      issue: { number: 835 },
+      reviewedHead: "abc123",
+    },
+  });
+  assert.equal(wrongFiles.ok, false);
+  assert.equal(wrongFiles.reason, "post_fix_context_final_review_files_mismatch");
 });
 
 test("review-fix mutation decision requires actionable low-risk auto-merge contract and safe files", () => {
