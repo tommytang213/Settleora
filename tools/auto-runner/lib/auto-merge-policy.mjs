@@ -4,6 +4,7 @@ import path from "node:path";
 import { safeTimestamp } from "./logger.mjs";
 import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
+import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const autoMergeStopLabels = Object.freeze([
@@ -11,6 +12,12 @@ export const autoMergeStopLabels = Object.freeze([
   "manual-gate",
   "danger-gate",
   "blocked",
+  "auto-failed",
+]);
+export const transientIssueLifecycleLabels = Object.freeze([
+  "auto-running",
+  "auto-claimed",
+  "auto-pr-opened",
   "auto-failed",
 ]);
 
@@ -46,6 +53,7 @@ export function evaluateAutoMergeDecision(input) {
     expectedHeadSha,
     mergeSha: null,
     issueClosureResult: null,
+    issueLabelCleanupResult: null,
   };
 
   const block = (reason) => ({ ...result, reason });
@@ -288,7 +296,13 @@ export function executeAutoMerge(config, context, options = {}) {
     return { ...decision, evidence: writeAutoMergeEvidence(config, decision, context) };
   }
   if (config.dryRun) {
-    const dryRun = { ...decision, attempted: false, result: "dry_run_eligible", reason: "dry_run_no_merge" };
+    const dryRun = {
+      ...decision,
+      attempted: false,
+      result: "dry_run_eligible",
+      reason: "dry_run_no_merge",
+      issueLabelCleanupResult: cleanupIssueLifecycleLabels(config, context, runner),
+    };
     return { ...dryRun, evidence: writeAutoMergeEvidence(config, dryRun, context) };
   }
 
@@ -301,6 +315,7 @@ export function executeAutoMerge(config, context, options = {}) {
 
   const mergeSha = context.mergeSha || readMergeSha(runner, config.repoRoot, prNumber);
   const branchRestore = restoreSourceBranchIfDeleted(config, context, runner);
+  const issueLabelCleanupResult = cleanupIssueLifecycleLabels(config, context, runner);
   const closeIssue = runner("gh", ["issue", "close", String(context.issue.number), "--reason", "completed"], { cwd: config.repoRoot });
   const prComment = runner("gh", ["pr", "comment", String(prNumber), "--body", mergeSummaryBody(context, mergeSha)], { cwd: config.repoRoot });
   const issueComment = runner("gh", ["issue", "comment", String(context.issue.number), "--body", issueSummaryBody(context, mergeSha)], {
@@ -313,6 +328,7 @@ export function executeAutoMerge(config, context, options = {}) {
     reason: "github_merge_commit_completed",
     mergeSha,
     sourceBranchRestoration: branchRestore,
+    issueLabelCleanupResult,
     issueClosureResult: closeIssue.status === 0 && !closeIssue.error ? "closed_completed" : "close_failed",
     comments: {
       pr: commandStatus(prComment),
@@ -646,6 +662,83 @@ function commandStatus(result) {
   return { status: result.status, error: result.error || null };
 }
 
+export function cleanupIssueLifecycleLabels(config, context, runner = defaultRunner) {
+  const issueNumber = context.issue?.number;
+  const base = {
+    issueNumber: issueNumber || null,
+    transientAllowlist: [...transientIssueLifecycleLabels],
+    labelsFound: [],
+    labelsRemoved: [],
+    status: "skipped",
+    commandStatus: null,
+    failureReason: null,
+    dryRun: Boolean(config.dryRun),
+  };
+  if (!issueNumber) return { ...base, failureReason: "missing_issue_number" };
+  if (config.dryRun) {
+    const labelsFound = labelNames(context.issue?.labels || []);
+    const labelsRemoved = labelsFound.filter((label) => transientIssueLifecycleLabels.includes(label));
+    return {
+      ...base,
+      labelsFound,
+      labelsRemoved,
+      status: "dry_run_preview",
+      commandStatus: { view: { status: 0, error: null }, remove: { status: null, error: null } },
+    };
+  }
+
+  const view = runner("gh", ["issue", "view", String(issueNumber), "--json", "labels"], { cwd: config.repoRoot });
+  if (view.error || view.status !== 0) {
+    return {
+      ...base,
+      status: "failed",
+      commandStatus: { view: commandStatus(view), remove: null },
+      failureReason: bounded(view.stderr || view.stdout || view.error || "issue_label_view_failed"),
+    };
+  }
+  let labelsFound = [];
+  try {
+    labelsFound = labelNames(JSON.parse(view.stdout || "{}").labels || []);
+  } catch (error) {
+    return {
+      ...base,
+      status: "failed",
+      commandStatus: { view: commandStatus(view), remove: null },
+      failureReason: `issue_label_view_parse_failed:${bounded(error.message, 240)}`,
+    };
+  }
+  const labelsRemoved = labelsFound.filter((label) => transientIssueLifecycleLabels.includes(label));
+  if (labelsRemoved.length === 0) {
+    return {
+      ...base,
+      labelsFound,
+      labelsRemoved,
+      status: "passed_noop",
+      commandStatus: { view: commandStatus(view), remove: { status: null, error: null } },
+    };
+  }
+  const remove = runner("gh", ["issue", "edit", String(issueNumber), "--remove-label", labelsRemoved.join(",")], {
+    cwd: config.repoRoot,
+  });
+  if (remove.error || remove.status !== 0) {
+    return {
+      ...base,
+      labelsFound,
+      labelsRemoved: [],
+      status: "failed",
+      commandStatus: { view: commandStatus(view), remove: commandStatus(remove) },
+      failureReason: bounded(remove.stderr || remove.stdout || remove.error || "issue_label_remove_failed"),
+    };
+  }
+  return {
+    ...base,
+    labelsFound,
+    labelsRemoved,
+    status: "passed",
+    commandStatus: { view: commandStatus(view), remove: commandStatus(remove) },
+  };
+}
+
 function labelNames(labels) {
   return labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean);
 }
@@ -674,12 +767,7 @@ function normalizeIssueNumber(issueNumber) {
 }
 
 function sanitizeEvidence(value) {
-  return JSON.parse(
-    JSON.stringify(value).replace(
-      /(GEMINI_API_KEY|authorization|x-goog-api-key|bearer\s+[A-Za-z0-9._~+/-]+|api[_-]?key|secret|token)/gi,
-      "[REDACTED]",
-    ),
-  );
+  return sanitizePersistedEvidence(value);
 }
 
 function bounded(value, max = 1000) {

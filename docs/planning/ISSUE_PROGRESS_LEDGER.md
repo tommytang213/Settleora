@@ -20,6 +20,61 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#847 - Auto-runner evidence and label hygiene checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained open as the broader DevBox-native unattended runner
+    foundation tracker.
+  - #847 was closed completed after PR #849 recovery acceptance.
+  - PR #849 was merged to `main` with merge SHA
+    `0069c132fc68e82deb4011a680d2e907441da956`.
+  - Accepted recovery run: `run-2026-07-10T150413Z`, one iteration,
+    fresh exact-head Gemini pass, fresh exact-head Codex mechanics approve,
+    local validation passed, runner inactive, and lock absent.
+  - #301, #372, and #800 remained open.
+- This tooling slice:
+  - Adds a shared persisted-evidence sanitizer for new run summary JSON,
+    iteration-state JSON, active-run/status JSON, recent summaries, Markdown
+    summaries, canary evidence, auto-merge evidence, and run/event readback.
+  - Keeps raw Codex/Gemini/model/provider payloads, selected response
+    payloads, prompts, stdout/stderr, and full diffs in dedicated local
+    evidence files only; summaries/state now persist sanitized metadata and
+    evidence paths.
+  - New readback surfaces sanitize old local summary/state files before
+    re-emitting or rolling them up; historical local evidence is not rewritten
+    automatically.
+  - Successful auto-merge now re-reads issue labels after merge and removes
+    only present transient lifecycle labels from `auto-running`,
+    `auto-claimed`, `auto-pr-opened`, and `auto-failed`.
+  - Merge success remains authoritative if post-merge label cleanup, issue
+    closure, or comments fail; cleanup/closure/comment results are recorded
+    independently in sanitized evidence.
+- One-time #847 cleanup:
+  - Before cleanup, #847 labels were `area:mobile-ui`, `auto-canary-ready`,
+    `canary`, `workflow`, `auto-claimed`, and `auto-running`.
+  - Removed only stale transient labels `auto-claimed` and `auto-running`.
+  - After cleanup, #847 labels were `area:mobile-ui`,
+    `auto-canary-ready`, `canary`, and `workflow`.
+  - Cleanup comment:
+    `https://github.com/tommytang213/Settleora/issues/847#issuecomment-4936838895`.
+  - #847 issue state and accepted PR #849 recovery state were not changed.
+- Issue posture:
+  keep #800 open for broader trusted unattended operation, explicit 99 PR /
+  240h approval, systemd/service enablement, stale-claim policy, expanded
+  lanes, follow-up issue creation, review-fix expansion, and any future broad
+  runner approvals. This checkpoint does not start or approve a broad,
+  overnight, 99 PR, or 240h run.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, runner/workflow docs,
+  and this ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/
+  deployment/env, secrets, production deploy, mobile release, public/admin
+  exposure, stale-claim stealing, follow-up issue creation, systemd
+  enablement, branch deletion, force push, direct main push, live canary
+  execution, broad/99PR/240h run, or provider secret changes.
+
 ### Issue #800 - Exact-head review and existing-PR recovery hardening checkpoint
 
 - GitHub state/project status at task start:

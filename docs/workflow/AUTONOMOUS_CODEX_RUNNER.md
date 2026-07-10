@@ -69,8 +69,16 @@ reason, last event time, summary/report/log paths, and active control flags.
 `--json` also exposes `maxPrs`, `completedPrs`, and `estimatedRemainingPrs`
 aliases for the same iteration budget used by current canary/trusted runner
 loops. It must remain sanitized: no provider payloads, raw Gemini output,
-environment variables, API keys, authorization headers, `.env` values, or
-secrets.
+raw Codex mechanics output, provider request/response bodies, environment
+variables, API keys, authorization headers, `.env` values, or secrets. Run
+summaries, iteration state, active-run state, recent summaries, and event
+listings persist sanitized metadata plus evidence paths only. Raw model
+output, selected response payloads, prompts, stdout/stderr, full diffs, and
+provider payloads belong in dedicated local evidence files under the approved
+`/workspace/logs/settleora-auto-runner/` subdirectories. Historical local
+summary/state files are operator-controlled evidence and are not
+automatically rewritten by newer runner versions; new readback surfaces
+sanitize old files before re-emitting them.
 
 Recent run and event inspection is local and read-only:
 
@@ -761,12 +769,24 @@ alerts, no issue stop labels, no blocking comments/reviews, and the unchanged
 expected PR head. Missing or stale evidence fails closed.
 
 Successful auto-merge closes the linked issue as completed and posts concise
-sanitized PR/issue comments. Blocked auto-merge leaves the PR and issue open,
-records a terminal runner outcome, and writes sanitized local evidence under
+sanitized PR/issue comments only after the merge succeeds. After a successful
+normal merge, the runner re-reads the linked issue labels and removes only
+the transient lifecycle labels it actually finds: `auto-running`,
+`auto-claimed`, `auto-pr-opened`, and `auto-failed`. Durable classification
+labels such as area labels, `workflow`, `canary`, `auto-canary-ready`,
+priority, day-scope, and project labels are preserved. If label cleanup or
+post-merge comments fail, merge success remains authoritative; the result
+stays `merged`, issue closure/comment attempts continue independently, and
+the cleanup failure is recorded for operator follow-up. Dry-run mode previews
+the exact transient labels that would be removed without mutating GitHub.
+
+Blocked auto-merge leaves the PR and issue open, records a terminal runner
+outcome, and writes sanitized local evidence under
 `/workspace/logs/settleora-auto-runner/auto-merge/`. Summaries report
 eligibility, attempted state, result, exact PR head SHA, merge SHA when
-available, issue closure result, and blocked reason. This foundation does not
-run a live auto-merge canary or approve trusted overnight operation.
+available, issue closure result, issue label-cleanup result, and blocked
+reason. This foundation does not run a live auto-merge canary or approve
+trusted overnight operation.
 
 ## Validation Profiles
 
