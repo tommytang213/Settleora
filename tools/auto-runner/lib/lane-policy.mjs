@@ -15,7 +15,7 @@ const contractFields = new Set([
 const dangerPatterns = [
   { key: "auth_security", pattern: /\b(auth|authentication|authorization|session|security|mfa|passkey|password|credential|token)\b/i },
   { key: "storage_privacy", pattern: /\b(storage|file byte|privacy|vault|permission|authz)\b/i },
-  { key: "money_settlement", pattern: /\b(money|settlement|payment|bill calculation|rounding|currency|balance)\b/i },
+  { key: "money_settlement", pattern: /\b(money|settlement|payment|paid|settled|refunded|refund|settle|billing|bill calculation|rounding|currency|balance|amount|total|debt|owed|split|allocation|ledger state)\b/i },
   { key: "schema_migration", pattern: /\b(schema|migration|ef core|database migration|destructive data)\b/i },
   { key: "openapi_generated_client", pattern: /\b(openapi|generated client|client generation)\b/i },
   { key: "sync_import_export", pattern: /\b(sync|restore|backup|import|export|reconciliation)\b/i },
@@ -27,6 +27,29 @@ const dangerPatterns = [
   { key: "branch_cleanup", pattern: /\b(delete branch|branch cleanup|force push|history rewrite)\b/i },
   { key: "architecture_replacement", pattern: /\b(replace architecture|reduce day 1 scope|scope reduction)\b/i },
 ];
+
+const moneyPresentationProofPatterns = Object.freeze([
+  { key: "accessibility", pattern: /\b(accessibility|accessible|assistive technolog(?:y|ies)|screen reader|screen-reader)\b/i },
+  { key: "semantics", pattern: /\b(semantics?|semantic label|semantic announcement|announcement)\b/i },
+  { key: "visible_display_text", pattern: /\b(visible (?:display )?text|display text|visible label|label copy|display copy)\b/i },
+  { key: "ui_copy", pattern: /\b(ui copy|copy only|text only|wording only|presentation-only|presentation only)\b/i },
+  { key: "layout_style_only", pattern: /\b(icon|layout|style|styling|visual rendering|rendering)\b/i },
+  { key: "read_only_widget_rendering", pattern: /\b(read-only|read only|shared widget|widget rendering|MoneyText)\b/i },
+]);
+
+const moneyAuthorityMutationPatterns = Object.freeze([
+  { key: "calculate_compute_arithmetic", pattern: /\b(calculate|calculation|compute|arithmetic|formula|sum|total|subtotal|derive)\b/i },
+  { key: "rounding_precision_policy", pattern: /\b(round|rounding|precision|decimal places?|policy)\b/i },
+  { key: "currency_conversion_exchange_rate", pattern: /\b(convert(?: currency)?|currency conversion|exchange rate|fx)\b/i },
+  { key: "parse_monetary_input", pattern: /\b(parse|parsing|input|entry|enter|typed|form field)\b[^.\n]{0,80}\b(amount|currency|money|monetary)\b|\b(amount|currency|money|monetary)\b[^.\n]{0,80}\b(parse|parsing|input|entry|enter|typed|form field)\b/i },
+  { key: "business_value_mutation", pattern: /\b(edit(?:ing)?|writ(?:e|ing)|persist(?:ing)?|sav(?:e|ing)|mutat(?:e|ing)|stor(?:e|ing)|record(?:ing)?|patch(?:ing)?|submit(?:ting)?)\s+(?:the\s+|an?\s+)?(?:business\s+|domain\s+)?(amount|currency|balance|debt|owed|payment|settlement|split|allocation|total|ledger)\b|\b(amount|currency|balance|debt|owed|payment|settlement|split|allocation|total|ledger)\b[^.\n]{0,80}\b(edit(?:ing)?|writ(?:e|ing)|persist(?:ing)?|sav(?:e|ing)|mutat(?:e|ing)|stor(?:e|ing)|record(?:ing)?|patch(?:ing)?|submit(?:ting)?)\b/i },
+  { key: "paid_settled_refunded_transition", pattern: /\b(mark|transition|set|confirm|claim|cancel|dispute|refund|settle)\b[^.\n]{0,100}\b(paid|settled|refunded|payment|settlement|refund|status)\b|\b(paid|settled|refunded|payment|settlement|refund|status)\b[^.\n]{0,100}\b(mark|transition|set|confirm|claim|cancel|dispute|refund|settle)\b/i },
+  { key: "api_domain_database_storage_write", pattern: /\b(api|domain|database|db|storage|repository|server)\b[^.\n]{0,100}\b(write|persist|save|update|mutate|patch|post|put|delete)\b|\b(write|persist|save|update|mutate|patch|post|put|delete)\b[^.\n]{0,100}\b(api|domain|database|db|storage|repository|server)\b/i },
+  { key: "authorization_policy_decision", pattern: /\b(authori[sz]ation|permission|policy|eligibility|access)\b[^.\n]{0,100}\b(amount|currency|balance|debt|owed|payment|settlement|money|financial value)\b|\b(amount|currency|balance|debt|owed|payment|settlement|money|financial value)\b[^.\n]{0,100}\b(authori[sz]ation|permission|policy|eligibility|access)\b/i },
+  { key: "settlement_payment_billing_behavior", pattern: /\b(settlement|payment|billing|bill calculation)\b[^.\n]{0,100}\b(behavior|workflow|flow|action|transition|calculate|compute|mutation|state)\b/i },
+  { key: "split_allocation_calculation", pattern: /\b(split|allocation)\b[^.\n]{0,100}\b(calculate|calculation|compute|formula|total|amount)\b|\b(calculate|calculation|compute|formula|total|amount)\b[^.\n]{0,100}\b(split|allocation)\b/i },
+  { key: "ambiguous_financial_verbs", pattern: /\b(adjust|apply|resolve|reconcile|finalize|normalize|validate|derive)\b[^.\n]{0,100}\b(amount|currency|balance|debt|owed|payment|settlement|split|allocation|total|ledger|money)\b|\b(amount|currency|balance|debt|owed|payment|settlement|split|allocation|total|ledger|money)\b[^.\n]{0,100}\b(adjust|apply|resolve|reconcile|finalize|normalize|validate|derive)\b/i },
+]);
 
 const dangerousPathPatterns = [
   { key: "auth_security", pattern: /(^|\/)(auth|authentication|authorization|session|security|mfa|passkey|password|credential|token)(\/|$)/i },
@@ -161,6 +184,21 @@ export function classifyIssueLane(issue) {
       }
       const positiveHits = detectDangerReasons(issueSearchText(issue, "positive-scope"));
       if (positiveHits.length > 0) {
+        const positiveText = issueSearchText(issue, "positive-scope");
+        const presentationException = evaluateMoneyPresentationException({
+          contract: parsed.contract,
+          contractDecision,
+          detectedDangerReasons: positiveHits,
+          positiveText,
+        });
+        if (presentationException.applied) {
+          return {
+            ...contractDecision,
+            reason: "Valid issue contract accepted by lane manifest; presentation-only money display nouns suppressed for client-ui-low-risk.",
+            dangerReasons: [],
+            moneyPresentationException: presentationException,
+          };
+        }
         return blockedDecision(
           contractDecision.lane,
           `Issue positive scope appears to request gated work: ${positiveHits.join(", ")}.`,
@@ -169,10 +207,14 @@ export function classifyIssueLane(issue) {
             manualGate: true,
             dangerGate: true,
             dangerReasons: positiveHits,
+            moneyPresentationException: presentationException,
           },
         );
       }
-      return contractDecision;
+      return {
+        ...contractDecision,
+        moneyPresentationException: emptyMoneyPresentationException([]),
+      };
     }
 
     const malformedHits = detectDangerReasons(issueSearchText(issue, "all"));
@@ -291,6 +333,14 @@ function buildContractDecision(contract) {
       dangerReasons: pathDangerReasons,
     });
   }
+  const pathDangerReasons = detectDangerousPathReasons(contract.allowedPaths);
+  if (pathDangerReasons.length > 0) {
+    return blockedDecision(contract.lane, "Contract allowed path contains a danger-domain path segment.", {
+      contract,
+      dangerGate: true,
+      dangerReasons: pathDangerReasons,
+    });
+  }
 
   const autoMergeEligible = Boolean(contract.autoMergeEligible && lane.autoMergeAllowed);
   return {
@@ -318,6 +368,66 @@ function hasEligibleContractLabel(labels) {
 
 function detectDangerReasons(text) {
   return dangerPatterns.filter((entry) => entry.pattern.test(text)).map((entry) => entry.key);
+}
+
+function evaluateMoneyPresentationException({ contract, contractDecision, detectedDangerReasons, positiveText }) {
+  const presentationProofMatches = matchPatternKeys(positiveText, moneyPresentationProofPatterns);
+  const authorityMutationMatches = matchPatternKeys(positiveText, moneyAuthorityMutationPatterns);
+  const base = {
+    detectedDangerReasons: [...detectedDangerReasons],
+    presentationProofMatches,
+    authorityMutationMatches,
+    applied: false,
+    reason: "not_evaluated",
+  };
+  if (!contract || !contractDecision?.allowedToImplement) {
+    return { ...base, reason: "contract_not_validated" };
+  }
+  if (contract.lane !== "client-ui-low-risk" || contractDecision.lane !== "client-ui-low-risk") {
+    return { ...base, reason: "lane_not_client_ui_low_risk" };
+  }
+  if (contract.validationProfile !== "mobile-ui-low-risk" || contractDecision.validationProfile !== "mobile-ui-low-risk") {
+    return { ...base, reason: "validation_profile_not_mobile_ui_low_risk" };
+  }
+  const contractedPaths = contract.allowedPaths || [];
+  const lanePaths = contractDecision.laneManifestAllowedPaths || [];
+  const outsideLane = contractedPaths.find((glob) => !lanePaths.some((laneGlob) => globIsSubsetOf(glob, laneGlob)));
+  if (outsideLane) return { ...base, reason: "contract_path_outside_lane_manifest" };
+  const outsidePresentationUi = contractedPaths.find((glob) => !isClientUiPresentationPath(glob));
+  if (outsidePresentationUi) return { ...base, reason: "contract_path_outside_presentation_ui" };
+  if (detectedDangerReasons.length !== 1 || detectedDangerReasons[0] !== "money_settlement") {
+    return { ...base, reason: "danger_reasons_not_exactly_money_settlement" };
+  }
+  if (presentationProofMatches.length === 0) {
+    return { ...base, reason: "missing_presentation_only_proof" };
+  }
+  if (authorityMutationMatches.length > 0) {
+    return { ...base, reason: "authority_or_mutation_signal_present" };
+  }
+  return {
+    ...base,
+    applied: true,
+    reason: "validated_client_ui_low_risk_presentation_only_money_display",
+  };
+}
+
+function emptyMoneyPresentationException(detectedDangerReasons) {
+  return {
+    detectedDangerReasons: [...detectedDangerReasons],
+    presentationProofMatches: [],
+    authorityMutationMatches: [],
+    applied: false,
+    reason: "no_positive_scope_danger",
+  };
+}
+
+function matchPatternKeys(text, patterns) {
+  return patterns.filter((entry) => entry.pattern.test(text)).map((entry) => entry.key);
+}
+
+function isClientUiPresentationPath(glob) {
+  const normalized = normalizePath(glob);
+  return normalized.startsWith("apps/mobile/lib/ui/") || normalized.startsWith("apps/mobile/test/ui/");
 }
 
 function detectDangerousPathReasons(paths) {
@@ -471,6 +581,7 @@ function blockedDecision(lane, reason, overrides = {}) {
     prCreationAllowed: false,
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
+    moneyPresentationException: overrides.moneyPresentationException || null,
   };
 }
 

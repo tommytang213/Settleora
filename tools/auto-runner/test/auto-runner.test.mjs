@@ -2087,6 +2087,176 @@ test("client-ui-low-risk contract accepts only narrow mobile shared UI paths", (
   ]);
 });
 
+test("exact #852 MoneyText presentation-only contract suppresses only money settlement danger evidence", () => {
+  const issue = issue852Fixture();
+  const lane = classifyIssueLane(issue);
+
+  assert.equal(lane.lane, "client-ui-low-risk");
+  assert.equal(lane.allowedToImplement, true);
+  assert.equal(lane.dangerGate, false);
+  assert.equal(lane.validationProfile, "mobile-ui-low-risk");
+  assert.equal(lane.autoMergeEligible, true);
+  assert.equal(lane.manualMergeRequired, false);
+  assert.deepEqual(lane.allowedPaths, [
+    "apps/mobile/lib/ui/settleora_components.dart",
+    "apps/mobile/test/ui/settleora_component_guardrail_test.dart",
+  ]);
+  assert.deepEqual(lane.dangerReasons, []);
+  assert.deepEqual(lane.moneyPresentationException.detectedDangerReasons, ["money_settlement"]);
+  assert.equal(lane.moneyPresentationException.applied, true);
+  assert.ok(lane.moneyPresentationException.presentationProofMatches.includes("accessibility"));
+  assert.ok(lane.moneyPresentationException.presentationProofMatches.includes("semantics"));
+  assert.deepEqual(lane.moneyPresentationException.authorityMutationMatches, []);
+  assert.equal(evaluateCanaryIssuePolicy(approvedLowRiskAutoMergeCanaryConfig(), lane).allowed, true);
+
+  const evidenceJson = JSON.stringify(lane.moneyPresentationException);
+  assert.doesNotMatch(evidenceJson, /Narrow fresh-implementation canary/);
+  assert.doesNotMatch(evidenceJson, /Auto-runner contract/);
+});
+
+test("client-ui-low-risk presentation-only financial display nouns are accepted when tightly proven", () => {
+  const accepted = [
+    {
+      title: "MoneyText single-announcement semantics",
+      scope: "Accessibility semantics only for MoneyText. Keep visible amount and currency display text read-only.",
+      proofs: ["accessibility", "semantics", "read_only_widget_rendering"],
+    },
+    {
+      title: "Amount currency visible label accessibility",
+      scope: "Accessibility update for the visible amount/currency label. Display text only; no state behavior changes.",
+      proofs: ["accessibility", "visible_display_text"],
+    },
+    {
+      title: "Currency code display copy only",
+      scope: "UI copy only for CurrencyCodeLabel. Change visible display text for the currency code readout.",
+      proofs: ["ui_copy", "visible_display_text"],
+    },
+    {
+      title: "Payment status label copy only",
+      scope: "Payment status label copy only for a read-only shared widget. No state transition or behavior work is in scope.",
+      proofs: ["ui_copy", "read_only_widget_rendering"],
+    },
+    {
+      title: "BalancePill copy polish",
+      scope: "Presentation-only accessibility label for BalancePill. CamelCase Balance identifier is read-only shared widget rendering.",
+      proofs: ["accessibility", "read_only_widget_rendering"],
+    },
+    {
+      title: "Mobile UI canary: shared header semantic heading guardrail",
+      scope: "Accessibility semantics only for the shared header. No financial display nouns are involved.",
+      proofs: [],
+      detected: [],
+    },
+  ];
+
+  for (const item of accepted) {
+    const lane = classifyIssueLane(clientUiIssue(item.title, item.scope));
+    assert.equal(lane.allowedToImplement, true, item.title);
+    assert.equal(lane.dangerGate, false, item.title);
+    assert.deepEqual(lane.moneyPresentationException?.detectedDangerReasons || [], item.detected ?? ["money_settlement"], item.title);
+    assert.equal(lane.moneyPresentationException?.applied || false, (item.detected ?? ["money_settlement"]).length > 0, item.title);
+    for (const proof of item.proofs) {
+      assert.ok(lane.moneyPresentationException.presentationProofMatches.includes(proof), `${item.title} proof ${proof}`);
+    }
+  }
+});
+
+test("client-ui-low-risk money authority and mutation counterexamples remain danger gated", () => {
+  const blockedScopes = [
+    ["calculate_total", "Accessibility label plus calculate total amount for MoneyText."],
+    ["compute_balance", "Screen-reader copy and compute balance display for BalanceText."],
+    ["rounding_precision_policy", "UI copy for currency amount plus rounding precision policy."],
+    ["currency_conversion", "Accessible currency display and convert currency using exchange rate FX behavior."],
+    ["edit_persist_amount", "Accessibility label while editing and persisting amount/currency values."],
+    ["payment_action", "Payment button label copy and mark payment status as paid."],
+    ["paid_status_without_payment_noun", "Accessible label and mark status as paid."],
+    ["settlement_refund_transition", "Settlement status copy and transition refunded status."],
+    ["settle_status_without_settlement_noun", "Accessible label and settle status action."],
+    ["refund_status_without_settlement_noun", "Accessible label and refund status transition."],
+    ["split_allocation", "Split allocation label and calculate allocation amount."],
+    ["amount_auth_policy", "Accessible amount display and authorization policy based on amount."],
+    ["api_domain_database_write", "Currency label copy and API domain database write for the amount."],
+    ["ambiguous_financial_verb", "Accessible balance copy and adjust owed amount display."],
+  ];
+
+  for (const [name, scope] of blockedScopes) {
+    const lane = classifyIssueLane(clientUiIssue(`Blocked ${name}`, scope));
+    assert.equal(lane.allowedToImplement, false, name);
+    assert.equal(lane.dangerGate, true, name);
+    assert.ok(lane.dangerReasons.includes("money_settlement"), name);
+    assert.equal(lane.moneyPresentationException.applied, false, name);
+    assert.ok(lane.moneyPresentationException.authorityMutationMatches.length > 0, name);
+  }
+});
+
+test("client-ui-low-risk presentation exception remains fail-closed for other danger categories and unsafe contracts", () => {
+  const mixedDanger = [
+    ["auth_security", "MoneyText amount accessibility semantics and auth session security label."],
+    ["storage_privacy", "MoneyText amount accessibility semantics and storage privacy permission copy."],
+    ["schema_migration", "MoneyText amount accessibility semantics and schema migration wording."],
+    ["openapi_generated_client", "MoneyText amount accessibility semantics and OpenAPI generated client copy."],
+    ["sync_import_export", "MoneyText amount accessibility semantics and sync import export copy."],
+    ["docker_ci_deploy", "MoneyText amount accessibility semantics and Docker deployment config copy."],
+    ["secrets_config", "MoneyText amount accessibility semantics and secret env var config copy."],
+  ];
+
+  for (const [reason, scope] of mixedDanger) {
+    const lane = classifyIssueLane(clientUiIssue(`Mixed ${reason}`, scope));
+    assert.equal(lane.allowedToImplement, false, reason);
+    assert.equal(lane.dangerGate, true, reason);
+    assert.ok(lane.dangerReasons.includes("money_settlement"), reason);
+    assert.ok(lane.dangerReasons.includes(reason), reason);
+    assert.equal(lane.moneyPresentationException.applied, false, reason);
+    assert.equal(lane.moneyPresentationException.reason, "danger_reasons_not_exactly_money_settlement", reason);
+  }
+
+  const invalid = classifyIssueLane({
+    title: "Invalid MoneyText accessibility semantics",
+    body: "MoneyText accessibility semantics.\n\n## Auto-runner contract\n\n```json\n{\"contractVersion\":1}\n```",
+    labels: ["auto-canary-ready"],
+  });
+  assert.equal(invalid.allowedToImplement, false);
+  assert.equal(invalid.lane, "missing-or-invalid-contract");
+
+  const missing = classifyIssueLane({
+    title: "Missing MoneyText accessibility semantics",
+    body: "MoneyText accessibility semantics.",
+    labels: ["auto-canary-ready"],
+  });
+  assert.equal(missing.allowedToImplement, false);
+  assert.equal(missing.lane, "missing-or-invalid-contract");
+
+  const outsidePresentationPath = classifyIssueLane(clientUiIssue("MoneyText app path", "MoneyText accessibility semantics.", {
+    allowedPaths: ["apps/mobile/lib/app/money_banner.dart"],
+  }));
+  assert.equal(outsidePresentationPath.allowedToImplement, false);
+  assert.match(outsidePresentationPath.reason, /outside lane manifest/i);
+
+  const dangerousMobilePath = classifyIssueLane(clientUiIssue("MoneyText dangerous path", "MoneyText accessibility semantics.", {
+    allowedPaths: ["apps/mobile/lib/ui/payment/money_text.dart"],
+  }));
+  assert.equal(dangerousMobilePath.allowedToImplement, false);
+  assert.equal(dangerousMobilePath.dangerGate, true);
+  assert.ok(dangerousMobilePath.dangerReasons.includes("money_settlement"));
+
+  const nonClientLane = classifyIssueLane({
+    title: "Docs MoneyText accessibility semantics",
+    body: `${contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["tools/auto-runner/README.md"],
+      validationProfile: "workflow-tooling",
+    })}
+
+## Scope
+
+MoneyText accessibility semantics and currency display wording.
+`,
+    labels: ["auto-ready"],
+  });
+  assert.equal(nonClientLane.allowedToImplement, false);
+  assert.equal(nonClientLane.moneyPresentationException.reason, "lane_not_client_ui_low_risk");
+});
+
 test("client-ui-low-risk refuses broad mobile paths and forbidden domains", () => {
   for (const body of [
     contractBody({
@@ -4413,6 +4583,42 @@ function contractBody(overrides = {}) {
 ${JSON.stringify(contract, null, 2)}
 \`\`\`
 `;
+}
+
+function clientUiIssue(title, scope, contractOverrides = {}) {
+  return {
+    title,
+    body: `${contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: [
+        "apps/mobile/lib/ui/settleora_components.dart",
+        "apps/mobile/test/ui/settleora_component_guardrail_test.dart",
+      ],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+      requiredReading: [
+        "PROGRAM_ARCHITECTURE.md",
+        "README.md",
+        "docs/workflow/CODEX_TASK_GUIDE.md",
+        "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md",
+        "tools/auto-runner/README.md",
+        "apps/mobile/lib/ui/settleora_components.dart",
+        "apps/mobile/test/ui/settleora_component_guardrail_test.dart",
+      ],
+      ...contractOverrides,
+    })}
+
+## Scope
+
+${scope}
+`,
+    labels: ["auto-canary-ready", "canary", "workflow"],
+  };
+}
+
+function issue852Fixture() {
+  return JSON.parse(readFileSync("tools/auto-runner/test/fixtures/issue-852-moneytext.json", "utf8"))[0];
 }
 
 function issue818StyleBody() {

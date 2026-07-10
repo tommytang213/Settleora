@@ -20,6 +20,50 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#852 - Client UI money display danger classifier checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained open as the broader DevBox-native unattended runner
+    foundation tracker.
+  - #852 remained open with durable canary labels plus `danger-gate`.
+  - #853 was closed completed through PR #854; PR #854 was merged with
+    reviewed head `d707c2240a95988a2db64bca8e23908a4f87fca1` and merge SHA
+    `10e47554fa4d0329e1164786ade70217605d817b`.
+  - #301, #372, and #800 remained open.
+- This tooling slice:
+  - Keeps broad positive-scope danger scanning fail-closed by default.
+  - Adds a bounded presentation-only exception for validated
+    `client-ui-low-risk` contracts using `mobile-ui-low-risk`, exact
+    UI/test-only lane paths, and a detected danger set of only
+    `money_settlement`.
+  - Records deterministic classifier evidence for detected danger reasons,
+    presentation proof matches, authority/mutation matches, whether the
+    exception applied, and the reason, without storing full issue bodies in the
+    lane decision evidence.
+  - Continues to block arithmetic/calculation, rounding policy, currency
+    conversion, exchange-rate/FX behavior, amount entry or persistence,
+    settlement/payment/refund transitions, balance/debt/owed mutations,
+    split/allocation math, amount-derived authorization/policy,
+    API/domain/database/storage writes, other danger categories, invalid or
+    missing contracts, unsafe paths, and multiple danger reasons.
+- Issue posture:
+  keep #852 open and do not remove `danger-gate` until this tooling fix is
+  merged and a separately authorized max-2 fresh canary rerun is launched.
+  The #853/PR #854 path completed one successful fresh canary, but the
+  max-2 fresh-path acceptance remains partial. Keep #800 open for broader
+  trusted unattended operation and future explicit runner approvals.
+- Scope confirmation:
+  this checkpoint changes only auto-runner lane policy/tests, runner/workflow
+  docs, fixtures, and this ledger entry. It does not change product runtime,
+  mobile app code, API behavior, auth/session/security runtime,
+  storage/privacy/authz, money/settlement/payment/bill calculation,
+  schema/migration, OpenAPI/generated clients, sync/OCR runtime, Docker/CI/
+  deployment/env, secrets, production deploy, mobile release, public/admin
+  exposure, stale-claim stealing, follow-up issue creation, review-fix
+  mutation enablement, systemd enablement, branch deletion, force push, direct
+  main push, live canary execution, broad/99PR/240h run, or provider secret
+  changes.
+
 ### Issue #800/#847 - Auto-runner evidence and label hygiene checkpoint
 
 - GitHub state/project status at task start:
