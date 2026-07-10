@@ -199,10 +199,18 @@ class SettleoraCountChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      avatar: icon == null ? null : Icon(icon, size: 16),
-      label: Text('$label: $count'),
+    final displayLabel = '$label: $count';
+
+    return Semantics(
+      container: true,
+      label: displayLabel,
+      child: ExcludeSemantics(
+        child: Chip(
+          visualDensity: VisualDensity.compact,
+          avatar: icon == null ? null : Icon(icon, size: 16),
+          label: Text(displayLabel),
+        ),
+      ),
     );
   }
 }
