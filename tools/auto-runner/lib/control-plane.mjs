@@ -18,6 +18,7 @@ export function writeActiveRunState(config, summary, extra = {}) {
     maxIterations: config.maxIterations,
     maxRuntimeMs: config.maxRuntimeMs,
     completedIterations: (summary.iterations || []).length,
+    outcomeCounts: countIterationOutcomes(summary.iterations || []),
     failedOrBlockedIterations: countFailedOrBlocked(summary.iterations || []),
     baseOriginMainSha: summary.baseOriginMainSha || null,
     stopReason: summary.stopReason || null,
@@ -133,7 +134,8 @@ export function getRunnerStatus(config) {
   const runtimeRemainingMs = maxRuntimeMs && elapsedMs !== null ? Math.max(0, maxRuntimeMs - elapsedMs) : null;
   const maxIterations = source?.maxIterations ?? source?.requestedMaxIterations ?? null;
   const completedIterations = source?.completedIterations ?? (source?.iterations || []).length ?? null;
-  const failedOrBlockedIterations = source?.failedOrBlockedIterations ?? countFailedOrBlocked(source?.iterations || []);
+  const outcomeCounts = source?.outcomeCounts || countIterationOutcomes(source?.iterations || []);
+  const failedOrBlockedIterations = source?.failedOrBlockedIterations ?? outcomeCounts.failed + outcomeCounts.blocked;
   const latestIteration = source?.latestIteration || summarizeIteration((source?.iterations || []).at(-1));
   return sanitize({
     generatedAt: new Date().toISOString(),
@@ -147,9 +149,16 @@ export function getRunnerStatus(config) {
     maxRuntimeMs,
     runtimeRemainingMs,
     maxIterations,
+    maxPrs: maxIterations,
     completedIterations,
+    completedPrs: completedIterations,
     failedOrBlockedIterations,
+    outcomeCounts,
     estimatedRemainingIterations:
+      Number.isFinite(maxIterations) && Number.isFinite(completedIterations)
+        ? Math.max(0, maxIterations - completedIterations)
+        : null,
+    estimatedRemainingPrs:
       Number.isFinite(maxIterations) && Number.isFinite(completedIterations)
         ? Math.max(0, maxIterations - completedIterations)
         : null,
@@ -186,8 +195,8 @@ export function listRuns(config, limit = 20) {
       stopReason: summary.stopReason || null,
       counts: {
         iterations: (summary.iterations || []).length,
+        ...countIterationOutcomes(summary.iterations || []),
         failedOrBlocked: countFailedOrBlocked(summary.iterations || []),
-        merged: (summary.iterations || []).filter((it) => it.outcome === "auto_merged").length,
       },
       latestIssue: summarizeIteration((summary.iterations || []).at(-1))?.issue || null,
       latestPr: summarizeIteration((summary.iterations || []).at(-1))?.pr || null,
@@ -204,12 +213,12 @@ export function listEvents(config, runId) {
     const issue = iteration.issue ? `#${iteration.issue.number} ${iteration.issue.title || ""}`.trim() : "unknown issue";
     events.push(event(iteration.startedAt, "issue", issue, iteration.issue || null));
     if (iteration.branchName) events.push(event(iteration.startedAt, "branch", iteration.branchName, { branchName: iteration.branchName }));
-    if (iteration.pr) events.push(event(iteration.finishedAt || iteration.startedAt, "pr", iteration.pr.url || iteration.pr.number || "unknown", summarizePr(iteration.pr, iteration.runnerCreatedCommitSha)));
+    if (iteration.pr) events.push(event(iteration.finishedAt || iteration.startedAt, "pr", prEventSummary(iteration), summarizePr(iteration.pr, iteration.runnerCreatedCommitSha, iteration.autoMerge?.mergeSha)));
     if (iteration.externalReview) events.push(event(iteration.finishedAt || iteration.startedAt, "review", independentReviewLine(iteration), summarizeExternalReview(iteration.externalReview)));
-    if (iteration.review) events.push(event(iteration.finishedAt || iteration.startedAt, "review", `Codex mechanics: ${iteration.review.verdict?.verdict || "unknown"}`, { evidence: iteration.review.logPath || iteration.review.promptPath || null }));
+    if (iteration.review) events.push(event(iteration.finishedAt || iteration.startedAt, "review", `Codex mechanics: ${iteration.review.verdict?.verdict || "unknown"}`, { verdict: iteration.review.verdict?.verdict || null, evidence: iteration.review.logPath || iteration.review.promptPath || null }));
     if (iteration.validation) events.push(event(iteration.finishedAt || iteration.startedAt, "checks", iteration.validation.passed ? "local validation passed" : "local validation failed", { commands: (iteration.validation.results || []).map((r) => ({ command: r.command, status: r.status, error: r.error || null })) }));
-    if (iteration.autoMerge) events.push(event(iteration.finishedAt || iteration.startedAt, "merge", iteration.autoMerge.result || "unknown", { reason: iteration.autoMerge.reason || null, mergeSha: iteration.autoMerge.mergeSha || null, evidence: iteration.autoMerge.evidence?.evidencePath || null }));
-    events.push(event(iteration.finishedAt || iteration.startedAt, "outcome", iteration.outcome || "unknown", { systemicStop: iteration.systemicStop || null }));
+    if (iteration.autoMerge) events.push(event(iteration.finishedAt || iteration.startedAt, "merge", mergeEventSummary(iteration.autoMerge), { reason: iteration.autoMerge.reason || null, mergeSha: iteration.autoMerge.mergeSha || null, waitAttempts: summarizeWaitAttempts(iteration.autoMerge.waitAttempts), evidence: iteration.autoMerge.evidence?.evidencePath || null }));
+    events.push(event(iteration.finishedAt || iteration.startedAt, "outcome", iteration.outcome || "unknown", { finalOutcome: iteration.outcome || "unknown", systemicStop: iteration.systemicStop || null }));
   }
   return { runId, found: true, summaryPath: summaryInfo.path, events: events.sort((a, b) => Date.parse(a.timestamp || 0) - Date.parse(b.timestamp || 0)) };
 }
@@ -221,7 +230,8 @@ export function renderStatusText(status) {
     `Mode/config: ${status.mode || "unknown"} / ${status.configPath || "default"}`,
     `Started/elapsed: ${status.startedAt || "unknown"} / ${formatDuration(status.elapsedMs)}`,
     `Runtime remaining: ${formatDuration(status.runtimeRemainingMs)} of ${formatDuration(status.maxRuntimeMs)}`,
-    `Iterations: ${status.completedIterations ?? "unknown"} completed, ${status.failedOrBlockedIterations ?? "unknown"} failed/blocked, ${status.estimatedRemainingIterations ?? "unknown"} remaining of ${status.maxIterations ?? "unknown"}`,
+    `PR/iteration budget: ${status.completedIterations ?? "unknown"} completed, ${status.estimatedRemainingIterations ?? "unknown"} remaining of ${status.maxIterations ?? "unknown"}`,
+    `Outcome counts: completed=${status.outcomeCounts?.completed ?? "unknown"} merged=${status.outcomeCounts?.merged ?? "unknown"} failed=${status.outcomeCounts?.failed ?? "unknown"} blocked=${status.outcomeCounts?.blocked ?? "unknown"} skipped=${status.outcomeCounts?.skipped ?? "unknown"}`,
     `Issue: ${status.currentOrLastIssue ? `#${status.currentOrLastIssue.number} ${status.currentOrLastIssue.title || ""}`.trim() : "unknown"}`,
     `PR: ${status.currentOrLastPr ? `${status.currentOrLastPr.number || "unknown"} ${status.currentOrLastPr.url || ""} head=${status.currentOrLastPr.headSha || "unknown"} merge=${status.currentOrLastPr.mergeSha || "unknown"}` : "unknown"}`,
     `Outcome/stop: ${status.latestTerminalOutcome || "unknown"} / ${status.stopReason || "none"}`,
@@ -234,13 +244,13 @@ export function renderStatusText(status) {
 
 export function renderRunsText(runs) {
   if (runs.length === 0) return "No runner summaries found.\n";
-  return `${runs.map((run) => `${run.runId} ${run.startedAt || "unknown"} -> ${run.finishedAt || "unknown"} stop=${run.stopReason || "none"} iterations=${run.counts.iterations} failedOrBlocked=${run.counts.failedOrBlocked} merged=${run.counts.merged} issue=${run.latestIssue?.number || "unknown"} pr=${run.latestPr?.number || run.latestPr?.url || "unknown"} summary=${run.summaryPath}`).join("\n")}\n`;
+  return `${runs.map((run) => `${run.runId} ${run.startedAt || "unknown"} -> ${run.finishedAt || "unknown"} stop=${run.stopReason || "none"} iterations=${run.counts.iterations} completed=${run.counts.completed} merged=${run.counts.merged} failed=${run.counts.failed} blocked=${run.counts.blocked} skipped=${run.counts.skipped} issue=${run.latestIssue?.number || "unknown"} pr=${run.latestPr?.number || run.latestPr?.url || "unknown"} head=${run.latestPr?.headSha || "unknown"} summary=${run.summaryPath}`).join("\n")}\n`;
 }
 
 export function renderEventsText(result) {
   if (!result.found) return `Run not found: ${result.runId}\n`;
   if (result.events.length === 0) return `No events found for ${result.runId}.\n`;
-  return `${result.events.map((item) => `${item.timestamp || "unknown"} [${item.type}] ${item.summary}`).join("\n")}\n`;
+  return `${result.events.map((item) => `${item.timestamp || "unknown"} [${item.type}] ${item.summary}${eventDetailSuffix(item)}`).join("\n")}\n`;
 }
 
 function readLock(config) {
@@ -302,10 +312,17 @@ function summarizeIteration(iteration) {
 function summarizePr(pr, headSha = null, mergeSha = null) {
   return sanitize({
     number: pr.number || null,
+    title: pr.title || null,
     url: pr.url || null,
+    headRefName: pr.headRefName || null,
     headSha: pr.headRefOid || headSha || null,
     mergeSha: pr.mergeCommit?.oid || mergeSha || null,
   });
+}
+
+function prEventSummary(iteration) {
+  const pr = summarizePr(iteration.pr, iteration.runnerCreatedCommitSha, iteration.autoMerge?.mergeSha);
+  return `PR ${pr.number || "unknown"} ${pr.title || iteration.pr?.url || ""}`.trim();
 }
 
 function independentReviewLine(iteration) {
@@ -333,6 +350,56 @@ function summarizeExternalReview(review) {
 
 function countFailedOrBlocked(iterations) {
   return iterations.filter((it) => /failed|blocked|danger|exhausted/.test(String(it.outcome || ""))).length;
+}
+
+function countIterationOutcomes(iterations) {
+  const counts = { completed: iterations.length, merged: 0, failed: 0, blocked: 0, skipped: 0 };
+  for (const iteration of iterations) {
+    const outcome = String(iteration.outcome || "");
+    if (outcome === "auto_merged") counts.merged += 1;
+    if (/failed|exhausted/.test(outcome)) counts.failed += 1;
+    if (/blocked|danger/.test(outcome)) counts.blocked += 1;
+    if (/no_eligible_work|no_changes|dry_run_preview_complete/.test(outcome)) counts.skipped += 1;
+  }
+  return counts;
+}
+
+function mergeEventSummary(autoMerge) {
+  const attempts = Array.isArray(autoMerge.waitAttempts) ? ` waitAttempts=${autoMerge.waitAttempts.length}` : "";
+  const mergeSha = autoMerge.mergeSha ? ` mergeSha=${autoMerge.mergeSha}` : "";
+  return `${autoMerge.result || "unknown"} reason=${autoMerge.reason || "unknown"}${attempts}${mergeSha}`;
+}
+
+function summarizeWaitAttempts(waitAttempts) {
+  if (!Array.isArray(waitAttempts)) return null;
+  return waitAttempts.map((attempt) => sanitize({
+    attempt: attempt.attempt,
+    reason: attempt.reason || null,
+    mergeStateStatus: attempt.mergeStateStatus || null,
+    checks: attempt.checks || null,
+    pendingCheckNames: attempt.pendingCheckNames || [],
+    pendingChecksProgressing: attempt.pendingChecksProgressing ?? null,
+    elapsedMs: attempt.elapsedMs ?? null,
+  }));
+}
+
+function eventDetailSuffix(item) {
+  const details = item.details || {};
+  if (item.type === "branch" && details.branchName) return ` branch=${details.branchName}`;
+  if (item.type === "pr") return ` pr=${details.number || "unknown"} head=${details.headSha || "unknown"} merge=${details.mergeSha || "unknown"}`;
+  if (item.type === "merge") {
+    const wait = Array.isArray(details.waitAttempts) ? ` waitAttempts=${details.waitAttempts.length}` : "";
+    return `${wait} mergeSha=${details.mergeSha || "unknown"}`;
+  }
+  if (item.type === "outcome") return ` final=${details.finalOutcome || "unknown"}`;
+  if (item.type === "review") {
+    const verdict = details.verdict || details.status || "unknown";
+    const provider = details.provider ? ` provider=${details.provider}` : "";
+    const tier = details.tier ? ` tier=${details.tier}` : "";
+    const head = details.reviewedHead ? ` head=${details.reviewedHead}` : "";
+    return ` verdict=${verdict}${provider}${tier}${head}`;
+  }
+  return "";
 }
 
 function event(timestamp, type, summary, details) {

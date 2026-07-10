@@ -20,6 +20,52 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Long-run budget status and operator policy checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained open as the broader DevBox-native unattended runner
+    foundation tracker.
+  - This task started from `origin/main` at
+    `bd81cf72d9858a861817429351e9fbf4242b29c8`.
+- This tooling slice:
+  - Hardens `--status` and `--status --json` so operators can see active
+    state, run id, mode/config path, start/elapsed/runtime remaining,
+    PR/iteration budget, remaining budget, completed/merged/failed/blocked/
+    skipped counts, latest issue/PR/head SHA, pending/applied control state,
+    and summary/log/event paths.
+  - Adds `--max-prs` as an operator alias for the current iteration-loop
+    budget while documenting that the internal budget remains iteration-based
+    because an iteration can end as blocked, failed, skipped, PR-opened, or
+    merged.
+  - Keeps `--extend` explicit and bounded for `--max-iterations +N`,
+    `--max-prs +N`, and `--max-runtime +12h`, applied only at safe
+    boundaries before new work selection.
+  - Improves run/event listings so next-day audit output includes branch names,
+    issue/PR numbers, head SHAs, review verdicts, independent AI
+    provider/tier/verdict, validation commands, check-wait attempts, merge
+    SHAs, and final outcomes where recoverable; missing historical data remains
+    `unknown`.
+  - Updates the operator command card for status, JSON status, recent runs,
+    run events, pause, stop-after-current, iteration/PR extension, and runtime
+    extension.
+- Issue posture:
+  keep #800 open for broader trusted unattended operation, explicit 99 PR /
+  240h approval, systemd/service enablement, stale-claim policy, expanded
+  real-code lanes, follow-up issue creation, and any broader review-fix
+  mutation approvals. This checkpoint does not start or approve a broad,
+  overnight, 99 PR, or 240h run.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, runner/workflow docs,
+  and this ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/
+  deployment/env, secrets, production deploy, mobile release, public/admin
+  exposure, stale-claim stealing, follow-up issue creation, review-fix
+  mutation enablement, systemd enablement, branch deletion, force push, direct
+  main push, live canary execution, broad/99PR/240h run, or external
+  reviewer/provider calls.
+
 ### Issue #800 - Status/control plane and evidence hygiene checkpoint
 
 - GitHub state/project status at task start:

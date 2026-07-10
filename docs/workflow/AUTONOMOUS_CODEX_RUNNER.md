@@ -62,11 +62,15 @@ node tools/auto-runner/settleora-auto-runner.mjs --status --json
 
 It reads the lock, active-run state, latest summaries, and the local control
 file. Output reports whether a runner appears active, active run id, mode and
-config path, started time, elapsed/max/remaining runtime, iteration budget and
-remaining count, current or latest issue and PR, terminal outcome or stop
+config path, started time, elapsed/max/remaining runtime, PR/iteration budget
+and remaining count, completed/merged/failed/blocked/skipped counts, current
+or latest issue and PR with head SHA where known, terminal outcome or stop
 reason, last event time, summary/report/log paths, and active control flags.
-It must remain sanitized: no provider payloads, raw Gemini output, environment
-variables, API keys, authorization headers, `.env` values, or secrets.
+`--json` also exposes `maxPrs`, `completedPrs`, and `estimatedRemainingPrs`
+aliases for the same iteration budget used by current canary/trusted runner
+loops. It must remain sanitized: no provider payloads, raw Gemini output,
+environment variables, API keys, authorization headers, `.env` values, or
+secrets.
 
 Recent run and event inspection is local and read-only:
 
@@ -78,7 +82,10 @@ node tools/auto-runner/settleora-auto-runner.mjs --list-events --run <run-id>
 Run listing reads `/workspace/logs/settleora-auto-runner/summaries/`. Event
 listing reconstructs issue, branch, PR, review, checks, merge/failure, and
 outcome evidence from existing summary/state/evidence files where available.
-Missing or partially written evidence is `unknown`, not inferred.
+It includes issue numbers, PR numbers, branch names, head SHAs, review
+verdicts, independent AI provider/tier/verdict, validation commands,
+check-wait attempts, merge SHAs, and final outcomes where recoverable. Missing
+or partially written evidence is `unknown`, not inferred.
 
 Safe local control is file-based under
 `/workspace/logs/settleora-auto-runner/state/runner-control.json`:
@@ -87,6 +94,7 @@ Safe local control is file-based under
 node tools/auto-runner/settleora-auto-runner.mjs --stop-after-current
 node tools/auto-runner/settleora-auto-runner.mjs --pause
 node tools/auto-runner/settleora-auto-runner.mjs --extend --max-iterations +N
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-prs +N
 node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
 ```
 
@@ -94,8 +102,29 @@ The runner observes control only at safe boundaries before selecting new work.
 It does not pause or stop mid-commit, mid-review, mid-check wait, or mid-merge.
 Extensions are explicit and bounded, and they increase only loop budgets. They
 do not override lane safety, manual gates, danger gates, provider budget hard
-stops, changed-file policy, auto-merge gates, or max-frequency/safety policy.
-If no active runner exists, control commands fail gracefully.
+stops, independent-review gates, changed-file policy, checks, code scanning,
+secrets policy, stop labels, auto-merge gates, or max-frequency/safety policy.
+If no active runner exists, control commands fail gracefully without writing a
+misleading pending control state.
+
+Operator command card for a future manually approved long-running run:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --status
+node tools/auto-runner/settleora-auto-runner.mjs --status --json
+node tools/auto-runner/settleora-auto-runner.mjs --list-runs
+node tools/auto-runner/settleora-auto-runner.mjs --list-events --run <run-id>
+node tools/auto-runner/settleora-auto-runner.mjs --pause
+node tools/auto-runner/settleora-auto-runner.mjs --stop-after-current
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-prs +5
+node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
+```
+
+The current budget is still stored internally as iterations because each
+selected issue can stop as blocked, failed, skipped, PR-opened, or merged. In
+canary/trusted operator language `--max-prs` is a documented alias for that
+same completed PR/iteration loop budget. A `99 PR / 240h` run remains manually
+gated and is not approved by this operator surface.
 
 ## Overnight Readiness Preflight
 

@@ -105,9 +105,13 @@ test("CLI parses status, event listing, and bounded control commands", () => {
   assert.equal(extend.controlCommand, "extend");
   assert.equal(extend.maxIterationsExtension, 4);
   assert.equal(extend.maxRuntimeExtensionMs, 12 * 60 * 60 * 1000);
+  const maxPrs = parseCliArgs(["--dry-run", "--max-prs", "9"]);
+  assert.equal(maxPrs.maxIterations, 9);
+  const extendPrs = parseCliArgs(["--extend", "--max-prs", "+5"]);
+  assert.equal(extendPrs.maxIterationsExtension, 5);
   assert.throws(() => parseCliArgs(["--extend", "--max-iterations", "-1"]), /explicit \+N/);
   assert.throws(() => parseCliArgs(["--extend", "--max-runtime", "12h"]), /explicit \+ duration/);
-  assert.throws(() => parseCliArgs(["--extend", "--max-iterations", "+999999"]), /between \+1 and \+500/);
+  assert.throws(() => parseCliArgs(["--extend", "--max-prs", "+999999"]), /between \+1 and \+500/);
 });
 
 test("trust policy refuses normal --run by default", () => {
@@ -222,7 +226,7 @@ test("status reports active run budgets, latest issue and safe control flags", (
     mkdirSync(path.join(tempRoot, "state"), { recursive: true });
     mkdirSync(path.join(tempRoot, "summaries"), { recursive: true });
     mkdirSync(path.join(tempRoot, "locks"), { recursive: true });
-    const config = readinessConfig(tempRoot);
+    const config = { ...readinessConfig(tempRoot), maxIterations: 5 };
     const summary = {
       runId: "run-status-test",
       mode: "canary-run",
@@ -239,6 +243,18 @@ test("status reports active run budgets, latest issue and safe control flags", (
           pr: { number: 841, url: "https://example.invalid/pull/841", headRefOid: "head841" },
           runnerCreatedCommitSha: "head841",
         },
+        {
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          outcome: "validation_failed",
+          issue: { number: 840, title: "Validation", url: "https://example.invalid/issues/840" },
+        },
+        {
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          outcome: "blocked_needs_tommy",
+          issue: { number: 842, title: "Manual", url: "https://example.invalid/issues/842" },
+        },
       ],
     };
     writeActiveRunState(config, summary);
@@ -247,11 +263,18 @@ test("status reports active run budgets, latest issue and safe control flags", (
     const status = getRunnerStatus(config);
     assert.equal(status.active, true);
     assert.equal(status.activeRunId, "run-status-test");
-    assert.equal(status.currentOrLastIssue.number, 839);
-    assert.equal(status.currentOrLastPr.headSha, "head841");
+    assert.equal(status.maxPrs, 5);
+    assert.equal(status.completedPrs, 3);
+    assert.equal(status.estimatedRemainingPrs, 2);
+    assert.equal(status.outcomeCounts.completed, 3);
+    assert.equal(status.outcomeCounts.failed, 1);
+    assert.equal(status.outcomeCounts.blocked, 1);
+    assert.equal(status.currentOrLastIssue.number, 842);
+    assert.equal(status.currentOrLastPr, null);
     assert.equal(status.control.pause, true);
     assert.doesNotMatch(JSON.stringify(status), /GEMINI_API_KEY|process\.env|authorization/i);
     assert.match(renderStatusText(status), /Runner active: yes/);
+    assert.match(renderStatusText(status), /Outcome counts: completed=3 merged=0 failed=1 blocked=1 skipped=0/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -324,7 +347,16 @@ test("run and event listing summarize existing summary evidence without fabricat
           },
           review: { verdict: { verdict: "approve" }, logPath: path.join(tempRoot, "reviews", "codex.log") },
           pr: { number: 841, url: "https://example.invalid/pull/841", headRefOid: "head839" },
-          autoMerge: { result: "merged", reason: "github_merge_commit_completed", mergeSha: "merge839", evidence: { evidencePath: path.join(tempRoot, "auto-merge", "839.json") } },
+          autoMerge: {
+            result: "merged",
+            reason: "github_merge_commit_completed",
+            mergeSha: "merge839",
+            waitAttempts: [
+              { attempt: 1, reason: "required_checks_pending", checks: { state: "pending", total: 2, pending: 1, failed: 0 }, pendingCheckNames: ["CodeQL"], pendingChecksProgressing: false, elapsedMs: 0 },
+              { attempt: 2, reason: "eligible", checks: { state: "success", total: 2, pending: 0, failed: 0 }, pendingCheckNames: [], pendingChecksProgressing: true, elapsedMs: 30000 },
+            ],
+            evidence: { evidencePath: path.join(tempRoot, "auto-merge", "839.json") },
+          },
         },
       ],
     };
@@ -336,6 +368,8 @@ test("run and event listing summarize existing summary evidence without fabricat
     assert.equal(events.found, true);
     assert.ok(events.events.some((item) => item.type === "review" && item.summary.includes("Independent AI review: required")));
     assert.ok(events.events.some((item) => item.type === "merge" && item.details.mergeSha === "merge839"));
+    assert.ok(events.events.some((item) => item.type === "merge" && item.details.waitAttempts.length === 2));
+    assert.match(renderStatusText(getRunnerStatus(config)), /PR\/iteration budget:/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
