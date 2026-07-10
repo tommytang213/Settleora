@@ -20,6 +20,9 @@ const smokeInputTokenEstimate = 900;
 const smokeOutputTokenEstimate = 160;
 const integratedOutputTokenEstimate = 700;
 const integratedMaxEstimatedCostUsd = 0.25;
+const maxGeminiProviderResponseBytes = 64 * 1024;
+const maxGeminiReviewerRetries = 2;
+const maxGeminiRetryBackoffMs = 10_000;
 const integratedAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning"]);
 const integratedAllowedPathPatterns = Object.freeze([
   /^tools\/auto-runner(?:\/|$)/,
@@ -203,7 +206,8 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
       headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify(payload),
     });
-    const responseText = await response.text();
+    const responseBody = await readBoundedProviderResponseText(response);
+    const responseText = responseBody.text;
     const sanitizedText = sanitizeSecretText(responseText, apiKey);
     if (!response.ok) {
       const transient = isTransientHttpStatus(response.status) || /\b(UNAVAILABLE|timeout|timed out|rate limit|429|503)\b/i.test(sanitizedText);
@@ -360,7 +364,8 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const responseText = await response.text();
+    const responseBody = await readBoundedProviderResponseText(response);
+    const responseText = responseBody.text;
     const sanitizedText = sanitizeSecretText(responseText, keyResult.apiKey);
     if (!response.ok) {
       return finishSmoke(config, { ...base, sanitizedResponseSummary: bounded(sanitizedText) }, startedAtMs, "blocked_provider_http_error");
@@ -435,8 +440,10 @@ export function sanitizeSecretText(value, secret) {
 
 function normalizeGeminiRetry(retry = {}) {
   const configuredRetries = Number.isInteger(retry.maxRetries) && retry.maxRetries >= 0 ? retry.maxRetries : 1;
-  const backoffMs = Number.isFinite(Number(retry.backoffMs)) && Number(retry.backoffMs) >= 0 ? Number(retry.backoffMs) : 2000;
-  return { maxRetries: configuredRetries, maxAttempts: configuredRetries + 1, backoffMs };
+  const maxRetries = Math.min(configuredRetries, maxGeminiReviewerRetries);
+  const configuredBackoffMs = Number.isFinite(Number(retry.backoffMs)) && Number(retry.backoffMs) >= 0 ? Number(retry.backoffMs) : 2000;
+  const backoffMs = Math.min(configuredBackoffMs, maxGeminiRetryBackoffMs);
+  return { maxRetries, maxAttempts: maxRetries + 1, backoffMs };
 }
 
 function isTransientProviderResult(result) {
@@ -456,7 +463,60 @@ function sanitizeAttempt(attempt) {
 }
 
 function sleepPromise(delayMs) {
-  return new Promise((resolve) => setTimeout(resolve, delayMs));
+  return new Promise((resolve) => setTimeout(resolve, boundedGeminiRetryDelayMs(delayMs)));
+}
+
+async function readBoundedProviderResponseText(response, maxBytes = maxGeminiProviderResponseBytes) {
+  const boundedMaxBytes = Number.isSafeInteger(maxBytes) && maxBytes > 0 ? Math.min(maxBytes, maxGeminiProviderResponseBytes) : maxGeminiProviderResponseBytes;
+  if (!response?.body || typeof response.body.getReader !== "function") {
+    const text = String(await response.text());
+    return truncateProviderTextByBytes(text, boundedMaxBytes);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let bytesRead = 0;
+  let truncated = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value || []);
+      const remaining = boundedMaxBytes - bytesRead;
+      if (chunk.byteLength > remaining) {
+        if (remaining > 0) chunks.push(decoder.decode(chunk.subarray(0, remaining), { stream: true }));
+        truncated = true;
+        await reader.cancel();
+        break;
+      }
+      chunks.push(decoder.decode(chunk, { stream: true }));
+      bytesRead += chunk.byteLength;
+    }
+  } finally {
+    chunks.push(decoder.decode());
+  }
+
+  return {
+    text: `${chunks.join("")}${truncated ? "\n[truncated]" : ""}`,
+    truncated,
+  };
+}
+
+function boundedGeminiRetryDelayMs(delayMs) {
+  const value = Number(delayMs);
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return Math.min(value, maxGeminiRetryBackoffMs);
+}
+
+function truncateProviderTextByBytes(text, maxBytes) {
+  const encoded = new TextEncoder().encode(String(text || ""));
+  if (encoded.byteLength <= maxBytes) return { text: String(text || ""), truncated: false };
+  return {
+    text: `${new TextDecoder().decode(encoded.subarray(0, maxBytes))}\n[truncated]`,
+    truncated: true,
+  };
 }
 
 function buildGeminiSmokePayload() {

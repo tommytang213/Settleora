@@ -120,7 +120,7 @@ export function evaluateExistingPrRecoveryDecision(input) {
   if (!pr.number && !pr.url) return block("existing_pr_recovery_missing_pr");
   if (!pr.headRefName || !/^feature\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
   const issueText = `${pr.body || ""}\n${pr.title || ""}`;
-  if (!new RegExp(`#${issue.number}\\b`).test(issueText)) return block("existing_pr_recovery_pr_not_linked_to_issue");
+  if (!referencesIssueNumber(issueText, issue.number)) return block("existing_pr_recovery_pr_not_linked_to_issue");
   if (!evidence.geminiPass && !evidence.codexMechanicsApproved) {
     return block("existing_pr_recovery_missing_evidence_or_review");
   }
@@ -477,6 +477,28 @@ function commandStatus(result) {
 
 function labelNames(labels) {
   return labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean);
+}
+
+function referencesIssueNumber(text, issueNumber) {
+  const normalizedNumber = normalizeIssueNumber(issueNumber);
+  if (!normalizedNumber) return false;
+  const needle = `#${normalizedNumber}`;
+  const haystack = String(text || "");
+  let offset = 0;
+  while (offset < haystack.length) {
+    const index = haystack.indexOf(needle, offset);
+    if (index === -1) return false;
+    const next = haystack[index + needle.length] || "";
+    if (!/[A-Za-z0-9_]/.test(next)) return true;
+    offset = index + needle.length;
+  }
+  return false;
+}
+
+function normalizeIssueNumber(issueNumber) {
+  const number = typeof issueNumber === "number" ? issueNumber : Number(issueNumber);
+  if (!Number.isSafeInteger(number) || number <= 0 || number > 999_999_999) return null;
+  return String(number);
 }
 
 function sanitizeEvidence(value) {

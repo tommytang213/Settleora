@@ -20,6 +20,48 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#825/#826 - PR #829 CodeQL/review-thread fix checkpoint
+
+- GitHub state/project status at task start:
+  - PR #829 was `OPEN`, non-draft, base `main`, head
+    `fd3a64b170d2be22a63501ecf759a112fb66e6cf`, with failed CodeQL,
+    three unresolved GitHub Advanced Security review threads, and two open
+    PR-ref CodeQL code-scanning alerts.
+  - PR #828 was `OPEN`; this task inspected it read-only and did not merge or
+    mutate it.
+  - #800, #825, and #826 were `OPEN`; #825/#826 retained `auto-failed`. This
+    task inspected them read-only and did not relabel, close, reopen, comment
+    on, rerun, or otherwise mutate them.
+- Verified repo baseline:
+  `origin/main` at
+  `1d3e36028beea52a67eb841438044d62b7894a1c`.
+- This CodeQL/review-thread fix:
+  - Removes the dynamic issue-link `RegExp` construction from the existing-PR
+    recovery gate and replaces it with bounded numeric issue normalization plus
+    deterministic exact `#<issue>` text scanning.
+  - Bounds Gemini reviewer retry configuration to at most two retries and a
+    10-second retry delay, with the timer sink also clamped locally.
+  - Reads Gemini provider response bodies through a 64 KiB bound before
+    parsing or summarizing provider output, preserving secret redaction and
+    fail-closed malformed/non-pass/error handling.
+  - Adds regression tests for regex-looking issue text, exact issue-link
+    matching, bounded retry delay/attempt behavior, and oversized sanitized
+    provider error responses.
+- Issue posture:
+  keep #800, #825, and #826 open. Keep PR #828 open. This task updates only
+  PR #829's branch and does not merge PR #829.
+- Scope confirmation:
+  this checkpoint changes only auto-runner policy/provider code, auto-runner
+  tests, and this ledger entry. It does not change product runtime, API
+  behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release, public/admin exposure, branch deletion, force push, direct main
+  push, live canary execution, external reviewer/provider calls, or issue
+  label/closure state. The preserved #826 dirty diff/stash was not applied,
+  dropped, or committed.
+
 ### Issue #800/#825/#826 - Auto-merge canary recovery hardening checkpoint
 
 - GitHub state/project status at task start:

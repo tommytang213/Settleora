@@ -876,6 +876,56 @@ test("transient integrated Gemini provider failure retries and still fails close
   }
 });
 
+test("integrated Gemini retry count and delay are bounded even with pathological config", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-retry-bounds-"));
+  try {
+    let calls = 0;
+    const delays = [];
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, { geminiReviewerRetry: { maxRetries: 50, backoffMs: 999_999_999 } }),
+      workflowReviewPackage(),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        sleep: async (delayMs) => {
+          delays.push(delayMs);
+        },
+        fetchImpl: async () => {
+          calls += 1;
+          return fakeGeminiResponse({ error: { status: "UNAVAILABLE", message: "temporary unavailable" } }, 503);
+        },
+      },
+    );
+    assert.equal(calls, 3);
+    assert.deepEqual(delays, [10_000, 10_000]);
+    assert.equal(result.status, "blocked");
+    assert.match(result.reason, /^blocked_provider_transient_http_error:503/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini provider error body is read through a byte bound and sanitized", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-large-error-"));
+  try {
+    const largeBody = `{"error":{"message":"api_key=super-secret-key ${"x".repeat(90_000)}"}}`;
+    const response = fakeGeminiStreamResponse(largeBody, 500);
+    const result = await runGeminiReviewerSmokeTest(geminiSmokeConfig(tempRoot), {
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async () => response,
+    });
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_provider_http_error");
+    assert.equal(response.cancelled, true);
+    assert.ok(result.sanitizedResponseSummary.length < 1100);
+    assert.doesNotMatch(result.sanitizedResponseSummary, /super-secret-key/);
+    assert.match(result.sanitizedResponseSummary, /\[truncated\]/);
+    assert.doesNotMatch(readFileSync(result.reportPath, "utf8"), /super-secret-key/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("non-pass integrated Gemini verdict is not retried as a transient failure", async () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-non-pass-no-retry-"));
   try {
@@ -1653,6 +1703,41 @@ test("existing low-risk canary PR recovery proceeds only with exact-head safe ev
   const decision = evaluateExistingPrRecoveryDecision(existingPrRecoveryContext());
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "existing_pr_recovery_gates_passed");
+});
+
+test("existing PR recovery issue links are exact text matches without dynamic regex behavior", () => {
+  const nearMiss = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      pr: {
+        title: "Auto-runner: #8250 pathological regex-looking text",
+        body: "Mentions #8250 plus (a+)+ and .* but never the exact issue.",
+      },
+    }),
+  );
+  assert.equal(nearMiss.eligible, false);
+  assert.match(nearMiss.reason, /pr_not_linked_to_issue/);
+
+  const exact = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      pr: {
+        title: "Auto-runner recovery",
+        body: "Closes #825. This also contains regex-looking text (a+)+.* that must stay literal.",
+      },
+    }),
+  );
+  assert.equal(exact.eligible, true);
+
+  const invalidNumber = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      issue: { number: "825.*" },
+      pr: {
+        title: "Auto-runner: #825.*",
+        body: "A regex-looking issue number must not become a pattern.",
+      },
+    }),
+  );
+  assert.equal(invalidNumber.eligible, false);
+  assert.match(invalidNumber.reason, /pr_not_linked_to_issue/);
 });
 
 test("existing PR recovery blocks stale head, broad files, review/code scanning blockers, stop labels, missing evidence, and manual blockers", () => {
@@ -2484,6 +2569,38 @@ function fakeGeminiResponse(body, status = 200) {
     status,
     async text() {
       return JSON.stringify(body);
+    },
+  };
+}
+
+function fakeGeminiStreamResponse(text, status = 200) {
+  const bytes = new TextEncoder().encode(String(text || ""));
+  let offset = 0;
+  let cancelled = false;
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    get cancelled() {
+      return cancelled;
+    },
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (cancelled || offset >= bytes.byteLength) return { done: true };
+            const end = Math.min(offset + 4096, bytes.byteLength);
+            const value = bytes.subarray(offset, end);
+            offset = end;
+            return { done: false, value };
+          },
+          async cancel() {
+            cancelled = true;
+          },
+        };
+      },
+    },
+    async text() {
+      throw new Error("unbounded response.text() should not be used for stream responses");
     },
   };
 }
