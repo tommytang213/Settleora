@@ -49,6 +49,7 @@ import {
   requiresIndependentAiReview,
   writeAutoMergeEvidence,
   evaluateAutoMergeDecision,
+  evaluatePrePushReviewGate,
 } from "./lib/auto-merge-policy.mjs";
 import {
   applyControlAtSafeBoundary,
@@ -597,6 +598,22 @@ async function runIteration(config, logger, runId, index) {
       issue,
       iteration.outcome,
       `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
+    );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+  const prePushReviewGate = evaluatePrePushReviewGate({
+    laneDecision,
+    externalReview: iteration.externalReview,
+    reviewMutationGuard: iteration.reviewMutationGuard,
+  });
+  if (!prePushReviewGate.ok) {
+    iteration.outcome = prePushReviewGate.outcome;
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner did not open a PR for #${issue.number} because ${prePushReviewGate.message}.`,
     );
     iteration.finishedAt = new Date().toISOString();
     return iteration;

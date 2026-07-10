@@ -45,6 +45,7 @@ import {
   buildIssueLinkageEvidence,
   evaluateExistingPrRecoveryDecision,
   evaluateAutoMergeDecision,
+  evaluatePrePushReviewGate,
   executeAutoMerge,
   normalizeAutoMergeWait,
   writeAutoMergeEvidence,
@@ -2435,6 +2436,44 @@ test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mi
       }),
     ).reason,
     "independent_review_files_mismatch",
+  );
+});
+
+test("pre-push review gate blocks mutation and required independent-review failures before PR push", () => {
+  const clientUiLane = autoMergeLane({ lane: "client-ui-low-risk" });
+  assert.deepEqual(
+    evaluatePrePushReviewGate({
+      laneDecision: clientUiLane,
+      externalReview: { status: "pass" },
+      reviewMutationGuard: { mutationDetected: true },
+    }),
+    {
+      ok: false,
+      outcome: "auto_failed",
+      reason: "exact_head_review_mutated_checkout",
+      message: "exact-head review mutated the checkout",
+    },
+  );
+  assert.deepEqual(
+    evaluatePrePushReviewGate({
+      laneDecision: clientUiLane,
+      externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
+      reviewMutationGuard: { mutationDetected: false },
+    }),
+    {
+      ok: false,
+      outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_not_passed:skipped_external_reviewer_tier_disabled",
+      message: "exact-head independent review returned skipped_external_reviewer_tier_disabled",
+    },
+  );
+  assert.deepEqual(
+    evaluatePrePushReviewGate({
+      laneDecision: autoMergeLane({ lane: "workflow-docs-tooling" }),
+      externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
+      reviewMutationGuard: { mutationDetected: false },
+    }),
+    { ok: true, reason: "pre_push_review_gates_passed" },
   );
 });
 

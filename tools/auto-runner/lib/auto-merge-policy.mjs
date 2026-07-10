@@ -386,6 +386,28 @@ export function requiresIndependentAiReview(laneDecision = {}) {
   return independentReviewRequiredLanes.has(laneDecision.lane);
 }
 
+export function evaluatePrePushReviewGate(input = {}) {
+  const laneDecision = input.laneDecision || {};
+  const externalReview = input.externalReview || null;
+  if (input.reviewMutationGuard?.mutationDetected) {
+    return {
+      ok: false,
+      outcome: "auto_failed",
+      reason: "exact_head_review_mutated_checkout",
+      message: "exact-head review mutated the checkout",
+    };
+  }
+  if (requiresIndependentAiReview(laneDecision) && externalReview?.status !== "pass") {
+    return {
+      ok: false,
+      outcome: "review_changes_requested_retry_exhausted",
+      reason: `exact_head_independent_review_not_passed:${externalReview?.reason || externalReview?.status || "missing"}`,
+      message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"}`,
+    };
+  }
+  return { ok: true, reason: "pre_push_review_gates_passed" };
+}
+
 function evaluateIndependentReviewEvidence(input) {
   const review = input.externalReview || {};
   const required = Boolean(input.externalReviewRequired) || requiresIndependentAiReview(input.laneDecision);
