@@ -241,6 +241,15 @@ markers exist, and the issue is still open without stop labels. The merge
 method is normal GitHub merge commit only. Sanitized auto-merge evidence is
 written under `/workspace/logs/settleora-auto-runner/auto-merge/`.
 
+Fresh implementation ordering is exact-head-first. After Codex implementation
+and local validation, the runner creates a normal local commit containing the
+validated files and does not push it. Gemini and Codex mechanics review then
+run against that committed `origin/main...HEAD` diff and record the reviewed
+head SHA plus the exact changed-file set. Push and PR creation use the same
+reviewed commit SHA. If an approved review-fix mode changes files, it creates a
+new normal local follow-up commit and reruns exact-head reviews for that new
+head; stale evidence from the prior head is not accepted.
+
 For the real-code `client-ui-low-risk` lane, auto-merge additionally requires
 a passing independent Gemini review for the exact head and changed-file set.
 Runner PR bodies, PR comments, issue comments, summaries, and event listings
@@ -256,6 +265,19 @@ blocked/fail-closed, not as optional or merely unconfigured. Codex mechanics
 review is still required but does not replace the independent real-code review
 gate. Existing-PR recovery for this lane requires both independent Gemini
 evidence and Codex mechanics evidence on the exact PR head.
+
+Codex mechanics review capture is file-backed and attempt-oriented. Each
+attempt stores separate sanitized stdout, stderr, prompt, and combined log
+metadata; summaries report attempt count, process status/signal, selected
+response boundary, parse or contract failure category, final reason, and final
+verdict when available. Stdout is primary. Stderr fallback is allowed only when
+stdout is empty and stderr contains exactly one valid verdict object. Multiple
+verdict objects across stdout/stderr are ambiguous and fail closed. The bounded
+retry cap is two total attempts, and retry is limited to process/transport
+failures such as missing selected payload or output-transport failure. Valid
+`changes_requested`, `needs_tommy`, `danger_gate`, substantive
+`unable_to_review`, malformed/ambiguous contract output, scope failures, and
+manual/security blockers are not retried into approval.
 
 Auto-merge mergeability is rechecked through a bounded wait loop before
 failing closed for refreshable GitHub states. If checks are still pending, or
@@ -290,7 +312,11 @@ no stop labels, no blocking comments/reviews, and the unchanged expected PR
 head. Linkage is checked by deterministic text scanning with numeric boundary
 safety, so near-misses such as `#8250` or `#0825` do not match `#825`.
 Sanitized evidence records which PR text sources were evaluated and matched.
-Missing or stale evidence fails closed.
+Missing or stale evidence fails closed. If all evidence and terminal gates pass
+and only checks are pending or mergeability is refreshable, recovery uses the
+same bounded wait loop as normal auto-merge and re-reads PR head, base,
+mergeability, checks, review threads, code scanning, issue state, labels,
+blocking comments/reviews, and changed-file scope before each attempt.
 
 Dry-run diagnostics:
 

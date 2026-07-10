@@ -16,10 +16,12 @@ import {
   createTaskBranch,
   ensureTaskStartWorkspace,
   fetchOriginMain,
+  getBoundedDiff,
   getBoundedWorkingTreeDiff,
   getCurrentBranch,
   getRefSha,
   getStatusShort,
+  listChangedFiles,
   listWorkingTreeChangedFiles,
   workingTreeDiffHash,
 } from "./lib/git-workspace.mjs";
@@ -47,6 +49,8 @@ import {
   requiresIndependentAiReview,
   writeAutoMergeEvidence,
   evaluateAutoMergeDecision,
+  evaluatePrePushReviewGate,
+  shouldGenerateExistingPrRecoveryEvidence,
 } from "./lib/auto-merge-policy.mjs";
 import {
   applyControlAtSafeBoundary,
@@ -389,6 +393,37 @@ async function runIteration(config, logger, runId, index) {
     return iteration;
   }
 
+  iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
+  iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  if (!config.dryRun) {
+    changedFiles = listChangedFiles("origin/main", "HEAD");
+    iteration.changedFiles = changedFiles;
+    forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
+    iteration.forbiddenChangedFiles = forbidden;
+    if (forbidden.length > 0) {
+      iteration.outcome = "danger_gate";
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner blocked #${issue.number} because committed files crossed lane policy:\n\n${forbidden.join("\n")}`,
+      );
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    if (getStatusShort() !== "") {
+      iteration.outcome = "auto_failed";
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner blocked #${issue.number} because the exact-head commit left the worktree dirty before review.`,
+      );
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+  }
+
   const beforeReview = await checkoutFingerprint();
   iteration.reviewPackage = await writeReviewPackage(config, {
     issue,
@@ -397,6 +432,8 @@ async function runIteration(config, logger, runId, index) {
     changedFiles,
     validation: iteration.validation,
     report: iteration.report,
+    diffBaseRef: "origin/main",
+    diffHeadRef: "HEAD",
   });
   iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
   if (iteration.externalReview.status === "blocked") {
@@ -430,15 +467,24 @@ async function runIteration(config, logger, runId, index) {
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
-    changedFiles = fixAttempt.changedFilesAfter;
-    forbidden = fixAttempt.forbiddenChangedFilesAfter;
+    const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
+      issue,
+      laneDecision,
+      promptInfo,
+      report: iteration.report,
+      fixAttempt,
+    });
+    changedFiles = postFix.changedFiles;
+    forbidden = postFix.forbiddenChangedFiles;
     iteration.changedFiles = changedFiles;
     iteration.forbiddenChangedFiles = forbidden;
-    iteration.validation = fixAttempt.validationAfter;
-    iteration.reviewPackage = fixAttempt.reviewPackageAfter;
-    iteration.externalReview = fixAttempt.externalReviewAfter;
-    iteration.review = fixAttempt.reviewAfter;
-    iteration.reviewMutationGuard = fixAttempt.reviewMutationGuardAfter;
+    iteration.validation = postFix.validation;
+    iteration.commitAfterReviewFix = postFix.commit;
+    iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+    iteration.reviewPackage = postFix.reviewPackage;
+    iteration.externalReview = postFix.externalReview;
+    iteration.review = postFix.review;
+    iteration.reviewMutationGuard = postFix.reviewMutationGuard;
   }
   if (!iteration.review) {
     iteration.review = runReviewPrompt(config, iteration.reviewPackage);
@@ -473,15 +519,24 @@ async function runIteration(config, logger, runId, index) {
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (fixAttempt.proceeded) {
-      changedFiles = fixAttempt.changedFilesAfter;
-      forbidden = fixAttempt.forbiddenChangedFilesAfter;
+      const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
+        issue,
+        laneDecision,
+        promptInfo,
+        report: iteration.report,
+        fixAttempt,
+      });
+      changedFiles = postFix.changedFiles;
+      forbidden = postFix.forbiddenChangedFiles;
       iteration.changedFiles = changedFiles;
       iteration.forbiddenChangedFiles = forbidden;
-      iteration.validation = fixAttempt.validationAfter;
-      iteration.reviewPackage = fixAttempt.reviewPackageAfter;
-      iteration.externalReview = fixAttempt.externalReviewAfter;
-      iteration.review = fixAttempt.reviewAfter;
-      iteration.reviewMutationGuard = fixAttempt.reviewMutationGuardAfter;
+      iteration.validation = postFix.validation;
+      iteration.commitAfterReviewFix = postFix.commit;
+      iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+      iteration.reviewPackage = postFix.reviewPackage;
+      iteration.externalReview = postFix.externalReview;
+      iteration.review = postFix.review;
+      iteration.reviewMutationGuard = postFix.reviewMutationGuard;
     }
   }
 
@@ -517,15 +572,24 @@ async function runIteration(config, logger, runId, index) {
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (fixAttempt.proceeded) {
-      changedFiles = fixAttempt.changedFilesAfter;
-      forbidden = fixAttempt.forbiddenChangedFilesAfter;
+      const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
+        issue,
+        laneDecision,
+        promptInfo,
+        report: iteration.report,
+        fixAttempt,
+      });
+      changedFiles = postFix.changedFiles;
+      forbidden = postFix.forbiddenChangedFiles;
       iteration.changedFiles = changedFiles;
       iteration.forbiddenChangedFiles = forbidden;
-      iteration.validation = fixAttempt.validationAfter;
-      iteration.reviewPackage = fixAttempt.reviewPackageAfter;
-      iteration.externalReview = fixAttempt.externalReviewAfter;
-      iteration.review = fixAttempt.reviewAfter;
-      iteration.reviewMutationGuard = fixAttempt.reviewMutationGuardAfter;
+      iteration.validation = postFix.validation;
+      iteration.commitAfterReviewFix = postFix.commit;
+      iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+      iteration.reviewPackage = postFix.reviewPackage;
+      iteration.externalReview = postFix.externalReview;
+      iteration.review = postFix.review;
+      iteration.reviewMutationGuard = postFix.reviewMutationGuard;
     }
   }
   if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
@@ -539,9 +603,23 @@ async function runIteration(config, logger, runId, index) {
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
+  const prePushReviewGate = evaluatePrePushReviewGate({
+    laneDecision,
+    externalReview: iteration.externalReview,
+    reviewMutationGuard: iteration.reviewMutationGuard,
+  });
+  if (!prePushReviewGate.ok) {
+    iteration.outcome = prePushReviewGate.outcome;
+    iteration.issueComment = finishIssueOutcome(
+      config,
+      issue,
+      iteration.outcome,
+      `Auto-runner did not open a PR for #${issue.number} because ${prePushReviewGate.message}.`,
+    );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
 
-  iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
-  iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   iteration.push = pushBranch(config, branchName);
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
@@ -618,7 +696,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
   let generatedRecoveryEvidence = null;
-  if (requiresIndependentAiReview(laneDecision) && (!exactHeadEvidence.geminiPass || !exactHeadEvidence.codexMechanicsApproved || !exactHeadEvidence.validationPassed)) {
+  if (shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)) {
     generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {
       issue,
       laneDecision,
@@ -643,6 +721,10 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
       codexMechanicsChangedFiles: changedFiles,
+      codexMechanicsEvidencePath: generatedRecoveryEvidence.review?.logPath || generatedRecoveryEvidence.review?.promptPath || null,
+      codexMechanicsFailureReason: generatedRecoveryEvidence.review?.reviewFailureReason || null,
+      codexMechanicsFailureCategory: generatedRecoveryEvidence.review?.reviewFailureCategory || null,
+      codexMechanicsAttemptCount: generatedRecoveryEvidence.review?.attemptCount || null,
     };
   }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
@@ -666,7 +748,15 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
           reportPath: exactHeadEvidence.geminiEvidencePath || null,
         }
       : { status: "blocked", reason: "missing_recovered_exact_head_gemini_evidence" },
-    review: exactHeadEvidence.codexMechanicsApproved ? { verdict: { verdict: "approve" } } : null,
+    review: generatedRecoveryEvidence?.review ||
+      (exactHeadEvidence.codexMechanicsApproved
+        ? {
+            verdict: { verdict: "approve" },
+            reviewedHead: exactHeadEvidence.codexMechanicsHeadSha || exactHeadEvidence.headSha || null,
+            changedFiles: exactHeadEvidence.codexMechanicsChangedFiles,
+            logPath: exactHeadEvidence.codexMechanicsEvidencePath || null,
+          }
+        : null),
     codexMechanicsReviewApproved: Boolean(exactHeadEvidence.codexMechanicsApproved),
     validation: { passed: Boolean(exactHeadEvidence.validationPassed), recovered: true },
     worktreeClean: getStatusShort() === "",
@@ -1076,6 +1166,54 @@ function finishIssueOutcome(config, issue, outcome, body) {
   return commentIssueOutcome(config, issue, outcome, body);
 }
 
+async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {
+  const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
+  const commit = commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`);
+  const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
+  const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
+  const validation = fixAttempt.validationAfter;
+  if (!config.dryRun && getStatusShort() !== "") {
+    return {
+      changedFiles,
+      forbiddenChangedFiles,
+      validation,
+      commit,
+      runnerCreatedCommitSha,
+      reviewPackage: fixAttempt.reviewPackageAfter,
+      externalReview: { status: "blocked", reason: "review_fix_exact_head_dirty_after_commit" },
+      review: { verdict: { verdict: "unable_to_review" } },
+      reviewMutationGuard: { mutationDetected: true, reason: "review_fix_exact_head_dirty_after_commit" },
+    };
+  }
+  const beforeReview = await checkoutFingerprint();
+  const reviewPackage = await writeReviewPackage(config, {
+    reviewPhase: "post-review-fix-exact-head",
+    issue,
+    promptInfo,
+    laneDecision,
+    changedFiles,
+    validation,
+    report,
+    diffBaseRef: "origin/main",
+    diffHeadRef: "HEAD",
+  });
+  const externalReview = await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head");
+  const review = runReviewPrompt(config, reviewPackage);
+  const afterReview = await checkoutFingerprint();
+  return {
+    changedFiles,
+    forbiddenChangedFiles,
+    validation,
+    commit,
+    runnerCreatedCommitSha,
+    reviewPackage,
+    externalReview,
+    review,
+    reviewMutationGuard: compareFingerprints(beforeReview, afterReview),
+  };
+}
+
 async function checkoutFingerprint() {
   return {
     branch: getCurrentBranch(),
@@ -1099,6 +1237,8 @@ function compareFingerprints(before, after) {
 async function writeReviewPackage(config, payload) {
   const diff = Object.hasOwn(payload, "diffText")
     ? { text: String(payload.diffText || ""), truncated: false }
+    : payload.diffBaseRef || payload.diffHeadRef
+      ? getBoundedDiff(payload.diffBaseRef || "origin/main", payload.diffHeadRef || "HEAD")
     : getBoundedWorkingTreeDiff();
   const packagePath = path.join(
     config.logsRoot,
@@ -1245,11 +1385,19 @@ function summarizeCodexReview(review) {
   return {
     skipped: Boolean(review.skipped),
     status: review.status,
+    signal: review.signal || null,
+    reviewStatus: review.reviewStatus || null,
+    reviewFailureCategory: review.reviewFailureCategory || null,
+    reviewFailureReason: review.reviewFailureReason || null,
+    attemptCount: review.attemptCount || review.attempts?.length || null,
+    attempts: review.attempts || [],
     verdict: review.verdict?.verdict || null,
     recommended_next_action: review.verdict?.recommended_next_action || null,
     blocking_findings: review.verdict?.blocking_findings || [],
     promptPath: review.promptPath || null,
     logPath: review.logPath || null,
+    responsePayloadBoundary: review.responsePayloadBoundary || null,
+    parseFailureReason: review.verdict?.review_json_diagnostics?.failure_reason || null,
   };
 }
 

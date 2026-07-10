@@ -20,6 +20,57 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Exact-head review and existing-PR recovery hardening checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained open as the broader DevBox-native unattended runner
+    foundation tracker.
+  - #847 remained open with `auto-failed`; PR #849 remained open at exact
+    head `0a85b695f8e9a863ac5fe316babe83f64335dafd` and was not recovered,
+    edited, merged, closed, rebased, or relabeled by this tooling task.
+  - Verified repo baseline: `origin/main` at
+    `5f53e67a1e6511dac50ed9bc482a28592918bfd8`.
+- This tooling slice:
+  - Changes fresh implementation ordering so the runner creates the validated
+    local commit before Gemini and Codex mechanics reviews, keeps it unpushed
+    until reviews pass, and uses the committed `origin/main...HEAD` diff as
+    exact-head review input.
+  - Requires independent and Codex mechanics review evidence to carry reviewed
+    head SHA and exact changed-file metadata; stale or missing-head evidence
+    fails closed.
+  - Makes Codex mechanics review attempt-oriented and file-backed, with
+    machine-readable process/transport/parse/contract/substantive failure
+    reasons, deterministic stdout/stderr boundary selection, ambiguous-output
+    rejection, and at most two total attempts for process/transport failures
+    only.
+  - Preserves generated existing-PR mechanics review diagnostics instead of
+    collapsing them silently to `review:null`.
+  - Routes existing-PR recovery states with valid evidence and only pending
+    checks or refreshable mergeability through the bounded auto-merge wait
+    loop, while keeping failed checks, changed heads/bases, broad scope,
+    review threads, code-scanning alerts, stop labels, manual blockers, and
+    missing evidence terminal.
+- Issue posture:
+  keep #800 open for broader trusted unattended operation, explicit 99 PR /
+  240h approval, systemd/service enablement, stale-claim policy, expanded
+  lanes, follow-up issue creation, and any broader review-fix mutation
+  approvals. This checkpoint does not approve or start a broad, overnight,
+  99 PR, or 240h run.
+- PR #849 posture:
+  PR #849 remains blocked pending merge of this tooling fix and a later
+  explicit one-PR recovery acceptance run. Do not treat this checkpoint as
+  proof that PR #849 recovery is production-proven.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, runner/workflow docs,
+  and this ledger entry. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz, money/settlement/
+  payment/bill calculation, schema/migration, OpenAPI/generated clients,
+  sync/import/export/backup/restore runtime, OCR runtime, Docker/CI/
+  deployment/env, secrets, production deploy, mobile release, public/admin
+  exposure, stale-claim stealing, follow-up issue creation, systemd
+  enablement, branch deletion, force push, direct main push, PR #849 recovery,
+  live canary execution, broad/99PR/240h run, or provider secret changes.
+
 ### Issue #800 - Long-run budget status and operator policy checkpoint
 
 - GitHub state/project status at task start:

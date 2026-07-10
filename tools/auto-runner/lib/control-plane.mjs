@@ -215,7 +215,18 @@ export function listEvents(config, runId) {
     if (iteration.branchName) events.push(event(iteration.startedAt, "branch", iteration.branchName, { branchName: iteration.branchName }));
     if (iteration.pr) events.push(event(iteration.finishedAt || iteration.startedAt, "pr", prEventSummary(iteration), summarizePr(iteration.pr, iteration.runnerCreatedCommitSha, iteration.autoMerge?.mergeSha)));
     if (iteration.externalReview) events.push(event(iteration.finishedAt || iteration.startedAt, "review", independentReviewLine(iteration), summarizeExternalReview(iteration.externalReview)));
-    if (iteration.review) events.push(event(iteration.finishedAt || iteration.startedAt, "review", `Codex mechanics: ${iteration.review.verdict?.verdict || "unknown"}`, { verdict: iteration.review.verdict?.verdict || null, evidence: iteration.review.logPath || iteration.review.promptPath || null }));
+    if (iteration.review) {
+      events.push(event(iteration.finishedAt || iteration.startedAt, "review", `Codex mechanics: ${iteration.review.verdict?.verdict || "unknown"}`, {
+        verdict: iteration.review.verdict?.verdict || null,
+        evidence: iteration.review.logPath || iteration.review.promptPath || null,
+        attemptCount: iteration.review.attemptCount || iteration.review.attempts?.length || null,
+        reviewStatus: iteration.review.reviewStatus || null,
+        failureCategory: iteration.review.reviewFailureCategory || null,
+        failureReason: iteration.review.reviewFailureReason || iteration.review.verdict?.review_json_diagnostics?.failure_reason || null,
+        responsePayloadBoundary: iteration.review.responsePayloadBoundary || iteration.review.verdict?.review_output_boundary?.response_payload_boundary || null,
+        attempts: iteration.review.attempts || [],
+      }));
+    }
     if (iteration.validation) events.push(event(iteration.finishedAt || iteration.startedAt, "checks", iteration.validation.passed ? "local validation passed" : "local validation failed", { commands: (iteration.validation.results || []).map((r) => ({ command: r.command, status: r.status, error: r.error || null })) }));
     if (iteration.autoMerge) events.push(event(iteration.finishedAt || iteration.startedAt, "merge", mergeEventSummary(iteration.autoMerge), { reason: iteration.autoMerge.reason || null, mergeSha: iteration.autoMerge.mergeSha || null, waitAttempts: summarizeWaitAttempts(iteration.autoMerge.waitAttempts), evidence: iteration.autoMerge.evidence?.evidencePath || null }));
     events.push(event(iteration.finishedAt || iteration.startedAt, "outcome", iteration.outcome || "unknown", { finalOutcome: iteration.outcome || "unknown", systemicStop: iteration.systemicStop || null }));
