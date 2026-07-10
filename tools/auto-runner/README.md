@@ -173,10 +173,14 @@ failing closed for refreshable GitHub states. If checks are still pending, or
 GitHub reports a refreshable merge state such as `BLOCKED` or `UNKNOWN`, the
 runner re-reads PR metadata, exact head SHA, base branch, mergeability, merge
 state, checks, review threads, code scanning, issue state, and blocking
-comments/reviews before deciding. It still merges only after every existing
-gate passes on the exact PR head. Stale heads, wrong bases, failed checks,
-unresolved threads, open alerts, stop labels, broad changed files, manual
-markers, or timeout all block with sanitized evidence.
+comments/reviews before deciding. The default wait is 24 attempts with a
+30-second bucketed delay, and config values are normalized to strict safe
+bounds rather than passed directly into timers. Wait evidence records attempts,
+pending check names, and whether pending counts decreased. It still merges
+only after every existing gate passes on the exact PR head. Stale heads, wrong
+bases, failed or cancelled checks, unresolved threads, open alerts, stop
+labels, broad changed files, manual markers, or timeout all block with
+sanitized evidence.
 
 Integrated Gemini retry is limited to transient provider/transport failures:
 HTTP `429`, HTTP `503`/`UNAVAILABLE`, fetch/network failures, and timeout-like
@@ -189,12 +193,15 @@ Existing-PR recovery is default-off through `allowExistingPrRecovery: false`.
 When a future explicit external config enables it for a specific issue/PR, the
 runner can evaluate an already-open auto-runner PR instead of creating a new
 branch. Recovery requires the low-risk canary contract, an open non-draft PR on
-`main` whose branch/body links the issue, exact changed files within the issue
-contract, exact-head validation evidence, exact-head Gemini and/or Codex
-mechanics evidence, current successful checks, clean mergeability, resolved
-review threads, no PR-ref code-scanning alerts, no stop labels, no blocking
-comments/reviews, and the unchanged expected PR head. Missing or stale evidence
-fails closed.
+`main`, current PR title/body metadata with exact `#<issue>` linkage, exact
+changed files within the issue contract, exact-head validation evidence,
+exact-head Gemini and/or Codex mechanics evidence, current successful checks,
+clean mergeability, resolved review threads, no PR-ref code-scanning alerts,
+no stop labels, no blocking comments/reviews, and the unchanged expected PR
+head. Linkage is checked by deterministic text scanning with numeric boundary
+safety, so near-misses such as `#8250` or `#0825` do not match `#825`.
+Sanitized evidence records which PR text sources were evaluated and matched.
+Missing or stale evidence fails closed.
 
 Dry-run diagnostics:
 

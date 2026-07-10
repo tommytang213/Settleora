@@ -41,9 +41,11 @@ import {
   routeReviewer,
 } from "../lib/reviewer-policy.mjs";
 import {
+  buildIssueLinkageEvidence,
   evaluateExistingPrRecoveryDecision,
   evaluateAutoMergeDecision,
   executeAutoMerge,
+  normalizeAutoMergeWait,
   writeAutoMergeEvidence,
 } from "../lib/auto-merge-policy.mjs";
 
@@ -1699,10 +1701,135 @@ test("auto-merge wait fails closed when PR head changes during refresh", () => {
   }
 });
 
+test("auto-merge wait continues past the prior six-attempt pending-check window and records progress", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-wait-long-pending-"));
+  try {
+    let inspections = 0;
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 8, delayMs: 0 } },
+      autoMergeContext({
+        requiredChecks: [
+          { name: "CodeQL", status: "IN_PROGRESS", conclusion: null },
+          { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
+        ],
+      }),
+      {
+        runner: createAutoMergeRunner([]),
+        sleep: () => {},
+        inspectState: () => {
+          inspections += 1;
+          if (inspections < 6) {
+            return {
+              pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+              requiredChecks: [
+                { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
+                { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
+              ],
+              reviewThreads: [],
+              codeScanningAlerts: [],
+              blockingMarkers: [],
+            };
+          }
+          return {
+            pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+            requiredChecks: [
+              { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
+            ],
+            reviewThreads: [],
+            codeScanningAlerts: [],
+            blockingMarkers: [],
+          };
+        },
+      },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.waitAttempts.length, 7);
+    assert.deepEqual(result.waitAttempts[0].pendingCheckNames, ["CodeQL", "Validate scaffold"]);
+    assert.equal(result.waitAttempts[1].pendingChecksProgressing, true);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("auto-merge wait expires fail-closed when checks remain pending beyond the bound", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-wait-pending-expire-"));
+  try {
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 3, delayMs: 0 } },
+      autoMergeContext({ requiredChecks: [{ name: "CodeQL", status: "IN_PROGRESS", conclusion: null }] }),
+      {
+        runner: createAutoMergeRunner([]),
+        sleep: () => {},
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: [{ name: "CodeQL", status: "IN_PROGRESS", conclusion: null }],
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason, "auto_merge_wait_expired:required_checks_pending");
+    assert.equal(result.waitAttempts.length, 3);
+    assert.deepEqual(result.waitAttempts[2].pendingCheckNames, ["CodeQL"]);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("auto-merge does not wait on failed or cancelled checks", () => {
+  for (const conclusion of ["FAILURE", "CANCELLED"]) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-auto-merge-terminal-${conclusion.toLowerCase()}-`));
+    try {
+      let inspections = 0;
+      const result = executeAutoMerge(
+        { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 8, delayMs: 0 } },
+        autoMergeContext({ requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion }] }),
+        {
+          runner: createAutoMergeRunner([]),
+          sleep: () => {},
+          inspectState: () => {
+            inspections += 1;
+            return {};
+          },
+        },
+      );
+      assert.equal(result.result, "blocked", conclusion);
+      assert.equal(result.reason, "required_checks_not_successful", conclusion);
+      assert.equal(inspections, 0, conclusion);
+      assert.equal(result.waitAttempts, undefined, conclusion);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("auto-merge wait config clamps pathological values to safe bounds and buckets", () => {
+  assert.deepEqual(normalizeAutoMergeWait({ maxAttempts: 999_999, delayMs: 999_999_999 }), {
+    maxAttempts: 30,
+    delayMs: 30000,
+  });
+  assert.deepEqual(normalizeAutoMergeWait({ maxAttempts: -10, delayMs: -1 }), {
+    maxAttempts: 1,
+    delayMs: 0,
+  });
+  assert.deepEqual(normalizeAutoMergeWait({ maxAttempts: 3, delayMs: 12_345 }), {
+    maxAttempts: 3,
+    delayMs: 5000,
+  });
+  assert.deepEqual(normalizeAutoMergeWait({ maxAttempts: "not-a-number", delayMs: "also-bad" }), {
+    maxAttempts: 24,
+    delayMs: 30000,
+  });
+});
+
 test("existing low-risk canary PR recovery proceeds only with exact-head safe evidence and gates", () => {
   const decision = evaluateExistingPrRecoveryDecision(existingPrRecoveryContext());
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "existing_pr_recovery_gates_passed");
+  assert.deepEqual(decision.issueLinkageEvidence.matchedSources, ["pr.title", "pr.body"]);
 });
 
 test("existing PR recovery issue links are exact text matches without dynamic regex behavior", () => {
@@ -1716,6 +1843,28 @@ test("existing PR recovery issue links are exact text matches without dynamic re
   );
   assert.equal(nearMiss.eligible, false);
   assert.match(nearMiss.reason, /pr_not_linked_to_issue/);
+
+  const leadingZero = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      pr: {
+        title: "Auto-runner: #0825 is not exact",
+        body: "No exact issue reference.",
+      },
+    }),
+  );
+  assert.equal(leadingZero.eligible, false);
+  assert.match(leadingZero.reason, /pr_not_linked_to_issue/);
+
+  const embeddedToken = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      pr: {
+        title: "Auto-runner token x#825 should not count",
+        body: "No exact standalone reference.",
+      },
+    }),
+  );
+  assert.equal(embeddedToken.eligible, false);
+  assert.match(embeddedToken.reason, /pr_not_linked_to_issue/);
 
   const exact = evaluateExistingPrRecoveryDecision(
     existingPrRecoveryContext({
@@ -1737,7 +1886,49 @@ test("existing PR recovery issue links are exact text matches without dynamic re
     }),
   );
   assert.equal(invalidNumber.eligible, false);
-  assert.match(invalidNumber.reason, /pr_not_linked_to_issue/);
+  assert.equal(invalidNumber.reason, "existing_pr_recovery_missing_pr_linkage_evidence");
+});
+
+test("existing PR recovery accepts exact title-only or body-only linkage when current title/body evidence is available", () => {
+  const titleOnly = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      pr: {
+        title: "Auto-runner recovery for #825",
+        body: "Review evidence only; no issue number here.",
+      },
+    }),
+  );
+  assert.equal(titleOnly.eligible, true);
+  assert.deepEqual(titleOnly.issueLinkageEvidence.matchedSources, ["pr.title"]);
+
+  const bodyOnly = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      pr: {
+        title: "Auto-runner recovery",
+        body: "Closes or updates #825.",
+      },
+    }),
+  );
+  assert.equal(bodyOnly.eligible, true);
+  assert.deepEqual(bodyOnly.issueLinkageEvidence.matchedSources, ["pr.body"]);
+});
+
+test("existing PR recovery blocks unavailable title/body linkage evidence", () => {
+  const missingTitle = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      pr: {
+        body: "Closes or updates #825.",
+        title: undefined,
+      },
+    }),
+  );
+  assert.equal(missingTitle.eligible, false);
+  assert.equal(missingTitle.reason, "existing_pr_recovery_missing_pr_linkage_evidence");
+
+  const evidence = buildIssueLinkageEvidence({ title: "Auto-runner #825", body: "Body text" }, 825);
+  assert.equal(evidence.available, true);
+  assert.equal(evidence.linked, true);
+  assert.deepEqual(evidence.evaluatedSources, ["pr.title", "pr.body"]);
 });
 
 test("existing PR recovery blocks stale head, broad files, review/code scanning blockers, stop labels, missing evidence, and manual blockers", () => {

@@ -20,6 +20,46 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#825/#826 - Existing-PR recovery linkage and wait tuning checkpoint
+
+- GitHub state/project status at task start:
+  - PR #829 was merged to `main` with merge SHA
+    `9c23fbd4c2743a1a5536a012dd2acfa113261f66`.
+  - The latest #825/#826 recovery canary ended `partial`: #825/PR #828
+    reached eligible auto-merge gates but blocked on missing recovery linkage
+    evidence, while #826/PR #830 waited six attempts and failed closed with one
+    GitHub check still pending.
+  - #825 and #826 remained open with `auto-failed`; PR #828 and PR #830
+    remained open and unmerged. This task is the tooling fix only and does not
+    rerun the canary or merge those PRs.
+- Verified repo baseline:
+  `origin/main` at
+  `9c23fbd4c2743a1a5536a012dd2acfa113261f66`.
+- This tooling slice:
+  - Reads current PR title/body metadata during existing-PR recovery and
+    passes sanitized issue-linkage evidence into the recovery decision and
+    evidence file.
+  - Keeps exact issue matching deterministic and regex-free, requiring
+    boundary-safe `#<issue>` text so near-misses such as `#8250`, `#0825`, and
+    embedded token text do not link issue #825.
+  - Extends the low-risk auto-merge wait default to 24 attempts at a 30-second
+    bucketed delay, clamps pathological config values to safe bounds, and
+    records pending check names plus pending-count progress evidence.
+- Issue posture:
+  keep #800, #825, and #826 open. Keep PR #828 and PR #830 open. A later
+  explicit recovery/canary or merge-gate task must decide whether to rerun or
+  merge; this checkpoint does not mutate those issues or PRs.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, runner/workflow
+  docs, example config, and this ledger entry. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release, public/admin exposure, branch deletion, force push, direct main
+  push, live canary execution, external reviewer/provider calls, or issue/PR
+  mutation.
+
 ### Issue #800/#825/#826 - PR #829 CodeQL/review-thread fix checkpoint
 
 - GitHub state/project status at task start:

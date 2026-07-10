@@ -31,8 +31,8 @@ export const defaultConfig = Object.freeze({
   allowAutoMerge: false,
   allowExistingPrRecovery: false,
   autoMergeWait: {
-    maxAttempts: 6,
-    delayMs: 15000,
+    maxAttempts: 24,
+    delayMs: 30000,
   },
   geminiReviewerRetry: {
     maxRetries: 1,
