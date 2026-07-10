@@ -15,7 +15,7 @@ const contractFields = new Set([
 const dangerPatterns = [
   { key: "auth_security", pattern: /\b(auth|authentication|authorization|session|security|mfa|passkey|password|credential|token)\b/i },
   { key: "storage_privacy", pattern: /\b(storage|file byte|privacy|vault|permission|authz)\b/i },
-  { key: "money_settlement", pattern: /\b(money|settlement|payment|bill calculation|rounding|currency|balance|amount|total|debt|owed|split|allocation|ledger state)\b/i },
+  { key: "money_settlement", pattern: /\b(money|settlement|payment|paid|settled|refunded|refund|settle|billing|bill calculation|rounding|currency|balance|amount|total|debt|owed|split|allocation|ledger state)\b/i },
   { key: "schema_migration", pattern: /\b(schema|migration|ef core|database migration|destructive data)\b/i },
   { key: "openapi_generated_client", pattern: /\b(openapi|generated client|client generation)\b/i },
   { key: "sync_import_export", pattern: /\b(sync|restore|backup|import|export|reconciliation)\b/i },
