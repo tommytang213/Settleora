@@ -695,12 +695,9 @@ void main() {
     );
 
     final semanticsHandle = tester.ensureSemantics();
-    for (final label in const [
-      'Pending review',
-      'Synced',
-      'Server ready',
-      'Checklist ready',
-    ]) {
+    _expectStaticSemanticsLabel(tester, 'Pending review');
+    _expectStaticSemanticsLabel(tester, 'Synced');
+    for (final label in const ['Server ready', 'Checklist ready']) {
       expect(
         tester
             .getSemantics(find.text(label))
@@ -723,6 +720,55 @@ void main() {
         lessThanOrEqualTo(48),
         reason: '$key should remain a compact status readout.',
       );
+    }
+  });
+
+  testWidgets('StatusChip announces one static label for every size', (
+    tester,
+  ) async {
+    await _useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: Center(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                StatusChip(label: 'Ready', variant: StatusChipVariant.success),
+                StatusChip(
+                  label: 'Needs review',
+                  icon: Icons.rate_review_outlined,
+                  variant: StatusChipVariant.warning,
+                ),
+                StatusChip(
+                  label: 'Draft',
+                  variant: StatusChipVariant.neutral,
+                  size: StatusChipSize.small,
+                ),
+                StatusChip(
+                  label: 'Synced',
+                  icon: Icons.cloud_done_outlined,
+                  variant: StatusChipVariant.info,
+                  size: StatusChipSize.small,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final semanticsHandle = tester.ensureSemantics();
+    for (final label in const ['Ready', 'Needs review', 'Draft', 'Synced']) {
+      _expectStaticSemanticsLabel(tester, label);
+    }
+    semanticsHandle.dispose();
+
+    for (final label in const ['Ready', 'Needs review', 'Draft', 'Synced']) {
+      expect(find.text(label), findsOneWidget);
     }
   });
 
@@ -1355,6 +1401,28 @@ void _expectSingleSemanticsLabel(WidgetTester tester, String label) {
   );
 }
 
+void _expectStaticSemanticsLabel(WidgetTester tester, String label) {
+  final matchingNodes = _semanticsNodes(
+    tester,
+  ).where((node) => node.getSemanticsData().label == label).toList();
+  expect(
+    matchingNodes,
+    hasLength(1),
+    reason: '$label must be announced by exactly one semantics node.',
+  );
+  final data = matchingNodes.single.getSemanticsData();
+  expect(
+    data.hasAction(SemanticsAction.tap),
+    isFalse,
+    reason: '$label must remain a static readout, not a tappable control.',
+  );
+  expect(
+    data.flagsCollection.isButton,
+    isFalse,
+    reason: '$label must not expose button semantics.',
+  );
+}
+
 void _expectNoSemanticsLabel(WidgetTester tester, String label) {
   expect(
     _semanticsLabelCount(tester, label),
@@ -1364,9 +1432,9 @@ void _expectNoSemanticsLabel(WidgetTester tester, String label) {
 }
 
 int _semanticsLabelCount(WidgetTester tester, String label) {
-  return _semanticsNodes(tester)
-      .where((node) => node.getSemanticsData().label == label)
-      .length;
+  return _semanticsNodes(
+    tester,
+  ).where((node) => node.getSemanticsData().label == label).length;
 }
 
 List<SemanticsNode> _semanticsNodes(WidgetTester tester) {
