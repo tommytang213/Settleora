@@ -468,6 +468,95 @@ void main() {
     );
   });
 
+  testWidgets('static status chips stay compact and non-interactive', (
+    tester,
+  ) async {
+    await _useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: Center(
+            child: Wrap(
+              key: Key('direct-static-status-chip-wrap'),
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                StatusChip(
+                  key: Key('direct-static-status-chip'),
+                  label: 'Pending review',
+                  icon: Icons.rate_review_outlined,
+                  variant: StatusChipVariant.warning,
+                ),
+                StatusChip(
+                  key: Key('direct-static-status-chip-small'),
+                  label: 'Synced',
+                  variant: StatusChipVariant.info,
+                  size: StatusChipSize.small,
+                ),
+                SettleoraStatusChip(
+                  key: Key('direct-settleora-status-chip'),
+                  label: 'Server ready',
+                  icon: Icons.cloud_done_outlined,
+                ),
+                SettleoraReadinessChip(
+                  key: Key('direct-settleora-readiness-chip'),
+                  label: 'Checklist ready',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final chipWrap = find.byKey(const Key('direct-static-status-chip-wrap'));
+    expect(
+      find.descendant(of: chipWrap, matching: find.byType(FilterChip)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: chipWrap, matching: find.byType(ChoiceChip)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: chipWrap, matching: find.byType(ActionChip)),
+      findsNothing,
+    );
+
+    final semanticsHandle = tester.ensureSemantics();
+    for (final label in const [
+      'Pending review',
+      'Synced',
+      'Server ready',
+      'Checklist ready',
+    ]) {
+      expect(
+        tester
+            .getSemantics(find.text(label))
+            .getSemanticsData()
+            .hasAction(SemanticsAction.tap),
+        isFalse,
+        reason: '$label must remain a static readout, not a tappable control.',
+      );
+    }
+    semanticsHandle.dispose();
+
+    for (final key in const [
+      Key('direct-static-status-chip'),
+      Key('direct-static-status-chip-small'),
+      Key('direct-settleora-status-chip'),
+      Key('direct-settleora-readiness-chip'),
+    ]) {
+      expect(
+        tester.getSize(find.byKey(key)).height,
+        lessThanOrEqualTo(48),
+        reason: '$key should remain a compact status readout.',
+      );
+    }
+  });
+
   testWidgets(
     'currency selector preserves supported, blank, and unknown values',
     (tester) async {
