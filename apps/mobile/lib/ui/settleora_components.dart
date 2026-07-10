@@ -345,7 +345,13 @@ class SettleoraCompactHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              Semantics(
+                header: true,
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
               if (subtitle != null) ...[
                 const SizedBox(height: SettleoraSpacing.xxs),
                 Text(subtitle!, style: TextStyle(color: colors.textMuted)),
@@ -950,9 +956,12 @@ class SettleoraSection extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium,
+              child: Semantics(
+                header: true,
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
               ),
             ),
             ?trailing,
