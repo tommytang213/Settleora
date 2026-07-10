@@ -49,6 +49,7 @@ class AppButton extends StatelessWidget {
               Flexible(child: _AppButtonLabel(label: label)),
             ],
           );
+    final isEnabled = onPressed != null;
     final button = FilledButton(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
@@ -60,8 +61,19 @@ class AppButton extends StatelessWidget {
       ),
       child: child,
     );
+    final semanticButton = Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: label,
+      button: true,
+      enabled: isEnabled,
+      onTap: onPressed,
+      child: button,
+    );
 
-    return expanded ? SizedBox(width: double.infinity, child: button) : button;
+    return expanded
+        ? SizedBox(width: double.infinity, child: semanticButton)
+        : semanticButton;
   }
 }
 
