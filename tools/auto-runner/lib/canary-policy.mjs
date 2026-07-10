@@ -3,10 +3,11 @@ import path from "node:path";
 import { safeTimestamp, slugify } from "./logger.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 
-export const canaryAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning"]);
+export const canaryAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const lowRiskAutoMergeCanaryAllowedPathsByLane = Object.freeze({
   "workflow-docs-tooling": Object.freeze(["tools/auto-runner/**", "docs/workflow/**"]),
   "docs-planning": Object.freeze(["docs/planning/**", "docs/qa/**"]),
+  "client-ui-low-risk": Object.freeze(["apps/mobile/lib/ui/**", "apps/mobile/test/ui/**"]),
 });
 const lowRiskAutoMergeCanaryMaxIterations = 2;
 

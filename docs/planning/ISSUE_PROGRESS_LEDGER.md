@@ -20,6 +20,49 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Low-risk real-code canary lane foundation checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained `OPEN` with no labels during live inspection.
+  - #835 was `CLOSED` with only `auto-canary-ready`, `canary`, and
+    `workflow` labels during live inspection.
+  - No open auto-runner PRs were returned by the live repository readback.
+  - No open issues carried active/terminal runner labels:
+    `auto-claimed`, `auto-running`, `auto-pr-opened`, `auto-failed`,
+    `needs-tommy`, `danger-gate`, or `blocked`.
+- Verified repo baseline:
+  `origin/main` at
+  `6f9c84e0d9813dd9ac72161fa3deb4cc52102fe1`.
+- This tooling slice:
+  - Adds a default-off `client-ui-low-risk` real-code canary lane for narrow
+    shared Flutter UI component copy/styling and directly tied component tests
+    under `apps/mobile/lib/ui/**` and `apps/mobile/test/ui/**`.
+  - Keeps broad trusted real-run, systemd enablement, stale-claim stealing,
+    follow-up issue creation, review-fix mutation for the lane, external
+    reviewer/provider calls, existing-PR recovery, and broad product-runtime
+    lanes disabled unless separately approved.
+  - Requires bounded canary approval and low-risk auto-merge approval before
+    any live max-2 real-code pilot can select auto-merge contracts for the
+    lane.
+  - Fixes the lane validation profile in runner source to run status/diff
+    checks plus Flutter `pub get`, `analyze`, and the focused shared UI
+    component guardrail test from `apps/mobile`.
+- Issue posture:
+  keep #800 open for broader trusted unattended operation, additional gates,
+  and the separate max-2 live real-code pilot. This checkpoint does not create
+  the two live real-code canary issues and does not run the pilot from the
+  unmerged foundation branch.
+- Scope confirmation:
+  this checkpoint changes only auto-runner policy/tests, runner/workflow docs,
+  and this ledger entry. It does not change product runtime behavior, API
+  behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/import/export/backup/restore runtime, OCR
+  runtime, Docker/CI/deployment/env, secrets, production deploy, mobile
+  release/signing, public/admin exposure, branch deletion, force push, direct
+  main push, live canary execution, external reviewer/provider calls, or
+  issue/PR mutation.
+
 ### Issue #800 - Review-fix mutation foundation checkpoint
 
 - GitHub state/project status at task start:

@@ -75,6 +75,14 @@ export const validationProfiles = Object.freeze({
     ["npm", ["run", "validate:docs"]],
     ["npm", ["run", "validate:scaffold"]],
   ]),
+  "mobile-ui-low-risk": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter pub get"]],
+    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter analyze"]],
+    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart"]],
+  ]),
 });
 
 export const laneManifest = Object.freeze({
@@ -97,6 +105,19 @@ export const laneManifest = Object.freeze({
     allowedPaths: Object.freeze(["docs/planning/**", "docs/qa/**"]),
     defaultValidationProfile: "docs-only",
     supportedValidationProfiles: Object.freeze(["docs-only", "scaffold-docs"]),
+    implementationAllowed: true,
+    manualGateBeforeImplementation: false,
+    prCreationAllowed: true,
+    autoMergeAllowed: true,
+    followupIssueCreationAllowed: false,
+    reviewFixMutationAllowed: false,
+  }),
+  "client-ui-low-risk": Object.freeze({
+    id: "client-ui-low-risk",
+    purpose: "Default-off canary lane for narrow mobile shared UI component styling/copy with no API, auth, money, storage, schema, generated-client, deployment, release, or exposure changes.",
+    allowedPaths: Object.freeze(["apps/mobile/lib/ui/**", "apps/mobile/test/ui/**"]),
+    defaultValidationProfile: "mobile-ui-low-risk",
+    supportedValidationProfiles: Object.freeze(["mobile-ui-low-risk"]),
     implementationAllowed: true,
     manualGateBeforeImplementation: false,
     prCreationAllowed: true,
@@ -225,7 +246,7 @@ export function parseAutoRunnerContract(body) {
 export function pathViolatesPolicy(filePath, laneDecision) {
   const normalized = normalizePath(filePath);
   if (!laneDecision.allowedToImplement) return true;
-  if (isForbiddenPath(normalized)) return true;
+  if (isForbiddenPath(normalized, laneDecision)) return true;
   const manifestAllowed = matchesAnyGlob(normalized, laneDecision.laneManifestAllowedPaths || []);
   const contractAllowed = matchesAnyGlob(normalized, laneDecision.allowedPaths || []);
   return !manifestAllowed || !contractAllowed;
@@ -469,7 +490,14 @@ function dangerLane(id, purpose) {
   });
 }
 
-function isForbiddenPath(filePath) {
+function isForbiddenPath(filePath, laneDecision = {}) {
+  if (
+    laneDecision.lane === "client-ui-low-risk" &&
+    matchesAnyGlob(filePath, laneDecision.laneManifestAllowedPaths || []) &&
+    !detectDangerousPathReasons([filePath]).length
+  ) {
+    return false;
+  }
   return [
     /^\.env(?:\.|$)/,
     /^\.github\/workflows(?:\/|$)/,
