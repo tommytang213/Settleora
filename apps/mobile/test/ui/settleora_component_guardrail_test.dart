@@ -843,6 +843,74 @@ void main() {
     }
   });
 
+  testWidgets('SettleoraCountChip announces one static count label', (
+    tester,
+  ) async {
+    await _useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: Center(
+            child: Wrap(
+              key: Key('direct-count-chip-wrap'),
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                SettleoraCountChip(
+                  key: Key('direct-count-chip-zero'),
+                  label: 'Unread',
+                  count: 0,
+                ),
+                SettleoraCountChip(
+                  key: Key('direct-count-chip-icon'),
+                  label: 'Needs review',
+                  count: 7,
+                  icon: Icons.rate_review_outlined,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Unread: 0'), findsOneWidget);
+    expect(find.text('Needs review: 7'), findsOneWidget);
+    expect(find.byIcon(Icons.rate_review_outlined), findsOneWidget);
+
+    final chipWrap = find.byKey(const Key('direct-count-chip-wrap'));
+    expect(
+      find.descendant(of: chipWrap, matching: find.byType(FilterChip)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: chipWrap, matching: find.byType(ChoiceChip)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: chipWrap, matching: find.byType(ActionChip)),
+      findsNothing,
+    );
+
+    final semanticsHandle = tester.ensureSemantics();
+    _expectStaticSemanticsLabel(tester, 'Unread: 0');
+    _expectStaticSemanticsLabel(tester, 'Needs review: 7');
+    semanticsHandle.dispose();
+
+    for (final key in const [
+      Key('direct-count-chip-zero'),
+      Key('direct-count-chip-icon'),
+    ]) {
+      expect(
+        tester.getSize(find.byKey(key)).height,
+        lessThanOrEqualTo(48),
+        reason: '$key should remain a compact count readout.',
+      );
+    }
+  });
+
   testWidgets('shared rows separate interactive and static semantics', (
     tester,
   ) async {
