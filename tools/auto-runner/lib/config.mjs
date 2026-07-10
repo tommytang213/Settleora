@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
+import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 
@@ -41,6 +42,11 @@ export const defaultConfig = Object.freeze({
   },
   allowFollowupIssueCreation: false,
   allowReviewFixMutation: false,
+  reviewFixCanaryFixture: {
+    enabled: false,
+    marker: null,
+    markerId: null,
+  },
   allowSystemdEnablement: false,
   maxFollowupIssuesPerRun: 3,
   maxReviewFixCycles: 0,
@@ -216,6 +222,7 @@ export function loadConfig(cliArgs) {
   config.reviewerBudget = reviewerPolicy.reviewerBudget;
   config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
+  config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
 
   for (const dir of [
     config.logsRoot,

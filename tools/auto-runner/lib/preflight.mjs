@@ -5,6 +5,7 @@ import path from "node:path";
 import { resolveCodexCommand } from "./codex-runner.mjs";
 import { getCurrentBranch, getRefSha, getStatusShort, runGit } from "./git-workspace.mjs";
 import { evaluateLowRiskAutoMergeCanaryApproval, evaluateReviewFixMutationApproval, evaluateTrustPolicy } from "./canary-policy.mjs";
+import { evaluateReviewFixCanaryFixtureApproval } from "./review-fix-fixture.mjs";
 import { buildEligibleLabelSearches } from "./github-issues.mjs";
 import { safeTimestamp } from "./logger.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
@@ -69,6 +70,15 @@ export function runPreflight(config, options = {}) {
       evaluateReviewFixMutationApproval(config).approved
         ? `review-fix mutation has explicit low-risk approval: ${evaluateReviewFixMutationApproval(config).reason}`
         : "review-fix mutation is disabled.",
+    ),
+  );
+  checks.push(
+    policyCheck(
+      "review-fix-canary-fixture-disabled",
+      !config.reviewFixCanaryFixture?.requestedEnabled || evaluateReviewFixCanaryFixtureApproval(config).approved,
+      evaluateReviewFixCanaryFixtureApproval(config).approved
+        ? `review-fix canary fixture has explicit low-risk approval: ${evaluateReviewFixCanaryFixtureApproval(config).reason}`
+        : "review-fix canary fixture is disabled.",
     ),
   );
   checks.push(
@@ -303,6 +313,10 @@ function checkConfig(config) {
   if (config.maxReviewFixCycles > 0 && !reviewFixApproval.approved && !riskyEnabled.includes("allowReviewFixMutation")) {
     riskyEnabled.push("maxReviewFixCycles");
   }
+  const fixtureApproval = evaluateReviewFixCanaryFixtureApproval(config);
+  if (config.reviewFixCanaryFixture?.requestedEnabled && !fixtureApproval.approved) {
+    riskyEnabled.push("reviewFixCanaryFixture");
+  }
   return {
     name: "config-parseable",
     status: missing.length === 0 && riskyEnabled.length === 0 ? "pass" : "fail",
@@ -316,9 +330,11 @@ function checkConfig(config) {
               autoMergeCanaryApprovalReason: autoMergeApproval.reason,
               reviewFixMutationApprovalMode: reviewFixApproval.mode,
               reviewFixMutationApprovalReason: reviewFixApproval.reason,
+              reviewFixCanaryFixtureApprovalMode: fixtureApproval.mode,
+              reviewFixCanaryFixtureApprovalReason: fixtureApproval.reason,
             }),
           )
-        : bounded(JSON.stringify({ missingOrEmpty: missing, riskyEnabled, autoMergeCanaryApproval: autoMergeApproval, reviewFixMutationApproval: reviewFixApproval })),
+        : bounded(JSON.stringify({ missingOrEmpty: missing, riskyEnabled, autoMergeCanaryApproval: autoMergeApproval, reviewFixMutationApproval: reviewFixApproval, reviewFixCanaryFixtureApproval: fixtureApproval })),
   };
 }
 

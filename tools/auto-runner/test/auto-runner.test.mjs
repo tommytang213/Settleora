@@ -51,8 +51,14 @@ import {
 } from "../lib/auto-merge-policy.mjs";
 import {
   evaluateReviewFixMutationDecision,
+  extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
+import {
+  evaluateReviewFixCanaryFixtureApproval,
+  normalizeReviewFixCanaryFixtureConfig,
+  runReviewFixCanaryFixtureReview,
+} from "../lib/review-fix-fixture.mjs";
 
 const baseConfig = {
   dryRun: true,
@@ -174,6 +180,160 @@ test("review-fix mutation defaults off and clamps explicit low-risk approval to 
   const trust = evaluateTrustPolicy({ ...approved, reviewFixMutation: normalized, maxReviewFixCycles: normalized.maxAttempts });
   assert.equal(trust.allowed, true);
   assert.equal(trust.reviewFixMutationApproval.approved, true);
+});
+
+test("built-in default config keeps review-fix canary fixture disabled", () => {
+  const config = loadConfig({ ...parseCliArgs(["--dry-run"]), configPath: null });
+  assert.equal(config.reviewFixCanaryFixture.enabled, false);
+  assert.equal(config.reviewFixCanaryFixture.requestedEnabled, false);
+  assert.equal(evaluateReviewFixCanaryFixtureApproval(config).approved, false);
+});
+
+test("review-fix canary fixture requires external canary real-run approvals and review-fix mutation approval", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fixture-approval-"));
+  try {
+    const base = fixtureConfig(tempRoot, {
+      run: true,
+      dryRun: false,
+      canary: true,
+      configPath: "/workspace/logs/settleora-auto-runner/local-fixture.json",
+    });
+    assert.equal(evaluateReviewFixCanaryFixtureApproval(base).approved, true);
+    assert.equal(evaluateReviewFixCanaryFixtureApproval({ ...base, trustedRealRunCanaryApproved: false }).approved, false);
+    assert.equal(evaluateReviewFixCanaryFixtureApproval({ ...base, trustedRealRunApproved: true }).approved, false);
+    assert.equal(evaluateReviewFixCanaryFixtureApproval({ ...base, allowAutoMerge: false }).approved, false);
+    assert.equal(evaluateReviewFixCanaryFixtureApproval({ ...base, allowReviewFixMutation: false }).approved, false);
+    assert.equal(evaluateReviewFixCanaryFixtureApproval({ ...base, run: false, dryRun: true }).approved, false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review-fix canary fixture malformed config fails closed", () => {
+  const config = {
+    configPath: "/workspace/logs/settleora-auto-runner/local-fixture.json",
+    reviewFixCanaryFixture: { enabled: true, marker: "bad\nmarker" },
+  };
+  const normalized = normalizeReviewFixCanaryFixtureConfig(config);
+  assert.equal(normalized.enabled, false);
+  assert.equal(normalized.malformed, true);
+  assert.match(normalized.reason, /marker/);
+});
+
+test("review-fix canary fixture allows only low-risk lanes and blocks broad or dangerous paths", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fixture-paths-"));
+  try {
+    const config = fixtureConfig(tempRoot);
+    const broad = runReviewFixCanaryFixtureReview(config, workflowReviewPackage({
+      laneDecision: reviewFixLaneDecision({ allowedPaths: ["docs/**"] }),
+      changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+    }));
+    assert.match(broad.reason, /unsafe_contract_allowed_path/);
+
+    const dangerous = runReviewFixCanaryFixtureReview(config, workflowReviewPackage({
+      laneDecision: reviewFixLaneDecision({ allowedPaths: ["services/api/Auth/Foo.cs"] }),
+      changedFiles: ["services/api/Auth/Foo.cs"],
+    }));
+    assert.match(dangerous.reason, /unsafe_contract_allowed_path|forbidden_changed_files/);
+
+    const productLane = runReviewFixCanaryFixtureReview(config, workflowReviewPackage({
+      laneDecision: { ...reviewFixLaneDecision({ allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"] }), lane: "product-runtime" },
+      changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+    }));
+    assert.equal(productLane.reason, "lane_not_review_fix_fixture_approved");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review-fix canary fixture emits actionable fail when marker is absent and pass when present", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fixture-marker-"));
+  const repo = createTempGitRepo();
+  try {
+    const changedFile = "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md";
+    const config = fixtureConfig(tempRoot, { repoRoot: repo });
+    const packageInfo = workflowReviewPackage({
+      changedFiles: [changedFile],
+      laneDecision: reviewFixLaneDecision({ allowedPaths: [changedFile] }),
+      summary: { validation: { passed: true, results: [] }, issue: { number: 902, title: "Fixture marker", labels: ["auto-canary-ready"], url: "https://example.invalid/902" } },
+    });
+    writeFileSync(path.join(repo, changedFile), "canary checkpoint without marker\n");
+    const failResult = runReviewFixCanaryFixtureReview(config, packageInfo, { phase: "pre-fix" });
+    assert.equal(failResult.status, "blocked");
+    assert.equal(failResult.reason, "blocked_external_reviewer_non_pass");
+    assert.equal(failResult.sanitizedResponseSummary.verdict, "fail");
+    assert.equal(failResult.findingCount, 1);
+
+    writeFileSync(path.join(repo, changedFile), "canary checkpoint\nreview-fix-cycle: completed\n");
+    const passResult = runReviewFixCanaryFixtureReview(config, packageInfo, { phase: "post-fix" });
+    assert.equal(passResult.status, "pass");
+    assert.equal(passResult.reason, "review_fix_canary_fixture_marker_present");
+    assert.equal(passResult.sanitizedResponseSummary.verdict, "pass");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("review-fix loop accepts fixture actionable finding only in explicit fixture mode", () => {
+  const fixtureReview = {
+    status: "blocked",
+    reason: "blocked_external_reviewer_non_pass",
+    provider: "review_fix_canary_fixture",
+    sanitizedResponseSummary: {
+      verdict: "fail",
+      confidence: "high",
+      summary: "marker absent",
+      findings: ["Add marker."],
+    },
+  };
+  const trigger = extractReviewFixTrigger({ externalReview: fixtureReview });
+  assert.equal(trigger.actionable, true);
+  assert.equal(trigger.source, "review_fix_canary_fixture");
+
+  const config = {
+    configPath: "/workspace/logs/settleora-auto-runner/local-review-fix.json",
+    allowReviewFixMutation: true,
+    allowAutoMerge: true,
+    lowRiskAutoMergeCanaryApproved: true,
+    trustedRealRunCanaryApproved: true,
+    trustedRealRunApproved: false,
+    maxReviewFixCycles: 1,
+    reviewFixMutation: { enabled: true, maxAttempts: 1 },
+    reviewFixCanaryFixture: { requestedEnabled: false, enabled: false },
+  };
+  const decision = evaluateReviewFixMutationDecision({
+    config,
+    issue: { number: 903, title: "Fixture disabled", labels: [], url: "https://example.invalid/903" },
+    laneDecision: reviewFixLaneDecision({ allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"] }),
+    changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
+    validation: { passed: true },
+    externalReview: fixtureReview,
+  });
+  assert.equal(decision.allowed, false);
+  assert.equal(decision.reason, "review_fix_fixture_trigger_without_fixture_mode");
+});
+
+test("review-fix canary fixture evidence is sanitized and omits raw marker and secrets", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fixture-evidence-"));
+  const repo = createTempGitRepo();
+  try {
+    const changedFile = "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md";
+    const config = fixtureConfig(tempRoot, { repoRoot: repo });
+    writeFileSync(path.join(repo, changedFile), "missing configured marker\n");
+    const result = runReviewFixCanaryFixtureReview(config, workflowReviewPackage({
+      changedFiles: [changedFile],
+      laneDecision: reviewFixLaneDecision({ allowedPaths: [changedFile] }),
+      summary: { validation: { passed: true, results: [] }, issue: { number: 904, title: "Secret token fixture", labels: [], url: "https://example.invalid/904" } },
+    }));
+    const evidence = readFileSync(result.reportPath, "utf8");
+    assert.match(evidence, /review-fix-cycle-completed/);
+    assert.doesNotMatch(evidence, /review-fix-cycle: completed/);
+    assert.doesNotMatch(evidence, /GEMINI_API_KEY|super-secret-token|authorization/i);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 test("review-fix mutation decision requires actionable low-risk auto-merge contract and safe files", () => {
@@ -2710,6 +2870,39 @@ function approvedLowRiskAutoMergeCanaryConfig() {
     maxIterations: 2,
     requestedMaxIterations: 2,
   };
+}
+
+function fixtureConfig(logsRoot, overrides = {}) {
+  mkdirSync(path.join(logsRoot, "review-fix"), { recursive: true });
+  const raw = {
+    ...readinessConfig(logsRoot),
+    repoRoot: process.cwd(),
+    run: true,
+    dryRun: false,
+    canary: true,
+    configPath: "/workspace/logs/settleora-auto-runner/local-fixture.json",
+    trustedRealRunCanaryApproved: true,
+    trustedRealRunApproved: false,
+    lowRiskAutoMergeCanaryApproved: true,
+    allowAutoMerge: true,
+    allowReviewFixMutation: true,
+    maxReviewFixCycles: 1,
+    reviewFixMutation: {
+      enabled: true,
+      maxAttempts: 1,
+      requestedMaxAttempts: 1,
+      maxAllowedAttempts: 1,
+    },
+    reviewFixCanaryFixture: {
+      enabled: true,
+      marker: "review-fix-cycle: completed",
+      markerId: "review-fix-cycle-completed",
+    },
+    ...overrides,
+  };
+  raw.reviewFixMutation = normalizeReviewFixMutationConfig(raw);
+  raw.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(raw);
+  return raw;
 }
 
 function geminiSmokeConfig(logsRoot, overrides = {}) {

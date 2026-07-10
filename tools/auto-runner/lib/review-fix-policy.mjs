@@ -85,6 +85,9 @@ export function evaluateReviewFixMutationDecision(input) {
   if (config.allowFollowupIssueCreation) return block("review_fix_refuses_followup_issue_creation");
   if (config.allowSystemdEnablement) return block("review_fix_refuses_systemd_enablement");
   if (config.trustedRealRunApproved) return block("review_fix_refuses_broad_trusted_real_run");
+  if (trigger.source === "review_fix_canary_fixture" && !config.reviewFixCanaryFixture?.enabled) {
+    return block("review_fix_fixture_trigger_without_fixture_mode");
+  }
   if (!laneDecision.allowedToImplement) return block("lane_not_allowed_to_implement");
   if (!reviewFixMutationLanes.includes(laneDecision.lane)) return block("lane_not_review_fix_approved");
   if (!laneDecision.autoMergeEligible || laneDecision.contract?.autoMergeEligible !== true) {
@@ -122,7 +125,7 @@ export function extractReviewFixTrigger(input = {}) {
   ) {
     return {
       actionable: true,
-      source: "integrated_gemini",
+      source: externalReview.provider === "review_fix_canary_fixture" ? "review_fix_canary_fixture" : "integrated_gemini",
       verdict: externalVerdict.verdict,
       findings: sanitizeFindings(externalVerdict.findings),
     };

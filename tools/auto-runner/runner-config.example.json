@@ -34,6 +34,11 @@
   },
   "allowFollowupIssueCreation": false,
   "allowReviewFixMutation": false,
+  "reviewFixCanaryFixture": {
+    "enabled": false,
+    "marker": null,
+    "markerId": null
+  },
   "allowSystemdEnablement": false,
   "maxFollowupIssuesPerRun": 3,
   "maxReviewFixCycles": 0,
