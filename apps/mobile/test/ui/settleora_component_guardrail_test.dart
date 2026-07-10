@@ -494,6 +494,64 @@ void main() {
     semanticsHandle.dispose();
   });
 
+  testWidgets(
+    'shared header primitives expose only visible titles as semantic headers',
+    (tester) async {
+      await _useLargeSurface(tester);
+      var compactTrailingTaps = 0;
+      var sectionTrailingTaps = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: Scaffold(
+            body: Column(
+              children: [
+                SettleoraCompactHeader(
+                  title: 'Trip summary',
+                  subtitle: 'Two bills pending',
+                  trailing: TextButton(
+                    onPressed: () => compactTrailingTaps += 1,
+                    child: const Text('Refresh trip summary'),
+                  ),
+                ),
+                SettleoraSection(
+                  title: 'Group activity',
+                  trailing: TextButton(
+                    onPressed: () => sectionTrailingTaps += 1,
+                    child: const Text('See all activity'),
+                  ),
+                  children: const [Text('Loaded activity row')],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Trip summary'), findsOneWidget);
+      expect(find.text('Two bills pending'), findsOneWidget);
+      expect(find.text('Group activity'), findsOneWidget);
+      expect(find.text('Loaded activity row'), findsOneWidget);
+
+      final semanticsHandle = tester.ensureSemantics();
+      _expectHeaderSemantics(tester, 'Trip summary');
+      _expectHeaderSemantics(tester, 'Group activity');
+      _expectNotHeaderSemantics(tester, 'Two bills pending');
+      _expectNotHeaderSemantics(tester, 'Loaded activity row');
+      _expectInteractiveNotHeaderSemantics(tester, 'Refresh trip summary');
+      _expectInteractiveNotHeaderSemantics(tester, 'See all activity');
+      semanticsHandle.dispose();
+
+      await tester.tap(find.text('Refresh trip summary'));
+      await tester.tap(find.text('See all activity'));
+      await tester.pumpAndSettle();
+
+      expect(compactTrailingTaps, 1);
+      expect(sectionTrailingTaps, 1);
+    },
+  );
+
   testWidgets('static status chips stay compact and non-interactive', (
     tester,
   ) async {
@@ -1156,6 +1214,52 @@ void _expectStaticRowSemantics(WidgetTester tester, Finder finder) {
   final semanticsData = tester.getSemantics(finder).getSemanticsData();
   expect(semanticsData.hasAction(SemanticsAction.tap), isFalse);
   expect(semanticsData.flagsCollection.isButton, isFalse);
+}
+
+void _expectHeaderSemantics(WidgetTester tester, String label) {
+  final matchingNodes = _semanticsNodes(tester).where((node) {
+    final data = node.getSemanticsData();
+    return data.label == label && data.flagsCollection.isHeader;
+  }).toList();
+
+  expect(matchingNodes, hasLength(1));
+  expect(
+    matchingNodes.single.getSemanticsData().hasAction(SemanticsAction.tap),
+    isFalse,
+  );
+}
+
+void _expectNotHeaderSemantics(WidgetTester tester, String label) {
+  final matchingNodes = _semanticsNodes(tester).where((node) {
+    final data = node.getSemanticsData();
+    return data.label == label;
+  }).toList();
+
+  expect(matchingNodes, isNotEmpty);
+  expect(
+    matchingNodes.any(
+      (node) => node.getSemanticsData().flagsCollection.isHeader,
+    ),
+    isFalse,
+  );
+}
+
+void _expectInteractiveNotHeaderSemantics(WidgetTester tester, String label) {
+  final matchingNodes = _semanticsNodes(tester).where((node) {
+    final data = node.getSemanticsData();
+    return data.label == label;
+  }).toList();
+
+  expect(matchingNodes, isNotEmpty);
+  expect(
+    matchingNodes.any((node) {
+      final data = node.getSemanticsData();
+      return data.hasAction(SemanticsAction.tap) &&
+          data.flagsCollection.isButton &&
+          !data.flagsCollection.isHeader;
+    }),
+    isTrue,
+  );
 }
 
 List<SemanticsNode> _semanticsNodes(WidgetTester tester) {
