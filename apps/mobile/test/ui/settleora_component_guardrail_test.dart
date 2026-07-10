@@ -494,6 +494,134 @@ void main() {
     semanticsHandle.dispose();
   });
 
+  testWidgets(
+    'AppButton label-only enabled state exposes one actionable button label',
+    (tester) async {
+      var taps = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: Scaffold(
+            body: Center(
+              child: AppButton(
+                label: 'Save changes',
+                onPressed: () => taps += 1,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Save changes'), findsOneWidget);
+
+      final semanticsHandle = tester.ensureSemantics();
+      _expectAppButtonSemantics(tester, label: 'Save changes');
+      semanticsHandle.dispose();
+
+      await tester.tap(find.text('Save changes'));
+      await tester.pumpAndSettle();
+
+      expect(taps, 1);
+    },
+  );
+
+  testWidgets('AppButton icon is decorative and keeps one actionable label', (
+    tester,
+  ) async {
+    var taps = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: Center(
+            child: AppButton(
+              label: 'Refresh bills',
+              icon: Icons.refresh,
+              onPressed: () => taps += 1,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byIcon(Icons.refresh), findsOneWidget);
+    expect(find.text('Refresh bills'), findsOneWidget);
+
+    final semanticsHandle = tester.ensureSemantics();
+    _expectAppButtonSemantics(tester, label: 'Refresh bills');
+    semanticsHandle.dispose();
+
+    await tester.tap(find.text('Refresh bills'));
+    await tester.pumpAndSettle();
+
+    expect(taps, 1);
+  });
+
+  testWidgets('AppButton disabled state is non-actionable', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: Center(
+            child: AppButton(
+              label: 'Apply disabled review',
+              icon: Icons.block,
+              onPressed: null,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byIcon(Icons.block), findsOneWidget);
+    expect(find.text('Apply disabled review'), findsOneWidget);
+
+    final semanticsHandle = tester.ensureSemantics();
+    _expectAppButtonSemantics(
+      tester,
+      label: 'Apply disabled review',
+      enabled: false,
+    );
+    semanticsHandle.dispose();
+  });
+
+  testWidgets('AppButton expanded sizing preserves button semantics', (
+    tester,
+  ) async {
+    await _useLargeSurface(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            child: AppButton(
+              key: const Key('expanded-app-button'),
+              label: 'Continue to review',
+              icon: Icons.arrow_forward,
+              expanded: true,
+              onPressed: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Continue to review'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_forward), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const Key('expanded-app-button'))).width,
+      360,
+    );
+
+    final semanticsHandle = tester.ensureSemantics();
+    _expectAppButtonSemantics(tester, label: 'Continue to review');
+    semanticsHandle.dispose();
+  });
+
   testWidgets('MoneyText exposes one normalized amount semantics label', (
     tester,
   ) async {
@@ -1505,6 +1633,38 @@ void _expectInteractiveRowSemantics(
           data.flagsCollection.isButton;
     }),
     isTrue,
+  );
+}
+
+void _expectAppButtonSemantics(
+  WidgetTester tester, {
+  required String label,
+  bool enabled = true,
+}) {
+  final matchingNodes = _semanticsNodes(
+    tester,
+  ).where((node) => node.getSemanticsData().label == label).toList();
+  expect(
+    matchingNodes,
+    hasLength(1),
+    reason: '$label must be announced by exactly one button semantics node.',
+  );
+
+  final data = matchingNodes.single.getSemanticsData();
+  expect(
+    data.flagsCollection.isButton,
+    isTrue,
+    reason: '$label must expose button semantics.',
+  );
+  expect(
+    data.flagsCollection.isEnabled.name,
+    enabled ? 'isTrue' : 'isFalse',
+    reason: '$label must expose its actual enabled state.',
+  );
+  expect(
+    data.hasAction(SemanticsAction.tap),
+    enabled,
+    reason: '$label tap semantics must match the callback state.',
   );
 }
 
