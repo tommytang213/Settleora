@@ -243,14 +243,20 @@ class SettleoraAssignedMemberChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      avatar: CircleAvatar(
-        backgroundColor: colors.primary,
-        foregroundColor: colors.onPrimary,
-        child: Text(avatarLabel),
+    return Semantics(
+      container: true,
+      label: label,
+      child: ExcludeSemantics(
+        child: Chip(
+          visualDensity: VisualDensity.compact,
+          avatar: CircleAvatar(
+            backgroundColor: colors.primary,
+            foregroundColor: colors.onPrimary,
+            child: Text(avatarLabel),
+          ),
+          label: Text(label, overflow: TextOverflow.ellipsis),
+        ),
       ),
-      label: Text(label, overflow: TextOverflow.ellipsis),
     );
   }
 }
