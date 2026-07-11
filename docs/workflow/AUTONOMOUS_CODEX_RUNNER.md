@@ -14,6 +14,16 @@ bounded DevBox process and let it process multiple eligible issues until it hits
 `--max-iterations`, `--max-runtime`, no eligible work, or a systemic unsafe
 condition.
 
+The detached supervisor foundation adds an optional systemd-backed control
+surface around this runner. It submits immutable bounded run specs, starts a
+validated user-unit instance after later manual installation, writes
+heartbeat/state files, and returns control to the operator without waiting for
+the runner to finish. It is documented in
+[AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md](AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md).
+It does not replace this runner, reinterpret issue contracts, install or
+enable services, enable linger, deploy monitoring, auto-restart mutation runs,
+or approve broader lanes.
+
 ## Relationship To Existing Automation
 
 Manual Windows helper scripts such as `Start-SettleoraCodexTask.ps1` and

@@ -1,0 +1,20 @@
+[Unit]
+Description=Settleora detached auto-runner supervisor worker %i
+Documentation=file:/workspace/repos/Settleora/docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md
+
+[Service]
+Type=exec
+WorkingDirectory=/workspace/repos/Settleora
+ExecStart=/usr/bin/env node /workspace/repos/Settleora/tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs %i
+UMask=0077
+Restart=no
+KillMode=process
+TimeoutStopSec=30min
+SendSIGKILL=no
+EnvironmentFile=-/workspace/logs/settleora-auto-runner/secrets/supervisor.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# Template only. Do not enable instances automatically; runs are started
+# explicitly with systemctl --user start settleora-auto-runner@<run-id>.service.

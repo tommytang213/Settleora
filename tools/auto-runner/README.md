@@ -25,6 +25,23 @@ node tools/auto-runner/settleora-auto-runner.mjs --extend --max-prs +5
 node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
 ```
 
+Detached supervisor foundation:
+
+```bash
+node tools/auto-runner/settleora-auto-runnerctl.mjs submit --dry-run --profile default --max-tasks 8 --max-runtime 8h --json
+node tools/auto-runner/settleora-auto-runnerctl.mjs status --latest
+node tools/auto-runner/settleora-auto-runnerctl.mjs report --latest
+node tools/auto-runner/settleora-auto-runnerctl.mjs health --run <supervisor-run-id>
+```
+
+The supervisor is an additive wrapper around the existing runner. It writes
+immutable run specs and state under
+`/workspace/logs/settleora-auto-runner/supervisor/`, starts a later-installed
+systemd user-unit instance by validated run ID, and exits after the service is
+accepted/running. It does not approve broader lanes, install units, enable
+linger, deploy monitoring, or run automatically after reboot. See
+`docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md`.
+
 Status reads the runner lock, active-run state, latest summaries, and local
 control file under `/workspace/logs/settleora-auto-runner/`. It reports the
 active run id when known, mode/config path, start time, elapsed/max/remaining
