@@ -162,6 +162,42 @@ test("operator CLI dry-run has no durable supervisor side effects and renders ex
   assert.deepEqual(snapshotSupervisorFiles(), before);
 });
 
+test("operator CLI bounds extensions and refuses unknown supervisor run control", () => {
+  const oversizedTasks = spawnSync(process.execPath, [
+    "tools/auto-runner/settleora-auto-runnerctl.mjs",
+    "extend",
+    "--run",
+    "supervised-20260711T063151Z-066b80f4fc16",
+    "--max-tasks",
+    "+999999",
+  ], { cwd: path.resolve("."), encoding: "utf8" });
+  assert.notEqual(oversizedTasks.status, 0);
+  assert.match(oversizedTasks.stderr, /\+1 and \+500/);
+
+  const oversizedRuntime = spawnSync(process.execPath, [
+    "tools/auto-runner/settleora-auto-runnerctl.mjs",
+    "extend",
+    "--run",
+    "supervised-20260711T063151Z-066b80f4fc16",
+    "--max-runtime",
+    "+999d",
+  ], { cwd: path.resolve("."), encoding: "utf8" });
+  assert.notEqual(oversizedRuntime.status, 0);
+  assert.match(oversizedRuntime.stderr, /\+1m and \+14d/);
+
+  const unknownRun = spawnSync(process.execPath, [
+    "tools/auto-runner/settleora-auto-runnerctl.mjs",
+    "pause",
+    "--run",
+    "supervised-20260711T063151Z-066b80f4fc16",
+    "--json",
+  ], { cwd: path.resolve("."), encoding: "utf8" });
+  assert.equal(unknownRun.status, 2);
+  const parsed = JSON.parse(unknownRun.stdout);
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.reason, "unknown_run");
+});
+
 test("systemd template is fixed, no restart, no enablement, and no embedded secrets", () => {
   const text = readFileSync("tools/auto-runner/systemd/settleora-auto-runner@.service", "utf8");
   assert.match(text, /Type=exec/);

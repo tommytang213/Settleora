@@ -68,6 +68,12 @@ async function main() {
     return;
   }
   if (["pause", "stop-after-current", "extend"].includes(cli.command)) {
+    const supervisorState = readSupervisorState(runId, config.logsRoot);
+    if (!supervisorState.found) {
+      print({ ok: false, reason: "unknown_run", runId }, cli.json);
+      process.exitCode = 2;
+      return;
+    }
     const controlConfig = { ...config, logsRoot: defaultLogsRoot };
     const result = writeControlCommand(controlConfig, {
       controlCommand: cli.command === "stop-after-current" ? "stop-after-current" : cli.command,
@@ -199,6 +205,9 @@ function parseCtlArgs(argv) {
       if (cli.command === "extend") {
         if (!/^\+\d+$/.test(raw)) throw new Error("--max-tasks extension must use +N");
         cli.maxTasksDelta = Number.parseInt(raw.slice(1), 10);
+        if (!Number.isSafeInteger(cli.maxTasksDelta) || cli.maxTasksDelta < 1 || cli.maxTasksDelta > 500) {
+          throw new Error("--max-tasks extension must be between +1 and +500");
+        }
       } else {
         cli.maxTasks = Number.parseInt(raw, 10);
       }
@@ -207,6 +216,9 @@ function parseCtlArgs(argv) {
       if (cli.command === "extend") {
         if (!/^\+\d+(m|h|d)$/i.test(raw)) throw new Error("--max-runtime extension must use +Nh style syntax");
         cli.maxRuntimeDeltaMs = durationToMs(raw.slice(1));
+        if (cli.maxRuntimeDeltaMs < 60 * 1000 || cli.maxRuntimeDeltaMs > 14 * 24 * 60 * 60 * 1000) {
+          throw new Error("--max-runtime extension must be between +1m and +14d");
+        }
       } else {
         cli.maxRuntime = raw;
       }
