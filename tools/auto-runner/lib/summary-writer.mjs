@@ -43,6 +43,7 @@ function renderRunMarkdown(summary) {
     `# Settleora Auto-Runner Summary`,
     "",
     `- Run ID: \`${summary.runId}\``,
+    `- Supervisor run ID: ${summary.supervisorRunId ? `\`${summary.supervisorRunId}\`` : "none"}`,
     `- Mode: \`${summary.mode}\``,
     `- Started: ${summary.startedAt}`,
     `- Finished: ${summary.finishedAt}`,

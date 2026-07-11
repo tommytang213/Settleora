@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import process from "node:process";
 import { defaultLogsRoot } from "./lib/config.mjs";
 import { getRefSha, getStatusShort } from "./lib/git-workspace.mjs";
@@ -49,11 +50,16 @@ async function main() {
       process.exitCode = 2;
       return;
     }
+    const report = supervisorReport(status.state);
     print({
       ok: true,
       runId,
       state: status.state,
-      reportPath: reportPathForRun(status.state),
+      runnerRunId: report.runnerRunId,
+      reportPath: report.reportPath,
+      runnerSummaryJsonPath: report.runnerSummaryJsonPath,
+      runnerSummaryMarkdownPath: report.runnerSummaryMarkdownPath,
+      reportResolution: report.reportResolution,
     }, cli.json);
     return;
   }
@@ -241,16 +247,39 @@ function resolveRunSelection(cli, logsRoot) {
   return latest.runId;
 }
 
-function classifyHealth(state, heartbeat) {
+export function classifyHealth(state, heartbeat) {
   if (!state.found) return { ok: false, status: "missing", exitCode: 4 };
   if (!heartbeat.found) return { ok: false, status: "missing_heartbeat", exitCode: 4, state: state.state };
   if (heartbeat.stale) return { ok: false, status: "stale", exitCode: 3, state: state.state, heartbeat: heartbeat.heartbeat };
   const current = state.state?.state || heartbeat.heartbeat.state;
-  if (current === "completed") return { ok: true, status: "terminal_success", exitCode: 0, state: state.state, heartbeat: heartbeat.heartbeat };
+  const report = supervisorReport(state.state);
+  if (current === "completed") {
+    if (!report.reportPath || report.reportResolution?.status !== "matched") {
+      return {
+        ok: false,
+        status: "report_mapping_missing",
+        exitCode: 2,
+        state: state.state,
+        heartbeat: heartbeat.heartbeat,
+        report,
+      };
+    }
+    return { ok: true, status: "terminal_success", exitCode: 0, state: state.state, heartbeat: heartbeat.heartbeat, report };
+  }
   if (["partial", "blocked", "failed", "cancelled", "submission_failed"].includes(current)) {
-    return { ok: false, status: "terminal_unhealthy", exitCode: 2, state: state.state, heartbeat: heartbeat.heartbeat };
+    return { ok: false, status: "terminal_unhealthy", exitCode: 2, state: state.state, heartbeat: heartbeat.heartbeat, report };
   }
   return { ok: true, status: "active", exitCode: 0, state: state.state, heartbeat: heartbeat.heartbeat };
+}
+
+function supervisorReport(state) {
+  return {
+    runnerRunId: state?.runnerRunId || null,
+    reportPath: reportPathForRun(state),
+    runnerSummaryJsonPath: state?.runnerSummaryJsonPath || null,
+    runnerSummaryMarkdownPath: state?.runnerSummaryMarkdownPath || null,
+    reportResolution: state?.reportResolution || null,
+  };
 }
 
 function print(result, json) {
@@ -275,7 +304,9 @@ function durationToMs(value) {
   return amount * 24 * 60 * 60 * 1000;
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

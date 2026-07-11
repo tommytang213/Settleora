@@ -29,6 +29,16 @@ auto-restart mutation runs, or approve broader lanes. Future TrueNAS monitoring
 uses SSH pull health/status checks so a dead DevBox is detected by failed
 polling or a stale heartbeat lease.
 
+Supervised runs are correlated explicitly. The supervisor passes
+`--supervisor-run-id <validated-supervisor-run-id>` only for normal real
+`--run` launches, and the runner stores that bounded logical ID in the
+sanitized JSON and Markdown summary. The flag is invalid for dry-run,
+readiness/preflight, status/list/control, reviewer smoke, review-package, and
+summary-only modes. It is metadata only and does not alter lane policy,
+issue selection, budgets, review, validation, CI, PR creation, or merge
+authority. The supervisor uses this field for exact report mapping and never
+uses newest-summary guessing.
+
 ## Relationship To Existing Automation
 
 Manual Windows helper scripts such as `Start-SettleoraCodexTask.ps1` and
@@ -87,7 +97,9 @@ loops. It must remain sanitized: no provider payloads, raw Gemini output,
 raw Codex mechanics output, provider request/response bodies, environment
 variables, API keys, authorization headers, `.env` values, or secrets. Run
 summaries, iteration state, active-run state, recent summaries, and event
-listings persist sanitized metadata plus evidence paths only. Raw model
+listings persist sanitized metadata plus evidence paths only. Supervised run
+summaries include a bounded `supervisorRunId` correlation field; unsupervised
+historical and foreground summaries remain compatible without that field. Raw model
 output, selected response payloads, prompts, stdout/stderr, full diffs, and
 provider payloads belong in dedicated local evidence files under the approved
 `/workspace/logs/settleora-auto-runner/` subdirectories. Historical local

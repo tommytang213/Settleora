@@ -151,6 +151,7 @@ async function main() {
   let lockPath = null;
   const summary = {
     runId,
+    supervisorRunId: config.supervisorRunId || null,
     mode: config.mode,
     startedAt: new Date().toISOString(),
     finishedAt: null,

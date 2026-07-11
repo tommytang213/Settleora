@@ -134,10 +134,48 @@ runner with an argv array. It maps `maxTasks` to the existing iteration budget,
 `maxRuntime` to the existing runtime limit, `mode` to the existing runner mode,
 and the resolved profile config path to `--config`.
 
+Every supervised runner launch also passes the fixed argv pair
+`--supervisor-run-id <validated-supervisor-run-id>`. The value is a logical
+correlation ID only: it carries no authority, does not choose paths, cannot
+override the runner's own run ID, and does not change lane, label, budget,
+review, CI, PR, or merge policy. The runner persists the value as sanitized
+summary metadata in JSON and Markdown summaries. Unsupervised foreground runs
+remain compatible and have no supervisor correlation.
+
+After child exit, the worker resolves the report through exact trusted
+correlation:
+
+```text
+validated supervisor run ID
+  -> fixed runner CLI argument
+  -> runner summary supervisorRunId
+  -> exact JSON/Markdown summary pair
+  -> supervisor state, heartbeat, outbox, status, report, and health
+```
+
+The resolver scans only the fixed summaries root under the configured logs
+root, only regular non-symlink `run-YYYY-MM-DDTHHMMSSZ.json` files, and only
+bounded-size JSON candidates. A match requires the summary `supervisorRunId`
+to equal the expected supervisor run ID, a valid runner run ID, filename stem
+equal to `summary.runId`, parseable `startedAt` and terminal `finishedAt`,
+matching immutable initial `origin/main`, compatible runner mode, and an
+existing regular non-symlink Markdown pair contained in the same summaries
+root. Rollup files, recent-summary files, unrelated historical summaries,
+wrong supervisor IDs, and manual foreground runs are not used as fallbacks.
+The supervisor never guesses by newest summary timestamp.
+
 On first `SIGTERM` or `SIGINT`, the worker writes `stopping_after_current` and
 invokes the existing safe `--stop-after-current` control path. It does not
 kill mid-commit, mid-review, mid-check-wait, or mid-merge. A second emergency
 hard stop remains a manual operator action outside the normal Windows wrapper.
+
+If the child exits successfully but no unique trusted summary pair maps back
+to the supervisor run, the supervisor fails closed with terminal `failed`,
+records a bounded report-resolution reason such as
+`report_mapping_missing` or `report_mapping_ambiguous`, exits nonzero, and
+does not invent a report path. If the child exits nonzero but a trusted
+summary pair exists, the mapped report is retained while the child-derived
+terminal state remains authoritative.
 
 ## State And Heartbeat
 
@@ -152,15 +190,21 @@ Files include `state.json`, `heartbeat.json`, `stdout.log`, `stderr.log`, and
 heartbeat interval is 60 seconds with a five-minute lease. Heartbeats contain
 only bounded sanitized metadata: logical run IDs, state, unit name, timestamps,
 lease expiry, max tasks/runtime, counts, public issue/PR identifiers when
-already public, report/status paths, and local monitoring event status.
+already public, runner run ID, report-resolution status, report/status paths,
+and local monitoring event status.
 
 Heartbeats never include secrets, environment values, webhook URLs/tokens,
 authorization headers, full issue bodies, raw Codex/Gemini output, provider
 payloads, full diffs, config paths, or config contents.
 
-`health --run <run-id>` returns deterministic JSON and exit codes for healthy
-active, healthy terminal success, terminal failure/blocked/partial, stale
-heartbeat, and missing run.
+`status --run <run-id>` and `report --run <run-id>` return the supervisor run
+ID, terminal state, runner run ID when mapped, Markdown report path, JSON
+summary path, and bounded report-resolution status. `health --run <run-id>`
+returns deterministic JSON and exit codes for healthy active, healthy terminal
+success with a mapped report, report-mapping failure, terminal
+failure/blocked/partial, stale heartbeat, and missing run. Historical
+pre-correlation runs remain readable as historical state, but they are not
+backfilled or falsely upgraded by timestamp heuristics.
 
 ## Monitoring Contract
 

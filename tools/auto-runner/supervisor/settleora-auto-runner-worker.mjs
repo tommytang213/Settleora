@@ -2,12 +2,14 @@
 
 import { createWriteStream } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import process from "node:process";
 import { defaultLogsRoot } from "../lib/config.mjs";
 import { getRefSha } from "../lib/git-workspace.mjs";
 import { readAndVerifyRunSpec, validateRunId } from "./run-spec.mjs";
 import { buildHeartbeat, writeHeartbeat } from "./heartbeat.mjs";
 import { recordMonitoringEvent } from "./monitoring-outbox.mjs";
+import { resolveRunnerSummaryForSupervisor } from "./runner-summary-resolver.mjs";
 import { runnerArgvForSpec } from "./systemd-client.mjs";
 import { readSupervisorState, writeSupervisorState } from "./supervisor-state.mjs";
 import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
@@ -21,17 +23,25 @@ const exitCodes = {
   stale: 14,
 };
 
-async function main() {
-  const runId = process.argv[2];
+export async function runSupervisorWorker(
+  runId,
+  {
+    logsRoot = defaultLogsRoot,
+    repoRoot = "/workspace/repos/Settleora",
+    spawnImpl = spawn,
+    spawnSyncImpl = spawnSync,
+    resolveSummary = resolveRunnerSummaryForSupervisor,
+  } = {},
+) {
   validateRunId(runId);
-  const previous = readSupervisorState(runId, defaultLogsRoot).state;
-  const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, defaultLogsRoot);
+  const previous = readSupervisorState(runId, logsRoot).state;
+  const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, logsRoot);
   const currentMain = getRefSha("origin/main");
   if (currentMain !== verified.spec.initialOriginMainSha) {
-    writeSupervisorState(runId, { state: "stale", staleReason: "origin_main_changed", currentMain }, defaultLogsRoot);
-    process.exit(exitCodes.stale);
+    writeSupervisorState(runId, { state: "stale", staleReason: "origin_main_changed", currentMain }, logsRoot);
+    return { terminal: "stale", exitCode: exitCodes.stale };
   }
-  const pathContext = ensureTrustedRunPathContext({ runId, logsRoot: defaultLogsRoot });
+  const pathContext = ensureTrustedRunPathContext({ runId, logsRoot });
   const stdoutPath = pathContext.artifactPath(runArtifactKinds.stdout);
   const stderrPath = pathContext.artifactPath(runArtifactKinds.stderr);
   const statePatch = {
@@ -42,18 +52,18 @@ async function main() {
     maxTasks: verified.spec.maxTasks,
     maxRuntime: verified.spec.maxRuntime,
   };
-  writeSupervisorState(runId, statePatch, defaultLogsRoot);
+  writeSupervisorState(runId, statePatch, logsRoot);
   let heartbeat = buildHeartbeat({ runId, state: "starting", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime });
-  writeHeartbeat(runId, heartbeat, defaultLogsRoot);
-  recordMonitoringEvent("started", heartbeat, { logsRoot: defaultLogsRoot });
+  writeHeartbeat(runId, heartbeat, logsRoot);
+  recordMonitoringEvent("started", heartbeat, { logsRoot });
 
   const argv = runnerArgvForSpec(verified.spec);
-  writeSupervisorState(runId, { state: "running", runnerArgv: redactArgv(argv), stdoutPath, stderrPath }, defaultLogsRoot);
+  writeSupervisorState(runId, { state: "running", runnerArgv: redactArgv(argv), stdoutPath, stderrPath }, logsRoot);
   heartbeat = buildHeartbeat({ runId, state: "running", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime });
-  writeHeartbeat(runId, heartbeat, defaultLogsRoot);
+  writeHeartbeat(runId, heartbeat, logsRoot);
   const stdout = createWriteStream(stdoutPath, { flags: "a", mode: 0o600 });
   const stderr = createWriteStream(stderrPath, { flags: "a", mode: 0o600 });
-  const child = spawn(argv[0], argv.slice(1), { cwd: "/workspace/repos/Settleora", stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnImpl(argv[0], argv.slice(1), { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout.pipe(stdout);
   child.stderr.pipe(stderr);
 
@@ -61,9 +71,9 @@ async function main() {
   const requestStopAfterCurrent = () => {
     if (stopping) return;
     stopping = true;
-    writeSupervisorState(runId, { state: "stopping_after_current" }, defaultLogsRoot);
-    spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--stop-after-current"], {
-      cwd: "/workspace/repos/Settleora",
+    writeSupervisorState(runId, { state: "stopping_after_current" }, logsRoot);
+    spawnSyncImpl(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--stop-after-current"], {
+      cwd: repoRoot,
       encoding: "utf8",
     });
   };
@@ -77,31 +87,57 @@ async function main() {
       maxTasks: verified.spec.maxTasks,
       maxRuntime: verified.spec.maxRuntime,
     });
-    writeHeartbeat(runId, activeHeartbeat, defaultLogsRoot);
-    recordMonitoringEvent("heartbeat", activeHeartbeat, { logsRoot: defaultLogsRoot });
+    writeHeartbeat(runId, activeHeartbeat, logsRoot);
+    recordMonitoringEvent("heartbeat", activeHeartbeat, { logsRoot });
   }, 60_000);
 
   const result = await waitForChild(child);
   clearInterval(interval);
-  const terminal = mapExitToState(result, stopping);
-  const reportPath = newestSummaryPath();
+  stdout.end();
+  stderr.end();
+  const childTerminalState = mapExitToState(result, stopping);
+  const reportResolution = resolveSummary({
+    logsRoot,
+    supervisorRunId: runId,
+    initialOriginMainSha: verified.spec.initialOriginMainSha,
+    mode: verified.spec.mode,
+  });
+  const terminalDecision = decideTerminalState(childTerminalState, result, reportResolution);
   writeSupervisorState(runId, {
-    state: terminal,
+    state: terminalDecision.state,
+    childTerminalState,
     childStatus: result.status,
     childSignal: result.signal,
-    reportPath,
+    runnerRunId: reportResolution.runnerRunId || null,
+    runnerSummaryJsonPath: reportResolution.runnerSummaryJsonPath || null,
+    runnerSummaryMarkdownPath: reportResolution.runnerSummaryMarkdownPath || null,
+    reportPath: reportResolution.reportPath || null,
+    reportResolution: sanitizeReportResolution(reportResolution),
+    terminalReason: terminalDecision.reason,
     finishedAt: new Date().toISOString(),
-  }, defaultLogsRoot);
+  }, logsRoot);
   const terminalHeartbeat = buildHeartbeat({
     runId,
-    state: terminal,
+    runnerRunId: reportResolution.runnerRunId || null,
+    state: terminalDecision.state,
     maxTasks: verified.spec.maxTasks,
     maxRuntime: verified.spec.maxRuntime,
-    reportPath,
+    reportPath: reportResolution.reportPath || null,
+    reportResolution: sanitizeReportResolution(reportResolution),
   });
-  writeHeartbeat(runId, terminalHeartbeat, defaultLogsRoot);
-  recordMonitoringEvent(terminal, terminalHeartbeat, { logsRoot: defaultLogsRoot });
-  process.exit(exitCodes[terminal] ?? 12);
+  writeHeartbeat(runId, terminalHeartbeat, logsRoot);
+  recordMonitoringEvent(terminalDecision.state, terminalHeartbeat, { logsRoot });
+  return {
+    terminal: terminalDecision.state,
+    childTerminalState,
+    exitCode: exitCodes[terminalDecision.state] ?? 12,
+    reportResolution,
+  };
+}
+
+async function main() {
+  const result = await runSupervisorWorker(process.argv[2]);
+  process.exit(result.exitCode);
 }
 
 function waitForChild(child) {
@@ -124,11 +160,31 @@ function redactArgv(argv) {
   return argv.map((part, index) => (argv[index - 1] === "--config" ? "[config-path]" : part));
 }
 
-function newestSummaryPath() {
-  return null;
+export function decideTerminalState(childTerminalState, childResult, reportResolution) {
+  if (childResult.status === 0 && reportResolution.status !== "matched") {
+    return {
+      state: "failed",
+      reason: reportResolution.status === "multiple_matches" ? "report_mapping_ambiguous" : "report_mapping_missing",
+    };
+  }
+  return { state: childTerminalState, reason: reportResolution.status === "matched" ? "child_exit_mapped" : "child_exit_unmapped" };
 }
 
-main().catch((error) => {
+function sanitizeReportResolution(resolution) {
+  return {
+    status: resolution.status || "unknown",
+    ok: Boolean(resolution.ok),
+    runnerRunId: resolution.runnerRunId || null,
+    runnerSummaryJsonPath: resolution.runnerSummaryJsonPath || null,
+    runnerSummaryMarkdownPath: resolution.runnerSummaryMarkdownPath || null,
+    reportPath: resolution.reportPath || null,
+    reason: resolution.reason || null,
+    diagnostics: Array.isArray(resolution.diagnostics) ? resolution.diagnostics.slice(0, 20) : [],
+  };
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  main().catch((error) => {
   const runId = process.argv[2];
   if (runId) {
     try {
@@ -139,4 +195,5 @@ main().catch((error) => {
   }
   console.error(error.message);
   process.exit(12);
-});
+  });
+}

@@ -37,6 +37,8 @@ export function runnerArgvForSpec(spec) {
     process.execPath,
     "tools/auto-runner/settleora-auto-runner.mjs",
     "--run",
+    "--supervisor-run-id",
+    spec.runId,
     "--config",
     configPath,
     "--max-iterations",

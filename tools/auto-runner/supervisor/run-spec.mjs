@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { defaultLogsRoot, parseDuration } from "../lib/config.mjs";
+import { validateSupervisorRunId } from "../lib/run-correlation.mjs";
 import {
   configPathForProfile,
   deriveSupervisorPaths,
@@ -44,10 +45,7 @@ export function generateRunId(date = new Date()) {
 }
 
 export function validateRunId(runId) {
-  if (!/^supervised-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/.test(String(runId || ""))) {
-    throw new Error("Invalid supervisor run ID");
-  }
-  return runId;
+  return validateSupervisorRunId(runId);
 }
 
 export function normalizeMaxTasks(value = defaultMaxTasks) {
