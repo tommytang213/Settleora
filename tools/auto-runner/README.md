@@ -58,6 +58,16 @@ summary pair. The supervisor does not choose reports by newest summary time.
 If a successful child exits without one unique trusted correlated report, the
 supervisor terminal state fails closed and the process exits nonzero.
 
+Clean `main` and clean named non-main checkouts are valid real-run
+launch/control-plane states. Detached or unnamed real-run launch fails closed.
+Clean launch lets the runner acquire the lock, capture exact `origin/main`,
+poll work, and complete a no-work summary from `main`. `main` is not a task
+mutation branch. Fresh implementation work must first create the generated
+task branch from exact `origin/main` and pass the mutation guard before task
+prompt generation or Codex implementation. That guard rejects `main`, detached
+or unnamed checkout state, the wrong branch, dirty state, changed
+`origin/main`, or a task branch whose `HEAD` is not the expected base.
+
 Supervisor control commands are selected-run controls. Before writing the
 global runner control file, `settleora-auto-runnerctl` requires the selected
 supervisor run to be controllable and the active runner's sanitized

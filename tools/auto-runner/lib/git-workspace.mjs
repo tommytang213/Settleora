@@ -22,45 +22,78 @@ export function assertGitSuccess(result, message) {
   }
 }
 
-export function getCurrentBranch() {
-  const result = runGit(["branch", "--show-current"]);
+export function getCurrentBranch(options = {}) {
+  const result = runGit(["branch", "--show-current"], options);
   assertGitSuccess(result, "Unable to read current branch");
   return result.stdout.trim();
 }
 
-export function getRefSha(ref) {
-  const result = runGit(["rev-parse", ref]);
+export function getRefSha(ref, options = {}) {
+  const result = runGit(["rev-parse", ref], options);
   assertGitSuccess(result, `Unable to resolve ${ref}`);
   return result.stdout.trim();
 }
 
-export function getStatusShort() {
-  const result = runGit(["status", "--short"]);
+export function getStatusShort(options = {}) {
+  const result = runGit(["status", "--short"], options);
   assertGitSuccess(result, "Unable to read git status");
   return result.stdout.trim();
 }
 
-export function ensureTaskStartWorkspace(config, logger) {
-  const status = getStatusShort();
-  const branch = getCurrentBranch();
-  const originMainSha = getRefSha("origin/main");
+export function ensureLaunchWorkspace(config, logger, options = {}) {
+  const cwd = options.cwd || config.repoRoot || process.cwd();
+  const status = getStatusShort({ cwd });
+  const branch = getCurrentBranch({ cwd });
+  const originMainSha = getRefSha("origin/main", { cwd });
   if (status && config.run) {
-    throw new Error("Refusing real-run task start with a dirty worktree");
+    throw new Error("Refusing real-run launch with a dirty worktree");
   }
-  if (branch === "main" && config.run) {
-    throw new Error("Refusing real-run task start from main");
+  if (!branch && config.run) {
+    throw new Error("Refusing real-run launch from a detached or unnamed checkout");
   }
   if (status && config.dryRun) {
-    logger.warn("Dry-run observed a dirty worktree; real-run task start would refuse to proceed.", { status });
+    logger.warn("Dry-run observed a dirty worktree; real-run launch would refuse to proceed.", { status });
   }
   return { branch, originMainSha, dirty: Boolean(status), status };
 }
+
+export function ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha }, options = {}) {
+  const cwd = options.cwd || config.repoRoot || process.cwd();
+  const status = getStatusShort({ cwd });
+  const branch = getCurrentBranch({ cwd });
+  const originMainSha = getRefSha("origin/main", { cwd });
+  const headSha = getRefSha("HEAD", { cwd });
+  if (status && config.run) {
+    throw new Error("Refusing task mutation with a dirty worktree");
+  }
+  if (branch === "main" && config.run) {
+    throw new Error("Refusing task mutation on main");
+  }
+  if (!branch && config.run) {
+    throw new Error("Refusing task mutation from a detached or unnamed branch");
+  }
+  if (branchName && branch !== branchName && config.run) {
+    throw new Error(`Refusing task mutation from unexpected branch ${branch || "[detached]"}`);
+  }
+  if (expectedOriginMainSha && originMainSha !== expectedOriginMainSha && config.run) {
+    throw new Error("Refusing task mutation because origin/main changed after branch creation");
+  }
+  if (expectedOriginMainSha && headSha !== expectedOriginMainSha && config.run) {
+    throw new Error("Refusing task mutation because task branch HEAD does not match expected origin/main");
+  }
+  if (status && config.dryRun) {
+    return { branch, originMainSha, headSha, dirty: true, status, skipped: true, reason: "dry-run-dirty-worktree" };
+  }
+  return { branch, originMainSha, headSha, dirty: Boolean(status), status };
+}
+
+export const ensureTaskStartWorkspace = ensureLaunchWorkspace;
 
 export function fetchOriginMain(config) {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run" };
   }
-  const result = runGit(["fetch", "origin", "main"]);
+  const result = runGit(["fetch", "origin", "main"], { cwd: config.repoRoot || process.cwd() });
   assertGitSuccess(result, "Unable to fetch origin/main");
   return { skipped: false, status: result.status };
 }
@@ -69,7 +102,7 @@ export function createTaskBranch(config, branchName) {
   if (config.dryRun) {
     return { skipped: true, branchName, reason: "dry-run" };
   }
-  const result = runGit(["switch", "-C", branchName, "origin/main"]);
+  const result = runGit(["switch", "-C", branchName, "origin/main"], { cwd: config.repoRoot || process.cwd() });
   assertGitSuccess(result, `Unable to create task branch ${branchName}`);
   return { skipped: false, branchName };
 }

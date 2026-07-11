@@ -20,6 +20,50 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Main-launch workspace safety checkpoint
+
+- GitHub/live state at task start:
+  - PR #875 was merged at
+    `d930db9f5d70c78c9248616102bc209fc928cff3` after reviewed source head
+    `b2688623acf254af3da0ed842fb4ba66021af972`.
+  - Post-merge acceptance run
+    `supervised-20260711T161333Z-d7113d9be4d4` launched runner
+    `run-2026-07-11T161343Z` from clean current `main` and failed before
+    issue polling because the pre-fix launch guard rejected `main`.
+  - The runner summary carried the expected supervisor ID but had
+    `baseOriginMainSha=null`; the strict resolver correctly rejected it with
+    `base_origin_main_sha_mismatch`, leaving `reportPath=null`.
+  - Attempted issues, processed issues, branches, commits, pushes, PRs,
+    comments, and merges were all zero for the failed run.
+- This fix scope:
+  - Separates launch/control-plane workspace safety from task-mutation
+    workspace safety.
+  - Allows clean `main` or clean named non-main checkout for real-run launch
+    while continuing to reject dirty, detached, or unnamed real-run launch.
+  - Captures exact launch `origin/main` in run summaries before later
+    workspace-policy failure when the ref is resolvable.
+  - Requires a clean generated task branch from exact `origin/main` before
+    task prompt generation or Codex implementation, and rejects `main`,
+    detached or unnamed state, wrong branch, dirty state, changed
+    `origin/main`, or unexpected branch `HEAD`.
+  - Keeps the supervisor resolver strict; no newest-summary fallback or
+    missing-base tolerance is introduced.
+- Issue posture:
+  keep #800 open. After this focused PR merges, rerun the server-side
+  no-work supervisor acceptance from clean `main`, then complete the remaining
+  gates: missing-spec `NRestarts=0`, terminal control integrity,
+  active-correlation fixtures, Windows wrapper export, and actual
+  Windows-originated submit/disconnect/shutdown proof.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests and workflow/planning
+  docs. It does not start/reload/install/enable systemd, alter linger, modify
+  the external acceptance profile, run a live supervisor/runner, mutate
+  #864-#866, deploy Windows wrappers, deploy TrueNAS, or change product
+  runtime, API behavior, auth/session/security, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, Docker/CI/deployment/env, secrets, production
+  deploy, mobile release, public/admin exposure, or provider defaults.
+
 ### Issue #800 - Supervisor terminal-control safety checkpoint
 
 - GitHub/live state at task start:

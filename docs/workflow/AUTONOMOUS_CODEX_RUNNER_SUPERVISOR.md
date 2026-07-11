@@ -164,6 +164,21 @@ root. Rollup files, recent-summary files, unrelated historical summaries,
 wrong supervisor IDs, and manual foreground runs are not used as fallbacks.
 The supervisor never guesses by newest summary timestamp.
 
+A supervised no-work run may launch the runner from a clean `main`
+control-plane checkout. The runner captures exact `origin/main` in the summary
+before later workspace-policy rejection can occur where the ref is resolvable,
+then a no-work run can finish with `outcome=no_eligible_work` and
+`stopReason=no-eligible-work` without creating a task branch or mutating
+GitHub. Clean `main` remains launch-only: fresh implementation still requires
+the generated task branch from exact `origin/main` and the task-mutation guard
+before task prompt generation or Codex work.
+
+The 2026-07-12 post-PR-#875 acceptance stopped because the pre-fix runner
+treated launch `main` as a task-mutation violation, threw before the summary
+captured the base SHA, and the strict resolver correctly rejected the summary
+with `base_origin_main_sha_mismatch`. That acceptance must be rerun only after
+the main-launch workspace fix is merged.
+
 On first `SIGTERM` or `SIGINT`, the worker writes `stopping_after_current` and
 invokes the existing safe `--stop-after-current` control path. It does not
 kill mid-commit, mid-review, mid-check-wait, or mid-merge. A second emergency

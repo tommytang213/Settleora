@@ -176,6 +176,34 @@ test("trusted summary resolver maps exactly one correlated JSON and Markdown pai
   }
 });
 
+test("trusted summary resolver accepts clean-main no-work summary correlation", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-summary-no-work-"));
+  const logsRoot = path.join(tempRoot, "logs");
+  const supervisorRunId = "supervised-20260711T161333Z-d7113d9be4d4";
+  const baseSha = "d930db9f5d70c78c9248616102bc209fc928cff3";
+  try {
+    mkdirSync(path.join(logsRoot, "summaries"), { recursive: true });
+    writeSummaryPair(logsRoot, {
+      runId: "run-2026-07-11T161343Z",
+      supervisorRunId,
+      baseOriginMainSha: baseSha,
+      mode: "canary-run",
+      iterations: [{ outcome: "no_eligible_work" }],
+      stopReason: "no-eligible-work",
+    });
+    const summary = JSON.parse(readFileSync(path.join(logsRoot, "summaries", "run-2026-07-11T161343Z.json"), "utf8"));
+    assert.equal(summary.supervisorRunId, supervisorRunId);
+    assert.equal(summary.baseOriginMainSha, baseSha);
+    assert.equal(summary.stopReason, "no-eligible-work");
+    assert.equal(summary.iterations[0].outcome, "no_eligible_work");
+    const result = resolveRunnerSummaryForSupervisor({ logsRoot, supervisorRunId, initialOriginMainSha: baseSha, mode: "canary" });
+    assert.equal(result.status, "matched");
+    assert.equal(result.runnerRunId, "run-2026-07-11T161343Z");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("trusted summary resolver fails closed for unsafe or ambiguous candidates", () => {
   const supervisorRunId = "supervised-20260711T083159Z-427681e96152";
   const baseSha = "a".repeat(40);
@@ -217,6 +245,20 @@ test("trusted summary resolver fails closed for unsafe or ambiguous candidates",
       name: "wrong-base",
       setup: (logsRoot) => {
         writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: "b".repeat(40), mode: "canary-run" });
+      },
+      expected: "malformed_candidate",
+    },
+    {
+      name: "null-base",
+      setup: (logsRoot) => {
+        writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: null, mode: "canary-run" });
+      },
+      expected: "malformed_candidate",
+    },
+    {
+      name: "missing-base",
+      setup: (logsRoot) => {
+        writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, mode: "canary-run" });
       },
       expected: "malformed_candidate",
     },
@@ -802,8 +844,8 @@ function writeSummaryJson(logsRoot, summary) {
       startedAt: summary.startedAt ?? "2026-07-11T08:32:09.378Z",
       finishedAt: summary.finishedAt === undefined ? "2026-07-11T08:32:10.847Z" : summary.finishedAt,
       baseOriginMainSha: summary.baseOriginMainSha,
-      iterations: [],
-      stopReason: "no-eligible-work",
+      iterations: summary.iterations || [],
+      stopReason: summary.stopReason || "no-eligible-work",
     }, null, 2)}\n`,
     { mode: 0o600 },
   );
