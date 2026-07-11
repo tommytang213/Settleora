@@ -142,6 +142,18 @@ secrets policy, stop labels, auto-merge gates, or max-frequency/safety policy.
 If no active runner exists, control commands fail gracefully without writing a
 misleading pending control state.
 
+The detached supervisor control wrapper adds selected-run protection on top of
+that global runner control file. `settleora-auto-runnerctl pause`,
+`stop-after-current`, and `extend` first prove that the selected supervisor run
+is in a controllable lifecycle state and that the current active runner's
+sanitized `supervisorRunId` exactly equals the selected supervisor run ID.
+Terminal supervisor runs reject controls without mutating supervisor state,
+heartbeat files, report mapping, or the global runner control file. Foreground
+runners and unrelated supervised runners cannot be controlled through an
+arbitrary supervisor run. Accepted supervisor controls never replace the
+primary lifecycle state with the command name; they store only bounded
+`lastControl` metadata.
+
 Operator command card for a future manually approved long-running run:
 
 ```bash

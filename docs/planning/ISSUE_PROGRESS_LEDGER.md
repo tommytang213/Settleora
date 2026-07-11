@@ -20,6 +20,52 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Supervisor terminal-control safety checkpoint
+
+- GitHub/live state at task start:
+  - PR #874 was merged at
+    `0fc9195e987cb15cb66fc8f47b123c606ec5db44` after reviewed head
+    `165fa1549121f2041397d5102abed8fc0e332f87`.
+  - Report correlation is merged: supervised runner summaries now carry a
+    sanitized `supervisorRunId`, and supervisor status/report/health resolve
+    reports through exact summary correlation instead of newest-summary
+    guessing.
+  - Current-main inspection before live acceptance found a terminal-control
+    defect: `settleora-auto-runnerctl` wrote global runner controls before
+    proving active-run correlation and then replaced the selected supervisor
+    lifecycle `state` with command names such as `pause`, `extend`, or
+    `stop-after-current`, even when `writeControlCommand` rejected the request.
+- This fix scope:
+  - Adds shared supervisor lifecycle classification for terminal,
+    controllable, stopping, pre-active, and unknown states.
+  - Adds a pure supervisor control policy that requires an active runner whose
+    sanitized `supervisorRunId` exactly matches the selected supervisor run ID
+    before writing the global runner control file.
+  - Rejects terminal, pre-active, unknown, uncorrelated, mismatched, and
+    no-active-runner controls without supervisor state, heartbeat, report, or
+    runner-control mutation. Repeated `stop-after-current` on
+    `stopping_after_current` is idempotent and non-mutating.
+  - Preserves the primary supervisor lifecycle state for accepted controls and
+    stores only bounded `lastControl` metadata for accepted or raced/failed
+    writes.
+- Issue posture:
+  keep #800 open. Next gate after this PR merges is the no-work acceptance
+  rerun, exact report mapping, failed-instance no-restart proof,
+  terminal-control runtime proof, and Windows wrapper export.
+- Aligned future enhancements remain separate:
+  true `MaxPRs`, 1-4 slice bundles, transient retry/reconciliation, default
+  real profile, requirement-skip-and-continue, and DevBox-side notifications.
+- Scope confirmation:
+  this checkpoint changes only auto-runner supervisor tooling/tests and
+  workflow/planning docs. It does not start/reload/install/enable systemd,
+  alter linger, rewrite historical supervisor state, modify the external
+  acceptance profile, run a live supervisor/runner, mutate #864-#866, deploy
+  Windows wrappers, deploy TrueNAS, or change product runtime, API behavior,
+  auth/session/security, storage/privacy/authz, money/settlement/payment/bill
+  calculation, schema/migration, OpenAPI/generated clients,
+  Docker/CI/deployment/env, secrets, production deploy, mobile release,
+  public/admin exposure, or provider defaults.
+
 ### Issue #800 - Supervisor report correlation fix checkpoint
 
 - GitHub/live state at task start:

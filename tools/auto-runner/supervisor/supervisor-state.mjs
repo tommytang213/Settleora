@@ -10,7 +10,26 @@ import {
   runArtifactKinds,
 } from "./supervisor-paths.mjs";
 
-export const terminalStates = new Set(["completed", "partial", "blocked", "failed", "cancelled", "stale", "submission_failed"]);
+export const terminalStates = new Set(["completed", "partial", "blocked", "failed", "cancelled", "submission_failed", "stale"]);
+export const controllableStates = new Set(["starting", "running"]);
+export const stoppingStates = new Set(["stopping_after_current"]);
+export const preActiveStates = new Set(["submitted"]);
+
+export function classifySupervisorLifecycleState(state) {
+  if (terminalStates.has(state)) return "terminal";
+  if (controllableStates.has(state)) return "controllable";
+  if (stoppingStates.has(state)) return "stopping";
+  if (preActiveStates.has(state)) return "pre_active";
+  return "unknown";
+}
+
+export function isTerminalSupervisorState(state) {
+  return classifySupervisorLifecycleState(state) === "terminal";
+}
+
+export function isControllableSupervisorState(state) {
+  return classifySupervisorLifecycleState(state) === "controllable";
+}
 
 export function unitNameForRunId(runId) {
   validateRunId(runId);
