@@ -20,6 +20,84 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 / PR #873 - CodeQL security hardening continuation checkpoint
+
+- GitHub state at continuation start:
+  - PR #873 remained open, non-draft, base `main`, source branch
+    `feature/auto-runner-detached-supervisor-foundation-20260711-1417`,
+    starting head `6ba09f2e93d8b890829d7543d1ef2dca3c25f1d4`.
+  - `origin/main` remained
+    `3fdcb89a4e2fdfe657c1673188bc199822482055`.
+  - The merge gate was blocked by aggregate CodeQL failure, 15 open PR-ref
+    CodeQL alerts, and 15 unresolved Advanced Security review threads.
+  - #800 remained open; #863 remained closed; #864, #865, and #866 remained
+    open and untouched with durable labels only.
+- This security-hardening continuation:
+  - Replaces raw run-id filesystem paths with SHA-256 storage-key directories
+    under fixed supervisor roots and fixed artifact basenames.
+  - Keeps logical run IDs human-visible in spec/state/heartbeat content.
+  - Changes immutable run specs from arbitrary `runnerConfigPath` to logical
+    `profile` plus `runnerConfigSha256`; profile config resolution uses a
+    fixed external profile root keyed by SHA-256 of the validated profile name.
+  - Removes outbound HTTP/webhook delivery from the core supervisor and writes
+    sanitized owner-only local monitoring events instead.
+  - Documents the future TrueNAS monitor as SSH pull-health/status polling so
+    dead DevBox, stale heartbeat, terminal, failed, blocked, partial, and
+    SSH/network-outage conditions are detected outside the core supervisor.
+- Issue posture:
+  keep #800 open. PR #873 remains open and must not merge until exact-head
+  validation, fresh CI/security, zero PR/branch CodeQL alerts, Advanced
+  Security thread resolution, and fresh strong-review merge gate all pass.
+- Scope confirmation:
+  this continuation changes only auto-runner supervisor tooling/tests/templates
+  and workflow/planning docs. It does not install/enable/start systemd, enable
+  linger, deploy TrueNAS or Windows wrappers, launch a live supervisor/runner,
+  mutate #864-#866, or change product runtime, API behavior, auth/session
+  runtime, storage/privacy/authz, money/settlement/payment/bill calculation,
+  schema/migration, OpenAPI/generated clients, Docker/CI/deployment/env,
+  secrets, production deploy, mobile release, public/admin exposure, or
+  provider secret/defaults.
+
+### Issue #800 - Detached DevBox supervisor foundation checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained open as the broader DevBox-native unattended runner
+    foundation tracker.
+  - PR #872 duplicate-selection hardening was merged with reviewed head
+    `3b882b51e79c82f2b87fd1b2f94665c2162f2215` and merge SHA
+    `3fdcb89a4e2fdfe657c1673188bc199822482055`.
+  - #863 remained closed completed with durable labels only.
+  - #864, #865, and #866 remained open with durable labels only and no
+    transient stop labels.
+  - #301, #372, and #800 remained open.
+- This tooling slice:
+  - Adds a lane-neutral detached supervisor control surface around the
+    existing `tools/auto-runner/settleora-auto-runner.mjs`.
+  - Adds immutable bounded run-spec validation, canonical serialization,
+    spec/config hashing, systemd user-unit planning, worker state/heartbeat
+    files, disabled-by-default monitoring delivery, status/report/health and
+    safe-control commands, and generic Windows SSH wrapper templates.
+  - Keeps defaults at `1` task and `3h`, with syntax bounds `1..500` tasks
+    and `1m..14d` runtime.
+  - Documents that a larger numeric limit does not approve broader work; the
+    selected runner config and issue contracts remain authoritative.
+  - Does not install or enable systemd units, enable linger, deploy TrueNAS
+    monitoring, write Windows files outside the repo, or launch a live runner.
+- Issue posture:
+  keep #800 open. Remaining gates are PR merge, systemd user-unit install,
+  `loginctl enable-linger` approval, Windows wrapper deployment,
+  SSH-disconnect/Windows-shutdown canary acceptance, TrueNAS
+  health/notification adapter deployment, and broader lane/run approvals.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests/templates and
+  workflow/planning docs. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/OCR runtime, Docker/CI/deployment/env,
+  secrets, production deploy, mobile release, public/admin exposure,
+  stale-claim stealing, follow-up issue creation, broad run approval, or
+  provider secret/defaults.
+
 ### Issue #800/#863-#866 - Duplicate selection hardening checkpoint
 
 - GitHub state/project status at task start:

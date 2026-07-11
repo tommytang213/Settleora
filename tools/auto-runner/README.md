@@ -25,6 +25,29 @@ node tools/auto-runner/settleora-auto-runner.mjs --extend --max-prs +5
 node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
 ```
 
+Detached supervisor foundation:
+
+```bash
+node tools/auto-runner/settleora-auto-runnerctl.mjs submit --dry-run --profile default --max-tasks 8 --max-runtime 8h --json
+node tools/auto-runner/settleora-auto-runnerctl.mjs status --latest
+node tools/auto-runner/settleora-auto-runnerctl.mjs report --latest
+node tools/auto-runner/settleora-auto-runnerctl.mjs health --run <supervisor-run-id>
+```
+
+The supervisor is an additive wrapper around the existing runner. It writes
+immutable run specs and state under
+`/workspace/logs/settleora-auto-runner/supervisor/`, using SHA-256 storage keys
+for filesystem directories while keeping logical run/profile IDs in JSON
+content. Run specs store a logical `profile` and `runnerConfigSha256`, not an
+arbitrary config path, and monitoring events are written only to local
+owner-only `monitoring-events.jsonl` files. The supervisor starts a
+later-installed systemd user-unit instance by validated run ID and exits after
+the service is accepted/running. It does not approve broader lanes, install
+units, enable linger, deploy monitoring, send outbound webhooks, or run
+automatically after reboot. Future TrueNAS monitoring is a pull-health model
+over SSH. See
+`docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md`.
+
 Status reads the runner lock, active-run state, latest summaries, and local
 control file under `/workspace/logs/settleora-auto-runner/`. It reports the
 active run id when known, mode/config path, start time, elapsed/max/remaining
