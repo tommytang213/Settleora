@@ -206,6 +206,27 @@ failure/blocked/partial, stale heartbeat, and missing run. Historical
 pre-correlation runs remain readable as historical state, but they are not
 backfilled or falsely upgraded by timestamp heuristics.
 
+Supervisor control commands are bound to the selected supervisor run, not just
+to the global runner control file. Before writing any runner control request,
+`settleora-auto-runnerctl pause`, `stop-after-current`, and `extend` require a
+currently active runner whose sanitized `supervisorRunId` exactly matches the
+selected supervisor run ID. A foreground runner with no supervisor correlation
+and a runner correlated to a different supervisor run are rejected without
+writes. Terminal states (`completed`, `partial`, `blocked`, `failed`,
+`cancelled`, `submission_failed`, and `stale`) reject controls without changing
+state, heartbeat, report mapping, outbox evidence, or the global
+`runner-control.json`. `submitted` rejects as pre-active, unknown states fail
+closed, and repeated `stop-after-current` on `stopping_after_current` is an
+idempotent non-mutating response.
+
+Accepted controls preserve the primary lifecycle state. The supervisor never
+stores `pause`, `extend`, or `stop-after-current` as `state`; it records only a
+bounded `lastControl` object with the command, request timestamp, accepted or
+failed status, extension deltas when present, and sanitized correlation IDs.
+Raw config paths, command lines, environment values, provider payloads, and
+secrets are not stored in this metadata. Live supervisor acceptance remains
+deferred until this control-state boundary is merged and reviewed.
+
 ## Monitoring Contract
 
 The core supervisor has no outbound webhook, URL, socket, shell hook, plugin

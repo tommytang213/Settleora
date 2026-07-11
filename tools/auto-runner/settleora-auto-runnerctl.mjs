@@ -21,13 +21,15 @@ import { buildSystemdStartPlan, runnerArgvForSpec, startUserUnit } from "./super
 import {
   latestSupervisorRun,
   listSupervisorRuns,
+  classifySupervisorLifecycleState,
   readSupervisorState,
   reportPathForRun,
   unitNameForRunId,
   writeSupervisorState,
 } from "./supervisor/supervisor-state.mjs";
 import { loadConfig } from "./lib/config.mjs";
-import { writeControlCommand } from "./lib/control-plane.mjs";
+import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
+import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
@@ -72,24 +74,104 @@ async function main() {
     return;
   }
   if (["pause", "stop-after-current", "extend"].includes(cli.command)) {
-    const supervisorState = readSupervisorState(runId, config.logsRoot);
-    if (!supervisorState.found) {
-      print({ ok: false, reason: "unknown_run", runId }, cli.json);
-      process.exitCode = 2;
-      return;
-    }
-    const controlConfig = { ...config, logsRoot: defaultLogsRoot };
-    const result = writeControlCommand(controlConfig, {
-      controlCommand: cli.command === "stop-after-current" ? "stop-after-current" : cli.command,
-      maxIterationsExtension: cli.maxTasksDelta,
-      maxRuntimeExtensionMs: cli.maxRuntimeDeltaMs,
-    });
-    writeSupervisorState(runId, { state: cli.command, controlResult: result.ok ? "accepted" : result.reason }, config.logsRoot);
-    print({ ok: result.ok, runId, control: cli.command, result }, cli.json);
-    process.exitCode = result.ok ? 0 : 1;
+    const result = controlSupervisorRun(runId, cli, config);
+    print(result, cli.json);
+    process.exitCode = result.exitCode;
     return;
   }
   throw new Error(`Unhandled command: ${cli.command}`);
+}
+
+export function controlSupervisorRun(runId, cli, config, deps = {}) {
+  const readState = deps.readSupervisorState || readSupervisorState;
+  const getStatus = deps.getRunnerStatus || getRunnerStatus;
+  const writeControl = deps.writeControlCommand || writeControlCommand;
+  const writeState = deps.writeSupervisorState || writeSupervisorState;
+  const now = deps.now || (() => new Date());
+
+  const supervisorState = readState(runId, config.logsRoot);
+  if (!supervisorState.found) {
+    return { ok: false, exitCode: 2, reason: "unknown_run", runId, command: cli.command };
+  }
+
+  const lifecycleState = supervisorState.state?.state || null;
+  const controlConfig = { ...config, logsRoot: defaultLogsRoot };
+  const runnerStatus = getStatus(controlConfig);
+  const decision = evaluateSupervisorControlPolicy({
+    supervisorRunId: runId,
+    lifecycleState,
+    runnerStatus,
+    command: cli.command,
+    maxTasksDelta: cli.maxTasksDelta,
+    maxRuntimeDeltaMs: cli.maxRuntimeDeltaMs,
+  });
+  const responseBase = {
+    runId,
+    command: cli.command,
+    lifecycleState,
+    allowed: decision.allowed,
+    accepted: false,
+    idempotent: decision.idempotent,
+    reason: decision.reason,
+    correlation: decision.correlation,
+  };
+
+  if (!decision.allowed) {
+    return { ok: false, exitCode: decision.reason === "unknown_control_command" ? 2 : 1, ...responseBase };
+  }
+
+  if (decision.idempotent) {
+    return { ok: true, exitCode: 0, ...responseBase, accepted: true };
+  }
+
+  const writeResult = writeControl(controlConfig, {
+    controlCommand: cli.command === "stop-after-current" ? "stop-after-current" : cli.command,
+    maxIterationsExtension: cli.maxTasksDelta,
+    maxRuntimeExtensionMs: cli.maxRuntimeDeltaMs,
+  });
+  const lastControl = buildLastControlMetadata({
+    command: cli.command,
+    requestedAt: now().toISOString(),
+    status: writeResult.ok ? "accepted" : "failed",
+    reason: writeResult.ok ? decision.reason : writeResult.reason || "control_write_failed",
+    maxTasksDelta: cli.maxTasksDelta,
+    maxRuntimeDeltaMs: cli.maxRuntimeDeltaMs,
+    correlation: decision.correlation,
+  });
+  writeState(runId, { lastControl }, config.logsRoot);
+  return {
+    ok: writeResult.ok,
+    exitCode: writeResult.ok ? 0 : 1,
+    ...responseBase,
+    accepted: writeResult.ok,
+    reason: writeResult.ok ? decision.reason : writeResult.reason || "control_write_failed",
+    control: lastControl,
+  };
+}
+
+function buildLastControlMetadata({
+  command,
+  requestedAt,
+  status,
+  reason,
+  maxTasksDelta,
+  maxRuntimeDeltaMs,
+  correlation,
+}) {
+  return {
+    command,
+    requestedAt,
+    status,
+    reason,
+    maxTasksDelta: Number.isSafeInteger(maxTasksDelta) ? maxTasksDelta : null,
+    maxRuntimeDeltaMs: Number.isSafeInteger(maxRuntimeDeltaMs) ? maxRuntimeDeltaMs : null,
+    correlation: {
+      selectedSupervisorRunId: correlation.selectedSupervisorRunId,
+      activeSupervisorRunId: correlation.activeSupervisorRunId,
+      activeRunId: correlation.activeRunId,
+      matched: correlation.matched,
+    },
+  };
 }
 
 async function submit(cli, config) {
@@ -266,7 +348,7 @@ export function classifyHealth(state, heartbeat) {
     }
     return { ok: true, status: "terminal_success", exitCode: 0, state: state.state, heartbeat: heartbeat.heartbeat, report };
   }
-  if (["partial", "blocked", "failed", "cancelled", "submission_failed"].includes(current)) {
+  if (classifySupervisorLifecycleState(current) === "terminal") {
     return { ok: false, status: "terminal_unhealthy", exitCode: 2, state: state.state, heartbeat: heartbeat.heartbeat, report };
   }
   return { ok: true, status: "active", exitCode: 0, state: state.state, heartbeat: heartbeat.heartbeat };

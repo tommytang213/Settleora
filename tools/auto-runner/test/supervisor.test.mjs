@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   buildRunSpec,
   canonicalJson,
@@ -21,7 +22,8 @@ import { buildHeartbeat, isHeartbeatStale } from "../supervisor/heartbeat.mjs";
 import { monitoringEvents, recordMonitoringEvent, sanitizeMonitoringPayload } from "../supervisor/monitoring-outbox.mjs";
 import { resolveRunnerSummaryForSupervisor } from "../supervisor/runner-summary-resolver.mjs";
 import { buildSystemdStartPlan, runnerArgvForSpec, startUserUnit } from "../supervisor/systemd-client.mjs";
-import { classifyHealth } from "../settleora-auto-runnerctl.mjs";
+import { classifyHealth, controlSupervisorRun } from "../settleora-auto-runnerctl.mjs";
+import { evaluateSupervisorControlPolicy } from "../supervisor/control-policy.mjs";
 import { decideTerminalState } from "../supervisor/settleora-auto-runner-worker.mjs";
 import { writeHeartbeat } from "../supervisor/heartbeat.mjs";
 import { readSupervisorState, writeSupervisorState } from "../supervisor/supervisor-state.mjs";
@@ -363,6 +365,225 @@ test("supervisor status, report, and health distinguish mapped reports from hist
   }
 });
 
+test("supervisor terminal controls reject without state heartbeat or control mutation", () => {
+  const terminalStates = ["completed", "partial", "blocked", "failed", "cancelled", "submission_failed", "stale"];
+  const commands = ["pause", "stop-after-current", "extend"];
+  for (const terminalState of terminalStates) {
+    for (const command of commands) {
+      const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-terminal-control-${terminalState}-${command}-`));
+      const logsRoot = path.join(tempRoot, "logs");
+      const runId = "supervised-20260711T083159Z-427681e96152";
+      try {
+        const mapped = mappedReport(logsRoot);
+        writeSupervisorState(runId, {
+          state: terminalState,
+          runnerRunId: mapped.runnerRunId,
+          runnerSummaryJsonPath: mapped.runnerSummaryJsonPath,
+          runnerSummaryMarkdownPath: mapped.runnerSummaryMarkdownPath,
+          reportPath: mapped.reportPath,
+          reportResolution: mapped,
+        }, logsRoot);
+        writeHeartbeat(runId, buildHeartbeat({ runId, state: terminalState, reportPath: mapped.reportPath, reportResolution: mapped }), logsRoot);
+        const stateBefore = fileSnapshot(readSupervisorState(runId, logsRoot).statePath);
+        const heartbeatBefore = fileSnapshot(deriveSupervisorPaths({ runId, logsRoot }).artifactPath(runArtifactKinds.heartbeat));
+        let controlWrites = 0;
+        let stateWrites = 0;
+        const result = controlSupervisorRun(runId, {
+          command,
+          maxTasksDelta: command === "extend" ? 2 : null,
+          maxRuntimeDeltaMs: command === "extend" ? 3_600_000 : null,
+        }, { logsRoot }, {
+          getRunnerStatus: () => ({ active: false, activeRunId: null, supervisorRunId: null }),
+          writeControlCommand: () => {
+            controlWrites += 1;
+            return { ok: true };
+          },
+          writeSupervisorState: () => {
+            stateWrites += 1;
+            return { state: {} };
+          },
+        });
+        assert.equal(result.ok, false);
+        assert.equal(result.exitCode, 1);
+        assert.equal(result.reason, "terminal_run");
+        assert.equal(result.lifecycleState, terminalState);
+        assert.equal(result.runId, runId);
+        assert.equal(controlWrites, 0);
+        assert.equal(stateWrites, 0);
+        assert.deepEqual(fileSnapshot(readSupervisorState(runId, logsRoot).statePath), stateBefore);
+        assert.deepEqual(fileSnapshot(deriveSupervisorPaths({ runId, logsRoot }).artifactPath(runArtifactKinds.heartbeat)), heartbeatBefore);
+        const state = readSupervisorState(runId, logsRoot);
+        assert.equal(state.state.state, terminalState);
+        assert.equal(state.state.runnerRunId, mapped.runnerRunId);
+        assert.equal(state.state.reportPath, mapped.reportPath);
+        const health = classifyHealth(state, { found: true, heartbeat: { state: terminalState, terminal: true }, stale: false });
+        if (terminalState === "completed") assert.equal(health.status, "terminal_success");
+        else assert.equal(health.status, "terminal_unhealthy");
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
+test("supervisor control policy requires exact active runner correlation and fails closed", () => {
+  const runId = "supervised-20260711T083159Z-427681e96152";
+  assert.equal(evaluateSupervisorControlPolicy({
+    supervisorRunId: runId,
+    lifecycleState: "running",
+    runnerStatus: { active: true, activeRunId: "run-a", supervisorRunId: runId },
+    command: "pause",
+  }).allowed, true);
+  assert.equal(evaluateSupervisorControlPolicy({
+    supervisorRunId: runId,
+    lifecycleState: "running",
+    runnerStatus: { active: true, activeRunId: "run-b", supervisorRunId: "supervised-20260711T083159Z-527681e96152" },
+    command: "pause",
+  }).reason, "active_runner_mismatch");
+  assert.equal(evaluateSupervisorControlPolicy({
+    supervisorRunId: runId,
+    lifecycleState: "running",
+    runnerStatus: { active: true, activeRunId: "run-foreground", supervisorRunId: null },
+    command: "pause",
+  }).reason, "active_runner_uncorrelated");
+  assert.equal(evaluateSupervisorControlPolicy({
+    supervisorRunId: runId,
+    lifecycleState: "running",
+    runnerStatus: { active: false, activeRunId: null, supervisorRunId: null },
+    command: "pause",
+  }).reason, "no_active_runner");
+  assert.equal(evaluateSupervisorControlPolicy({
+    supervisorRunId: runId,
+    lifecycleState: "submitted",
+    runnerStatus: { active: true, activeRunId: "run-a", supervisorRunId: runId },
+    command: "pause",
+  }).reason, "pre_active_run");
+  assert.equal(evaluateSupervisorControlPolicy({
+    supervisorRunId: runId,
+    lifecycleState: "corrupt",
+    runnerStatus: { active: true, activeRunId: "run-a", supervisorRunId: runId },
+    command: "pause",
+  }).reason, "unknown_supervisor_state");
+});
+
+test("supervisor accepted controls preserve lifecycle and record bounded lastControl metadata", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-accepted-control-"));
+  const logsRoot = path.join(tempRoot, "logs");
+  const runId = "supervised-20260711T083159Z-427681e96152";
+  try {
+    writeSupervisorState(runId, { state: "running", reportPath: "/workspace/logs/settleora-auto-runner/summaries/run-ok.md" }, logsRoot);
+    const accepted = [];
+    for (const cli of [
+      { command: "pause", maxTasksDelta: null, maxRuntimeDeltaMs: null },
+      { command: "stop-after-current", maxTasksDelta: null, maxRuntimeDeltaMs: null },
+      { command: "extend", maxTasksDelta: 2, maxRuntimeDeltaMs: 3_600_000 },
+    ]) {
+      const result = controlSupervisorRun(runId, cli, { logsRoot }, {
+        now: () => new Date("2026-07-11T15:30:00Z"),
+        getRunnerStatus: () => ({ active: true, activeRunId: "run-2026-07-11T153000Z", supervisorRunId: runId }),
+        writeControlCommand: (_config, args) => {
+          accepted.push(args);
+          return { ok: true, controlPath: "/workspace/logs/settleora-auto-runner/state/runner-control.json" };
+        },
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.accepted, true);
+      assert.equal(result.reason, "active_runner_correlated");
+      assert.equal(result.correlation.matched, true);
+      const state = readSupervisorState(runId, logsRoot).state;
+      assert.equal(state.state, "running");
+      assert.equal(state.lastControl.command, cli.command);
+      assert.equal(state.lastControl.status, "accepted");
+      assert.equal(state.lastControl.requestedAt, "2026-07-11T15:30:00.000Z");
+      assert.equal(state.lastControl.maxTasksDelta, cli.maxTasksDelta);
+      assert.equal(state.lastControl.maxRuntimeDeltaMs, cli.maxRuntimeDeltaMs);
+      assert.equal(state.lastControl.correlation.activeRunId, "run-2026-07-11T153000Z");
+      assert.doesNotMatch(JSON.stringify(state.lastControl), /config|secret|token|authorization|GEMINI_API_KEY/i);
+    }
+    assert.deepEqual(accepted.map((item) => item.controlCommand), ["pause", "stop-after-current", "extend"]);
+    assert.equal(accepted[2].maxIterationsExtension, 2);
+    assert.equal(accepted[2].maxRuntimeExtensionMs, 3_600_000);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("supervisor controls do not write on rejection and handle stopping idempotency", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-rejected-control-"));
+  const logsRoot = path.join(tempRoot, "logs");
+  const runId = "supervised-20260711T083159Z-427681e96152";
+  try {
+    writeSupervisorState(runId, { state: "running" }, logsRoot);
+    const stateBefore = fileSnapshot(readSupervisorState(runId, logsRoot).statePath);
+    let writes = 0;
+    const mismatch = controlSupervisorRun(runId, { command: "pause" }, { logsRoot }, {
+      getRunnerStatus: () => ({ active: true, activeRunId: "run-other", supervisorRunId: "supervised-20260711T083159Z-527681e96152" }),
+      writeControlCommand: () => {
+        writes += 1;
+        return { ok: true };
+      },
+      writeSupervisorState: () => {
+        writes += 1;
+        return { state: {} };
+      },
+    });
+    assert.equal(mismatch.reason, "active_runner_mismatch");
+    assert.equal(writes, 0);
+    assert.deepEqual(fileSnapshot(readSupervisorState(runId, logsRoot).statePath), stateBefore);
+
+    writeSupervisorState(runId, { state: "stopping_after_current" }, logsRoot);
+    const stoppingBefore = fileSnapshot(readSupervisorState(runId, logsRoot).statePath);
+    const repeatedStop = controlSupervisorRun(runId, { command: "stop-after-current" }, { logsRoot }, {
+      getRunnerStatus: () => ({ active: true, activeRunId: "run-a", supervisorRunId: runId }),
+      writeControlCommand: () => {
+        writes += 1;
+        return { ok: true };
+      },
+      writeSupervisorState: () => {
+        writes += 1;
+        return { state: {} };
+      },
+    });
+    assert.equal(repeatedStop.ok, true);
+    assert.equal(repeatedStop.idempotent, true);
+    assert.equal(repeatedStop.reason, "already_stopping");
+    assert.deepEqual(fileSnapshot(readSupervisorState(runId, logsRoot).statePath), stoppingBefore);
+    const pauseStopping = controlSupervisorRun(runId, { command: "pause" }, { logsRoot }, {
+      getRunnerStatus: () => ({ active: true, activeRunId: "run-a", supervisorRunId: runId }),
+    });
+    assert.equal(pauseStopping.ok, false);
+    assert.equal(pauseStopping.reason, "already_stopping");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("supervisor control write race preserves lifecycle and records bounded failure", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-control-race-"));
+  const logsRoot = path.join(tempRoot, "logs");
+  const runId = "supervised-20260711T083159Z-427681e96152";
+  try {
+    writeSupervisorState(runId, { state: "running" }, logsRoot);
+    const result = controlSupervisorRun(runId, { command: "extend", maxTasksDelta: 1, maxRuntimeDeltaMs: 60_000 }, { logsRoot }, {
+      now: () => new Date("2026-07-11T15:40:00Z"),
+      getRunnerStatus: () => ({ active: true, activeRunId: "run-race", supervisorRunId: runId }),
+      writeControlCommand: () => ({ ok: false, reason: "no_active_runner" }),
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.accepted, false);
+    assert.equal(result.reason, "no_active_runner");
+    const state = readSupervisorState(runId, logsRoot).state;
+    assert.equal(state.state, "running");
+    assert.equal(state.lastControl.command, "extend");
+    assert.equal(state.lastControl.status, "failed");
+    assert.equal(state.lastControl.reason, "no_active_runner");
+    assert.equal(state.lastControl.maxTasksDelta, 1);
+    assert.equal(state.lastControl.maxRuntimeDeltaMs, 60_000);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("systemd start failure records no foreground fallback shape", () => {
   const runId = generateRunId();
   const calls = [];
@@ -541,6 +762,27 @@ function snapshotSupervisorFiles() {
   const result = spawnSync("find", [root, "-type", "f"], { encoding: "utf8" });
   if (result.status !== 0) return [];
   return result.stdout.split(/\r?\n/).filter(Boolean).sort();
+}
+
+function fileSnapshot(filePath) {
+  const stat = statSync(filePath);
+  const content = readFileSync(filePath);
+  return {
+    sha256: createHash("sha256").update(content).digest("hex"),
+    mtimeMs: stat.mtimeMs,
+    content: content.toString("utf8"),
+  };
+}
+
+function mappedReport(logsRoot) {
+  return {
+    status: "matched",
+    ok: true,
+    runnerRunId: "run-2026-07-11T083209Z",
+    runnerSummaryJsonPath: path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.json"),
+    runnerSummaryMarkdownPath: path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.md"),
+    reportPath: path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.md"),
+  };
 }
 
 function writeSummaryPair(logsRoot, summary) {

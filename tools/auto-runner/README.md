@@ -32,6 +32,9 @@ node tools/auto-runner/settleora-auto-runnerctl.mjs submit --dry-run --profile d
 node tools/auto-runner/settleora-auto-runnerctl.mjs status --latest
 node tools/auto-runner/settleora-auto-runnerctl.mjs report --latest
 node tools/auto-runner/settleora-auto-runnerctl.mjs health --run <supervisor-run-id>
+node tools/auto-runner/settleora-auto-runnerctl.mjs pause --run <supervisor-run-id>
+node tools/auto-runner/settleora-auto-runnerctl.mjs stop-after-current --run <supervisor-run-id>
+node tools/auto-runner/settleora-auto-runnerctl.mjs extend --run <supervisor-run-id> --max-tasks +2
 ```
 
 The supervisor is an additive wrapper around the existing runner. It writes
@@ -54,6 +57,18 @@ health use only that exact correlation to resolve the runner JSON/Markdown
 summary pair. The supervisor does not choose reports by newest summary time.
 If a successful child exits without one unique trusted correlated report, the
 supervisor terminal state fails closed and the process exits nonzero.
+
+Supervisor control commands are selected-run controls. Before writing the
+global runner control file, `settleora-auto-runnerctl` requires the selected
+supervisor run to be controllable and the active runner's sanitized
+`supervisorRunId` to exactly equal that selected run ID. Terminal supervisor
+runs reject `pause`, `stop-after-current`, and `extend` without mutating the
+supervisor state file, heartbeat, report mapping, monitoring evidence, or
+`runner-control.json`. Foreground runners with no supervisor correlation and
+other supervised runners cannot be controlled through an unrelated supervisor
+run. Accepted controls keep the primary lifecycle state unchanged and record
+only bounded `lastControl` metadata such as command, request timestamp,
+accepted/failed status, extension deltas, and sanitized correlation IDs.
 
 Status reads the runner lock, active-run state, latest summaries, and local
 control file under `/workspace/logs/settleora-auto-runner/`. It reports the
