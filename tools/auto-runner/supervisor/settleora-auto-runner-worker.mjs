@@ -63,7 +63,8 @@ export async function runSupervisorWorker(
   writeHeartbeat(runId, heartbeat, logsRoot);
   const stdout = createWriteStream(stdoutPath, { flags: "a", mode: 0o600 });
   const stderr = createWriteStream(stderrPath, { flags: "a", mode: 0o600 });
-  const child = spawnImpl(argv[0], argv.slice(1), { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] });
+  const runnerArgs = argv.slice(1);
+  const child = spawnImpl(process.execPath, runnerArgs, { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout.pipe(stdout);
   child.stderr.pipe(stderr);
 
