@@ -13,7 +13,12 @@ import {
   writeCanaryEvidence,
 } from "../lib/canary-policy.mjs";
 import { parseReviewVerdict, runReviewPrompt } from "../lib/codex-runner.mjs";
-import { listWorkingTreeChangedFiles } from "../lib/git-workspace.mjs";
+import {
+  createTaskBranch,
+  ensureLaunchWorkspace,
+  ensureTaskMutationWorkspace,
+  listWorkingTreeChangedFiles,
+} from "../lib/git-workspace.mjs";
 import {
   buildEligibleLabelSearches,
   claimIssue,
@@ -4252,6 +4257,113 @@ test("canary dry-run writes bounded evidence without GitHub mutation", () => {
   }
 });
 
+test("real-run launch workspace allows clean main and non-main but rejects dirty worktrees", () => {
+  const repo = createTempGitRepo();
+  const loggerWarnings = [];
+  const logger = { warn: (message, data) => loggerWarnings.push({ message, data }) };
+  try {
+    const mainLaunch = ensureLaunchWorkspace({ run: true, dryRun: false, repoRoot: repo }, logger);
+    assert.equal(mainLaunch.branch, "main");
+    assert.equal(mainLaunch.dirty, false);
+    assert.match(mainLaunch.originMainSha, /^[a-f0-9]{40}$/);
+
+    git(repo, ["switch", "-c", "control-plane-launch"]);
+    const branchLaunch = ensureLaunchWorkspace({ run: true, dryRun: false, repoRoot: repo }, logger);
+    assert.equal(branchLaunch.branch, "control-plane-launch");
+    assert.equal(branchLaunch.dirty, false);
+
+    git(repo, ["switch", "--detach", "origin/main"]);
+    assert.throws(
+      () => ensureLaunchWorkspace({ run: true, dryRun: false, repoRoot: repo }, logger),
+      /Refusing real-run launch from a detached or unnamed checkout/,
+    );
+    git(repo, ["switch", "control-plane-launch"]);
+
+    writeFileSync(path.join(repo, "dirty.txt"), "dirty\n");
+    assert.throws(
+      () => ensureLaunchWorkspace({ run: true, dryRun: false, repoRoot: repo }, logger),
+      /Refusing real-run launch with a dirty worktree/,
+    );
+
+    const dryLaunch = ensureLaunchWorkspace({ run: false, dryRun: true, repoRoot: repo }, logger);
+    assert.equal(dryLaunch.dirty, true);
+    assert.match(loggerWarnings.at(-1).message, /Dry-run observed a dirty worktree/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("task mutation workspace accepts only the exact clean generated task branch", () => {
+  const repo = createTempGitRepo();
+  const config = { run: true, dryRun: false, repoRoot: repo };
+  const branchName = "feature/auto-123-workspace-safety";
+  try {
+    const baseSha = git(repo, ["rev-parse", "origin/main"]).stdout.trim();
+    assert.throws(
+      () => ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha: baseSha }),
+      /Refusing task mutation on main/,
+    );
+
+    createTaskBranch(config, branchName);
+    const accepted = ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha: baseSha });
+    assert.equal(accepted.branch, branchName);
+    assert.equal(accepted.originMainSha, baseSha);
+    assert.equal(accepted.headSha, baseSha);
+    assert.equal(accepted.dirty, false);
+
+    writeFileSync(path.join(repo, "dirty.txt"), "dirty\n");
+    assert.throws(
+      () => ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha: baseSha }),
+      /Refusing task mutation with a dirty worktree/,
+    );
+    rmSync(path.join(repo, "dirty.txt"), { force: true });
+
+    git(repo, ["switch", "-c", "feature/wrong-branch", "origin/main"]);
+    assert.throws(
+      () => ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha: baseSha }),
+      /Refusing task mutation from unexpected branch/,
+    );
+
+    git(repo, ["switch", "--detach", "origin/main"]);
+    assert.throws(
+      () => ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha: baseSha }),
+      /Refusing task mutation from a detached or unnamed branch/,
+    );
+
+    createTaskBranch(config, branchName);
+    writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "changed after branch\n");
+    git(repo, ["add", "--", "tools/auto-runner/README.md"]);
+    git(repo, ["commit", "-m", "move branch head"]);
+    assert.throws(
+      () => ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha: baseSha }),
+      /task branch HEAD does not match expected origin\/main/,
+    );
+
+    git(repo, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    assert.throws(
+      () => ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha: baseSha }),
+      /origin\/main changed after branch creation/,
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("implementation path verifies mutation workspace after task branch creation before Codex implementation", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const branchIndex = source.indexOf("createTaskBranch(config, branchName);");
+  const guardIndex = source.indexOf("ensureTaskMutationWorkspace(config", branchIndex);
+  const promptIndex = source.indexOf("generateTaskPrompt(config, issue, laneDecision, branchName)", branchIndex);
+  const codexIndex = source.indexOf("runCodexPrompt(config, { ...promptInfo, branchName }, \"implementation\")", branchIndex);
+  assert.notEqual(branchIndex, -1);
+  assert.notEqual(guardIndex, -1);
+  assert.notEqual(promptIndex, -1);
+  assert.notEqual(codexIndex, -1);
+  assert.ok(branchIndex < guardIndex);
+  assert.ok(guardIndex < promptIndex);
+  assert.ok(promptIndex < codexIndex);
+});
+
 function createTempGitRepo() {
   const repo = mkdtempSync(path.join(tmpdir(), "settleora-auto-runner-git-"));
   mkdirSync(path.join(repo, "docs/workflow"), { recursive: true });
@@ -4263,6 +4375,7 @@ function createTempGitRepo() {
   git(repo, ["config", "user.email", "settleora-test@example.invalid"]);
   git(repo, ["add", "--", "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md", "tools/auto-runner/README.md"]);
   git(repo, ["commit", "-m", "initial"]);
+  git(repo, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
   return repo;
 }
 

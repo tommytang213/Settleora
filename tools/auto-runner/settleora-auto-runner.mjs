@@ -22,7 +22,8 @@ import {
 import {
   commitExplicitPaths,
   createTaskBranch,
-  ensureTaskStartWorkspace,
+  ensureLaunchWorkspace,
+  ensureTaskMutationWorkspace,
   fetchOriginMain,
   getBoundedDiff,
   getBoundedWorkingTreeDiff,
@@ -174,8 +175,8 @@ async function main() {
       maxIterations: config.maxIterations,
       maxRuntimeMs: config.maxRuntimeMs,
     });
-    const workspace = ensureTaskStartWorkspace(config, logger);
-    summary.baseOriginMainSha = workspace.originMainSha;
+    summary.baseOriginMainSha = getRefSha("origin/main");
+    ensureLaunchWorkspace(config, logger);
     summary.maxIterations = config.maxIterations;
     summary.maxRuntimeMs = config.maxRuntimeMs;
     summary.configPath = config.configPath || null;
@@ -366,6 +367,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   fetchOriginMain(config);
   iteration.baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
   createTaskBranch(config, branchName);
+  if (!config.dryRun) {
+    iteration.mutationWorkspace = ensureTaskMutationWorkspace(config, {
+      branchName,
+      expectedOriginMainSha: iteration.baseOriginMainSha,
+    });
+  }
 
   const promptInfo = generateTaskPrompt(config, issue, laneDecision, branchName);
   iteration.taskPrompt = {

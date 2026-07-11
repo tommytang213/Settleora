@@ -39,6 +39,34 @@ issue selection, budgets, review, validation, CI, PR creation, or merge
 authority. The supervisor uses this field for exact report mapping and never
 uses newest-summary guessing.
 
+## Launch And Mutation Workspaces
+
+The runner has two separate workspace boundaries.
+
+The launch/control-plane checkout may be a clean `main` checkout or a clean
+named non-main checkout. Detached or unnamed real-run launch fails closed. A
+real run still refuses a dirty worktree before polling issues or mutating
+anything. Clean `main` is approved only for control-plane startup: acquire the
+runner lock, resolve and record exact `origin/main`, poll eligible issues,
+stop with `no-eligible-work`, release the lock, and write a complete summary.
+It is not an implementation, commit, push, or PR branch.
+
+Before any fresh task implementation can generate a task prompt or invoke
+Codex, the runner fetches `origin/main`, creates the generated task branch from
+that exact SHA, and verifies the task-mutation workspace. The mutation guard
+fails closed on `main`, detached or unnamed checkout state, an unexpected
+branch name, a dirty worktree or index, changed `origin/main`, or task-branch
+`HEAD` that no longer equals the expected freshly created base. This guard is
+separate from the launch check so a no-work supervised run can complete from
+clean `main` without weakening the rule that implementation never happens on
+`main`.
+
+Run summaries record the exact launch `origin/main` SHA before later
+workspace-policy checks can reject when that SHA is resolvable. If
+`origin/main` cannot be resolved, the run fails closed instead of fabricating a
+base. The supervisor resolver remains strict and continues to require an exact
+supervisor ID, runner ID, mode, base SHA, and JSON/Markdown pair.
+
 ## Relationship To Existing Automation
 
 Manual Windows helper scripts such as `Start-SettleoraCodexTask.ps1` and
