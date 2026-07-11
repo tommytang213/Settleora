@@ -151,6 +151,35 @@ export function claimIssue(config, issue, logger) {
   return { ...claim, skipped: false };
 }
 
+export function readIssueLive(config, issueNumber) {
+  if (config.fixtureLiveIssues) {
+    const issue = config.fixtureLiveIssues[String(issueNumber)] || config.fixtureLiveIssues[issueNumber];
+    if (!issue) return { ok: false, reason: "fixture_live_issue_missing" };
+    return { ok: true, issue: { ...issue, labels: labelNames(issue) } };
+  }
+  if (config.fixtureIssues) {
+    const issue = config.fixtureIssues.find((item) => item.number === issueNumber);
+    if (!issue) return { ok: false, reason: "fixture_issue_missing" };
+    return { ok: true, issue: { ...issue, state: issue.state || "OPEN", labels: labelNames(issue) } };
+  }
+  const result = runGh([
+    "issue",
+    "view",
+    String(issueNumber),
+    "--json",
+    "number,title,body,labels,state,url",
+  ]);
+  if (result.error || result.status !== 0) {
+    return { ok: false, reason: result.stderr.trim() || result.error || "gh_issue_view_failed" };
+  }
+  try {
+    const issue = JSON.parse(result.stdout || "{}");
+    return { ok: true, issue: { ...issue, labels: labelNames(issue) } };
+  } catch (error) {
+    return { ok: false, reason: `live_issue_json_parse_failed:${error.message}` };
+  }
+}
+
 export function commentIssueOutcome(config, issue, outcome, body) {
   const mutations = outcomeToMutations(outcome);
   const boundedBody = body.length > 4000 ? `${body.slice(0, 3900)}\n\n[truncated]` : body;

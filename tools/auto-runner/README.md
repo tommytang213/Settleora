@@ -257,6 +257,8 @@ fixed allowlist: `auto-running`, `auto-claimed`, `auto-pr-opened`, and
 Merge success remains authoritative if label cleanup, issue closure, or
 post-merge comments fail; cleanup status and failure reasons are recorded in
 auto-merge evidence, summaries, and event listings for operator follow-up.
+The same merged issue also remains excluded by the current run's attempted set
+before the next selection boundary, regardless of cleanup or closure status.
 Dry-run mode previews the exact transient labels without mutating GitHub.
 
 Fresh implementation ordering is exact-head-first. After Codex implementation
@@ -359,6 +361,22 @@ Multiple label searches are aggregated and deduplicated by issue number. A
 dedicated canary config can set `eligibleLabels` to only
 `auto-canary-ready`; the issue body contract still decides whether any selected
 issue may be implemented.
+
+Issue search is advisory only. Before claim or implementation, the runner
+live-refreshes each bounded candidate by exact issue number, excludes issue
+numbers already attempted in the same run, requires current open/eligible/
+non-stopped state, and re-parses the live body contract. Stale or ineligible
+candidates are skipped with sanitized events and the next distinct candidate is
+considered. The run-scoped attempted set is persisted in active state,
+iteration state, summaries, status, and event readbacks; it prevents same-run
+reselection after merged, PR-opened, blocked, danger-gated, validation-failed,
+review-failed, no-change, or auto-failed outcomes, even when GitHub indexing or
+post-merge hygiene lags.
+
+After claim labels are added, the runner re-reads the exact issue and requires
+it to remain open, retain the expected current-run claim labels, and not gain a
+stop/manual/danger label before branch creation, task generation, or Codex
+launch.
 
 Issue contracts:
 

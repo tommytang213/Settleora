@@ -418,6 +418,18 @@ Dedicated canary configs may set `eligibleLabels` to only
 `auto-canary-ready`; the runner still requires the body-level contract before
 implementation.
 
+GitHub issue-search results are advisory only. At each safe iteration boundary
+the runner discards stale candidate authority, scans a bounded candidate list,
+excludes issue numbers already attempted in the same run, and live-refreshes
+each remaining candidate by exact issue number before any label mutation,
+branch creation, task prompt generation, Codex launch, review, or PR work. The
+live issue must be open, carry a currently configured eligible label, carry no
+stop or in-flight claim label, and still parse into an allowed lane/profile/path
+contract. Closed, stale, stop-labeled, malformed, refresh-failed, or
+already-attempted candidates are skipped with sanitized evidence and the next
+distinct candidate is evaluated. If no distinct live-eligible candidate remains,
+the runner stops cleanly as no eligible work.
+
 Default stop labels:
 
 - `needs-tommy`
@@ -430,9 +442,21 @@ Default stop labels:
 
 Real-run claim behavior adds `auto-claimed` and `auto-running`, then posts a
 bounded claim comment. Both labels are active in-flight claim labels, not
-durable terminal labels. The runner re-reads and records claim state locally so
-a later stale-claim policy can be implemented. Stale-claim stealing is disabled
-by default and must stay disabled unless config explicitly allows it.
+durable terminal labels. Immediately after claim mutation, the runner re-reads
+the exact issue and requires that it is still open, still the same issue, still
+has the expected current-run claim labels, and has not gained a stop/manual/
+danger label. Ambiguous or conflicting claim state stops before implementation.
+Stale-claim stealing is disabled by default and must stay disabled unless
+config explicitly allows it.
+
+A run-scoped attempted issue set is maintained in active-run, iteration,
+summary, status, and event evidence. An issue number is added before
+implementation work can start and is never selected again in that same run,
+even if GitHub search or live refresh later reports it open and eligible, even
+if issue closure or label cleanup fails, and regardless of terminal outcome:
+merged, PR opened, blocked/manual, danger gate, validation failed, review
+failed, no changes, or auto failed. A future runner invocation starts with a
+fresh attempted set.
 
 Terminal real-run outcomes always remove `auto-running` and `auto-claimed`.
 `approved_pr_opened` adds `auto-pr-opened`, which is also a stop label so the

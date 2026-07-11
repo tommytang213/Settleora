@@ -19,6 +19,10 @@ export function writeActiveRunState(config, summary, extra = {}) {
     maxIterations: config.maxIterations,
     maxRuntimeMs: config.maxRuntimeMs,
     completedIterations: (summary.iterations || []).length,
+    attemptedIssueNumbers: summary.attemptedIssueNumbers || [],
+    attemptedIssueCount: summary.attemptedIssueCount || 0,
+    processedIssueNumbers: summary.processedIssueNumbers || [],
+    processedIssueCount: summary.processedIssueCount || 0,
     outcomeCounts: countIterationOutcomes(summary.iterations || []),
     failedOrBlockedIterations: countFailedOrBlocked(summary.iterations || []),
     baseOriginMainSha: summary.baseOriginMainSha || null,
@@ -166,6 +170,10 @@ export function getRunnerStatus(config) {
     currentOrLastIssue: latestIteration?.issue || null,
     currentOrLastPr: latestIteration?.pr || null,
     latestTerminalOutcome: latestIteration?.outcome || null,
+    attemptedIssueNumbers: source?.attemptedIssueNumbers || [],
+    attemptedIssueCount: source?.attemptedIssueCount || 0,
+    processedIssueNumbers: source?.processedIssueNumbers || [],
+    processedIssueCount: source?.processedIssueCount || 0,
     stopReason: source?.stopReason || null,
     lastEventAt: latestIteration?.finishedAt || latestIteration?.startedAt || source?.lastHeartbeatAt || source?.finishedAt || source?.startedAt || null,
     paths: {
@@ -214,6 +222,9 @@ export function listEvents(config, runId) {
     const issue = iteration.issue ? `#${iteration.issue.number} ${iteration.issue.title || ""}`.trim() : "unknown issue";
     events.push(event(iteration.startedAt, "issue", issue, iteration.issue || null));
     if (iteration.branchName) events.push(event(iteration.startedAt, "branch", iteration.branchName, { branchName: iteration.branchName }));
+    for (const selectionEvent of iteration.candidateSelection?.events || []) {
+      events.push(event(iteration.startedAt, "selection", selectionEvent.action, selectionEvent));
+    }
     if (iteration.pr) events.push(event(iteration.finishedAt || iteration.startedAt, "pr", prEventSummary(iteration), summarizePr(iteration.pr, iteration.runnerCreatedCommitSha, iteration.autoMerge?.mergeSha)));
     if (iteration.externalReview) events.push(event(iteration.finishedAt || iteration.startedAt, "review", independentReviewLine(iteration), summarizeExternalReview(iteration.externalReview)));
     if (iteration.review) {
@@ -244,6 +255,7 @@ export function renderStatusText(status) {
     `Runtime remaining: ${formatDuration(status.runtimeRemainingMs)} of ${formatDuration(status.maxRuntimeMs)}`,
     `PR/iteration budget: ${status.completedIterations ?? "unknown"} completed, ${status.estimatedRemainingIterations ?? "unknown"} remaining of ${status.maxIterations ?? "unknown"}`,
     `Outcome counts: completed=${status.outcomeCounts?.completed ?? "unknown"} merged=${status.outcomeCounts?.merged ?? "unknown"} failed=${status.outcomeCounts?.failed ?? "unknown"} blocked=${status.outcomeCounts?.blocked ?? "unknown"} skipped=${status.outcomeCounts?.skipped ?? "unknown"}`,
+    `Attempted issues: ${status.attemptedIssueCount ?? 0} (${(status.attemptedIssueNumbers || []).join(", ") || "none"})`,
     `Issue: ${status.currentOrLastIssue ? `#${status.currentOrLastIssue.number} ${status.currentOrLastIssue.title || ""}`.trim() : "unknown"}`,
     `PR: ${status.currentOrLastPr ? `${status.currentOrLastPr.number || "unknown"} ${status.currentOrLastPr.url || ""} head=${status.currentOrLastPr.headSha || "unknown"} merge=${status.currentOrLastPr.mergeSha || "unknown"}` : "unknown"}`,
     `Outcome/stop: ${status.latestTerminalOutcome || "unknown"} / ${status.stopReason || "none"}`,
