@@ -514,28 +514,36 @@ class StateCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (icon != null) ...[
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: colors.surface.withValues(alpha: 0.72),
-                  foregroundColor: foreground,
-                  child: Icon(icon, size: 20),
+                ExcludeSemantics(
+                  child: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: colors.surface.withValues(alpha: 0.72),
+                    foregroundColor: foreground,
+                    child: Icon(icon, size: 20),
+                  ),
                 ),
                 const SizedBox(width: SettleoraSpacing.sm),
               ],
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: foreground,
-                        fontWeight: FontWeight.w800,
-                      ),
+                child: Semantics(
+                  container: true,
+                  label: '$title, $message',
+                  child: ExcludeSemantics(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: foreground,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: SettleoraSpacing.xxs),
+                        Text(message, style: TextStyle(color: foreground)),
+                      ],
                     ),
-                    const SizedBox(height: SettleoraSpacing.xxs),
-                    Text(message, style: TextStyle(color: foreground)),
-                  ],
+                  ),
                 ),
               ),
             ],

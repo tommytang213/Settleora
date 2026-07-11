@@ -553,6 +553,157 @@ void main() {
   });
 
   testWidgets(
+    'StateCard groups static title and message without icon duplicates',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: const Scaffold(
+            body: StateCard(
+              icon: Icons.cloud_done_outlined,
+              title: 'Offline ready',
+              message: 'Saved changes will sync when the server is reachable.',
+              variant: SettleoraSurfaceVariant.success,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.cloud_done_outlined), findsOneWidget);
+      expect(find.text('Offline ready'), findsOneWidget);
+      expect(
+        find.text('Saved changes will sync when the server is reachable.'),
+        findsOneWidget,
+      );
+
+      final semanticsHandle = tester.ensureSemantics();
+      _expectStaticSemanticsLabel(
+        tester,
+        'Offline ready, Saved changes will sync when the server is reachable.',
+      );
+      _expectNoSemanticsLabel(tester, 'Offline ready');
+      _expectNoSemanticsLabel(
+        tester,
+        'Saved changes will sync when the server is reachable.',
+      );
+      semanticsHandle.dispose();
+    },
+  );
+
+  testWidgets(
+    'StateCard keeps actions independently focusable outside static copy',
+    (tester) async {
+      var taps = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: Scaffold(
+            body: StateCard(
+              icon: Icons.error_outline,
+              title: 'Sync failed',
+              message: 'Check the connection and retry.',
+              variant: SettleoraSurfaceVariant.danger,
+              action: AppButton(
+                label: 'Retry sync',
+                icon: Icons.refresh,
+                variant: AppButtonVariant.secondary,
+                onPressed: () => taps += 1,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      expect(find.byIcon(Icons.refresh), findsOneWidget);
+      expect(find.text('Sync failed'), findsOneWidget);
+      expect(find.text('Check the connection and retry.'), findsOneWidget);
+      expect(find.text('Retry sync'), findsOneWidget);
+
+      final semanticsHandle = tester.ensureSemantics();
+      _expectStaticSemanticsLabel(
+        tester,
+        'Sync failed, Check the connection and retry.',
+      );
+      _expectNoSemanticsLabel(
+        tester,
+        'Sync failed, Check the connection and retry., Retry sync',
+      );
+      _expectNoSemanticsLabel(tester, 'Sync failed');
+      _expectNoSemanticsLabel(tester, 'Check the connection and retry.');
+      _expectAppButtonSemantics(tester, label: 'Retry sync');
+      semanticsHandle.dispose();
+
+      await tester.tap(find.text('Retry sync'));
+      await tester.pumpAndSettle();
+
+      expect(taps, 1);
+    },
+  );
+
+  testWidgets('InfoCard and WarningCard preserve StateCard semantics', (
+    tester,
+  ) async {
+    var taps = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: Scaffold(
+          body: Column(
+            children: [
+              const InfoCard(
+                title: 'Shared pattern',
+                message: 'Reusable copy stays grouped for screen readers.',
+              ),
+              WarningCard(
+                title: 'Review needed',
+                message: 'Sensitive changes need explicit confirmation.',
+                action: AppButton(
+                  label: 'Open review',
+                  variant: AppButtonVariant.secondary,
+                  onPressed: () => taps += 1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byIcon(Icons.info_outline), findsOneWidget);
+    expect(find.byIcon(Icons.warning_amber_outlined), findsOneWidget);
+    expect(find.text('Shared pattern'), findsOneWidget);
+    expect(find.text('Review needed'), findsOneWidget);
+    expect(find.text('Open review'), findsOneWidget);
+
+    final semanticsHandle = tester.ensureSemantics();
+    _expectStaticSemanticsLabel(
+      tester,
+      'Shared pattern, Reusable copy stays grouped for screen readers.',
+    );
+    _expectStaticSemanticsLabel(
+      tester,
+      'Review needed, Sensitive changes need explicit confirmation.',
+    );
+    _expectNoSemanticsLabel(tester, 'Shared pattern');
+    _expectNoSemanticsLabel(tester, 'Review needed');
+    _expectNoSemanticsLabel(
+      tester,
+      'Review needed, Sensitive changes need explicit confirmation., '
+      'Open review',
+    );
+    _expectAppButtonSemantics(tester, label: 'Open review');
+    semanticsHandle.dispose();
+
+    await tester.tap(find.text('Open review'));
+    await tester.pumpAndSettle();
+
+    expect(taps, 1);
+  });
+
+  testWidgets(
     'AppButton label-only enabled state exposes one actionable button label',
     (tester) async {
       var taps = 0;
