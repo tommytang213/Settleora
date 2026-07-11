@@ -22,6 +22,15 @@ import {
   pollEligibleIssues,
   validateEligibleLabels,
 } from "../lib/github-issues.mjs";
+import {
+  createRunIssueTracker,
+  markIssueAttempted,
+  markIssueProcessed,
+  selectDistinctEligibleIssue,
+  terminalAttemptOutcomes,
+  trackerSnapshot,
+  validateClaimReread,
+} from "../lib/issue-selection.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles, parseAutoRunnerContract } from "../lib/lane-policy.mjs";
 import { runPreflight } from "../lib/preflight.mjs";
 import { generateTaskPrompt } from "../lib/task-prompt.mjs";
@@ -1927,6 +1936,177 @@ test("multiple eligible label poll results are deduped by issue number", () => {
     [805, 806],
   );
   assert.equal(issues[0].title, "canary");
+});
+
+test("selection skips stale closed #863 after merge and selects #864 without duplicate work", () => {
+  const config = selectionConfig();
+  const tracker = createRunIssueTracker();
+  const batchPoll = [selectionIssue(863, "Mobile accessibility: SummaryCard semantic grouping guardrail"), selectionIssue(864)];
+  const first = selectDistinctEligibleIssue(config, batchPoll, tracker, liveIssueReader({
+    863: selectionIssue(863, "Mobile accessibility: SummaryCard semantic grouping guardrail"),
+    864: selectionIssue(864),
+  }));
+  assert.equal(first.selected.number, 863);
+  markIssueAttempted(tracker, 863);
+  markIssueProcessed(tracker, 863);
+
+  const second = selectDistinctEligibleIssue(config, batchPoll, tracker, liveIssueReader({
+    863: { ...selectionIssue(863, "Mobile accessibility: SummaryCard semantic grouping guardrail"), state: "CLOSED" },
+    864: selectionIssue(864),
+  }));
+  assert.equal(second.selected.number, 864);
+  assert.ok(second.events.some((event) => event.action === "candidate_skipped" && event.reason === "already_attempted_in_run"));
+  assert.ok(second.events.some((event) => event.action === "distinct_candidate_selected" && event.issue.number === 864));
+});
+
+test("attempted set excludes prior issue even when stale live refresh still reports open and eligible", () => {
+  const config = selectionConfig();
+  const candidates = [selectionIssue(863), selectionIssue(864)];
+  const tracker = createRunIssueTracker();
+  markIssueAttempted(tracker, 863);
+  const sameRun = selectDistinctEligibleIssue(config, candidates, tracker, liveIssueReader({
+    863: selectionIssue(863),
+    864: selectionIssue(864),
+  }));
+  assert.equal(sameRun.selected.number, 864);
+  assert.equal(sameRun.events.find((event) => event.reason === "already_attempted_in_run").candidate.number, 863);
+
+  const futureRun = selectDistinctEligibleIssue(config, candidates, createRunIssueTracker(), liveIssueReader({
+    863: selectionIssue(863),
+    864: selectionIssue(864),
+  }));
+  assert.equal(futureRun.selected.number, 863);
+});
+
+test("merge success remains authoritative when closure or label cleanup fails", () => {
+  const config = selectionConfig();
+  const tracker = createRunIssueTracker();
+  markIssueAttempted(tracker, 863);
+  markIssueProcessed(tracker, 863);
+  const next = selectDistinctEligibleIssue(config, [selectionIssue(863), selectionIssue(864)], tracker, liveIssueReader({
+    863: selectionIssue(863),
+    864: selectionIssue(864),
+  }));
+  assert.equal(next.selected.number, 864);
+  assert.deepEqual(trackerSnapshot(tracker).processedIssueNumbers, [863]);
+});
+
+test("all terminal outcomes prevent same-run reselection", () => {
+  const config = selectionConfig();
+  for (const outcome of terminalAttemptOutcomes) {
+    const tracker = createRunIssueTracker();
+    markIssueAttempted(tracker, 863);
+    const selected = selectDistinctEligibleIssue(config, [selectionIssue(863), selectionIssue(864)], tracker, liveIssueReader({
+      863: selectionIssue(863),
+      864: selectionIssue(864),
+    }));
+    assert.equal(selected.selected.number, 864, outcome);
+  }
+});
+
+test("live pre-claim validation fails closed for stale labels, stop labels, refresh errors, duplicates, and claim races", () => {
+  const config = selectionConfig();
+  const cases = [
+    ["closed", { 863: { ...selectionIssue(863), state: "CLOSED" } }, "live_issue_not_open"],
+    ["eligible removed", { 863: { ...selectionIssue(863), labels: ["workflow"] } }, "live_issue_missing_eligible_label"],
+    ["stop label", { 863: { ...selectionIssue(863), labels: ["auto-canary-ready", "manual-gate"] } }, "live_issue_stop_label:manual-gate"],
+    ["transient other claim", { 863: { ...selectionIssue(863), labels: ["auto-canary-ready", "auto-claimed"] } }, "live_issue_transient_claim_label:auto-claimed"],
+  ];
+  for (const [, liveIssues, reason] of cases) {
+    const result = selectDistinctEligibleIssue(config, [selectionIssue(863)], createRunIssueTracker(), liveIssueReader(liveIssues));
+    assert.equal(result.selected, null);
+    assert.ok(result.events.some((event) => event.reason === reason), reason);
+  }
+
+  const readFailure = selectDistinctEligibleIssue(config, [selectionIssue(863)], createRunIssueTracker(), () => {
+    throw new Error("invalid json");
+  });
+  assert.equal(readFailure.selected, null);
+  assert.ok(readFailure.events.some((event) => event.reason === "live_issue_refresh_failed"));
+
+  const duplicateThenValid = selectDistinctEligibleIssue(
+    config,
+    [selectionIssue(863), selectionIssue(863), selectionIssue(864)],
+    createRunIssueTracker({ attemptedIssueNumbers: [863] }),
+    liveIssueReader({ 863: selectionIssue(863), 864: selectionIssue(864) }),
+  );
+  assert.equal(duplicateThenValid.selected.number, 864);
+  assert.equal(duplicateThenValid.events.filter((event) => event.reason === "already_attempted_in_run").length, 2);
+
+  assert.equal(validateClaimReread(config, selectionIssue(863), { ...selectionIssue(863), labels: ["auto-canary-ready", "auto-claimed", "auto-running"] }).ok, true);
+  assert.equal(validateClaimReread(config, selectionIssue(863), { ...selectionIssue(863), state: "CLOSED", labels: ["auto-canary-ready", "auto-claimed", "auto-running"] }).reason, "claim_reread_issue_not_open");
+  assert.equal(validateClaimReread(config, selectionIssue(863), { ...selectionIssue(863), labels: ["auto-canary-ready", "auto-claimed", "auto-running", "manual-gate"] }).reason, "claim_reread_stop_label:manual-gate");
+});
+
+test("bounded selection scans stale candidates once and stops cleanly when none remain", () => {
+  const config = { ...selectionConfig(), pollLimit: 3 };
+  const tracker = createRunIssueTracker({ attemptedIssueNumbers: [861, 862] });
+  const result = selectDistinctEligibleIssue(
+    config,
+    [selectionIssue(861), selectionIssue(862), selectionIssue(863), selectionIssue(864)],
+    tracker,
+    liveIssueReader({
+      861: selectionIssue(861),
+      862: selectionIssue(862),
+      863: { ...selectionIssue(863), state: "CLOSED" },
+      864: selectionIssue(864),
+    }),
+  );
+  assert.equal(result.selected, null);
+  assert.equal(result.events.at(-1).action, "no_eligible_work_after_exclusions");
+  assert.equal(result.events.at(-1).scannedCandidateCount, 3);
+});
+
+test("selection evidence and status expose attempted counts without full issue bodies", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-selection-evidence-"));
+  try {
+    mkdirSync(path.join(tempRoot, "summaries"), { recursive: true });
+    mkdirSync(path.join(tempRoot, "state"), { recursive: true });
+    mkdirSync(path.join(tempRoot, "locks"), { recursive: true });
+    const config = readinessConfig(tempRoot);
+    const tracker = createRunIssueTracker({ attemptedIssueNumbers: [863] });
+    const selected = selectDistinctEligibleIssue(
+      selectionConfig(),
+      [selectionIssue(863), selectionIssue(864, "Valid", { body: `${contractBody()}\nFULL_BODY_SENTINEL` })],
+      tracker,
+      liveIssueReader({
+        863: selectionIssue(863),
+        864: selectionIssue(864, "Valid", { body: `${contractBody()}\nFULL_BODY_SENTINEL` }),
+      }),
+    );
+    const summary = {
+      runId: "run-selection-test",
+      mode: "canary-run",
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      attemptedIssueNumbers: [863, 864],
+      attemptedIssueCount: 2,
+      processedIssueNumbers: [863],
+      processedIssueCount: 1,
+      iterations: [
+        {
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          outcome: "approved_pr_opened",
+          issue: { number: 864, title: "Valid", url: "https://example.invalid/864" },
+          candidateSelection: {
+            events: selected.events,
+            attemptedIssueNumbers: [863, 864],
+            attemptedIssueCount: 2,
+          },
+        },
+      ],
+    };
+    const paths = writeRunSummary(config, summary);
+    writeActiveRunState(config, summary);
+    const text = `${readFileSync(paths.jsonPath, "utf8")}\n${readFileSync(paths.markdownPath, "utf8")}\n${JSON.stringify(listEvents(config, "run-selection-test"))}`;
+    assert.doesNotMatch(text, /FULL_BODY_SENTINEL/);
+    assert.match(text, /attemptedIssueCount|Attempted issues/);
+    assert.ok(listEvents(config, "run-selection-test").events.some((event) => event.type === "selection" && event.details.reason === "already_attempted_in_run"));
+    assert.equal(getRunnerStatus(config).attemptedIssueCount, 2);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("dry-run issue claim and terminal outcomes preview bounded mutations", () => {
@@ -4222,6 +4402,43 @@ function readinessConfig(logsRoot) {
     maxIterations: 1,
     canaryEvidenceRoot: path.join(logsRoot, "canary"),
     configPath: null,
+  };
+}
+
+function selectionConfig(overrides = {}) {
+  return {
+    ...baseConfig,
+    eligibleLabels: ["auto-canary-ready"],
+    pollLimit: 10,
+    ...overrides,
+  };
+}
+
+function selectionIssue(number, title = `Issue ${number}`, overrides = {}) {
+  return {
+    number,
+    title,
+    state: "OPEN",
+    labels: ["auto-canary-ready", "workflow"],
+    body: contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["tools/auto-runner/README.md"],
+      validationProfile: "docs-only",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+      requiredReading: ["PROGRAM_ARCHITECTURE.md"],
+    }),
+    url: `https://example.invalid/issues/${number}`,
+    createdAt: `2026-07-10T20:${String(number % 60).padStart(2, "0")}:00Z`,
+    ...overrides,
+  };
+}
+
+function liveIssueReader(issuesByNumber) {
+  return (issueNumber) => {
+    const issue = issuesByNumber[issueNumber] || issuesByNumber[String(issueNumber)];
+    if (!issue) return { ok: false, reason: "missing_fixture_live_issue" };
+    return { ok: true, issue };
   };
 }
 

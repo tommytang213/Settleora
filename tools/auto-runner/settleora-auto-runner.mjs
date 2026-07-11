@@ -10,7 +10,15 @@ import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } f
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
 import { acquireRunnerLock, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
-import { pollEligibleIssues, claimIssue, commentIssueOutcome } from "./lib/github-issues.mjs";
+import { pollEligibleIssues, claimIssue, commentIssueOutcome, readIssueLive } from "./lib/github-issues.mjs";
+import {
+  createRunIssueTracker,
+  markIssueAttempted,
+  markIssueProcessed,
+  selectDistinctEligibleIssue,
+  trackerSnapshot,
+  validateClaimReread,
+} from "./lib/issue-selection.mjs";
 import {
   commitExplicitPaths,
   createTaskBranch,
@@ -148,6 +156,10 @@ async function main() {
     finishedAt: null,
     baseOriginMainSha: null,
     iterations: [],
+    attemptedIssueNumbers: [],
+    attemptedIssueCount: 0,
+    processedIssueNumbers: [],
+    processedIssueCount: 0,
     stopReason: null,
     logPath: logger.logPath,
     autoMergeCanaryApprovalMode: trustPolicy.autoMergeCanaryApproval?.mode || "not_approved",
@@ -170,6 +182,7 @@ async function main() {
     logger.info(`Settleora auto-runner started in ${config.mode} mode.`);
 
     const startedAtMs = Date.now();
+    const issueTracker = createRunIssueTracker(summary);
     for (let index = 1; index <= config.maxIterations; index += 1) {
       const control = applyControlAtSafeBoundary(config, summary);
       if (control.action === "stop") {
@@ -182,12 +195,18 @@ async function main() {
         summary.stopReason = "max-runtime-reached";
         break;
       }
-      const iteration = await runIteration(config, logger, runId, index);
+      Object.assign(summary, trackerSnapshot(issueTracker));
+      const iteration = await runIteration(config, logger, runId, index, issueTracker);
       const canaryEvidence = writeCanaryEvidence(config, iteration);
       if (canaryEvidence) {
         iteration.canaryEvidence = canaryEvidence;
       }
       summary.iterations.push(iteration);
+      if (iteration.issue?.number) {
+        markIssueProcessed(issueTracker, iteration.issue.number);
+        Object.assign(summary, trackerSnapshot(issueTracker));
+        iteration.runIssueState = trackerSnapshot(issueTracker);
+      }
       writeIterationState(config, iteration);
       if (config.fixtureIssues && iteration.issue) {
         config.fixtureIssueCursor = (config.fixtureIssueCursor || 0) + 1;
@@ -214,7 +233,7 @@ async function main() {
   }
 }
 
-async function runIteration(config, logger, runId, index) {
+async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker()) {
   const iteration = {
     runId,
     index,
@@ -223,6 +242,7 @@ async function runIteration(config, logger, runId, index) {
     laneDecision: null,
     outcome: null,
     systemicStop: null,
+    runIssueState: trackerSnapshot(issueTracker),
   };
 
   const polled = pollEligibleIssues(config, logger);
@@ -233,7 +253,26 @@ async function runIteration(config, logger, runId, index) {
     return iteration;
   }
 
-  const issue = polled.issues[0];
+  const selection = selectDistinctEligibleIssue(config, polled.issues, issueTracker, (issueNumber) =>
+    readIssueLive(config, issueNumber),
+  );
+  iteration.candidateSelection = {
+    events: selection.events,
+    skipCount: selection.skipCount,
+    attemptedIssueNumbers: trackerSnapshot(issueTracker).attemptedIssueNumbers,
+    attemptedIssueCount: trackerSnapshot(issueTracker).attemptedIssueCount,
+  };
+  if (!selection.selected) {
+    iteration.outcome = "no_eligible_work";
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+
+  const issue = selection.selected;
+  markIssueAttempted(issueTracker, issue.number);
+  iteration.runIssueState = trackerSnapshot(issueTracker);
+  iteration.candidateSelection.attemptedIssueNumbers = iteration.runIssueState.attemptedIssueNumbers;
+  iteration.candidateSelection.attemptedIssueCount = iteration.runIssueState.attemptedIssueCount;
   iteration.issue = {
     number: issue.number,
     title: issue.title,
@@ -244,8 +283,33 @@ async function runIteration(config, logger, runId, index) {
 
   const claim = claimIssue(config, issue, logger);
   iteration.claim = claim;
+  const claimRead = config.dryRun ? { ok: true, skipped: true, reason: "dry-run" } : readIssueLive(config, issue.number);
+  const claimReread = claimRead.skipped
+    ? {
+        ok: true,
+        skipped: true,
+        reason: claimRead.reason,
+        event: { action: "claim_reread", selectedIssueNumber: issue.number, ok: true, skipped: true, reason: claimRead.reason },
+      }
+    : claimRead.ok ? validateClaimReread(config, issue, claimRead.issue) : {
+      ok: false,
+      reason: claimRead.reason || "claim_reread_failed",
+      event: {
+        action: "claim_reread",
+        selectedIssueNumber: issue.number,
+        ok: false,
+        reason: claimRead.reason || "claim_reread_failed",
+      },
+    };
+  iteration.claimReread = claimReread;
+  if (!claimReread.ok) {
+    iteration.outcome = "auto_failed";
+    iteration.systemicStop = `claim-reread-failed:${claimReread.reason}`;
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
 
-  const laneDecision = classifyIssueLane(issue);
+  const laneDecision = selection.laneDecision || classifyIssueLane(issue);
   iteration.laneDecision = laneDecision;
   iteration.canaryPolicy = evaluateCanaryIssuePolicy(config, laneDecision);
   if (!iteration.canaryPolicy.allowed) {

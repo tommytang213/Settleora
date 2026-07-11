@@ -48,6 +48,8 @@ function renderRunMarkdown(summary) {
     `- Finished: ${summary.finishedAt}`,
     `- Stop reason: ${summary.stopReason || "none"}`,
     `- Auto-merge canary approval mode: \`${summary.autoMergeCanaryApprovalMode || "not_approved"}\``,
+    `- Attempted issues: ${(summary.attemptedIssueNumbers || []).join(", ") || "none"} (${summary.attemptedIssueCount || 0})`,
+    `- Processed issues: ${(summary.processedIssueNumbers || []).join(", ") || "none"} (${summary.processedIssueCount || 0})`,
     "",
     "## Iterations",
     "",
@@ -74,6 +76,12 @@ function renderRunMarkdown(summary) {
       const cleanup = iteration.autoMerge.issueLabelCleanupResult;
       lines.push(
         `  - Auto-merge: eligible=${iteration.autoMerge.eligible ? "yes" : "no"} attempted=${iteration.autoMerge.attempted ? "yes" : "no"} result=${iteration.autoMerge.result || "unknown"} prHead=${iteration.autoMerge.prHeadSha || "none"} mergeSha=${iteration.autoMerge.mergeSha || "none"} issueClosure=${iteration.autoMerge.issueClosureResult || "n/a"} labelCleanup=${cleanup?.status || "n/a"} blockedReason=${iteration.autoMerge.reason || "none"}`,
+      );
+    }
+    if (iteration.candidateSelection?.events?.length) {
+      const skipped = iteration.candidateSelection.events.filter((event) => event.action === "candidate_skipped");
+      lines.push(
+        `  - Candidate selection: skipped=${skipped.length} attempted=${iteration.candidateSelection.attemptedIssueCount || 0}`,
       );
     }
     if (iteration.externalReview || iteration.laneDecision?.lane === "client-ui-low-risk") {

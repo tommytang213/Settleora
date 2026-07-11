@@ -20,6 +20,54 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800/#863-#866 - Duplicate selection hardening checkpoint
+
+- GitHub state/project status at task start:
+  - #800 remained open as the broader DevBox-native unattended runner
+    foundation tracker.
+  - Overnight trial runs `run-2026-07-10T185129Z` and
+    `run-2026-07-10T192906Z` completed four normal merges for #859 through
+    #862.
+  - Interrupted run `run-2026-07-10T200946Z` merged #863 through PR #871,
+    then selected #863 again at `2026-07-10T20:29:04Z` immediately after #863
+    closed completed at `2026-07-10T20:28:59Z`.
+  - No duplicate PR was created; duplicate local work and stale transient
+    labels were manually cleaned.
+  - #864, #865, and #866 remained open and eligible with durable labels only.
+  - #301, #372, and #800 remained open.
+- This tooling slice:
+  - Treats GitHub issue search as advisory only and live-refreshes candidates
+    by exact issue number before claim, branch creation, task generation,
+    Codex launch, review, or PR work.
+  - Adds a run-scoped attempted issue set persisted in active state,
+    iteration state, summaries, status, and event readbacks.
+  - Excludes same-run attempted issue numbers regardless of GitHub search lag,
+    live-refresh lag, failed issue closure, failed label cleanup, or terminal
+    outcome.
+  - Performs bounded distinct-candidate scanning, records sanitized stale/
+    attempted/ineligible skip events, and stops cleanly when no distinct live
+    eligible work remains.
+  - Re-reads the issue immediately after claim labels are applied and stops
+    before implementation if the issue closed, changed, lacks expected claim
+    labels, or gained a stop/manual/danger label.
+  - Preserves the rule that successful merge is authoritative even when
+    post-merge hygiene fails.
+- Issue posture:
+  keep #800 open. #864 through #866 remain pending and must only be attempted
+  by a separately authorized continuation after this PR merge gate and focused
+  acceptance. Long/broad unattended operation remains blocked.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, runner workflow
+  docs, and this ledger entry. It does not change product runtime, mobile app
+  code, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, sync/OCR runtime, Docker/CI/deployment/env,
+  secrets, production deploy, mobile release, public/admin exposure,
+  stale-claim stealing, follow-up issue creation, review-fix mutation
+  enablement, systemd enablement, branch deletion, force push, direct main
+  push, live canary execution, broad/99PR/240h run, or provider secret
+  changes.
+
 ### Issue #800/#852 - Client UI money display danger classifier checkpoint
 
 - GitHub state/project status at task start:
