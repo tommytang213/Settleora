@@ -20,6 +20,66 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Supervisor report correlation fix checkpoint
+
+- GitHub/live state at task start:
+  - PR #873 was merged at
+    `da3d09c7faf6c4a6e1f844d0a19e892e51a6a308` after reviewed head
+    `b2e535a60a08ab1d3274bbe7e5f66729bf0b3986`.
+  - The exact merged user unit was installed under
+    `/home/tommytang213/.config/systemd/user/settleora-auto-runner@.service`
+    with SHA-256
+    `fe8621fb25c82e8cfa659757b788c1cab8bc9c8e4c9a74b5fbc45bb3552590ae`,
+    and `Linger=yes`.
+  - The detach probe passed, the no-work supervised run completed, and the
+    runner stayed inactive with lock absent afterward.
+  - Historical supervisor run
+    `supervised-20260711T083159Z-427681e96152` launched runner
+    `run-2026-07-11T083209Z`, but supervisor state/heartbeat/report had
+    `reportPath=null`.
+  - #800 remained open; #863 remained closed; #864, #865, and #866 remained
+    open and unchanged with durable labels only; #301 and #372 remained open.
+- Root cause:
+  - The merged worker called `newestSummaryPath()` after child exit, and that
+    placeholder returned `null`.
+  - Newest-summary inference is unsafe because historical summaries, rollups,
+    manual foreground runs, stale files, malformed files, and timing skew can
+    coexist under the summaries root.
+- This fix scope:
+  - Adds a shared validated supervisor correlation ID accepted by the runner
+    only as `--supervisor-run-id <validated-id>` with normal real `--run`.
+  - Persists sanitized `supervisorRunId` metadata in runner JSON and Markdown
+    summaries without changing runner authority, issue selection, lane policy,
+    budgets, review, CI, PR, or merge behavior.
+  - Passes the supervisor run ID in the worker-generated argv array and adds a
+    trusted exact summary resolver under the fixed summaries root. The resolver
+    requires one regular non-symlink JSON/Markdown pair whose summary
+    correlation, runner run ID, filename stem, timestamps, initial main SHA,
+    and mode match the immutable supervisor spec.
+  - Terminal successful child exit without one unique trusted mapped report
+    now fails closed as terminal `failed`; nonzero child exits retain mapped
+    report evidence when available.
+  - Supervisor state, heartbeat, monitoring outbox, status, report, and health
+    expose bounded runner run ID, JSON path, Markdown report path, and
+    report-resolution status.
+  - Historical pre-correlation run state is not rewritten or backfilled; it
+    remains readable with `reportPath=null`.
+- Issue posture:
+  keep #800 open. Remaining gates are this PR merge, acceptance rerun from
+  the no-work supervisor phase, failed-instance no-restart proof, terminal
+  controls, Windows wrapper export/deployment, Windows shutdown proof, and
+  TrueNAS monitor deployment.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests and workflow/planning
+  docs. It does not start/reload/install/enable systemd, alter linger, rewrite
+  historical supervisor state, modify the external acceptance profile, run a
+  live supervisor/runner, mutate #864-#866, deploy Windows wrappers, deploy
+  TrueNAS, or change product runtime, API behavior, auth/session/security,
+  storage/privacy/authz, money/settlement/payment/bill calculation,
+  schema/migration, OpenAPI/generated clients, Docker/CI/deployment/env,
+  secrets, production deploy, mobile release, public/admin exposure, or
+  provider defaults.
+
 ### Issue #800 / PR #873 - CodeQL security hardening continuation checkpoint
 
 - GitHub state at continuation start:

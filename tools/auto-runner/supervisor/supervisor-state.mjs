@@ -85,5 +85,5 @@ export function sanitizeState(value) {
 }
 
 export function reportPathForRun(state) {
-  return state?.reportPath || state?.runnerSummaryPath || null;
+  return state?.reportPath || state?.runnerSummaryMarkdownPath || state?.runnerSummaryPath || null;
 }

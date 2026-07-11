@@ -127,6 +127,19 @@ test("CLI parses status, event listing, and bounded control commands", () => {
   assert.throws(() => parseCliArgs(["--extend", "--max-prs", "+999999"]), /between \+1 and \+500/);
 });
 
+test("CLI accepts supervisor correlation only for normal real runs", () => {
+  const runId = "supervised-20260711T083159Z-427681e96152";
+  const parsed = parseCliArgs(["--run", "--supervisor-run-id", runId]);
+  assert.equal(parsed.supervisorRunId, runId);
+  assert.equal(loadConfig({ ...parsed, configPath: null }).supervisorRunId, runId);
+  assert.throws(() => parseCliArgs(["--run", "--supervisor-run-id", "bad"]), /Invalid supervisor run ID/);
+  assert.throws(() => parseCliArgs(["--run", "--supervisor-run-id"]), /Missing value/);
+  assert.throws(() => parseCliArgs(["--dry-run", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
+  assert.throws(() => parseCliArgs(["--preflight", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
+  assert.throws(() => parseCliArgs(["--status", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
+  assert.throws(() => parseCliArgs(["--reviewer-smoke-test", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
+});
+
 test("trust policy refuses normal --run by default", () => {
   const config = loadConfig({
     ...parseCliArgs(["--run"]),
@@ -553,6 +566,42 @@ test("persisted run summary, iteration state, recent summary, and markdown omit 
     assert.equal(events.found, true);
     assert.doesNotMatch(JSON.stringify(events), new RegExp(rawOutputSentinel));
     assert.ok(events.events.some((item) => item.type === "merge" && item.details.issueLabelCleanupResult.status === "passed"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("run summaries preserve bounded supervisor correlation metadata", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-supervisor-summary-"));
+  try {
+    mkdirSync(path.join(tempRoot, "summaries"), { recursive: true });
+    const config = readinessConfig(tempRoot);
+    const supervisorRunId = "supervised-20260711T083159Z-427681e96152";
+    const paths = writeRunSummary(config, {
+      runId: "run-2026-07-11T083209Z",
+      supervisorRunId,
+      mode: "canary-run",
+      startedAt: "2026-07-11T08:32:09.378Z",
+      finishedAt: "2026-07-11T08:32:10.847Z",
+      baseOriginMainSha: "a".repeat(40),
+      iterations: [],
+      stopReason: "no-eligible-work",
+    });
+    const json = JSON.parse(readFileSync(paths.jsonPath, "utf8"));
+    const markdown = readFileSync(paths.markdownPath, "utf8");
+    assert.equal(json.supervisorRunId, supervisorRunId);
+    assert.match(markdown, new RegExp(`Supervisor run ID: \`${supervisorRunId}\``));
+
+    const unsupervised = writeRunSummary(config, {
+      runId: "run-2026-07-11T083210Z",
+      mode: "run",
+      startedAt: "2026-07-11T08:32:10.000Z",
+      finishedAt: "2026-07-11T08:32:11.000Z",
+      iterations: [],
+      stopReason: "no-eligible-work",
+    });
+    assert.equal(JSON.parse(readFileSync(unsupervised.jsonPath, "utf8")).supervisorRunId, undefined);
+    assert.match(readFileSync(unsupervised.markdownPath, "utf8"), /Supervisor run ID: none/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

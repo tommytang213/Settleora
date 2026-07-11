@@ -3,6 +3,7 @@ import path from "node:path";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
+import { validateSupervisorRunId } from "./run-correlation.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 
@@ -121,6 +122,7 @@ export function parseCliArgs(argv) {
     canary: false,
     configPath: null,
     fixtureIssuesPath: null,
+    supervisorRunId: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -155,6 +157,7 @@ export function parseCliArgs(argv) {
     else if (arg === "--review-package") args.reviewPackage = readValue(argv, ++index, arg);
     else if (arg === "--config") args.configPath = readValue(argv, ++index, arg);
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
+    else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
     else if (arg === "--reviewer-smoke-tier") args.reviewerSmokeTier = readValue(argv, ++index, arg);
     else if (arg === "--since") args.sinceMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-runtime") {
@@ -195,6 +198,9 @@ export function parseCliArgs(argv) {
   }
   if ((args.writeSummary || args.reviewPackage || controlMode) && (args.dryRun || (args.run && !args.listEvents) || args.preflight || args.canary || args.reviewerSmokeTest)) {
     throw new Error("Special modes do not take --dry-run, --run, --canary, --preflight, or --reviewer-smoke-test");
+  }
+  if (args.supervisorRunId && (!args.run || args.dryRun || specialMode)) {
+    throw new Error("--supervisor-run-id is only valid with a normal real --run");
   }
   if (args.preflight && (args.dryRun || args.run)) {
     throw new Error("--preflight runs as its own non-mutating mode; do not pass --dry-run or --run");
@@ -257,6 +263,7 @@ export function loadConfig(cliArgs) {
     requestedMaxIterations: cliArgs.maxIterations || fileConfig.maxIterations || defaultConfig.maxIterations,
     maxRuntimeMs: cliArgs.maxRuntimeMs ?? fileConfig.maxRuntimeMs ?? defaultConfig.maxRuntimeMs,
     requirePrePrReview: cliArgs.requirePrePrReview,
+    supervisorRunId: cliArgs.supervisorRunId || null,
   };
   if (cliArgs.preflight) {
     config.mode = cliArgs.readiness ? "readiness" : "preflight";

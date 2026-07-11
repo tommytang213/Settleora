@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -19,7 +19,12 @@ import {
 } from "../supervisor/run-spec.mjs";
 import { buildHeartbeat, isHeartbeatStale } from "../supervisor/heartbeat.mjs";
 import { monitoringEvents, recordMonitoringEvent, sanitizeMonitoringPayload } from "../supervisor/monitoring-outbox.mjs";
+import { resolveRunnerSummaryForSupervisor } from "../supervisor/runner-summary-resolver.mjs";
 import { buildSystemdStartPlan, runnerArgvForSpec, startUserUnit } from "../supervisor/systemd-client.mjs";
+import { classifyHealth } from "../settleora-auto-runnerctl.mjs";
+import { decideTerminalState } from "../supervisor/settleora-auto-runner-worker.mjs";
+import { writeHeartbeat } from "../supervisor/heartbeat.mjs";
+import { readSupervisorState, writeSupervisorState } from "../supervisor/supervisor-state.mjs";
 import {
   deriveSupervisorPaths,
   fixedArtifactBasename,
@@ -133,9 +138,229 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.equal(argv.includes("auto-canary-ready"), false);
   assert.equal(argv.includes("--allow-auto-merge"), false);
   assert.equal(argv.includes("--config"), true);
+  assert.equal(argv.filter((part) => part === "--supervisor-run-id").length, 1);
+  assert.equal(argv[argv.indexOf("--supervisor-run-id") + 1], runId);
   assert.equal(argv.includes("--canary"), false);
   const canaryArgv = runnerArgvForSpec({ ...spec, mode: "canary" });
   assert.equal(canaryArgv.includes("--canary"), true);
+});
+
+test("trusted summary resolver maps exactly one correlated JSON and Markdown pair", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-summary-resolver-"));
+  const logsRoot = path.join(tempRoot, "logs");
+  const supervisorRunId = "supervised-20260711T083159Z-427681e96152";
+  const baseSha = "a".repeat(40);
+  try {
+    mkdirSync(path.join(logsRoot, "summaries"), { recursive: true });
+    writeSummaryPair(logsRoot, {
+      runId: "run-2026-07-11T083209Z",
+      supervisorRunId,
+      baseOriginMainSha: baseSha,
+      mode: "canary-run",
+    });
+    writeSummaryPair(logsRoot, {
+      runId: "run-2026-07-11T083210Z",
+      supervisorRunId: "supervised-20260711T083159Z-527681e96152",
+      baseOriginMainSha: baseSha,
+      mode: "canary-run",
+    });
+    writeFileSync(path.join(logsRoot, "summaries", "recent-summary-20260711.json"), "{}\n");
+    const result = resolveRunnerSummaryForSupervisor({ logsRoot, supervisorRunId, initialOriginMainSha: baseSha, mode: "canary" });
+    assert.equal(result.status, "matched");
+    assert.equal(result.runnerRunId, "run-2026-07-11T083209Z");
+    assert.equal(result.reportPath.endsWith("run-2026-07-11T083209Z.md"), true);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("trusted summary resolver fails closed for unsafe or ambiguous candidates", () => {
+  const supervisorRunId = "supervised-20260711T083159Z-427681e96152";
+  const baseSha = "a".repeat(40);
+  const cases = [
+    {
+      name: "missing",
+      setup: () => {},
+      expected: "missing",
+    },
+    {
+      name: "multiple",
+      setup: (logsRoot) => {
+        writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: baseSha, mode: "canary-run" });
+        writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083210Z", supervisorRunId, baseOriginMainSha: baseSha, mode: "canary-run" });
+      },
+      expected: "multiple_matches",
+    },
+    {
+      name: "matching-malformed",
+      setup: (logsRoot) => {
+        writeFileSync(path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.json"), `{"supervisorRunId":"${supervisorRunId}",`, { mode: 0o600 });
+      },
+      expected: "malformed_candidate",
+    },
+    {
+      name: "filename-mismatch",
+      setup: (logsRoot) => {
+        writeSummaryPair(logsRoot, {
+          fileRunId: "run-2026-07-11T083209Z",
+          runId: "run-2026-07-11T083210Z",
+          supervisorRunId,
+          baseOriginMainSha: baseSha,
+          mode: "canary-run",
+        });
+      },
+      expected: "malformed_candidate",
+    },
+    {
+      name: "wrong-base",
+      setup: (logsRoot) => {
+        writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: "b".repeat(40), mode: "canary-run" });
+      },
+      expected: "malformed_candidate",
+    },
+    {
+      name: "wrong-mode",
+      setup: (logsRoot) => {
+        writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: baseSha, mode: "run" });
+      },
+      expected: "malformed_candidate",
+    },
+    {
+      name: "missing-markdown",
+      setup: (logsRoot) => {
+        writeSummaryJson(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: baseSha, mode: "canary-run" });
+      },
+      expected: "json_markdown_pair_missing",
+    },
+    {
+      name: "symlink-json",
+      setup: (logsRoot) => {
+        const outside = path.join(logsRoot, "outside.json");
+        writeFileSync(outside, "{}\n");
+        symlinkSync(outside, path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.json"));
+      },
+      expected: "missing",
+    },
+    {
+      name: "symlink-markdown",
+      setup: (logsRoot) => {
+        writeSummaryJson(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: baseSha, mode: "canary-run" });
+        const outside = path.join(logsRoot, "outside.md");
+        writeFileSync(outside, "# outside\n");
+        symlinkSync(outside, path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.md"));
+      },
+      expected: "json_markdown_pair_missing",
+    },
+    {
+      name: "unfinished",
+      setup: (logsRoot) => {
+        writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: baseSha, mode: "canary-run", finishedAt: null });
+      },
+      expected: "malformed_candidate",
+    },
+    {
+      name: "scan-limit",
+      setup: (logsRoot) => {
+        writeSummaryPair(logsRoot, { runId: "run-2026-07-11T083209Z", supervisorRunId, baseOriginMainSha: baseSha, mode: "canary-run" });
+      },
+      expected: "malformed_candidate",
+      options: { maxFiles: 0 },
+    },
+    {
+      name: "oversized-matching",
+      setup: (logsRoot) => {
+        writeFileSync(
+          path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.json"),
+          `${JSON.stringify({ supervisorRunId })}${"x".repeat(2048)}`,
+          { mode: 0o600 },
+        );
+      },
+      expected: "malformed_candidate",
+      options: { maxBytes: 256 },
+    },
+  ];
+  for (const item of cases) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-resolver-${item.name}-`));
+    const logsRoot = path.join(tempRoot, "logs");
+    try {
+      mkdirSync(path.join(logsRoot, "summaries"), { recursive: true });
+      item.setup(logsRoot);
+      const result = resolveRunnerSummaryForSupervisor({
+        logsRoot,
+        supervisorRunId,
+        initialOriginMainSha: baseSha,
+        mode: "canary",
+        ...(item.options || {}),
+      });
+      assert.equal(result.status, item.expected, item.name);
+      assert.equal(typeof JSON.stringify(result.diagnostics), "string");
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("worker terminal mapping fails closed on successful child without trusted report", () => {
+  assert.deepEqual(decideTerminalState("completed", { status: 0, signal: null }, { status: "matched" }), {
+    state: "completed",
+    reason: "child_exit_mapped",
+  });
+  assert.deepEqual(decideTerminalState("completed", { status: 0, signal: null }, { status: "missing" }), {
+    state: "failed",
+    reason: "report_mapping_missing",
+  });
+  assert.deepEqual(decideTerminalState("completed", { status: 0, signal: null }, { status: "multiple_matches" }), {
+    state: "failed",
+    reason: "report_mapping_ambiguous",
+  });
+  assert.deepEqual(decideTerminalState("failed", { status: 1, signal: null }, { status: "matched" }), {
+    state: "failed",
+    reason: "child_exit_mapped",
+  });
+});
+
+test("supervisor status, report, and health distinguish mapped reports from historical null reports", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-health-report-"));
+  const logsRoot = path.join(tempRoot, "logs");
+  const runId = "supervised-20260711T083159Z-427681e96152";
+  try {
+    const mapped = {
+      status: "matched",
+      ok: true,
+      runnerRunId: "run-2026-07-11T083209Z",
+      runnerSummaryJsonPath: path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.json"),
+      runnerSummaryMarkdownPath: path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.md"),
+      reportPath: path.join(logsRoot, "summaries", "run-2026-07-11T083209Z.md"),
+    };
+    writeSupervisorState(runId, {
+      state: "completed",
+      runnerRunId: mapped.runnerRunId,
+      runnerSummaryJsonPath: mapped.runnerSummaryJsonPath,
+      runnerSummaryMarkdownPath: mapped.runnerSummaryMarkdownPath,
+      reportPath: mapped.reportPath,
+      reportResolution: mapped,
+    }, logsRoot);
+    writeHeartbeat(runId, buildHeartbeat({ runId, state: "completed", reportPath: mapped.reportPath, reportResolution: mapped }), logsRoot);
+    let state = readSupervisorState(runId, logsRoot);
+    let health = classifyHealth(state, { found: true, heartbeat: { state: "completed", terminal: true }, stale: false });
+    assert.equal(health.status, "terminal_success");
+    assert.equal(health.report.runnerRunId, mapped.runnerRunId);
+
+    writeSupervisorState(runId, {
+      state: "completed",
+      reportPath: null,
+      runnerRunId: null,
+      runnerSummaryJsonPath: null,
+      runnerSummaryMarkdownPath: null,
+      reportResolution: null,
+    }, logsRoot);
+    state = readSupervisorState(runId, logsRoot);
+    health = classifyHealth(state, { found: true, heartbeat: { state: "completed", terminal: true }, stale: false });
+    assert.equal(health.status, "report_mapping_missing");
+    assert.equal(health.exitCode, 2);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("systemd start failure records no foreground fallback shape", () => {
@@ -293,6 +518,7 @@ test("supervisor core has no network delivery or raw-path regression shapes", ()
     "tools/auto-runner/supervisor/heartbeat.mjs",
     "tools/auto-runner/supervisor/monitoring-outbox.mjs",
     "tools/auto-runner/supervisor/run-spec.mjs",
+    "tools/auto-runner/supervisor/runner-summary-resolver.mjs",
     "tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs",
     "tools/auto-runner/supervisor/supervisor-paths.mjs",
     "tools/auto-runner/supervisor/supervisor-state.mjs",
@@ -307,6 +533,7 @@ test("supervisor core has no network delivery or raw-path regression shapes", ()
   assert.doesNotMatch(joined, /\$\{name\}\.json/);
   assert.doesNotMatch(joined, /path\.join\([^)]*runId[^)]*\)/);
   assert.doesNotMatch(joined, /\bfileName\b/);
+  assert.doesNotMatch(joined, /newestSummaryPath|mtime|birthtime/);
 });
 
 function snapshotSupervisorFiles() {
@@ -314,4 +541,28 @@ function snapshotSupervisorFiles() {
   const result = spawnSync("find", [root, "-type", "f"], { encoding: "utf8" });
   if (result.status !== 0) return [];
   return result.stdout.split(/\r?\n/).filter(Boolean).sort();
+}
+
+function writeSummaryPair(logsRoot, summary) {
+  const runId = summary.fileRunId || summary.runId;
+  writeSummaryJson(logsRoot, summary);
+  writeFileSync(path.join(logsRoot, "summaries", `${runId}.md`), `# Summary\n\n- Run ID: \`${summary.runId}\`\n`, { mode: 0o600 });
+}
+
+function writeSummaryJson(logsRoot, summary) {
+  const runId = summary.fileRunId || summary.runId;
+  writeFileSync(
+    path.join(logsRoot, "summaries", `${runId}.json`),
+    `${JSON.stringify({
+      runId: summary.runId,
+      supervisorRunId: summary.supervisorRunId,
+      mode: summary.mode,
+      startedAt: summary.startedAt ?? "2026-07-11T08:32:09.378Z",
+      finishedAt: summary.finishedAt === undefined ? "2026-07-11T08:32:10.847Z" : summary.finishedAt,
+      baseOriginMainSha: summary.baseOriginMainSha,
+      iterations: [],
+      stopReason: "no-eligible-work",
+    }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
 }

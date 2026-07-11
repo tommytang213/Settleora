@@ -48,6 +48,13 @@ automatically after reboot. Future TrueNAS monitoring is a pull-health model
 over SSH. See
 `docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md`.
 
+Supervised runs pass a validated `--supervisor-run-id` into the runner. The
+runner writes it as sanitized summary metadata, and supervisor status/report/
+health use only that exact correlation to resolve the runner JSON/Markdown
+summary pair. The supervisor does not choose reports by newest summary time.
+If a successful child exits without one unique trusted correlated report, the
+supervisor terminal state fails closed and the process exits nonzero.
+
 Status reads the runner lock, active-run state, latest summaries, and local
 control file under `/workspace/logs/settleora-auto-runner/`. It reports the
 active run id when known, mode/config path, start time, elapsed/max/remaining
@@ -62,7 +69,8 @@ environment variables, provider payloads, API keys, authorization headers,
 response payloads, or provider request bodies. New run summaries,
 iteration-state JSON, active-run JSON, recent summaries, Markdown summaries,
 and list/status/event surfaces persist sanitized metadata and evidence paths
-only. Raw model output, prompts, stdout/stderr, full diffs, and provider
+only. Supervised summaries include `supervisorRunId`; existing unsupervised
+summaries remain readable without backfill. Raw model output, prompts, stdout/stderr, full diffs, and provider
 payloads remain in dedicated local evidence files under
 `/workspace/logs/settleora-auto-runner/`. Historical local summary/state files
 are not automatically rewritten; readback surfaces sanitize old local files

@@ -16,6 +16,7 @@ export function buildHeartbeat({
   currentIssue = null,
   currentPr = null,
   reportPath = null,
+  reportResolution = null,
   monitoringDelivery = null,
   now = new Date(),
 } = {}) {
@@ -44,6 +45,7 @@ export function buildHeartbeat({
     currentPr: sanitizePublicRef(currentPr),
     terminal: terminalStates.has(state),
     reportPath,
+    reportResolution,
     monitoringDelivery,
   };
 }
