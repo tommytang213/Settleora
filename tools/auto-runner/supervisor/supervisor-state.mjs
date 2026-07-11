@@ -1,7 +1,14 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { defaultLogsRoot } from "../lib/config.mjs";
-import { atomicWriteJson, runDirForRunId, validateRunId } from "./run-spec.mjs";
+import { validateRunId } from "./run-spec.mjs";
+import {
+  atomicWriteTrustedJson,
+  deriveSupervisorPaths,
+  ensureTrustedRunPathContext,
+  storageKeyPattern,
+  runArtifactKinds,
+} from "./supervisor-paths.mjs";
 
 export const terminalStates = new Set(["completed", "partial", "blocked", "failed", "cancelled", "stale", "submission_failed"]);
 
@@ -11,15 +18,16 @@ export function unitNameForRunId(runId) {
 }
 
 export function statePathForRunId(runId, logsRoot = defaultLogsRoot) {
-  return path.join(runDirForRunId(runId, logsRoot), "state.json");
+  return deriveSupervisorPaths({ runId, logsRoot }).artifactPath(runArtifactKinds.state);
 }
 
 export function heartbeatPathForRunId(runId, logsRoot = defaultLogsRoot) {
-  return path.join(runDirForRunId(runId, logsRoot), "heartbeat.json");
+  return deriveSupervisorPaths({ runId, logsRoot }).artifactPath(runArtifactKinds.heartbeat);
 }
 
 export function writeSupervisorState(runId, patch, logsRoot = defaultLogsRoot) {
-  const statePath = statePathForRunId(runId, logsRoot);
+  const context = ensureTrustedRunPathContext({ runId, logsRoot });
+  const statePath = context.artifactPath(runArtifactKinds.state);
   const previous = readSupervisorState(runId, logsRoot).state || {};
   const state = sanitizeState({
     ...previous,
@@ -28,7 +36,7 @@ export function writeSupervisorState(runId, patch, logsRoot = defaultLogsRoot) {
     updatedAt: new Date().toISOString(),
     ...patch,
   });
-  atomicWriteJson(statePath, state);
+  atomicWriteTrustedJson(context, runArtifactKinds.state, state);
   return { statePath, state };
 }
 
@@ -47,9 +55,18 @@ export function listSupervisorRuns(logsRoot = defaultLogsRoot, limit = 20) {
   const root = path.join(logsRoot, "supervisor", "runs");
   if (!existsSync(root)) return [];
   return readdirSync(root)
-    .filter((name) => /^supervised-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/.test(name))
-    .map((runId) => readSupervisorState(runId, logsRoot))
-    .filter((entry) => entry.found)
+    .filter((name) => storageKeyPattern.test(name))
+    .map((storageKey) => {
+      const statePath = path.join(root, storageKey, "state.json");
+      if (!existsSync(statePath)) return null;
+      try {
+        const state = sanitizeState(JSON.parse(readFileSync(statePath, "utf8")));
+        return state?.runId ? { found: true, state } : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
     .map((entry) => entry.state)
     .sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0))
     .slice(0, limit);

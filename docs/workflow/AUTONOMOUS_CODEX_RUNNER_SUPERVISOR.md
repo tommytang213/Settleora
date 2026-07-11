@@ -39,7 +39,7 @@ node tools/auto-runner/settleora-auto-runnerctl.mjs submit \
 ```
 
 It renders the normalized spec, unit name, runner argv, state and heartbeat
-paths, and notification event shapes without writing a durable run spec,
+paths, and local monitoring event shapes without writing a durable run spec,
 starting systemd, invoking Codex, mutating GitHub, creating branches, or
 opening PRs.
 
@@ -63,24 +63,43 @@ operations, and architecture replacement.
 Run specs live outside the repo:
 
 ```text
-/workspace/logs/settleora-auto-runner/supervisor/run-specs/<run-id>.json
+/workspace/logs/settleora-auto-runner/supervisor/run-specs/<storage-key>/spec.json
+```
+
+The human-visible logical run ID remains in `spec.json` and `state.json`, but
+filesystem directories use only a lowercase SHA-256 storage key derived from
+the validated logical run ID. Artifact names are fixed literals:
+
+```text
+spec.json
+state.json
+heartbeat.json
+stdout.log
+stderr.log
+monitoring-events.jsonl
 ```
 
 They are written with exclusive-create semantics, `0600` permissions,
 canonical deterministic JSON, and an adjacent supervisor-state SHA-256 digest.
 The worker re-hashes the spec before launch and revalidates the referenced
-config digest. Specs reject unknown fields, malformed types, unsafe run IDs,
-arbitrary commands, shell fragments, environment overrides, extra arguments,
-symlink paths, group/world-writable files, and paths outside approved roots.
+profile config digest. Specs reject unknown fields, malformed types, unsafe
+run IDs, arbitrary commands, shell fragments, environment overrides, extra
+arguments, raw config paths, symlink paths, group/world-writable files, and
+paths outside approved roots.
 
-Approved config roots are:
+The spec stores a logical profile and `runnerConfigSha256`, not an
+operator-provided config path and not config contents or secrets. A profile
+resolves to an external config file under a fixed owner-controlled root through
+a SHA-256 storage key derived from the validated logical profile name:
 
 ```text
-/workspace/logs/settleora-auto-runner/configs/
-/workspace/logs/settleora-auto-runner/canary/
+/workspace/logs/settleora-auto-runner/configs/profiles/<profile-storage-key>/config.json
 ```
 
-The spec stores the config path and hash, not config contents or secrets.
+Dry-run may report the external profile config as missing without creating it.
+Real submit and worker launch fail closed unless the profile config is a
+regular non-symlink file under the fixed root, is not group/world writable,
+and matches the recorded SHA-256 digest.
 
 ## systemd Lifecycle
 
@@ -108,12 +127,12 @@ operator review and explicit recovery.
 
 ## Worker Lifecycle
 
-The worker receives only a validated run ID. It derives the spec path,
-revalidates spec/config hashes, verifies the initial `origin/main`, writes
-`starting`, sends a best-effort `started` event, and spawns the existing runner
-with an argv array. It maps `maxTasks` to the existing iteration budget,
+The worker receives only a validated run ID. It derives hashed storage paths,
+revalidates spec/profile config hashes, verifies the initial `origin/main`,
+writes `starting`, records a local `started` event, and spawns the existing
+runner with an argv array. It maps `maxTasks` to the existing iteration budget,
 `maxRuntime` to the existing runtime limit, `mode` to the existing runner mode,
-and config path to `--config`.
+and the resolved profile config path to `--config`.
 
 On first `SIGTERM` or `SIGINT`, the worker writes `stopping_after_current` and
 invokes the existing safe `--stop-after-current` control path. It does not
@@ -125,20 +144,19 @@ hard stop remains a manual operator action outside the normal Windows wrapper.
 Supervisor state lives under:
 
 ```text
-/workspace/logs/settleora-auto-runner/supervisor/runs/<run-id>/
+/workspace/logs/settleora-auto-runner/supervisor/runs/<storage-key>/
 ```
 
-Files include `state.json`, `heartbeat.json`, `stdout.log`, `stderr.log`,
-`notification-events.jsonl`, and `delivery-attempts.jsonl`. JSON writes are
-atomic and owner-only. Default heartbeat interval is 60 seconds with a
-five-minute lease. Heartbeats contain only bounded sanitized metadata: run IDs,
-state, unit name, timestamps, lease expiry, max tasks/runtime, counts, public
-issue/PR identifiers when already public, report/status paths, and monitoring
-delivery status.
+Files include `state.json`, `heartbeat.json`, `stdout.log`, `stderr.log`, and
+`monitoring-events.jsonl`. JSON writes are atomic and owner-only. Default
+heartbeat interval is 60 seconds with a five-minute lease. Heartbeats contain
+only bounded sanitized metadata: logical run IDs, state, unit name, timestamps,
+lease expiry, max tasks/runtime, counts, public issue/PR identifiers when
+already public, report/status paths, and local monitoring event status.
 
 Heartbeats never include secrets, environment values, webhook URLs/tokens,
 authorization headers, full issue bodies, raw Codex/Gemini output, provider
-payloads, full diffs, or config contents.
+payloads, full diffs, config paths, or config contents.
 
 `health --run <run-id>` returns deterministic JSON and exit codes for healthy
 active, healthy terminal success, terminal failure/blocked/partial, stale
@@ -146,28 +164,29 @@ heartbeat, and missing run.
 
 ## Monitoring Contract
 
-Outbound monitoring is disabled by default. Optional environment variables are:
+The core supervisor has no outbound webhook, URL, socket, shell hook, plugin
+hook, or operator-provided notification command. It records only a sanitized
+local owner-only monitoring outbox:
 
 ```text
-SETTLEORA_HEARTBEAT_URL
-SETTLEORA_NOTIFICATION_URL
-SETTLEORA_ALLOW_LAN_HTTP
+/workspace/logs/settleora-auto-runner/supervisor/runs/<storage-key>/monitoring-events.jsonl
 ```
 
-HTTPS is required by default. HTTP requires explicit LAN opt-in and private or
-loopback destination validation. Requests time out within five seconds and use
-at most one retry for network, timeout, or 5xx failures. Delivery failures are
-recorded locally with sanitized status/category and never change the runner
-outcome. Redirects to different origins are refused.
-
 Supported events are `submitted`, `started`, `heartbeat`, `completed`,
-`partial`, `blocked`, `failed`, and `cancelled`. A dead supervisor cannot emit
-`stale`; external monitoring detects death by heartbeat lease expiry.
+`partial`, `blocked`, `failed`, and `cancelled`. Event payloads are bounded and
+sanitized and never include secrets, environment values, config contents,
+config paths, webhook URLs, authorization headers, full issue bodies, raw
+Codex/Gemini output, provider payloads, or full diffs. Event write failures
+are recorded locally where possible and never change the runner outcome.
 
-A later TrueNAS companion should receive heartbeat and terminal JSON, persist
-latest state, alert when an active heartbeat lease expires, avoid stale alerts
-after terminal events, notify on terminal outcomes, optionally expose a
-read-only dashboard, and hold no repo or GitHub write authority.
+The future TrueNAS monitor uses a pull model. A scheduled TrueNAS check SSHes
+to the DevBox, runs `settleora-auto-runnerctl health/status --json`, and
+alerts on SSH failure, DevBox outage, stale heartbeat lease, blocked/failed/
+partial state, cancellation, or terminal completion. A dead DevBox cannot push
+its own failure event; failed SSH or a stale heartbeat naturally detects that
+condition. Terminal state notifications are performed by the external monitor.
+The future adapter remains read-only to this repo and GitHub and is reviewed in
+a separate deployment task.
 
 ## Windows Templates
 

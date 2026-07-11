@@ -2,22 +2,20 @@
 
 import { spawnSync } from "node:child_process";
 import process from "node:process";
-import path from "node:path";
 import { defaultLogsRoot } from "./lib/config.mjs";
 import { getRefSha, getStatusShort } from "./lib/git-workspace.mjs";
 import {
   buildRunSpec,
   generateRunId,
-  readAndVerifyRunSpec,
   resolveProfile,
-  runDirForRunId,
   specPathForRunId,
   writeImmutableRunSpec,
   sha256Text,
   canonicalJson,
 } from "./supervisor/run-spec.mjs";
 import { buildHeartbeat, readHeartbeat } from "./supervisor/heartbeat.mjs";
-import { deliverNotification } from "./supervisor/notification-client.mjs";
+import { recordMonitoringEvent } from "./supervisor/monitoring-outbox.mjs";
+import { deriveSupervisorPaths, runArtifactKinds } from "./supervisor/supervisor-paths.mjs";
 import { buildSystemdStartPlan, runnerArgvForSpec, startUserUnit } from "./supervisor/systemd-client.mjs";
 import {
   latestSupervisorRun,
@@ -97,7 +95,7 @@ async function submit(cli, config) {
     maxTasks: cli.maxTasks,
     maxRuntime: cli.maxRuntime,
     mode: cli.mode,
-    runnerConfigPath: profile.runnerConfigPath,
+    profile: profile.profile,
     initialOriginMainSha,
     requestedBy: "operator",
     allowMissingConfig: cli.dryRun,
@@ -112,6 +110,7 @@ async function submit(cli, config) {
     maxTasks: specResult.spec.maxTasks,
     maxRuntime: specResult.spec.maxRuntime,
   });
+  const derivedPaths = deriveSupervisorPaths({ runId, logsRoot: config.logsRoot });
   const rendered = {
     ok: true,
     dryRun: cli.dryRun,
@@ -128,10 +127,11 @@ async function submit(cli, config) {
     configSha256: specResult.config.sha256,
     configExists: specResult.config.exists,
     runnerArgv,
-    statePath: path.join(runDirForRunId(runId, config.logsRoot), "state.json"),
-    heartbeatPath: path.join(runDirForRunId(runId, config.logsRoot), "heartbeat.json"),
+    storageKey: derivedPaths.runStorageKey,
+    statePath: derivedPaths.artifactPath(runArtifactKinds.state),
+    heartbeatPath: derivedPaths.artifactPath(runArtifactKinds.heartbeat),
     heartbeat,
-    notificationEventShapes: ["submitted", "started", "heartbeat", "completed", "partial", "blocked", "failed", "cancelled"].map((event) => ({
+    monitoringEventShapes: ["submitted", "started", "heartbeat", "completed", "partial", "blocked", "failed", "cancelled"].map((event) => ({
       event,
       runId,
       state: event,
@@ -150,7 +150,7 @@ async function submit(cli, config) {
   if (runnerStatus.status !== 0) throw new Error("Unable to read existing runner status");
   const parsedRunnerStatus = JSON.parse(runnerStatus.stdout);
   if (parsedRunnerStatus.active || parsedRunnerStatus.lock?.exists) throw new Error("Existing runner is active or locked");
-  const readiness = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--readiness", "--config", specResult.spec.runnerConfigPath], {
+  const readiness = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--readiness", "--config", profile.runnerConfigPath], {
     cwd: config.repoRoot,
     encoding: "utf8",
   });
@@ -167,7 +167,7 @@ async function submit(cli, config) {
     maxRuntime: specResult.spec.maxRuntime,
     initialOriginMainSha,
   }, config.logsRoot);
-  await deliverNotification("submitted", { ...heartbeat, runId }, process.env, config.logsRoot);
+  recordMonitoringEvent("submitted", { ...heartbeat, runId }, { logsRoot: config.logsRoot });
   const start = startUserUnit(runId);
   if (!start.ok) {
     writeSupervisorState(runId, { state: "submission_failed", submissionFailure: start.stderr }, config.logsRoot);

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { defaultLogsRoot } from "../lib/config.mjs";
-import { atomicWriteJson } from "./run-spec.mjs";
 import { heartbeatPathForRunId, terminalStates, unitNameForRunId } from "./supervisor-state.mjs";
+import { atomicWriteTrustedJson, ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
 
 export const defaultHeartbeatIntervalSeconds = 60;
 export const defaultHeartbeatLeaseSeconds = 5 * 60;
@@ -49,8 +49,9 @@ export function buildHeartbeat({
 }
 
 export function writeHeartbeat(runId, heartbeat, logsRoot = defaultLogsRoot) {
-  const heartbeatPath = heartbeatPathForRunId(runId, logsRoot);
-  atomicWriteJson(heartbeatPath, heartbeat);
+  const context = ensureTrustedRunPathContext({ runId, logsRoot });
+  const heartbeatPath = context.artifactPath(runArtifactKinds.heartbeat);
+  atomicWriteTrustedJson(context, runArtifactKinds.heartbeat, heartbeat);
   return { heartbeatPath, heartbeat };
 }
 

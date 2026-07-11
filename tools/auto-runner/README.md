@@ -36,10 +36,16 @@ node tools/auto-runner/settleora-auto-runnerctl.mjs health --run <supervisor-run
 
 The supervisor is an additive wrapper around the existing runner. It writes
 immutable run specs and state under
-`/workspace/logs/settleora-auto-runner/supervisor/`, starts a later-installed
-systemd user-unit instance by validated run ID, and exits after the service is
-accepted/running. It does not approve broader lanes, install units, enable
-linger, deploy monitoring, or run automatically after reboot. See
+`/workspace/logs/settleora-auto-runner/supervisor/`, using SHA-256 storage keys
+for filesystem directories while keeping logical run/profile IDs in JSON
+content. Run specs store a logical `profile` and `runnerConfigSha256`, not an
+arbitrary config path, and monitoring events are written only to local
+owner-only `monitoring-events.jsonl` files. The supervisor starts a
+later-installed systemd user-unit instance by validated run ID and exits after
+the service is accepted/running. It does not approve broader lanes, install
+units, enable linger, deploy monitoring, send outbound webhooks, or run
+automatically after reboot. Future TrueNAS monitoring is a pull-health model
+over SSH. See
 `docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md`.
 
 Status reads the runner lock, active-run state, latest summaries, and local

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { unitNameForRunId } from "./supervisor-state.mjs";
-import { validateRunId } from "./run-spec.mjs";
+import { resolveProfile, validateRunId } from "./run-spec.mjs";
 
 export function buildSystemdStartPlan(runId) {
   validateRunId(runId);
@@ -32,12 +32,13 @@ export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000 } = {})
 }
 
 export function runnerArgvForSpec(spec) {
+  const configPath = resolveProfile(spec.profile).runnerConfigPath;
   const argv = [
     process.execPath,
     "tools/auto-runner/settleora-auto-runner.mjs",
     "--run",
     "--config",
-    spec.runnerConfigPath,
+    configPath,
     "--max-iterations",
     String(spec.maxTasks),
     "--max-runtime",

@@ -1,19 +1,19 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
-  constants,
   existsSync,
   lstatSync,
-  mkdirSync,
-  openSync,
   readFileSync,
   realpathSync,
-  closeSync,
-  writeFileSync,
-  fchmodSync,
-  renameSync,
 } from "node:fs";
 import path from "node:path";
 import { defaultLogsRoot, parseDuration } from "../lib/config.mjs";
+import {
+  configPathForProfile,
+  deriveSupervisorPaths,
+  ensureTrustedRunPathContext,
+  validateProfileName,
+  writeTrustedJson,
+} from "./supervisor-paths.mjs";
 
 export const specVersion = 1;
 export const defaultMaxTasks = 1;
@@ -33,7 +33,7 @@ export const allowedSpecFields = new Set([
   "maxTasks",
   "maxRuntime",
   "mode",
-  "runnerConfigPath",
+  "profile",
   "runnerConfigSha256",
   "initialOriginMainSha",
   "requestedBy",
@@ -86,32 +86,29 @@ export function sha256Text(text) {
   return createHash("sha256").update(text).digest("hex");
 }
 
-export function sha256File(filePath) {
+function sha256File(filePath) {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex");
 }
 
 export function specPathForRunId(runId, logsRoot = defaultLogsRoot) {
   validateRunId(runId);
-  return path.join(logsRoot, "supervisor", "run-specs", `${runId}.json`);
+  return deriveSupervisorPaths({ runId, logsRoot }).specPath;
 }
 
 export function runDirForRunId(runId, logsRoot = defaultLogsRoot) {
   validateRunId(runId);
-  return path.join(logsRoot, "supervisor", "runs", runId);
+  return deriveSupervisorPaths({ runId, logsRoot }).runDir;
 }
 
 export function resolveProfile(profile = "default", logsRoot = defaultLogsRoot) {
-  const name = String(profile || "").trim();
-  if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(name)) {
-    throw new Error("Invalid profile name");
-  }
+  const name = validateProfileName(profile);
   return {
     profile: name,
-    runnerConfigPath: path.join(logsRoot, "configs", `${name}.json`),
+    runnerConfigPath: configPathForProfile(name, logsRoot),
   };
 }
 
-export function validateRegularPrivateFile(filePath, { approvedRoots = null, requireOwnerOnly = false, allowMissing = false } = {}) {
+function validateRegularPrivateFile(filePath, { approvedRoots = null, requireOwnerOnly = false, allowMissing = false } = {}) {
   const absolute = path.resolve(filePath);
   if (!existsSync(absolute)) {
     if (allowMissing) return { path: absolute, exists: false, sha256: null, realPath: null };
@@ -150,14 +147,15 @@ export function buildRunSpec({
   maxTasks = defaultMaxTasks,
   maxRuntime = defaultMaxRuntime,
   mode = "canary",
-  runnerConfigPath,
+  profile = "default",
   initialOriginMainSha,
   requestedBy = "operator",
   allowMissingConfig = false,
   logsRoot = defaultLogsRoot,
 } = {}) {
   validateRunId(runId);
-  const normalizedConfigPath = path.resolve(runnerConfigPath || resolveProfile("default", logsRoot).runnerConfigPath);
+  const resolvedProfile = resolveProfile(profile, logsRoot);
+  const normalizedConfigPath = path.resolve(resolvedProfile.runnerConfigPath);
   const config = validateRegularPrivateFile(normalizedConfigPath, {
     approvedRoots: configRootsForLogsRoot(logsRoot),
     allowMissing: allowMissingConfig,
@@ -172,7 +170,7 @@ export function buildRunSpec({
     maxTasks: normalizeMaxTasks(maxTasks),
     maxRuntime: normalizeMaxRuntime(maxRuntime),
     mode: normalizeMode(mode),
-    runnerConfigPath: normalizedConfigPath,
+    profile: resolvedProfile.profile,
     runnerConfigSha256: config.sha256,
     initialOriginMainSha,
     requestedBy: normalizeRequestedBy(requestedBy),
@@ -191,7 +189,7 @@ export function validateRunSpecShape(spec) {
   normalizeMaxTasks(spec.maxTasks);
   normalizeMaxRuntime(spec.maxRuntime);
   normalizeMode(spec.mode);
-  if (typeof spec.runnerConfigPath !== "string") throw new Error("runnerConfigPath must be a string");
+  validateProfileName(spec.profile);
   if (spec.runnerConfigSha256 !== null && !/^[a-f0-9]{64}$/.test(String(spec.runnerConfigSha256 || ""))) {
     throw new Error("runnerConfigSha256 must be null or a SHA-256 digest");
   }
@@ -204,16 +202,8 @@ export function validateRunSpecShape(spec) {
 
 export function writeImmutableRunSpec(spec, logsRoot = defaultLogsRoot) {
   validateRunSpecShape(spec);
-  const specDir = path.join(logsRoot, "supervisor", "run-specs");
-  mkdirSync(specDir, { recursive: true, mode: 0o700 });
-  const specPath = specPathForRunId(spec.runId, logsRoot);
-  const fd = openSync(specPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-  try {
-    fchmodSync(fd, 0o600);
-    writeFileSync(fd, canonicalJson(spec));
-  } finally {
-    closeSync(fd);
-  }
+  const context = ensureTrustedRunPathContext({ runId: spec.runId, logsRoot });
+  const specPath = writeTrustedJson(context, "spec", spec, { exclusive: true });
   return { specPath, specSha256: sha256Text(canonicalJson(spec)) };
 }
 
@@ -228,7 +218,8 @@ export function readAndVerifyRunSpec(runId, expectedSpecSha256 = null, logsRoot 
   if (expectedSpecSha256 && digest !== expectedSpecSha256) {
     throw new Error("Run spec digest mismatch");
   }
-  const config = validateRegularPrivateFile(parsed.runnerConfigPath, { approvedRoots: configRootsForLogsRoot(logsRoot) });
+  const configPath = resolveProfile(parsed.profile, logsRoot).runnerConfigPath;
+  const config = validateRegularPrivateFile(configPath, { approvedRoots: configRootsForLogsRoot(logsRoot) });
   if (parsed.runnerConfigSha256 && config.sha256 !== parsed.runnerConfigSha256) {
     throw new Error("Runner config digest mismatch");
   }
@@ -237,13 +228,6 @@ export function readAndVerifyRunSpec(runId, expectedSpecSha256 = null, logsRoot 
 
 export function configRootsForLogsRoot(logsRoot = defaultLogsRoot) {
   return [path.join(logsRoot, "configs"), path.join(logsRoot, "canary")];
-}
-
-export function atomicWriteJson(filePath, value) {
-  mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.tmp`);
-  writeFileSync(tempPath, canonicalJson(value), { mode: 0o600 });
-  renameSync(tempPath, filePath);
 }
 
 function canonicalSerialize(value) {

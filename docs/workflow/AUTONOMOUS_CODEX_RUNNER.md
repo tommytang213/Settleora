@@ -17,12 +17,17 @@ condition.
 The detached supervisor foundation adds an optional systemd-backed control
 surface around this runner. It submits immutable bounded run specs, starts a
 validated user-unit instance after later manual installation, writes
-heartbeat/state files, and returns control to the operator without waiting for
-the runner to finish. It is documented in
+heartbeat/state files, records sanitized local monitoring events, and returns
+control to the operator without waiting for the runner to finish. Supervisor
+filesystem paths use SHA-256 storage keys derived from validated logical run
+IDs and logical profile names; immutable specs store `profile` plus
+`runnerConfigSha256`, not arbitrary config paths. It is documented in
 [AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md](AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md).
 It does not replace this runner, reinterpret issue contracts, install or
-enable services, enable linger, deploy monitoring, auto-restart mutation runs,
-or approve broader lanes.
+enable services, enable linger, deploy monitoring, send outbound webhooks,
+auto-restart mutation runs, or approve broader lanes. Future TrueNAS monitoring
+uses SSH pull health/status checks so a dead DevBox is detected by failed
+polling or a stale heartbeat lease.
 
 ## Relationship To Existing Automation
 

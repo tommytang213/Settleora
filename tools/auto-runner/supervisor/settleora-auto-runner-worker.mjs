@@ -2,15 +2,15 @@
 
 import { createWriteStream } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import path from "node:path";
 import process from "node:process";
 import { defaultLogsRoot } from "../lib/config.mjs";
 import { getRefSha } from "../lib/git-workspace.mjs";
-import { readAndVerifyRunSpec, runDirForRunId, validateRunId } from "./run-spec.mjs";
+import { readAndVerifyRunSpec, validateRunId } from "./run-spec.mjs";
 import { buildHeartbeat, writeHeartbeat } from "./heartbeat.mjs";
-import { deliverNotification } from "./notification-client.mjs";
+import { recordMonitoringEvent } from "./monitoring-outbox.mjs";
 import { runnerArgvForSpec } from "./systemd-client.mjs";
 import { readSupervisorState, writeSupervisorState } from "./supervisor-state.mjs";
+import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
 
 const exitCodes = {
   completed: 0,
@@ -31,9 +31,9 @@ async function main() {
     writeSupervisorState(runId, { state: "stale", staleReason: "origin_main_changed", currentMain }, defaultLogsRoot);
     process.exit(exitCodes.stale);
   }
-  const runDir = runDirForRunId(runId, defaultLogsRoot);
-  const stdoutPath = path.join(runDir, "stdout.log");
-  const stderrPath = path.join(runDir, "stderr.log");
+  const pathContext = ensureTrustedRunPathContext({ runId, logsRoot: defaultLogsRoot });
+  const stdoutPath = pathContext.artifactPath(runArtifactKinds.stdout);
+  const stderrPath = pathContext.artifactPath(runArtifactKinds.stderr);
   const statePatch = {
     state: "starting",
     specPath: verified.specPath,
@@ -45,7 +45,7 @@ async function main() {
   writeSupervisorState(runId, statePatch, defaultLogsRoot);
   let heartbeat = buildHeartbeat({ runId, state: "starting", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime });
   writeHeartbeat(runId, heartbeat, defaultLogsRoot);
-  await deliverNotification("started", heartbeat, process.env, defaultLogsRoot);
+  recordMonitoringEvent("started", heartbeat, { logsRoot: defaultLogsRoot });
 
   const argv = runnerArgvForSpec(verified.spec);
   writeSupervisorState(runId, { state: "running", runnerArgv: redactArgv(argv), stdoutPath, stderrPath }, defaultLogsRoot);
@@ -78,7 +78,7 @@ async function main() {
       maxRuntime: verified.spec.maxRuntime,
     });
     writeHeartbeat(runId, activeHeartbeat, defaultLogsRoot);
-    await deliverNotification("heartbeat", activeHeartbeat, process.env, defaultLogsRoot);
+    recordMonitoringEvent("heartbeat", activeHeartbeat, { logsRoot: defaultLogsRoot });
   }, 60_000);
 
   const result = await waitForChild(child);
@@ -100,7 +100,7 @@ async function main() {
     reportPath,
   });
   writeHeartbeat(runId, terminalHeartbeat, defaultLogsRoot);
-  await deliverNotification(terminal, terminalHeartbeat, process.env, defaultLogsRoot);
+  recordMonitoringEvent(terminal, terminalHeartbeat, { logsRoot: defaultLogsRoot });
   process.exit(exitCodes[terminal] ?? 12);
 }
 

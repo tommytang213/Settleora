@@ -11,14 +11,23 @@ import {
   normalizeMaxRuntime,
   normalizeMaxTasks,
   readAndVerifyRunSpec,
+  resolveProfile,
   sha256Text,
   validateRunId,
   validateRunSpecShape,
   writeImmutableRunSpec,
 } from "../supervisor/run-spec.mjs";
 import { buildHeartbeat, isHeartbeatStale } from "../supervisor/heartbeat.mjs";
-import { sanitizePayload, validateEndpoint } from "../supervisor/notification-client.mjs";
+import { monitoringEvents, recordMonitoringEvent, sanitizeMonitoringPayload } from "../supervisor/monitoring-outbox.mjs";
 import { buildSystemdStartPlan, runnerArgvForSpec, startUserUnit } from "../supervisor/systemd-client.mjs";
+import {
+  deriveSupervisorPaths,
+  fixedArtifactBasename,
+  profileStorageKey,
+  runArtifactKinds,
+  storageKeyForLogicalId,
+  validateStorageKey,
+} from "../supervisor/supervisor-paths.mjs";
 
 const fakeSha = "a".repeat(40);
 
@@ -42,19 +51,23 @@ test("run-spec rejects unknown command/env/argument fields and unsafe run IDs", 
   assert.throws(() => validateRunSpecShape({ specVersion: 1, runId, command: "rm -rf /" }), /Unknown run-spec field: command/);
   assert.throws(() => validateRunSpecShape({ specVersion: 1, runId, env: { X: "Y" } }), /Unknown run-spec field: env/);
   assert.throws(() => validateRunSpecShape({ specVersion: 1, runId, extraArgs: ["--danger"] }), /Unknown run-spec field: extraArgs/);
+  assert.throws(() => validateRunSpecShape({ specVersion: 1, runId, runnerConfigPath: "/tmp/config.json" }), /Unknown run-spec field: runnerConfigPath/);
 });
 
 test("run-spec canonical serialization, exclusive create, digest, tamper, symlink, escape, and mode checks", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-supervisor-"));
   const logsRoot = path.join(tempRoot, "settleora-auto-runner");
-  const configRoot = path.join(logsRoot, "configs");
+  const profile = "default";
+  const configRoot = path.dirname(resolveProfile(profile, logsRoot).runnerConfigPath);
   mkdirSync(configRoot, { recursive: true, mode: 0o700 });
-  const configPath = path.join(configRoot, "default.json");
+  const configPath = resolveProfile(profile, logsRoot).runnerConfigPath;
   writeFileSync(configPath, '{"trustedRealRunCanaryApproved":false}\n",'.replace('",', ""), { mode: 0o600 });
   const runId = generateRunId();
-  const { spec } = buildRunSpec({ runId, runnerConfigPath: configPath, initialOriginMainSha: fakeSha, logsRoot });
+  const { spec } = buildRunSpec({ runId, profile, initialOriginMainSha: fakeSha, logsRoot });
   const digest = sha256Text(canonicalJson(spec));
   assert.match(digest, /^[a-f0-9]{64}$/);
+  assert.equal(spec.profile, "default");
+  assert.equal("runnerConfigPath" in spec, false);
   const written = writeImmutableRunSpec(spec, logsRoot);
   assert.equal(written.specSha256, digest);
   assert.throws(() => writeImmutableRunSpec(spec, logsRoot), /EEXIST/);
@@ -62,16 +75,39 @@ test("run-spec canonical serialization, exclusive create, digest, tamper, symlin
   writeFileSync(written.specPath, canonicalJson({ ...spec, maxTasks: 2 }), { mode: 0o600 });
   assert.throws(() => readAndVerifyRunSpec(runId, digest, logsRoot), /digest mismatch/);
 
-  const symlinkPath = path.join(configRoot, "symlink.json");
-  symlinkSync(configPath, symlinkPath);
-  assert.throws(() => buildRunSpec({ runnerConfigPath: symlinkPath, initialOriginMainSha: fakeSha, logsRoot }), /regular file|Symlink/);
-
-  const outside = path.join(tempRoot, "outside.json");
-  writeFileSync(outside, "{}\n", { mode: 0o600 });
-  assert.throws(() => buildRunSpec({ runnerConfigPath: outside, initialOriginMainSha: fakeSha, logsRoot }), /outside approved roots/);
+  const symlinkLogsRoot = path.join(tempRoot, "symlink-root");
+  const symlinkConfigPath = resolveProfile(profile, symlinkLogsRoot).runnerConfigPath;
+  mkdirSync(path.dirname(symlinkConfigPath), { recursive: true, mode: 0o700 });
+  symlinkSync(configPath, symlinkConfigPath);
+  assert.throws(() => buildRunSpec({ profile, initialOriginMainSha: fakeSha, logsRoot: symlinkLogsRoot }), /regular file|Symlink/);
 
   chmodSync(configPath, 0o622);
-  assert.throws(() => buildRunSpec({ runnerConfigPath: configPath, initialOriginMainSha: fakeSha, logsRoot }), /Group\/world-writable/);
+  assert.throws(() => buildRunSpec({ profile, initialOriginMainSha: fakeSha, logsRoot }), /Group\/world-writable/);
+});
+
+test("storage keys and fixed artifact paths keep raw identifiers out of filesystem sinks", () => {
+  const rawRunId = "supervised-20260711T063151Z-066b80f4fc16";
+  const otherRunId = "supervised-20260711T063151Z-166b80f4fc16";
+  const storageKey = storageKeyForLogicalId(rawRunId);
+  assert.match(storageKey, /^[a-f0-9]{64}$/);
+  assert.notEqual(storageKey, storageKeyForLogicalId(otherRunId));
+  assert.equal(validateStorageKey(storageKey), storageKey);
+  assert.throws(() => validateStorageKey("../bad"), /Invalid supervisor storage key/);
+
+  const paths = deriveSupervisorPaths({ runId: rawRunId, logsRoot: "/workspace/logs/settleora-auto-runner" });
+  assert.equal(paths.runStorageKey, storageKey);
+  assert.equal(paths.runDir.includes(rawRunId), false);
+  assert.equal(paths.specPath.includes(rawRunId), false);
+  assert.equal(paths.artifactPath(runArtifactKinds.state).endsWith("/state.json"), true);
+  assert.equal(paths.artifactPath(runArtifactKinds.heartbeat).endsWith("/heartbeat.json"), true);
+  assert.equal(paths.artifactPath(runArtifactKinds.stdout).endsWith("/stdout.log"), true);
+  assert.equal(paths.artifactPath(runArtifactKinds.stderr).endsWith("/stderr.log"), true);
+  assert.equal(paths.artifactPath(runArtifactKinds.monitoringEvents).endsWith("/monitoring-events.jsonl"), true);
+  assert.throws(() => fixedArtifactBasename("../escape"), /Unsupported supervisor artifact kind/);
+  assert.throws(() => fixedArtifactBasename("operator-choice.json"), /Unsupported supervisor artifact kind/);
+  assert.equal(profileStorageKey("default").length, 64);
+  assert.equal(resolveProfile("default").runnerConfigPath.includes("/default."), false);
+  assert.throws(() => resolveProfile("..\\/secret"), /Invalid profile name/);
 });
 
 test("systemd and runner argv stay lane-neutral and shell-free", () => {
@@ -83,7 +119,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
     maxTasks: 8,
     maxRuntime: "8h",
     mode: "trusted",
-    runnerConfigPath: "/workspace/logs/settleora-auto-runner/configs/default.json",
+    profile: "default",
     runnerConfigSha256: "b".repeat(64),
     initialOriginMainSha: fakeSha,
     requestedBy: "operator",
@@ -125,16 +161,34 @@ test("heartbeat defaults, stale detection, terminal state, and sanitization", ()
   assert.equal(hb.terminal, false);
   assert.equal(isHeartbeatStale({ ...hb, leaseExpiresAt: "2020-01-01T00:00:00Z" }, new Date("2026-01-01T00:00:00Z")), true);
   assert.equal(isHeartbeatStale({ ...hb, state: "completed", terminal: true, leaseExpiresAt: "2020-01-01T00:00:00Z" }), false);
-  const sanitized = sanitizePayload({ runId, webhookUrl: "https://secret.example/hook", token: "abc", body: "ok" });
+  const sanitized = sanitizeMonitoringPayload({ runId, webhookUrl: "https://secret.example/hook", token: "abc", body: "ok" });
   assert.equal(sanitized.webhookUrl, "[redacted]");
   assert.equal(sanitized.token, "[redacted]");
+  assert.equal(sanitized.body, "[redacted]");
 });
 
-test("notification endpoint policy enforces HTTPS or explicit private HTTP", async () => {
-  assert.equal((await validateEndpoint("https://example.invalid/hook")).ok, true);
-  assert.equal((await validateEndpoint("http://127.0.0.1/hook", {})).reason, "http_requires_explicit_lan_opt_in");
-  assert.equal((await validateEndpoint("http://127.0.0.1/hook", { SETTLEORA_ALLOW_LAN_HTTP: "1" })).ok, true);
-  assert.equal((await validateEndpoint("ftp://example.invalid/hook")).reason, "unsupported_scheme");
+test("monitoring outbox is local, owner-only, closed-event, and nonfatal", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-outbox-"));
+  const logsRoot = path.join(tempRoot, "settleora-auto-runner");
+  const runId = generateRunId();
+  assert.deepEqual([...monitoringEvents].sort(), ["blocked", "cancelled", "completed", "failed", "heartbeat", "partial", "started", "submitted"]);
+  const result = recordMonitoringEvent("heartbeat", {
+    runId,
+    state: "running",
+    token: "secret",
+    fullIssueBody: "x".repeat(1100),
+    configPath: "/workspace/logs/settleora-auto-runner/configs/profiles/example/config.json",
+  }, { logsRoot });
+  assert.equal(result.ok, true);
+  const paths = deriveSupervisorPaths({ runId, logsRoot });
+  assert.equal(result.path.endsWith("/monitoring-events.jsonl"), true);
+  assert.equal(result.path.includes(runId), false);
+  const text = readFileSync(result.path, "utf8");
+  assert.match(text, /"event":"heartbeat"/);
+  assert.doesNotMatch(text, /secret/);
+  assert.doesNotMatch(text, /config\.json/);
+  assert.equal(paths.artifactPath(runArtifactKinds.monitoringEvents).includes(runId), false);
+  assert.throws(() => recordMonitoringEvent("operator-event", { runId }, { logsRoot }), /Unsupported monitoring event/);
 });
 
 test("operator CLI dry-run has no durable supervisor side effects and renders expected plan", () => {
@@ -158,6 +212,10 @@ test("operator CLI dry-run has no durable supervisor side effects and renders ex
   assert.equal(parsed.maxRuntime, "8h");
   assert.equal(parsed.runnerArgv.includes("--max-iterations"), true);
   assert.equal(parsed.runnerArgv.includes("--config"), true);
+  assert.equal(parsed.spec.profile, "default");
+  assert.equal("runnerConfigPath" in parsed.spec, false);
+  assert.equal(parsed.specPath.includes(parsed.runId), false);
+  assert.equal(parsed.statePath.includes(parsed.runId), false);
   assert.equal(parsed.unitName, `settleora-auto-runner@${parsed.runId}.service`);
   assert.deepEqual(snapshotSupervisorFiles(), before);
 });
@@ -226,6 +284,29 @@ test("Windows templates keep fixed remote entrypoint and no hard-coded user/IP/s
   const start = readFileSync("tools/auto-runner/windows/Start-SettleoraAutoRun.ps1", "utf8");
   assert.match(start, /\[int\]\$MaxTasks = 1/);
   assert.match(start, /\[string\]\$MaxRuntime = "3h"/);
+  assert.match(start, /\[string\]\$Profile = "default"/);
+});
+
+test("supervisor core has no network delivery or raw-path regression shapes", () => {
+  const files = [
+    "tools/auto-runner/settleora-auto-runnerctl.mjs",
+    "tools/auto-runner/supervisor/heartbeat.mjs",
+    "tools/auto-runner/supervisor/monitoring-outbox.mjs",
+    "tools/auto-runner/supervisor/run-spec.mjs",
+    "tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs",
+    "tools/auto-runner/supervisor/supervisor-paths.mjs",
+    "tools/auto-runner/supervisor/supervisor-state.mjs",
+    "tools/auto-runner/supervisor/systemd-client.mjs",
+  ];
+  const joined = files.map((file) => readFileSync(file, "utf8")).join("\n");
+  assert.doesNotMatch(joined, /\bfetch\s*\(/);
+  assert.doesNotMatch(joined, /node:(http|https|net|dns)|from\s+["']node:(http|https|net|dns)/);
+  assert.doesNotMatch(joined, /SETTLEORA_(HEARTBEAT|NOTIFICATION|ALLOW_LAN_HTTP)/);
+  assert.doesNotMatch(joined, /atomicWriteJson\s*\(\s*filePath/);
+  assert.doesNotMatch(joined, /runnerConfigPath"\s*,/);
+  assert.doesNotMatch(joined, /\$\{name\}\.json/);
+  assert.doesNotMatch(joined, /path\.join\([^)]*runId[^)]*\)/);
+  assert.doesNotMatch(joined, /\bfileName\b/);
 });
 
 function snapshotSupervisorFiles() {
