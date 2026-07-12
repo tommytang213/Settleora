@@ -2098,6 +2098,7 @@ test("integrated Gemini accounting parse and write failures fail closed", async 
 
 test("integrated Gemini verdict parser rejects extra prose, unknown verdicts, and contradictory pass findings", () => {
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass" })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["No blocking findings remain."] })).ok, true);
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "fail" })).ok, true);
   assert.equal(parseIntegratedVerdict(`notes\n${integratedVerdictJson({ verdict: "pass" })}`).ok, false);
   assert.equal(parseIntegratedVerdict(`\`\`\`json\n${integratedVerdictJson({ verdict: "pass" })}\n\`\`\``).ok, false);

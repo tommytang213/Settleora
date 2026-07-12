@@ -331,7 +331,7 @@ export function parseIntegratedVerdict(text) {
   ) {
     return { ok: false, reason: "schema_validation", detail: "findings must be bounded strings" };
   }
-  if (parsed.verdict === "pass" && parsed.findings.some((finding) => /\b(blocking|must fix|fail|danger)\b/i.test(finding))) {
+  if (parsed.verdict === "pass" && parsed.findings.some(hasContradictoryPassFindingLanguage)) {
     return { ok: false, reason: "schema_validation", detail: "pass verdict contains contradictory blocking finding language" };
   }
   return {
@@ -343,6 +343,18 @@ export function parseIntegratedVerdict(text) {
       findings: parsed.findings.slice(0, maxIntegratedFindings),
     },
   };
+}
+
+function hasContradictoryPassFindingLanguage(finding) {
+  const text = String(finding || "").toLowerCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!/\b(blocking|must fix|fail|failed|failing|failure|danger)\b/.test(text)) return false;
+  if (/\b(no|zero|without|none|not)\s+(remaining\s+)?(blocking|must fix|failures?|failing|failure|danger)\b/.test(text)) {
+    return false;
+  }
+  if (/\b(blocking|must fix|failures?|failing|failure|danger)\s+(findings?|issues?|concerns?)?\s*(remain|remaining|found|present|detected)\b/.test(text)) {
+    return true;
+  }
+  return true;
 }
 
 export async function runGeminiReviewerSmokeTest(config, options = {}) {
