@@ -4,7 +4,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { parseCliArgs, loadConfig } from "../lib/config.mjs";
+import { createHash } from "node:crypto";
+import { parseCliArgs, loadConfig, normalizeAutoMergePolicy } from "../lib/config.mjs";
 import {
   evaluateCanaryIssuePolicy,
   evaluateLowRiskAutoMergeCanaryApproval,
@@ -2723,7 +2724,7 @@ test("normal dangerous issue without contract remains danger gated", () => {
   assert.ok(lane.dangerReasons.includes("openapi_generated_client"));
 });
 
-test("explicit domain lane matrix separates runnable sensitive implementation from auto-merge", () => {
+test("explicit domain lane matrix marks approved-domain runnable implementation auto-merge capable", () => {
   const cases = [
     {
       lane: "workflow-docs-tooling",
@@ -2867,7 +2868,8 @@ ${item.scope}
     });
     assert.equal(lane.allowedToImplement, true, item.lane);
     assert.equal(lane.prCreationAllowed, true, item.lane);
-    assert.equal(lane.autoMergeEligible, item.lane === "workflow-docs-tooling" || item.lane === "docs-planning", item.lane);
+    assert.equal(lane.autoMergeEligible, true, item.lane);
+    assert.equal(lane.manualMergeRequired, true, item.lane);
     assert.equal(lane.implementationSensitivity, item.sensitivity, item.lane);
     assert.equal(lane.branchStrategy, item.branchStrategy, item.lane);
     assert.equal(lane.reviewerTier, item.reviewerTier, item.lane);
@@ -3215,6 +3217,60 @@ test("approved low-risk lane with exact allowed paths and exact-head checks allo
   assert.equal(decision.prHeadSha, "head123");
 });
 
+test("approved-domain auto-merge matrix covers normal focused sensitive and refusal reason codes", () => {
+  const cases = [
+    ["workflow-docs-tooling", "cheap_independent", "normal", "tools/auto-runner/lib/auto-merge-policy.mjs", "runner-tests", "low"],
+    ["mobile-application", "cheap_independent", "normal", "apps/mobile/lib/features/example.dart", "mobile", "standard"],
+    ["web-user-ui", "cheap_independent", "normal", "apps/web-user/src/App.tsx", "web-ui", "standard"],
+    ["web-admin-ui", "strong_independent", "focused", "apps/web-admin/src/Admin.tsx", "web-ui", "sensitive"],
+    ["api-domain-runtime", "strong_independent", "focused", "services/api/Features/Example/ExampleService.cs", "api-domain", "sensitive"],
+    ["auth-session-security", "strong_independent", "focused", "services/api/Auth/SessionRuntime.cs", "api-security", "high"],
+    ["storage-file-privacy-authz", "strong_independent", "focused", "services/api/Storage/FileAuthorizationService.cs", "api-storage", "high"],
+    ["money-settlement-payment", "strong_independent", "focused", "services/api/Settlement/SettlementPolicy.cs", "api-money", "high"],
+    ["schema-migrations", "strong_independent", "focused", "services/api/Infrastructure/Migrations/202607121903_AddFoo.cs", "api-migrations", "high"],
+    ["openapi-generated-clients", "strong_independent", "focused", "packages/contracts/openapi/settleora.v1.yaml", "openapi-generated-clients", "high"],
+    ["sync-import-export-restore", "strong_independent", "focused", "services/api/Sync/ImportRestoreService.cs", "sync-import-export", "high"],
+    ["docker-compose-ci-deployment", "strong_independent", "focused", "infra/docker-compose.yml", "compose-ci", "high"],
+  ];
+  for (const [lane, tier, branchStrategy, filePath, profile, implementationSensitivity] of cases) {
+    const branchName = `${branchStrategy === "focused" ? "focused" : "feature"}/auto-1-test`;
+    const laneDecision = autoMergeLane({
+      lane,
+      canonicalLane: lane,
+      reviewerTier: tier,
+      branchStrategy,
+      allowedPaths: [filePath],
+      laneManifestAllowedPaths: [filePath],
+      validationProfile: profile,
+      implementationSensitivity,
+      laneManifest: { id: lane, decisionType: "runnable", autoMergeAllowed: true },
+      contract: { allowedPaths: [filePath], validationProfile: profile, manualMergeRequired: false, autoMergeEligible: true },
+    });
+    const decision = evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles: [filePath],
+      branchName,
+      pr: { headRefName: branchName },
+    }));
+    assert.equal(decision.reason, "all_auto_merge_gates_passed", lane);
+    assert.equal(decision.eligible, true, lane);
+  }
+
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ config: { allowAutoMerge: true, autoMergePolicy: { approvedLanes: [], requiredChecks: ["Validate scaffold"], allowedSkippedChecks: [] } } })).reason, "lane_not_in_approved_auto_merge_config");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ lane: "cross-domain", canonicalLane: "cross-domain", splitRequired: true, branchStrategy: "split-required", laneManifest: { id: "cross-domain", decisionType: "split_required", autoMergeAllowed: false } }) })).reason, "lane_not_approved_domain_auto_merge_supported");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ manualActionRequired: true }) })).reason, "manual_or_danger_gate_present");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ branchStrategy: "focused" }) })).reason, "branch_strategy_mismatch");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ pr: { title: "No issue", body: "No linkage" } })).reason, "pr_missing_issue_linkage");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ validation: { passed: true } })).reason, "validation_exact_evidence_missing");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", changedFiles: ["other"], tier: "cheap_independent", independent: true, completedAt: "2026-07-12T00:00:00.000Z" } })).reason, "independent_review_files_mismatch");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ review: { verdict: { verdict: "approve" }, reviewedHead: "head123", changedFiles: ["other"], completedAt: "2026-07-12T00:00:00.000Z" } })).reason, "codex_mechanics_review_files_mismatch");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [] })).reason, "required_checks_not_successful");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ codeScanningAlerts: [{ state: "open" }] })).reason, "open_code_scanning_alerts");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
+  assert.throws(() => normalizeAutoMergePolicy({ approvedLanes: ["security-runtime"], requiredChecks: ["Validate scaffold"] }), /alias/);
+  assert.throws(() => normalizeAutoMergePolicy({ approvedLanes: ["unknown-lane"], requiredChecks: ["Validate scaffold"] }), /Unknown/);
+});
+
 test("client-ui-low-risk lane with exact mobile UI paths allows merge decision", () => {
   const laneDecision = autoMergeLane({
     lane: "client-ui-low-risk",
@@ -3277,7 +3333,7 @@ test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mi
     evaluateAutoMergeDecision(
       autoMergeContext({
         ...base,
-        externalReview: { status: "pass", verdict: "pass", reviewedHead: "oldhead" },
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "oldhead", tier: "cheap_independent", changedFiles: base.changedFiles, independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
       }),
     ).reason,
     "independent_review_head_mismatch",
@@ -3286,7 +3342,7 @@ test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mi
     evaluateAutoMergeDecision(
       autoMergeContext({
         ...base,
-        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", changedFiles: ["apps/mobile/test/ui/other_test.dart"] },
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", tier: "cheap_independent", changedFiles: ["apps/mobile/test/ui/other_test.dart"], independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
       }),
     ).reason,
     "independent_review_files_mismatch",
@@ -3327,7 +3383,12 @@ test("pre-push review gate blocks mutation and required independent-review failu
       externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
       reviewMutationGuard: { mutationDetected: false },
     }),
-    { ok: true, reason: "pre_push_review_gates_passed" },
+    {
+      ok: false,
+      outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_not_passed:skipped_external_reviewer_tier_disabled",
+      message: "exact-head independent review returned skipped_external_reviewer_tier_disabled",
+    },
   );
 });
 
@@ -3408,11 +3469,11 @@ test("auto-merge requires Codex mechanics review changed-file metadata", () => {
 
 test("pending/failing checks, review threads, code scanning alerts, and issue stop labels block auto-merge", () => {
   assert.equal(
-    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "IN_PROGRESS", conclusion: null }] })).reason,
+    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null }] })).reason,
     "required_checks_pending",
   );
   assert.equal(
-    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "FAILURE" }] })).reason,
+    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "FAILURE" }] })).reason,
     "required_checks_not_successful",
   );
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
@@ -3436,7 +3497,7 @@ test("auto-merge waits through blocked merge state after checks and then merges 
           inspections += 1;
           return {
             pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
-            requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "SUCCESS" }],
+            requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
             reviewThreads: [],
             codeScanningAlerts: [],
             blockingMarkers: [],
@@ -3444,10 +3505,10 @@ test("auto-merge waits through blocked merge state after checks and then merges 
         },
       },
     );
-    assert.equal(inspections, 1);
+    assert.equal(inspections, 2);
     assert.equal(result.result, "merged");
     assert.equal(result.waitAttempts.length, 2);
-    assert.ok(calls.includes("gh pr merge 1 --merge"));
+    assert.ok(calls.includes("gh pr merge 1 --merge --match-head-commit head123"));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -3464,7 +3525,7 @@ test("auto-merge wait expires when merge state never becomes clean and writes ev
         sleep: () => {},
         inspectState: () => ({
           pr: { mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", headRefOid: "head123" },
-          requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "SUCCESS" }],
+          requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
           reviewThreads: [],
           codeScanningAlerts: [],
           blockingMarkers: [],
@@ -3652,7 +3713,7 @@ test("existing PR recovery regenerates missing Codex evidence outside independen
       codexMechanicsHeadSha: "head123",
       codexMechanicsChangedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldGenerateExistingPrRecoveryEvidence(autoMergeLane({ lane: "client-ui-low-risk" }), {
@@ -3777,7 +3838,7 @@ test("existing PR recovery blocks stale head, broad files, review/code scanning 
     ["thread", existingPrRecoveryContext({ reviewThreads: [{ isResolved: false }] }), /unresolved_review_threads/],
     ["scan", existingPrRecoveryContext({ codeScanningAlerts: [{ state: "open" }] }), /open_code_scanning_alerts/],
     ["stop", existingPrRecoveryContext({ issue: { labels: ["auto-canary-ready", "auto-failed"] } }), /issue_stop_label:auto-failed/],
-    ["missing evidence", existingPrRecoveryContext({ exactHeadEvidence: {} }), /missing_evidence_or_review/],
+    ["missing evidence", existingPrRecoveryContext({ exactHeadEvidence: {} }), /missing_independent_review_evidence|missing_evidence_or_review/],
     ["manual", existingPrRecoveryContext({ blockingMarkers: ["blocking_comment_or_review_marker"] }), /blocking_markers/],
   ];
   for (const [name, context, pattern] of cases) {
@@ -4856,8 +4917,10 @@ function createTempGitRepo() {
 }
 
 function autoMergeLane(overrides = {}) {
+  const lane = overrides.lane || "workflow-docs-tooling";
   return {
-    lane: "workflow-docs-tooling",
+    lane,
+    canonicalLane: overrides.canonicalLane || lane,
     allowedToImplement: true,
     dangerGate: false,
     allowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
@@ -4866,6 +4929,13 @@ function autoMergeLane(overrides = {}) {
     manualMergeRequired: false,
     autoMergeEligible: true,
     prCreationAllowed: true,
+    branchStrategy: "normal",
+    reviewerTier: "cheap_independent",
+    laneManifest: {
+      id: "workflow-docs-tooling",
+      decisionType: "runnable",
+      autoMergeAllowed: true,
+    },
     contract: {
       manualMergeRequired: false,
       autoMergeEligible: true,
@@ -4879,6 +4949,7 @@ function autoMergeLane(overrides = {}) {
 function autoMergeContext(overrides = {}) {
   const laneDecision = overrides.laneDecision || autoMergeLane();
   const changedFiles = overrides.changedFiles || ["tools/auto-runner/lib/auto-merge-policy.mjs"];
+  const fileDigest = sha256Strings(changedFiles);
   const pr = {
     number: 1,
     url: "https://example.invalid/pull/1",
@@ -4889,6 +4960,8 @@ function autoMergeContext(overrides = {}) {
     headRefOid: "head123",
     mergeable: "MERGEABLE",
     mergeStateStatus: "CLEAN",
+    title: "Auto-runner: #1 Low risk auto merge",
+    body: "Closes or updates #1.",
     ...(overrides.pr || {}),
   };
   const issue = {
@@ -4900,7 +4973,15 @@ function autoMergeContext(overrides = {}) {
     ...(overrides.issue || {}),
   };
   return {
-    config: { allowAutoMerge: true, ...(overrides.config || {}) },
+    config: {
+      allowAutoMerge: true,
+      autoMergePolicy: {
+        approvedLanes: [laneDecision.canonicalLane || laneDecision.lane],
+        requiredChecks: (overrides.requiredChecks || [{ name: "Validate scaffold" }]).map((check) => check.name).filter(Boolean),
+        allowedSkippedChecks: [],
+      },
+      ...(overrides.config || {}),
+    },
     issue,
     laneDecision,
     changedFiles,
@@ -4909,10 +4990,40 @@ function autoMergeContext(overrides = {}) {
     externalReviewRequired: overrides.externalReviewRequired ?? true,
     externalReview: Object.hasOwn(overrides, "externalReview")
       ? overrides.externalReview
-      : { status: "pass", reason: "integrated_review_passed", reviewedHead: "head123", changedFiles },
-    review: overrides.review || { verdict: { verdict: "approve" }, reviewedHead: "head123", changedFiles },
+      : {
+          status: "pass",
+          verdict: "pass",
+          reason: "integrated_review_passed",
+          reviewedHead: "head123",
+          baseSha: "base123",
+          changedFiles,
+          changedFilesDigest: fileDigest,
+          provider: "gemini",
+          tier: laneDecision.reviewerTier || "cheap_independent",
+          independent: true,
+          completedAt: "2026-07-12T00:00:00.000Z",
+          budget: { status: "pass" },
+        },
+    review: overrides.review || {
+      verdict: { verdict: "approve" },
+      reviewedHead: "head123",
+      baseSha: "base123",
+      changedFiles,
+      changedFilesDigest: fileDigest,
+      completedAt: "2026-07-12T00:00:00.000Z",
+      blockingFindings: [],
+    },
     codexMechanicsReviewApproved: overrides.codexMechanicsReviewApproved ?? true,
-    validation: overrides.validation || { passed: true },
+    validation: overrides.validation || {
+      passed: true,
+      profile: laneDecision.validationProfile,
+      headSha: "head123",
+      baseSha: "base123",
+      changedFiles,
+      changedFilesDigest: fileDigest,
+      completedAt: "2026-07-12T00:00:00.000Z",
+      results: [{ command: "npm run validate:scaffold", status: 0 }],
+    },
     worktreeClean: overrides.worktreeClean ?? true,
     pr,
     actualHeadSha: overrides.actualHeadSha || pr.headRefOid,
@@ -4926,6 +5037,10 @@ function autoMergeContext(overrides = {}) {
     codeScanningAlerts: overrides.codeScanningAlerts || [],
     blockingMarkers: overrides.blockingMarkers || [],
   };
+}
+
+function sha256Strings(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
 }
 
 function existingPrRecoveryContext(overrides = {}) {
@@ -4992,7 +5107,29 @@ function createAutoMergeRunner(calls) {
   return (command, args) => {
     calls.push(`${command} ${args.join(" ")}`);
     if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
+      return ok(JSON.stringify({
+        number: 1,
+        url: "https://example.invalid/pull/1",
+        state: "OPEN",
+        isDraft: false,
+        baseRefName: "main",
+        headRefName: "feature/auto-1-test",
+        headRefOid: "head123",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        title: "Auto-runner: #1 Low risk auto merge",
+        body: "Closes or updates #1.",
+        statusCheckRollup: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+        comments: [],
+        reviews: [],
+      }));
+    }
     if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql") {
+      return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+    }
+    if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
     if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
     if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
     if (command === "gh" && args[0] === "issue" && args[1] === "view") {

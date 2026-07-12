@@ -10,6 +10,19 @@ remains open. The current restrictive defaults are staged scaffolding. See
 target, remaining child issues #887-#894, feature-bundle order, and the
 recommended first implementation child (#887).
 
+Approved-domain auto-merge remains default-off. Enabling `allowAutoMerge` is
+not enough: external config must also set `autoMergePolicy.approvedLanes` to a
+bounded list of canonical runnable lane IDs and keep required CI/security check
+names explicit. The merge gate then still requires the issue contract to be
+auto-merge eligible, no manual action or split requirement, exact contract and
+lane path matches, exact-head validation evidence, independent external review,
+Codex mechanics/security review, GitHub checks, code scanning, clear review
+threads, open issue state, and unchanged base/head. Sensitive implementation
+lanes can be approved this way; production deploys, destructive execution,
+secret/auth credential mutation, public/admin exposure, branch deletion,
+force-like history changes, and unresolved product/policy/financial decisions
+remain manual actions and do not auto-merge.
+
 Preflight diagnostics:
 
 ```bash

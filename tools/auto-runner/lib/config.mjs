@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { laneManifest } from "./lane-policy.mjs";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
@@ -32,6 +33,19 @@ export const defaultConfig = Object.freeze({
   allowStaleClaimSteal: false,
   staleClaimAfterHours: 12,
   allowAutoMerge: false,
+  autoMergePolicy: {
+    approvedLanes: [],
+    requiredChecks: [
+      "Validate scaffold",
+      "Scaffold Validation / Validate scaffold",
+      "CodeQL",
+      "CodeQL / Analyze (csharp)",
+      "Semgrep CE",
+      "Semgrep OSS",
+      "Trivy",
+    ],
+    allowedSkippedChecks: [],
+  },
   allowExistingPrRecovery: false,
   autoMergeWait: {
     maxAttempts: 60,
@@ -294,6 +308,7 @@ export function loadConfig(cliArgs) {
   config.reviewerTiers = reviewerPolicy.reviewerTiers;
   config.reviewerBudget = reviewerPolicy.reviewerBudget;
   config.reviewerProviderProfiles = normalizeReviewerProviderProfiles(config.reviewerProviderProfiles);
+  config.autoMergePolicy = normalizeAutoMergePolicy(config.autoMergePolicy);
   config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
@@ -320,6 +335,71 @@ export function loadConfig(cliArgs) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+export function normalizeAutoMergePolicy(policy = {}) {
+  const approvedLanes = policy.approvedLanes ?? [];
+  if (!Array.isArray(approvedLanes)) {
+    throw new Error("autoMergePolicy.approvedLanes must be an array");
+  }
+  if (approvedLanes.length > 64) {
+    throw new Error("autoMergePolicy.approvedLanes exceeds the bounded lane limit");
+  }
+  const normalizedApproved = [];
+  const seen = new Set();
+  for (const laneId of approvedLanes) {
+    if (typeof laneId !== "string" || !/^[a-z0-9][a-z0-9-]{0,80}$/.test(laneId)) {
+      throw new Error(`Invalid auto-merge lane id: ${laneId}`);
+    }
+    if (seen.has(laneId)) {
+      throw new Error(`Duplicate auto-merge lane id: ${laneId}`);
+    }
+    seen.add(laneId);
+    const lane = laneManifest[laneId];
+    if (!lane) {
+      throw new Error(`Unknown auto-merge lane id: ${laneId}`);
+    }
+    if (lane.aliasFor) {
+      throw new Error(`Auto-merge approved lanes must use canonical lane ids, not alias ${laneId}`);
+    }
+    if (
+      lane.decisionType !== "runnable" ||
+      !lane.implementationAllowed ||
+      lane.manualGateBeforeImplementation ||
+      lane.branchStrategy === "split-required" ||
+      !lane.autoMergeAllowed
+    ) {
+      throw new Error(`Lane is not eligible for approved-domain auto-merge config: ${laneId}`);
+    }
+    normalizedApproved.push(laneId);
+  }
+
+  const requiredChecks = normalizeStringList(policy.requiredChecks ?? defaultConfig.autoMergePolicy.requiredChecks, "autoMergePolicy.requiredChecks");
+  if (requiredChecks.length === 0) {
+    throw new Error("autoMergePolicy.requiredChecks must not be empty");
+  }
+  return Object.freeze({
+    approvedLanes: Object.freeze(normalizedApproved),
+    requiredChecks: Object.freeze(requiredChecks),
+    allowedSkippedChecks: Object.freeze(normalizeStringList(policy.allowedSkippedChecks ?? [], "autoMergePolicy.allowedSkippedChecks")),
+  });
+}
+
+function normalizeStringList(value, fieldName) {
+  if (!Array.isArray(value)) throw new Error(`${fieldName} must be an array`);
+  if (value.length > 128) throw new Error(`${fieldName} exceeds the bounded list limit`);
+  const seen = new Set();
+  const normalized = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.trim().length === 0 || item.length > 160) {
+      throw new Error(`${fieldName} contains an invalid entry`);
+    }
+    const text = item.trim();
+    if (seen.has(text)) throw new Error(`${fieldName} contains duplicate entry: ${text}`);
+    seen.add(text);
+    normalized.push(text);
+  }
+  return normalized;
 }
 
 function normalizeReviewerProviderProfiles(profiles = {}) {

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { safeTimestamp } from "./logger.mjs";
@@ -7,6 +8,22 @@ import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
+export const approvedDomainAutoMergeLanes = Object.freeze([
+  "workflow-docs-tooling",
+  "docs-planning",
+  "client-ui-low-risk",
+  "mobile-application",
+  "web-user-ui",
+  "web-admin-ui",
+  "api-domain-runtime",
+  "auth-session-security",
+  "storage-file-privacy-authz",
+  "money-settlement-payment",
+  "schema-migrations",
+  "openapi-generated-clients",
+  "sync-import-export-restore",
+  "docker-compose-ci-deployment",
+]);
 export const autoMergeStopLabels = Object.freeze([
   "needs-tommy",
   "manual-gate",
@@ -27,7 +44,9 @@ const refreshableMergeStates = new Set(["BLOCKED", "UNKNOWN", "UNSTABLE", "HAS_H
 const defaultAutoMergeWait = Object.freeze({ maxAttempts: 60, delayMs: 30_000 });
 const maxAutoMergeWaitAttempts = 60;
 const autoMergeWaitDelayBucketsMs = Object.freeze([0, 5000, 15000, 30000]);
-const independentReviewRequiredLanes = new Set(["client-ui-low-risk"]);
+const independentReviewRequiredLanes = new Set(approvedDomainAutoMergeLanes);
+const strongIndependentTiers = new Set(["strong_independent", "tie_breaker"]);
+const umbrellaLabelPatterns = [/umbrella/i, /epic/i, /parent/i, /tracker/i];
 
 export function evaluateAutoMergeDecision(input) {
   const config = input.config || {};
@@ -64,7 +83,8 @@ export function evaluateAutoMergeDecision(input) {
     if (!approval.approved) return block(`low_risk_auto_merge_canary_not_approved:${approval.reason}`);
   }
   if (!laneDecision.allowedToImplement) return block("lane_not_allowed_to_implement");
-  if (!lowRiskAutoMergeLanes.includes(laneDecision.lane)) return block("lane_not_low_risk_auto_merge_approved");
+  const laneApproval = evaluateApprovedLanePolicy(config, laneDecision);
+  if (!laneApproval.ok) return block(laneApproval.reason);
   if (!laneDecision.autoMergeEligible || laneDecision.contract?.autoMergeEligible !== true) {
     return block("contract_not_auto_merge_eligible");
   }
@@ -77,26 +97,23 @@ export function evaluateAutoMergeDecision(input) {
   if (pr.state !== "OPEN") return block("pr_not_open");
   if (pr.isDraft) return block("pr_is_draft");
   if (pr.baseRefName !== "main") return block("pr_base_not_main");
+  if (!branchStrategyMatches(laneDecision, input.branchName || pr.headRefName)) return block("branch_strategy_mismatch");
+  const linkageEvidence = input.issueLinkageEvidence || buildIssueLinkageEvidence(pr, issue.number);
+  if (!linkageEvidence.available) return block("missing_issue_linkage_evidence");
+  if (!linkageEvidence.linked) return block("pr_missing_issue_linkage");
   if (actualHeadSha !== expectedHeadSha) return block("pr_head_sha_mismatch");
   if (input.expectedOriginMainSha && input.currentOriginMainSha !== input.expectedOriginMainSha) {
     return block("origin_main_base_mismatch");
   }
+  const validation = evaluateValidationEvidence(input, { expectedHeadSha, expectedBaseSha: input.expectedOriginMainSha, changedFiles, laneDecision });
+  if (!validation.ok) return block(validation.reason);
   const independentReview = evaluateIndependentReviewEvidence(input);
   if (!independentReview.ok) return block(independentReview.reason);
-  if (input.codexMechanicsReviewApproved !== true && input.review?.verdict?.verdict !== "approve") {
-    return block("codex_mechanics_review_not_approved");
-  }
-  const codexReviewHead = input.review?.reviewedHead || input.review?.headSha || null;
-  if (!codexReviewHead) return block("codex_mechanics_review_head_missing");
-  if (codexReviewHead && codexReviewHead !== (actualHeadSha || expectedHeadSha)) return block("codex_mechanics_review_head_mismatch");
-  if (!Array.isArray(input.review?.changedFiles)) return block("codex_mechanics_review_files_missing");
-  if (!sameStringSet(input.review.changedFiles, changedFiles)) {
-    return block("codex_mechanics_review_files_mismatch");
-  }
-  if (!input.validation?.passed) return block("local_validation_not_passed");
+  const codexReview = evaluateCodexReviewEvidence(input, { expectedHeadSha, expectedBaseSha: input.expectedOriginMainSha, changedFiles });
+  if (!codexReview.ok) return block(codexReview.reason);
   if (input.worktreeClean !== true) return block("worktree_not_clean");
   if (pr.mergeable !== "MERGEABLE") return block("pr_not_mergeable");
-  const checkStatus = summarizeCheckStatus(requiredChecks);
+  const checkStatus = summarizeCheckStatus(requiredChecks, config.autoMergePolicy);
   if (checkStatus.state === "pending") return block("required_checks_pending");
   if (checkStatus.state !== "success") return block("required_checks_not_successful");
   if (!cleanMergeStates.has(pr.mergeStateStatus)) return block(`pr_merge_state_not_clean:${pr.mergeStateStatus || "unknown"}`);
@@ -137,7 +154,7 @@ export function evaluateExistingPrRecoveryDecision(input) {
 
   if (!config.allowExistingPrRecovery) return block("existing_pr_recovery_disabled_by_config");
   if (!pr.number && !pr.url) return block("existing_pr_recovery_missing_pr");
-  if (!pr.headRefName || !/^feature\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
+  if (!pr.headRefName || !/^(feature|focused)\/auto-\d+-/.test(pr.headRefName)) return block("existing_pr_recovery_unowned_pr_branch");
   if (!linkageEvidence.available) return block("existing_pr_recovery_missing_pr_linkage_evidence");
   if (!linkageEvidence.linked) return block("existing_pr_recovery_pr_not_linked_to_issue");
   if (requiresIndependentAiReview(input.laneDecision) && !evidence.geminiPass) {
@@ -307,35 +324,53 @@ export function executeAutoMerge(config, context, options = {}) {
   }
 
   const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
-  const merge = runner("gh", ["pr", "merge", String(prNumber), "--merge"], { cwd: config.repoRoot });
+  const defaultInspectState =
+    runner === defaultRunner
+      ? (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber })
+      : () => ({});
+  const refreshed = (options.inspectState || defaultInspectState)(config, context);
+  const finalContext = mergeAutoMergeContext(context, refreshed);
+  if (!config.dryRun && finalContext.expectedOriginMainSha) {
+    const origin = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
+    finalContext.currentOriginMainSha = origin.status === 0 && !origin.error ? origin.stdout.trim() : finalContext.currentOriginMainSha;
+  }
+  const finalDecision = evaluateAutoMergeDecision(finalContext);
+  if (!finalDecision.eligible) {
+    const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
+    return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
+  }
+  const merge = runner("gh", ["pr", "merge", String(prNumber), "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
   if (merge.error || merge.status !== 0) {
-    const failed = { ...decision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
-    return { ...failed, evidence: writeAutoMergeEvidence(config, failed, context) };
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
+    return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
 
   const mergeSha = context.mergeSha || readMergeSha(runner, config.repoRoot, prNumber);
-  const branchRestore = restoreSourceBranchIfDeleted(config, context, runner);
-  const issueLabelCleanupResult = cleanupIssueLifecycleLabels(config, context, runner);
-  const closeIssue = runner("gh", ["issue", "close", String(context.issue.number), "--reason", "completed"], { cwd: config.repoRoot });
-  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--body", mergeSummaryBody(context, mergeSha)], { cwd: config.repoRoot });
-  const issueComment = runner("gh", ["issue", "comment", String(context.issue.number), "--body", issueSummaryBody(context, mergeSha)], {
+  const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
+  const issueLabelCleanupResult = cleanupIssueLifecycleLabels(config, finalContext, runner);
+  const closeAllowed = !isUmbrellaIssue(finalContext.issue);
+  const closeIssue = closeAllowed
+    ? runner("gh", ["issue", "close", String(finalContext.issue.number), "--reason", "completed"], { cwd: config.repoRoot })
+    : { status: null, error: null, skipped: true };
+  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
+  const issueComment = runner("gh", ["issue", "comment", String(finalContext.issue.number), "--body", issueSummaryBody(finalContext, mergeSha)], {
     cwd: config.repoRoot,
   });
   const merged = {
-    ...decision,
+    ...finalDecision,
     attempted: true,
     result: "merged",
     reason: "github_merge_commit_completed",
     mergeSha,
     sourceBranchRestoration: branchRestore,
     issueLabelCleanupResult,
-    issueClosureResult: closeIssue.status === 0 && !closeIssue.error ? "closed_completed" : "close_failed",
+    issueClosureResult: closeAllowed ? (closeIssue.status === 0 && !closeIssue.error ? "closed_completed" : "close_failed") : "skipped_umbrella_issue",
     comments: {
       pr: commandStatus(prComment),
       issue: commandStatus(issueComment),
     },
   };
-  return { ...merged, evidence: writeAutoMergeEvidence(config, merged, context) };
+  return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
 }
 
 function executeAutoMergeWithWait(config, initialContext, options) {
@@ -442,12 +477,53 @@ export function shouldGenerateExistingPrRecoveryEvidence(laneDecision = {}, exac
   );
 }
 
+function evaluateApprovedLanePolicy(config = {}, laneDecision = {}) {
+  const canonicalLane = laneDecision.canonicalLane || laneDecision.lane;
+  if (!approvedDomainAutoMergeLanes.includes(canonicalLane)) return { ok: false, reason: "lane_not_approved_domain_auto_merge_supported" };
+  if (laneDecision.splitRequired || laneDecision.branchStrategy === "split-required") return { ok: false, reason: "split_required_lanes_do_not_auto_merge" };
+  if (laneDecision.manualActionRequired || laneDecision.manualGate || laneDecision.dangerGate) return { ok: false, reason: "manual_or_danger_gate_present" };
+  if (laneDecision.laneManifest?.decisionType !== "runnable") return { ok: false, reason: "lane_manifest_not_runnable" };
+  if (laneDecision.laneManifest?.autoMergeAllowed !== true) return { ok: false, reason: "lane_manifest_auto_merge_not_supported" };
+  const approved = config.autoMergePolicy?.approvedLanes || [];
+  const canaryApproval = Boolean(config.canary && lowRiskAutoMergeLanes.includes(canonicalLane));
+  if (!canaryApproval && !approved.includes(canonicalLane)) return { ok: false, reason: "lane_not_in_approved_auto_merge_config" };
+  return { ok: true };
+}
+
+function branchStrategyMatches(laneDecision = {}, branchName = "") {
+  const branch = String(branchName || "");
+  if (laneDecision.branchStrategy === "focused") return /^focused\/auto-\d+-/.test(branch);
+  if (laneDecision.branchStrategy === "normal") return /^feature\/auto-\d+-/.test(branch);
+  return false;
+}
+
+function evaluateValidationEvidence(input, { expectedHeadSha, expectedBaseSha, changedFiles, laneDecision }) {
+  const validation = input.validation || {};
+  if (validation.passed !== true) return { ok: false, reason: "local_validation_not_passed" };
+  if (!Array.isArray(validation.results) || validation.results.length === 0) return { ok: false, reason: "validation_exact_evidence_missing" };
+  if (!validation.completedAt) return { ok: false, reason: "validation_completed_at_missing" };
+  if (validation.headSha !== expectedHeadSha) return { ok: false, reason: "validation_head_mismatch" };
+  if (expectedBaseSha && validation.baseSha !== expectedBaseSha) return { ok: false, reason: "validation_base_mismatch" };
+  if (!Array.isArray(validation.changedFiles)) return { ok: false, reason: "validation_files_missing" };
+  if (!sameStringSet(validation.changedFiles, changedFiles)) return { ok: false, reason: "validation_files_mismatch" };
+  if (validation.changedFilesDigest !== digestStrings(changedFiles)) return { ok: false, reason: "validation_file_digest_mismatch" };
+  if (validation.profile !== laneDecision.validationProfile) return { ok: false, reason: "validation_profile_mismatch" };
+  return { ok: true };
+}
+
 function evaluateIndependentReviewEvidence(input) {
   const review = input.externalReview || {};
   const required = Boolean(input.externalReviewRequired) || requiresIndependentAiReview(input.laneDecision);
   if (!required) return { ok: true };
   if (review.status !== "pass") {
     return { ok: false, reason: `independent_review_not_passed:${review.reason || review.status || "missing"}` };
+  }
+  const requiredTier = input.laneDecision?.reviewerTier || "cheap_independent";
+  if (requiredTier === "cheap_independent" && !["cheap_independent", "strong_independent", "tie_breaker"].includes(review.tier)) {
+    return { ok: false, reason: "independent_review_tier_downgrade" };
+  }
+  if (requiredTier === "strong_independent" && !strongIndependentTiers.has(review.tier)) {
+    return { ok: false, reason: "independent_review_tier_downgrade" };
   }
   if (review.verdict && review.verdict !== "pass") {
     return { ok: false, reason: "independent_review_malformed_or_non_pass_verdict" };
@@ -463,9 +539,33 @@ function evaluateIndependentReviewEvidence(input) {
   if (Array.isArray(review.changedFiles) && !sameStringSet(review.changedFiles, input.changedFiles || [])) {
     return { ok: false, reason: "independent_review_files_mismatch" };
   }
+  if (review.changedFilesDigest && review.changedFilesDigest !== digestStrings(input.changedFiles || [])) {
+    return { ok: false, reason: "independent_review_file_digest_mismatch" };
+  }
   if (review.baseSha && input.expectedOriginMainSha && review.baseSha !== input.expectedOriginMainSha) {
     return { ok: false, reason: "independent_review_base_mismatch" };
   }
+  if (review.independent === false || review.provider === "codex") return { ok: false, reason: "independent_review_provider_not_independent" };
+  if (!review.completedAt && !review.finishedAt) return { ok: false, reason: "independent_review_timestamp_missing" };
+  if (review.budget?.status && review.budget.status !== "pass") return { ok: false, reason: "independent_review_budget_not_passed" };
+  return { ok: true };
+}
+
+function evaluateCodexReviewEvidence(input, { expectedHeadSha, expectedBaseSha, changedFiles }) {
+  const review = input.review || {};
+  if (input.codexMechanicsReviewApproved !== true && review.verdict?.verdict !== "approve") {
+    return { ok: false, reason: "codex_mechanics_review_not_approved" };
+  }
+  const codexReviewHead = review.reviewedHead || review.headSha || null;
+  if (!codexReviewHead) return { ok: false, reason: "codex_mechanics_review_head_missing" };
+  if (codexReviewHead !== expectedHeadSha) return { ok: false, reason: "codex_mechanics_review_head_mismatch" };
+  if (expectedBaseSha && review.baseSha && review.baseSha !== expectedBaseSha) return { ok: false, reason: "codex_mechanics_review_base_mismatch" };
+  if (!Array.isArray(review.changedFiles)) return { ok: false, reason: "codex_mechanics_review_files_missing" };
+  if (!sameStringSet(review.changedFiles, changedFiles)) return { ok: false, reason: "codex_mechanics_review_files_mismatch" };
+  if (review.changedFilesDigest && review.changedFilesDigest !== digestStrings(changedFiles)) return { ok: false, reason: "codex_mechanics_review_file_digest_mismatch" };
+  if (review.mutationDetected === true || review.checkoutMutationDetected === true) return { ok: false, reason: "codex_mechanics_review_mutated_checkout" };
+  if (Array.isArray(review.blockingFindings) && review.blockingFindings.length > 0) return { ok: false, reason: "codex_mechanics_review_blocking_findings" };
+  if (!review.completedAt && !review.finishedAt) return { ok: false, reason: "codex_mechanics_review_timestamp_missing" };
   return { ok: true };
 }
 
@@ -591,18 +691,41 @@ function detectBlockingMarkers(comments, reviews) {
   return markers;
 }
 
-function summarizeCheckStatus(checks) {
-  if (checks.length === 0) return { state: "missing", total: 0, pending: 0, failed: 0 };
-  const pending = checks.filter((check) => check.status !== "COMPLETED").length;
-  const failed = checks.filter((check) => check.status === "COMPLETED" && !successfulCheckConclusions.has(check.conclusion)).length;
-  if (pending > 0) return { state: "pending", total: checks.length, pending, failed };
-  if (failed > 0) return { state: "failed", total: checks.length, pending, failed };
-  return { state: "success", total: checks.length, pending, failed };
+function summarizeCheckStatus(checks, policy = {}) {
+  const requiredNames = policy?.requiredChecks || [];
+  const allowedSkipped = new Set(policy?.allowedSkippedChecks || []);
+  if (checks.length === 0) return { state: "missing", total: 0, pending: 0, failed: 0, missingRequired: requiredNames };
+  const matched = new Set();
+  for (const required of requiredNames) {
+    if (checks.some((check) => check.name === required)) matched.add(required);
+  }
+  const missingRequired = requiredNames.filter((name) => !matched.has(name));
+  if (missingRequired.length > 0) return { state: "missing", total: checks.length, pending: 0, failed: 0, missingRequired };
+  const relevant = requiredNames.length > 0 ? checks.filter((check) => requiredNames.includes(check.name)) : checks;
+  const pending = relevant.filter((check) => check.status !== "COMPLETED").length;
+  const failed = relevant.filter((check) => {
+    if (check.status !== "COMPLETED") return false;
+    if (check.conclusion === "SKIPPED" && !allowedSkipped.has(check.name)) return true;
+    return !successfulCheckConclusions.has(check.conclusion);
+  }).length;
+  if (pending > 0) return { state: "pending", total: relevant.length, pending, failed, missingRequired };
+  if (failed > 0) return { state: "failed", total: relevant.length, pending, failed, missingRequired };
+  return { state: "success", total: relevant.length, pending, failed, missingRequired };
 }
 
 function sameStringSet(left = [], right = []) {
   const normalize = (items) => items.map((item) => String(item || "")).filter(Boolean).sort();
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+}
+
+function digestStrings(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+}
+
+function isUmbrellaIssue(issue = {}) {
+  const labels = labelNames(issue.labels || []);
+  const text = `${issue.title || ""}\n${labels.join("\n")}`;
+  return umbrellaLabelPatterns.some((pattern) => pattern.test(text));
 }
 
 function sleepSync(delayMs) {

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { getValidationProfile } from "./lane-policy.mjs";
 
 export function planValidation(changedFiles, laneDecision) {
@@ -7,7 +8,9 @@ export function planValidation(changedFiles, laneDecision) {
   if (!commands) {
     throw new Error(`Unsupported validation profile: ${profileName}`);
   }
-  return commands.map(([command, args]) => ({ command, args, display: `${command} ${args.join(" ")}` }));
+  const plan = commands.map(([command, args]) => ({ command, args, display: `${command} ${args.join(" ")}` }));
+  plan.profile = profileName;
+  return plan;
 }
 
 export function runValidationPlan(config, plan) {
@@ -32,6 +35,21 @@ export function runValidationPlan(config, plan) {
   return {
     passed: results.every((result) => !result.error && result.status === 0),
     results,
+    profile: plan.profile || null,
+    completedAt: new Date().toISOString(),
+  };
+}
+
+export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile }) {
+  const files = [...(changedFiles || [])].map(String).sort();
+  return {
+    ...(validation || {}),
+    profile: profile || validation?.profile || null,
+    headSha: headSha || null,
+    baseSha: baseSha || null,
+    changedFiles: files,
+    changedFilesDigest: createHash("sha256").update(files.join("\n")).digest("hex"),
+    completedAt: validation?.completedAt || new Date().toISOString(),
   };
 }
 

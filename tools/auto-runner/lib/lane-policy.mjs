@@ -930,6 +930,7 @@ function policyLane({
   sensitivity,
   reviewerTier,
   branchStrategy,
+  autoMergeAllowed = true,
 }) {
   return Object.freeze({
     id,
@@ -940,7 +941,7 @@ function policyLane({
     implementationAllowed: true,
     manualGateBeforeImplementation: false,
     prCreationAllowed: true,
-    autoMergeAllowed: false,
+    autoMergeAllowed: Boolean(autoMergeAllowed),
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
     sensitivity,

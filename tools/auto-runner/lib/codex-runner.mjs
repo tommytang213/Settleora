@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { closeSync, openSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
@@ -102,6 +103,11 @@ export function runReviewPrompt(config, packageInfo) {
       reviewStatus: "skipped",
       reviewFailureReason: "dry-run",
       attempts: [],
+      reviewedHead: packageInfo.summary?.currentHead || packageInfo.summary?.headSha || null,
+      baseSha: packageInfo.summary?.baseSha || packageInfo.summary?.baseOriginMainSha || null,
+      changedFiles: packageInfo.summary?.changedFiles || [],
+      changedFilesDigest: sha256Strings(packageInfo.summary?.changedFiles || []),
+      completedAt: new Date().toISOString(),
     };
   }
   const command = resolveCodexCommand(config.reviewerCommand || config.codexCommand);
@@ -134,9 +140,16 @@ export function runReviewPrompt(config, packageInfo) {
     attempts,
     attemptCount: attempts.length,
     reviewedHead: packageInfo.summary?.currentHead || packageInfo.summary?.headSha || null,
+    baseSha: packageInfo.summary?.baseSha || packageInfo.summary?.baseOriginMainSha || null,
     changedFiles: packageInfo.summary?.changedFiles || [],
+    changedFilesDigest: sha256Strings(packageInfo.summary?.changedFiles || []),
+    completedAt: new Date().toISOString(),
     verdict: selected.verdict,
   };
+}
+
+function sha256Strings(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
 }
 
 function runReviewPromptAttempt(config, command, prompt, attempt) {

@@ -20,6 +20,41 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #889 - Approved-domain exact-head auto-merge policy PR checkpoint
+
+- Scope:
+  - Replaces the permanent low-risk-only auto-merge bottleneck with an
+    explicit approved-domain policy model for every runnable lane manifest.
+  - Keeps repository defaults fail-closed: `allowAutoMerge=false` and
+    `autoMergePolicy.approvedLanes=[]`.
+  - Requires canonical runnable lane approval, exact issue contract
+    auto-merge eligibility, no manual action or split requirement, exact
+    branch strategy, exact changed-file path matches, structured validation
+    evidence, the #888 external reviewer tier, Codex mechanics/security
+    evidence, GitHub CI/security/code-scanning gates, clear threads/reviews,
+    open issue state, no stop labels, and unchanged base/head through the
+    final refresh.
+  - Uses `gh pr merge --merge --match-head-commit <exact-head>` and keeps
+    source-branch restoration non-force.
+- Manual-action boundary preserved:
+  production deployment, mobile store release, destructive migration/data
+  execution, secret/auth credential mutation, public/admin exposure,
+  architecture replacement, force-like history, branch deletion/cleanup, Day 1
+  scope cuts, and unresolved product/policy/financial authority decisions
+  remain non-auto-mergeable.
+- Non-goals preserved:
+  #890 feature-bundle orchestration, #891 issue derivation, #892 full
+  progress hygiene, #893 broad recovery/continuation, and #894 final
+  cross-domain unattended proof are not implemented by this slice.
+- Scope confirmation:
+  this checkpoint changes only auto-runner policy/integration/tests,
+  example config, and workflow/planning docs. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz
+  runtime, money/settlement/payment/bill calculation runtime, schema/migration
+  files, OpenAPI/generated clients, Docker/Compose/CI workflows, active
+  deployment config, secrets, production deploy, mobile release,
+  public/admin exposure, runner control, or protected canaries.
+
 ### Issue #888 - Operational external reviewer tiers stacked PR checkpoint
 
 - Scope:

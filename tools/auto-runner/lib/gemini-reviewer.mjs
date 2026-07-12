@@ -73,6 +73,7 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   const base = {
     mode: "integrated-pre-pr-review",
     provider: "gemini",
+    independent: true,
     tier: tierId,
     providerProfile: tier?.providerProfile || null,
     model,
@@ -104,6 +105,7 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     actualUsage: null,
     elapsedMs: null,
     reportPath: null,
+    completedAt: null,
   };
 
   if (!tier || !tier.enabled) return finishIntegrated(config, base, startedAtMs, "skipped_external_reviewer_tier_disabled");
@@ -166,6 +168,7 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   const finalBeforeReport = {
     ...attemptedResult,
     elapsedMs: Date.now() - startedAtMs,
+    completedAt: new Date().toISOString(),
   };
   finalBeforeReport.reportPath = writeIntegratedReport(config, finalBeforeReport);
   try {
@@ -664,6 +667,7 @@ function finishSmoke(config, result, startedAtMs, reason) {
     status: result.status === "pass" ? "pass" : reason.startsWith("skipped") ? "skipped" : "blocked",
     reason: result.reason || reason,
     elapsedMs: Date.now() - startedAtMs,
+    completedAt: new Date().toISOString(),
   };
   final.reportPath = writeSmokeReport(config, final);
   return final;
