@@ -1,0 +1,27 @@
+[Unit]
+Description=Settleora read-only auto-runner health service
+Documentation=README:%h/.config/systemd/user/settleora-auto-runner-health.service
+After=network.target
+
+[Service]
+Type=exec
+WorkingDirectory=/workspace/repos/Settleora
+ExecStart=/usr/bin/env node tools/auto-runner/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787
+EnvironmentFile=-/workspace/logs/settleora-auto-runner/secrets/health-service.env
+UMask=0077
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=300
+StartLimitBurst=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/workspace/logs/settleora-auto-runner
+ReadOnlyPaths=/workspace/repos/Settleora
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+# Repository template only. Install/start/enablement and any non-loopback
+# binding require a separate manual deployment gate.

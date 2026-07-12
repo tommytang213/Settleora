@@ -67,6 +67,29 @@ remains an operator diagnostic path. See
 `docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md` and
 `docs/workflow/AUTONOMOUS_CODEX_RUNNER_MONITORING.md`.
 
+Read-only health service foundation:
+
+```bash
+node tools/auto-runner/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787
+curl -fsS http://127.0.0.1:8787/health/auto-runner
+```
+
+The service exposes only `GET /health/auto-runner`, returns bounded sanitized
+JSON with `Cache-Control: no-store`, binds loopback by default, and has no
+runner control, GitHub, branch, lock deletion, retry, resume, PR, merge,
+notification-provider, or Uptime Kuma private-API authority. Health reads do
+not write notifier dedupe state or other runtime state. Any non-loopback bind
+requires explicit deployment configuration plus an external request-secret file
+under `/workspace/logs/settleora-auto-runner/secrets/`; no live secret is
+created or configured by the repository.
+
+The repository-only user-unit template is
+`tools/auto-runner/systemd/settleora-auto-runner-health.service`. It uses
+`Restart=on-failure` only for this read-only monitor service. The mutation
+supervisor template remains `Restart=no`. Installing, starting, enabling,
+disabling, or exposing the health service remains a separate manual deployment
+gate.
+
 Supervised runs pass a validated `--supervisor-run-id` into the runner. The
 runner writes it as sanitized summary metadata, and supervisor status/report/
 health use only that exact correlation to resolve the runner JSON/Markdown

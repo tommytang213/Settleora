@@ -20,6 +20,52 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #879 - Auto-runner health service implementation PR checkpoint
+
+- GitHub/live state verified:
+  - PR #881 is merged at
+    `3358a77646a0af889cfcc75849beb7fb56576843`, unblocking the
+    repository implementation slice.
+  - #800 remains open as the broader DevBox-native unattended runner tracker.
+  - #879 remains open pending merge of the implementation PR.
+  - #880 remains open and blocked on #879 merge plus manual DevBox/TrueNAS,
+    network binding, Uptime Kuma, and notification-secret approval.
+  - #865 and #866 remain open protected canaries and are not part of this
+    implementation.
+- This implementation-PR scope:
+  - Adds a separate read-only health service entry point exposing only
+    `GET /health/auto-runner` with bounded sanitized JSON, `Cache-Control:
+    no-store`, loopback default binding, strict method/path handling, and no
+    runner/GitHub/control/mutation routes.
+  - Adds a pure health evaluator that reads trusted supervisor state,
+    heartbeat, strict report-correlation status, runner active/lock state, and
+    sanitized trusted-summary counts. It treats initialization, fresh active
+    heartbeats, successful idle terminal runs, `no-eligible-work`, and
+    successful budget exhaustion as healthy; cancellation is bounded
+    `attention`; stale active heartbeat, failed/submission-failed/blocked/
+    partial terminal state, missing/ambiguous report mapping, disappeared
+    active runner, orphaned locks, and untrusted state fail closed.
+  - Adds a reusable terminal-event notifier dedupe-state foundation under the
+    approved monitoring logs boundary. The health endpoint does not write or
+    claim dedupe entries, and no provider/destination/secret is configured.
+  - Adds a repository-only systemd user-unit template for the read-only health
+    service with `Restart=on-failure`; the existing mutation supervisor
+    template remains `Restart=no`.
+- Issue posture:
+  keep #879 open until the implementation PR merges. Keep #800 open as the
+  umbrella, and keep #880 open for the later manual deployment/acceptance gate.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, workflow docs, the
+  repository health-service systemd template, and this ledger. It does not
+  install/start/reload/enable systemd, alter linger, bind a LAN/public port,
+  configure TrueNAS or Uptime Kuma, create notification credentials, send
+  notifications, call Uptime Kuma private APIs, run or control the runner,
+  delete locks, mutate #865/#866, or change product runtime, API behavior,
+  auth/session/security, storage/privacy/authz, money/settlement/payment/bill
+  calculation, schema/migration, OpenAPI/generated clients, Docker/Compose,
+  CI/deployment/env, secrets, production deploy, mobile release, or
+  public/admin exposure.
+
 ### Issue #800 - Uptime Kuma health monitoring design checkpoint
 
 - GitHub/live state verified:

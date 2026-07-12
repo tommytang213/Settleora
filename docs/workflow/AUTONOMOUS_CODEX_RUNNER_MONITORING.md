@@ -9,6 +9,21 @@ enable a DevBox unit, install Uptime Kuma, configure TrueNAS SCALE, expose a
 network port, configure notification credentials, or prove deployment
 acceptance.
 
+Repository implementation foundation now exists for the repo-only portion:
+
+- `tools/auto-runner/settleora-auto-runner-health-service.mjs` starts a
+  separate read-only Node HTTP process.
+- `tools/auto-runner/lib/health-service.mjs` evaluates persisted
+  supervisor/runner health using bounded trusted state reads, existing
+  heartbeat constants, existing lifecycle state sets, strict report-correlation
+  status, and runner lock semantics without deleting locks.
+- `tools/auto-runner/lib/notifier-dedupe-state.mjs` provides a future notifier
+  dedupe-state writer keyed by immutable supervisor run ID plus terminal event
+  kind. The health endpoint does not call it.
+- `tools/auto-runner/systemd/settleora-auto-runner-health.service` is a
+  repository template only. It has not been installed, started, enabled, bound
+  to a LAN address, or connected to Uptime Kuma by the repository foundation.
+
 Approved architecture:
 
 ```text
@@ -75,7 +90,8 @@ The service reads only bounded owner-only persisted state:
 - strict supervisor/runner report-correlation results;
 - sanitized runner summaries and counts already present in trusted summaries;
 - runner active/lock readback;
-- bounded systemd readback for the selected/current supervisor unit.
+- bounded systemd readback if a later deployment-approved readback helper is
+  added.
 
 Uptime Kuma must not poll GitHub for eligible issues on every health check. No
 eligible work is a successful terminal result, not an outage. Idle does not
@@ -84,7 +100,7 @@ or unreachable DevBox is detected because Uptime Kuma cannot reach the endpoint.
 
 ## Endpoint Contract
 
-Future implementation should expose one narrow route:
+The repository foundation exposes one narrow route:
 
 ```text
 GET /health/auto-runner
@@ -190,7 +206,7 @@ never delete locks.
 
 ## Health Service Boundary
 
-Future repository implementation constraints:
+Repository implementation constraints:
 
 - separate systemd user unit, tentatively
   `settleora-auto-runner-health.service`;
@@ -212,6 +228,13 @@ Future repository implementation constraints:
   with restrictive permissions;
 - rollback is stopping/disabling the health unit and removing the Uptime Kuma
   monitor without changing runner state.
+
+The service default bind is `127.0.0.1:8787`. Non-loopback binding is rejected
+unless explicit deployment configuration opts in and supplies an external
+request-secret file under `/workspace/logs/settleora-auto-runner/secrets/`.
+The secret is checked as a static request header and is never printed by the
+service. No repository code creates a live secret, selects a notification
+provider, or configures a Uptime Kuma monitor.
 
 For the initial trusted-LAN deployment, network restriction is necessary but
 not sufficient when non-loopback binding is enabled. Uptime Kuma supports
@@ -274,6 +297,12 @@ Notifier state should be persisted atomically outside the repo, tentatively:
 ```text
 /workspace/logs/settleora-auto-runner/monitoring/notifier-state.json
 ```
+
+The repository foundation implements this state helper as a reusable library
+only. It performs owner-only atomic writes, rejects malformed, symlinked,
+out-of-root, group/world-accessible, oversized, and schema-invalid state, and
+keeps a bounded deterministic entry set. Health `GET` requests do not mark or
+claim terminal events.
 
 Requirements:
 
