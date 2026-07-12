@@ -4102,6 +4102,199 @@ test("changed file outside contract allowlist is rejected even inside lane", () 
   ]);
 });
 
+test("contract path matcher handles exact paths and directory glob boundaries deterministically", () => {
+  const exact = classifyIssueLane({
+    title: "Exact workflow doc",
+    body: contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+      validationProfile: "docs-only",
+    }),
+    labels: ["auto-ready"],
+  });
+  assert.equal(exact.allowedToImplement, true);
+  assert.deepEqual(filterForbiddenChangedFiles(["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"], exact), []);
+  assert.deepEqual(filterForbiddenChangedFiles(["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"], exact), [
+    "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md",
+  ]);
+
+  const directory = classifyIssueLane({
+    title: "Workflow docs directory",
+    body: contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["docs/workflow/**"],
+      validationProfile: "docs-only",
+    }),
+    labels: ["auto-ready"],
+  });
+  assert.equal(directory.allowedToImplement, true);
+  assert.deepEqual(filterForbiddenChangedFiles(["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"], directory), []);
+  assert.deepEqual(filterForbiddenChangedFiles(["docs/workflow2/AUTONOMOUS_CODEX_RUNNER.md"], directory), [
+    "docs/workflow2/AUTONOMOUS_CODEX_RUNNER.md",
+  ]);
+});
+
+test("contract path matcher supports only reviewed wildcard forms used by lane manifests", () => {
+  const cases = [
+    {
+      lane: "auth-session-security",
+      profile: "api-security",
+      glob: "docs/architecture/AUTH_*.md",
+      good: "docs/architecture/AUTH_MFA_PASSKEY_ARCHITECTURE.md",
+      bad: "docs/architecture/SESSION_MFA_PASSKEY_ARCHITECTURE.md",
+    },
+    {
+      lane: "money-settlement-payment",
+      profile: "api-money",
+      glob: "docs/architecture/*MONEY*.md",
+      good: "docs/architecture/DAY1_MONEY_ROUNDING_AUTHORITY_AUDIT.md",
+      bad: "docs/architecture/DAY1_SETTLEMENT_AUTHORITY_AUDIT.md",
+    },
+    {
+      lane: "schema-migrations",
+      profile: "api-migrations",
+      glob: "services/api/**/Migrations/**",
+      good: "services/api/Settleora.Api/Migrations/202607121903_AddFoo.cs",
+      bad: "services/api/Settleora.Api/MigrationNotes/202607121903_AddFoo.cs",
+    },
+    {
+      lane: "schema-migrations",
+      profile: "api-migrations",
+      glob: "services/api/**/*.csproj",
+      good: "services/api/Settleora.Api/Settleora.Api.csproj",
+      bad: "services/api/Settleora.Api/Settleora.Api.cs",
+    },
+    {
+      lane: "sync-import-export-restore",
+      profile: "sync-import-export",
+      glob: "apps/mobile/lib/**/sync/**",
+      good: "apps/mobile/lib/features/sync/pending_operation.dart",
+      bad: "apps/mobile/lib/features/async/pending_operation.dart",
+    },
+    {
+      lane: "docker-compose-ci-deployment",
+      profile: "compose-ci",
+      glob: "tools/validate-*.mjs",
+      good: "tools/validate-scaffold.mjs",
+      bad: "tools/scaffold-validate.mjs",
+    },
+  ];
+
+  for (const item of cases) {
+    const lane = classifyIssueLane({
+      title: `${item.lane} wildcard contract`,
+      body: contractBody({
+        lane: item.lane,
+        allowedPaths: [item.glob],
+        validationProfile: item.profile,
+      }),
+      labels: ["auto-ready"],
+    });
+    assert.equal(lane.allowedToImplement, true, item.glob);
+    assert.deepEqual(filterForbiddenChangedFiles([item.good], lane), [], item.glob);
+    assert.deepEqual(filterForbiddenChangedFiles([item.bad], lane), [item.bad], item.glob);
+  }
+});
+
+test("contract path parser fails closed for unsupported wildcard, traversal, absolute, and oversized paths", () => {
+  for (const allowedPath of [
+    "docs/workflow/foo**bar.md",
+    "docs/workflow/**suffix.md",
+    "docs/workflow/../planning/ISSUE_PROGRESS_LEDGER.md",
+    "/docs/workflow/AUTONOMOUS_CODEX_RUNNER.md",
+    "docs\\workflow\\AUTONOMOUS_CODEX_RUNNER.md",
+    "docs/workflow/\u0001bad.md",
+    `docs/workflow/${"a".repeat(260)}.md`,
+  ]) {
+    const parsed = parseAutoRunnerContract(contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: [allowedPath],
+      validationProfile: "docs-only",
+    }));
+    assert.equal(parsed.ok, false, allowedPath);
+    assert.match(parsed.reason, /bounded repo-relative forward-slash globs/);
+  }
+});
+
+test("contract path matcher treats regex metacharacters as literal path text", () => {
+  const lane = classifyIssueLane({
+    title: "QA doc with regex-looking name",
+    body: contractBody({
+      lane: "docs-planning",
+      allowedPaths: ["docs/qa/path+(a)[b].md"],
+      validationProfile: "docs-only",
+    }),
+    labels: ["auto-ready"],
+  });
+  assert.equal(lane.allowedToImplement, true);
+  assert.deepEqual(filterForbiddenChangedFiles(["docs/qa/path+(a)[b].md"], lane), []);
+  assert.deepEqual(filterForbiddenChangedFiles(["docs/qa/pathaaaaab.md"], lane), ["docs/qa/pathaaaaab.md"]);
+});
+
+test("contract path matcher preserves canary and sensitive lane boundaries without prefix escape", () => {
+  const canary = classifyIssueLane({
+    title: "Canary component guardrail",
+    body: contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart", "apps/mobile/test/ui/settleora_component_guardrail_test.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready", "canary"],
+  });
+  assert.equal(canary.allowedToImplement, true);
+  assert.deepEqual(filterForbiddenChangedFiles(["apps/mobile/lib/ui/settleora_components.dart"], canary), []);
+  assert.deepEqual(filterForbiddenChangedFiles(["apps/mobile/lib/ui_private/settleora_components.dart"], canary), [
+    "apps/mobile/lib/ui_private/settleora_components.dart",
+  ]);
+
+  const auth = classifyIssueLane({
+    title: "Auth path boundary",
+    body: contractBody({
+      lane: "auth-session-security",
+      allowedPaths: ["services/api/Auth/**"],
+      validationProfile: "api-security",
+    }),
+    labels: ["auto-ready"],
+  });
+  assert.equal(auth.allowedToImplement, true);
+  assert.deepEqual(filterForbiddenChangedFiles(["services/api/Auth/SessionRuntime.cs"], auth), []);
+  assert.deepEqual(filterForbiddenChangedFiles(["services/api/Authz/SessionRuntime.cs"], auth), [
+    "services/api/Authz/SessionRuntime.cs",
+  ]);
+});
+
+test("contract path matcher rejects malformed changed paths and no longer constructs RegExp", () => {
+  const lane = classifyIssueLane({
+    title: "Workflow docs",
+    body: contractBody({
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["docs/workflow/**"],
+      validationProfile: "docs-only",
+    }),
+    labels: ["auto-ready"],
+  });
+  assert.equal(lane.allowedToImplement, true);
+  assert.deepEqual(
+    filterForbiddenChangedFiles([
+      "../docs/workflow/AUTONOMOUS_CODEX_RUNNER.md",
+      "/docs/workflow/AUTONOMOUS_CODEX_RUNNER.md",
+      "docs\\workflow\\AUTONOMOUS_CODEX_RUNNER.md",
+      `docs/workflow/${"x".repeat(520)}.md`,
+    ], lane),
+    [
+      "../docs/workflow/AUTONOMOUS_CODEX_RUNNER.md",
+      "/docs/workflow/AUTONOMOUS_CODEX_RUNNER.md",
+      "docs\\workflow\\AUTONOMOUS_CODEX_RUNNER.md",
+      `docs/workflow/${"x".repeat(520)}.md`,
+    ],
+  );
+
+  const source = readFileSync(path.resolve("tools/auto-runner/lib/lane-policy.mjs"), "utf8");
+  assert.doesNotMatch(source, /function globToRegExp|new RegExp/);
+});
+
 test("review verdict parsing approves valid verdict JSON surrounded by prose", () => {
   const approve = parseReviewVerdict(`notes\n${reviewVerdictJson()}\nextra review notes`);
   assert.equal(approve.verdict, "approve");

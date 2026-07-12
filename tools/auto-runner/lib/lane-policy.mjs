@@ -12,6 +12,9 @@ const contractFields = new Set([
   "requiredReading",
 ]);
 
+const maxAllowedPathPatternLength = 240;
+const maxChangedPathLength = 512;
+
 const manualActionPatterns = [
   { key: "production_deploy", pattern: /\b(production deploy(?:ment)?|deploy to production|deploy[^.\n]{0,80}production|production promotion|promote to production|release to production)\b/i },
   { key: "mobile_store_release", pattern: /\b(testflight submission|submit[^.\n]{0,80}testflight|app store submission|play store submission|mobile store release|signing release|store release)\b/i },
@@ -545,6 +548,7 @@ export function parseAutoRunnerContract(body) {
 }
 
 export function pathViolatesPolicy(filePath, laneDecision) {
+  if (!isSafeRepoRelativePath(filePath, { allowGlob: false, maxLength: maxChangedPathLength })) return true;
   const normalized = normalizePath(filePath);
   if (!laneDecision.allowedToImplement) return true;
   if (isForbiddenPath(normalized, laneDecision)) return true;
@@ -879,8 +883,9 @@ function validateContractShape(contract) {
       return { ok: false, reason: `Auto-runner contract field ${field} must be a non-empty string array.` };
     }
   }
-  if (contract.allowedPaths.some((glob) => glob.startsWith("/") || glob.includes("..") || glob.includes("\\"))) {
-    return { ok: false, reason: "Auto-runner contract allowedPaths must be repo-relative forward-slash globs." };
+  for (const glob of contract.allowedPaths) {
+    const pathPolicy = validateAllowedPathPattern(glob);
+    if (!pathPolicy.ok) return pathPolicy;
   }
   return { ok: true };
 }
@@ -1027,37 +1032,112 @@ function matchesAnyGlob(filePath, globs) {
 }
 
 function globMatchesPath(glob, filePath) {
-  if (glob.endsWith("/**")) {
-    const prefix = glob.slice(0, -3);
-    return filePath === prefix.slice(0, -1) || filePath.startsWith(prefix);
-  }
-  if (glob.includes("*")) {
-    return globToRegExp(glob).test(filePath);
-  }
-  return filePath === glob;
+  if (!isSafeRepoRelativePath(glob, { allowGlob: true, maxLength: maxAllowedPathPatternLength })) return false;
+  if (!isSafeRepoRelativePath(filePath, { allowGlob: false, maxLength: maxChangedPathLength })) return false;
+  return matchSegments(splitPath(glob), splitPath(filePath));
 }
 
 function globIsSubsetOf(childGlob, parentGlob) {
+  if (!isSafeRepoRelativePath(childGlob, { allowGlob: true, maxLength: maxAllowedPathPatternLength })) return false;
+  if (!isSafeRepoRelativePath(parentGlob, { allowGlob: true, maxLength: maxAllowedPathPatternLength })) return false;
+  if (childGlob === parentGlob) return true;
+  if (!childGlob.includes("*")) return globMatchesPath(parentGlob, childGlob);
   if (parentGlob.endsWith("/**")) {
-    const parentPrefix = parentGlob.slice(0, -2);
-    return childGlob === parentGlob || childGlob.startsWith(parentPrefix);
+    const parentBase = parentGlob.slice(0, -3);
+    return childGlob === parentBase || childGlob.startsWith(`${parentBase}/`);
   }
-  if (parentGlob.includes("*")) {
-    return childGlob === parentGlob || (!childGlob.includes("*") && globMatchesPath(parentGlob, childGlob));
-  }
-  return childGlob === parentGlob;
+  return false;
 }
 
 function normalizePath(filePath) {
-  return filePath.replace(/\\/g, "/").replace(/^\.\//, "");
+  return String(filePath || "").replace(/^\.\//, "");
 }
 
-function globToRegExp(glob) {
-  const escaped = glob
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "\0")
-    .replace(/\*/g, "[^/]*");
-  return new RegExp(`^${escaped.replace(/\0/g, ".*")}$`);
+function validateAllowedPathPattern(glob) {
+  if (!isSafeRepoRelativePath(glob, { allowGlob: true, maxLength: maxAllowedPathPatternLength })) {
+    return {
+      ok: false,
+      reason:
+        "Auto-runner contract allowedPaths must be bounded repo-relative forward-slash globs using exact paths, * within a segment, or ** as a full segment.",
+    };
+  }
+  return { ok: true };
+}
+
+function isSafeRepoRelativePath(value, { allowGlob, maxLength }) {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) return false;
+  if (value.startsWith("/") || value.startsWith("./") || value.includes("\\") || value.includes("\0")) return false;
+  if (/[\u0000-\u001f\u007f]/u.test(value)) return false;
+  const segments = value.split("/");
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) return false;
+  if (!allowGlob && value.includes("*")) return false;
+  return allowGlob ? segments.every(isSupportedGlobSegment) : true;
+}
+
+function isSupportedGlobSegment(segment) {
+  if (segment === "**") return true;
+  return !segment.includes("**");
+}
+
+function splitPath(value) {
+  return normalizePath(value).split("/");
+}
+
+function matchSegments(patternSegments, pathSegments) {
+  let patternIndex = 0;
+  let pathIndex = 0;
+  let lastGlobstarIndex = -1;
+  let lastGlobstarPathIndex = -1;
+
+  while (pathIndex < pathSegments.length) {
+    const patternSegment = patternSegments[patternIndex];
+    if (patternSegment === "**") {
+      lastGlobstarIndex = patternIndex;
+      lastGlobstarPathIndex = pathIndex;
+      patternIndex += 1;
+      continue;
+    }
+    if (patternSegment !== undefined && segmentMatches(patternSegment, pathSegments[pathIndex])) {
+      patternIndex += 1;
+      pathIndex += 1;
+      continue;
+    }
+    if (lastGlobstarIndex >= 0) {
+      patternIndex = lastGlobstarIndex + 1;
+      lastGlobstarPathIndex += 1;
+      pathIndex = lastGlobstarPathIndex;
+      continue;
+    }
+    return false;
+  }
+
+  while (patternSegments[patternIndex] === "**") {
+    patternIndex += 1;
+  }
+  return patternIndex === patternSegments.length;
+}
+
+function segmentMatches(patternSegment, pathSegment) {
+  if (!patternSegment.includes("*")) return patternSegment === pathSegment;
+  const parts = patternSegment.split("*");
+  let cursor = 0;
+
+  if (parts[0] && !pathSegment.startsWith(parts[0])) return false;
+  cursor = parts[0].length;
+
+  const lastIndex = parts.length - 1;
+  for (let index = 1; index < lastIndex; index += 1) {
+    const part = parts[index];
+    if (!part) continue;
+    const foundAt = pathSegment.indexOf(part, cursor);
+    if (foundAt < 0) return false;
+    cursor = foundAt + part.length;
+  }
+
+  const tail = parts[lastIndex];
+  if (!tail) return true;
+  const foundTailAt = pathSegment.indexOf(tail, cursor);
+  return foundTailAt >= 0 && foundTailAt + tail.length === pathSegment.length;
 }
 
 export const terminalOutcomes = [
