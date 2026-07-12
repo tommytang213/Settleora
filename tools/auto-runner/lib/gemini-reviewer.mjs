@@ -32,9 +32,17 @@ const maxGeminiRetryBackoffMs = 10_000;
 const geminiRetryDelayBucketsMs = Object.freeze([0, 100, 500, 1000, 2000, 5000, 10_000]);
 const secretLikePatterns = Object.freeze([
   /(^|\/)\.env($|[./-])/i,
-  /(^|\/)(secret|secrets|credential|credentials|token|tokens|ssh)(\/|$)/i,
   /\/workspace\/logs\/settleora-auto-runner\/secrets\//i,
-  /\b(api[_-]?key|authorization\s*[:=]|bearer\s+[A-Za-z0-9._~+/-]+|x-goog-api-key\s*[:=])\b/i,
+]);
+const secretLikePathPatterns = Object.freeze([
+  /(^|\/)\.env($|[./-])/i,
+  /(^|\/)(secrets?|credentials?|tokens?|ssh)(\/|$)/i,
+  /\/workspace\/logs\/settleora-auto-runner\/secrets\//i,
+]);
+const credentialValuePatterns = Object.freeze([
+  /\b(api[_-]?key|authorization|x-goog-api-key)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,}/i,
+  /\bbearer\s+[A-Za-z0-9._~+/-]{12,}/i,
+  /\b[A-Za-z_][A-Za-z0-9_]*_(TOKEN|SECRET|KEY)\s*=\s*["']?[A-Za-z0-9._~+/-]{12,}/,
 ]);
 
 export async function runGeminiIntegratedReview(config, packageInfo, options = {}) {
@@ -752,8 +760,11 @@ function estimateTokens(text) {
 }
 
 function hasSecretBoundaryViolation(changedFiles, diff) {
-  const haystack = [...changedFiles, diff].join("\n");
-  return secretLikePatterns.some((pattern) => pattern.test(haystack));
+  return (
+    changedFiles.some((file) => secretLikePathPatterns.some((pattern) => pattern.test(file))) ||
+    secretLikePatterns.some((pattern) => pattern.test(diff)) ||
+    credentialValuePatterns.some((pattern) => pattern.test(diff))
+  );
 }
 
 function timeoutSignal() {
