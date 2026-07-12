@@ -17,6 +17,23 @@ node tools/auto-runner/settleora-auto-runner.mjs --preflight
 node tools/auto-runner/settleora-auto-runner.mjs --readiness
 ```
 
+External reviewer package validation is non-mutating and requires an explicit
+task-scoped config path:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --review-package /workspace/logs/settleora-auto-runner/reviews/package.json --config /workspace/logs/settleora-auto-runner/reviewer-validation/<task-key>/config.json
+```
+
+The package reviewer routes to `cheap_independent`, `strong_independent`, or
+`block_split_or_escalate` from lane metadata plus changed-file and size
+evidence. Lane-required strong review is never downgraded. Evidence records
+the reviewed head, base SHA when supplied, exact sorted changed files, changed
+file digest, package digest, route/tier, provider profile/model, bounded
+pricing, attempts, budget/accounting, sanitized evidence path, and a bounded
+verdict schema. Provider keys must come only from the approved owner-only
+secret file boundary or process environment and are sent in headers, never URL
+query strings. This does not enable #889 sensitive-domain auto-merge.
+
 Local status and control:
 
 ```bash

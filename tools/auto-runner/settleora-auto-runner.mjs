@@ -106,13 +106,21 @@ async function main() {
     return;
   }
   if (cliArgs.reviewPackage) {
+    if (!cliArgs.configPath) {
+      throw new Error("--review-package requires an explicit --config path");
+    }
     const config = loadConfig({ dryRun: false, run: false, configPath: cliArgs.configPath });
     const packageText = readFileSync(cliArgs.reviewPackage, "utf8");
-    const result = runReviewPrompt(config, {
+    const parsedPackage = JSON.parse(packageText);
+    const result = await runGeminiIntegratedReview(config, {
       packagePath: cliArgs.reviewPackage,
-      summary: JSON.parse(packageText).summary || JSON.parse(packageText),
+      summary: parsedPackage.summary || parsedPackage,
+      diff: parsedPackage.diff || "",
     });
-    console.log(JSON.stringify(result.verdict, null, 2));
+    console.error(`External review package: ${result.status} (${result.reason})`);
+    console.error(`Evidence: ${result.reportPath}`);
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = result.status === "pass" ? 0 : 1;
     return;
   }
   if (cliArgs.preflight) {
@@ -1336,6 +1344,7 @@ async function writeReviewPackage(config, payload) {
     }),
     changedFiles: payload.changedFiles,
     currentHead: config.dryRun ? null : getRefSha("HEAD"),
+    baseSha: payload.baseSha || payload.baseRefSha || null,
     validation: payload.validation,
     report: payload.report,
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,

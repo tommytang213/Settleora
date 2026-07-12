@@ -48,6 +48,7 @@ import {
   runGeminiReviewerSmokeTest,
   sanitizeSecretText,
   supportedGeminiModelEndpoints,
+  validateReviewerSecretMetadata,
 } from "../lib/gemini-reviewer.mjs";
 import {
   estimateReviewerCostUsd,
@@ -1192,6 +1193,19 @@ test("reviewer routing escalates sensitive paths to strong independent review", 
   assert.match(route.sensitiveFiles.join("\n"), /services\/api/);
 });
 
+test("reviewer routing never downgrades lane-required strong tier", () => {
+  const route = routeReviewer({
+    changedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+    laneDecision: {
+      lane: "workflow-docs-tooling",
+      reviewerTier: "strong_independent",
+      implementationSensitivity: "high",
+    },
+  });
+  assert.equal(route.tier, "strong_independent");
+  assert.equal(route.laneRequiredTier, "strong_independent");
+});
+
 test("reviewer routing blocks or escalates huge cross-domain PRs", () => {
   const files = [
     ...Array.from({ length: 12 }, (_, index) => `docs/workflow/file-${index}.md`),
@@ -1409,6 +1423,10 @@ test("Gemini model config resolves only to fixed Google endpoint constants", asy
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.5-pro",
+    "gemini-3.1-pro-preview",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-pro-latest",
   ]);
   for (const [model, endpoint] of Object.entries(supportedGeminiModelEndpoints)) {
     assert.equal(resolveGeminiModelEndpoint(model), endpoint);
@@ -1421,9 +1439,49 @@ test("Gemini model config resolves only to fixed Google endpoint constants", asy
     "gemini-2.5-flash?key=attacker",
     "https://metadata.invalid/v1beta/models/gemini-2.5-flash",
     "//metadata.invalid/v1beta/models/gemini-2.5-flash",
-    "gemini-2.5-ultra",
   ]) {
     assert.equal(resolveGeminiModelEndpoint(unsupported), null);
+  }
+  assert.equal(
+    resolveGeminiModelEndpoint("gemini-pro-latest"),
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-latest:generateContent",
+  );
+});
+
+test("Gemini smoke sends API key only in headers, never URL or evidence", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-header-key-"));
+  try {
+    let capturedUrl = null;
+    let capturedHeader = null;
+    const result = await runGeminiReviewerSmokeTest(geminiSmokeConfig(tempRoot), {
+      liveExternalReviewerCalls: true,
+      env: { GEMINI_API_KEY: "super-secret-key" },
+      fetchImpl: async (url, init) => {
+        capturedUrl = String(url);
+        capturedHeader = init.headers["x-goog-api-key"];
+        return fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify({ verdict: "pass", findings: [] }) }] } }] });
+      },
+    });
+    assert.equal(result.status, "pass");
+    assert.equal(capturedHeader, "super-secret-key");
+    assert.doesNotMatch(capturedUrl, /super-secret-key|key=/);
+    assert.doesNotMatch(readFileSync(result.reportPath, "utf8"), /super-secret-key/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("Gemini approved secret metadata rejects unsafe files without reading values", () => {
+  const secretRoot = "/workspace/logs/settleora-auto-runner/secrets";
+  const filePath = path.join(secretRoot, `reviewer-test-${process.pid}-${Date.now()}.env`);
+  mkdirSync(secretRoot, { recursive: true, mode: 0o700 });
+  writeFileSync(filePath, "GEMINI_API_KEY=redacted-test-key\n", { mode: 0o600 });
+  try {
+    assert.equal(validateReviewerSecretMetadata(filePath).ok, true);
+    chmodSync(filePath, 0o644);
+    assert.equal(validateReviewerSecretMetadata(filePath).reason, "blocked_secret_env_file_mode");
+  } finally {
+    rmSync(filePath, { force: true });
   }
 });
 
@@ -1614,24 +1672,25 @@ test("client-ui-low-risk real-code integrated reviewer fails closed when tier is
   }
 });
 
-test("ineligible sensitive domain blocks integrated Gemini before provider call", async () => {
+test("sensitive domain uses strong integrated Gemini review when lane metadata requires it", async () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-sensitive-"));
   try {
     let calls = 0;
     const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage({
       changedFiles: ["services/api/Auth/SessionRuntime.cs"],
-      laneDecision: { lane: "security-runtime", dangerGate: true },
+      laneDecision: { lane: "security-runtime", dangerGate: true, reviewerTier: "strong_independent" },
       diff: "diff --git a/services/api/Auth/SessionRuntime.cs b/services/api/Auth/SessionRuntime.cs\n",
     }), {
       env: { GEMINI_API_KEY: "super-secret-key" },
       fetchImpl: async () => {
         calls += 1;
-        throw new Error("should not call");
+        return fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] });
       },
     });
-    assert.equal(result.status, "blocked");
-    assert.equal(result.reason, "blocked_external_reviewer_route_not_eligible");
-    assert.equal(calls, 0);
+    assert.equal(result.status, "pass");
+    assert.equal(result.tier, "strong_independent");
+    assert.equal(result.model, "gemini-2.5-pro");
+    assert.equal(calls, 1);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

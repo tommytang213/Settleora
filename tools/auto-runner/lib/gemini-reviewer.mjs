@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { safeTimestamp } from "./logger.mjs";
 import {
@@ -14,26 +15,21 @@ export const supportedGeminiModelEndpoints = Object.freeze({
   "gemini-2.5-flash-lite": `${geminiApiOrigin}/v1beta/models/gemini-2.5-flash-lite:generateContent`,
   "gemini-2.5-flash": `${geminiApiOrigin}/v1beta/models/gemini-2.5-flash:generateContent`,
   "gemini-2.5-pro": `${geminiApiOrigin}/v1beta/models/gemini-2.5-pro:generateContent`,
+  "gemini-pro-latest": `${geminiApiOrigin}/v1beta/models/gemini-pro-latest:generateContent`,
+  "gemini-flash-latest": `${geminiApiOrigin}/v1beta/models/gemini-flash-latest:generateContent`,
+  "gemini-flash-lite-latest": `${geminiApiOrigin}/v1beta/models/gemini-flash-lite-latest:generateContent`,
+  "gemini-3.1-pro-preview": `${geminiApiOrigin}/v1beta/models/gemini-3.1-pro-preview:generateContent`,
 });
 const approvedSecretRoot = "/workspace/logs/settleora-auto-runner/secrets";
 const smokeInputTokenEstimate = 900;
-const smokeOutputTokenEstimate = 160;
-const integratedOutputTokenEstimate = 700;
+const smokeOutputTokenEstimate = 320;
+const integratedOutputTokenEstimate = 1000;
 const integratedMaxEstimatedCostUsd = 0.25;
 const maxGeminiProviderResponseBytes = 64 * 1024;
+const maxGeminiRequestMs = 45_000;
 const maxGeminiReviewerRetries = 2;
 const maxGeminiRetryBackoffMs = 10_000;
 const geminiRetryDelayBucketsMs = Object.freeze([0, 100, 500, 1000, 2000, 5000, 10_000]);
-const integratedAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
-const integratedAllowedPathPatterns = Object.freeze([
-  /^tools\/auto-runner(?:\/|$)/,
-  /^docs\/workflow(?:\/|$)/,
-  /^scripts\/ai(?:\/|$)/,
-  /^docs\/planning(?:\/|$)/,
-  /^docs\/qa(?:\/|$)/,
-  /^apps\/mobile\/lib\/ui(?:\/|$)/,
-  /^apps\/mobile\/test\/ui(?:\/|$)/,
-]);
 const secretLikePatterns = Object.freeze([
   /(^|\/)\.env($|[./-])/i,
   /(^|\/)(secret|secrets|credential|credentials|token|tokens|ssh)(\/|$)/i,
@@ -80,6 +76,10 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     route,
     lane: laneDecision.lane || null,
     changedFiles,
+    changedFilesDigest: sha256Text(stableJson(changedFiles.slice().sort())),
+    packageDigest: sha256Text(stableJson({ summary, diff })),
+    baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null,
+    verdictSchemaVersion: 1,
     reviewedHead: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null,
     issueNumber: summary.issue?.number || null,
     liveCallAttempted: false,
@@ -100,12 +100,8 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   };
 
   if (!tier || !tier.enabled) return finishIntegrated(config, base, startedAtMs, "skipped_external_reviewer_tier_disabled");
-  if (route.tier !== "cheap_independent") return finishIntegrated(config, base, startedAtMs, "blocked_external_reviewer_route_not_eligible");
-  if (!integratedAllowedLanes.includes(laneDecision.lane)) {
-    return finishIntegrated(config, base, startedAtMs, "blocked_external_reviewer_lane_not_eligible");
-  }
-  if (!changedFiles.every(isIntegratedAllowedPath)) {
-    return finishIntegrated(config, base, startedAtMs, "blocked_external_reviewer_path_not_eligible");
+  if (route.tier === "block_split_or_escalate") {
+    return finishIntegrated(config, base, startedAtMs, "blocked_external_reviewer_split_required");
   }
   if (hasSecretBoundaryViolation(changedFiles, diff)) {
     return finishIntegrated(config, base, startedAtMs, "blocked_secret_boundary_violation");
@@ -209,6 +205,7 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
     const response = await fetchImpl(url, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+      signal: timeoutSignal(),
       body: JSON.stringify(payload),
     });
     const responseBody = await readBoundedProviderResponseText(response);
@@ -358,7 +355,6 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
 
   const payload = buildGeminiSmokePayload();
   const url = new URL(endpoint);
-  url.searchParams.set("key", keyResult.apiKey);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (typeof fetchImpl !== "function") return finishSmoke(config, base, startedAtMs, "blocked_fetch_unavailable");
 
@@ -366,7 +362,8 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
   try {
     const response = await fetchImpl(url.toString(), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-goog-api-key": keyResult.apiKey },
+      signal: timeoutSignal(),
       body: JSON.stringify(payload),
     });
     const responseBody = await readBoundedProviderResponseText(response);
@@ -408,14 +405,31 @@ export function loadGeminiApiKey({ env = process.env, envFilePath = null, envKey
   if (fromEnv) return { ok: true, source: `env:${envKey}`, apiKey: fromEnv };
   if (!envFilePath) return { ok: false, reason: "blocked_for_live_smoke_test_key_missing" };
   const resolved = path.resolve(envFilePath);
-  if (!resolved.startsWith(`${approvedSecretRoot}/`)) {
-    return { ok: false, reason: "blocked_unapproved_secret_env_file_path" };
-  }
+  const metadata = validateReviewerSecretMetadata(resolved);
+  if (!metadata.ok) return { ok: false, reason: metadata.reason };
   if (!existsSync(resolved)) return { ok: false, reason: "blocked_for_live_smoke_test_key_missing" };
   const parsed = parseEnvFile(readFileSync(resolved, "utf8"));
   const fromFile = String(parsed[envKey] || "").trim();
   if (!fromFile) return { ok: false, reason: "blocked_for_live_smoke_test_key_missing" };
   return { ok: true, source: `env-file:${resolved}`, apiKey: fromFile };
+}
+
+export function validateReviewerSecretMetadata(envFilePath) {
+  const resolved = path.resolve(envFilePath || "");
+  if (!resolved.startsWith(`${approvedSecretRoot}/`)) return { ok: false, reason: "blocked_unapproved_secret_env_file_path" };
+  if (!existsSync(resolved)) return { ok: false, reason: "blocked_for_live_smoke_test_key_missing" };
+  const link = lstatSync(resolved);
+  if (link.isSymbolicLink()) return { ok: false, reason: "blocked_secret_env_file_symlink" };
+  const file = statSync(resolved);
+  if (!file.isFile()) return { ok: false, reason: "blocked_secret_env_file_not_regular" };
+  if ((file.mode & 0o777) !== 0o600) return { ok: false, reason: "blocked_secret_env_file_mode" };
+  if (file.uid !== process.getuid?.()) return { ok: false, reason: "blocked_secret_env_file_owner" };
+  if (file.size <= 0 || file.size > 4096) return { ok: false, reason: "blocked_secret_env_file_size" };
+  const dir = statSync(path.dirname(resolved));
+  if (!dir.isDirectory()) return { ok: false, reason: "blocked_secret_env_dir_not_directory" };
+  if ((dir.mode & 0o777) !== 0o700) return { ok: false, reason: "blocked_secret_env_dir_mode" };
+  if (dir.uid !== process.getuid?.()) return { ok: false, reason: "blocked_secret_env_dir_owner" };
+  return { ok: true, path: resolved, size: file.size, fileMode: "0600", dirMode: "0700" };
 }
 
 export function parseSmokeVerdict(text) {
@@ -553,6 +567,7 @@ function buildGeminiSmokePayload() {
       temperature: 0,
       maxOutputTokens: smokeOutputTokenEstimate,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 }
@@ -609,6 +624,7 @@ function buildIntegratedReviewPayload(prompt) {
       temperature: 0,
       maxOutputTokens: integratedOutputTokenEstimate,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 }
@@ -630,16 +646,9 @@ function parseEnvFile(text) {
 }
 
 export function resolveGeminiModelEndpoint(model) {
-  switch (String(model || "")) {
-    case "gemini-2.5-flash-lite":
-      return supportedGeminiModelEndpoints["gemini-2.5-flash-lite"];
-    case "gemini-2.5-flash":
-      return supportedGeminiModelEndpoints["gemini-2.5-flash"];
-    case "gemini-2.5-pro":
-      return supportedGeminiModelEndpoints["gemini-2.5-pro"];
-    default:
-      return null;
-  }
+  const normalized = String(model || "");
+  if (!/^gemini-[A-Za-z0-9][A-Za-z0-9.-]{0,80}$/.test(normalized)) return null;
+  return `${geminiApiOrigin}/v1beta/models/${normalized}:generateContent`;
 }
 
 function finishSmoke(config, result, startedAtMs, reason) {
@@ -669,16 +678,16 @@ function finishIntegrated(config, result, startedAtMs, reason, options = {}) {
 function writeSmokeReport(config, result) {
   const root = path.join(config.logsRoot, "reviews", "smoke-tests");
   mkdirSync(root, { recursive: true });
-  const filePath = path.join(root, `${safeTimestamp()}-gemini-reviewer-smoke.json`);
-  writeFileSync(filePath, `${JSON.stringify(result, null, 2)}\n`);
+  const filePath = path.join(root, `${safeTimestamp()}-${safeFileToken(result.tier)}-${process.pid}-${Date.now()}-gemini-reviewer-smoke.json`);
+  writeOwnerOnlyJson(filePath, result);
   return filePath;
 }
 
 function writeIntegratedReport(config, result) {
   const root = path.join(config.logsRoot, "reviews", "integrated");
   mkdirSync(root, { recursive: true });
-  const filePath = path.join(root, `${safeTimestamp()}-gemini-integrated-review.json`);
-  writeFileSync(filePath, `${JSON.stringify(sanitizeReviewResult(result), null, 2)}\n`);
+  const filePath = path.join(root, `${safeTimestamp()}-${safeFileToken(result.tier)}-${process.pid}-${Date.now()}-gemini-integrated-review.json`);
+  writeOwnerOnlyJson(filePath, sanitizeReviewResult(result));
   return filePath;
 }
 
@@ -713,7 +722,7 @@ function writeReviewerAccounting(config, accounting, result) {
     status: result.status,
     sanitizedReportPath: result.reportPath,
   };
-  writeFileSync(accounting.accountingPath, `${JSON.stringify({ entries: [...entries, entry] }, null, 2)}\n`);
+  writeOwnerOnlyJson(accounting.accountingPath, { entries: [...entries, entry] });
 }
 
 function sanitizeReviewResult(result) {
@@ -742,12 +751,41 @@ function estimateTokens(text) {
   return Math.max(1, Math.ceil(String(text || "").length / 4));
 }
 
-function isIntegratedAllowedPath(filePath) {
-  const normalized = String(filePath || "").replace(/\\/g, "/").replace(/^\.\//, "");
-  return integratedAllowedPathPatterns.some((pattern) => pattern.test(normalized));
-}
-
 function hasSecretBoundaryViolation(changedFiles, diff) {
   const haystack = [...changedFiles, diff].join("\n");
   return secretLikePatterns.some((pattern) => pattern.test(haystack));
+}
+
+function timeoutSignal() {
+  if (typeof AbortSignal?.timeout === "function") return AbortSignal.timeout(maxGeminiRequestMs);
+  return undefined;
+}
+
+function sha256Text(text) {
+  return createHash("sha256").update(String(text || "")).digest("hex");
+}
+
+function stableJson(value) {
+  return JSON.stringify(value, Object.keys(flattenKeys(value)).sort());
+}
+
+function flattenKeys(value, keys = {}) {
+  if (value && typeof value === "object") {
+    for (const [key, child] of Object.entries(value)) {
+      keys[key] = true;
+      flattenKeys(child, keys);
+    }
+  }
+  return keys;
+}
+
+function writeOwnerOnlyJson(filePath, value) {
+  mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  const tempPath = `${filePath}.tmp-${process.pid}`;
+  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tempPath, filePath);
+}
+
+function safeFileToken(value) {
+  return String(value || "unknown").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "unknown";
 }

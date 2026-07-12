@@ -399,7 +399,12 @@ function shouldWaitForAutoMergeDecision(decision) {
 }
 
 export function requiresIndependentAiReview(laneDecision = {}) {
-  return independentReviewRequiredLanes.has(laneDecision.lane);
+  return (
+    independentReviewRequiredLanes.has(laneDecision.lane) ||
+    laneDecision.reviewerTier === "cheap_independent" ||
+    laneDecision.reviewerTier === "strong_independent" ||
+    laneDecision.reviewerTier === "tie_breaker"
+  );
 }
 
 export function evaluatePrePushReviewGate(input = {}) {
@@ -454,8 +459,12 @@ function evaluateIndependentReviewEvidence(input) {
   if (reviewedHead && reviewedHead !== (actualHead || expectedHead)) {
     return { ok: false, reason: "independent_review_head_mismatch" };
   }
+  if (!Array.isArray(review.changedFiles)) return { ok: false, reason: "independent_review_files_missing" };
   if (Array.isArray(review.changedFiles) && !sameStringSet(review.changedFiles, input.changedFiles || [])) {
     return { ok: false, reason: "independent_review_files_mismatch" };
+  }
+  if (review.baseSha && input.expectedOriginMainSha && review.baseSha !== input.expectedOriginMainSha) {
+    return { ok: false, reason: "independent_review_base_mismatch" };
   }
   return { ok: true };
 }
