@@ -1650,6 +1650,7 @@ test("eligible low-risk lane selects cheap Gemini reviewer and pass verdict proc
     assert.equal(result.status, "pass");
     assert.equal(result.tier, "cheap_independent");
     assert.equal(result.model, "gemini-2.5-flash-lite");
+    assert.equal(result.changedFilesDigest, sha256Strings(["tools/auto-runner/lib/gemini-reviewer.mjs"]));
     assert.equal(new URL(requestedUrls[0]).origin, "https://generativelanguage.googleapis.com");
     assert.equal(requestBodies[0].generationConfig.responseMimeType, "application/json");
     assert.equal(requestBodies[0].generationConfig.responseJsonSchema.additionalProperties, false);
@@ -1693,6 +1694,10 @@ test("client-ui-low-risk real-code lane selects cheap Gemini reviewer and pass v
     assert.equal(result.status, "pass");
     assert.equal(result.tier, "cheap_independent");
     assert.equal(result.reviewedHead, "head123");
+    assert.equal(result.changedFilesDigest, sha256Strings([
+      "apps/mobile/lib/ui/settleora_components.dart",
+      "apps/mobile/test/ui/settleora_component_guardrail_test.dart",
+    ]));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

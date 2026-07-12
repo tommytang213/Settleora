@@ -97,7 +97,7 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     route,
     lane: laneDecision.lane || null,
     changedFiles,
-    changedFilesDigest: sha256Text(stableJson(changedFiles.slice().sort())),
+    changedFilesDigest: digestStrings(changedFiles),
     packageDigest: sha256Text(stableJson({ summary, diff })),
     baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null,
     verdictSchemaVersion: 1,
@@ -947,6 +947,10 @@ function timeoutSignal() {
 
 function sha256Text(text) {
   return createHash("sha256").update(String(text || "")).digest("hex");
+}
+
+function digestStrings(values = []) {
+  return sha256Text(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n"));
 }
 
 function stableJson(value) {
