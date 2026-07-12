@@ -14,6 +14,14 @@ bounded DevBox process and let it process multiple eligible issues until it hits
 `--max-iterations`, `--max-runtime`, no eligible work, or a systemic unsafe
 condition.
 
+End-state note: #800 remains open after #880 monitoring acceptance. The
+current low-risk/canary defaults are staged scaffolding, not the final runner
+target. The authoritative gap audit is
+[Auto-Runner End-State Gap Audit](../planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md).
+The remaining implementation children are #887 through #894; #887 is the
+recommended first blocker because lane/manual-decision classification controls
+later reviewer, merge, bundle, issue-creation, and recovery behavior.
+
 The detached supervisor foundation adds an optional systemd-backed control
 surface around this runner. It submits immutable bounded run specs, starts a
 validated user-unit instance after later manual installation, writes

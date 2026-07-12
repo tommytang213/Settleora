@@ -4,6 +4,12 @@ This directory contains the DevBox-native unattended Codex auto-runner skeleton.
 It is issue-label driven and writes all mutable runtime state under
 `/workspace/logs/settleora-auto-runner/`.
 
+Current end-state audit: #880 monitoring acceptance is complete and #800
+remains open. The current restrictive defaults are staged scaffolding. See
+`docs/planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md` for the authoritative A-H
+target, remaining child issues #887-#894, feature-bundle order, and the
+recommended first implementation child (#887).
+
 Preflight diagnostics:
 
 ```bash
