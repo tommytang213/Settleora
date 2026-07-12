@@ -357,10 +357,16 @@ function hasContradictoryPassFindingLanguage(finding) {
   if (negatedBlocker) {
     return false;
   }
-  if (/\b(blocking|must fix|failures?|failing|failure|danger)\s+(findings?|issues?|concerns?)?\s*(remain|remaining|found|present|detected)\b/.test(text)) {
+  if (/\b(blocking|must fix|failures?|failing|failure|danger)\s+(findings?|issues?|concerns?)?\s*(remain|remains|remaining|found|present|detected)\b/.test(text)) {
     return true;
   }
-  return true;
+  if (/\b(remain|remains|remaining|found|present|detected|introduced|created|identified)\b(?:\s+\w+){0,8}\s+\b(blocking|must fix|failures?|failing|failure|danger)\b/.test(text)) {
+    return true;
+  }
+  if (/\b(blocking|must fix|failures?|failing|failure|danger)\b(?:\s+\w+){0,8}\s+\b(require|requires|required|requiring|needs?|needed|warrants?)\b/.test(text)) {
+    return true;
+  }
+  return false;
 }
 
 export async function runGeminiReviewerSmokeTest(config, options = {}) {

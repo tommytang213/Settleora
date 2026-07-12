@@ -2117,6 +2117,14 @@ test("integrated Gemini verdict parser rejects extra prose, unknown verdicts, an
     parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["blocking issue remains"] })).ok,
     false,
   );
+  assert.equal(
+    parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["A must fix change is required before merge"] })).ok,
+    false,
+  );
+  assert.equal(
+    parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["The review identified a blocking issue in the exact-head checks"] })).ok,
+    false,
+  );
 });
 
 test("fixture polling sorts eligible issues and skips stop labels", () => {
