@@ -20,6 +20,60 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #883 - Auto-runner ntfy terminal notifier implementation PR checkpoint
+
+- GitHub/live state verified:
+  - PR #882 is merged at
+    `6c47febe3ebf4db354c16e03681f2d3a26508a59`, so the read-only health
+    service and notifier dedupe-state foundation are present on `origin/main`.
+  - #879 is closed completed by PR #882.
+  - #800 remains open as the broader DevBox-native unattended runner tracker.
+  - #880 remains open as the later manual DevBox/TrueNAS/Uptime Kuma/ntfy
+    deployment and acceptance task.
+  - #865 and #866 remain open protected canaries and are not part of this
+    implementation.
+- This implementation-PR scope:
+  - Adds a separate one-shot DevBox terminal notifier entry point for healthy
+    terminal supervised runs.
+  - Selects only trusted healthy terminal activity through the existing health
+    evaluator and supervisor/report-correlation authority, including
+    successful `completed`, `no-eligible-work`, and successful budget
+    exhaustion. Active, failed, blocked, partial, stale, untrusted,
+    report-missing, report-ambiguous, malformed, and orphan-lock states do not
+    produce activity notifications.
+  - Adds a provider-specific ntfy publisher with fixed production config path
+    `/workspace/logs/settleora-auto-runner/secrets/ntfy-notifier.json`, strict
+    owner-only file and schema validation, Bearer-token publishing, bounded
+    timeout/response reads, and no production CLI/env/HTTP overrides for URL,
+    topic, token, or config path.
+  - Records local delivery only after confirmed ntfy `2xx`; unconfirmed
+    delivery is retried later with the same deterministic ntfy sequence ID
+    derived from `<immutable-supervisor-run-id>:<terminal-event-kind>`.
+  - Adds repository-only user service/timer templates for the one-shot notifier
+    without installing, starting, enabling, reloading, or testing them through
+    systemd.
+  - Updates monitoring docs and README for the approved architecture:
+    Uptime Kuma on TrueNAS publishes incident/recovery notifications to a
+    private critical ntfy topic, while the DevBox terminal notifier publishes
+    healthy terminal summaries to a separate private activity topic. #880
+    remains the manual deployment/credential/network/acceptance gate.
+- Issue posture:
+  keep #883 open until its implementation PR merges. Keep #800 open as the
+  umbrella, and keep #880 open for the later manual deployment/acceptance
+  gate. #880 is not ready for deployment until #883 merges and explicit manual
+  DevBox/TrueNAS/network/credential approval is provided.
+- Scope confirmation:
+  this checkpoint changes only auto-runner tooling/tests, workflow docs,
+  repository systemd templates, and this ledger. It does not install/start/
+  reload/enable systemd, alter linger, configure TrueNAS, Uptime Kuma, ntfy,
+  private topics, tokens, datasets, users, ports, DNS, TLS, proxy, router, or
+  firewall settings; make a live ntfy call; run or control the auto-runner;
+  delete locks; mutate #865/#866; or change product runtime, API behavior,
+  auth/session/security, storage/privacy/authz, money/settlement/payment/bill
+  calculation, schema/migration, OpenAPI/generated clients, Docker/Compose,
+  CI/deployment/env, secrets, production deploy, mobile release, or
+  public/admin exposure.
+
 ### Issue #879 - Auto-runner health service implementation PR checkpoint
 
 - GitHub/live state verified:

@@ -20,23 +20,29 @@ Repository implementation foundation now exists for the repo-only portion:
 - `tools/auto-runner/lib/notifier-dedupe-state.mjs` provides a future notifier
   dedupe-state writer keyed by immutable supervisor run ID plus terminal event
   kind. The health endpoint does not call it.
+- `tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs` provides a
+  separate one-shot terminal notifier entry point for healthy terminal
+  activity summaries.
+- `tools/auto-runner/lib/ntfy-terminal-notifier.mjs` implements the
+  provider-specific ntfy publisher behind a fixed external config boundary and
+  local confirmed-delivery dedupe.
 - `tools/auto-runner/systemd/settleora-auto-runner-health.service` is a
   repository template only. It has not been installed, started, enabled, bound
   to a LAN address, or connected to Uptime Kuma by the repository foundation.
+- `tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.service`
+  and `.timer` are repository templates only. They have not been installed,
+  started, enabled, reloaded, or connected to live ntfy credentials.
 
 Approved architecture:
 
 ```text
-TrueNAS SCALE
-  Uptime Kuma HTTP monitor
-          |
-          | trusted-LAN read-only GET
-          v
-DevBox permanent health service
-          |
-          | reads owner-only persisted supervisor/runner state
-          v
-Temporary supervisor/runner jobs and correlated summaries
+Uptime Kuma on TrueNAS
+  -> publishes failure/recovery notifications
+
+DevBox terminal notifier
+  -> publishes successful completion/no-work notifications
+
+Both -> self-hosted ntfy on TrueNAS -> ntfy iPhone app
 ```
 
 SSH remains useful for operator diagnostics and manual wrapper readback, but it
@@ -66,6 +72,15 @@ Official sources checked:
   version `1.2.11`, app version `2.4.0`, minimum SCALE version `24.10.2.2`,
   default WebUI port `31050`, host IP binding configuration, and source links
   to the TrueNAS app page plus upstream Uptime Kuma.
+- ntfy upstream docs support title, priority, tags, Bearer-token publishing,
+  and custom sequence IDs for updating/replacing client notifications.
+- ntfy self-hosted iOS instant notification support requires the documented
+  upstream poll-request setting, currently `upstream-base-url:
+  "https://ntfy.sh"` for self-hosted servers.
+- ntfy private deployments should use authentication/access control and
+  private topics instead of relying on guessable topic names.
+- TrueNAS Apps Market listed the community ntfy app at upstream app version
+  `v2.25.0`, catalog version `1.1.16`, last updated 2026-06-25.
 
 Current official Uptime Kuma sources did not show a supported generic API for
 emitting arbitrary one-shot informational events. The design therefore splits
@@ -281,10 +296,13 @@ Because no supported Uptime Kuma generic event API was verified, the design is:
 
 - Uptime Kuma handles availability, failure incidents, bounded reminders, and
   recovery.
-- A separate narrow notifier adapter handles one-time healthy-terminal
-  summaries using an externally configured notification destination.
-- Provider choice and credentials are manual deployment decisions.
-- No notifier destination is enabled by default.
+- A separate narrow ntfy notifier handles one-time healthy-terminal summaries
+  to a private activity topic.
+- Uptime Kuma should publish DOWN/reminder/recovery incidents to a separate
+  private critical topic.
+- Live ntfy server URL, topic names, and tokens are manual deployment
+  decisions and remain external/redacted.
+- No live notifier destination is enabled by default.
 
 Deduplication key:
 
@@ -292,17 +310,55 @@ Deduplication key:
 <immutable-supervisor-run-id>:<terminal-event-kind>
 ```
 
-Notifier state should be persisted atomically outside the repo, tentatively:
+Notifier state is persisted atomically outside the repo:
 
 ```text
 /workspace/logs/settleora-auto-runner/monitoring/notifier-state.json
 ```
 
-The repository foundation implements this state helper as a reusable library
-only. It performs owner-only atomic writes, rejects malformed, symlinked,
-out-of-root, group/world-accessible, oversized, and schema-invalid state, and
-keeps a bounded deterministic entry set. Health `GET` requests do not mark or
-claim terminal events.
+The repository foundation performs owner-only atomic writes, rejects malformed,
+symlinked, out-of-root, group/world-accessible, oversized, and schema-invalid
+state, and keeps a bounded deterministic entry set. Health `GET` requests do
+not mark or claim terminal events.
+
+Production ntfy configuration is read only from:
+
+```text
+/workspace/logs/settleora-auto-runner/secrets/ntfy-notifier.json
+```
+
+The file must be a regular non-symlink owner-only file under the approved
+secrets root. The schema is strict and bounded:
+
+```json
+{
+  "schemaVersion": 1,
+  "baseUrl": "http://redacted-trusted-host:port",
+  "activityTopic": "redacted-private-topic",
+  "accessToken": "redacted"
+}
+```
+
+The production CLI does not accept `--base-url`, `--topic`, `--token`,
+`--config-path`, arbitrary shell commands, environment-provided raw secrets, or
+caller-controlled filesystem roots. `baseUrl` must use `http` or `https`,
+must not include username/password, query, or fragment, and must pass bounded
+host/port/path checks. `activityTopic` is a bounded single topic segment with
+no slashes or traversal. The access token is sent as Bearer auth to ntfy and
+is never printed, copied into notifier state, or included in message content.
+
+Eligible activity events are:
+
+- successful `completed`;
+- `no-eligible-work`;
+- successful iteration/runtime budget exhaustion;
+- another explicitly successful terminal stop reason already recognized by
+  the trusted health summary model.
+
+The notifier does not send for active, stale, failed, submission-failed,
+blocked, partial, malformed, untrusted, report-missing, report-ambiguous, or
+orphan-lock states. It also does not resend unchanged healthy idle after a
+delivery has already been confirmed.
 
 Requirements:
 
@@ -322,9 +378,32 @@ Requirements:
   PRs merged/opened, failed/blocked count, terminal reason, and latest main
   SHA only when already present in trusted state.
 
-Do not select or configure live email, Slack, Discord, Telegram, ntfy, Gotify,
-webhook, or other credentials in repository code or docs examples for this
-task.
+Delivery guarantee: local state is at-most-once only after confirmed ntfy
+delivery. If a timeout, connection failure, non-2xx response, malformed
+response, or bounded read failure occurs, delivery is unconfirmed and the
+notifier does not mark the event delivered. The next timer tick may retry with
+the same deterministic ntfy sequence ID derived from the immutable dedupe key,
+so clients that support ntfy sequence IDs can update or replace the visible
+notification rather than accumulating duplicates. Exactly-once delivery across
+an external network cannot be proven after ambiguous failure.
+
+Deployment boundary:
+
+- self-host ntfy on TrueNAS with authentication/access control and persistent
+  app data;
+- keep critical and activity topics separate and private;
+- configure Uptime Kuma to the critical topic for DOWN/reminder/recovery;
+- configure the DevBox terminal notifier to the activity topic for healthy
+  terminal summaries;
+- configure the documented ntfy iOS upstream poll-request setting during the
+  #880 deployment task if instant iPhone push is required;
+- keep deployment values external and redacted;
+- do not add a public status page, public topic, router forward, tunnel,
+  public DNS, or internet exposure without a separate explicit approval.
+
+Do not select or configure live email, Slack, Discord, Telegram, Gotify,
+webhook, public ntfy topics, or other credentials in repository code or docs
+examples for this task.
 
 ## Follow-Up Slices
 
@@ -333,10 +412,14 @@ Focused child issues under #800:
 1. #879: repository implementation for the read-only DevBox health service,
    state evaluator, tests, systemd template, docs, and terminal-event dedupe
    foundation. No installation or deployment.
-2. #880: manual deployment and acceptance to install/enable the health service
-   on the DevBox, install/configure Uptime Kuma on TrueNAS SCALE, choose
-   notification destination, prove alert/recovery/completion dedupe, and
-   document rollback. No automatic runner restart.
+2. #883: repository implementation for the ntfy terminal notifier foundation,
+   fixed external config boundary, confirmed-delivery dedupe, tests, docs, and
+   repository-only systemd service/timer templates. No installation,
+   deployment, live secrets, or live ntfy calls.
+3. #880: manual deployment and acceptance to install/enable the health service
+   and notifier timer on the DevBox, install/configure Uptime Kuma and ntfy on
+   TrueNAS SCALE, choose private topics/tokens, prove alert/recovery/activity
+   dedupe, and document rollback. No automatic runner restart.
 
 Both slices must preserve #865/#866 as unrelated protected canaries and must
 not expose the health endpoint publicly or configure secrets without explicit

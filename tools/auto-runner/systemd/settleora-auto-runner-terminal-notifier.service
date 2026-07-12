@@ -1,0 +1,23 @@
+[Unit]
+Description=Settleora auto-runner terminal ntfy activity notifier
+Documentation=file:/workspace/repos/Settleora/docs/workflow/AUTONOMOUS_CODEX_RUNNER_MONITORING.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/workspace/repos/Settleora
+ExecStart=/usr/bin/env node tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs
+UMask=0077
+Restart=no
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/workspace/logs/settleora-auto-runner/monitoring
+ReadOnlyPaths=/workspace/repos/Settleora /workspace/logs/settleora-auto-runner/supervisor /workspace/logs/settleora-auto-runner/summaries /workspace/logs/settleora-auto-runner/state /workspace/logs/settleora-auto-runner/locks /workspace/logs/settleora-auto-runner/secrets
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+# Repository template only. Install/start/enablement and live ntfy secrets
+# require the later manual deployment gate.

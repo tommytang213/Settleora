@@ -319,8 +319,11 @@ incident notification.
 
 SSH remains available for operator diagnostics and manual wrapper readback, but
 it is not the primary monitoring architecture. Terminal healthy-run summary
-notifications are handled by a separate future notifier adapter with atomic
-deduplication, not by manufacturing false Uptime Kuma DOWN/UP transitions.
+notifications are handled by the separate one-shot ntfy notifier foundation
+with atomic confirmed-delivery deduplication, not by manufacturing false
+Uptime Kuma DOWN/UP transitions. The notifier remains repository-only until
+the later manual #880 deployment gate installs a timer and supplies live
+external ntfy configuration.
 
 ## Windows Templates
 

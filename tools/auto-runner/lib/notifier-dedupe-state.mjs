@@ -36,6 +36,43 @@ export function claimTerminalNotification({
   return { ok: true, claimed: true, key, statePath };
 }
 
+export function hasDeliveredTerminalNotification({
+  supervisorRunId,
+  eventKind,
+  statePath = defaultNotifierStatePath,
+  logsRoot = defaultLogsRoot,
+} = {}) {
+  const key = dedupeKey(supervisorRunId, eventKind);
+  const state = readNotifierState({ statePath, logsRoot });
+  return state.entries.some((entry) => entry.key === key);
+}
+
+export function recordTerminalNotificationDelivered({
+  supervisorRunId,
+  eventKind,
+  statePath = defaultNotifierStatePath,
+  logsRoot = defaultLogsRoot,
+  now = new Date(),
+} = {}) {
+  const key = dedupeKey(supervisorRunId, eventKind);
+  const state = readNotifierState({ statePath, logsRoot });
+  if (state.entries.some((entry) => entry.key === key)) {
+    return { ok: true, recorded: false, key, statePath };
+  }
+  const entry = {
+    key,
+    supervisorRunId,
+    eventKind,
+    announcedAt: now.toISOString(),
+  };
+  const next = {
+    schemaVersion: notifierStateSchemaVersion,
+    entries: pruneEntries([...state.entries, entry]),
+  };
+  writeNotifierState(next, { statePath, logsRoot });
+  return { ok: true, recorded: true, key, statePath };
+}
+
 export function readNotifierState({ statePath = defaultNotifierStatePath, logsRoot = defaultLogsRoot } = {}) {
   const trusted = trustedStatePath(statePath, logsRoot, { allowMissing: true });
   if (!trusted.exists) return { schemaVersion: notifierStateSchemaVersion, entries: [] };
