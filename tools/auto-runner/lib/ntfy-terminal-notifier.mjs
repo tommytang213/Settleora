@@ -48,7 +48,7 @@ export async function runTerminalNotifier({
   });
   if (delivered) return { ok: true, sent: false, reason: "already_delivered" };
 
-  const ntfyConfig = config ? validateNtfyNotifierConfig(config) : readNtfyNotifierConfig({ configPath, logsRoot });
+  const ntfyConfig = config || readNtfyNotifierConfig({ configPath, logsRoot });
   const key = dedupeKey(selected.supervisorRunId, selected.eventKind);
   const message = buildTerminalNotificationMessage(selected);
   const sequenceId = sequenceIdForDedupeKey(key);
@@ -153,17 +153,21 @@ export async function publishNtfyMessage({
   timeoutMs = terminalNotifierRequestTimeoutMs,
   maxResponseBytes = terminalNotifierMaxResponseBytes,
 } = {}) {
-  const target = ntfyPublishUrl(config);
+  const trustedConfig = validateNtfyNotifierConfig(config);
+  const target = ntfyPublishTarget(trustedConfig);
   const body = Buffer.from(message.body || "", "utf8");
   const transport = target.protocol === "https:" ? https : http;
   return new Promise((resolve) => {
     const request = transport.request(
-      target,
       {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: target.path,
         method: "POST",
         timeout: timeoutMs,
         headers: {
-          Authorization: `Bearer ${config.accessToken}`,
+          Authorization: `Bearer ${trustedConfig.accessToken}`,
           "Content-Type": "text/plain; charset=utf-8",
           "Content-Length": body.length,
           Title: message.title,
@@ -196,13 +200,15 @@ export function sequenceIdForDedupeKey(key) {
   return `settleora-${createHash("sha256").update(String(key), "utf8").digest("hex").slice(0, 48)}`;
 }
 
-function ntfyPublishUrl(config) {
-  const base = new URL(config.baseUrl);
-  const prefix = base.pathname === "/" ? "" : base.pathname.replace(/\/$/, "");
-  base.pathname = `${prefix}/${config.activityTopic}`;
-  base.search = "";
-  base.hash = "";
-  return base;
+function ntfyPublishTarget(config) {
+  const baseUrl = validatedBaseUrlParts(config.baseUrl);
+  const prefix = baseUrl.path === "/" ? "" : baseUrl.path.replace(/\/$/, "");
+  return Object.freeze({
+    protocol: baseUrl.protocol,
+    hostname: baseUrl.hostname,
+    port: baseUrl.port,
+    path: `${prefix}/${config.activityTopic}`,
+  });
 }
 
 function trustedConfigPath(configPath, logsRoot) {
@@ -240,6 +246,13 @@ function trustedDirectory(dirPath) {
 }
 
 function validateBaseUrl(value) {
+  const parsed = validatedBaseUrlParts(value);
+  const pathSuffix = parsed.path === "/" ? "" : parsed.path.replace(/\/$/, "");
+  const portSuffix = parsed.port ? `:${parsed.port}` : "";
+  return `${parsed.protocol}//${parsed.hostname}${portSuffix}${pathSuffix}`;
+}
+
+function validatedBaseUrlParts(value) {
   if (typeof value !== "string" || value.length > 240) throw new Error("ntfy baseUrl is invalid");
   const parsed = new URL(value);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("ntfy baseUrl must use http or https");
@@ -256,7 +269,12 @@ function validateBaseUrl(value) {
   if (segments.some((segment) => segment === "." || segment === ".." || !/^[A-Za-z0-9._~-]{1,64}$/.test(segment))) {
     throw new Error("ntfy baseUrl path is invalid");
   }
-  return parsed.href.replace(/\/$/, "");
+  return Object.freeze({
+    protocol: parsed.protocol,
+    hostname: parsed.hostname,
+    port: parsed.port || undefined,
+    path: parsed.pathname || "/",
+  });
 }
 
 function validateTopic(value) {
