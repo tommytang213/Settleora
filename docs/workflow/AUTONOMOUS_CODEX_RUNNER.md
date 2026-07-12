@@ -267,13 +267,11 @@ paths.
 The final merge-policy direction is approved-domain, not low-risk-only.
 Repository defaults remain fail-closed: `allowAutoMerge` is false and
 `autoMergePolicy.approvedLanes` is empty. A deployment/profile that enables
-auto-merge must explicitly list canonical runnable lane IDs such as
-`workflow-docs-tooling`, `mobile-application`, `api-domain-runtime`,
-`auth-session-security`, `storage-file-privacy-authz`,
-`money-settlement-payment`, `schema-migrations`,
-`openapi-generated-clients`, `sync-import-export-restore`, and
-`docker-compose-ci-deployment`. Alias-only, unknown, disabled, manual, and
-split-required lanes are rejected by config normalization.
+auto-merge must explicitly list supported canonical runnable lane IDs such as
+`workflow-docs-tooling`, `docs-planning`, `client-ui-low-risk`,
+`mobile-application`, `web-user-ui`, `web-admin-ui`, and
+`api-domain-runtime`. Alias-only, unknown, disabled, manual-gated, and
+split-required lanes are rejected by config normalization or the merge gate.
 
 An approved lane is only a capability. Auto-merge still requires a valid issue
 contract with `autoMergeEligible=true` and `manualMergeRequired=false`, no
@@ -287,9 +285,13 @@ review threads or requested changes, an open issue with
 no stop labels, and an unchanged base/head through the final refresh. The
 merge command uses `gh pr merge --merge --match-head-commit <exact-head>`.
 
-Sensitive implementation is not a human decision by itself. Manual actions
-remain blocked regardless of review quality: production deployment, mobile
-store release, destructive migration or data execution, secret or credential
+Sensitive implementation is not a human decision by itself when the lane is
+explicitly auto-merge supported. Manual-gated domains and manual actions remain
+blocked regardless of review quality: auth/session/security-critical runtime,
+storage/file privacy/authz, money/settlement/payment authority, schema
+migrations, OpenAPI/generated clients, sync/import/export/restore authority,
+Docker/CI/deployment infrastructure, production deployment, mobile store
+release, destructive migration or data execution, secret or credential
 mutation, public/admin exposure, architecture replacement, force-like history,
 branch deletion/cleanup, Day 1 scope cuts, and unresolved product/policy or
 financial authority decisions.

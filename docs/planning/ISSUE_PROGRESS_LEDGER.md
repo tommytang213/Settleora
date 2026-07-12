@@ -24,7 +24,8 @@ remain the source of truth.
 
 - Scope:
   - Replaces the permanent low-risk-only auto-merge bottleneck with an
-    explicit approved-domain policy model for every runnable lane manifest.
+    explicit approved-domain policy model for supported non-manual-gated
+    runnable lane manifests.
   - Keeps repository defaults fail-closed: `allowAutoMerge=false` and
     `autoMergePolicy.approvedLanes=[]`.
   - Requires canonical runnable lane approval, exact issue contract
