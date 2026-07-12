@@ -43,6 +43,7 @@ export const defaultConfig = Object.freeze({
       "Trivy repository scan",
     ],
     allowedSkippedChecks: [],
+    allowedNeutralChecks: [],
   },
   allowExistingPrRecovery: false,
   autoMergeWait: {
@@ -380,7 +381,8 @@ export function normalizeAutoMergePolicy(policy = {}) {
   return Object.freeze({
     approvedLanes: Object.freeze(normalizedApproved),
     requiredChecks: Object.freeze(requiredChecks),
-    allowedSkippedChecks: Object.freeze(normalizeStringList(policy.allowedSkippedChecks ?? [], "autoMergePolicy.allowedSkippedChecks")),
+    allowedSkippedChecks: Object.freeze(normalizeCheckAllowlist(policy.allowedSkippedChecks ?? [], "autoMergePolicy.allowedSkippedChecks")),
+    allowedNeutralChecks: Object.freeze(normalizeCheckAllowlist(policy.allowedNeutralChecks ?? [], "autoMergePolicy.allowedNeutralChecks")),
   });
 }
 
@@ -397,6 +399,16 @@ function normalizeStringList(value, fieldName) {
     if (seen.has(text)) throw new Error(`${fieldName} contains duplicate entry: ${text}`);
     seen.add(text);
     normalized.push(text);
+  }
+  return normalized;
+}
+
+function normalizeCheckAllowlist(value, fieldName) {
+  const normalized = normalizeStringList(value, fieldName);
+  for (const item of normalized) {
+    if (item.includes(" / ")) {
+      throw new Error(`${fieldName} entries must use canonical check names, not workflow-prefixed names`);
+    }
   }
   return normalized;
 }

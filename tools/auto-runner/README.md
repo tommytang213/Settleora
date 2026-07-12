@@ -13,7 +13,9 @@ recommended first implementation child (#887).
 Approved-domain auto-merge remains default-off. Enabling `allowAutoMerge` is
 not enough: external config must also set `autoMergePolicy.approvedLanes` to a
 bounded list of canonical runnable lane IDs and keep required CI/security check
-names explicit. The merge gate then still requires the issue contract to be
+names explicit. All observed exact-head checks must pass; `SKIPPED` or
+`NEUTRAL` conclusions pass only for explicitly allowlisted canonical check
+names. The merge gate then still requires the issue contract to be
 auto-merge eligible, no manual action or split requirement, exact contract and
 lane path matches, exact-head validation evidence, independent external review,
 Codex mechanics/security review, GitHub checks, code scanning, clear review

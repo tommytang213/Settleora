@@ -31,7 +31,8 @@
       "Semgrep CE scan",
       "Trivy repository scan"
     ],
-    "allowedSkippedChecks": []
+    "allowedSkippedChecks": [],
+    "allowedNeutralChecks": []
   },
   "allowExistingPrRecovery": false,
   "autoMergeWait": {

@@ -1118,6 +1118,7 @@ test("readiness preflight accepts explicit approved-domain auto-merge config wit
           approvedLanes: ["api-domain-runtime"],
           requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"],
           allowedSkippedChecks: [],
+          allowedNeutralChecks: [],
         },
       },
       { runner: createReadinessRunner() },
@@ -3353,6 +3354,155 @@ test("approved-domain auto-merge accepts GitHub workflow-prefixed required check
   assert.equal(decision.reason, "all_auto_merge_gates_passed");
 });
 
+test("approved-domain auto-merge blocks unlisted exact-head check failures", () => {
+  const decision = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Unlisted exact-head check", status: "COMPLETED", conclusion: "FAILURE" },
+    ],
+  }));
+  assert.equal(decision.eligible, false);
+  assert.equal(decision.reason, "required_checks_not_successful");
+});
+
+test("approved-domain all-observed exact-head check conclusions fail closed", () => {
+  const terminalFailures = ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"];
+  for (const conclusion of terminalFailures) {
+    const decision = evaluateAutoMergeDecision(autoMergeContext({
+      requiredChecks: [
+        ...autoMergeRequiredChecks(),
+        { name: `unlisted-${conclusion}`, status: "COMPLETED", conclusion },
+      ],
+    }));
+    assert.equal(decision.eligible, false, conclusion);
+    assert.equal(decision.reason, "required_checks_not_successful", conclusion);
+  }
+
+  const missingConclusion = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Unlisted missing conclusion", status: "COMPLETED", conclusion: null },
+    ],
+  }));
+  assert.equal(missingConclusion.eligible, false);
+  assert.equal(missingConclusion.reason, "required_checks_not_successful");
+});
+
+test("approved-domain all-observed exact-head pending checks wait even when unlisted", () => {
+  const decision = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Unlisted pending check", status: "IN_PROGRESS", conclusion: null },
+    ],
+  }));
+  assert.equal(decision.eligible, false);
+  assert.equal(decision.reason, "required_checks_pending");
+});
+
+test("approved-domain required check presence and exact-name matching stay fail closed", () => {
+  const missing = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: autoMergeRequiredChecks().filter((check) => check.name !== "CodeQL"),
+  }));
+  assert.equal(missing.eligible, false);
+  assert.equal(missing.reason, "required_checks_not_successful");
+
+  const spoof = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      { name: "Validate scaffold spoof", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
+    ],
+  }));
+  assert.equal(spoof.eligible, false);
+  assert.equal(spoof.reason, "required_checks_not_successful");
+});
+
+test("approved-domain skipped and neutral check conclusions require canonical allowlists", () => {
+  const skippedAllowed = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedSkippedChecks: ["Optional docs"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Optional docs", status: "COMPLETED", conclusion: "SKIPPED" },
+    ],
+  }));
+  assert.equal(skippedAllowed.eligible, true);
+  assert.equal(skippedAllowed.reason, "all_auto_merge_gates_passed");
+
+  const skippedUnlisted = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedSkippedChecks: ["Optional docs"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Other optional docs", status: "COMPLETED", conclusion: "SKIPPED" },
+    ],
+  }));
+  assert.equal(skippedUnlisted.eligible, false);
+  assert.equal(skippedUnlisted.reason, "required_checks_not_successful");
+
+  const neutralAllowed = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedNeutralChecks: ["Optional advisory"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Advisory / Optional advisory", status: "COMPLETED", conclusion: "NEUTRAL" },
+    ],
+  }));
+  assert.equal(neutralAllowed.eligible, true);
+  assert.equal(neutralAllowed.reason, "all_auto_merge_gates_passed");
+
+  const neutralUnlisted = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedNeutralChecks: ["Optional advisory"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Other optional advisory", status: "COMPLETED", conclusion: "NEUTRAL" },
+    ],
+  }));
+  assert.equal(neutralUnlisted.eligible, false);
+  assert.equal(neutralUnlisted.reason, "required_checks_not_successful");
+});
+
+test("approved-domain duplicate check records cannot mask failed or pending instances", () => {
+  const duplicateFailure = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "FAILURE" },
+    ],
+  }));
+  assert.equal(duplicateFailure.eligible, false);
+  assert.equal(duplicateFailure.reason, "required_checks_not_successful");
+
+  const duplicatePending = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Duplicate optional", status: "QUEUED", conclusion: null },
+    ],
+  }));
+  assert.equal(duplicatePending.eligible, false);
+  assert.equal(duplicatePending.reason, "required_checks_pending");
+
+  const failedPlusPending = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Mixed optional", status: "COMPLETED", conclusion: "FAILURE" },
+      { name: "Other optional", status: "QUEUED", conclusion: null },
+    ],
+  }));
+  assert.equal(failedPlusPending.eligible, false);
+  assert.equal(failedPlusPending.reason, "required_checks_not_successful");
+
+  const allowedSkippedPlusFailure = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedSkippedChecks: ["Duplicate optional"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "SKIPPED" },
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "FAILURE" },
+    ],
+  }));
+  assert.equal(allowedSkippedPlusFailure.eligible, false);
+  assert.equal(allowedSkippedPlusFailure.reason, "required_checks_not_successful");
+});
+
 test("approved-domain auto-merge matrix covers normal focused sensitive and refusal reason codes", () => {
   const cases = [
     ["workflow-docs-tooling", "cheap_independent", "normal", "tools/auto-runner/lib/auto-merge-policy.mjs", "runner-tests", "low"],
@@ -3405,6 +3555,11 @@ test("approved-domain auto-merge matrix covers normal focused sensitive and refu
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
   assert.throws(() => normalizeAutoMergePolicy({ approvedLanes: ["security-runtime"], requiredChecks: ["Validate scaffold"] }), /alias/);
   assert.throws(() => normalizeAutoMergePolicy({ approvedLanes: ["unknown-lane"], requiredChecks: ["Validate scaffold"] }), /Unknown/);
+  assert.deepEqual(normalizeAutoMergePolicy({}).allowedNeutralChecks, []);
+  assert.throws(
+    () => normalizeAutoMergePolicy({ allowedNeutralChecks: ["Workflow / Optional advisory"] }),
+    /canonical check names/,
+  );
 });
 
 test("client-ui-low-risk lane with exact mobile UI paths allows merge decision", () => {
@@ -3786,13 +3941,13 @@ test("auto-merge wait expires fail-closed when checks remain pending beyond the 
 });
 
 test("auto-merge does not wait on failed or cancelled checks", () => {
-  for (const conclusion of ["FAILURE", "CANCELLED"]) {
+  for (const conclusion of ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"]) {
     const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-auto-merge-terminal-${conclusion.toLowerCase()}-`));
     try {
       let inspections = 0;
       const result = executeAutoMerge(
         { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 8, delayMs: 0 } },
-        autoMergeContext({ requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion }] }),
+        autoMergeContext({ requiredChecks: [...autoMergeRequiredChecks(), { name: "Unlisted terminal check", status: "COMPLETED", conclusion }] }),
         {
           runner: createAutoMergeRunner([]),
           sleep: () => {},
@@ -3809,6 +3964,33 @@ test("auto-merge does not wait on failed or cancelled checks", () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
+  }
+});
+
+test("auto-merge final refresh catches newly failed unlisted exact-head checks", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-final-refresh-unlisted-check-"));
+  try {
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 1, delayMs: 0 } },
+      autoMergeContext(),
+      {
+        runner: createAutoMergeRunner([]),
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: [
+            ...autoMergeRequiredChecks(),
+            { name: "Unlisted final refresh check", status: "COMPLETED", conclusion: "FAILURE" },
+          ],
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason, "final_refresh_blocked:required_checks_not_successful");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 
@@ -4069,6 +4251,31 @@ test("existing PR recovery treats pending checks as refreshable wait state after
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "existing_pr_recovery_waiting_for_refreshable_gate:required_checks_pending");
   assert.equal(decision.autoMergeDecision.reason, "required_checks_pending");
+});
+
+test("existing PR recovery applies all-observed exact-head check policy", () => {
+  const failed = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      requiredChecks: [
+        ...autoMergeRequiredChecks(),
+        { name: "Unlisted recovered PR check", status: "COMPLETED", conclusion: "FAILURE" },
+      ],
+    }),
+  );
+  assert.equal(failed.eligible, false);
+  assert.equal(failed.reason, "existing_pr_recovery_gate_blocked:required_checks_not_successful");
+  assert.equal(failed.autoMergeDecision.reason, "required_checks_not_successful");
+
+  const pending = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      requiredChecks: [
+        ...autoMergeRequiredChecks(),
+        { name: "Unlisted recovered PR pending check", status: "IN_PROGRESS", conclusion: null },
+      ],
+    }),
+  );
+  assert.equal(pending.eligible, true);
+  assert.equal(pending.reason, "existing_pr_recovery_waiting_for_refreshable_gate:required_checks_pending");
 });
 
 test("source branch restoration is executed after mocked merge auto-deletes branch", () => {
@@ -5125,6 +5332,7 @@ function autoMergeContext(overrides = {}) {
         approvedLanes: [laneDecision.canonicalLane || laneDecision.lane],
         requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"],
         allowedSkippedChecks: [],
+        allowedNeutralChecks: [],
       },
       ...(overrides.config || {}),
     },
@@ -5191,6 +5399,16 @@ function autoMergeRequiredChecks(overrides = {}) {
     status: overrides[name]?.status || "COMPLETED",
     conclusion: Object.hasOwn(overrides[name] || {}, "conclusion") ? overrides[name].conclusion : "SUCCESS",
   }));
+}
+
+function autoMergePolicyFixture(overrides = {}) {
+  return {
+    approvedLanes: ["workflow-docs-tooling"],
+    requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"],
+    allowedSkippedChecks: [],
+    allowedNeutralChecks: [],
+    ...overrides,
+  };
 }
 
 function sha256Strings(values = []) {

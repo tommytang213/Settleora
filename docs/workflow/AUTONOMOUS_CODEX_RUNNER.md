@@ -281,8 +281,9 @@ genuine manual action, exact changed-file matches against both the issue
 contract and lane manifest, the lane-appropriate branch strategy, structured
 validation evidence bound to exact head/base/files/profile, the #888 external
 review tier on that same evidence, independent Codex mechanics/security
-approval, required GitHub checks and security scans, no open code-scanning
-alerts, no unresolved review threads or requested changes, an open issue with
+approval, required GitHub checks and security scans, all observed exact-head
+checks in acceptable final states, no open code-scanning alerts, no unresolved
+review threads or requested changes, an open issue with
 no stop labels, and an unchanged base/head through the final refresh. The
 merge command uses `gh pr merge --merge --match-head-commit <exact-head>`.
 

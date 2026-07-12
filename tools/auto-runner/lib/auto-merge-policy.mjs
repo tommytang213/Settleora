@@ -38,7 +38,6 @@ export const transientIssueLifecycleLabels = Object.freeze([
   "auto-failed",
 ]);
 
-const successfulCheckConclusions = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const cleanMergeStates = new Set(["CLEAN"]);
 const refreshableMergeStates = new Set(["BLOCKED", "UNKNOWN", "UNSTABLE", "HAS_HOOKS", ""]);
 const defaultAutoMergeWait = Object.freeze({ maxAttempts: 60, delayMs: 30_000 });
@@ -694,7 +693,12 @@ function detectBlockingMarkers(comments, reviews) {
 
 function summarizeCheckStatus(checks, policy = {}) {
   const requiredNames = uniqueStrings([...mandatoryRequiredChecks, ...(policy?.requiredChecks || [])]);
+  const allowlistNames = uniqueStrings([
+    ...(policy?.allowedSkippedChecks || []),
+    ...(policy?.allowedNeutralChecks || []),
+  ]);
   const allowedSkipped = new Set(policy?.allowedSkippedChecks || []);
+  const allowedNeutral = new Set(policy?.allowedNeutralChecks || []);
   if (checks.length === 0) return { state: "missing", total: 0, pending: 0, failed: 0, missingRequired: requiredNames };
   const matched = new Set();
   for (const required of requiredNames) {
@@ -702,18 +706,20 @@ function summarizeCheckStatus(checks, policy = {}) {
   }
   const missingRequired = requiredNames.filter((name) => !matched.has(name));
   if (missingRequired.length > 0) return { state: "missing", total: checks.length, pending: 0, failed: 0, missingRequired };
-  const relevant = requiredNames.length > 0
-    ? checks.filter((check) => requiredNames.some((required) => checkNameMatchesRequired(check.name, required)))
-    : checks;
-  const pending = relevant.filter((check) => check.status !== "COMPLETED").length;
-  const failed = relevant.filter((check) => {
-    if (check.status !== "COMPLETED") return false;
-    if (check.conclusion === "SKIPPED" && !allowedSkipped.has(check.name)) return true;
-    return !successfulCheckConclusions.has(check.conclusion);
+  const canonicalCandidates = uniqueStrings([...requiredNames, ...allowlistNames]);
+  const pending = checks.filter((check) => normalizeCheckStatusValue(check.status) !== "COMPLETED").length;
+  const failed = checks.filter((check) => {
+    if (normalizeCheckStatusValue(check.status) !== "COMPLETED") return false;
+    const conclusion = normalizeCheckStatusValue(check.conclusion);
+    const canonicalName = canonicalCheckName(check.name, canonicalCandidates);
+    if (conclusion === "SUCCESS") return false;
+    if (conclusion === "SKIPPED") return !allowedSkipped.has(canonicalName);
+    if (conclusion === "NEUTRAL") return !allowedNeutral.has(canonicalName);
+    return true;
   }).length;
-  if (pending > 0) return { state: "pending", total: relevant.length, pending, failed, missingRequired };
-  if (failed > 0) return { state: "failed", total: relevant.length, pending, failed, missingRequired };
-  return { state: "success", total: relevant.length, pending, failed, missingRequired };
+  if (failed > 0) return { state: "failed", total: checks.length, pending, failed, missingRequired };
+  if (pending > 0) return { state: "pending", total: checks.length, pending, failed, missingRequired };
+  return { state: "success", total: checks.length, pending, failed, missingRequired };
 }
 
 function sameStringSet(left = [], right = []) {
@@ -733,6 +739,14 @@ function checkNameMatchesRequired(actual, required) {
   const actualName = String(actual || "");
   const requiredName = String(required || "");
   return actualName === requiredName || actualName.endsWith(` / ${requiredName}`) || actualName.startsWith(`${requiredName} / `);
+}
+
+function canonicalCheckName(actual, candidates = []) {
+  return candidates.find((candidate) => checkNameMatchesRequired(actual, candidate)) || String(actual || "unknown");
+}
+
+function normalizeCheckStatusValue(value) {
+  return String(value || "").trim().toUpperCase();
 }
 
 function isUmbrellaIssue(issue = {}) {

@@ -436,6 +436,7 @@ function checkAutoMergeApproval(config) {
           approvedLanes,
           requiredChecks: config.autoMergePolicy?.requiredChecks || [],
           allowedSkippedChecks: config.autoMergePolicy?.allowedSkippedChecks || [],
+          allowedNeutralChecks: config.autoMergePolicy?.allowedNeutralChecks || [],
           defaultOffPosture: false,
           reason: "approved-domain auto-merge config is explicit; final merge gates still require exact head, validation, external review, Codex review, CI/security, code scanning, issue, branch, and manual-action checks",
         }),
