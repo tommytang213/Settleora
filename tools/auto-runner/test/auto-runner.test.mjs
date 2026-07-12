@@ -42,12 +42,16 @@ import { runPreflight } from "../lib/preflight.mjs";
 import { generateTaskPrompt } from "../lib/task-prompt.mjs";
 import { inspectPreReviewPrOwnership } from "../lib/pr-manager.mjs";
 import {
+  buildGeminiSmokePayload,
+  buildIntegratedReviewPayload,
+  externalReviewVerdictJsonSchema,
   loadGeminiApiKey,
   parseIntegratedVerdict,
   resolveGeminiModelEndpoint,
   runGeminiIntegratedReview,
   runGeminiReviewerSmokeTest,
   sanitizeSecretText,
+  smokeVerdictJsonSchema,
   supportedGeminiModelEndpoints,
   validateReviewerSecretMetadata,
 } from "../lib/gemini-reviewer.mjs";
@@ -1322,6 +1326,30 @@ test("Gemini smoke test fails closed for malformed JSON verdict", async () => {
   }
 });
 
+test("Gemini smoke and integrated payloads include strict response schemas", () => {
+  const integratedSchema = externalReviewVerdictJsonSchema();
+  assert.deepEqual(integratedSchema.required, ["verdict", "confidence", "summary", "findings"]);
+  assert.equal(integratedSchema.additionalProperties, false);
+  assert.deepEqual(integratedSchema.propertyOrdering, ["verdict", "confidence", "summary", "findings"]);
+  assert.deepEqual(integratedSchema.properties.verdict.enum, ["pass", "fail", "needs_tommy", "danger_gate", "unable_to_review"]);
+  assert.deepEqual(integratedSchema.properties.confidence.enum, ["low", "medium", "high"]);
+  assert.equal(integratedSchema.properties.findings.maxItems, 20);
+
+  const integratedPayload = buildIntegratedReviewPayload("review prompt");
+  assert.equal(integratedPayload.generationConfig.temperature, 0);
+  assert.equal(integratedPayload.generationConfig.responseMimeType, "application/json");
+  assert.deepEqual(integratedPayload.generationConfig.responseJsonSchema, integratedSchema);
+  assert.equal(integratedPayload.generationConfig.thinkingConfig.thinkingBudget, 0);
+
+  const smokeSchema = smokeVerdictJsonSchema();
+  assert.deepEqual(smokeSchema.required, ["verdict", "findings"]);
+  assert.equal(smokeSchema.additionalProperties, false);
+  assert.deepEqual(smokeSchema.properties.verdict.enum, ["pass", "fail"]);
+  const smokePayload = buildGeminiSmokePayload();
+  assert.equal(smokePayload.generationConfig.responseMimeType, "application/json");
+  assert.deepEqual(smokePayload.generationConfig.responseJsonSchema, smokeSchema);
+});
+
 test("Gemini smoke test blocks before live call when reviewer budget hard stop would be exceeded", async () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-smoke-budget-"));
   try {
@@ -1580,10 +1608,12 @@ test("eligible low-risk lane selects cheap Gemini reviewer and pass verdict proc
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-pass-"));
   try {
     const requestedUrls = [];
+    const requestBodies = [];
     const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
       env: { GEMINI_API_KEY: "super-secret-key" },
-      fetchImpl: async (url) => {
+      fetchImpl: async (url, request) => {
         requestedUrls.push(String(url));
+        requestBodies.push(JSON.parse(request.body));
         return fakeGeminiResponse({
           candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }],
           usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 120 },
@@ -1595,6 +1625,9 @@ test("eligible low-risk lane selects cheap Gemini reviewer and pass verdict proc
     assert.equal(result.tier, "cheap_independent");
     assert.equal(result.model, "gemini-2.5-flash-lite");
     assert.equal(new URL(requestedUrls[0]).origin, "https://generativelanguage.googleapis.com");
+    assert.equal(requestBodies[0].generationConfig.responseMimeType, "application/json");
+    assert.equal(requestBodies[0].generationConfig.responseJsonSchema.additionalProperties, false);
+    assert.deepEqual(requestBodies[0].generationConfig.responseJsonSchema.required, ["verdict", "confidence", "summary", "findings"]);
     const report = readFileSync(result.reportPath, "utf8");
     const accounting = readFileSync(path.join(tempRoot, "state", "reviewer-accounting.json"), "utf8");
     assert.doesNotMatch(report, /super-secret-key|raw-provider-secret/);
@@ -1677,14 +1710,16 @@ test("sensitive domain uses strong integrated Gemini review when lane metadata r
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-sensitive-"));
   try {
     let calls = 0;
+    let prompt = "";
     const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage({
       changedFiles: ["services/api/Auth/SessionRuntime.cs"],
-      laneDecision: { lane: "security-runtime", dangerGate: true, reviewerTier: "strong_independent" },
+      laneDecision: { lane: "auth-session-security", dangerGate: true, reviewerTier: "strong_independent" },
       diff: "diff --git a/services/api/Auth/SessionRuntime.cs b/services/api/Auth/SessionRuntime.cs\n",
     }), {
       env: { GEMINI_API_KEY: "super-secret-key" },
-      fetchImpl: async () => {
+      fetchImpl: async (_url, request) => {
         calls += 1;
+        prompt = JSON.parse(request.body).contents[0].parts[0].text;
         return fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] });
       },
     });
@@ -1692,6 +1727,12 @@ test("sensitive domain uses strong integrated Gemini review when lane metadata r
     assert.equal(result.tier, "strong_independent");
     assert.equal(result.model, "gemini-2.5-pro");
     assert.equal(calls, 1);
+    assert.doesNotMatch(prompt, /Approved first lanes are workflow-docs-tooling, docs-planning, and client-ui-low-risk only/);
+    assert.doesNotMatch(prompt, /Pass only if this low-risk Settleora/);
+    assert.match(prompt, /Approved sensitive implementation lanes are reviewable/);
+    assert.match(prompt, /manual actions/);
+    assert.match(prompt, /secret\/auth credential mutation/);
+    assert.match(prompt, /unable_to_review/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -1760,6 +1801,8 @@ test("malformed and non-pass integrated Gemini verdicts fail closed", async () =
     });
     assert.equal(malformed.status, "blocked");
     assert.equal(malformed.reason, "blocked_malformed_json_verdict");
+    assert.equal(malformed.providerAttempts.length, 1);
+    assert.equal(malformed.providerAttempts[0].transient, false);
 
     const nonPass = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
       env: { GEMINI_API_KEY: "super-secret-key" },
@@ -1770,6 +1813,55 @@ test("malformed and non-pass integrated Gemini verdicts fail closed", async () =
     assert.equal(nonPass.reason, "blocked_external_reviewer_non_pass");
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("integrated Gemini candidate and finish reason failures are structured and bounded", async () => {
+  const cases = [
+    {
+      name: "empty candidate list",
+      body: { candidates: [], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 0, totalTokenCount: 1 } },
+      reason: "blocked_provider_no_candidates",
+    },
+    {
+      name: "safety blocked candidate",
+      body: { candidates: [{ finishReason: "SAFETY", safetyRatings: [{ category: "HARM_CATEGORY_DANGEROUS_CONTENT" }] }] },
+      reason: "blocked_provider_candidate_safety_block",
+    },
+    {
+      name: "truncated candidate",
+      body: { candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] },
+      reason: "blocked_provider_response_truncated",
+    },
+    {
+      name: "unexpected finish reason",
+      body: { candidates: [{ finishReason: "OTHER", content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] },
+      reason: "blocked_provider_unexpected_finish_reason",
+    },
+    {
+      name: "empty text",
+      body: { candidates: [{ finishReason: "STOP", content: { parts: [{ text: "" }] } }] },
+      reason: "blocked_provider_empty_text",
+    },
+  ];
+  for (const item of cases) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-integrated-${item.name.replaceAll(" ", "-")}-`));
+    try {
+      const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        fetchImpl: async () => fakeGeminiResponse(item.body),
+      });
+      assert.equal(result.status, "blocked", item.name);
+      assert.equal(result.reason, item.reason, item.name);
+      assert.equal(result.providerAttempts.length, 1, item.name);
+      assert.equal(result.providerAttempts[0].transient, false, item.name);
+      const report = readFileSync(result.reportPath, "utf8");
+      assert.doesNotMatch(report, /super-secret-key/);
+      assert.doesNotMatch(report, /rawProviderOnlyText/);
+      assert.match(report, /"candidateCount"/);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   }
 });
 
@@ -1981,8 +2073,13 @@ test("integrated Gemini accounting parse and write failures fail closed", async 
 
 test("integrated Gemini verdict parser rejects extra prose, unknown verdicts, and contradictory pass findings", () => {
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass" })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "fail" })).ok, true);
   assert.equal(parseIntegratedVerdict(`notes\n${integratedVerdictJson({ verdict: "pass" })}`).ok, false);
+  assert.equal(parseIntegratedVerdict(`\`\`\`json\n${integratedVerdictJson({ verdict: "pass" })}\n\`\`\``).ok, false);
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "approve" })).ok, false);
+  assert.equal(parseIntegratedVerdict(JSON.stringify({ verdict: "pass", confidence: "high", summary: "ok", findings: [], extra: true })).ok, false);
+  assert.equal(parseIntegratedVerdict(JSON.stringify({ verdict: "pass", confidence: "high", summary: "ok" })).ok, false);
+  assert.equal(parseIntegratedVerdict(JSON.stringify({ verdict: "pass", confidence: "certain", summary: "ok", findings: [] })).ok, false);
   assert.equal(
     parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["blocking issue remains"] })).ok,
     false,
@@ -5477,12 +5574,25 @@ function integratedVerdictJson(overrides = {}) {
 }
 
 function fakeGeminiResponse(body, status = 200) {
+  const normalizedBody = normalizeFakeGeminiBody(body);
   return {
     ok: status >= 200 && status < 300,
     status,
     async text() {
-      return JSON.stringify(body);
+      return JSON.stringify(normalizedBody);
     },
+  };
+}
+
+function normalizeFakeGeminiBody(body) {
+  if (!body || typeof body !== "object" || !Array.isArray(body.candidates)) return body;
+  return {
+    ...body,
+    candidates: body.candidates.map((candidate) => (
+      candidate && typeof candidate === "object" && !Object.hasOwn(candidate, "finishReason")
+        ? { finishReason: "STOP", ...candidate }
+        : candidate
+    )),
   };
 }
 

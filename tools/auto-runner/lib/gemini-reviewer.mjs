@@ -43,6 +43,19 @@ const credentialValuePatterns = Object.freeze([
   /\bbearer\s+[A-Za-z0-9._~+/-]{12,}/i,
   /\b[A-Za-z_][A-Za-z0-9_]*_(TOKEN|SECRET|KEY)\s*=\s*["']?[A-Za-z0-9._~+/-]{12,}/,
 ]);
+const integratedVerdictFields = Object.freeze(["verdict", "confidence", "summary", "findings"]);
+const integratedVerdictValues = Object.freeze(["pass", "fail", "needs_tommy", "danger_gate", "unable_to_review"]);
+const confidenceValues = Object.freeze(["low", "medium", "high"]);
+const smokeVerdictFields = Object.freeze(["verdict", "findings"]);
+const smokeVerdictValues = Object.freeze(["pass", "fail"]);
+const maxIntegratedSummaryChars = 1000;
+const maxIntegratedFindingChars = 1000;
+const maxIntegratedFindings = 20;
+const maxSmokeFindingChars = 500;
+const maxSmokeFindings = 5;
+const successfulGeminiFinishReasons = new Set(["STOP"]);
+const truncatedGeminiFinishReasons = new Set(["MAX_TOKENS"]);
+const safetyBlockedGeminiFinishReasons = new Set(["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"]);
 
 export async function runGeminiIntegratedReview(config, packageInfo, options = {}) {
   const startedAtMs = Date.now();
@@ -211,6 +224,7 @@ async function callIntegratedGeminiWithRetry({ config, base, url, payload, fetch
 }
 
 async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey }) {
+  let responseBody = { text: "", truncated: false };
   try {
     const response = await fetchImpl(url, {
       method: "POST",
@@ -218,7 +232,7 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
       signal: timeoutSignal(),
       body: JSON.stringify(payload),
     });
-    const responseBody = await readBoundedProviderResponseText(response);
+    responseBody = await readBoundedProviderResponseText(response);
     const responseText = responseBody.text;
     const sanitizedText = sanitizeSecretText(responseText, apiKey);
     if (!response.ok) {
@@ -226,17 +240,36 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
       return {
         ...base,
         reason: transient ? `blocked_provider_transient_http_error:${response.status || "unknown"}` : "blocked_provider_http_error",
-        sanitizedResponseSummary: bounded(sanitizedText),
+        providerMetadata: {
+          httpStatus: response.status || null,
+          responseTextBytes: byteLength(responseText),
+          responseTruncated: Boolean(responseBody.truncated),
+          summary: bounded(sanitizedText),
+        },
       };
     }
     const parsed = JSON.parse(responseText);
-    const text = extractGeminiText(parsed);
+    const candidateCheck = evaluateGeminiCandidateResponse(parsed, responseBody);
+    if (!candidateCheck.ok) {
+      return {
+        ...base,
+        reason: candidateCheck.reason,
+        actualUsage: sanitizeUsage(parsed.usageMetadata),
+        providerMetadata: candidateCheck.metadata,
+      };
+    }
+    const text = candidateCheck.text;
     const verdict = parseIntegratedVerdict(text);
     if (!verdict.ok) {
       return {
         ...base,
-        reason: "blocked_malformed_json_verdict",
+        reason: verdict.reason === "malformed_json" ? "blocked_malformed_json_verdict" : "blocked_verdict_schema_validation_failed",
         actualUsage: sanitizeUsage(parsed.usageMetadata),
+        providerMetadata: {
+          ...candidateCheck.metadata,
+          verdictReason: verdict.reason,
+          verdictDetail: bounded(verdict.detail || verdict.reason, 240),
+        },
       };
     }
     if (verdict.verdict.verdict !== "pass") {
@@ -246,6 +279,7 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
         verdict: verdict.verdict.verdict,
         actualUsage: sanitizeUsage(parsed.usageMetadata),
         sanitizedResponseSummary: verdict.verdict,
+        providerMetadata: candidateCheck.metadata,
       };
     }
     return {
@@ -255,6 +289,7 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
       verdict: "pass",
       actualUsage: sanitizeUsage(parsed.usageMetadata),
       sanitizedResponseSummary: verdict.verdict,
+      providerMetadata: candidateCheck.metadata,
     };
   } catch (error) {
     const message = sanitizeSecretText(bounded(error.message, 160), apiKey);
@@ -262,6 +297,10 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
     return {
       ...base,
       reason: `${transient ? "blocked_provider_transient_exception" : "blocked_provider_exception"}:${message}`,
+      providerMetadata: {
+        responseTextBytes: byteLength(responseBody.text),
+        responseTruncated: Boolean(responseBody.truncated),
+      },
     };
   }
 }
@@ -271,25 +310,29 @@ export function parseIntegratedVerdict(text) {
   try {
     parsed = JSON.parse(String(text || "").trim());
   } catch (error) {
-    return { ok: false, reason: error.message };
+    return { ok: false, reason: "malformed_json", detail: error.message };
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, reason: "verdict must be an object" };
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, reason: "schema_validation", detail: "verdict must be an object" };
   const keys = Object.keys(parsed).sort();
   if (keys.join(",") !== "confidence,findings,summary,verdict") {
-    return { ok: false, reason: "verdict object has unsupported or missing fields" };
+    return { ok: false, reason: "schema_validation", detail: "verdict object has unsupported or missing fields" };
   }
-  if (!["pass", "fail", "needs_tommy", "danger_gate", "unable_to_review"].includes(parsed.verdict)) {
-    return { ok: false, reason: "verdict field is unsupported" };
+  if (!integratedVerdictValues.includes(parsed.verdict)) {
+    return { ok: false, reason: "schema_validation", detail: "verdict field is unsupported" };
   }
-  if (!["low", "medium", "high"].includes(parsed.confidence)) return { ok: false, reason: "confidence field is unsupported" };
-  if (typeof parsed.summary !== "string" || parsed.summary.length > 1000) {
-    return { ok: false, reason: "summary must be a bounded string" };
+  if (!confidenceValues.includes(parsed.confidence)) return { ok: false, reason: "schema_validation", detail: "confidence field is unsupported" };
+  if (typeof parsed.summary !== "string" || parsed.summary.length > maxIntegratedSummaryChars) {
+    return { ok: false, reason: "schema_validation", detail: "summary must be a bounded string" };
   }
-  if (!Array.isArray(parsed.findings) || parsed.findings.some((item) => typeof item !== "string" || item.length > 1000)) {
-    return { ok: false, reason: "findings must be bounded strings" };
+  if (
+    !Array.isArray(parsed.findings) ||
+    parsed.findings.length > maxIntegratedFindings ||
+    parsed.findings.some((item) => typeof item !== "string" || item.length > maxIntegratedFindingChars)
+  ) {
+    return { ok: false, reason: "schema_validation", detail: "findings must be bounded strings" };
   }
   if (parsed.verdict === "pass" && parsed.findings.some((finding) => /\b(blocking|must fix|fail|danger)\b/i.test(finding))) {
-    return { ok: false, reason: "pass verdict contains contradictory blocking finding language" };
+    return { ok: false, reason: "schema_validation", detail: "pass verdict contains contradictory blocking finding language" };
   }
   return {
     ok: true,
@@ -297,7 +340,7 @@ export function parseIntegratedVerdict(text) {
       verdict: parsed.verdict,
       confidence: parsed.confidence,
       summary: parsed.summary,
-      findings: parsed.findings.slice(0, 20),
+      findings: parsed.findings.slice(0, maxIntegratedFindings),
     },
   };
 }
@@ -383,10 +426,32 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
       return finishSmoke(config, { ...base, sanitizedResponseSummary: bounded(sanitizedText) }, startedAtMs, "blocked_provider_http_error");
     }
     const parsed = JSON.parse(responseText);
-    const text = extractGeminiText(parsed);
+    const candidateCheck = evaluateGeminiCandidateResponse(parsed, responseBody);
+    if (!candidateCheck.ok) {
+      return finishSmoke(
+        config,
+        { ...base, actualUsage: sanitizeUsage(parsed.usageMetadata), providerMetadata: candidateCheck.metadata },
+        startedAtMs,
+        candidateCheck.reason,
+      );
+    }
+    const text = candidateCheck.text;
     const verdict = parseSmokeVerdict(text);
     if (!verdict.ok) {
-      return finishSmoke(config, { ...base, actualUsage: sanitizeUsage(parsed.usageMetadata) }, startedAtMs, "blocked_malformed_json_verdict");
+      return finishSmoke(
+        config,
+        {
+          ...base,
+          actualUsage: sanitizeUsage(parsed.usageMetadata),
+          providerMetadata: {
+            ...candidateCheck.metadata,
+            verdictReason: verdict.reason,
+            verdictDetail: bounded(verdict.detail || verdict.reason, 240),
+          },
+        },
+        startedAtMs,
+        verdict.reason === "malformed_json" ? "blocked_malformed_json_verdict" : "blocked_verdict_schema_validation_failed",
+      );
     }
     return finishSmoke(
       config,
@@ -401,6 +466,7 @@ export async function runGeminiReviewerSmokeTest(config, options = {}) {
           verdict: verdict.verdict.verdict,
           findingsCount: verdict.verdict.findings.length,
         },
+        providerMetadata: candidateCheck.metadata,
       },
       startedAtMs,
       "live_smoke_passed",
@@ -447,16 +513,20 @@ export function parseSmokeVerdict(text) {
   try {
     parsed = JSON.parse(String(text || "").trim());
   } catch (error) {
-    return { ok: false, reason: error.message };
+    return { ok: false, reason: "malformed_json", detail: error.message };
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, reason: "verdict must be an object" };
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, reason: "schema_validation", detail: "verdict must be an object" };
   const keys = Object.keys(parsed).sort();
-  if (keys.join(",") !== "findings,verdict") return { ok: false, reason: "verdict object has unsupported or missing fields" };
-  if (!["pass", "fail"].includes(parsed.verdict)) return { ok: false, reason: "verdict must be pass or fail" };
-  if (!Array.isArray(parsed.findings) || parsed.findings.some((item) => typeof item !== "string")) {
-    return { ok: false, reason: "findings must be an array of strings" };
+  if (keys.join(",") !== "findings,verdict") return { ok: false, reason: "schema_validation", detail: "verdict object has unsupported or missing fields" };
+  if (!smokeVerdictValues.includes(parsed.verdict)) return { ok: false, reason: "schema_validation", detail: "verdict must be pass or fail" };
+  if (
+    !Array.isArray(parsed.findings) ||
+    parsed.findings.length > maxSmokeFindings ||
+    parsed.findings.some((item) => typeof item !== "string" || item.length > maxSmokeFindingChars)
+  ) {
+    return { ok: false, reason: "schema_validation", detail: "findings must be an array of bounded strings" };
   }
-  return { ok: true, verdict: { verdict: parsed.verdict, findings: parsed.findings.slice(0, 5) } };
+  return { ok: true, verdict: { verdict: parsed.verdict, findings: parsed.findings.slice(0, maxSmokeFindings) } };
 }
 
 export function sanitizeSecretText(value, secret) {
@@ -556,7 +626,7 @@ function truncateProviderTextByBytes(text, maxBytes) {
   };
 }
 
-function buildGeminiSmokePayload() {
+export function buildGeminiSmokePayload() {
   return {
     contents: [
       {
@@ -577,6 +647,7 @@ function buildGeminiSmokePayload() {
       temperature: 0,
       maxOutputTokens: smokeOutputTokenEstimate,
       responseMimeType: "application/json",
+      responseJsonSchema: smokeVerdictJsonSchema(),
       thinkingConfig: { thinkingBudget: 0 },
     },
   };
@@ -601,18 +672,19 @@ function buildIntegratedReviewPrompt(summary, diff) {
     validation: summary.validation || null,
     architectureRules: [
       "Repo source is the source of truth.",
-      "Runner dangerous/trusted/auto-merge capabilities remain disabled.",
+      "Repository defaults keep approved-domain auto-merge disabled unless external config explicitly enables it for canonical lanes.",
       "External reviewer output may only approve or block; it must not request GitHub mutations.",
-      "Approved first lanes are workflow-docs-tooling, docs-planning, and client-ui-low-risk only.",
-      "The client-ui-low-risk lane is real code and must stay limited to shared mobile UI component files and directly tied UI tests.",
+      "Approved sensitive implementation lanes are reviewable only when package evidence shows the lane, architecture, validation, manual-action, secret, exact-head, CI, and policy gates all pass.",
+      "Production deploys, destructive execution, secret/auth credential mutation, public/admin exposure, branch deletion, force-like history, and unresolved product/policy/financial decisions remain manual actions.",
+      "If the complete diff or package cannot be assessed, return unable_to_review.",
     ],
     diffTruncated: Boolean(summary.diffTruncated),
   };
   return [
     "Return strict JSON only. No markdown, no prose outside JSON.",
-    'Schema: {"verdict":"pass|fail|needs_tommy|danger_gate|unable_to_review","confidence":"low|medium|high","summary":"short string","findings":["short string"]}',
-    "Pass only if this low-risk Settleora auto-runner pre-PR package is scoped, validated, and safe to proceed to PR creation.",
-    "Fail or gate if the package touches blocked domains, has ambiguous scope, missing validation, secret-boundary risk, or reviewer-output GitHub mutation risk.",
+    "Use the provider-enforced schema. Do not add fields.",
+    "Pass only if this Settleora auto-runner pre-PR package's actual lane decision, changed files, validation, and boundaries make it safe to proceed to PR creation.",
+    "Fail or gate if the package touches unapproved or manual-action domains, has ambiguous scope, missing validation, secret-boundary risk, stale/incomplete evidence, or reviewer-output GitHub mutation risk.",
     "",
     "Review package summary:",
     JSON.stringify(packageSummary, null, 2),
@@ -622,7 +694,7 @@ function buildIntegratedReviewPrompt(summary, diff) {
   ].join("\n");
 }
 
-function buildIntegratedReviewPayload(prompt) {
+export function buildIntegratedReviewPayload(prompt) {
   return {
     contents: [
       {
@@ -634,13 +706,83 @@ function buildIntegratedReviewPayload(prompt) {
       temperature: 0,
       maxOutputTokens: integratedOutputTokenEstimate,
       responseMimeType: "application/json",
+      responseJsonSchema: externalReviewVerdictJsonSchema(),
       thinkingConfig: { thinkingBudget: 0 },
     },
   };
 }
 
+function evaluateGeminiCandidateResponse(parsed, responseBody = {}) {
+  const candidates = Array.isArray(parsed?.candidates) ? parsed.candidates : [];
+  const promptFeedback = parsed?.promptFeedback && typeof parsed.promptFeedback === "object" ? parsed.promptFeedback : null;
+  const candidate = candidates[0] || null;
+  const text = extractGeminiText(parsed);
+  const metadata = {
+    candidateCount: candidates.length,
+    finishReason: candidate?.finishReason || null,
+    finishMessage: bounded(candidate?.finishMessage || "", 240) || null,
+    safetyRatingsCount: Array.isArray(candidate?.safetyRatings) ? candidate.safetyRatings.length : 0,
+    promptBlockReason: promptFeedback?.blockReason || null,
+    responseTextBytes: byteLength(responseBody.text),
+    candidateTextBytes: byteLength(text),
+    responseTruncated: Boolean(responseBody.truncated),
+    usage: sanitizeUsage(parsed?.usageMetadata),
+  };
+  if (metadata.promptBlockReason) return { ok: false, reason: "blocked_provider_prompt_safety_block", metadata, text };
+  if (candidates.length === 0) return { ok: false, reason: "blocked_provider_no_candidates", metadata, text };
+  if (safetyBlockedGeminiFinishReasons.has(String(metadata.finishReason || ""))) {
+    return { ok: false, reason: "blocked_provider_candidate_safety_block", metadata, text };
+  }
+  if (truncatedGeminiFinishReasons.has(String(metadata.finishReason || "")) || metadata.responseTruncated) {
+    return { ok: false, reason: "blocked_provider_response_truncated", metadata, text };
+  }
+  if (!successfulGeminiFinishReasons.has(String(metadata.finishReason || ""))) {
+    return { ok: false, reason: "blocked_provider_unexpected_finish_reason", metadata, text };
+  }
+  if (!text.trim()) return { ok: false, reason: "blocked_provider_empty_text", metadata, text };
+  return { ok: true, metadata, text };
+}
+
 function extractGeminiText(parsed) {
   return String(parsed?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "");
+}
+
+export function externalReviewVerdictJsonSchema() {
+  return Object.freeze({
+    type: "object",
+    properties: {
+      verdict: { type: "string", enum: [...integratedVerdictValues], description: "Overall external review verdict." },
+      confidence: { type: "string", enum: [...confidenceValues], description: "Confidence in the verdict." },
+      summary: { type: "string", description: "Bounded summary of the decision." },
+      findings: {
+        type: "array",
+        minItems: 0,
+        maxItems: maxIntegratedFindings,
+        items: { type: "string", description: "Bounded blocking or non-blocking finding." },
+      },
+    },
+    required: [...integratedVerdictFields],
+    additionalProperties: false,
+    propertyOrdering: [...integratedVerdictFields],
+  });
+}
+
+export function smokeVerdictJsonSchema() {
+  return Object.freeze({
+    type: "object",
+    properties: {
+      verdict: { type: "string", enum: [...smokeVerdictValues], description: "Smoke verdict." },
+      findings: {
+        type: "array",
+        minItems: 0,
+        maxItems: maxSmokeFindings,
+        items: { type: "string", description: "Bounded smoke finding." },
+      },
+    },
+    required: [...smokeVerdictFields],
+    additionalProperties: false,
+    propertyOrdering: [...smokeVerdictFields],
+  });
 }
 
 function parseEnvFile(text) {
@@ -751,6 +893,10 @@ function sanitizeUsage(usageMetadata) {
 
 function numberOrNull(value) {
   return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function byteLength(text) {
+  return new TextEncoder().encode(String(text || "")).byteLength;
 }
 
 function bounded(text, max = 1000) {
