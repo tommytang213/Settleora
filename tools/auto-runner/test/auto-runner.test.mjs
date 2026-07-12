@@ -2103,6 +2103,9 @@ test("integrated Gemini verdict parser rejects extra prose, unknown verdicts, an
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["No unresolved blocking findings were found."] })).ok, true);
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["The changes do not introduce any blocking issue."] })).ok, true);
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["Blocking findings: none."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["No evidence in the reviewed diff suggests any blocking issue."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["No findings require a blocking follow-up."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["There are zero exact-head review concerns requiring a must fix change."] })).ok, true);
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "fail" })).ok, true);
   assert.equal(parseIntegratedVerdict(`notes\n${integratedVerdictJson({ verdict: "pass" })}`).ok, false);
   assert.equal(parseIntegratedVerdict(`\`\`\`json\n${integratedVerdictJson({ verdict: "pass" })}\n\`\`\``).ok, false);
