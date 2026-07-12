@@ -20,6 +20,63 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - End-state gap audit after #880 monitoring acceptance
+
+- GitHub/live state verified:
+  - #880 is closed completed after accepted DevBox/Uptime Kuma/ntfy monitoring
+    proof and Tommy's operator confirmation of one DOWN/critical phone
+    notification, one recovery/UP phone notification, and no duplicate
+    notification.
+  - #800 remains open as the broader autonomous-runner tracker.
+  - #865 and #866 remain open and untouched protected canaries with exact
+    labels `area:mobile-ui`, `auto-canary-ready`, `canary`, and `workflow`,
+    zero comments, no assignees, and no milestone.
+- Current repo evidence:
+  - Low-risk/canary runner, exact-head low-risk auto-merge, review-fix
+    scaffolding, existing-PR recovery scaffolding, detached supervisor,
+    Windows-off proof, read-only health service, activity notifier, and
+    monitoring acceptance are implemented or proven in their bounded lanes.
+  - `tools/auto-runner/lib/lane-policy.mjs` still treats product runtime,
+    auth/security, storage/privacy, money/settlement, schema/migrations,
+    OpenAPI/generated clients, and deployment/CI/env as danger/manual lanes;
+    those current manual gates remain authoritative until reviewed policy work
+    explicitly changes them.
+  - `tools/auto-runner/lib/auto-merge-policy.mjs` still limits auto-merge to
+    low-risk lanes, and independent review is mandatory only for
+    `client-ui-low-risk`.
+  - Reviewer tier concepts exist, but cheap/strong/tie-breaker external tiers
+    are not default-operational.
+  - Automatic follow-up issue creation and `auto-bundle` are scaffolds, not the
+    finished #800 issue-creation or feature-bundle behavior.
+- Tracker/body update:
+  - #800 body now records the authoritative A-H finished target, completed
+    #880 monitoring acceptance, created child issues, bundle grouping,
+    keep-open rationale, and #887 as the recommended first implementation
+    child.
+- Created remaining children:
+  - #887 lane policy and genuine manual-decision classification.
+  - #888 external reviewer providers and tier routing.
+  - #889 exact-head auto-merge across approved domains.
+  - #890 real feature-bundle orchestration state and recovery.
+  - #891 automatic implementation issue derivation and creation.
+  - #892 automatic issue closure and progress hygiene.
+  - #893 review-fix, CI/security-fix, existing-PR recovery, and continuation.
+  - #894 final cross-domain unattended acceptance proof.
+- Feature bundle order:
+  - Bundle 1: #887, #888, #889.
+  - Bundle 2: #890.
+  - Bundle 3: #891, #892.
+  - Bundle 4: #893.
+  - Bundle 5: #894.
+- Close/keep-open recommendation:
+  - Keep #800 open. Monitoring is complete, but final A-H autonomous-loop
+    acceptance is incomplete until #887-#894 are implemented/proven and #894
+    records final cross-domain evidence.
+- Last verified repo/report references:
+  - Repo SHA `56a3e46061f7c1fdf2e7567a3d1e3e306db30070`.
+  - `docs/planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md`.
+  - `.codex/reports/settleora-codex-report-20260712-1821-issue880-closure-800-end-state-gap-audit.md`.
+
 ### Issue #885 - Auto-runner Node systemd runtime compatibility PR checkpoint
 
 - GitHub/live state verified:
