@@ -24,6 +24,8 @@ const successfulStopReasons = new Set([
   "max_iterations",
   "max-runtime",
   "max_runtime",
+  "max-iterations-reached",
+  "max-runtime-reached",
   "budget-exhausted",
   "budget_exhausted",
 ]);
@@ -98,7 +100,7 @@ export function evaluateAutoRunnerHealth({
     const activeMatches =
       hasActiveRunner &&
       (!expectedRunnerRunId || activeRunner.activeRunId === expectedRunnerRunId) &&
-      (!activeRunner.supervisorRunId || activeRunner.supervisorRunId === state.runId);
+      activeRunner.supervisorRunId === state.runId;
     if (!activeMatches) problems.push(problem("runner_disappeared"));
   }
 

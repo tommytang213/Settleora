@@ -50,6 +50,23 @@ test("auto-runner health classifies fresh active heartbeat as healthy active", (
   });
 });
 
+test("auto-runner health requires active runner supervisor correlation", () => {
+  withLogs((logsRoot) => {
+    writeRun(logsRoot, {
+      state: "running",
+      runnerRunId: "run-2026-07-12T055900Z",
+      heartbeatAt: "2026-07-12T05:59:00.000Z",
+    });
+    const result = evaluateAutoRunnerHealth({
+      logsRoot,
+      now: defaultNow,
+      runnerStatus: { active: true, activeRunId: "run-2026-07-12T055900Z", supervisorRunId: null },
+    });
+    assert.equal(result.httpStatus, 503);
+    assert.equal(result.body.reasonCode, "runner_disappeared");
+  });
+});
+
 test("auto-runner health returns stale heartbeat only while active", () => {
   withLogs((logsRoot) => {
     const runId = writeRun(logsRoot, {
@@ -101,8 +118,8 @@ test("auto-runner health treats no eligible work and budget exhaustion as health
       runId: "supervised-20260712T051000Z-000000000002",
       state: "completed",
       runnerRunId: "run-2026-07-12T051000Z",
-      stopReason: "max-iterations",
-      summary: { stopReason: "max-iterations", iterations: [{ outcome: "auto_merged" }] },
+      stopReason: "max-iterations-reached",
+      summary: { stopReason: "max-iterations-reached", iterations: [{ outcome: "auto_merged" }] },
     });
     result = evaluateAutoRunnerHealth({ logsRoot, now: defaultNow });
     assert.equal(result.httpStatus, 200);
