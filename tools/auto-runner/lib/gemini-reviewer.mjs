@@ -32,7 +32,6 @@ const maxGeminiRetryBackoffMs = 10_000;
 const geminiRetryDelayBucketsMs = Object.freeze([0, 100, 500, 1000, 2000, 5000, 10_000]);
 const secretLikePatterns = Object.freeze([
   /(^|\/)\.env($|[./-])/i,
-  /\/workspace\/logs\/settleora-auto-runner\/secrets\//i,
 ]);
 const secretLikePathPatterns = Object.freeze([
   /(^|\/)\.env($|[./-])/i,

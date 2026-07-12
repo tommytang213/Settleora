@@ -1475,7 +1475,7 @@ test("Gemini approved secret metadata rejects unsafe files without reading value
   const secretRoot = "/workspace/logs/settleora-auto-runner/secrets";
   const filePath = path.join(secretRoot, `reviewer-test-${process.pid}-${Date.now()}.env`);
   mkdirSync(secretRoot, { recursive: true, mode: 0o700 });
-  writeFileSync(filePath, "GEMINI_API_KEY=redacted-test-key\n", { mode: 0o600 });
+  writeFileSync(filePath, "GEMINI_API_KEY=test\n", { mode: 0o600 });
   try {
     assert.equal(validateReviewerSecretMetadata(filePath).ok, true);
     chmodSync(filePath, 0o644);
