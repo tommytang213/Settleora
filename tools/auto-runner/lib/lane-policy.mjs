@@ -12,7 +12,23 @@ const contractFields = new Set([
   "requiredReading",
 ]);
 
-const dangerPatterns = [
+const maxAllowedPathPatternLength = 240;
+const maxChangedPathLength = 512;
+
+const manualActionPatterns = [
+  { key: "production_deploy", pattern: /\b(production deploy(?:ment)?|deploy to production|deploy[^.\n]{0,80}production|production promotion|promote to production|release to production)\b/i },
+  { key: "mobile_store_release", pattern: /\b(testflight submission|submit[^.\n]{0,80}testflight|app store submission|play store submission|mobile store release|signing release|store release)\b/i },
+  { key: "destructive_data_operation", pattern: /\b(destructive (?:migration|data operation)|delete production data|purge production data|drop table|wipe data|force-allow-destructive|execute destructive)\b/i },
+  { key: "secret_credential_mutation", pattern: /\b(create|rotate|disclose|print|reveal|mutate|replace|delete|recreate)\b[^.\n]{0,80}\b(secret|credential|token|api key|auth config|\.env)\b|\b(secret|credential|token|api key|auth config|\.env)\b[^.\n]{0,80}\b(create|rotate|disclose|print|reveal|mutate|replace|delete|recreate)\b/i },
+  { key: "public_admin_exposure", pattern: /\b(public exposure|admin exposure|publicly expose|expose admin|internet exposure|router|firewall|dns|tls|reverse proxy|cloudflare tunnel|public tunnel)\b/i },
+  { key: "architecture_replacement", pattern: /\b(replace architecture|architecture replacement|change architecture direction|replace the architecture)\b/i },
+  { key: "force_history_rewrite", pattern: /\b(force push|force-push|history rewrite|rewrite history|git push --force)\b/i },
+  { key: "branch_deletion_cleanup", pattern: /\b(delete branch|branch deletion|branch cleanup|cleanup branch|remove branch)\b/i },
+  { key: "day1_scope_cut", pattern: /\b(day 1 scope cut|reduce day 1 scope|scope reduction|cut day 1|remove from day 1)\b/i },
+  { key: "unresolved_product_decision", pattern: /\b(unresolved (?:product|policy|authority|financial semantics?) decision|requires tommy decision|needs product decision|manual decision required)\b/i },
+];
+
+const sensitivityPatterns = [
   { key: "auth_security", pattern: /\b(auth|authentication|authorization|session|security|mfa|passkey|password|credential|token)\b/i },
   { key: "storage_privacy", pattern: /\b(storage|file byte|privacy|vault|permission|authz)\b/i },
   { key: "money_settlement", pattern: /\b(money|settlement|payment|paid|settled|refunded|refund|settle|billing|bill calculation|rounding|currency|balance|amount|total|debt|owed|split|allocation|ledger state)\b/i },
@@ -106,6 +122,76 @@ export const validationProfiles = Object.freeze({
     ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter analyze"]],
     ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart"]],
   ]),
+  "mobile": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "doctor:mobile"]],
+    ["npm", ["run", "validate:mobile"]],
+  ]),
+  "web-ui": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "validate:scaffold"]],
+  ]),
+  "api-domain": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "doctor:validation"]],
+    ["npm", ["run", "validate:api"]],
+  ]),
+  "api-security": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "doctor:validation"]],
+    ["npm", ["run", "validate:api-local"]],
+  ]),
+  "api-storage": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "doctor:validation"]],
+    ["npm", ["run", "validate:api-local"]],
+  ]),
+  "api-money": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "doctor:validation"]],
+    ["npm", ["run", "validate:api-local"]],
+  ]),
+  "api-migrations": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "doctor:validation"]],
+    ["npm", ["run", "validate:api-migrations"]],
+  ]),
+  "openapi-generated-clients": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "validate:openapi"]],
+    ["npm", ["run", "generate:clients"]],
+    ["npm", ["run", "validate:clients"]],
+  ]),
+  "sync-import-export": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "doctor:validation"]],
+    ["npm", ["run", "validate:api-local"]],
+  ]),
+  "compose-ci": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["npm", ["run", "doctor:docker"]],
+    ["npm", ["run", "validate:compose"]],
+  ]),
 });
 
 export const laneManifest = Object.freeze({
@@ -121,6 +207,10 @@ export const laneManifest = Object.freeze({
     autoMergeAllowed: true,
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
+    sensitivity: "low",
+    reviewerTier: "cheap_independent",
+    branchStrategy: "normal",
+    decisionType: "runnable",
   }),
   "docs-planning": Object.freeze({
     id: "docs-planning",
@@ -134,6 +224,10 @@ export const laneManifest = Object.freeze({
     autoMergeAllowed: true,
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
+    sensitivity: "low",
+    reviewerTier: "cheap_independent",
+    branchStrategy: "normal",
+    decisionType: "runnable",
   }),
   "client-ui-low-risk": Object.freeze({
     id: "client-ui-low-risk",
@@ -147,14 +241,144 @@ export const laneManifest = Object.freeze({
     autoMergeAllowed: true,
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
+    sensitivity: "low",
+    reviewerTier: "cheap_independent",
+    branchStrategy: "normal",
+    decisionType: "runnable",
+  }),
+  "mobile-application": policyLane({
+    id: "mobile-application",
+    purpose: "Flutter mobile application implementation outside generated clients and release actions.",
+    allowedPaths: ["apps/mobile/lib/**", "apps/mobile/test/**"],
+    defaultValidationProfile: "mobile",
+    supportedValidationProfiles: ["mobile", "mobile-ui-low-risk"],
+    sensitivity: "standard",
+    reviewerTier: "cheap_independent",
+    branchStrategy: "normal",
+  }),
+  "web-user-ui": policyLane({
+    id: "web-user-ui",
+    purpose: "Future user web portal UI implementation.",
+    allowedPaths: ["apps/web-user/**"],
+    defaultValidationProfile: "web-ui",
+    supportedValidationProfiles: ["web-ui", "scaffold-docs"],
+    sensitivity: "standard",
+    reviewerTier: "cheap_independent",
+    branchStrategy: "normal",
+  }),
+  "web-admin-ui": policyLane({
+    id: "web-admin-ui",
+    purpose: "Future admin web portal UI implementation without public/admin exposure changes.",
+    allowedPaths: ["apps/web-admin/**"],
+    defaultValidationProfile: "web-ui",
+    supportedValidationProfiles: ["web-ui", "scaffold-docs"],
+    sensitivity: "sensitive",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "api-domain-runtime": policyLane({
+    id: "api-domain-runtime",
+    purpose: "API/domain runtime implementation with API-authoritative business writes.",
+    allowedPaths: ["services/api/**"],
+    defaultValidationProfile: "api-domain",
+    supportedValidationProfiles: ["api-domain", "api-security", "api-storage", "api-money"],
+    sensitivity: "sensitive",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "auth-session-security": policyLane({
+    id: "auth-session-security",
+    purpose: "Auth, session, and security implementation under API authority.",
+    allowedPaths: ["services/api/**", "docs/architecture/AUTH_*.md", "docs/qa/AUTH_*.md"],
+    defaultValidationProfile: "api-security",
+    supportedValidationProfiles: ["api-security", "api-domain"],
+    sensitivity: "high",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "storage-file-privacy-authz": policyLane({
+    id: "storage-file-privacy-authz",
+    purpose: "Storage, file privacy, and authorization implementation under API authority.",
+    allowedPaths: ["services/api/**", "docs/architecture/STORAGE_*.md", "docs/architecture/PRIVACY_*.md"],
+    defaultValidationProfile: "api-storage",
+    supportedValidationProfiles: ["api-storage", "api-domain"],
+    sensitivity: "high",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "money-settlement-payment": policyLane({
+    id: "money-settlement-payment",
+    purpose: "Money, settlement, payment, bill-calculation, and financial implementation under API/domain authority.",
+    allowedPaths: ["services/api/**", "docs/architecture/*MONEY*.md", "docs/architecture/*SETTLEMENT*.md", "docs/architecture/*BILL*.md"],
+    defaultValidationProfile: "api-money",
+    supportedValidationProfiles: ["api-money", "api-domain"],
+    sensitivity: "high",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "schema-migrations": policyLane({
+    id: "schema-migrations",
+    purpose: "Schema and migration code generation/review without executing destructive production data operations.",
+    allowedPaths: ["services/api/**/Migrations/**", "services/api/**/migrations/**", "services/api/**/*.csproj", "services/api/**/*.cs"],
+    defaultValidationProfile: "api-migrations",
+    supportedValidationProfiles: ["api-migrations", "api-domain"],
+    sensitivity: "high",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "openapi-generated-clients": policyLane({
+    id: "openapi-generated-clients",
+    purpose: "OpenAPI source changes and generated clients refreshed through repo generation commands.",
+    allowedPaths: ["packages/contracts/openapi/**", "packages/client-web/src/generated/**", "packages/client-dart/lib/generated/**", "tools/generate-clients.mjs", "tools/validate-clients.mjs"],
+    defaultValidationProfile: "openapi-generated-clients",
+    supportedValidationProfiles: ["openapi-generated-clients"],
+    sensitivity: "high",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "sync-import-export-restore": policyLane({
+    id: "sync-import-export-restore",
+    purpose: "Sync, import, export, restore implementation with API acceptance authority preserved.",
+    allowedPaths: ["services/api/**", "apps/mobile/lib/**/sync/**", "apps/mobile/test/**/sync/**", "docs/architecture/*SYNC*.md", "docs/architecture/*IMPORT*.md", "docs/architecture/*EXPORT*.md", "docs/architecture/*RESTORE*.md"],
+    defaultValidationProfile: "sync-import-export",
+    supportedValidationProfiles: ["sync-import-export", "api-domain", "mobile"],
+    sensitivity: "high",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "docker-compose-ci-deployment": policyLane({
+    id: "docker-compose-ci-deployment",
+    purpose: "Docker, Compose, CI, and deployment code changes without live deployment or secret/environment mutation.",
+    allowedPaths: ["infra/**", ".github/workflows/**", "docs/deployment/**", "tools/doctor-validation.mjs", "tools/validate-*.mjs"],
+    defaultValidationProfile: "compose-ci",
+    supportedValidationProfiles: ["compose-ci", "scaffold-docs"],
+    sensitivity: "high",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+  }),
+  "cross-domain": Object.freeze({
+    id: "cross-domain",
+    purpose: "Cross-domain work that must be split unless a later bundle policy approves it.",
+    allowedPaths: Object.freeze([]),
+    defaultValidationProfile: null,
+    supportedValidationProfiles: Object.freeze([]),
+    implementationAllowed: false,
+    manualGateBeforeImplementation: false,
+    prCreationAllowed: false,
+    autoMergeAllowed: false,
+    followupIssueCreationAllowed: false,
+    reviewFixMutationAllowed: false,
+    sensitivity: "split",
+    reviewerTier: "split_or_escalate",
+    branchStrategy: "split-required",
+    decisionType: "split_required",
+    reasonCodes: Object.freeze(["split_required"]),
   }),
   "product-runtime": dangerLane("product-runtime", "Product runtime work remains manual-gated."),
-  "security-runtime": dangerLane("security-runtime", "Auth/session/security runtime work remains manual-gated."),
-  "storage-privacy": dangerLane("storage-privacy", "Storage, file privacy, and authz work remain manual-gated."),
-  "money-settlement": dangerLane("money-settlement", "Money, settlement, payment, and bill calculation work remain manual-gated."),
-  "schema-migrations": dangerLane("schema-migrations", "Schema and migration work remain manual-gated."),
-  "openapi-generated-clients": dangerLane("openapi-generated-clients", "OpenAPI and generated-client work remain manual-gated."),
-  "deployment-ci-env": dangerLane("deployment-ci-env", "Docker, CI, deployment, env, and secret work remain manual-gated."),
+  "security-runtime": aliasLane("security-runtime", "auth-session-security"),
+  "storage-privacy": aliasLane("storage-privacy", "storage-file-privacy-authz"),
+  "money-settlement": aliasLane("money-settlement", "money-settlement-payment"),
+  "deployment-ci-env": aliasLane("deployment-ci-env", "docker-compose-ci-deployment"),
 });
 
 export function classifyIssueLane(issue) {
@@ -163,7 +387,9 @@ export function classifyIssueLane(issue) {
   if (labels.has("manual-gate") || labels.has("needs-tommy")) {
     return blockedDecision("manual", "Issue already carries a manual gate label.", {
       manualGate: true,
-      dangerReasons: detectDangerReasons(issueSearchText(issue, "all")),
+      reasonCodes: ["explicit_manual_label"],
+      manualReasonCodes: ["explicit_manual_label"],
+      dangerReasons: detectSensitivityReasons(issueSearchText(issue, "all")),
     });
   }
 
@@ -171,7 +397,9 @@ export function classifyIssueLane(issue) {
     return blockedDecision("danger-gated", "Issue already carries a danger gate label.", {
       manualGate: true,
       dangerGate: true,
-      dangerReasons: detectDangerReasons(issueSearchText(issue, "all")),
+      reasonCodes: ["explicit_danger_label"],
+      manualReasonCodes: ["explicit_danger_label"],
+      dangerReasons: detectSensitivityReasons(issueSearchText(issue, "all")),
     });
   }
 
@@ -182,13 +410,30 @@ export function classifyIssueLane(issue) {
       if (!contractDecision.allowedToImplement) {
         return contractDecision;
       }
-      const positiveHits = detectDangerReasons(issueSearchText(issue, "positive-scope"));
+      const manualHits = detectManualActionReasons(issueSearchText(issue, "positive-scope"));
+      if (manualHits.length > 0) {
+        return blockedDecision(
+          contractDecision.lane,
+          `Issue positive scope requires genuine manual action or decision: ${manualHits.join(", ")}.`,
+          {
+            contract: parsed.contract,
+            manualGate: true,
+            manualActionRequired: true,
+            manualReasonCodes: manualHits,
+            reasonCodes: ["manual_action_required", ...manualHits],
+            dangerReasons: detectSensitivityReasons(issueSearchText(issue, "positive-scope")),
+            laneManifest: contractDecision.laneManifest,
+          },
+        );
+      }
+      const positiveHits = detectSensitivityReasons(issueSearchText(issue, "positive-scope"));
+      const unexpectedHits = positiveHits.filter((hit) => !sensitivityAllowedForLane(hit, contractDecision));
       if (positiveHits.length > 0) {
         const positiveText = issueSearchText(issue, "positive-scope");
         const presentationException = evaluateMoneyPresentationException({
           contract: parsed.contract,
           contractDecision,
-          detectedDangerReasons: positiveHits,
+          detectedDangerReasons: unexpectedHits.length > 0 ? positiveHits : [],
           positiveText,
         });
         if (presentationException.applied) {
@@ -199,17 +444,21 @@ export function classifyIssueLane(issue) {
             moneyPresentationException: presentationException,
           };
         }
-        return blockedDecision(
-          contractDecision.lane,
-          `Issue positive scope appears to request gated work: ${positiveHits.join(", ")}.`,
-          {
-            contract: parsed.contract,
-            manualGate: true,
-            dangerGate: true,
-            dangerReasons: positiveHits,
-            moneyPresentationException: presentationException,
-          },
-        );
+        if (unexpectedHits.length > 0 || contractDecision.implementationSensitivity === "low") {
+          return blockedDecision(
+            contractDecision.lane,
+            `Issue positive scope appears to request work outside the validated lane: ${positiveHits.join(", ")}.`,
+            {
+              contract: parsed.contract,
+              manualGate: true,
+              dangerGate: true,
+              reasonCodes: ["positive_scope_outside_lane", ...unexpectedHits],
+              dangerReasons: positiveHits,
+              moneyPresentationException: presentationException,
+              laneManifest: contractDecision.laneManifest,
+            },
+          );
+        }
       }
       return {
         ...contractDecision,
@@ -217,7 +466,7 @@ export function classifyIssueLane(issue) {
       };
     }
 
-    const malformedHits = detectDangerReasons(issueSearchText(issue, "all"));
+    const malformedHits = detectSensitivityReasons(issueSearchText(issue, "all"));
     if (malformedHits.length > 0) {
       return blockedDecision(
         "danger-gated",
@@ -226,6 +475,7 @@ export function classifyIssueLane(issue) {
           contract: parsed,
           manualGate: true,
           dangerGate: true,
+          reasonCodes: ["invalid_contract_for_sensitive_scope", ...malformedHits],
           dangerReasons: malformedHits,
         },
       );
@@ -235,11 +485,23 @@ export function classifyIssueLane(issue) {
     });
   }
 
-  const hits = detectDangerReasons(issueSearchText(issue, "all"));
+  const manualHits = detectManualActionReasons(issueSearchText(issue, "all"));
+  if (manualHits.length > 0) {
+    return blockedDecision("manual-action", `Issue appears to require genuine manual action or decision: ${manualHits.join(", ")}.`, {
+      manualGate: true,
+      manualActionRequired: true,
+      manualReasonCodes: manualHits,
+      reasonCodes: ["manual_action_required", ...manualHits],
+      dangerReasons: detectSensitivityReasons(issueSearchText(issue, "all")),
+    });
+  }
+
+  const hits = detectSensitivityReasons(issueSearchText(issue, "all"));
   if (hits.length > 0) {
-    return blockedDecision("danger-gated", `Issue appears to request gated scope: ${hits.join(", ")}.`, {
+    return blockedDecision("missing-or-invalid-contract", `Issue appears to request sensitive scope without a valid contract: ${hits.join(", ")}.`, {
       manualGate: true,
       dangerGate: true,
+      reasonCodes: ["missing_contract_for_sensitive_scope", ...hits],
       dangerReasons: hits,
     });
   }
@@ -286,6 +548,7 @@ export function parseAutoRunnerContract(body) {
 }
 
 export function pathViolatesPolicy(filePath, laneDecision) {
+  if (!isSafeRepoRelativePath(filePath, { allowGlob: false, maxLength: maxChangedPathLength })) return true;
   const normalized = normalizePath(filePath);
   if (!laneDecision.allowedToImplement) return true;
   if (isForbiddenPath(normalized, laneDecision)) return true;
@@ -303,62 +566,94 @@ export function getValidationProfile(profileName) {
 }
 
 function buildContractDecision(contract) {
-  const lane = laneManifest[contract.lane];
+  const rawLane = laneManifest[contract.lane];
+  const lane = resolveLaneManifest(rawLane);
   if (!lane) {
-    return blockedDecision("unknown-contract-lane", `Unsupported auto-runner lane: ${contract.lane}.`, { contract });
+    return blockedDecision("unknown-contract-lane", `Unsupported auto-runner lane: ${contract.lane}.`, {
+      contract,
+      reasonCodes: ["unknown_lane"],
+    });
+  }
+  if (lane.decisionType === "split_required" || lane.branchStrategy === "split-required") {
+    return blockedDecision(contract.lane, `Lane ${contract.lane} requires a focused split before implementation.`, {
+      contract,
+      manualGate: false,
+      splitRequired: true,
+      reasonCodes: ["split_required"],
+      laneManifest: lane,
+    });
   }
   if (!lane.implementationAllowed || lane.manualGateBeforeImplementation) {
     return blockedDecision(contract.lane, `Lane ${contract.lane} is disabled or manual-gated for implementation.`, {
       contract,
       manualGate: true,
       dangerGate: !lane.implementationAllowed,
+      reasonCodes: ["lane_disabled_or_manual"],
+      laneManifest: lane,
     });
   }
   if (!validationProfiles[contract.validationProfile]) {
-    return blockedDecision(contract.lane, `Unsupported validation profile: ${contract.validationProfile}.`, { contract });
+    return blockedDecision(contract.lane, `Unsupported validation profile: ${contract.validationProfile}.`, {
+      contract,
+      reasonCodes: ["unknown_validation_profile"],
+      laneManifest: lane,
+    });
   }
   if (!lane.supportedValidationProfiles.includes(contract.validationProfile)) {
     return blockedDecision(
       contract.lane,
       `Validation profile ${contract.validationProfile} is not allowed for lane ${contract.lane}.`,
-      { contract },
+      { contract, reasonCodes: ["validation_profile_not_allowed"], laneManifest: lane },
     );
   }
   const unsafePath = contract.allowedPaths.find((glob) => !lane.allowedPaths.some((laneGlob) => globIsSubsetOf(glob, laneGlob)));
   if (unsafePath) {
-    const pathDangerReasons = detectDangerousPathReasons(contract.allowedPaths);
+    const pathDangerReasons = detectDangerousPathReasons(contract.allowedPaths, lane);
     return blockedDecision(contract.lane, `Contract allowed path is outside lane manifest allowlist: ${unsafePath}.`, {
       contract,
       dangerGate: pathDangerReasons.length > 0,
       dangerReasons: pathDangerReasons,
+      reasonCodes: ["contract_path_outside_lane"],
+      laneManifest: lane,
     });
   }
-  const pathDangerReasons = detectDangerousPathReasons(contract.allowedPaths);
+  const pathDangerReasons = detectDangerousPathReasons(contract.allowedPaths, lane);
   if (pathDangerReasons.length > 0) {
     return blockedDecision(contract.lane, "Contract allowed path contains a danger-domain path segment.", {
       contract,
       dangerGate: true,
       dangerReasons: pathDangerReasons,
+      reasonCodes: ["contract_path_forbidden"],
+      laneManifest: lane,
     });
   }
 
   const autoMergeEligible = Boolean(contract.autoMergeEligible && lane.autoMergeAllowed);
   return {
     lane: contract.lane,
+    canonicalLane: lane.id,
     allowedToImplement: true,
     manualGate: false,
     dangerGate: false,
+    manualActionRequired: false,
+    splitRequired: false,
     reason: "Valid issue contract accepted by lane manifest.",
+    reasonCodes: ["contract_valid"],
+    manualReasonCodes: [],
     dangerReasons: [],
     contract,
     allowedPaths: [...contract.allowedPaths],
     laneManifestAllowedPaths: [...lane.allowedPaths],
+    laneManifest: publicLaneManifest(lane),
     validationProfile: contract.validationProfile || lane.defaultValidationProfile,
     manualMergeRequired: Boolean(contract.manualMergeRequired || !autoMergeEligible),
     autoMergeEligible,
     prCreationAllowed: lane.prCreationAllowed,
     followupIssueCreationAllowed: lane.followupIssueCreationAllowed,
     reviewFixMutationAllowed: lane.reviewFixMutationAllowed,
+    implementationSensitivity: lane.sensitivity || "standard",
+    branchStrategy: lane.branchStrategy || "normal",
+    reviewerTier: lane.reviewerTier || "cheap_independent",
   };
 }
 
@@ -366,8 +661,29 @@ function hasEligibleContractLabel(labels) {
   return [...labels].some((label) => eligibleContractLabels.has(label));
 }
 
-function detectDangerReasons(text) {
-  return dangerPatterns.filter((entry) => entry.pattern.test(text)).map((entry) => entry.key);
+function detectSensitivityReasons(text) {
+  return sensitivityPatterns.filter((entry) => entry.pattern.test(text)).map((entry) => entry.key);
+}
+
+function detectManualActionReasons(text) {
+  return manualActionPatterns.filter((entry) => entry.pattern.test(text)).map((entry) => entry.key);
+}
+
+function sensitivityAllowedForLane(reason, laneDecision) {
+  if (laneDecision.implementationSensitivity === "low") return false;
+  const lane = laneDecision.canonicalLane || laneDecision.lane;
+  const allowed = {
+    "api-domain-runtime": ["auth_security", "storage_privacy", "money_settlement", "schema_migration", "openapi_generated_client", "sync_import_export"],
+    "auth-session-security": ["auth_security"],
+    "storage-file-privacy-authz": ["storage_privacy", "auth_security"],
+    "money-settlement-payment": ["money_settlement", "auth_security", "storage_privacy"],
+    "schema-migrations": ["schema_migration", "auth_security", "storage_privacy", "money_settlement"],
+    "openapi-generated-clients": ["openapi_generated_client"],
+    "sync-import-export-restore": ["sync_import_export", "storage_privacy", "auth_security"],
+    "docker-compose-ci-deployment": ["docker_ci_deploy"],
+    "mobile-application": ["money_settlement"],
+  };
+  return (allowed[lane] || []).includes(reason);
 }
 
 function evaluateMoneyPresentationException({ contract, contractDecision, detectedDangerReasons, positiveText }) {
@@ -430,7 +746,12 @@ function isClientUiPresentationPath(glob) {
   return normalized.startsWith("apps/mobile/lib/ui/") || normalized.startsWith("apps/mobile/test/ui/");
 }
 
-function detectDangerousPathReasons(paths) {
+function detectDangerousPathReasons(paths, laneDecisionOrManifest = {}) {
+  const lane = laneDecisionOrManifest.id || laneDecisionOrManifest.canonicalLane || laneDecisionOrManifest.lane;
+  const sensitivity = laneDecisionOrManifest.sensitivity || laneDecisionOrManifest.implementationSensitivity || "low";
+  if (sensitivity !== "low" && lane !== "client-ui-low-risk" && lane !== "workflow-docs-tooling" && lane !== "docs-planning") {
+    return [];
+  }
   return [
     ...new Set(
       paths.flatMap((filePath) =>
@@ -470,6 +791,10 @@ function stripNegativeSections(body) {
       normalized === "exclusions" ||
       normalized === "excluded scope" ||
       normalized === "not in scope"
+      || normalized === "required reading"
+      || normalized === "references"
+      || normalized === "guardrails"
+      || normalized === "manual decisions"
     );
   });
 }
@@ -558,23 +883,31 @@ function validateContractShape(contract) {
       return { ok: false, reason: `Auto-runner contract field ${field} must be a non-empty string array.` };
     }
   }
-  if (contract.allowedPaths.some((glob) => glob.startsWith("/") || glob.includes("..") || glob.includes("\\"))) {
-    return { ok: false, reason: "Auto-runner contract allowedPaths must be repo-relative forward-slash globs." };
+  for (const glob of contract.allowedPaths) {
+    const pathPolicy = validateAllowedPathPattern(glob);
+    if (!pathPolicy.ok) return pathPolicy;
   }
   return { ok: true };
 }
 
 function blockedDecision(lane, reason, overrides = {}) {
+  const laneManifestForDecision = overrides.laneManifest ? publicLaneManifest(overrides.laneManifest) : null;
   return {
     lane,
+    canonicalLane: laneManifestForDecision?.id || lane,
     allowedToImplement: false,
     manualGate: overrides.manualGate ?? true,
     dangerGate: overrides.dangerGate ?? false,
+    manualActionRequired: overrides.manualActionRequired ?? false,
+    splitRequired: overrides.splitRequired ?? false,
     reason,
+    reasonCodes: overrides.reasonCodes || ["blocked"],
+    manualReasonCodes: overrides.manualReasonCodes || [],
     dangerReasons: overrides.dangerReasons || [],
     contract: overrides.contract || null,
     allowedPaths: [],
     laneManifestAllowedPaths: [],
+    laneManifest: laneManifestForDecision,
     validationProfile: null,
     manualMergeRequired: true,
     autoMergeEligible: false,
@@ -582,6 +915,66 @@ function blockedDecision(lane, reason, overrides = {}) {
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
     moneyPresentationException: overrides.moneyPresentationException || null,
+    implementationSensitivity: laneManifestForDecision?.sensitivity || "unknown",
+    branchStrategy: laneManifestForDecision?.branchStrategy || (overrides.splitRequired ? "split-required" : "blocked"),
+    reviewerTier: laneManifestForDecision?.reviewerTier || "split_or_escalate",
+  };
+}
+
+function policyLane({
+  id,
+  purpose,
+  allowedPaths,
+  defaultValidationProfile,
+  supportedValidationProfiles,
+  sensitivity,
+  reviewerTier,
+  branchStrategy,
+}) {
+  return Object.freeze({
+    id,
+    purpose,
+    allowedPaths: Object.freeze(allowedPaths),
+    defaultValidationProfile,
+    supportedValidationProfiles: Object.freeze(supportedValidationProfiles),
+    implementationAllowed: true,
+    manualGateBeforeImplementation: false,
+    prCreationAllowed: true,
+    autoMergeAllowed: false,
+    followupIssueCreationAllowed: false,
+    reviewFixMutationAllowed: false,
+    sensitivity,
+    reviewerTier,
+    branchStrategy,
+    decisionType: "runnable",
+  });
+}
+
+function aliasLane(id, target) {
+  return Object.freeze({ id, aliasFor: target });
+}
+
+function resolveLaneManifest(lane) {
+  if (!lane) return null;
+  if (!lane.aliasFor) return lane;
+  return laneManifest[lane.aliasFor] || null;
+}
+
+function publicLaneManifest(lane) {
+  if (!lane) return null;
+  return {
+    id: lane.id,
+    purpose: lane.purpose,
+    allowedPaths: [...(lane.allowedPaths || [])],
+    defaultValidationProfile: lane.defaultValidationProfile,
+    supportedValidationProfiles: [...(lane.supportedValidationProfiles || [])],
+    implementationAllowed: Boolean(lane.implementationAllowed),
+    prCreationAllowed: Boolean(lane.prCreationAllowed),
+    autoMergeAllowed: Boolean(lane.autoMergeAllowed),
+    sensitivity: lane.sensitivity || "unknown",
+    reviewerTier: lane.reviewerTier || "split_or_escalate",
+    branchStrategy: lane.branchStrategy || "blocked",
+    decisionType: lane.decisionType || "blocked",
   };
 }
 
@@ -598,6 +991,10 @@ function dangerLane(id, purpose) {
     autoMergeAllowed: false,
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
+    sensitivity: "manual",
+    reviewerTier: "split_or_escalate",
+    branchStrategy: "blocked",
+    decisionType: "manual",
   });
 }
 
@@ -611,6 +1008,13 @@ function isForbiddenPath(filePath, laneDecision = {}) {
   }
   return [
     /^\.env(?:\.|$)/,
+    /^\.codex(?:\/|$)/,
+    /^\/?workspace\/logs(?:\/|$)/,
+    /(^|\/)(secret|secrets|credential|credentials|\.ssh)(\/|$)/i,
+    /(^|\/)\.env(?:\.|$)/i,
+  ].some((pattern) => pattern.test(filePath))
+    ? true
+    : [
     /^\.github\/workflows(?:\/|$)/,
     /^infra(?:\/|$)/,
     /^services\/api(?:\/|$)/,
@@ -620,7 +1024,7 @@ function isForbiddenPath(filePath, laneDecision = {}) {
     /(^|\/)migrations?(\/|$)/i,
     /(^|\/)(auth|session|security)(\/|$)/i,
     /(^|\/)(settlement|payment|bill|money|storage|sync|ocr)(\/|$)/i,
-  ].some((pattern) => pattern.test(filePath));
+  ].some((pattern) => pattern.test(filePath)) && (laneDecision.implementationSensitivity || "low") === "low";
 }
 
 function matchesAnyGlob(filePath, globs) {
@@ -628,23 +1032,112 @@ function matchesAnyGlob(filePath, globs) {
 }
 
 function globMatchesPath(glob, filePath) {
-  if (glob.endsWith("/**")) {
-    const prefix = glob.slice(0, -3);
-    return filePath === prefix.slice(0, -1) || filePath.startsWith(prefix);
-  }
-  return filePath === glob;
+  if (!isSafeRepoRelativePath(glob, { allowGlob: true, maxLength: maxAllowedPathPatternLength })) return false;
+  if (!isSafeRepoRelativePath(filePath, { allowGlob: false, maxLength: maxChangedPathLength })) return false;
+  return matchSegments(splitPath(glob), splitPath(filePath));
 }
 
 function globIsSubsetOf(childGlob, parentGlob) {
+  if (!isSafeRepoRelativePath(childGlob, { allowGlob: true, maxLength: maxAllowedPathPatternLength })) return false;
+  if (!isSafeRepoRelativePath(parentGlob, { allowGlob: true, maxLength: maxAllowedPathPatternLength })) return false;
+  if (childGlob === parentGlob) return true;
+  if (!childGlob.includes("*")) return globMatchesPath(parentGlob, childGlob);
   if (parentGlob.endsWith("/**")) {
-    const parentPrefix = parentGlob.slice(0, -2);
-    return childGlob === parentGlob || childGlob.startsWith(parentPrefix);
+    const parentBase = parentGlob.slice(0, -3);
+    return childGlob === parentBase || childGlob.startsWith(`${parentBase}/`);
   }
-  return childGlob === parentGlob;
+  return false;
 }
 
 function normalizePath(filePath) {
-  return filePath.replace(/\\/g, "/").replace(/^\.\//, "");
+  return String(filePath || "").replace(/^\.\//, "");
+}
+
+function validateAllowedPathPattern(glob) {
+  if (!isSafeRepoRelativePath(glob, { allowGlob: true, maxLength: maxAllowedPathPatternLength })) {
+    return {
+      ok: false,
+      reason:
+        "Auto-runner contract allowedPaths must be bounded repo-relative forward-slash globs using exact paths, * within a segment, or ** as a full segment.",
+    };
+  }
+  return { ok: true };
+}
+
+function isSafeRepoRelativePath(value, { allowGlob, maxLength }) {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) return false;
+  if (value.startsWith("/") || value.startsWith("./") || value.includes("\\") || value.includes("\0")) return false;
+  if (/[\u0000-\u001f\u007f]/u.test(value)) return false;
+  const segments = value.split("/");
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) return false;
+  if (!allowGlob && value.includes("*")) return false;
+  return allowGlob ? segments.every(isSupportedGlobSegment) : true;
+}
+
+function isSupportedGlobSegment(segment) {
+  if (segment === "**") return true;
+  return !segment.includes("**");
+}
+
+function splitPath(value) {
+  return normalizePath(value).split("/");
+}
+
+function matchSegments(patternSegments, pathSegments) {
+  let patternIndex = 0;
+  let pathIndex = 0;
+  let lastGlobstarIndex = -1;
+  let lastGlobstarPathIndex = -1;
+
+  while (pathIndex < pathSegments.length) {
+    const patternSegment = patternSegments[patternIndex];
+    if (patternSegment === "**") {
+      lastGlobstarIndex = patternIndex;
+      lastGlobstarPathIndex = pathIndex;
+      patternIndex += 1;
+      continue;
+    }
+    if (patternSegment !== undefined && segmentMatches(patternSegment, pathSegments[pathIndex])) {
+      patternIndex += 1;
+      pathIndex += 1;
+      continue;
+    }
+    if (lastGlobstarIndex >= 0) {
+      patternIndex = lastGlobstarIndex + 1;
+      lastGlobstarPathIndex += 1;
+      pathIndex = lastGlobstarPathIndex;
+      continue;
+    }
+    return false;
+  }
+
+  while (patternSegments[patternIndex] === "**") {
+    patternIndex += 1;
+  }
+  return patternIndex === patternSegments.length;
+}
+
+function segmentMatches(patternSegment, pathSegment) {
+  if (!patternSegment.includes("*")) return patternSegment === pathSegment;
+  const parts = patternSegment.split("*");
+  let cursor = 0;
+
+  if (parts[0] && !pathSegment.startsWith(parts[0])) return false;
+  cursor = parts[0].length;
+
+  const lastIndex = parts.length - 1;
+  for (let index = 1; index < lastIndex; index += 1) {
+    const part = parts[index];
+    if (!part) continue;
+    const foundAt = pathSegment.indexOf(part, cursor);
+    if (foundAt < 0) return false;
+    cursor = foundAt + part.length;
+  }
+
+  const tail = parts[lastIndex];
+  if (!tail) return true;
+  const foundTailAt = pathSegment.indexOf(tail, cursor);
+  return foundTailAt >= 0 && foundTailAt + tail.length === pathSegment.length;
 }
 
 export const terminalOutcomes = [

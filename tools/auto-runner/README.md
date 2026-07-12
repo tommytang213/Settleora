@@ -598,18 +598,46 @@ payment, or billing behavior continue to block as `money_settlement` or the
 more specific danger category. Changed-file enforcement, independent review,
 CI, security, and auto-merge gates are unchanged.
 
-Initial implementation lanes:
+Implementation lane matrix:
 
-- `workflow-docs-tooling`: `tools/auto-runner/**`, `docs/workflow/**`, and
-  `scripts/ai/**`.
-- `docs-planning`: `docs/planning/**` and `docs/qa/**`.
-- `client-ui-low-risk`: `apps/mobile/lib/ui/**` and
-  `apps/mobile/test/ui/**` only, for narrow shared Flutter UI component
-  copy/styling and directly tied component tests.
+| Lane | Sensitivity | Branch strategy | Reviewer tier | Validation profile | Current posture |
+| --- | --- | --- | --- | --- | --- |
+| `workflow-docs-tooling` | low | normal | cheap | `workflow-tooling` / `runner-tests` | implementation, PR, and existing low-risk auto-merge gates when explicitly configured |
+| `docs-planning` | low | normal | cheap | `docs-only` | implementation, PR, and existing low-risk auto-merge gates when explicitly configured |
+| `client-ui-low-risk` | low | normal | cheap | `mobile-ui-low-risk` | narrow protected canary lane preserved |
+| `mobile-application` | standard | normal | cheap | `mobile` | implementation and PR creation only |
+| `web-user-ui` | standard | normal | cheap | `web-ui` | implementation and PR creation only |
+| `web-admin-ui` | sensitive | focused | strong | `web-ui` | implementation and PR creation only |
+| `api-domain-runtime` | sensitive | focused | strong | `api-domain` | implementation and PR creation only |
+| `auth-session-security` | high | focused | strong | `api-security` | implementation and PR creation only |
+| `storage-file-privacy-authz` | high | focused | strong | `api-storage` | implementation and PR creation only |
+| `money-settlement-payment` | high | focused | strong | `api-money` | implementation and PR creation only |
+| `schema-migrations` | high | focused | strong | `api-migrations` | migration code review only; destructive application remains manual |
+| `openapi-generated-clients` | high | focused | strong | `openapi-generated-clients` | OpenAPI source plus generated clients through repo generation only |
+| `sync-import-export-restore` | high | focused | strong | `sync-import-export` | implementation under API-authoritative acceptance only |
+| `docker-compose-ci-deployment` | high | focused | strong | `compose-ci` | repo code only; live deployment/env/secret mutation remains manual |
+| `cross-domain` | split | split-required | split/escalate | none | blocked until future bundle/split policy |
 
-Product/runtime/danger lanes remain disabled or manual-gated placeholders.
-The `client-ui-low-risk` lane does not allow auth/session/security,
-storage/privacy/authz, money/settlement/payment/bill calculation,
+Compatibility aliases map `security-runtime`, `storage-privacy`,
+`money-settlement`, and `deployment-ci-env` to their focused sensitive lanes.
+`product-runtime` remains a disabled placeholder until an issue selects a
+narrower domain lane.
+
+Sensitive lanes are PR-only in the current runner. #888 must operationalize
+external reviewer tiers, and #889 must implement exact-head auto-merge
+expansion before sensitive auto-merge can be enabled. The current policy does
+not enable reviewer providers or sensitive-domain auto-merge.
+
+Genuine manual actions remain blocked even when related code lanes are
+runnable: production deploy/promotion, mobile store/TestFlight/Play
+submission, destructive migrations/data operations, secret or credential
+creation/rotation/disclosure/mutation, public/admin exposure or network/TLS/
+DNS/proxy/router/firewall changes, architecture replacement, force-like
+history rewrites, branch deletion/cleanup, Day 1 scope cuts, and unresolved
+product/policy/authority/financial semantics.
+
+The `client-ui-low-risk` lane still does not allow auth/session/security,
+storage/privacy/authz, money/settlement/payment/bill calculation authority,
 schema/migration, OpenAPI/generated-client, sync/import/export, OCR runtime,
 Docker/CI/deployment/env, mobile release/signing, public/admin exposure, broad
 `apps/mobile/**`, or generated files.

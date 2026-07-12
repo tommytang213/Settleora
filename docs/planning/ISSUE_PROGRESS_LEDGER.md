@@ -20,6 +20,47 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #887 - Auto-runner lane/manual-decision policy PR checkpoint
+
+- GitHub/live state verified:
+  - #887 is open as the lane policy and genuine manual-decision
+    classification child under #800.
+  - #888 and #889 remain open follow-ups for external reviewer tier
+    operationalization and exact-head auto-merge expansion.
+  - #865 and #866 remain open untouched protected canaries with exact labels
+    `area:mobile-ui`, `auto-canary-ready`, `canary`, and `workflow`, zero
+    comments, no assignees, and no milestone.
+- This policy slice:
+  - Replaces permanent noun-triggered danger/manual defaults with explicit
+    lane metadata for domain, sensitivity, branch strategy, reviewer tier,
+    validation profile, implementation eligibility, PR eligibility, manual
+    action reason codes, and current auto-merge posture.
+  - Keeps low-risk `workflow-docs-tooling`, `docs-planning`, and
+    `client-ui-low-risk` behavior compatible, including protected canary
+    contracts.
+  - Adds runnable PR-only lanes for mobile app, web user UI, web admin UI,
+    API/domain runtime, auth/session/security, storage/file privacy/authz,
+    money/settlement/payment, schema migration code, OpenAPI plus generated
+    clients, sync/import/export/restore, and Docker/Compose/CI/deployment code.
+  - Keeps cross-domain hard scope split-required and keeps production deploy,
+    mobile store release, destructive migration/data operation, secret or
+    credential mutation, public/admin exposure, architecture replacement,
+    force/history rewrite, branch deletion/cleanup, Day 1 scope cuts, and
+    unresolved product/policy/authority/financial semantics manual.
+  - Keeps sensitive auto-merge disabled until #889 and does not operationalize
+    external reviewer providers; #888 remains the reviewer blocker.
+- Close/keep-open recommendation:
+  keep #887 open until its implementation PR merges. Keep #800 open as the
+  umbrella. Do not close or mutate #888/#889 as part of this slice.
+- Scope confirmation:
+  this checkpoint changes only auto-runner policy/integration/tests and
+  workflow/planning docs. It does not change product runtime, API behavior,
+  auth/session/security runtime, storage/privacy/authz runtime,
+  money/settlement/payment/bill calculation runtime, schema/migration files,
+  OpenAPI/generated clients, Docker/Compose/CI workflows, deployment state,
+  secrets, production deploy, mobile release, public/admin exposure, runner
+  control, or protected canaries.
+
 ### Issue #800 - End-state gap audit after #880 monitoring acceptance
 
 - GitHub/live state verified:
