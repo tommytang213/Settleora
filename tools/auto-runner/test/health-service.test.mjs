@@ -287,6 +287,34 @@ test("auto-runner health bind config defaults loopback and requires secret for n
     writeFileSync(secretPath, "abcdefghijklmnopqrstuvwxyz123456\n", { mode: 0o600 });
     const lan = validateHealthServiceConfig({ logsRoot, host: "192.168.1.10", allowNonLoopback: true, secretFile: secretPath });
     assert.equal(lan.requestSecret, "abcdefghijklmnopqrstuvwxyz123456");
+
+    const outside = path.join(logsRoot, "outside-secrets");
+    mkdirSync(outside, { recursive: true, mode: 0o700 });
+    const outsideSecret = path.join(outside, "health-secret");
+    writeFileSync(outsideSecret, "abcdefghijklmnopqrstuvwxyz123456\n", { mode: 0o600 });
+    symlinkSync(outside, path.join(logsRoot, "secrets", "linked"));
+    assert.throws(
+      () => validateHealthServiceConfig({
+        logsRoot,
+        host: "192.168.1.10",
+        allowNonLoopback: true,
+        secretFile: path.join(logsRoot, "secrets", "linked", "health-secret"),
+      }),
+      /secrets boundary/,
+    );
+  });
+});
+
+test("auto-runner health fails closed for untrusted active runner state without history", () => {
+  withLogs((logsRoot) => {
+    const activePath = path.join(logsRoot, "state", "active-run.json");
+    mkdirSync(path.dirname(activePath), { recursive: true, mode: 0o700 });
+    writeFileSync(activePath, "{}\n", { mode: 0o666 });
+    chmodSync(activePath, 0o666);
+    const result = evaluateAutoRunnerHealth({ logsRoot, now: defaultNow });
+    assert.equal(result.httpStatus, 503);
+    assert.equal(result.body.reasonCode, "untrusted_state");
+    assert.doesNotMatch(JSON.stringify(result.body), /active-run|\/tmp/);
   });
 });
 

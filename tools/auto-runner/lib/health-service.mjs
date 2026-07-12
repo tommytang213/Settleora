@@ -57,6 +57,8 @@ export function evaluateAutoRunnerHealth({
   const problems = [];
   const lock = readRunnerLock(logsRoot, now);
   if (lock.problem) problems.push(lock.problem);
+  const activeRunner = runnerStatus || readRunnerActivity(logsRoot);
+  if (activeRunner.problem) problems.push(activeRunner.problem);
 
   const selection = selectCurrentSupervisorRun(logsRoot);
   if (selection.problem) problems.push(selection.problem);
@@ -90,7 +92,6 @@ export function evaluateAutoRunnerHealth({
     else if (reportResolution?.status !== "matched") problems.push(problem("report_mapping_missing"));
   }
 
-  const activeRunner = runnerStatus || readRunnerActivity(logsRoot);
   if (activeLifecycleStates.has(lifecycle) && lifecycle !== "pre_active") {
     const expectedRunnerRunId = state.runnerRunId || heartbeatValue?.runnerRunId || null;
     const hasActiveRunner = Boolean(activeRunner.active);
@@ -271,6 +272,9 @@ function modeForReason(reasonCode, lifecycle) {
 function readRunnerActivity(logsRoot) {
   const activePath = path.join(logsRoot, "state", "active-run.json");
   const active = readTrustedJsonFile(activePath, { maxBytes: maxStateBytes, required: false });
+  if (active.problem) {
+    return { active: false, activeRunId: null, supervisorRunId: null, problem: active.problem };
+  }
   const parsed = active.value || {};
   const processActive = processAppearsActive(parsed.pid) === true;
   return {
@@ -470,12 +474,14 @@ function validateRequestSecret(request, options) {
 function readRequestSecret(secretFile, logsRoot) {
   const absolute = path.resolve(secretFile);
   const allowedRoot = path.resolve(logsRoot, "secrets");
-  const relative = path.relative(allowedRoot, absolute);
+  const rootTrust = trustedDirectory(allowedRoot);
+  if (!rootTrust.ok) throw new Error("Health request-secret root is not trusted");
+  const trust = trustedRegularFile(absolute, { maxBytes: 4096 });
+  if (!trust.ok) throw new Error("Health request-secret file is not trusted");
+  const relative = path.relative(rootTrust.realPath, trust.realPath);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error("Health request-secret file must be under the approved logs secrets boundary");
   }
-  const trust = trustedRegularFile(absolute, { maxBytes: 4096 });
-  if (!trust.ok) throw new Error("Health request-secret file is not trusted");
   const secret = readFileSync(trust.realPath, "utf8").trim();
   if (!/^[A-Za-z0-9._~+/-]{24,256}$/.test(secret)) throw new Error("Health request-secret file has invalid shape");
   return secret;
