@@ -29,6 +29,8 @@ Repository implementation foundation now exists for the repo-only portion:
 - `tools/auto-runner/systemd/settleora-auto-runner-health.service` is a
   repository template only. It has not been installed, started, enabled, bound
   to a LAN address, or connected to Uptime Kuma by the repository foundation.
+  It includes an `[Install]` section for normal user-scope
+  `systemctl enable --now` during the later #880 deployment gate.
 - `tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.service`
   and `.timer` are repository templates only. They have not been installed,
   started, enabled, reloaded, or connected to live ntfy credentials.
@@ -244,6 +246,19 @@ Repository implementation constraints:
 - rollback is stopping/disabling the health unit and removing the Uptime Kuma
   monitor without changing runner state.
 
+The 2026-07-12 #880 deployment attempt for task `20260712-1609` installed the
+repository health and terminal-notifier templates, then rolled back after both
+Node-based units crashed under systemd before the health listener or ntfy
+publication could run. The failure was traced to `MemoryDenyWriteExecute=yes`:
+V8 needs runtime executable-memory permission transitions for normal Node
+execution. The Node health and notifier service templates therefore
+intentionally omit that directive as a focused runtime compatibility exception.
+The least-privilege boundary still keeps `NoNewPrivileges=yes`,
+`PrivateTmp=yes`, `ProtectSystem=strict`, `ProtectHome=read-only`, fixed
+read-only/read-write path allowlists, `RestrictSUIDSGID=yes`,
+`LockPersonality=yes`, `UMask=0077`, fixed Node entry points, and loopback
+health binding by default.
+
 The service default bind is `127.0.0.1:8787`. Non-loopback binding is rejected
 unless explicit deployment configuration opts in and supplies an external
 request-secret file under `/workspace/logs/settleora-auto-runner/secrets/`.
@@ -398,6 +413,9 @@ Deployment boundary:
 - configure the documented ntfy iOS upstream poll-request setting during the
   #880 deployment task if instant iPhone push is required;
 - keep deployment values external and redacted;
+- reuse the existing external health and ntfy secret files from the rolled-back
+  deployment when still valid; do not rotate them merely because the units were
+  rolled back;
 - do not add a public status page, public topic, router forward, tunnel,
   public DNS, or internet exposure without a separate explicit approval.
 
@@ -420,6 +438,11 @@ Focused child issues under #800:
    and notifier timer on the DevBox, install/configure Uptime Kuma and ntfy on
    TrueNAS SCALE, choose private topics/tokens, prove alert/recovery/activity
    dedupe, and document rollback. No automatic runner restart.
+4. #885: repository compatibility fix for the Node-based health and notifier
+   systemd templates after the `20260712-1609` rollback. This removes the
+   Node/V8-incompatible `MemoryDenyWriteExecute` directive, preserves the
+   remaining hardening controls, fixes health unit metadata/enablement, and
+   leaves deployment retry gated by #880.
 
 Both slices must preserve #865/#866 as unrelated protected canaries and must
 not expose the health endpoint publicly or configure secrets without explicit

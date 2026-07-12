@@ -85,10 +85,20 @@ created or configured by the repository.
 
 The repository-only user-unit template is
 `tools/auto-runner/systemd/settleora-auto-runner-health.service`. It uses
-`Restart=on-failure` only for this read-only monitor service. The mutation
+`Restart=on-failure` only for this read-only monitor service and includes
+`[Install] WantedBy=default.target` so a later approved user-scope deployment
+can use normal `systemctl --user enable --now` semantics. The mutation
 supervisor template remains `Restart=no`. Installing, starting, enabling,
 disabling, or exposing the health service remains a separate manual deployment
 gate.
+
+The Node-based health service intentionally does not use
+`MemoryDenyWriteExecute=yes`. The `20260712-1609` deployment attempt proved
+Node/V8 can crash under that directive before the service starts listening.
+The template keeps the remaining hardening controls: `NoNewPrivileges=yes`,
+`PrivateTmp=yes`, `ProtectSystem=strict`, `ProtectHome=read-only`, fixed
+read/write path allowlists, `RestrictSUIDSGID=yes`, `LockPersonality=yes`,
+`UMask=0077`, and loopback binding by default.
 
 Terminal ntfy activity notifier foundation:
 
@@ -122,6 +132,16 @@ They use `Type=oneshot`, `UMask=0077`, a fixed working directory and entry
 point, and a roughly 60-second timer cadence. They are not installed, started,
 enabled, reloaded, or connected to live secrets by repository implementation
 tasks.
+
+The Node-based notifier service intentionally omits
+`MemoryDenyWriteExecute=yes` for the same Node/V8 runtime compatibility reason
+as the health service. It remains timer-owned, one-shot, `Restart=no`, and
+confined to the existing read-only/read-write path boundaries. The rolled-back
+deployment created external secret files that remain deployment-owned; do not
+read, print, rotate, delete, or replace them merely because the units were
+rolled back. The retry remains gated by #880 and must not include TrueNAS,
+Uptime Kuma, ntfy server, Cloudflare, router, firewall, or live publication
+changes in repository-only work.
 
 Supervised runs pass a validated `--supervisor-run-id` into the runner. The
 runner writes it as sanitized summary metadata, and supervisor status/report/

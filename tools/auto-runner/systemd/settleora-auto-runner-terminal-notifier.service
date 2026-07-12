@@ -17,7 +17,8 @@ ReadWritePaths=/workspace/logs/settleora-auto-runner/monitoring
 ReadOnlyPaths=/workspace/repos/Settleora /workspace/logs/settleora-auto-runner/supervisor /workspace/logs/settleora-auto-runner/summaries /workspace/logs/settleora-auto-runner/state /workspace/logs/settleora-auto-runner/locks /workspace/logs/settleora-auto-runner/secrets
 RestrictSUIDSGID=yes
 LockPersonality=yes
-MemoryDenyWriteExecute=yes
+# Node/V8 needs runtime executable-memory permission transitions, so
+# MemoryDenyWriteExecute is intentionally omitted for this Node unit.
 
 # Repository template only. Install/start/enablement and live ntfy secrets
 # require the later manual deployment gate.
