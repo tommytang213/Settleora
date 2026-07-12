@@ -80,7 +80,7 @@ Official sources checked:
 - ntfy private deployments should use authentication/access control and
   private topics instead of relying on guessable topic names.
 - TrueNAS Apps Market listed the community ntfy app at upstream app version
-  `v2.25.0`, catalog version `1.1.16`, last updated 2026-06-25.
+  `v2.26.0`, last updated 2026-07-10.
 
 Current official Uptime Kuma sources did not show a supported generic API for
 emitting arbitrary one-shot informational events. The design therefore splits
