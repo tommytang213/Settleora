@@ -22,8 +22,6 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === "--host") config.host = readValue(argv, ++index, arg);
     else if (arg === "--port") config.port = readValue(argv, ++index, arg);
-    else if (arg === "--logs-root") config.logsRoot = readValue(argv, ++index, arg);
-    else if (arg === "--secret-file") config.secretFile = readValue(argv, ++index, arg);
     else if (arg === "--allow-non-loopback") config.allowNonLoopback = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }

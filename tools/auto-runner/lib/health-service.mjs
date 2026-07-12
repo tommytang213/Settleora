@@ -12,6 +12,7 @@ export const healthSchemaVersion = 1;
 export const defaultHealthHost = "127.0.0.1";
 export const defaultHealthPort = 8787;
 export const healthRoute = "/health/auto-runner";
+export const defaultHealthSecretFileName = "health-secret";
 
 const maxStateBytes = 256 * 1024;
 const maxSummaryBytes = 512 * 1024;
@@ -450,21 +451,28 @@ export function validateHealthServiceConfig({
   host = process.env.SETTLEORA_AUTO_RUNNER_HEALTH_HOST || defaultHealthHost,
   port = process.env.SETTLEORA_AUTO_RUNNER_HEALTH_PORT || defaultHealthPort,
   allowNonLoopback = process.env.SETTLEORA_AUTO_RUNNER_HEALTH_ALLOW_NON_LOOPBACK === "true",
-  secretFile = process.env.SETTLEORA_AUTO_RUNNER_HEALTH_SECRET_FILE || null,
+} = {}) {
+  return validateHealthServiceConfigWithFixedRoot({ host, port, allowNonLoopback, logsRoot: defaultLogsRoot });
+}
+
+// Injection seam for focused tests only; production validation above pins this to defaultLogsRoot.
+export function validateHealthServiceConfigWithFixedRoot({
+  host = defaultHealthHost,
+  port = defaultHealthPort,
+  allowNonLoopback = false,
   logsRoot = defaultLogsRoot,
 } = {}) {
   const normalizedHost = String(host || "").trim();
   if (!isLoopbackHost(normalizedHost) && !allowNonLoopback) {
     throw new Error("Health service host must be loopback unless explicit deployment config allows non-loopback");
   }
-  if (!isLoopbackHost(normalizedHost) && !secretFile) {
-    throw new Error("Non-loopback health service binding requires an external request-secret file");
-  }
   const normalizedPort = Number(port);
   if (!Number.isSafeInteger(normalizedPort) || normalizedPort < 0 || normalizedPort > 65535) {
     throw new Error("Health service port must be 0..65535");
   }
-  return { host: normalizedHost, port: normalizedPort, logsRoot, requestSecret: secretFile ? readRequestSecret(secretFile, logsRoot) : null };
+  const resolvedLogsRoot = path.resolve(logsRoot);
+  const requestSecret = isLoopbackHost(normalizedHost) ? null : readDefaultRequestSecret(resolvedLogsRoot);
+  return { host: normalizedHost, port: normalizedPort, logsRoot: resolvedLogsRoot, requestSecret };
 }
 
 function validateRequestSecret(request, options) {
@@ -473,8 +481,8 @@ function validateRequestSecret(request, options) {
   return { ok: supplied === options.requestSecret };
 }
 
-function readRequestSecret(secretFile, logsRoot) {
-  const absolute = path.resolve(secretFile);
+function readDefaultRequestSecret(logsRoot) {
+  const absolute = path.join(logsRoot, "secrets", defaultHealthSecretFileName);
   const allowedRoot = path.resolve(logsRoot, "secrets");
   const rootTrust = trustedDirectory(allowedRoot);
   if (!rootTrust.ok) throw new Error("Health request-secret root is not trusted");

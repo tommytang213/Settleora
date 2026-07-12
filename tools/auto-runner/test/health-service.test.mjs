@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { defaultLogsRoot } from "../lib/config.mjs";
 import {
   createAutoRunnerHealthServer,
   evaluateAutoRunnerHealth,
   healthRoute,
   validateHealthServiceConfig,
+  validateHealthServiceConfigWithFixedRoot,
 } from "../lib/health-service.mjs";
 import {
   claimTerminalNotification,
@@ -292,32 +295,76 @@ test("auto-runner health HTTP route is JSON-only, sanitized, bounded, and method
   });
 });
 
-test("auto-runner health bind config defaults loopback and requires secret for non-loopback", () => {
-  withLogs((logsRoot) => {
-    const config = validateHealthServiceConfig({ logsRoot, port: 0 });
+test("production health CLI rejects filesystem path arguments", () => {
+  const logsRoot = runHealthCli("--logs-root", "/tmp/evil");
+  assert.notEqual(logsRoot.status, 0);
+  assert.match(logsRoot.stderr, /Unknown argument: --logs-root/);
+
+  const secretFile = runHealthCli("--secret-file", "/tmp/evil");
+  assert.notEqual(secretFile.status, 0);
+  assert.match(secretFile.stderr, /Unknown argument: --secret-file/);
+});
+
+test("production health config uses fixed approved logs root", () => {
+  const previousLogsRoot = process.env.SETTLEORA_AUTO_RUNNER_HEALTH_LOGS_ROOT;
+  const previousSecretFile = process.env.SETTLEORA_AUTO_RUNNER_HEALTH_SECRET_FILE;
+  process.env.SETTLEORA_AUTO_RUNNER_HEALTH_LOGS_ROOT = "/tmp/evil-health-root";
+  process.env.SETTLEORA_AUTO_RUNNER_HEALTH_SECRET_FILE = "/tmp/evil-secret";
+  try {
+    const config = validateHealthServiceConfig({ port: 0 });
     assert.equal(config.host, "127.0.0.1");
     assert.equal(config.port, 0);
-    assert.throws(() => validateHealthServiceConfig({ logsRoot, host: "0.0.0.0" }), /loopback/);
-    assert.throws(() => validateHealthServiceConfig({ logsRoot, host: "192.168.1.10", allowNonLoopback: true }), /secret/);
+    assert.equal(config.logsRoot, path.resolve(defaultLogsRoot));
+    assert.equal(config.requestSecret, null);
+  } finally {
+    restoreEnv("SETTLEORA_AUTO_RUNNER_HEALTH_LOGS_ROOT", previousLogsRoot);
+    restoreEnv("SETTLEORA_AUTO_RUNNER_HEALTH_SECRET_FILE", previousSecretFile);
+  }
+});
+
+test("health HTTP request cannot influence filesystem roots or state paths", async () => {
+  await withServer(async ({ baseUrl, logsRoot }) => {
+    const before = snapshotTree(logsRoot);
+    const response = await fetch(`${baseUrl}${healthRoute}?logsRoot=/tmp/evil&statePath=/tmp/evil`, {
+      headers: {
+        "x-settleora-health-logs-root": "/tmp/evil",
+        "x-settleora-health-secret-file": "/tmp/evil-secret",
+      },
+      body: undefined,
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(snapshotTree(logsRoot), before);
+    assert.equal(existsSync(path.join(path.dirname(logsRoot), "evil")), false);
+  });
+});
+
+test("auto-runner health bind config defaults loopback and requires secret for non-loopback", () => {
+  withLogs((logsRoot) => {
+    const config = validateHealthServiceConfigWithFixedRoot({ logsRoot, port: 0 });
+    assert.equal(config.host, "127.0.0.1");
+    assert.equal(config.port, 0);
+    assert.throws(() => validateHealthServiceConfigWithFixedRoot({ logsRoot, host: "0.0.0.0" }), /loopback/);
+    assert.throws(() => validateHealthServiceConfigWithFixedRoot({ logsRoot, host: "192.168.1.10", allowNonLoopback: true }), /request-secret root/);
     const secretPath = path.join(logsRoot, "secrets", "health-secret");
     mkdirSync(path.dirname(secretPath), { recursive: true, mode: 0o700 });
     writeFileSync(secretPath, "abcdefghijklmnopqrstuvwxyz123456\n", { mode: 0o600 });
-    const lan = validateHealthServiceConfig({ logsRoot, host: "192.168.1.10", allowNonLoopback: true, secretFile: secretPath });
+    const lan = validateHealthServiceConfigWithFixedRoot({ logsRoot, host: "192.168.1.10", allowNonLoopback: true });
     assert.equal(lan.requestSecret, "abcdefghijklmnopqrstuvwxyz123456");
 
     const outside = path.join(logsRoot, "outside-secrets");
     mkdirSync(outside, { recursive: true, mode: 0o700 });
     const outsideSecret = path.join(outside, "health-secret");
     writeFileSync(outsideSecret, "abcdefghijklmnopqrstuvwxyz123456\n", { mode: 0o600 });
+    rmSync(secretPath);
     symlinkSync(outside, path.join(logsRoot, "secrets", "linked"));
+    symlinkSync(path.join(logsRoot, "secrets", "linked", "health-secret"), secretPath);
     assert.throws(
-      () => validateHealthServiceConfig({
+      () => validateHealthServiceConfigWithFixedRoot({
         logsRoot,
         host: "192.168.1.10",
         allowNonLoopback: true,
-        secretFile: path.join(logsRoot, "secrets", "linked", "health-secret"),
       }),
-      /secrets boundary/,
+      /not trusted|secrets boundary/,
     );
   });
 });
@@ -419,11 +466,41 @@ async function withServer(fn) {
   try {
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
-    await fn({ baseUrl: `http://127.0.0.1:${address.port}` });
+    await fn({ baseUrl: `http://127.0.0.1:${address.port}`, logsRoot });
   } finally {
     await new Promise((resolve) => server.close(resolve));
     rmSync(tempRoot, { recursive: true, force: true });
   }
+}
+
+function restoreEnv(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
+function snapshotTree(root) {
+  if (!existsSync(root)) return [];
+  const entries = [];
+  const visit = (dir) => {
+    for (const name of readdirSorted(dir)) {
+      const item = path.join(dir, name);
+      const stat = statSync(item);
+      entries.push(`${path.relative(root, item)}:${stat.isDirectory() ? "dir" : "file"}:${stat.size}`);
+      if (stat.isDirectory()) visit(item);
+    }
+  };
+  visit(root);
+  return entries;
+}
+
+function readdirSorted(dir) {
+  return existsSync(dir) ? readdirSync(dir).sort() : [];
+}
+
+function runHealthCli(...args) {
+  return spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner-health-service.mjs", ...args], {
+    encoding: "utf8",
+  });
 }
 
 function writeRun(logsRoot, {
