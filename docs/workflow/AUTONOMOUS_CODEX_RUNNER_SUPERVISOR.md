@@ -125,6 +125,39 @@ No instance is enabled by the template. No reboot resume is configured. Failed,
 killed, crashed, timed-out, or reboot-interrupted mutation runs require
 operator review and explicit recovery.
 
+## Windows-Origin Acceptance Checkpoint
+
+The accepted Windows-origin proof is the 2026-07-12 run
+`supervised-20260711T182122Z-6bd91d326f10`, which launched runner
+`run-2026-07-11T182132Z` through the exported Windows wrapper package and the
+`default` profile. The wrapper returned after the DevBox submission was
+accepted/running. The operator then shut down Windows through the normal
+Windows UI, restarted Windows later, and used the saved supervisor run ID plus
+proof JSON with the status/report wrappers to retrieve the completed result.
+
+The authoritative proof is the DevBox/GitHub reconciliation, not the
+Windows-local files. Remote status/report/health all resolved the exact
+supervisor run to terminal state `completed`, child terminal `completed`,
+child status `0`, terminal reason `child_exit_mapped`, health exit `0`, and
+strict report resolution `matched` for the JSON/Markdown summary pair under
+`/workspace/logs/settleora-auto-runner/summaries/`. systemd reported
+`Result=success`, `ExecMainStatus=0`, and `NRestarts=0`.
+
+The runner continued independently for the real canary #864, opened and
+auto-merged PR #877 after exact-head validation, Codex mechanics review,
+Gemini `cheap_independent` review, GitHub checks, code scanning, review-thread
+checks, and issue-state gates. PR #877 merged source head
+`f126b05a2eb3d938c83bff2d29cb7ea7922fa9ec` into `main` as
+`8d04e2c4de1e586ff9298ddd6d2f0f2a9c7d7743`; #864 closed completed. Because
+the run budget was one task, #865 and #866 remained untouched.
+
+This proves wrapper submission, SSH disconnect, and Windows shutdown do not
+stop the accepted DevBox user-unit run. It does not change the recovery model:
+`Restart=no` remains intentional, and failed, incomplete, killed,
+reboot-interrupted, or ambiguous mutation runs do not auto-resume after a
+DevBox reboot. Recovery still requires operator review and an explicit new
+action.
+
 ## Worker Lifecycle
 
 The worker receives only a validated run ID. It derives hashed storage paths,

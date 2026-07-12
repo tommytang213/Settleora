@@ -20,6 +20,76 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Windows-origin shutdown proof checkpoint
+
+- GitHub/live state verified:
+  - PR #876 was merged at
+    `7db8ba829569b9c8f96c897c8b1075a1e25714ca`, which enabled clean
+    `main` launch/control-plane starts while preserving task-branch mutation
+    guards and strict report correlation.
+  - The `default` external runner profile was reconstructed under the fixed
+    profile root and verified with SHA-256
+    `4c9d767d99e855ea412500e3e1b5c6b90a4d18ccc3b5f80e1297d8dee82444b9`.
+  - The Windows wrapper package used for the proof was exported as the
+    `20260712-0133` package with SHA-256
+    `5c6381a20dfa4177a9d4d9c11d9c9f3c5389f051f131f16c0a532cb2eebf81a0`.
+- Windows-origin proof:
+  - Operator-supplied Windows evidence reported wrapper submission accepted
+    with initial state `running`, supervisor run
+    `supervised-20260711T182122Z-6bd91d326f10`, then normal Windows UI
+    shutdown and next-morning status/report readback using the saved proof
+    JSON.
+  - Remote DevBox evidence is authoritative and matched the operator
+    readback: supervisor state `completed`, child terminal `completed`,
+    child status `0`, terminal reason `child_exit_mapped`, systemd
+    `Result=success`, `ExecMainStatus=0`, `NRestarts=0`, and health exit
+    `0`.
+  - Runner run `run-2026-07-11T182132Z` started at
+    `2026-07-11T18:21:32.517Z` and finished at
+    `2026-07-11T18:42:59.463Z`, about 21m27s after start and about 21m37s
+    after supervisor creation. This proves the DevBox unit continued after
+    Windows submission and shutdown.
+  - Strict report mapping resolved to
+    `/workspace/logs/settleora-auto-runner/summaries/run-2026-07-11T182132Z.json`
+    and `.md` with status `matched`; newest-summary fallback was not used.
+  - Monitoring outbox recorded `submitted`, `started`, periodic
+    `heartbeat`, and terminal `completed` events. Runner status afterward
+    was inactive and the runner lock was absent.
+- #864 / PR #877 result:
+  - #864 was selected as the only attempted and processed issue under
+    `maxTasks=1`; #865 and #866 were not attempted.
+  - PR #877 merged source head
+    `f126b05a2eb3d938c83bff2d29cb7ea7922fa9ec` from base
+    `7db8ba829569b9c8f96c897c8b1075a1e25714ca` into merge SHA
+    `8d04e2c4de1e586ff9298ddd6d2f0f2a9c7d7743`.
+  - The merged PR changed exactly
+    `apps/mobile/lib/ui/settleora_components.dart` and
+    `apps/mobile/test/ui/settleora_component_guardrail_test.dart`.
+  - Local mobile UI validation passed, Codex mechanics approved the exact
+    head, Gemini `cheap_independent` passed the exact head, GitHub checks and
+    code-scanning gates passed, transient lifecycle labels were removed, and
+    #864 was closed completed with the expected claim and completed
+    auto-merge comments.
+  - The source branch was preserved/restored at the reviewed head.
+- Protected follow-on canaries:
+  - #865 and #866 remained open with no comments, no assignees, no milestone,
+    no project items, and only durable labels
+    `area:mobile-ui`, `auto-canary-ready`, `canary`, and `workflow`.
+- Issue posture:
+  keep #800 open as the broader trusted-operation tracker. The Windows-origin
+  submit/disconnect/shutdown gate is complete, but this does not imply Day 1
+  product scope reduction or completion of future operations work. Remaining
+  gates include the exact-head docs PR merge for this checkpoint, TrueNAS SSH
+  pull-health monitoring planning, and any separately approved durable
+  recovery, retry, bundling, or notification enhancements.
+- Scope confirmation:
+  this checkpoint records evidence only. It does not change product runtime,
+  API behavior, auth/session/security, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, Docker/CI/deployment/env, secrets, production
+  deploy, mobile release, public/admin exposure, systemd unit content, runner
+  profiles, or Windows-local policy.
+
 ### Issue #800 - Main-launch workspace safety checkpoint
 
 - GitHub/live state at task start:

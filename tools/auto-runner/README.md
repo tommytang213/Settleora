@@ -37,6 +37,20 @@ node tools/auto-runner/settleora-auto-runnerctl.mjs stop-after-current --run <su
 node tools/auto-runner/settleora-auto-runnerctl.mjs extend --run <supervisor-run-id> --max-tasks +2
 ```
 
+Windows wrapper operator evidence:
+
+When a Windows wrapper submission is accepted, save both the supervisor run ID
+and the proof JSON returned by the start wrapper. After an operator restart,
+use the packaged status and report wrappers with that saved run ID/proof JSON
+to retrieve the DevBox status and mapped report. The local Windows files are
+operator evidence only; the DevBox supervisor state, health/status/report
+output, mapped JSON/Markdown summaries, systemd state, and GitHub issue/PR
+state are the source of truth for acceptance.
+
+If Windows blocks the local signed or downloaded wrapper, use execution-policy
+bypass only for that PowerShell process invocation. Do not weaken machine-wide
+or user-wide execution policy as the documented path.
+
 The supervisor is an additive wrapper around the existing runner. It writes
 immutable run specs and state under
 `/workspace/logs/settleora-auto-runner/supervisor/`, using SHA-256 storage keys
