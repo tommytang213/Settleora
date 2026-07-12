@@ -608,47 +608,52 @@ scope rather than positive implementation requests. Positive scope text,
 dangerous `allowedPaths`, malformed contracts, disabled lanes, and
 manual-gated domains still fail closed.
 
-Implemented lanes:
+Implemented lane matrix:
 
-- `workflow-docs-tooling`: implementation and PR creation are allowed after
-  validation and pre-PR review. Allowed paths are limited to
-  `tools/auto-runner/**`, `docs/workflow/**`, and `scripts/ai/**`.
-  Auto-merge is disabled by default and can only be attempted when external
-  config and the issue contract explicitly opt into the low-risk lane gates.
-  Follow-up issue creation remains disabled. Review-fix mutation remains
-  disabled by default and can only be considered through the separate
-  low-risk foundation below.
-- `docs-planning`: implementation and PR creation are allowed for planning and
-  QA/reporting docs under `docs/planning/**` and `docs/qa/**`. Auto-merge is
-  disabled by default and can only be attempted through the same low-risk lane
-  gates. Follow-up issue creation remains disabled. Review-fix mutation
-  remains disabled by default and can only be considered through the separate
-  low-risk foundation below.
-- `client-ui-low-risk`: implementation and PR creation are allowed only for
-  narrow shared Flutter UI component copy/styling and directly tied component
-  tests under `apps/mobile/lib/ui/**` and `apps/mobile/test/ui/**`. Auto-merge
-  is disabled by default and can only be attempted through the bounded canary
-  low-risk lane gates. Follow-up issue creation and review-fix mutation remain
-  disabled for this lane.
+| Lane | Sensitivity | Branch strategy | Reviewer tier | Validation profile | Current posture |
+| --- | --- | --- | --- | --- | --- |
+| `workflow-docs-tooling` | low | normal | cheap | `workflow-tooling` / `runner-tests` | implementation, PR, and existing low-risk auto-merge gates remain available when explicitly configured |
+| `docs-planning` | low | normal | cheap | `docs-only` | implementation, PR, and existing low-risk auto-merge gates remain available when explicitly configured |
+| `client-ui-low-risk` | low | normal | cheap | `mobile-ui-low-risk` | narrow protected canary lane preserved |
+| `mobile-application` | standard | normal | cheap | `mobile` | implementation and PR creation only |
+| `web-user-ui` | standard | normal | cheap | `web-ui` | implementation and PR creation only |
+| `web-admin-ui` | sensitive | focused | strong | `web-ui` | implementation and PR creation only |
+| `api-domain-runtime` | sensitive | focused | strong | `api-domain` | implementation and PR creation only |
+| `auth-session-security` | high | focused | strong | `api-security` | implementation and PR creation only |
+| `storage-file-privacy-authz` | high | focused | strong | `api-storage` | implementation and PR creation only |
+| `money-settlement-payment` | high | focused | strong | `api-money` | implementation and PR creation only |
+| `schema-migrations` | high | focused | strong | `api-migrations` | migration code review only; destructive application remains manual |
+| `openapi-generated-clients` | high | focused | strong | `openapi-generated-clients` | contract plus generated clients through repo generation only |
+| `sync-import-export-restore` | high | focused | strong | `sync-import-export` | implementation under API-authoritative acceptance only |
+| `docker-compose-ci-deployment` | high | focused | strong | `compose-ci` | repo code only; live deployment/env/secret mutation remains manual |
+| `cross-domain` | split | split-required | split/escalate | none | blocked until future bundle/split policy |
 
-Disabled/manual-gated placeholder lanes exist for product runtime,
-security runtime, storage/privacy, money/settlement, schema/migrations,
-OpenAPI/generated clients, and deployment/CI/env scope.
+Compatibility aliases map deterministically where safe:
+`security-runtime` to `auth-session-security`, `storage-privacy` to
+`storage-file-privacy-authz`, `money-settlement` to
+`money-settlement-payment`, and `deployment-ci-env` to
+`docker-compose-ci-deployment`. `product-runtime` remains a disabled
+placeholder until a narrower domain lane is selected.
+
+Sensitive lanes being runnable does not enable sensitive auto-merge. #888 must
+make the external reviewer tiers operational, and #889 must implement exact-head
+auto-merge expansion. Until then, sensitive lanes are PR-only even when the
+issue contract asks for auto-merge.
 
 The contract `allowedPaths` must be a subset of the lane manifest allowlist.
 PR creation is blocked if any changed file is outside either the contract
 allowlist or the lane allowlist. Generic words such as `config` do not by
-themselves trigger the secrets/config danger gate, but auth config, security
-config, deployment config, `.env`, secrets, credentials, SSH, and token-storage
-work remain gated.
+themselves trigger a manual gate; secret files, `.env`, local credentials,
+SSH material, and credential mutation remain forbidden.
 
-The runner must label/comment `danger-gate` or `needs-tommy` instead of
-implementing unattended work for auth/session/security, storage/file
-privacy/authz, money/settlement/bill calculation, schema/migrations,
-OpenAPI/generated clients, sync/restore/import/export, Docker/CI/deploy,
-secrets/config, public/admin exposure, mobile store release, production deploy,
-destructive operations, branch deletion/cleanup, force-like history changes, or
-architecture replacement.
+The runner must label/comment a bounded manual/split stop instead of
+implementing unattended work for genuine human actions or decisions:
+production deploy/promotion, mobile store/TestFlight/Play submission,
+destructive migrations or destructive data operations, secret/auth credential
+creation/rotation/disclosure/mutation, public/admin exposure or network/TLS/
+DNS/proxy/router/firewall changes, architecture replacement, force-like
+history changes, branch deletion/cleanup, Day 1 scope cuts, or unresolved
+product/policy/authority/financial semantics.
 
 AI review cannot clear these gates.
 

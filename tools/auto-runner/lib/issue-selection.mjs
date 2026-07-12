@@ -122,6 +122,15 @@ export function validateCandidateForClaim(config, candidate, tracker, readLiveIs
   if (!laneDecision.allowedToImplement) {
     return skip(`live_issue_lane_not_allowed:${laneDecision.reason}`, candidate, liveEvent, {
       lane: laneDecision.lane || null,
+      canonicalLane: laneDecision.canonicalLane || null,
+      implementationSensitivity: laneDecision.implementationSensitivity || null,
+      branchStrategy: laneDecision.branchStrategy || null,
+      reviewerTier: laneDecision.reviewerTier || null,
+      validationProfile: laneDecision.validationProfile || null,
+      reasonCodes: laneDecision.reasonCodes || [],
+      manualReasonCodes: laneDecision.manualReasonCodes || [],
+      manualActionRequired: Boolean(laneDecision.manualActionRequired),
+      splitRequired: Boolean(laneDecision.splitRequired),
       manualGate: Boolean(laneDecision.manualGate),
       dangerGate: Boolean(laneDecision.dangerGate),
     });
@@ -135,7 +144,17 @@ export function validateCandidateForClaim(config, candidate, tracker, readLiveIs
       issue: issueSummary(liveIssue),
       liveRefresh: liveEvent,
       lane: laneDecision.lane,
+      canonicalLane: laneDecision.canonicalLane || laneDecision.lane,
+      implementationSensitivity: laneDecision.implementationSensitivity || null,
+      branchStrategy: laneDecision.branchStrategy || null,
+      reviewerTier: laneDecision.reviewerTier || null,
       validationProfile: laneDecision.validationProfile || null,
+      reasonCodes: laneDecision.reasonCodes || [],
+      manualReasonCodes: laneDecision.manualReasonCodes || [],
+      manualActionRequired: Boolean(laneDecision.manualActionRequired),
+      splitRequired: Boolean(laneDecision.splitRequired),
+      prCreationAllowed: Boolean(laneDecision.prCreationAllowed),
+      autoMergeEligible: Boolean(laneDecision.autoMergeEligible),
     },
   };
 }

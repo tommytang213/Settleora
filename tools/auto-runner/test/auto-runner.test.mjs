@@ -2664,6 +2664,224 @@ test("normal dangerous issue without contract remains danger gated", () => {
   assert.ok(lane.dangerReasons.includes("openapi_generated_client"));
 });
 
+test("explicit domain lane matrix separates runnable sensitive implementation from auto-merge", () => {
+  const cases = [
+    {
+      lane: "workflow-docs-tooling",
+      paths: ["tools/auto-runner/lib/lane-policy.mjs"],
+      profile: "runner-tests",
+      sensitivity: "low",
+      branchStrategy: "normal",
+      reviewerTier: "cheap_independent",
+      scope: "Implement workflow tooling policy code.",
+    },
+    {
+      lane: "docs-planning",
+      paths: ["docs/planning/ISSUE_PROGRESS_LEDGER.md"],
+      profile: "docs-only",
+      sensitivity: "low",
+      branchStrategy: "normal",
+      reviewerTier: "cheap_independent",
+      scope: "Update planning ledger documentation.",
+    },
+    {
+      lane: "mobile-application",
+      paths: ["apps/mobile/lib/features/example.dart", "apps/mobile/test/features/example_test.dart"],
+      profile: "mobile",
+      sensitivity: "standard",
+      branchStrategy: "normal",
+      reviewerTier: "cheap_independent",
+      scope: "Implement mobile application UI behavior.",
+    },
+    {
+      lane: "web-user-ui",
+      paths: ["apps/web-user/src/App.tsx"],
+      profile: "web-ui",
+      sensitivity: "standard",
+      branchStrategy: "normal",
+      reviewerTier: "cheap_independent",
+      scope: "Implement web user UI.",
+    },
+    {
+      lane: "web-admin-ui",
+      paths: ["apps/web-admin/src/Admin.tsx"],
+      profile: "web-ui",
+      sensitivity: "sensitive",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Implement admin UI code for existing local app routes.",
+    },
+    {
+      lane: "api-domain-runtime",
+      paths: ["services/api/Features/Example/ExampleService.cs"],
+      profile: "api-domain",
+      sensitivity: "sensitive",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Implement API/domain runtime code under server authority.",
+    },
+    {
+      lane: "auth-session-security",
+      paths: ["services/api/Auth/SessionRuntime.cs"],
+      profile: "api-security",
+      sensitivity: "high",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Implement auth session security code under API authority.",
+    },
+    {
+      lane: "storage-file-privacy-authz",
+      paths: ["services/api/Storage/FileAuthorizationService.cs"],
+      profile: "api-storage",
+      sensitivity: "high",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Implement storage file privacy authorization code under API authority.",
+    },
+    {
+      lane: "money-settlement-payment",
+      paths: ["services/api/Settlement/SettlementPolicy.cs"],
+      profile: "api-money",
+      sensitivity: "high",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Implement money settlement payment calculation code under API/domain authority.",
+    },
+    {
+      lane: "schema-migrations",
+      paths: ["services/api/Infrastructure/Migrations/202607121903_AddFoo.cs"],
+      profile: "api-migrations",
+      sensitivity: "high",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Generate schema migration code for review.",
+    },
+    {
+      lane: "openapi-generated-clients",
+      paths: [
+        "packages/contracts/openapi/settleora.v1.yaml",
+        "packages/client-web/src/generated/client.ts",
+        "packages/client-dart/lib/generated/api.dart",
+      ],
+      profile: "openapi-generated-clients",
+      sensitivity: "high",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Update OpenAPI and generated clients through generation validation.",
+    },
+    {
+      lane: "sync-import-export-restore",
+      paths: ["services/api/Sync/ImportRestoreService.cs"],
+      profile: "sync-import-export",
+      sensitivity: "high",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Implement sync import export restore acceptance code with API authoritative guardrails.",
+    },
+    {
+      lane: "docker-compose-ci-deployment",
+      paths: ["infra/docker-compose.yml"],
+      profile: "compose-ci",
+      sensitivity: "high",
+      branchStrategy: "focused",
+      reviewerTier: "strong_independent",
+      scope: "Change Docker Compose code only.",
+    },
+  ];
+
+  for (const item of cases) {
+    const lane = classifyIssueLane({
+      title: `${item.lane} implementation`,
+      body: `${contractBody({
+        lane: item.lane,
+        allowedPaths: item.paths,
+        validationProfile: item.profile,
+        manualMergeRequired: true,
+        autoMergeEligible: true,
+      })}
+
+## Scope
+
+${item.scope}
+`,
+      labels: ["auto-ready"],
+    });
+    assert.equal(lane.allowedToImplement, true, item.lane);
+    assert.equal(lane.prCreationAllowed, true, item.lane);
+    assert.equal(lane.autoMergeEligible, item.lane === "workflow-docs-tooling" || item.lane === "docs-planning", item.lane);
+    assert.equal(lane.implementationSensitivity, item.sensitivity, item.lane);
+    assert.equal(lane.branchStrategy, item.branchStrategy, item.lane);
+    assert.equal(lane.reviewerTier, item.reviewerTier, item.lane);
+    assert.deepEqual(filterForbiddenChangedFiles(item.paths, lane), [], item.lane);
+    assert.ok(lane.reasonCodes.includes("contract_valid"), item.lane);
+  }
+});
+
+test("genuine manual actions and split-required work fail closed with reason codes", () => {
+  const manualCases = [
+    ["production_deploy", "Deploy this Docker change to production."],
+    ["mobile_store_release", "Submit the mobile build to TestFlight."],
+    ["destructive_data_operation", "Execute destructive migration and drop table in production."],
+    ["secret_credential_mutation", "Rotate the API secret token."],
+    ["public_admin_exposure", "Expose admin UI through DNS and TLS reverse proxy."],
+    ["architecture_replacement", "Replace architecture direction for sync."],
+    ["force_history_rewrite", "Force push rewritten history."],
+    ["branch_deletion_cleanup", "Delete branch after merge."],
+    ["day1_scope_cut", "Reduce Day 1 scope for settlement."],
+    ["unresolved_product_decision", "Unresolved financial semantics decision requires Tommy decision."],
+  ];
+  for (const [code, scope] of manualCases) {
+    const lane = classifyIssueLane({
+      title: `Manual ${code}`,
+      body: `${contractBody({
+        lane: "docker-compose-ci-deployment",
+        allowedPaths: ["infra/docker-compose.yml"],
+        validationProfile: "compose-ci",
+      })}
+
+## Scope
+
+${scope}
+`,
+      labels: ["auto-ready"],
+    });
+    assert.equal(lane.allowedToImplement, false, code);
+    assert.equal(lane.manualActionRequired, true, code);
+    assert.ok(lane.manualReasonCodes.includes(code), code);
+    assert.ok(lane.reasonCodes.includes("manual_action_required"), code);
+  }
+
+  const split = classifyIssueLane({
+    title: "Cross-domain feature bundle",
+    body: contractBody({
+      lane: "cross-domain",
+      allowedPaths: ["services/api/**", "apps/mobile/lib/**"],
+      validationProfile: "api-domain",
+    }),
+    labels: ["auto-ready"],
+  });
+  assert.equal(split.allowedToImplement, false);
+  assert.equal(split.splitRequired, true);
+  assert.equal(split.branchStrategy, "split-required");
+  assert.ok(split.reasonCodes.includes("split_required"));
+});
+
+test("legacy sensitive lane aliases map deterministically to focused runnable policy", () => {
+  const security = classifyIssueLane({
+    title: "Legacy security lane",
+    body: contractBody({
+      lane: "security-runtime",
+      allowedPaths: ["services/api/Auth/SessionRuntime.cs"],
+      validationProfile: "api-security",
+    }),
+    labels: ["auto-ready"],
+  });
+  assert.equal(security.allowedToImplement, true);
+  assert.equal(security.canonicalLane, "auth-session-security");
+  assert.equal(security.branchStrategy, "focused");
+  assert.equal(security.reviewerTier, "strong_independent");
+});
+
 test("canary mode accepts only approved low-risk lanes", () => {
   const config = { canary: true };
   const workflow = classifyIssueLane({
@@ -3837,7 +4055,7 @@ test("contract lane/profile/path validation fails closed", () => {
   assert.match(unsafePath.reason, /outside lane manifest/i);
 });
 
-test("product and danger lanes remain manual or danger gated", () => {
+test("manual placeholder lanes and uncontracted sensitive issues remain blocked", () => {
   const disabledLane = classifyIssueLane({
     title: "Product runtime placeholder",
     body: contractBody({
@@ -3849,6 +4067,7 @@ test("product and danger lanes remain manual or danger gated", () => {
   });
   assert.equal(disabledLane.allowedToImplement, false);
   assert.equal(disabledLane.dangerGate, true);
+  assert.ok(disabledLane.reasonCodes.includes("lane_disabled_or_manual"));
 
   for (const body of [
     "Change auth config for sessions",
@@ -3858,6 +4077,11 @@ test("product and danger lanes remain manual or danger gated", () => {
     const lane = classifyIssueLane({ title: "Danger", body, labels: ["auto-ready"] });
     assert.equal(lane.allowedToImplement, false);
     assert.equal(lane.dangerGate, true);
+    assert.ok(
+      lane.reasonCodes.includes("missing_contract_for_sensitive_scope") ||
+        lane.reasonCodes.includes("invalid_contract_for_sensitive_scope") ||
+        lane.reasonCodes.includes("manual_action_required"),
+    );
   }
 });
 

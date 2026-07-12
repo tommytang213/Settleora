@@ -34,8 +34,15 @@ Task timestamp key: ${timestampKey}
 - Expected local report path: \`${reportPath}\`
 - Lane: \`${laneDecision.lane}\`
 - Lane decision: ${laneDecision.reason}
+- Canonical lane: \`${laneDecision.canonicalLane || laneDecision.lane}\`
+- Implementation sensitivity: \`${laneDecision.implementationSensitivity || "unknown"}\`
+- Branch strategy: \`${laneDecision.branchStrategy || "unknown"}\`
+- Required reviewer tier: \`${laneDecision.reviewerTier || "unknown"}\`
+- Reason codes: ${(laneDecision.reasonCodes || []).map((item) => `\`${item}\``).join(", ") || "none"}
+- Manual reason codes: ${(laneDecision.manualReasonCodes || []).map((item) => `\`${item}\``).join(", ") || "none"}
 - Allowed paths: ${(laneDecision.allowedPaths || []).join(", ") || "none"}
 - Validation profile: ${laneDecision.validationProfile || "none"}
+- PR creation allowed: ${laneDecision.prCreationAllowed ? "yes" : "no"}
 - Auto-merge eligible: ${laneDecision.autoMergeEligible ? "yes" : "no"}
 - Manual merge required: ${laneDecision.manualMergeRequired ? "yes" : "no"}
 
@@ -64,7 +71,10 @@ ${(laneDecision.contract?.requiredReading || []).map((item) => `- Contract requi
 
 - API/domain services remain authoritative for auth, authorization, money, storage access, sync acceptance, status transitions, and audit.
 - OpenAPI is the source of truth; generated clients must not be hand-edited.
-- No silent runtime, API, auth/session/security, storage/privacy, money/settlement/bill calculation, schema/migration, generated-client, sync, Docker/CI/deployment, secret, production, or mobile release changes.
+- Implement only the validated lane and allowed paths above. Sensitive implementation lanes are runnable only because this issue contract was validated; they remain PR-only and non-auto-merge unless the lane decision explicitly says otherwise.
+- Do not treat sensitive nouns as a stop condition by themselves when they describe the validated lane. Stop when the work crosses lane/path boundaries, requires a split, or requires a genuine manual action/decision.
+- Genuine manual actions remain hard stops: production deploy or promotion, mobile store/TestFlight/Play submission, destructive migration or data operation, secret/credential creation/rotation/disclosure/mutation, public/admin exposure or network/TLS/DNS/proxy/router/firewall changes, architecture replacement, force-like history rewrite, branch deletion/cleanup, Day 1 scope cut, unresolved product/policy/authority/financial semantics, or explicit \`manual-gate\`/\`needs-tommy\`.
+- No silent runtime, API, auth/session/security, storage/privacy, money/settlement/bill calculation, schema/migration, generated-client, sync, Docker/CI/deployment, secret, production, or mobile release changes outside the validated lane.
 - Update the issue progress ledger when issue state could otherwise be misread later.
 
 ## Git rules
@@ -89,7 +99,7 @@ ${(laneDecision.contract?.requiredReading || []).map((item) => `- Contract requi
 ## Scope and non-goals
 
 - Implement only the issue goal within the lane policy.
-- Non-goals: product runtime, API behavior, auth/session/security runtime, storage/privacy, money/settlement/bill calculation, schema/migration, OpenAPI/generated-client, Docker/CI/deployment, secrets, production deploy, mobile release, branch cleanup, direct main push, or auto-merge to main.
+- Non-goals outside the validated lane: product runtime, API behavior, auth/session/security runtime, storage/privacy, money/settlement/bill calculation, schema/migration, OpenAPI/generated-client, Docker/CI/deployment, secrets, production deploy, mobile release, branch cleanup, direct main push, or auto-merge to main.
 
 ## Validation expectations
 
@@ -108,7 +118,7 @@ Write \`${reportPath}\` with status, branch, base SHA, final SHA, files changed,
 
 ## Stop conditions
 
-Stop and report if the issue requires manual/danger-gated scope, ambiguous repo/GitHub state, secrets, direct main push, force push, branch deletion, destructive operation, generated-client hand edit, schema migration, auth/storage/money/sync authority change, Docker/CI/deployment mutation, or validation you cannot honestly classify.
+Stop and report if the issue requires work outside the validated lane/path contract, split-required cross-domain scope, ambiguous repo/GitHub state, secrets, direct main push, force push, branch deletion, destructive operation, generated-client hand edit, production/manual migration execution, production deploy, public/admin exposure, unresolved authority/product/financial semantics, or validation you cannot honestly classify.
 `;
 
   writeFileSync(promptPath, prompt);

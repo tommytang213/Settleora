@@ -21,10 +21,12 @@ const riskyGateKeys = Object.freeze([
 const manualGates = Object.freeze([
   "trusted overnight operation",
   "systemd service/timer installation or enablement",
-  "auto-merge lanes",
+  "sensitive-lane auto-merge until #889",
+  "external reviewer provider execution until #888",
   "stale-claim stealing",
   "follow-up issue creation",
   "review-fix mutation",
+  "genuine manual actions: production deploy, mobile store release, destructive data operation, secret mutation, public/admin exposure, force/history/branch cleanup, Day 1 scope cuts, unresolved product or authority decisions",
 ]);
 
 export function runPreflight(config, options = {}) {

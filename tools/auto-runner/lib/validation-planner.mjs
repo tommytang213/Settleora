@@ -42,6 +42,17 @@ function bounded(value, max = 6000) {
 function fallbackProfileForChangedFiles(changedFiles, laneDecision) {
   if (laneDecision.lane === "workflow-docs-tooling") return "workflow-tooling";
   if (laneDecision.lane === "client-ui-low-risk") return "mobile-ui-low-risk";
+  if (laneDecision.canonicalLane === "mobile-application" || laneDecision.lane === "mobile-application") return "mobile";
+  if (laneDecision.canonicalLane === "web-user-ui" || laneDecision.lane === "web-user-ui") return "web-ui";
+  if (laneDecision.canonicalLane === "web-admin-ui" || laneDecision.lane === "web-admin-ui") return "web-ui";
+  if (laneDecision.canonicalLane === "api-domain-runtime" || laneDecision.lane === "api-domain-runtime") return "api-domain";
+  if (laneDecision.canonicalLane === "auth-session-security" || laneDecision.lane === "auth-session-security") return "api-security";
+  if (laneDecision.canonicalLane === "storage-file-privacy-authz" || laneDecision.lane === "storage-file-privacy-authz") return "api-storage";
+  if (laneDecision.canonicalLane === "money-settlement-payment" || laneDecision.lane === "money-settlement-payment") return "api-money";
+  if (laneDecision.canonicalLane === "schema-migrations" || laneDecision.lane === "schema-migrations") return "api-migrations";
+  if (laneDecision.canonicalLane === "openapi-generated-clients" || laneDecision.lane === "openapi-generated-clients") return "openapi-generated-clients";
+  if (laneDecision.canonicalLane === "sync-import-export-restore" || laneDecision.lane === "sync-import-export-restore") return "sync-import-export";
+  if (laneDecision.canonicalLane === "docker-compose-ci-deployment" || laneDecision.lane === "docker-compose-ci-deployment") return "compose-ci";
   if (changedFiles.some((file) => /^(docs\/planning\/|docs\/qa\/)/.test(file))) return "docs-only";
   return "scaffold-docs";
 }
