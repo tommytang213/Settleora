@@ -1,0 +1,16 @@
+[Unit]
+Description=Run Settleora auto-runner terminal notifier periodically
+Documentation=file:/workspace/repos/Settleora/docs/workflow/AUTONOMOUS_CODEX_RUNNER_MONITORING.md
+
+[Timer]
+OnBootSec=90s
+OnUnitInactiveSec=60s
+RandomizedDelaySec=10s
+AccuracySec=10s
+Unit=settleora-auto-runner-terminal-notifier.service
+
+[Install]
+WantedBy=timers.target
+
+# Repository template only. Do not install, start, enable, or reload from repo
+# implementation tasks.

@@ -90,6 +90,39 @@ supervisor template remains `Restart=no`. Installing, starting, enabling,
 disabling, or exposing the health service remains a separate manual deployment
 gate.
 
+Terminal ntfy activity notifier foundation:
+
+```bash
+node tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs
+```
+
+The notifier is a separate one-shot command intended for a later manually
+installed user timer. It reads the trusted health/supervisor state model,
+selects only newly observed healthy terminal supervised runs, sends one
+sanitized activity notification for `completed`, `no-eligible-work`, or
+successful budget exhaustion, and records local delivery only after confirmed
+ntfy `2xx` response. It does not start, stop, resume, retry, pause, extend,
+repair, relabel, branch, comment, merge, delete locks, mutate supervisor or
+runner state, call GitHub, or run from the health endpoint.
+
+Production ntfy configuration is fixed at
+`/workspace/logs/settleora-auto-runner/secrets/ntfy-notifier.json`. The CLI
+does not accept base URL, topic, token, config path, or shell-command
+arguments. The config file must be owner-only under the approved secrets root,
+use a strict schema, and contain redacted deployment values supplied later by
+the #880 manual deployment task. Tests use only local HTTP stubs; this repo
+foundation does not make live ntfy calls.
+
+Repository-only templates:
+
+- `tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.service`
+- `tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.timer`
+
+They use `Type=oneshot`, `UMask=0077`, a fixed working directory and entry
+point, and a roughly 60-second timer cadence. They are not installed, started,
+enabled, reloaded, or connected to live secrets by repository implementation
+tasks.
+
 Supervised runs pass a validated `--supervisor-run-id` into the runner. The
 runner writes it as sanitized summary metadata, and supervisor status/report/
 health use only that exact correlation to resolve the runner JSON/Markdown
