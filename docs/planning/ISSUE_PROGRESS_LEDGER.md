@@ -20,6 +20,31 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #888 - Operational external reviewer tiers stacked PR checkpoint
+
+- Scope:
+  - Operationalizes external reviewer routing for cheap, strong, and
+    tie-breaker-ready tiers while keeping Codex mechanics/security review as a
+    separate mandatory reviewer.
+  - Adds fail-closed reviewer config/profile/model/pricing checks, owner-only
+    reviewer secret metadata validation, header-only Gemini key transmission,
+    bounded response/retry/accounting evidence, and exact head/base/file/package
+    evidence fields for review packages.
+  - Adds a non-mutating `--review-package <package> --config <task-config>`
+    entrypoint for existing PR acceptance evidence.
+- Bootstrap posture:
+  - This work is stacked on parent PR `#896` at exact head
+    `a71c7b232aa42a860d283274c4732fe900c457a3`.
+  - Parent PR `#896` remains open until the normal exact-head gate later
+    merges it; this child PR must be retargeted and re-reviewed after the
+    parent merges.
+- Non-goals preserved:
+  - #889 approved-domain auto-merge expansion is not implemented.
+  - Sensitive-domain auto-merge remains disabled.
+  - No product runtime, API behavior, OpenAPI/generated clients, schema,
+    auth/session/security runtime, storage/privacy runtime, money/settlement
+    authority, deployment, active runner config, or secret value is changed.
+
 ### Issue #887 - Auto-runner lane/manual-decision policy PR checkpoint
 
 - GitHub/live state verified:

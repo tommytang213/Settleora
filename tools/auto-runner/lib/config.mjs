@@ -208,8 +208,8 @@ export function parseCliArgs(argv) {
   if (args.reviewerSmokeTest && (args.dryRun || args.run || args.preflight || args.canary)) {
     throw new Error("--reviewer-smoke-test runs as its own non-mutating mode; do not pass --dry-run, --run, --canary, or --preflight");
   }
-  if (args.liveExternalReviewerCalls && !args.reviewerSmokeTest) {
-    throw new Error("--live-external-reviewer-calls is only valid with --reviewer-smoke-test");
+  if (args.liveExternalReviewerCalls && !args.reviewerSmokeTest && !args.reviewPackage) {
+    throw new Error("--live-external-reviewer-calls is only valid with --reviewer-smoke-test or --review-package");
   }
   if (args.fixtureIssuesPath && !args.dryRun) {
     throw new Error("--fixture-issues is dry-run only; pass --dry-run");
@@ -293,6 +293,7 @@ export function loadConfig(cliArgs) {
   const reviewerPolicy = mergeReviewerPolicyConfig(config);
   config.reviewerTiers = reviewerPolicy.reviewerTiers;
   config.reviewerBudget = reviewerPolicy.reviewerBudget;
+  config.reviewerProviderProfiles = normalizeReviewerProviderProfiles(config.reviewerProviderProfiles);
   config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
@@ -319,6 +320,28 @@ export function loadConfig(cliArgs) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+function normalizeReviewerProviderProfiles(profiles = {}) {
+  const normalized = {};
+  for (const [profileId, profile] of Object.entries(profiles || {})) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,80}$/.test(profileId)) {
+      throw new Error(`Invalid reviewer provider profile id: ${profileId}`);
+    }
+    if (profile.endpoint || profile.baseUrl || profile.url) {
+      throw new Error(`Reviewer provider profile ${profileId} must not configure arbitrary endpoints`);
+    }
+    if (profile.provider !== "gemini") {
+      throw new Error(`Unsupported reviewer provider for profile ${profileId}: ${profile.provider}`);
+    }
+    normalized[profileId] = {
+      provider: "gemini",
+      apiKeyEnv: profile.apiKeyEnv || "GEMINI_API_KEY",
+      envFilePath: profile.envFilePath || null,
+      defaultModel: profile.defaultModel || null,
+    };
+  }
+  return normalized;
 }
 
 function parseFixtureIssues(fixtureIssuesPath) {

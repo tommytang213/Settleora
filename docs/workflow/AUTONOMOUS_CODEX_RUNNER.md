@@ -262,6 +262,39 @@ by a future approved slice, it must live under
 `/workspace/logs/settleora-auto-runner/state/`, not committed repository
 paths.
 
+## External Reviewer Tiers
+
+External reviewer execution is independent of Codex mechanics/security review.
+The external provider can satisfy `cheap_independent`, `strong_independent`,
+or a configured bounded `tie_breaker` tier, but it cannot replace the Codex
+mechanics/security reviewer. Codex review also cannot replace required
+external review.
+
+Reviewer routing starts from the validated lane metadata. Size and path
+analysis may escalate from cheap to strong or split/block, but it must not
+downgrade a lane-required strong tier. Split-required or huge cross-domain
+work blocks for a split or human escalation. Sensitive/high-risk lanes,
+reviewer-policy/merge-policy changes, auth/security, storage/privacy, money,
+schema, OpenAPI/generated-client, sync/restore, deployment/CI, and other
+policy-critical tooling require strong external review evidence before a gate
+can pass.
+
+The non-mutating package entrypoint is:
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --review-package <package.json> --config <task-scoped-config.json>
+```
+
+It writes sanitized evidence under the configured logs root. Evidence binds the
+review to the exact head, base SHA when supplied, sorted changed files,
+changed-file digest, package digest, route/tier, provider profile/model,
+attempt count, verdict schema version, bounded pricing, budget/accounting, and
+sanitized evidence path. Any head/base/file/digest mismatch detected by a gate,
+missing or malformed verdict, provider failure, disabled tier, unavailable
+model, timeout, budget hard stop, secret-like path/diff, or non-pass verdict
+blocks. This package mode does not start the issue loop, mutate GitHub, or
+enable the future #889 sensitive-domain auto-merge expansion.
+
 ## Low-Risk Auto-Merge Wait And Recovery Evidence
 
 Low-risk canary auto-merge keeps fail-closed semantics while waiting long

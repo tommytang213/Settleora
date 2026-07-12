@@ -8,6 +8,14 @@ export const reviewerTierIds = Object.freeze([
   "codex_mechanics",
 ]);
 
+const reviewerTierRank = Object.freeze({
+  cheap_independent: 1,
+  strong_independent: 2,
+  tie_breaker: 3,
+  block_split_or_escalate: 4,
+  split_or_escalate: 4,
+});
+
 export const defaultReviewerTiers = Object.freeze({
   cheap_independent: Object.freeze({
     enabled: false,
@@ -90,11 +98,15 @@ export function mergeReviewerTiers(tiers = {}) {
       command: tier.command ?? defaultReviewerTiers[tierId].command,
       provider: tier.provider ?? defaultReviewerTiers[tierId].provider,
       providerProfile: String(tier.providerProfile ?? defaultReviewerTiers[tierId].providerProfile),
-      model: tier.model ?? defaultReviewerTiers[tierId].model,
-      inputUsdPerMillionTokens: nonNegativeNumber(
+      model: normalizeModelIdentifier(tier.model ?? defaultReviewerTiers[tierId].model),
+      inputUsdPerMillionTokens: tierId === "codex_mechanics" ? nonNegativeNumber(
+        tier.inputUsdPerMillionTokens ?? defaultReviewerTiers[tierId].inputUsdPerMillionTokens,
+      ) : positiveNumber(
         tier.inputUsdPerMillionTokens ?? defaultReviewerTiers[tierId].inputUsdPerMillionTokens,
       ),
-      outputUsdPerMillionTokens: nonNegativeNumber(
+      outputUsdPerMillionTokens: tierId === "codex_mechanics" ? nonNegativeNumber(
+        tier.outputUsdPerMillionTokens ?? defaultReviewerTiers[tierId].outputUsdPerMillionTokens,
+      ) : positiveNumber(
         tier.outputUsdPerMillionTokens ?? defaultReviewerTiers[tierId].outputUsdPerMillionTokens,
       ),
     };
@@ -191,7 +203,8 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
   const totalChangedLines = additions + deletions;
   const sensitiveFiles = files.filter(isSensitivePath);
   const domains = detectDomains(files, laneDecision);
-  const huge = files.length >= 40 || totalChangedLines >= 2000 || domains.length >= 4;
+  const crossDomainCount = domains.filter((domain) => !isWorkflowPolicyDomain(domain)).length;
+  const huge = files.length >= 40 || totalChangedLines >= 2000 || crossDomainCount >= 4;
   const large = files.length >= 15 || totalChangedLines >= 800;
   const docsOnly = files.length > 0 && files.every(isDocsPath);
   const workflowTooling = files.some(isWorkflowPath) || laneDecision?.lane === "workflow-docs-tooling";
@@ -209,54 +222,61 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
       block: true,
     });
   }
+  const laneRequiredTier = normalizeLaneRequiredTier(laneDecision?.reviewerTier, laneDecision);
   if (clientUiLowRisk && !large) {
-    return decision("cheap_independent", "Real-code client UI low-risk canary requires cheap independent review before auto-merge.", {
+    return decision(maxReviewerTier("cheap_independent", laneRequiredTier), "Real-code client UI low-risk canary requires cheap independent review before auto-merge.", {
       sensitiveFiles,
       domains,
       totalChangedLines,
       changedFileCount: files.length,
       realCodeIndependentRequired: true,
+      laneRequiredTier,
     });
   }
   if (sensitiveFiles.length > 0 || laneDecision?.dangerGate) {
-    return decision("strong_independent", "Sensitive path or danger-gated scope requires strong independent review.", {
+    return decision(maxReviewerTier("strong_independent", laneRequiredTier), "Sensitive path or danger-gated scope requires strong independent review.", {
       sensitiveFiles,
       domains,
       totalChangedLines,
       changedFileCount: files.length,
       strongRequired: true,
+      laneRequiredTier,
     });
   }
   if (large) {
-    return decision("strong_independent", "Large PR size crosses strong-review threshold.", {
+    return decision(maxReviewerTier("strong_independent", laneRequiredTier), "Large PR size crosses strong-review threshold.", {
       sensitiveFiles,
       domains,
       totalChangedLines,
       changedFileCount: files.length,
       strongRequired: true,
+      laneRequiredTier,
     });
   }
   if (docsOnly) {
-    return decision("cheap_independent", "Docs, ledger, or workflow docs default to cheap independent review.", {
+    return decision(maxReviewerTier("cheap_independent", laneRequiredTier), "Docs, ledger, or workflow docs default to cheap independent review.", {
       sensitiveFiles,
       domains,
       totalChangedLines,
       changedFileCount: files.length,
+      laneRequiredTier,
     });
   }
   if (workflowTooling) {
-    return decision("cheap_independent", "Auto-runner tooling defaults to cheap independent review unless size or sensitivity escalates.", {
+    return decision(maxReviewerTier("cheap_independent", laneRequiredTier), "Auto-runner tooling defaults to cheap independent review unless size or sensitivity escalates.", {
       sensitiveFiles,
       domains,
       totalChangedLines,
       changedFileCount: files.length,
+      laneRequiredTier,
     });
   }
-  return decision("cheap_independent", "Normal feature PR defaults to cheap independent review unless risk escalates.", {
+  return decision(maxReviewerTier("cheap_independent", laneRequiredTier), "Normal feature PR defaults to cheap independent review unless risk escalates.", {
     sensitiveFiles,
     domains,
     totalChangedLines,
     changedFileCount: files.length,
+    laneRequiredTier,
   });
 }
 
@@ -312,6 +332,20 @@ function decision(tier, reason, extras) {
   return { tier, reason, ...extras };
 }
 
+function normalizeLaneRequiredTier(tier, laneDecision) {
+  if (laneDecision?.splitRequired || laneDecision?.branchStrategy === "split-required") return "block_split_or_escalate";
+  if (tier === "split_or_escalate") return "block_split_or_escalate";
+  if (tier === "strong_independent" || tier === "cheap_independent" || tier === "tie_breaker") return tier;
+  if (laneDecision?.implementationSensitivity === "high" || laneDecision?.implementationSensitivity === "sensitive") {
+    return "strong_independent";
+  }
+  return "cheap_independent";
+}
+
+function maxReviewerTier(a, b) {
+  return reviewerTierRank[b] > reviewerTierRank[a] ? b : a;
+}
+
 function detectDomains(files, laneDecision) {
   const domains = new Set();
   if (laneDecision?.lane) domains.add(laneDecision.lane);
@@ -336,8 +370,19 @@ function isDocsPath(filePath) {
   return docsPathPatterns.some((pattern) => pattern.test(filePath));
 }
 
+function isWorkflowPolicyDomain(domain) {
+  return ["workflow-docs-tooling", "docs/workflow", "docs/planning", "docs/qa", "tools/auto-runner"].includes(domain);
+}
+
 function normalizePath(filePath) {
   return String(filePath || "").replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function normalizeModelIdentifier(value) {
+  if (value === null || value === undefined) return null;
+  const model = String(value);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,80}$/.test(model)) return "__invalid_model_identifier__";
+  return model;
 }
 
 function nonNegativeNumber(value) {

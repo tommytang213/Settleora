@@ -66,18 +66,18 @@
       "provider": "gemini",
       "providerProfile": "gemini-strong",
       "command": null,
-      "model": "gemini-2.5-pro",
-      "inputUsdPerMillionTokens": 1.25,
-      "outputUsdPerMillionTokens": 10
+      "model": "gemini-flash-latest",
+      "inputUsdPerMillionTokens": 0.3,
+      "outputUsdPerMillionTokens": 2.5
     },
     "tie_breaker": {
       "enabled": false,
-      "provider": null,
-      "providerProfile": "unconfigured-tie-breaker",
+      "provider": "gemini",
+      "providerProfile": "gemini-strong",
       "command": null,
-      "model": null,
-      "inputUsdPerMillionTokens": 0,
-      "outputUsdPerMillionTokens": 0
+      "model": "gemini-flash-latest",
+      "inputUsdPerMillionTokens": 0.3,
+      "outputUsdPerMillionTokens": 2.5
     },
     "codex_mechanics": {
       "enabled": true,
@@ -106,7 +106,7 @@
       "provider": "gemini",
       "apiKeyEnv": "GEMINI_API_KEY",
       "envFilePath": "/workspace/logs/settleora-auto-runner/secrets/reviewer.env",
-      "defaultModel": "gemini-2.5-pro"
+      "defaultModel": "gemini-flash-latest"
     }
   },
   "reviewerSmokeTest": {
