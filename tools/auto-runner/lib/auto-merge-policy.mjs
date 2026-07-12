@@ -47,6 +47,7 @@ const autoMergeWaitDelayBucketsMs = Object.freeze([0, 5000, 15000, 30000]);
 const independentReviewRequiredLanes = new Set(approvedDomainAutoMergeLanes);
 const strongIndependentTiers = new Set(["strong_independent", "tie_breaker"]);
 const umbrellaLabelPatterns = [/umbrella/i, /epic/i, /parent/i, /tracker/i];
+const mandatoryRequiredChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE", "Semgrep OSS", "Trivy"]);
 
 export function evaluateAutoMergeDecision(input) {
   const config = input.config || {};
@@ -692,7 +693,7 @@ function detectBlockingMarkers(comments, reviews) {
 }
 
 function summarizeCheckStatus(checks, policy = {}) {
-  const requiredNames = policy?.requiredChecks || [];
+  const requiredNames = uniqueStrings([...mandatoryRequiredChecks, ...(policy?.requiredChecks || [])]);
   const allowedSkipped = new Set(policy?.allowedSkippedChecks || []);
   if (checks.length === 0) return { state: "missing", total: 0, pending: 0, failed: 0, missingRequired: requiredNames };
   const matched = new Set();
@@ -720,6 +721,10 @@ function sameStringSet(left = [], right = []) {
 
 function digestStrings(values = []) {
   return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+}
+
+function uniqueStrings(values = []) {
+  return [...new Set(values.map((value) => String(value || "")).filter(Boolean))];
 }
 
 function isUmbrellaIssue(issue = {}) {

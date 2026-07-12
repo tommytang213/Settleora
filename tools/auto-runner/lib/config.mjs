@@ -7,6 +7,7 @@ import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs"
 import { validateSupervisorRunId } from "./run-correlation.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
+const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE", "Semgrep OSS", "Trivy"]);
 
 export const defaultConfig = Object.freeze({
   repoRoot: "/workspace/repos/Settleora",
@@ -374,7 +375,8 @@ export function normalizeAutoMergePolicy(policy = {}) {
     normalizedApproved.push(laneId);
   }
 
-  const requiredChecks = normalizeStringList(policy.requiredChecks ?? defaultConfig.autoMergePolicy.requiredChecks, "autoMergePolicy.requiredChecks");
+  const configuredRequiredChecks = normalizeStringList(policy.requiredChecks ?? defaultConfig.autoMergePolicy.requiredChecks, "autoMergePolicy.requiredChecks");
+  const requiredChecks = [...new Set([...mandatoryAutoMergeChecks, ...configuredRequiredChecks])];
   if (requiredChecks.length === 0) {
     throw new Error("autoMergePolicy.requiredChecks must not be empty");
   }

@@ -3469,11 +3469,11 @@ test("auto-merge requires Codex mechanics review changed-file metadata", () => {
 
 test("pending/failing checks, review threads, code scanning alerts, and issue stop labels block auto-merge", () => {
   assert.equal(
-    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null }] })).reason,
+    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: autoMergeRequiredChecks({ "Validate scaffold": { status: "IN_PROGRESS", conclusion: null } }) })).reason,
     "required_checks_pending",
   );
   assert.equal(
-    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "FAILURE" }] })).reason,
+    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: autoMergeRequiredChecks({ "Validate scaffold": { status: "COMPLETED", conclusion: "FAILURE" } }) })).reason,
     "required_checks_not_successful",
   );
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
@@ -3497,7 +3497,7 @@ test("auto-merge waits through blocked merge state after checks and then merges 
           inspections += 1;
           return {
             pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
-            requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+            requiredChecks: autoMergeRequiredChecks(),
             reviewThreads: [],
             codeScanningAlerts: [],
             blockingMarkers: [],
@@ -3525,7 +3525,7 @@ test("auto-merge wait expires when merge state never becomes clean and writes ev
         sleep: () => {},
         inspectState: () => ({
           pr: { mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", headRefOid: "head123" },
-          requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+          requiredChecks: autoMergeRequiredChecks(),
           reviewThreads: [],
           codeScanningAlerts: [],
           blockingMarkers: [],
@@ -3574,10 +3574,10 @@ test("auto-merge wait continues past the prior six-attempt pending-check window 
     const result = executeAutoMerge(
       { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 8, delayMs: 0 } },
       autoMergeContext({
-        requiredChecks: [
-          { name: "CodeQL", status: "IN_PROGRESS", conclusion: null },
-          { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
-        ],
+        requiredChecks: autoMergeRequiredChecks({
+          CodeQL: { status: "IN_PROGRESS", conclusion: null },
+          "Validate scaffold": { status: "IN_PROGRESS", conclusion: null },
+        }),
       }),
       {
         runner: createAutoMergeRunner([]),
@@ -3588,9 +3588,12 @@ test("auto-merge wait continues past the prior six-attempt pending-check window 
             return {
               pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
               requiredChecks: [
-                { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
-                { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
-              ],
+              { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
+              { name: "Semgrep CE", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Semgrep OSS", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Trivy", status: "COMPLETED", conclusion: "SUCCESS" },
+            ],
               reviewThreads: [],
               codeScanningAlerts: [],
               blockingMarkers: [],
@@ -3601,6 +3604,9 @@ test("auto-merge wait continues past the prior six-attempt pending-check window 
             requiredChecks: [
               { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
               { name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Semgrep CE", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Semgrep OSS", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Trivy", status: "COMPLETED", conclusion: "SUCCESS" },
             ],
             reviewThreads: [],
             codeScanningAlerts: [],
@@ -3623,13 +3629,13 @@ test("auto-merge wait expires fail-closed when checks remain pending beyond the 
   try {
     const result = executeAutoMerge(
       { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 3, delayMs: 0 } },
-      autoMergeContext({ requiredChecks: [{ name: "CodeQL", status: "IN_PROGRESS", conclusion: null }] }),
+      autoMergeContext({ requiredChecks: autoMergeRequiredChecks({ CodeQL: { status: "IN_PROGRESS", conclusion: null } }) }),
       {
         runner: createAutoMergeRunner([]),
         sleep: () => {},
         inspectState: () => ({
           pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
-          requiredChecks: [{ name: "CodeQL", status: "IN_PROGRESS", conclusion: null }],
+          requiredChecks: autoMergeRequiredChecks({ CodeQL: { status: "IN_PROGRESS", conclusion: null } }),
           reviewThreads: [],
           codeScanningAlerts: [],
           blockingMarkers: [],
@@ -3923,7 +3929,7 @@ test("existing client-ui-low-risk PR recovery requires independent Gemini and Co
 test("existing PR recovery treats pending checks as refreshable wait state after evidence gates pass", () => {
   const decision = evaluateExistingPrRecoveryDecision(
     existingPrRecoveryContext({
-      requiredChecks: [{ name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null }],
+      requiredChecks: autoMergeRequiredChecks({ "Validate scaffold": { status: "IN_PROGRESS", conclusion: null } }),
     }),
   );
   assert.equal(decision.eligible, true);
@@ -4950,6 +4956,13 @@ function autoMergeContext(overrides = {}) {
   const laneDecision = overrides.laneDecision || autoMergeLane();
   const changedFiles = overrides.changedFiles || ["tools/auto-runner/lib/auto-merge-policy.mjs"];
   const fileDigest = sha256Strings(changedFiles);
+  const defaultRequiredChecks = [
+    { name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "Semgrep CE", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "Semgrep OSS", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "Trivy", status: "COMPLETED", conclusion: "SUCCESS" },
+  ];
   const pr = {
     number: 1,
     url: "https://example.invalid/pull/1",
@@ -4977,7 +4990,7 @@ function autoMergeContext(overrides = {}) {
       allowAutoMerge: true,
       autoMergePolicy: {
         approvedLanes: [laneDecision.canonicalLane || laneDecision.lane],
-        requiredChecks: (overrides.requiredChecks || [{ name: "Validate scaffold" }]).map((check) => check.name).filter(Boolean),
+        requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE", "Semgrep OSS", "Trivy"],
         allowedSkippedChecks: [],
       },
       ...(overrides.config || {}),
@@ -5032,11 +5045,19 @@ function autoMergeContext(overrides = {}) {
     branchName: overrides.branchName || "feature/auto-1-test",
     currentOriginMainSha: overrides.currentOriginMainSha || "base123",
     expectedOriginMainSha: overrides.expectedOriginMainSha || "base123",
-    requiredChecks: overrides.requiredChecks || [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+    requiredChecks: overrides.requiredChecks || defaultRequiredChecks,
     reviewThreads: overrides.reviewThreads || [],
     codeScanningAlerts: overrides.codeScanningAlerts || [],
     blockingMarkers: overrides.blockingMarkers || [],
   };
+}
+
+function autoMergeRequiredChecks(overrides = {}) {
+  return ["Validate scaffold", "CodeQL", "Semgrep CE", "Semgrep OSS", "Trivy"].map((name) => ({
+    name,
+    status: overrides[name]?.status || "COMPLETED",
+    conclusion: Object.hasOwn(overrides[name] || {}, "conclusion") ? overrides[name].conclusion : "SUCCESS",
+  }));
 }
 
 function sha256Strings(values = []) {
@@ -5093,12 +5114,21 @@ function existingPrRecoveryContext(overrides = {}) {
     exactHeadEvidence: overrides.exactHeadEvidence ?? {
       headSha: "head123",
       validationPassed: true,
+      validationResults: [{ command: "npm run validate:docs", status: 0 }],
+      validationCompletedAt: "2026-07-12T00:00:00.000Z",
       geminiPass: true,
       geminiHeadSha: "head123",
       geminiChangedFiles: changedFiles,
+      geminiChangedFilesDigest: sha256Strings(changedFiles),
+      geminiTier: "cheap_independent",
+      geminiProvider: "gemini",
+      geminiCompletedAt: "2026-07-12T00:00:00.000Z",
+      geminiBudget: { status: "pass" },
       codexMechanicsApproved: true,
       codexMechanicsHeadSha: "head123",
       codexMechanicsChangedFiles: changedFiles,
+      codexMechanicsChangedFilesDigest: sha256Strings(changedFiles),
+      codexMechanicsCompletedAt: "2026-07-12T00:00:00.000Z",
     },
   };
 }

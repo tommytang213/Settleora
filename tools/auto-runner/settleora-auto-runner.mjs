@@ -798,8 +798,11 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
       geminiHeadSha: expectedHeadSha,
       geminiChangedFiles: changedFiles,
+      geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
       geminiProvider: generatedRecoveryEvidence.externalReview?.provider || exactHeadEvidence.geminiProvider || null,
       geminiTier: generatedRecoveryEvidence.externalReview?.tier || exactHeadEvidence.geminiTier || null,
+      geminiCompletedAt: generatedRecoveryEvidence.externalReview?.completedAt || null,
+      geminiBudget: generatedRecoveryEvidence.externalReview?.budget || null,
       geminiEvidencePath:
         generatedRecoveryEvidence.externalReview?.reportPath ||
         generatedRecoveryEvidence.externalReview?.evidencePath ||
@@ -808,10 +811,15 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
       codexMechanicsChangedFiles: changedFiles,
+      codexMechanicsChangedFilesDigest: generatedRecoveryEvidence.review?.changedFilesDigest || null,
+      codexMechanicsCompletedAt: generatedRecoveryEvidence.review?.completedAt || null,
       codexMechanicsEvidencePath: generatedRecoveryEvidence.review?.logPath || generatedRecoveryEvidence.review?.promptPath || null,
       codexMechanicsFailureReason: generatedRecoveryEvidence.review?.reviewFailureReason || null,
       codexMechanicsFailureCategory: generatedRecoveryEvidence.review?.reviewFailureCategory || null,
       codexMechanicsAttemptCount: generatedRecoveryEvidence.review?.attemptCount || null,
+      validationResults: generatedRecoveryEvidence.validation?.results || null,
+      validationCompletedAt: generatedRecoveryEvidence.validation?.completedAt || null,
+      changedFilesDigest: generatedRecoveryEvidence.validation?.changedFilesDigest || null,
     };
   }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
@@ -835,8 +843,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
           provider: exactHeadEvidence.geminiProvider || "gemini",
           tier: exactHeadEvidence.geminiTier || "cheap_independent",
           independent: true,
-          completedAt: exactHeadEvidence.geminiCompletedAt || exactHeadEvidence.completedAt || new Date().toISOString(),
-          budget: exactHeadEvidence.geminiBudget || { status: "pass" },
+          completedAt: exactHeadEvidence.geminiCompletedAt || exactHeadEvidence.completedAt || null,
+          budget: exactHeadEvidence.geminiBudget || null,
           reportPath: exactHeadEvidence.geminiEvidencePath || null,
         }
       : { status: "blocked", reason: "missing_recovered_exact_head_gemini_evidence" },
@@ -848,20 +856,27 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
             baseSha: exactHeadEvidence.baseSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
             changedFiles: exactHeadEvidence.codexMechanicsChangedFiles,
             changedFilesDigest: exactHeadEvidence.codexMechanicsChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
-            completedAt: exactHeadEvidence.codexMechanicsCompletedAt || exactHeadEvidence.completedAt || new Date().toISOString(),
+            completedAt: exactHeadEvidence.codexMechanicsCompletedAt || exactHeadEvidence.completedAt || null,
             logPath: exactHeadEvidence.codexMechanicsEvidencePath || null,
           }
         : null),
     codexMechanicsReviewApproved: Boolean(exactHeadEvidence.codexMechanicsApproved),
-    validation: bindValidationEvidence(
-      { passed: Boolean(exactHeadEvidence.validationPassed), recovered: true, results: exactHeadEvidence.validationResults || [{ command: "recovered exact-head validation", status: 0 }], completedAt: exactHeadEvidence.validationCompletedAt || exactHeadEvidence.completedAt || new Date().toISOString() },
-      {
-        headSha: expectedHeadSha,
-        baseSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
-        changedFiles,
-        profile: laneDecision.validationProfile,
-      },
-    ),
+    validation: exactHeadEvidence.validationPassed
+      ? bindValidationEvidence(
+          {
+            passed: true,
+            recovered: true,
+            results: exactHeadEvidence.validationResults,
+            completedAt: exactHeadEvidence.validationCompletedAt || exactHeadEvidence.completedAt || null,
+          },
+          {
+            headSha: expectedHeadSha,
+            baseSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+            changedFiles,
+            profile: laneDecision.validationProfile,
+          },
+        )
+      : { passed: false, recovered: true },
     worktreeClean: getStatusShort() === "",
     branchName: githubState.pr?.headRefName || recoveryConfig.branchName || null,
     runnerCreatedCommitSha: expectedHeadSha,
