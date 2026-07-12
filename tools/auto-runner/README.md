@@ -61,9 +61,11 @@ owner-only `monitoring-events.jsonl` files. The supervisor starts a
 later-installed systemd user-unit instance by validated run ID and exits after
 the service is accepted/running. It does not approve broader lanes, install
 units, enable linger, deploy monitoring, send outbound webhooks, or run
-automatically after reboot. Future TrueNAS monitoring is a pull-health model
-over SSH. See
-`docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md`.
+automatically after reboot. Future TrueNAS monitoring is a Uptime Kuma HTTP
+pull-health model against a separate read-only DevBox health service; SSH
+remains an operator diagnostic path. See
+`docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md` and
+`docs/workflow/AUTONOMOUS_CODEX_RUNNER_MONITORING.md`.
 
 Supervised runs pass a validated `--supervisor-run-id` into the runner. The
 runner writes it as sanitized summary metadata, and supervisor status/report/

@@ -292,14 +292,25 @@ config paths, webhook URLs, authorization headers, full issue bodies, raw
 Codex/Gemini output, provider payloads, or full diffs. Event write failures
 are recorded locally where possible and never change the runner outcome.
 
-The future TrueNAS monitor uses a pull model. A scheduled TrueNAS check SSHes
-to the DevBox, runs `settleora-auto-runnerctl health/status --json`, and
-alerts on SSH failure, DevBox outage, stale heartbeat lease, blocked/failed/
-partial state, cancellation, or terminal completion. A dead DevBox cannot push
-its own failure event; failed SSH or a stale heartbeat naturally detects that
-condition. Terminal state notifications are performed by the external monitor.
-The future adapter remains read-only to this repo and GitHub and is reviewed in
-a separate deployment task.
+The future primary monitor uses a pull model through Uptime Kuma on TrueNAS
+SCALE. Uptime Kuma polls a separate permanent read-only DevBox health service
+over trusted-LAN HTTP, and that service reads persisted supervisor/runner
+state, heartbeat, strict report-correlation results, lock state, and bounded
+systemd readback. The design is defined in
+[Autonomous Codex Runner Monitoring](AUTONOMOUS_CODEX_RUNNER_MONITORING.md).
+
+The health service is future implementation work. It remains separate from the
+temporary supervisor/runner jobs, so healthy idle after `completed` or
+`no-eligible-work` remains callable and must not be treated as an outage merely
+because no runner process is active. A dead DevBox is detected because Uptime
+Kuma cannot reach the endpoint. Failed, stale, blocked, partial, report-mapping
+missing/ambiguous, orphaned-lock, and other fail-closed inconsistent conditions
+produce unhealthy HTTP status for incident notification.
+
+SSH remains available for operator diagnostics and manual wrapper readback, but
+it is not the primary monitoring architecture. Terminal healthy-run summary
+notifications are handled by a separate future notifier adapter with atomic
+deduplication, not by manufacturing false Uptime Kuma DOWN/UP transitions.
 
 ## Windows Templates
 
@@ -315,6 +326,9 @@ execution to continue.
 
 Remaining manual gates include PR merge, user-unit installation,
 `loginctl enable-linger`, Windows wrapper deployment, SSH-disconnect and
-Windows-shutdown canary acceptance, TrueNAS monitoring deployment, and any
-broader lane/run approval. Recovery from stale or orphaned state is explicit
-and evidence-bound; this foundation does not implement automatic resume.
+Windows-shutdown canary acceptance, repository implementation of the read-only
+health service, manual DevBox health-service installation, manual Uptime Kuma
+deployment/configuration on TrueNAS SCALE, notification-secret configuration,
+and any broader lane/run approval. Recovery from stale or orphaned state is
+explicit and evidence-bound; this foundation does not implement automatic
+resume.

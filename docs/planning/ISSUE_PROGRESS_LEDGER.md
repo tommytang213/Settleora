@@ -20,6 +20,76 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #800 - Uptime Kuma health monitoring design checkpoint
+
+- GitHub/live state verified:
+  - #800 remains open as the broader DevBox-native unattended runner tracker.
+  - PR #878 is merged at
+    `0eb267e8c649c645e4f5381f03cb262d4f8f01b9`, recording the completed
+    Windows-origin shutdown proof.
+  - #865 and #866 remain open, unchanged protected canaries with only durable
+    labels `area:mobile-ui`, `auto-canary-ready`, `canary`, and `workflow`.
+- This design scope:
+  - Adds
+    [Autonomous Codex Runner Monitoring](../workflow/AUTONOMOUS_CODEX_RUNNER_MONITORING.md)
+    as the authoritative future monitoring design.
+  - Supersedes the earlier provisional SSH-primary TrueNAS monitor direction
+    with Uptime Kuma HTTP pull monitoring against a separate permanent
+    read-only DevBox health service.
+  - Preserves the temporary supervisor/runner lifecycle: mutation jobs exit
+    after bounded terminal conditions and remain `Restart=no`; healthy idle
+    after `completed` or `no-eligible-work` is not an outage.
+  - Defines future endpoint `GET /health/auto-runner`, sanitized JSON fields,
+    deterministic HTTP `200`/`503` behavior, 60-second heartbeat and
+    five-minute lease reconciliation, security boundaries, LAN binding gates,
+    and rollback posture.
+  - Splits Uptime Kuma failure/recovery incidents from one-time healthy
+    terminal-run information notifications. Since no supported generic Uptime
+    Kuma event API was verified, terminal summaries require a separate future
+    notifier adapter with atomic deduplication keyed by immutable supervisor
+    run ID plus terminal event kind.
+- Official tool findings:
+  - Uptime Kuma upstream release `2.4.0` was the latest verified release on
+    2026-07-12.
+  - Official upstream source supports HTTP monitor method, headers, accepted
+    status codes, max retries, retry interval, resend interval, Basic auth,
+    Bearer token, and OAuth2 client-credentials fields.
+  - Uptime Kuma's upstream wiki marks the internal API unsupported for
+    third-party integrations, so this design does not depend on it.
+  - TrueNAS community Uptime Kuma app metadata was verified at app version
+    `1.2.11`, upstream app version `2.4.0`, minimum SCALE `24.10.2.2`, and
+    default WebUI port `31050`; this is not deployment evidence.
+- Child issue posture:
+  - #879 tracks repository implementation of the read-only DevBox health
+    service, state evaluator, tests, systemd template, docs, and
+    terminal-event dedupe foundation. It explicitly forbids installation,
+    deployment, live notification credentials, public exposure, runner
+    controls, GitHub mutation, and #865/#866 mutation.
+  - #880 tracks manual DevBox health-service installation, TrueNAS SCALE
+    Uptime Kuma configuration, notification destination selection, incident
+    and completion dedupe acceptance, and rollback evidence. It is
+    manual-gated for systemd, TrueNAS/Uptime Kuma, network binding, and
+    notification-secret actions.
+  - Project field updates for #879/#880 were not performed by this task; issue
+    bodies carry the complete planning metadata, estimate tables, validation
+    class, risk, manual-gate status, bundle IDs, expected evidence, allowed or
+    deployment scope, and close rules.
+- Issue posture:
+  keep #800 open. The completed slice is docs/design only. Remaining gates are
+  repository implementation of the read-only health service, manual DevBox
+  health unit installation, manual Uptime Kuma deployment/configuration on
+  TrueNAS SCALE, notification destination/secret approval, alert/recovery and
+  terminal-summary dedupe proof, and rollback evidence.
+- Scope confirmation:
+  this checkpoint changes workflow/planning docs only. It does not implement
+  code, install/start/reload/enable systemd, configure TrueNAS or Uptime Kuma,
+  bind a network port, configure notification credentials, run the
+  supervisor/runner, mutate GitHub through runner automation, or change
+  product runtime, API behavior, auth/session/security, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migration,
+  OpenAPI/generated clients, Docker/Compose, CI/deployment/env, secrets,
+  production deploy, mobile release, or public/admin exposure.
+
 ### Issue #800 - Windows-origin shutdown proof checkpoint
 
 - GitHub/live state verified:

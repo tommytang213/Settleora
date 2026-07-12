@@ -26,8 +26,11 @@ IDs and logical profile names; immutable specs store `profile` plus
 It does not replace this runner, reinterpret issue contracts, install or
 enable services, enable linger, deploy monitoring, send outbound webhooks,
 auto-restart mutation runs, or approve broader lanes. Future TrueNAS monitoring
-uses SSH pull health/status checks so a dead DevBox is detected by failed
-polling or a stale heartbeat lease.
+uses Uptime Kuma HTTP pull checks against a separate read-only DevBox health
+service, as defined in
+[Autonomous Codex Runner Monitoring](AUTONOMOUS_CODEX_RUNNER_MONITORING.md).
+SSH remains an operator diagnostic and wrapper-readback path, not the primary
+monitor architecture.
 
 Supervised runs are correlated explicitly. The supervisor passes
 `--supervisor-run-id <validated-supervisor-run-id>` only for normal real
