@@ -3607,6 +3607,58 @@ test("approved-domain auto-merge matrix covers normal focused lanes and manual-g
   );
 });
 
+test("api-domain auto-merge cannot carry manual-gated API domains through broad service paths", () => {
+  const forbiddenPaths = [
+    "services/api/Auth/SessionRuntime.cs",
+    "services/api/Storage/FileAuthorizationService.cs",
+    "services/api/Settlement/SettlementPolicy.cs",
+    "services/api/Infrastructure/Migrations/202607121903_AddFoo.cs",
+    "services/api/OpenApi/GeneratedClientRefresh.cs",
+    "services/api/Sync/ImportRestoreService.cs",
+  ];
+  for (const filePath of forbiddenPaths) {
+    const laneDecision = autoMergeLane({
+      lane: "api-domain-runtime",
+      canonicalLane: "api-domain-runtime",
+      reviewerTier: "strong_independent",
+      branchStrategy: "focused",
+      allowedPaths: ["services/api/**"],
+      laneManifestAllowedPaths: ["services/api/**"],
+      validationProfile: "api-domain",
+      implementationSensitivity: "sensitive",
+      laneManifest: { id: "api-domain-runtime", decisionType: "runnable", autoMergeAllowed: true },
+      contract: { allowedPaths: ["services/api/**"], validationProfile: "api-domain", manualMergeRequired: false, autoMergeEligible: true },
+    });
+    const decision = evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles: [filePath],
+      branchName: "focused/auto-1-test",
+      pr: { headRefName: "focused/auto-1-test" },
+    }));
+    assert.match(decision.reason, /^forbidden_changed_files:/, filePath);
+    assert.equal(decision.eligible, false, filePath);
+  }
+
+  const classified = classifyIssueLane({
+    title: "API domain auth session change",
+    body: `${contractBody({
+      lane: "api-domain-runtime",
+      allowedPaths: ["services/api/Auth/SessionRuntime.cs"],
+      validationProfile: "api-domain",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    })}
+
+## Scope
+
+Implement auth session runtime behavior.
+`,
+    labels: ["auto-ready"],
+  });
+  assert.equal(classified.allowedToImplement, false);
+  assert.ok(classified.reasonCodes.includes("positive_scope_outside_lane"));
+});
+
 test("client-ui-low-risk lane with exact mobile UI paths allows merge decision", () => {
   const laneDecision = autoMergeLane({
     lane: "client-ui-low-risk",

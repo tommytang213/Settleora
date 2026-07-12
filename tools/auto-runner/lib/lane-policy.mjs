@@ -281,7 +281,7 @@ export const laneManifest = Object.freeze({
     purpose: "API/domain runtime implementation with API-authoritative business writes.",
     allowedPaths: ["services/api/**"],
     defaultValidationProfile: "api-domain",
-    supportedValidationProfiles: ["api-domain", "api-security", "api-storage", "api-money"],
+    supportedValidationProfiles: ["api-domain"],
     sensitivity: "sensitive",
     reviewerTier: "strong_independent",
     branchStrategy: "focused",
@@ -673,7 +673,6 @@ function sensitivityAllowedForLane(reason, laneDecision) {
   if (laneDecision.implementationSensitivity === "low") return false;
   const lane = laneDecision.canonicalLane || laneDecision.lane;
   const allowed = {
-    "api-domain-runtime": ["auth_security", "storage_privacy", "money_settlement", "schema_migration", "openapi_generated_client", "sync_import_export"],
     "auth-session-security": ["auth_security"],
     "storage-file-privacy-authz": ["storage_privacy", "auth_security"],
     "money-settlement-payment": ["money_settlement", "auth_security", "storage_privacy"],
@@ -1000,6 +999,9 @@ function dangerLane(id, purpose) {
 }
 
 function isForbiddenPath(filePath, laneDecision = {}) {
+  if ((laneDecision.canonicalLane || laneDecision.lane) === "api-domain-runtime" && detectDangerousPathReasons([filePath]).length > 0) {
+    return true;
+  }
   if (
     laneDecision.lane === "client-ui-low-risk" &&
     matchesAnyGlob(filePath, laneDecision.laneManifestAllowedPaths || []) &&
