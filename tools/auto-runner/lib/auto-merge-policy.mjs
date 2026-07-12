@@ -542,7 +542,8 @@ function evaluateIndependentReviewEvidence(input) {
   if (Array.isArray(review.changedFiles) && !sameStringSet(review.changedFiles, input.changedFiles || [])) {
     return { ok: false, reason: "independent_review_files_mismatch" };
   }
-  if (review.changedFilesDigest && review.changedFilesDigest !== digestStrings(input.changedFiles || [])) {
+  if (!review.changedFilesDigest) return { ok: false, reason: "independent_review_file_digest_missing" };
+  if (review.changedFilesDigest !== digestStrings(input.changedFiles || [])) {
     return { ok: false, reason: "independent_review_file_digest_mismatch" };
   }
   if (review.baseSha && input.expectedOriginMainSha && review.baseSha !== input.expectedOriginMainSha) {

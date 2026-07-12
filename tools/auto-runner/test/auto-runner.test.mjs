@@ -3735,6 +3735,24 @@ test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mi
     ).reason,
     "independent_review_files_mismatch",
   );
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        ...base,
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", tier: "cheap_independent", changedFiles: base.changedFiles, independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
+      }),
+    ).reason,
+    "independent_review_file_digest_missing",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        ...base,
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", tier: "cheap_independent", changedFiles: base.changedFiles, changedFilesDigest: "wrong", independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
+      }),
+    ).reason,
+    "independent_review_file_digest_mismatch",
+  );
 });
 
 test("pre-push review gate blocks mutation and required independent-review failures before PR push", () => {
