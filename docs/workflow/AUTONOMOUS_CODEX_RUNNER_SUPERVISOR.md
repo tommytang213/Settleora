@@ -299,13 +299,23 @@ state, heartbeat, strict report-correlation results, lock state, and bounded
 systemd readback. The design is defined in
 [Autonomous Codex Runner Monitoring](AUTONOMOUS_CODEX_RUNNER_MONITORING.md).
 
-The health service is future implementation work. It remains separate from the
-temporary supervisor/runner jobs, so healthy idle after `completed` or
-`no-eligible-work` remains callable and must not be treated as an outage merely
-because no runner process is active. A dead DevBox is detected because Uptime
-Kuma cannot reach the endpoint. Failed, stale, blocked, partial, report-mapping
-missing/ambiguous, orphaned-lock, and other fail-closed inconsistent conditions
-produce unhealthy HTTP status for incident notification.
+The repository-side health service foundation now lives at
+`tools/auto-runner/settleora-auto-runner-health-service.mjs` with a user-unit
+template at
+`tools/auto-runner/systemd/settleora-auto-runner-health.service`. It remains
+read-only, loopback-bound by default, and independent of temporary supervisor
+or runner jobs. The mutation supervisor template remains `Restart=no`; only
+the read-only health service template uses `Restart=on-failure`. Installing,
+starting, enabling, LAN binding, Uptime Kuma configuration, and notification
+destination setup remain manual deployment gates.
+
+The health service remains separate from the temporary supervisor/runner jobs,
+so healthy idle after `completed` or `no-eligible-work` remains callable and
+must not be treated as an outage merely because no runner process is active. A
+dead DevBox is detected because Uptime Kuma cannot reach the endpoint. Failed,
+stale, blocked, partial, report-mapping missing/ambiguous, orphaned-lock, and
+other fail-closed inconsistent conditions produce unhealthy HTTP status for
+incident notification.
 
 SSH remains available for operator diagnostics and manual wrapper readback, but
 it is not the primary monitoring architecture. Terminal healthy-run summary
