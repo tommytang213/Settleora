@@ -20,6 +20,60 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #885 - Auto-runner Node systemd runtime compatibility PR checkpoint
+
+- GitHub/live state verified:
+  - #885 is open as the focused repository fix for the #880 deployment
+    blocker found by task `20260712-1609`.
+  - PR #882 is merged at
+    `6c47febe3ebf4db354c16e03681f2d3a26508a59`.
+  - PR #884 is merged at
+    `a151adce2479558857424d4513edc95e847bee26`.
+  - #800 remains open as the broader DevBox-native unattended runner tracker.
+  - #880 remains open as the manual DevBox/TrueNAS/Uptime Kuma/ntfy deployment
+    retry and acceptance gate.
+  - #865 and #866 remain open protected canaries and are not part of this
+    implementation.
+- Failure finding from task `20260712-1609`:
+  - Both affected repository templates execute `/usr/bin/env node`.
+  - Both contained `MemoryDenyWriteExecute=yes`.
+  - Under systemd, Node/V8 crashed with `SIGTRAP` while attempting executable
+    memory permission transitions before the health service could listen or
+    the terminal notifier could publish.
+  - The deployment safely rolled back after removing the installed health and
+    notifier units/timer. External secret files remain deployment-owned and
+    should not be rotated merely because the units rolled back.
+- This implementation-PR scope:
+  - Removes the Node/V8-incompatible `MemoryDenyWriteExecute` directive from
+    the health and terminal-notifier service templates, with comments
+    documenting the intentional runtime compatibility exception.
+  - Preserves the remaining hardening controls: `NoNewPrivileges=yes`,
+    `PrivateTmp=yes`, `ProtectSystem=strict`, `ProtectHome=read-only`, fixed
+    read-only/read-write path allowlists, `RestrictSUIDSGID=yes`,
+    `LockPersonality=yes`, `UMask=0077`, and fixed Node entry points.
+  - Moves health restart-limit directives into `[Unit]`, fixes the
+    `Documentation=` reference, and adds `[Install] WantedBy=default.target`
+    for normal user-scope enablement during the later #880 deployment gate.
+  - Keeps the terminal notifier timer-owned and one-shot with `Restart=no`.
+  - Adds focused parser-based regression tests for the systemd templates and
+    updates the monitoring docs/README.
+- Issue posture:
+  keep #885 open until its repository fix PR merges. Keep #800 and #880 open;
+  #880 remains the deployment retry and acceptance gate after this PR merges.
+  Do not touch #865/#866.
+- Scope confirmation:
+  this checkpoint changes only repository auto-runner systemd templates,
+  focused tests, workflow docs, and this ledger. It does not install/start/
+  reload/enable systemd units, alter linger, configure TrueNAS, Uptime Kuma,
+  ntfy, Cloudflare, DNS, TLS, proxy, router, firewall, ports, topics, tokens,
+  users, ACLs, or status pages; make live ntfy calls; run or control the
+  auto-runner; delete locks; mutate #865/#866; read/print/rotate/delete
+  secrets; or change product runtime, API behavior, auth/session/security,
+  storage/privacy/authz, money/settlement/payment/bill calculation,
+  schema/migration, OpenAPI/generated clients, Docker/Compose, CI/env,
+  mobile/web/admin UI, production deploy, mobile release, or public/admin
+  exposure.
+
 ### Issue #883 - Auto-runner ntfy terminal notifier implementation PR checkpoint
 
 - GitHub/live state verified:

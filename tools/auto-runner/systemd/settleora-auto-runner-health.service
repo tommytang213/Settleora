@@ -1,7 +1,9 @@
 [Unit]
 Description=Settleora read-only auto-runner health service
-Documentation=README:%h/.config/systemd/user/settleora-auto-runner-health.service
+Documentation=file:/workspace/repos/Settleora/docs/workflow/AUTONOMOUS_CODEX_RUNNER_MONITORING.md
 After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=exec
@@ -11,8 +13,6 @@ EnvironmentFile=-/workspace/logs/settleora-auto-runner/secrets/health-service.en
 UMask=0077
 Restart=on-failure
 RestartSec=10s
-StartLimitIntervalSec=300
-StartLimitBurst=5
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
@@ -21,7 +21,11 @@ ReadWritePaths=/workspace/logs/settleora-auto-runner
 ReadOnlyPaths=/workspace/repos/Settleora
 RestrictSUIDSGID=yes
 LockPersonality=yes
-MemoryDenyWriteExecute=yes
+# Node/V8 needs runtime executable-memory permission transitions, so
+# MemoryDenyWriteExecute is intentionally omitted for this Node unit.
+
+[Install]
+WantedBy=default.target
 
 # Repository template only. Install/start/enablement and any non-loopback
 # binding require a separate manual deployment gate.

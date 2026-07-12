@@ -1,0 +1,146 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFileSync } from "node:fs";
+
+const healthPath = "tools/auto-runner/systemd/settleora-auto-runner-health.service";
+const notifierPath = "tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.service";
+const timerPath = "tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.timer";
+
+test("Node service templates omit MemoryDenyWriteExecute and retain least-privilege boundaries", () => {
+  const health = readTemplate(healthPath);
+  const notifier = readTemplate(notifierPath);
+
+  for (const [name, unit] of [["health", health], ["notifier", notifier]]) {
+    assert.equal(hasDirective(unit, "Service", "MemoryDenyWriteExecute", "yes"), false, name);
+    assert.match(unit.raw, /Node\/V8 needs runtime executable-memory permission transitions/);
+    assertServiceDirectives(unit, name, {
+      NoNewPrivileges: "yes",
+      PrivateTmp: "yes",
+      ProtectSystem: "strict",
+      ProtectHome: "read-only",
+      RestrictSUIDSGID: "yes",
+      LockPersonality: "yes",
+      UMask: "0077",
+    });
+    assertExecStartIsSafe(unit, name);
+  }
+
+  assert.equal(getLast(health, "Service", "ReadWritePaths"), "/workspace/logs/settleora-auto-runner");
+  assert.equal(getLast(health, "Service", "ReadOnlyPaths"), "/workspace/repos/Settleora");
+
+  assert.equal(
+    getLast(notifier, "Service", "ReadWritePaths"),
+    "/workspace/logs/settleora-auto-runner/monitoring",
+  );
+  assert.equal(
+    getLast(notifier, "Service", "ReadOnlyPaths"),
+    "/workspace/repos/Settleora /workspace/logs/settleora-auto-runner/supervisor /workspace/logs/settleora-auto-runner/summaries /workspace/logs/settleora-auto-runner/state /workspace/logs/settleora-auto-runner/locks /workspace/logs/settleora-auto-runner/secrets",
+  );
+});
+
+test("health service metadata supports normal user enablement", () => {
+  const health = readTemplate(healthPath);
+
+  assert.equal(
+    getLast(health, "Unit", "Documentation"),
+    "file:/workspace/repos/Settleora/docs/workflow/AUTONOMOUS_CODEX_RUNNER_MONITORING.md",
+  );
+  assert.equal(getLast(health, "Service", "Restart"), "on-failure");
+  assert.equal(getLast(health, "Service", "RestartSec"), "10s");
+  assert.equal(getLast(health, "Unit", "StartLimitIntervalSec"), "300");
+  assert.equal(getLast(health, "Unit", "StartLimitBurst"), "5");
+  assert.equal(hasDirective(health, "Service", "StartLimitIntervalSec", "300"), false);
+  assert.equal(hasDirective(health, "Service", "StartLimitBurst", "5"), false);
+  assert.equal(getLast(health, "Install", "WantedBy"), "default.target");
+});
+
+test("notifier service remains timer-owned oneshot and timer cadence stays bounded", () => {
+  const notifier = readTemplate(notifierPath);
+  const timer = readTemplate(timerPath);
+
+  assert.equal(getLast(notifier, "Service", "Type"), "oneshot");
+  assert.equal(getLast(notifier, "Service", "Restart"), "no");
+  assert.equal(notifier.sections.has("Install"), false);
+  assert.equal(getLast(timer, "Timer", "Unit"), "settleora-auto-runner-terminal-notifier.service");
+  assert.equal(getLast(timer, "Timer", "OnBootSec"), "90s");
+  assert.equal(getLast(timer, "Timer", "OnUnitInactiveSec"), "60s");
+  assert.equal(getLast(timer, "Timer", "RandomizedDelaySec"), "10s");
+  assert.equal(getLast(timer, "Timer", "AccuracySec"), "10s");
+  assert.equal(getLast(timer, "Install", "WantedBy"), "timers.target");
+});
+
+test("repository templates keep loopback defaults and avoid deployment secrets in ExecStart", () => {
+  const health = readTemplate(healthPath);
+  const notifier = readTemplate(notifierPath);
+
+  assert.equal(
+    getLast(health, "Service", "ExecStart"),
+    "/usr/bin/env node tools/auto-runner/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787",
+  );
+  assert.equal(
+    getLast(notifier, "Service", "ExecStart"),
+    "/usr/bin/env node tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs",
+  );
+
+  for (const [name, unit] of [["health", health], ["notifier", notifier]]) {
+    assert.doesNotMatch(unit.raw, /0\.0\.0\.0|192\.168\.|10\.|172\.16\.|WEBHOOK|TOKEN|API_KEY|Authorization|Bearer/);
+    assertExecStartIsSafe(unit, name);
+  }
+});
+
+function readTemplate(path) {
+  return parseIni(readFileSync(path, "utf8"));
+}
+
+function parseIni(raw) {
+  const sections = new Map();
+  let current = null;
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) {
+      continue;
+    }
+    const header = /^\[([^\]]+)\]$/.exec(trimmed);
+    if (header) {
+      current = header[1];
+      if (!sections.has(current)) {
+        sections.set(current, new Map());
+      }
+      continue;
+    }
+    const separator = trimmed.indexOf("=");
+    assert.notEqual(separator, -1, `line outside key/value syntax: ${line}`);
+    assert.ok(current, `directive outside section: ${line}`);
+    const key = trimmed.slice(0, separator);
+    const value = trimmed.slice(separator + 1);
+    const section = sections.get(current);
+    if (!section.has(key)) {
+      section.set(key, []);
+    }
+    section.get(key).push(value);
+  }
+  return { raw, sections };
+}
+
+function getLast(unit, section, key) {
+  const values = unit.sections.get(section)?.get(key);
+  assert.ok(values?.length, `missing ${section}.${key}`);
+  return values.at(-1);
+}
+
+function hasDirective(unit, section, key, value) {
+  return unit.sections.get(section)?.get(key)?.includes(value) ?? false;
+}
+
+function assertServiceDirectives(unit, name, expected) {
+  for (const [key, value] of Object.entries(expected)) {
+    assert.equal(getLast(unit, "Service", key), value, `${name} ${key}`);
+  }
+}
+
+function assertExecStartIsSafe(unit, name) {
+  const execStart = getLast(unit, "Service", "ExecStart");
+  assert.match(execStart, /^\/usr\/bin\/env node tools\/auto-runner\/[a-z0-9-]+\.mjs(?: --host 127\.0\.0\.1 --port 8787)?$/);
+  assert.doesNotMatch(execStart, /\b(?:sh|bash)\s+-c\b/, name);
+  assert.doesNotMatch(execStart, /%[EfhinpsuU]|\$|\.\.|\/workspace\/logs\/settleora-auto-runner\/secrets/, name);
+}
