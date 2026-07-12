@@ -346,9 +346,13 @@ export function parseIntegratedVerdict(text) {
 }
 
 function hasContradictoryPassFindingLanguage(finding) {
-  const text = String(finding || "").toLowerCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  const text = String(finding || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   if (!/\b(blocking|must fix|fail|failed|failing|failure|danger)\b/.test(text)) return false;
-  if (/\b(no|zero|without|none|not)\s+(remaining\s+)?(blocking|must fix|failures?|failing|failure|danger)\b/.test(text)) {
+  const negatedBlocker =
+    /\b(no|zero|without|none)\b(?:\s+\w+){0,4}\s+\b(blocking|must fix|failures?|failing|failure|danger)\b/.test(text) ||
+    /\b(blocking|must fix|failures?|failing|failure|danger)\b(?:\s+\w+){0,4}\s+\b(no|zero|none)\b/.test(text) ||
+    /\b(does not|did not|do not|doesn t|didn t|not)\b(?:\s+\w+){0,4}\s+\b(introduce|create|leave|find|detect|identify|surface|show|contain)\b(?:\s+\w+){0,4}\s+\b(blocking|must fix|failures?|failing|failure|danger)\b/.test(text);
+  if (negatedBlocker) {
     return false;
   }
   if (/\b(blocking|must fix|failures?|failing|failure|danger)\s+(findings?|issues?|concerns?)?\s*(remain|remaining|found|present|detected)\b/.test(text)) {
