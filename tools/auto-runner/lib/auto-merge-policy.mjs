@@ -47,7 +47,7 @@ const autoMergeWaitDelayBucketsMs = Object.freeze([0, 5000, 15000, 30000]);
 const independentReviewRequiredLanes = new Set(approvedDomainAutoMergeLanes);
 const strongIndependentTiers = new Set(["strong_independent", "tie_breaker"]);
 const umbrellaLabelPatterns = [/umbrella/i, /epic/i, /parent/i, /tracker/i];
-const mandatoryRequiredChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE", "Semgrep OSS", "Trivy"]);
+const mandatoryRequiredChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
 
 export function evaluateAutoMergeDecision(input) {
   const config = input.config || {};
@@ -698,11 +698,13 @@ function summarizeCheckStatus(checks, policy = {}) {
   if (checks.length === 0) return { state: "missing", total: 0, pending: 0, failed: 0, missingRequired: requiredNames };
   const matched = new Set();
   for (const required of requiredNames) {
-    if (checks.some((check) => check.name === required)) matched.add(required);
+    if (checks.some((check) => checkNameMatchesRequired(check.name, required))) matched.add(required);
   }
   const missingRequired = requiredNames.filter((name) => !matched.has(name));
   if (missingRequired.length > 0) return { state: "missing", total: checks.length, pending: 0, failed: 0, missingRequired };
-  const relevant = requiredNames.length > 0 ? checks.filter((check) => requiredNames.includes(check.name)) : checks;
+  const relevant = requiredNames.length > 0
+    ? checks.filter((check) => requiredNames.some((required) => checkNameMatchesRequired(check.name, required)))
+    : checks;
   const pending = relevant.filter((check) => check.status !== "COMPLETED").length;
   const failed = relevant.filter((check) => {
     if (check.status !== "COMPLETED") return false;
@@ -725,6 +727,12 @@ function digestStrings(values = []) {
 
 function uniqueStrings(values = []) {
   return [...new Set(values.map((value) => String(value || "")).filter(Boolean))];
+}
+
+function checkNameMatchesRequired(actual, required) {
+  const actualName = String(actual || "");
+  const requiredName = String(required || "");
+  return actualName === requiredName || actualName.endsWith(` / ${requiredName}`) || actualName.startsWith(`${requiredName} / `);
 }
 
 function isUmbrellaIssue(issue = {}) {

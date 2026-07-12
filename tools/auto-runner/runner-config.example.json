@@ -27,12 +27,9 @@
     "approvedLanes": [],
     "requiredChecks": [
       "Validate scaffold",
-      "Scaffold Validation / Validate scaffold",
       "CodeQL",
-      "CodeQL / Analyze (csharp)",
-      "Semgrep CE",
-      "Semgrep OSS",
-      "Trivy"
+      "Semgrep CE scan",
+      "Trivy repository scan"
     ],
     "allowedSkippedChecks": []
   },

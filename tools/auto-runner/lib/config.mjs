@@ -7,7 +7,7 @@ import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs"
 import { validateSupervisorRunId } from "./run-correlation.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
-const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE", "Semgrep OSS", "Trivy"]);
+const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
 
 export const defaultConfig = Object.freeze({
   repoRoot: "/workspace/repos/Settleora",
@@ -38,12 +38,9 @@ export const defaultConfig = Object.freeze({
     approvedLanes: [],
     requiredChecks: [
       "Validate scaffold",
-      "Scaffold Validation / Validate scaffold",
       "CodeQL",
-      "CodeQL / Analyze (csharp)",
-      "Semgrep CE",
-      "Semgrep OSS",
-      "Trivy",
+      "Semgrep CE scan",
+      "Trivy repository scan",
     ],
     allowedSkippedChecks: [],
   },

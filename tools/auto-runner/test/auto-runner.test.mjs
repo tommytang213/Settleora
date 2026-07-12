@@ -1051,7 +1051,7 @@ test("readiness preflight fails when risky gates are enabled without approval", 
       { runner: createReadinessRunner() },
     );
     assert.ok(result.summary.fail >= 6);
-    assert.equal(result.checks.find((check) => check.name === "auto-merge-disabled").status, "fail");
+    assert.equal(result.checks.find((check) => check.name === "auto-merge-approved-domain-policy").status, "fail");
     assert.equal(result.checks.find((check) => check.name === "stale-claim-stealing-disabled").status, "fail");
     assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "fail");
   } finally {
@@ -1076,7 +1076,7 @@ test("readiness preflight distinguishes approved low-risk auto-merge canary conf
       { runner: createReadinessRunner() },
     );
     assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "pass");
-    const autoMerge = result.checks.find((check) => check.name === "auto-merge-disabled");
+    const autoMerge = result.checks.find((check) => check.name === "auto-merge-approved-domain-policy");
     assert.equal(autoMerge.status, "pass");
     assert.match(autoMerge.detail, /explicit config-scoped low-risk auto-merge canary approval/);
     const canary = result.checks.find((check) => check.name === "trusted-real-run-canary-policy");
@@ -1100,7 +1100,32 @@ test("readiness preflight rejects unsafe auto-merge config without canary approv
       { runner: createReadinessRunner() },
     );
     assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "fail");
-    assert.equal(result.checks.find((check) => check.name === "auto-merge-disabled").status, "fail");
+    assert.equal(result.checks.find((check) => check.name === "auto-merge-approved-domain-policy").status, "fail");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight accepts explicit approved-domain auto-merge config without low-risk canary approval", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-approved-domain-auto-merge-"));
+  try {
+    const result = runPreflight(
+      {
+        ...readinessConfig(tempRoot),
+        configPath: "/workspace/logs/settleora-auto-runner/local-approved-domain.json",
+        allowAutoMerge: true,
+        autoMergePolicy: {
+          approvedLanes: ["api-domain-runtime"],
+          requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"],
+          allowedSkippedChecks: [],
+        },
+      },
+      { runner: createReadinessRunner() },
+    );
+    const autoMerge = result.checks.find((check) => check.name === "auto-merge-approved-domain-policy");
+    assert.equal(autoMerge.status, "pass");
+    assert.match(autoMerge.detail, /approved-domain auto-merge config is explicit/);
+    assert.doesNotMatch(autoMerge.detail, /low-risk auto-merge canary approval/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -3314,6 +3339,19 @@ test("approved low-risk lane with exact allowed paths and exact-head checks allo
   assert.equal(decision.prHeadSha, "head123");
 });
 
+test("approved-domain auto-merge accepts GitHub workflow-prefixed required check names", () => {
+  const decision = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      { name: "Scaffold Validation / Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "CodeQL / Analyze (csharp)", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Security Semgrep CE Scan / Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Security Trivy Scan / Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
+    ],
+  }));
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.reason, "all_auto_merge_gates_passed");
+});
+
 test("approved-domain auto-merge matrix covers normal focused sensitive and refusal reason codes", () => {
   const cases = [
     ["workflow-docs-tooling", "cheap_independent", "normal", "tools/auto-runner/lib/auto-merge-policy.mjs", "runner-tests", "low"],
@@ -3687,9 +3725,8 @@ test("auto-merge wait continues past the prior six-attempt pending-check window 
               requiredChecks: [
               { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
               { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
-              { name: "Semgrep CE", status: "COMPLETED", conclusion: "SUCCESS" },
-              { name: "Semgrep OSS", status: "COMPLETED", conclusion: "SUCCESS" },
-              { name: "Trivy", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
             ],
               reviewThreads: [],
               codeScanningAlerts: [],
@@ -3701,9 +3738,8 @@ test("auto-merge wait continues past the prior six-attempt pending-check window 
             requiredChecks: [
               { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
               { name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
-              { name: "Semgrep CE", status: "COMPLETED", conclusion: "SUCCESS" },
-              { name: "Semgrep OSS", status: "COMPLETED", conclusion: "SUCCESS" },
-              { name: "Trivy", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
             ],
             reviewThreads: [],
             codeScanningAlerts: [],
@@ -5056,9 +5092,8 @@ function autoMergeContext(overrides = {}) {
   const defaultRequiredChecks = [
     { name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
     { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
-    { name: "Semgrep CE", status: "COMPLETED", conclusion: "SUCCESS" },
-    { name: "Semgrep OSS", status: "COMPLETED", conclusion: "SUCCESS" },
-    { name: "Trivy", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
   ];
   const pr = {
     number: 1,
@@ -5087,7 +5122,7 @@ function autoMergeContext(overrides = {}) {
       allowAutoMerge: true,
       autoMergePolicy: {
         approvedLanes: [laneDecision.canonicalLane || laneDecision.lane],
-        requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE", "Semgrep OSS", "Trivy"],
+        requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"],
         allowedSkippedChecks: [],
       },
       ...(overrides.config || {}),
@@ -5150,7 +5185,7 @@ function autoMergeContext(overrides = {}) {
 }
 
 function autoMergeRequiredChecks(overrides = {}) {
-  return ["Validate scaffold", "CodeQL", "Semgrep CE", "Semgrep OSS", "Trivy"].map((name) => ({
+  return ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"].map((name) => ({
     name,
     status: overrides[name]?.status || "COMPLETED",
     conclusion: Object.hasOwn(overrides[name] || {}, "conclusion") ? overrides[name].conclusion : "SUCCESS",
