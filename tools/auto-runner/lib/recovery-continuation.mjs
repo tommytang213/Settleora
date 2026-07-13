@@ -1,4 +1,11 @@
-import { classifyRecoveryOutcome, listRecoverableRecoveryStates, recoveryHasMutationMarker } from "./recovery-state.mjs";
+import {
+  advanceRecoveryPhase,
+  classifyRecoveryOutcome,
+  loadRecoveryState,
+  listRecoverableRecoveryStates,
+  recoveryHasMutationMarker,
+  writeRecoveryState,
+} from "./recovery-state.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -57,6 +64,74 @@ export function discoverStartupRecovery(config) {
     outcome: classifyRecoveryOutcome("pending", { reasonCode: "recoverable_state_discovered" }),
     state: summarizeRecoverableState(active),
     states: states.map(summarizeRecoverableState),
+  };
+}
+
+export async function executeStartupContinuation(config, recovery, handlers = {}) {
+  if (!recovery?.allowed || !recovery.state) {
+    return {
+      ok: false,
+      outcome: "blocked_recovery_state",
+      reasonCode: recovery?.reasonCode || "recovery_not_allowed",
+      recovery,
+    };
+  }
+  const loaded = loadRecoveryState(config, recovery.state);
+  if (!loaded.ok) {
+    return {
+      ok: false,
+      outcome: "blocked_recovery_state",
+      reasonCode: loaded.reasonCode,
+      recovery,
+    };
+  }
+  const state = loaded.state;
+  const boundary = firstIncompleteContinuationAction(state);
+  if (!boundary.ok) {
+    return {
+      ok: false,
+      outcome: "blocked_recovery_state",
+      reasonCode: boundary.reasonCode,
+      recovery: { ...recovery, state: summarizeRecoverableState(state) },
+    };
+  }
+  const control = handlers.controlCheck ? handlers.controlCheck(state) : { ok: true, action: "continue" };
+  if (control?.action && control.action !== "continue") {
+    const stopped = advanceRecoveryPhase(state, {
+      phase: "stopped",
+      firstIncompleteAction: boundary.firstIncompleteAction,
+      nextSafeAction: control.action,
+    });
+    writeRecoveryState(config, { ...stopped, stopReason: { reasonCode: control.reasonCode || control.action, reason: control.reason || "" } });
+    return {
+      ok: true,
+      outcome: "recovery_stopped_at_safe_boundary",
+      reasonCode: control.reasonCode || control.action,
+      recovery: { ...recovery, state: summarizeRecoverableState(stopped) },
+    };
+  }
+  const handler = handlers[boundary.phase] || handlers[boundary.nextSafeAction] || handlers.default;
+  if (!handler) {
+    return {
+      ok: false,
+      outcome: "blocked_recovery_state",
+      reasonCode: "missing_recovery_phase_handler",
+      recovery: { ...recovery, state: summarizeRecoverableState(state), boundary },
+    };
+  }
+  const result = await handler({ state, boundary, loaded });
+  return {
+    ok: result?.ok !== false,
+    outcome: result?.outcome || "recovery_continuation_executed",
+    reasonCode: result?.reasonCode || "recovery_phase_executed",
+    recovery: {
+      ...recovery,
+      action: "resume_recoverable_work",
+      executedPhase: boundary.phase,
+      executedAction: boundary.nextSafeAction,
+      state: result?.state ? summarizeRecoverableState(result.state) : summarizeRecoverableState(state),
+    },
+    result,
   };
 }
 

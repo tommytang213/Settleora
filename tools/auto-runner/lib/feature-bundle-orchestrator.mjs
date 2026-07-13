@@ -39,8 +39,16 @@ import {
   requiresIndependentAiReview,
   writeAutoMergeEvidence,
 } from "./auto-merge-policy.mjs";
+import {
+  advanceRecoveryPhase,
+  bindRecoveryEvidence,
+  createInitialRecoveryState,
+  invalidateEvidenceForHeadChange,
+  recordIdempotentMutation,
+  writeRecoveryState,
+} from "./recovery-state.mjs";
 
-export async function runFeatureBundleIteration(config, logger, { runId, index, issue, laneDecision, branchName = null, controlCheck = null }) {
+export async function runFeatureBundleIteration(config, logger, { runId, index, issue, laneDecision, branchName = null, controlCheck = null, recoveryState = null }) {
   const planned = planFeatureBundleIssue(issue);
   if (!planned.ok) {
     return {
@@ -98,6 +106,23 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   if (!config.dryRun) {
     writeBundleState(config, state);
   }
+  const recovery = createBundleRecoveryRecorder(config, {
+    existingState: recoveryState,
+    taskKey: plan.taskKey || "auto-runner",
+    issue,
+    runId,
+    supervisorRunId: config.supervisorRunId || null,
+    branchName: bundleBranchName,
+    baseSha: baseOriginMainSha,
+    currentHeadSha: config.dryRun ? null : getRefSha("HEAD"),
+    featureBundle: {
+      bundleId: plan.id,
+      planDigest: plan.planDigest,
+      bundleStatePath: state.statePath || null,
+      sliceOrder: plan.slices.map((slice) => slice.id),
+    },
+  });
+  recovery?.advance("implementation_or_bundle_slice", "run_next_bundle_slice");
 
   let checkpointBase = config.dryRun ? "origin/main" : getRefSha("HEAD");
   for (const slice of plan.slices) {
@@ -110,6 +135,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     if (control?.stop) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "control_stop_between_slices", reason: control.reason });
       if (!config.dryRun) writeBundleState(config, state);
+      recovery?.stop("control_stop_between_slices", control.reason, "stop_after_current_boundary");
       return stopBundle(result, "blocked", "control_stop_between_slices", control.reason || "Runner control stopped between slices.");
     }
 
@@ -121,11 +147,13 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       currentHeadSha: config.dryRun ? null : getRefSha("HEAD"),
     });
     if (!config.dryRun) writeBundleState(config, state);
+    recovery?.advance("implementation_or_bundle_slice", `run_bundle_slice:${slice.id}`);
 
     const codex = runCodexPrompt(config, { ...promptInfo, branchName: bundleBranchName }, `bundle-${slice.sequence}-${slice.id}`);
     if (!codex.skipped && (codex.error || codex.status !== 0)) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "codex_failed", reason: codex.error || `status ${codex.status}` });
       if (!config.dryRun) writeBundleState(config, state);
+      recovery?.stop("bundle_slice_codex_failed", codex.error || `status ${codex.status}`, "retry_bounded_or_manual");
       return stopBundle(result, "auto_failed", "codex_failed", `Codex failed for bundle slice ${slice.id}.`, { codex });
     }
 
@@ -134,19 +162,30 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     if (!config.dryRun && sliceChangedFiles.length === 0) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "bundle_slice_empty_change", reason: "Slice produced no changes." });
       writeBundleState(config, state);
+      recovery?.stop("bundle_slice_empty_change", `Slice ${slice.id} produced no changes.`, "manual_recovery_required");
       return stopBundle(result, "bundle_recovery_failed", "bundle_slice_empty_change", `Bundle slice ${slice.id} produced no changes.`);
     }
     if (forbidden.length > 0) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "bundle_slice_scope_escape", reason: forbidden.join(", ") });
       if (!config.dryRun) writeBundleState(config, state);
+      recovery?.stop("bundle_slice_scope_escape", forbidden.join(","), "stop_fail_closed");
       return stopBundle(result, "scope_failed", "bundle_slice_scope_escape", `Bundle slice ${slice.id} changed forbidden files.`, { forbidden });
     }
 
+    recovery?.advance("checkpoint_validation_commit", `validate_bundle_slice:${slice.id}`);
     const validationPlan = planValidation(sliceChangedFiles, { ...planned.laneDecision, validationProfile: slice.validationProfile });
     const validation = runValidationPlan(config, validationPlan);
+    recovery?.evidence("localValidation", {
+      status: validation.passed ? "passed" : "failed",
+      headSha: config.dryRun ? null : getRefSha("HEAD"),
+      baseSha: checkpointBase,
+      changedFiles: sliceChangedFiles,
+      summary: `bundle slice ${slice.id} validation`,
+    });
     if (!validation.passed) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "checkpoint_validation_failed", reason: "Checkpoint validation failed." });
       if (!config.dryRun) writeBundleState(config, state);
+      recovery?.stop("bundle_checkpoint_validation_failed", `Slice ${slice.id} validation failed.`, "retry_bounded_or_manual");
       return stopBundle(result, "validation_failed", "checkpoint_validation_failed", `Validation failed for bundle slice ${slice.id}.`, { validation });
     }
 
@@ -154,11 +193,17 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     if (!config.dryRun && !report.found) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "slice_report_missing", reason: promptInfo.reportPath });
       writeBundleState(config, state);
+      recovery?.stop("bundle_slice_report_missing", promptInfo.reportPath, "manual_recovery_required");
       return stopBundle(result, "bundle_recovery_failed", "slice_report_missing", `Expected bundle slice report missing: ${promptInfo.reportPath}`);
     }
 
     const commit = commitExplicitPaths(config, sliceChangedFiles, `${slice.title}`);
     const checkpointSha = config.dryRun ? null : getRefSha("HEAD");
+    recovery?.headChanged(checkpointSha, `bundle_slice_commit:${slice.id}`);
+    recovery?.marker("checkpoint_commit", `bundle-${plan.id}-${slice.id}-${checkpointSha || "dry-run"}`, {
+      target: slice.id,
+      correlation: runId,
+    });
     const boundValidation = bindValidationEvidence(validation, {
       headSha: checkpointSha,
       baseSha: checkpointBase,
@@ -187,16 +232,19 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
 
   if (!config.dryRun && getStatusShort() !== "") {
+    recovery?.stop("bundle_dirty_after_slices", "Bundle worktree dirty after checkpoint commits.", "stop_fail_closed");
     return stopBundle(result, "bundle_recovery_failed", "bundle_dirty_after_slices", "Bundle worktree was dirty after checkpoint commits.");
   }
   const finalHead = config.dryRun ? null : getRefSha("HEAD");
   const aggregateFiles = config.dryRun ? [] : listChangedFiles("origin/main", "HEAD");
   const aggregateForbidden = filterForbiddenChangedFiles(aggregateFiles, planned.laneDecision);
   if (aggregateForbidden.length > 0) {
+    recovery?.stop("bundle_aggregate_scope_escape", aggregateForbidden.join(","), "stop_fail_closed");
     return stopBundle(result, "scope_failed", "bundle_aggregate_scope_escape", "Aggregate bundle scope escaped parent lane.", {
       forbidden: aggregateForbidden,
     });
   }
+  recovery?.advance("aggregate_validation", "run_bundle_aggregate_validation");
   const finalValidationPlan = planValidation(aggregateFiles, planned.laneDecision);
   const finalValidation = bindValidationEvidence(runValidationPlan(config, finalValidationPlan), {
     headSha: finalHead,
@@ -204,8 +252,17 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     changedFiles: aggregateFiles,
     profile: planned.laneDecision.validationProfile,
   });
+  recovery?.evidence("localValidation", {
+    status: finalValidation.passed ? "passed" : "failed",
+    headSha: finalHead,
+    baseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
+    changedFilesDigest: finalValidation.changedFilesDigest,
+    summary: "bundle aggregate validation",
+  });
   result.validation = finalValidation;
   if (!finalValidation.passed) {
+    recovery?.stop("bundle_final_validation_failed", "Final aggregate validation failed.", "retry_bounded_or_manual");
     return stopBundle(result, "validation_failed", "bundle_final_validation_failed", "Final aggregate bundle validation failed.", {
       validation: finalValidation,
     });
@@ -213,8 +270,10 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
 
   result.preReviewPrOwnership = inspectPreReviewPrOwnership(config, bundleBranchName);
   if (!result.preReviewPrOwnership.clean) {
+    recovery?.stop("bundle_branch_or_pr_preexists", "Bundle branch or PR pre-existed before review.", "stop_fail_closed");
     return stopBundle(result, "auto_failed", "bundle_branch_or_pr_preexists", "Bundle branch or PR already exists before pre-PR review.");
   }
+  recovery?.advance("external_review", "run_bundle_external_review");
   result.reviewPackage = writeBundleReviewPackage(config, {
     issue,
     laneDecision: planned.laneDecision,
@@ -226,24 +285,69 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     baseSha: baseOriginMainSha,
   });
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
+  recovery?.evidence("externalReview", {
+    status: result.externalReview.status === "pass" ? "passed" : "blocked",
+    headSha: result.externalReview.reviewedHead || finalHead,
+    baseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
+    changedFilesDigest: result.externalReview.changedFilesDigest,
+    evidencePath: result.externalReview.reportPath || result.externalReview.evidencePath,
+    summary: result.externalReview.reason,
+  });
+  recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
   result.review = runReviewPrompt(config, result.reviewPackage);
+  recovery?.evidence("codexReview", {
+    status: result.review.verdict?.verdict === "approve" ? "passed" : "blocked",
+    headSha: finalHead,
+    baseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
+    changedFilesDigest: result.review.changedFilesDigest,
+    evidencePath: result.review.logPath || result.review.promptPath,
+    summary: result.review.reviewFailureReason || result.review.verdict?.verdict,
+  });
   const prePushGate = evaluatePrePushReviewGate({
     laneDecision: planned.laneDecision,
     externalReview: result.externalReview,
     reviewMutationGuard: { mutationDetected: false },
   });
   if (!prePushGate.ok || (!config.dryRun && result.review.verdict?.verdict !== "approve")) {
+    recovery?.stop("bundle_review_failed", prePushGate.reason || result.review.verdict?.verdict || "bundle_review_failed", "run_focused_fix_or_escalate");
     return stopBundle(result, prePushGate.outcome || "codex_review_failed", prePushGate.reason || "bundle_review_failed", prePushGate.message || "Bundle review failed.");
   }
 
+  recovery?.advance("push", "push_bundle_branch");
   result.push = pushBranch(config, bundleBranchName);
   if (!config.dryRun && (result.push.error || result.push.status !== 0)) {
+    recovery?.stop("bundle_push_failed", result.push.error || `status ${result.push.status}`, "retry_bounded_or_manual");
     return stopBundle(result, "auto_failed", "bundle_push_failed", "Bundle branch push failed.");
   }
+  recovery?.marker("push", `branch-${bundleBranchName}`, { target: bundleBranchName, correlation: finalHead || runId });
+  recovery?.advance("pr_create_recover", "open_bundle_pr");
   result.pr = openOrUpdatePr(config, issue, bundleBranchName, bundlePrSummary({ result, state, plan }));
-  if (!config.dryRun && result.pr.url) result.ci = watchChecks(config, result.pr.url);
+  if (result.pr?.url || result.pr?.number) {
+    recovery?.setPr(result.pr);
+    recovery?.marker("pr_create", `bundle-${plan.id}-issue-${issue.number}`, {
+      target: result.pr.url || String(result.pr.number),
+      correlation: finalHead || runId,
+    });
+  }
+  if (!config.dryRun && result.pr.url) {
+    recovery?.advance("ci_wait", "wait_bundle_checks");
+    result.ci = watchChecks(config, result.pr.url);
+    recovery?.evidence("ciChecks", { status: "recorded", headSha: finalHead, baseSha: baseOriginMainSha, changedFiles: aggregateFiles });
+  }
+  recovery?.advance("exact_head_final_refresh", "evaluate_bundle_merge_or_pr_state");
   result.autoMerge = await evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName: bundleBranchName, changedFiles: aggregateFiles, forbidden: aggregateForbidden, laneDecision: planned.laneDecision });
   result.outcome = result.autoMerge.result === "merged" ? "auto_merged" : "approved_pr_opened";
+  if (result.autoMerge.result === "merged") {
+    recovery?.marker("merge", `bundle-pr-${result.pr?.number || result.pr?.url}-${finalHead || "head"}`, {
+      target: result.pr?.url || String(result.pr?.number || ""),
+      correlation: result.autoMerge.mergeSha || finalHead || runId,
+    });
+    recovery?.advance("post_merge_current_main_checks_scanner_reconciliation", "reconcile_current_main");
+  }
+  recovery?.complete(result.outcome);
+  result.recovery = recovery?.summary();
   result.bundle.state = summarizeBundleState(state);
   return result;
 }
@@ -388,6 +492,98 @@ function stopBundle(result, outcome, reasonCode, reason, extra = {}) {
     ok: false,
     outcome,
     stopReason: { reasonCode, reason },
+  };
+}
+
+function createBundleRecoveryRecorder(config, input) {
+  if (config.dryRun) return null;
+  let state = input.existingState || createInitialRecoveryState({
+    taskKey: input.taskKey,
+    issue: input.issue,
+    runId: input.runId,
+    supervisorRunId: input.supervisorRunId,
+    branchName: input.branchName,
+    baseSha: input.baseSha,
+    currentHeadSha: input.currentHeadSha,
+    phase: "branch_setup",
+    firstIncompleteAction: "recover_or_create_bundle_branch",
+    featureBundle: input.featureBundle,
+  });
+  let statePath = null;
+  const persist = (nextState) => {
+    const written = writeRecoveryState(config, nextState);
+    state = written.state;
+    statePath = written.statePath;
+    return state;
+  };
+  persist({
+    ...state,
+    featureBundle: {
+      ...(state.featureBundle || {}),
+      ...(input.featureBundle || {}),
+    },
+  });
+  return {
+    get state() {
+      return state;
+    },
+    setPr(pr) {
+      return persist({
+        ...state,
+        pr: {
+          number: Number.isInteger(pr?.number) ? pr.number : state.pr?.number || null,
+          url: pr?.url || state.pr?.url || null,
+          headSha: pr?.headSha || pr?.headRefOid || state.branch.currentHeadSha || null,
+          headRefName: pr?.headRefName || state.branch.name || null,
+          baseRefName: pr?.baseRefName || "main",
+          state: pr?.state || "OPEN",
+        },
+      });
+    },
+    advance(phase, firstIncompleteAction, nextSafeAction = firstIncompleteAction) {
+      return persist(advanceRecoveryPhase(state, { phase, firstIncompleteAction, nextSafeAction }));
+    },
+    evidence(kind, evidence) {
+      return persist(bindRecoveryEvidence(state, kind, evidence));
+    },
+    headChanged(newHeadSha, reasonCode) {
+      return persist(invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }));
+    },
+    marker(kind, key, marker = {}) {
+      return persist(recordIdempotentMutation(state, { kind, key, marker }));
+    },
+    stop(reasonCode, reason, nextSafeAction = "stop_fail_closed") {
+      return persist({
+        ...advanceRecoveryPhase(state, { phase: "stopped", firstIncompleteAction: state.firstIncompleteAction, nextSafeAction }),
+        stopReason: { reasonCode, reason: String(reason || "").slice(0, 300) },
+      });
+    },
+    complete(outcome) {
+      return persist({
+        ...advanceRecoveryPhase(state, { phase: "completed", firstIncompleteAction: "none", nextSafeAction: "none" }),
+        stopReason: null,
+        completion: { outcome: String(outcome || "completed").slice(0, 80), completedAt: new Date().toISOString() },
+      });
+    },
+    summary() {
+      return {
+        action: "production_bundle_recovery_state_recorded",
+        statePath,
+        state: {
+          taskKey: state.taskKey,
+          issueNumber: state.issue?.number || null,
+          branchName: state.branch?.name || null,
+          baseSha: state.branch?.baseSha || null,
+          currentHeadSha: state.branch?.currentHeadSha || null,
+          prNumber: state.pr?.number || null,
+          prUrl: state.pr?.url || null,
+          phase: state.phase,
+          nextSafeAction: state.nextSafeAction,
+          featureBundle: state.featureBundle || null,
+          stopReason: state.stopReason,
+        },
+      };
+    },
   };
 }
 
