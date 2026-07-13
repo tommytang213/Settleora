@@ -20,6 +20,53 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #890 - Real feature-bundle orchestration state and recovery implementation checkpoint
+
+- Task key: `20260713-1416`.
+- Branch:
+  `tools/auto-runner-feature-bundle-orchestration-890-20260713-1416`.
+- Base:
+  exact `origin/main` `e4846a87c69152a60cc6405b8150365cd8fc876b`.
+- Bundle 1 status:
+  - #887 complete via PR #896, merge SHA
+    `741aa0355bd213aab04c37a5f876de420485800c`.
+  - #888 complete via PR #897, merge SHA
+    `8ecaafcda5441c452396761ccb7653d31d64f1cb`.
+  - #889 complete via PR #898, merge SHA
+    `d21b83033abf8eb99b76dedc8574a270b90c0a54`.
+- P0 detour:
+  #899 is closed completed after reviewed false-positive disposition for
+  CodeQL alerts #56/#57. No #890 implementation started before that closure.
+- #890 implementation scope now active:
+  - Adds strict feature-bundle contract planning for `auto-bundle` issues.
+  - Adds durable sanitized bundle state under external runtime logs.
+  - Adds one-branch, multi-slice checkpoint orchestration with final aggregate
+    validation/review/PR integration.
+- Checkpoint commits on this branch:
+  - `7933650e98500e4f7c94e1282dfa7f1dd6405e78`
+    `Add strict feature-bundle contract planning`.
+  - `3945bc14ae88d3600c711496a7ec081ecbbcde29`
+    `Persist and recover feature-bundle checkpoints`.
+  - Third orchestration checkpoint pending in this report until committed.
+- Remaining foundation issues:
+  #891, #892, #893, and #894 remain open and are not implemented by this
+  branch. #893 contains only accepted #899 recovery lesson comments.
+- Post-foundation:
+  #902 remains post-#890-#894, open, commentless, and untouched by this
+  implementation.
+- Protected canaries:
+  #865 and #866 remain open with exact labels `area:mobile-ui`,
+  `auto-canary-ready`, `canary`, `workflow`, zero comments, no assignees, and
+  no milestone.
+- Scope confirmation:
+  this checkpoint is limited to `tools/auto-runner/**`,
+  `docs/workflow/AUTONOMOUS_CODEX_RUNNER.md`,
+  `tools/auto-runner/README.md`, and this ledger. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migrations,
+  OpenAPI/generated clients, Docker/CI/deployment, secrets, active external
+  config, `.ai/*`, or protected canaries.
+
 ### Issue #899 - Invitation runtime test-harness CodeQL HTTPS transport SARIF follow-up checkpoint
 
 - GitHub/live state verified:

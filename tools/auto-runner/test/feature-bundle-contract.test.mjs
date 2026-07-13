@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { planFeatureBundleIssue } from "../lib/feature-bundle-contract.mjs";
+import { parseAutoRunnerContract } from "../lib/lane-policy.mjs";
 
 function issueWithBundle({ slices, lane = "workflow-docs-tooling", labels = ["auto-ready", "auto-bundle"], extraContract = "", extraBundle = "", bodyPrefix = "" }) {
   return {
@@ -50,9 +51,27 @@ test("feature-bundle planner accepts valid 2-, 3-, and 4-slice contracts", () =>
     const result = planFeatureBundleIssue(issueWithBundle({ slices }));
     assert.equal(result.ok, true);
     assert.equal(result.plan.sliceCount, count);
+    assert.equal(result.laneDecision.reviewerTier, "strong_independent");
     assert.equal(result.plan.slices.map((item) => item.sequence).join(","), Array.from({ length: count }, (_, i) => i + 1).join(","));
     assert.match(result.plan.planDigest, /^[a-f0-9]{64}$/);
   }
+});
+
+test("ordinary non-bundle contracts remain valid without a bundle object", () => {
+  const parsed = parseAutoRunnerContract(`## Auto-runner contract
+\`\`\`json
+{
+  "contractVersion": 1,
+  "lane": "workflow-docs-tooling",
+  "allowedPaths": ["tools/auto-runner/**"],
+  "validationProfile": "runner-tests",
+  "manualMergeRequired": true,
+  "autoMergeEligible": false,
+  "requiredReading": ["tools/auto-runner/README.md"]
+}
+\`\`\`
+`);
+  assert.equal(parsed.ok, true);
 });
 
 test("feature-bundle planner rejects missing auto-bundle label and invalid slice counts", () => {

@@ -12,6 +12,15 @@ const contractFields = new Set([
   "requiredReading",
   "bundle",
 ]);
+const requiredContractFields = new Set([
+  "contractVersion",
+  "lane",
+  "allowedPaths",
+  "validationProfile",
+  "manualMergeRequired",
+  "autoMergeEligible",
+  "requiredReading",
+]);
 
 const maxAllowedPathPatternLength = 240;
 const maxChangedPathLength = 512;
@@ -851,7 +860,7 @@ function validateContractShape(contract) {
       return { ok: false, reason: `Auto-runner contract contains unsupported field: ${key}.` };
     }
   }
-  for (const field of contractFields) {
+  for (const field of requiredContractFields) {
     if (!(field in contract)) {
       return { ok: false, reason: `Auto-runner contract is missing required field: ${field}.` };
     }

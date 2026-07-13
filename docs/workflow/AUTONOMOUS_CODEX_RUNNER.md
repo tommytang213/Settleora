@@ -111,6 +111,13 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
   exercises and any future manually approved canary real-run.
 - `readiness/` stores report-only overnight readiness preflight JSON and
   Markdown.
+- `bundles/` stores sanitized durable feature-bundle state. Bundle state is
+  versioned JSON written atomically through a temporary file plus rename and is
+  keyed from the validated issue/bundle identity. It records plan digest, issue,
+  run/supervisor correlation, branch, exact base/head, ordered slice state,
+  prompt/report paths, checkpoint validation, checkpoint commits, final review,
+  PR, CI, and bounded stop reasons. It never stores raw prompts, provider
+  output, full diffs, secrets, environment data, or credential material.
 
 Stale locks are removed only when the recorded PID is no longer active. Active
 or unparsable locks stop the runner for human inspection.
@@ -615,9 +622,23 @@ automatically.
 Dry-run mode previews the exact label add/remove/comment operations instead of
 calling `gh issue edit`, `gh issue comment`, or `gh issue create`.
 
-`auto-bundle` means the issue may intentionally split into multiple prompts,
-branches, or follow-up issues in a future lane policy. Each implementation
-branch still has to stay reviewable.
+`auto-bundle` means the issue may use the feature-bundle path when the
+body-level contract includes a strict `bundle` object. A valid bundle uses one
+branch, two to four ordered slices, one generated prompt/report per slice,
+one explicit-path checkpoint commit per completed slice, one final aggregate
+validation and review package, and one final PR. Completed slices are not
+rerun during recovery; corrupt, stale, missing, mismatched, partial, dirty, or
+ambiguous state fails closed. The runner observes pause/stop controls only at
+safe boundaries between slices.
+
+Feature bundles are allowed only for runnable normal lanes that explicitly
+support the parent validation profile and paths. Focused, split-required,
+manual-gated, disabled, alias-only, unknown, or cross-domain lanes remain
+separate focused branches. Auth/security, storage/privacy/authz, money/
+settlement/payment, schema/migrations, OpenAPI/generated clients, sync/restore
+authority, Docker/CI/deployment, production, destructive, secret, public/admin
+exposure, and unresolved authority decisions do not become bundle-eligible
+because `auto-bundle` is present.
 
 ## Issue Contract
 
@@ -645,7 +666,30 @@ Every issue that the runner may implement must include a body-level contract:
     "PROGRAM_ARCHITECTURE.md",
     "docs/workflow/CODEX_TASK_GUIDE.md",
     "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"
-  ]
+  ],
+  "bundle": {
+    "bundleVersion": 1,
+    "strategy": "feature-bundle",
+    "slices": [
+      {
+        "id": "contract",
+        "title": "Bundle contract",
+        "objective": "Implement strict bundle parsing",
+        "allowedPaths": ["tools/auto-runner/lib/**"],
+        "validationProfile": "runner-tests",
+        "requiredReading": ["tools/auto-runner/README.md"]
+      },
+      {
+        "id": "state",
+        "title": "Bundle state",
+        "objective": "Persist durable bundle checkpoint state",
+        "allowedPaths": ["tools/auto-runner/lib/**"],
+        "validationProfile": "runner-tests",
+        "requiredReading": ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+        "dependsOn": ["contract"]
+      }
+    ]
+  }
 }
 ```
 ````

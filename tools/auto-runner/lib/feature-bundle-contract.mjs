@@ -116,7 +116,11 @@ export function planFeatureBundleIssue(issue) {
     ok: true,
     reasonCode: "bundle_contract_valid",
     contract,
-    laneDecision,
+    laneDecision: {
+      ...laneDecision,
+      reviewerTier: "strong_independent",
+      reasonCodes: [...(laneDecision.reasonCodes || []), "feature_bundle_strong_review_required"],
+    },
     plan: {
       ...normalizedPlan,
       id: `issue-${issue.number}-bundle-v${bundle.bundleVersion}`,
