@@ -148,12 +148,48 @@ test("malformed path/profile/label/contract blocks before mutation", () => {
     { validationProfile: "not-a-profile", autoRunnerContract: { ...proposal.autoRunnerContract, validationProfile: "not-a-profile" } },
     { proposedLabels: ["surprise-label"] },
     { autoRunnerContract: { ...proposal.autoRunnerContract, lane: "missing-lane" } },
+    {
+      title: "Auth session security decided implementation",
+      summary: "Implement decided auth session security tooling evidence.",
+      allowedPaths: ["services/api/Auth/Sessions.cs"],
+      autoRunnerContract: {
+        contractVersion: 1,
+        lane: "auth-session-security",
+        allowedPaths: ["services/api/Auth/Sessions.cs"],
+        validationProfile: "api-security",
+        manualMergeRequired: true,
+        autoMergeEligible: false,
+        requiredReading: ["docs/architecture/AUTH_IDENTITY_FOUNDATION.md"],
+      },
+      validationProfile: "api-security",
+      reviewerTier: "cheap_independent",
+    },
   ]) {
     const runner = runnerWith();
     const result = executeIssueMutationPipeline({ run: true, allowFollowupIssueCreation: true, logsRoot: logsRoot() }, [{ ...proposal, ...bad }], {}, { runner });
     assert.equal(result.results[0].action, "blocked");
     assert.equal(runner.calls.length, 0);
   }
+  const weakReviewer = rekey({
+    ...proposal,
+    title: "Auth session security decided implementation",
+    summary: "Implement decided auth session security tooling evidence.",
+    allowedPaths: ["services/api/Auth/Sessions.cs"],
+    autoRunnerContract: {
+      contractVersion: 1,
+      lane: "auth-session-security",
+      allowedPaths: ["services/api/Auth/Sessions.cs"],
+      validationProfile: "api-security",
+      manualMergeRequired: true,
+      autoMergeEligible: false,
+      requiredReading: ["docs/architecture/AUTH_IDENTITY_FOUNDATION.md"],
+    },
+    validationProfile: "api-security",
+    reviewerTier: "cheap_independent",
+  });
+  const weakReviewerResult = validateMutationProposal(weakReviewer);
+  assert.equal(weakReviewerResult.ok, false);
+  assert.match(weakReviewerResult.reason, /^reviewer_tier_weaker_than_lane:/);
 });
 
 test("max issues per run is enforced", () => {
@@ -256,4 +292,20 @@ test("bundle proposals can receive auto-bundle only with valid bundle contract",
   const injectedResult = validateMutationProposal(injected);
   assert.equal(injectedResult.ok, false);
   assert.equal(injectedResult.reason, "text_unsafe:autoRunnerContract.bundle.slices[0].objective");
+  const bundleWithoutLabel = rekey({
+    ...proposal,
+    autoRunnerContract: {
+      ...bundled.autoRunnerContract,
+      bundle: {
+        ...bundled.autoRunnerContract.bundle,
+        slices: bundled.autoRunnerContract.bundle.slices.map((slice, index) =>
+          index === 0 ? { ...slice, requiredReading: ["../secret.md"] } : slice,
+        ),
+      },
+    },
+    proposedLabels: ["area:infra", "type:feature", "workflow", "auto-ready"],
+  });
+  const bundleWithoutLabelResult = validateMutationProposal(bundleWithoutLabel);
+  assert.equal(bundleWithoutLabelResult.ok, false);
+  assert.match(bundleWithoutLabelResult.base.reason, /bundle_contract_without_auto_bundle_label|bundle_required_reading_invalid/);
 });

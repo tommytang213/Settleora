@@ -199,6 +199,15 @@ export function validateIssueProposal(proposal = {}, options = {}) {
   if (laneDecision && !laneDecision.allowedToImplement && proposal.kind !== "blocker" && !hasManualDecision(proposal)) {
     errors.push(`contract_not_runnable:${laneDecision.reason}`);
   }
+  if (laneDecision && proposal.kind !== "blocker" && !hasManualDecision(proposal) && !reviewerTierMeetsLane(proposal.reviewerTier, laneDecision.reviewerTier)) {
+    errors.push(`reviewer_tier_weaker_than_lane:${proposal.reviewerTier || "missing"}:${laneDecision.reviewerTier || "missing"}`);
+  }
+  if (proposal.autoRunnerContract?.bundle && !labels.includes("auto-bundle")) {
+    errors.push("bundle_contract_without_auto_bundle_label");
+  }
+  for (const invalidBundlePath of invalidBundlePaths(proposal.autoRunnerContract?.bundle)) {
+    errors.push(invalidBundlePath);
+  }
   const manualLabels = labels.filter((label) => label === "manual-gate" || label === "needs-tommy");
   if (manualLabels.length > 0 && !hasManualDecision(proposal)) errors.push("manual_label_without_genuine_decision");
   if (hasManualDecision(proposal) && manualLabels.length === 0) errors.push("manual_decision_without_manual_label");
@@ -531,6 +540,36 @@ function isSafeRepoPath(value) {
   if (text.startsWith("/") || text.includes("\\") || text.includes("..") || text.includes("//")) return false;
   if (/[\0\r\n`$<>|;&*?{}()[\]]/.test(text)) return false;
   return /^[A-Za-z0-9._/!-]+$/.test(text);
+}
+
+function invalidBundlePaths(bundle) {
+  const errors = [];
+  if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) return errors;
+  if (Array.isArray(bundle.slices)) {
+    bundle.slices.forEach((slice, index) => {
+      if (!slice || typeof slice !== "object" || Array.isArray(slice)) return;
+      for (const allowedPath of slice.allowedPaths || []) {
+        if (!isSafeRepoGlob(allowedPath)) errors.push(`bundle_allowed_path_invalid:${index}:${allowedPath}`);
+      }
+      for (const requiredReading of slice.requiredReading || []) {
+        if (!isSafeRepoPath(requiredReading)) errors.push(`bundle_required_reading_invalid:${index}:${requiredReading}`);
+      }
+    });
+  }
+  return errors;
+}
+
+function reviewerTierMeetsLane(proposalTier, laneTier) {
+  const rank = {
+    cheap_independent: 1,
+    strong_independent: 2,
+    tie_breaker: 3,
+    codex_mechanics: 1,
+    split_or_escalate: 4,
+  };
+  const required = rank[laneTier] || 1;
+  const actual = rank[proposalTier] || 0;
+  return actual >= required;
 }
 
 function hasManualDecision(proposal = {}) {
