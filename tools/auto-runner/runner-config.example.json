@@ -1,6 +1,7 @@
 {
   "repoRoot": "/workspace/repos/Settleora",
   "logsRoot": "/workspace/logs/settleora-auto-runner",
+  "repositorySlug": "tommytang213/Settleora",
   "eligibleLabels": ["auto-ready", "auto-bundle"],
   "stopLabels": [
     "needs-tommy",
@@ -50,6 +51,10 @@
     "marker": null,
     "markerId": null
   },
+  "largeBundleReviewApproval": {
+    "enabled": false,
+    "approvals": []
+  },
   "allowSystemdEnablement": false,
   "maxFollowupIssuesPerRun": 3,
   "maxReviewFixCycles": 0,
@@ -77,18 +82,18 @@
       "provider": "gemini",
       "providerProfile": "gemini-strong",
       "command": null,
-      "model": "gemini-flash-latest",
-      "inputUsdPerMillionTokens": 0.3,
-      "outputUsdPerMillionTokens": 2.5
+      "model": "gemini-3.5-flash",
+      "inputUsdPerMillionTokens": 1.5,
+      "outputUsdPerMillionTokens": 9
     },
     "tie_breaker": {
       "enabled": false,
       "provider": "gemini",
       "providerProfile": "gemini-strong",
       "command": null,
-      "model": "gemini-flash-latest",
-      "inputUsdPerMillionTokens": 0.3,
-      "outputUsdPerMillionTokens": 2.5
+      "model": "gemini-3.5-flash",
+      "inputUsdPerMillionTokens": 1.5,
+      "outputUsdPerMillionTokens": 9
     },
     "codex_mechanics": {
       "enabled": true,
@@ -117,7 +122,7 @@
       "provider": "gemini",
       "apiKeyEnv": "GEMINI_API_KEY",
       "envFilePath": "/workspace/logs/settleora-auto-runner/secrets/reviewer.env",
-      "defaultModel": "gemini-flash-latest"
+      "defaultModel": "gemini-3.5-flash"
     }
   },
   "reviewerSmokeTest": {

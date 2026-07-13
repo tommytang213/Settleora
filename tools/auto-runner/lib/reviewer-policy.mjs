@@ -63,6 +63,11 @@ export const defaultReviewerBudget = Object.freeze({
   warnAtPercent: 80,
 });
 
+export const defaultLargeBundleReviewApproval = Object.freeze({
+  enabled: false,
+  approvals: Object.freeze([]),
+});
+
 const sensitivePathPatterns = Object.freeze([
   /^services\/api(?:\/|$)/,
   /^packages\/contracts\/openapi(?:\/|$)/,
@@ -85,6 +90,21 @@ export function mergeReviewerPolicyConfig(config) {
     reviewerTiers: mergeReviewerTiers(config.reviewerTiers),
     reviewerBudget: normalizeReviewerBudget(config.reviewerBudget),
   };
+}
+
+export function normalizeLargeBundleReviewApprovalConfig(config = {}) {
+  const enabled = Boolean(config?.enabled ?? defaultLargeBundleReviewApproval.enabled);
+  const approvals = config?.approvals ?? [];
+  if (!Array.isArray(approvals)) {
+    throw new Error("largeBundleReviewApproval.approvals must be an array");
+  }
+  if (approvals.length > 16) {
+    throw new Error("largeBundleReviewApproval.approvals exceeds the bounded approval limit");
+  }
+  return Object.freeze({
+    enabled,
+    approvals: Object.freeze(approvals.map(normalizeLargeBundleApproval)),
+  });
 }
 
 export function mergeReviewerTiers(tiers = {}) {
@@ -196,13 +216,21 @@ export function loadReviewerAccounting(config, now = new Date()) {
   };
 }
 
-export function routeReviewer({ changedFiles = [], laneDecision = null, stats = {} }) {
+export function routeReviewer({
+  changedFiles = [],
+  laneDecision = null,
+  stats = {},
+  largeBundleReviewApproval = defaultLargeBundleReviewApproval,
+  reviewPackageEvidence = null,
+  now = new Date(),
+} = {}) {
   const files = changedFiles.map(normalizePath);
   const additions = nonNegativeNumber(stats.additions || 0);
   const deletions = nonNegativeNumber(stats.deletions || 0);
   const totalChangedLines = additions + deletions;
   const sensitiveFiles = files.filter(isSensitivePath);
   const domains = detectDomains(files, laneDecision);
+  const normalizedDomainSet = normalizeDomainSet(domains);
   const crossDomainCount = domains.filter((domain) => !isWorkflowPolicyDomain(domain)).length;
   const huge = files.length >= 40 || totalChangedLines >= 2000 || crossDomainCount >= 4;
   const large = files.length >= 15 || totalChangedLines >= 800;
@@ -214,12 +242,38 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
     files.every((file) => /^apps\/mobile\/(lib|test)\/ui(?:\/|$)/.test(file));
 
   if (huge) {
+    const approval = evaluateLargeBundleReviewApproval({
+      approvalConfig: largeBundleReviewApproval,
+      changedFiles: files,
+      laneDecision,
+      stats: { additions, deletions, files: files.length },
+      domains,
+      normalizedDomainSet,
+      sensitiveFiles,
+      reviewPackageEvidence,
+      sizeBlockOnly: (files.length >= 40 || totalChangedLines >= 2000) && crossDomainCount < 4,
+      now,
+    });
+    if (approval.ok) {
+      const approvedTier = maxReviewerTier("strong_independent", approval.requiredReviewerTier);
+      return decision(approvedTier, "Exact large-bundle review approval permits strong independent review while preserving manual merge.", {
+        sensitiveFiles,
+        domains,
+        normalizedDomainSet,
+        totalChangedLines,
+        changedFileCount: files.length,
+        strongRequired: true,
+        largeBundleApproval: approval.evidence,
+      });
+    }
     return decision("block_split_or_escalate", "Huge or cross-domain PR; split or approve a large-bundle lane before review.", {
       sensitiveFiles,
       domains,
+      normalizedDomainSet,
       totalChangedLines,
       changedFileCount: files.length,
       block: true,
+      largeBundleApproval: approval.evidence,
     });
   }
   const laneRequiredTier = normalizeLaneRequiredTier(laneDecision?.reviewerTier, laneDecision);
@@ -227,6 +281,7 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
     return decision(maxReviewerTier("cheap_independent", laneRequiredTier), "Real-code client UI low-risk canary requires cheap independent review before auto-merge.", {
       sensitiveFiles,
       domains,
+      normalizedDomainSet,
       totalChangedLines,
       changedFileCount: files.length,
       realCodeIndependentRequired: true,
@@ -237,6 +292,7 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
     return decision(maxReviewerTier("strong_independent", laneRequiredTier), "Sensitive path or danger-gated scope requires strong independent review.", {
       sensitiveFiles,
       domains,
+      normalizedDomainSet,
       totalChangedLines,
       changedFileCount: files.length,
       strongRequired: true,
@@ -247,6 +303,7 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
     return decision(maxReviewerTier("strong_independent", laneRequiredTier), "Large PR size crosses strong-review threshold.", {
       sensitiveFiles,
       domains,
+      normalizedDomainSet,
       totalChangedLines,
       changedFileCount: files.length,
       strongRequired: true,
@@ -257,6 +314,7 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
     return decision(maxReviewerTier("cheap_independent", laneRequiredTier), "Docs, ledger, or workflow docs default to cheap independent review.", {
       sensitiveFiles,
       domains,
+      normalizedDomainSet,
       totalChangedLines,
       changedFileCount: files.length,
       laneRequiredTier,
@@ -274,10 +332,104 @@ export function routeReviewer({ changedFiles = [], laneDecision = null, stats = 
   return decision(maxReviewerTier("cheap_independent", laneRequiredTier), "Normal feature PR defaults to cheap independent review unless risk escalates.", {
     sensitiveFiles,
     domains,
+    normalizedDomainSet,
     totalChangedLines,
     changedFileCount: files.length,
     laneRequiredTier,
   });
+}
+
+export function evaluateLargeBundleReviewApproval({
+  approvalConfig = defaultLargeBundleReviewApproval,
+  changedFiles = [],
+  laneDecision = null,
+  stats = {},
+  domains = null,
+  normalizedDomainSet = null,
+  sensitiveFiles = null,
+  reviewPackageEvidence = null,
+  sizeBlockOnly = false,
+  now = new Date(),
+} = {}) {
+  const files = changedFiles.map(normalizePath).filter(Boolean).sort();
+  const additions = nonNegativeNumber(stats.additions || 0);
+  const deletions = nonNegativeNumber(stats.deletions || 0);
+  const totalChangedLines = additions + deletions;
+  const detectedDomains = Array.isArray(domains) ? domains : detectDomains(files, laneDecision);
+  const approvedDomains = Array.isArray(normalizedDomainSet) ? normalizedDomainSet : normalizeDomainSet(detectedDomains);
+  const sensitive = Array.isArray(sensitiveFiles) ? sensitiveFiles : files.filter(isSensitivePath);
+  const evidenceBase = {
+    ok: false,
+    reason: "large_bundle_review_approval_disabled",
+    enabled: Boolean(approvalConfig?.enabled),
+    matched: false,
+    reasonCode: null,
+    normalizedDomainSet: approvedDomains,
+    approvalCount: Array.isArray(approvalConfig?.approvals) ? approvalConfig.approvals.length : 0,
+  };
+  if (!approvalConfig?.enabled) return failApproval(evidenceBase, "large_bundle_review_approval_disabled");
+  if (!Array.isArray(approvalConfig.approvals) || approvalConfig.approvals.length === 0) {
+    return failApproval(evidenceBase, "large_bundle_review_approval_missing");
+  }
+  if (!sizeBlockOnly) return failApproval(evidenceBase, "large_bundle_review_not_size_only");
+  if (laneDecision?.splitRequired || laneDecision?.branchStrategy === "split-required") {
+    return failApproval(evidenceBase, "large_bundle_review_split_required");
+  }
+  if (laneDecision?.manualActionRequired || laneDecision?.manualDecisionRequired || laneDecision?.genuineManualDecisionRequired) {
+    return failApproval(evidenceBase, "large_bundle_review_manual_action_required");
+  }
+  if (laneDecision?.dangerGate) return failApproval(evidenceBase, "large_bundle_review_danger_gate");
+  if (laneDecision?.lane !== "workflow-docs-tooling") return failApproval(evidenceBase, "large_bundle_review_wrong_lane");
+  if (sensitive.length > 0) return failApproval(evidenceBase, "large_bundle_review_sensitive_scope");
+  if (approvedDomains.length !== 1 || approvedDomains[0] !== "workflow-docs-tooling") {
+    return failApproval(evidenceBase, "large_bundle_review_domain_mismatch");
+  }
+
+  const packageEvidence = normalizeLargeBundlePackageEvidence(reviewPackageEvidence);
+  const packageProblem = validateLargeBundlePackageEvidence(packageEvidence);
+  if (packageProblem) return failApproval(evidenceBase, packageProblem);
+
+  for (const approval of approvalConfig.approvals) {
+    const mismatch = matchLargeBundleApproval({
+      approval,
+      packageEvidence,
+      files,
+      additions,
+      deletions,
+      totalChangedLines,
+      normalizedDomainSet: approvedDomains,
+      now,
+    });
+    if (!mismatch) {
+      return {
+        ok: true,
+        requiredReviewerTier: approval.requiredReviewerTier,
+        evidence: {
+          ...evidenceBase,
+          ok: true,
+          matched: true,
+          reason: "exact_large_bundle_review_approved",
+          reasonCode: "exact_large_bundle_review_approved",
+          schemaVersion: approval.schemaVersion,
+          issueNumber: approval.issueNumber,
+          repositorySlug: approval.repositorySlug,
+          lane: approval.lane,
+          baseSha: approval.baseSha,
+          headSha: approval.headSha,
+          changedFileCount: files.length,
+          totalChangedLines,
+          maxFiles: approval.maxFiles,
+          maxChangedLines: approval.maxChangedLines,
+          requiredReviewerTier: approval.requiredReviewerTier,
+          manualMergeRequired: true,
+          autoMergeEligible: false,
+          taskKey: approval.taskKey,
+          reasonCode: "exact_large_bundle_review_approved",
+        },
+      };
+    }
+  }
+  return failApproval(evidenceBase, "large_bundle_review_no_matching_approval");
 }
 
 export function reviewerReadinessSummary(config, sample = {}) {
@@ -332,6 +484,143 @@ function decision(tier, reason, extras) {
   return { tier, reason, ...extras };
 }
 
+function normalizeLargeBundleApproval(raw, index) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}] must be an object`);
+  }
+  const approval = {
+    schemaVersion: positiveInteger(raw.schemaVersion ?? raw.version, `largeBundleReviewApproval.approvals[${index}].schemaVersion`),
+    issueNumber: positiveInteger(raw.issueNumber, `largeBundleReviewApproval.approvals[${index}].issueNumber`),
+    repositorySlug: boundedIdentifier(raw.repositorySlug, `largeBundleReviewApproval.approvals[${index}].repositorySlug`, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+    lane: boundedIdentifier(raw.lane, `largeBundleReviewApproval.approvals[${index}].lane`, /^[a-z0-9][a-z0-9-]{0,80}$/),
+    baseSha: shaIdentifier(raw.baseSha, `largeBundleReviewApproval.approvals[${index}].baseSha`),
+    headSha: shaIdentifier(raw.headSha, `largeBundleReviewApproval.approvals[${index}].headSha`),
+    changedFilesDigest: sha256Identifier(raw.changedFilesDigest, `largeBundleReviewApproval.approvals[${index}].changedFilesDigest`),
+    rawDiffSha256: sha256Identifier(raw.rawDiffSha256, `largeBundleReviewApproval.approvals[${index}].rawDiffSha256`),
+    providerBoundDiffSha256: sha256Identifier(raw.providerBoundDiffSha256, `largeBundleReviewApproval.approvals[${index}].providerBoundDiffSha256`),
+    changedFileCount: nonNegativeInteger(raw.changedFileCount, `largeBundleReviewApproval.approvals[${index}].changedFileCount`),
+    additions: nonNegativeInteger(raw.additions, `largeBundleReviewApproval.approvals[${index}].additions`),
+    deletions: nonNegativeInteger(raw.deletions, `largeBundleReviewApproval.approvals[${index}].deletions`),
+    totalChangedLines: nonNegativeInteger(raw.totalChangedLines, `largeBundleReviewApproval.approvals[${index}].totalChangedLines`),
+    normalizedDomainSet: normalizeConfiguredDomainSet(raw.normalizedDomainSet, index),
+    maxFiles: nonNegativeInteger(raw.maxFiles, `largeBundleReviewApproval.approvals[${index}].maxFiles`),
+    maxChangedLines: nonNegativeInteger(raw.maxChangedLines, `largeBundleReviewApproval.approvals[${index}].maxChangedLines`),
+    requiredReviewerTier: normalizeStrongOrBetterTier(raw.requiredReviewerTier, index),
+    manualMergeRequired: raw.manualMergeRequired === true,
+    autoMergeEligible: raw.autoMergeEligible === true,
+    expiresAt: raw.expiresAt ? validIsoTimestamp(raw.expiresAt, `largeBundleReviewApproval.approvals[${index}].expiresAt`) : null,
+    taskKey: raw.taskKey ? boundedIdentifier(raw.taskKey, `largeBundleReviewApproval.approvals[${index}].taskKey`, /^[0-9]{8}-[0-9]{4}$/) : null,
+    humanDirectedBundleReasonCode: boundedIdentifier(raw.humanDirectedBundleReasonCode, `largeBundleReviewApproval.approvals[${index}].humanDirectedBundleReasonCode`, /^[a-z0-9][a-z0-9_-]{0,80}$/),
+    allowedTaskKeys: normalizeTaskKeys(raw.allowedTaskKeys, index),
+  };
+  if (approval.schemaVersion !== 1) {
+    throw new Error(`Unsupported large-bundle approval schema version: ${approval.schemaVersion}`);
+  }
+  if (!approval.manualMergeRequired) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}] must require manual merge`);
+  }
+  if (approval.autoMergeEligible) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}] must be auto-merge ineligible`);
+  }
+  if (approval.maxFiles < approval.changedFileCount) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}].maxFiles is lower than changedFileCount`);
+  }
+  if (approval.maxChangedLines < approval.totalChangedLines) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}].maxChangedLines is lower than totalChangedLines`);
+  }
+  if (!approval.expiresAt && !approval.taskKey) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}] must include expiresAt or taskKey`);
+  }
+  return Object.freeze(approval);
+}
+
+function normalizeLargeBundlePackageEvidence(raw) {
+  const evidence = raw && typeof raw === "object" ? raw : {};
+  return {
+    issueNumber: integerOrNull(evidence.issueNumber),
+    repositorySlug: stringOrNull(evidence.repositorySlug),
+    lane: stringOrNull(evidence.lane),
+    baseSha: stringOrNull(evidence.baseSha),
+    headSha: stringOrNull(evidence.headSha),
+    changedFilesDigest: stringOrNull(evidence.changedFilesDigest),
+    rawDiffSha256: stringOrNull(evidence.rawDiffSha256),
+    providerBoundDiffSha256: stringOrNull(evidence.providerBoundDiffSha256),
+    changedFileCount: integerOrNull(evidence.changedFileCount),
+    additions: integerOrNull(evidence.additions),
+    deletions: integerOrNull(evidence.deletions),
+    totalChangedLines: integerOrNull(evidence.totalChangedLines),
+    normalizedDomainSet: Array.isArray(evidence.normalizedDomainSet) ? evidence.normalizedDomainSet.map(String).sort() : [],
+    manualMergeRequired: evidence.manualMergeRequired === true,
+    autoMergeEligible: evidence.autoMergeEligible === true,
+    stopLabelPresent: evidence.stopLabelPresent === true,
+    validationPassed: evidence.validationPassed === true,
+    validationHeadSha: stringOrNull(evidence.validationHeadSha),
+    secretBoundaryOk: evidence.secretBoundaryOk === true,
+    packageComplete: evidence.packageComplete === true,
+    diffTruncated: evidence.diffTruncated === true,
+    taskKey: stringOrNull(evidence.taskKey),
+    bundleTaskKeys: Array.isArray(evidence.bundleTaskKeys) ? evidence.bundleTaskKeys.map(String).sort() : [],
+    manualActionRequired: evidence.manualActionRequired === true,
+  };
+}
+
+function validateLargeBundlePackageEvidence(evidence) {
+  if (!evidence.packageComplete || evidence.diffTruncated) return "large_bundle_review_package_incomplete";
+  if (evidence.manualActionRequired) return "large_bundle_review_manual_action_required";
+  if (evidence.stopLabelPresent) return "large_bundle_review_stop_label_present";
+  if (!evidence.secretBoundaryOk) return "large_bundle_review_secret_boundary_blocked";
+  if (!evidence.validationPassed) return "large_bundle_review_validation_missing";
+  if (!evidence.manualMergeRequired || evidence.autoMergeEligible) return "large_bundle_review_manual_merge_contract_mismatch";
+  if (!evidence.issueNumber || !evidence.repositorySlug || !evidence.lane || !evidence.baseSha || !evidence.headSha) {
+    return "large_bundle_review_missing_identity_evidence";
+  }
+  if (!evidence.changedFilesDigest || !evidence.rawDiffSha256 || !evidence.providerBoundDiffSha256) {
+    return "large_bundle_review_missing_digest_evidence";
+  }
+  if (
+    evidence.changedFileCount === null ||
+    evidence.additions === null ||
+    evidence.deletions === null ||
+    evidence.totalChangedLines === null
+  ) {
+    return "large_bundle_review_missing_stat_evidence";
+  }
+  if (evidence.validationHeadSha && evidence.validationHeadSha !== evidence.headSha) {
+    return "large_bundle_review_validation_head_mismatch";
+  }
+  return null;
+}
+
+function matchLargeBundleApproval({ approval, packageEvidence, files, additions, deletions, totalChangedLines, normalizedDomainSet, now }) {
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  if (approval.expiresAt && Date.parse(approval.expiresAt) <= nowMs) return "expired";
+  const taskKeys = new Set([packageEvidence.taskKey, ...packageEvidence.bundleTaskKeys].filter(Boolean));
+  if (approval.taskKey && !taskKeys.has(approval.taskKey)) return "task_key";
+  for (const taskKey of approval.allowedTaskKeys) {
+    if (!taskKeys.has(taskKey)) return "allowed_task_key";
+  }
+  if (packageEvidence.issueNumber !== approval.issueNumber) return "issue";
+  if (packageEvidence.repositorySlug !== approval.repositorySlug) return "repo";
+  if (packageEvidence.lane !== approval.lane) return "lane";
+  if (packageEvidence.baseSha !== approval.baseSha) return "base";
+  if (packageEvidence.headSha !== approval.headSha) return "head";
+  if (packageEvidence.changedFilesDigest !== approval.changedFilesDigest) return "files_digest";
+  if (packageEvidence.rawDiffSha256 !== approval.rawDiffSha256) return "raw_diff_digest";
+  if (packageEvidence.providerBoundDiffSha256 !== approval.providerBoundDiffSha256) return "provider_diff_digest";
+  if (files.length !== approval.changedFileCount || packageEvidence.changedFileCount !== approval.changedFileCount) return "file_count";
+  if (additions !== approval.additions || packageEvidence.additions !== approval.additions) return "additions";
+  if (deletions !== approval.deletions || packageEvidence.deletions !== approval.deletions) return "deletions";
+  if (totalChangedLines !== approval.totalChangedLines || packageEvidence.totalChangedLines !== approval.totalChangedLines) return "total_lines";
+  if (files.length > approval.maxFiles || totalChangedLines > approval.maxChangedLines) return "maxima";
+  if (normalizedDomainSet.join("\n") !== approval.normalizedDomainSet.join("\n")) return "domains";
+  if (packageEvidence.normalizedDomainSet.join("\n") !== approval.normalizedDomainSet.join("\n")) return "package_domains";
+  return null;
+}
+
+function failApproval(base, reason) {
+  return { ok: false, requiredReviewerTier: null, evidence: { ...base, ok: false, matched: false, reason, reasonCode: reason } };
+}
+
 function normalizeLaneRequiredTier(tier, laneDecision) {
   if (laneDecision?.splitRequired || laneDecision?.branchStrategy === "split-required") return "block_split_or_escalate";
   if (tier === "split_or_escalate") return "block_split_or_escalate";
@@ -356,6 +645,15 @@ function detectDomains(files, laneDecision) {
     else if (first) domains.add(first);
   }
   return [...domains].filter(Boolean).sort();
+}
+
+function normalizeDomainSet(domains) {
+  const normalized = new Set();
+  for (const domain of domains || []) {
+    if (isWorkflowPolicyDomain(domain)) normalized.add("workflow-docs-tooling");
+    else normalized.add(domain);
+  }
+  return [...normalized].filter(Boolean).sort();
 }
 
 function isSensitivePath(filePath) {
@@ -383,6 +681,71 @@ function normalizeModelIdentifier(value) {
   const model = String(value);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,80}$/.test(model)) return "__invalid_model_identifier__";
   return model;
+}
+
+function normalizeConfiguredDomainSet(value, index) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 8) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}].normalizedDomainSet must be a bounded non-empty array`);
+  }
+  return Object.freeze([...new Set(value.map((item) => boundedIdentifier(item, `largeBundleReviewApproval.approvals[${index}].normalizedDomainSet`, /^[a-z0-9][a-z0-9/-]{0,80}$/)))].sort());
+}
+
+function normalizeTaskKeys(value, index) {
+  if (value === undefined) return Object.freeze([]);
+  if (!Array.isArray(value) || value.length > 16) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}].allowedTaskKeys must be a bounded array`);
+  }
+  return Object.freeze(value.map((item) => boundedIdentifier(item, `largeBundleReviewApproval.approvals[${index}].allowedTaskKeys`, /^[0-9]{8}-[0-9]{4}$/)).sort());
+}
+
+function normalizeStrongOrBetterTier(value, index) {
+  const tier = String(value || "");
+  if (tier !== "strong_independent" && tier !== "tie_breaker") {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}].requiredReviewerTier must be strong_independent or stronger`);
+  }
+  return tier;
+}
+
+function boundedIdentifier(value, fieldName, pattern) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 160 || !pattern.test(value)) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  return value;
+}
+
+function shaIdentifier(value, fieldName) {
+  return boundedIdentifier(value, fieldName, /^[0-9a-f]{40}$/);
+}
+
+function sha256Identifier(value, fieldName) {
+  return boundedIdentifier(value, fieldName, /^[0-9a-f]{64}$/);
+}
+
+function validIsoTimestamp(value, fieldName) {
+  const timestamp = boundedIdentifier(value, fieldName, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/);
+  if (Number.isNaN(Date.parse(timestamp))) throw new Error(`${fieldName} is invalid`);
+  return timestamp;
+}
+
+function positiveInteger(value, fieldName) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1) throw new Error(`${fieldName} must be a positive integer`);
+  return number;
+}
+
+function nonNegativeInteger(value, fieldName) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0) throw new Error(`${fieldName} must be a non-negative integer`);
+  return number;
+}
+
+function integerOrNull(value) {
+  const number = Number(value);
+  return Number.isInteger(number) ? number : null;
+}
+
+function stringOrNull(value) {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function nonNegativeNumber(value) {

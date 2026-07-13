@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
+import { normalizeLargeBundleReviewApprovalConfig } from "./reviewer-policy.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
 import { validateSupervisorRunId } from "./run-correlation.mjs";
@@ -12,6 +13,7 @@ const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "
 export const defaultConfig = Object.freeze({
   repoRoot: "/workspace/repos/Settleora",
   logsRoot: defaultLogsRoot,
+  repositorySlug: "tommytang213/Settleora",
   eligibleLabels: ["auto-ready", "auto-bundle"],
   stopLabels: [
     "needs-tommy",
@@ -80,6 +82,10 @@ export const defaultConfig = Object.freeze({
     tier: "cheap_independent",
     maxEstimatedCostUsd: 0.05,
     envFilePath: null,
+  },
+  largeBundleReviewApproval: {
+    enabled: false,
+    approvals: [],
   },
 });
 
@@ -306,6 +312,7 @@ export function loadConfig(cliArgs) {
   const reviewerPolicy = mergeReviewerPolicyConfig(config);
   config.reviewerTiers = reviewerPolicy.reviewerTiers;
   config.reviewerBudget = reviewerPolicy.reviewerBudget;
+  config.largeBundleReviewApproval = normalizeLargeBundleReviewApprovalConfig(config.largeBundleReviewApproval);
   config.reviewerProviderProfiles = normalizeReviewerProviderProfiles(config.reviewerProviderProfiles);
   config.autoMergePolicy = normalizeAutoMergePolicy(config.autoMergePolicy);
   config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
@@ -320,6 +327,7 @@ export function loadConfig(cliArgs) {
     path.join(config.logsRoot, "reports"),
     path.join(config.logsRoot, "reviews"),
     path.join(config.logsRoot, "review-fix"),
+    path.join(config.logsRoot, "recovery"),
     path.join(config.logsRoot, "summaries"),
     path.join(config.logsRoot, "locks"),
     path.join(config.logsRoot, "canary"),

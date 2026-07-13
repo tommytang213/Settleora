@@ -1479,6 +1479,7 @@ test("Gemini model config resolves only to fixed Google endpoint constants", asy
     "gemini-2.5-flash-lite",
     "gemini-2.5-pro",
     "gemini-3.1-pro-preview",
+    "gemini-3.5-flash",
     "gemini-flash-latest",
     "gemini-flash-lite-latest",
     "gemini-pro-latest",
@@ -1594,11 +1595,11 @@ test("Gemini smoke test selects configured cheap and strong Gemini tier models",
     assert.equal(cheap.status, "pass");
     assert.equal(cheap.model, "gemini-2.5-flash-lite");
     assert.equal(strong.status, "pass");
-    assert.equal(strong.model, "gemini-2.5-pro");
+    assert.equal(strong.model, "gemini-3.5-flash");
     assert.equal(new URL(requestedUrls[0]).origin, "https://generativelanguage.googleapis.com");
     assert.equal(new URL(requestedUrls[1]).origin, "https://generativelanguage.googleapis.com");
     assert.equal(new URL(requestedUrls[0]).pathname, "/v1beta/models/gemini-2.5-flash-lite:generateContent");
-    assert.equal(new URL(requestedUrls[1]).pathname, "/v1beta/models/gemini-2.5-pro:generateContent");
+    assert.equal(new URL(requestedUrls[1]).pathname, "/v1beta/models/gemini-3.5-flash:generateContent");
     assert.doesNotMatch(readFileSync(cheap.reportPath, "utf8"), /super-secret-key/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
@@ -1682,7 +1683,7 @@ test("client-ui-low-risk real-code lane selects cheap Gemini reviewer and pass v
           manualMergeRequired: false,
           autoMergeEligible: true,
         },
-        diff: "diff --git a/apps/mobile/lib/ui/settleora_components.dart b/apps/mobile/lib/ui/settleora_components.dart\n+const ok = true;\n",
+        diff: "diff --git a/apps/mobile/lib/ui/settleora_components.dart b/apps/mobile/lib/ui/settleora_components.dart\nindex 1111111..2222222 100644\n--- a/apps/mobile/lib/ui/settleora_components.dart\n+++ b/apps/mobile/lib/ui/settleora_components.dart\n@@ -1,0 +1,1 @@\n+const ok = true;\n",
         summary: { currentHead: "head123" },
       }),
       {
@@ -1756,7 +1757,7 @@ test("sensitive domain uses strong integrated Gemini review when lane metadata r
     });
     assert.equal(result.status, "pass");
     assert.equal(result.tier, "strong_independent");
-    assert.equal(result.model, "gemini-2.5-pro");
+    assert.equal(result.model, "gemini-3.5-flash");
     assert.equal(calls, 1);
     assert.doesNotMatch(prompt, /Approved first lanes are workflow-docs-tooling, docs-planning, and client-ui-low-risk only/);
     assert.doesNotMatch(prompt, /Pass only if this low-risk Settleora/);
@@ -1947,6 +1948,128 @@ test("transient integrated Gemini provider failure retries and still fails close
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("Gemini model endpoint resolution is explicit and fail closed", () => {
+  assert.equal(
+    supportedGeminiModelEndpoints["gemini-3.5-flash"],
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+  );
+  assert.equal(resolveGeminiModelEndpoint("gemini-3.5-flash"), supportedGeminiModelEndpoints["gemini-3.5-flash"]);
+  assert.equal(resolveGeminiModelEndpoint("gemini-9.9-unknown"), null);
+  assert.equal(resolveGeminiModelEndpoint("gemini-flash-latest"), supportedGeminiModelEndpoints["gemini-flash-latest"]);
+  assert.equal(resolveGeminiModelEndpoint("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash"), null);
+});
+
+test("strong Gemini profile uses stable model override instead of provider default", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-strong-stable-"));
+  try {
+    let requestedUrl = "";
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, {
+        reviewerTiers: {
+          strong_independent: {
+            model: "gemini-3.5-flash",
+            inputUsdPerMillionTokens: 1.5,
+            outputUsdPerMillionTokens: 9,
+          },
+        },
+        reviewerProviderProfiles: {
+          "gemini-strong": {
+            provider: "gemini",
+            apiKeyEnv: "GEMINI_API_KEY",
+            envFilePath: null,
+            defaultModel: "gemini-2.5-flash-lite",
+          },
+        },
+      }),
+      workflowReviewPackage({
+        changedFiles: ["services/api/Example.cs"],
+        laneDecision: {
+          lane: "api-domain-runtime",
+          allowedToImplement: true,
+          dangerGate: true,
+          reviewerTier: "strong_independent",
+        },
+      }),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        fetchImpl: async (url) => {
+          requestedUrl = url;
+          return fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] });
+        },
+      },
+    );
+    assert.equal(result.status, "pass");
+    assert.equal(result.model, "gemini-3.5-flash");
+    assert.equal(requestedUrl, supportedGeminiModelEndpoints["gemini-3.5-flash"]);
+    assert.equal(result.pricing.inputUsdPerMillionTokens, 1.5);
+    assert.equal(result.pricing.outputUsdPerMillionTokens, 9);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("integrated Gemini provider 404 blocks without fallback and stays sanitized", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-gemini-404-no-fallback-"));
+  try {
+    let calls = 0;
+    const result = await runGeminiIntegratedReview(
+      geminiIntegratedConfig(tempRoot, {
+        geminiReviewerRetry: { maxRetries: 1, backoffMs: 0 },
+        reviewerTiers: {
+          strong_independent: {
+            model: "gemini-3.5-flash",
+            inputUsdPerMillionTokens: 1.5,
+            outputUsdPerMillionTokens: 9,
+          },
+        },
+      }),
+      workflowReviewPackage({
+        changedFiles: ["services/api/Example.cs"],
+        laneDecision: {
+          lane: "api-domain-runtime",
+          allowedToImplement: true,
+          dangerGate: true,
+          reviewerTier: "strong_independent",
+        },
+      }),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        sleep: async () => {},
+        fetchImpl: async (url) => {
+          calls += 1;
+          assert.equal(url, supportedGeminiModelEndpoints["gemini-3.5-flash"]);
+          return fakeGeminiResponse({ error: { message: "api_key=super-secret-key model unavailable" } }, 404);
+        },
+      },
+    );
+    assert.equal(calls, 1);
+    assert.equal(result.status, "blocked");
+    assert.equal(result.reason, "blocked_provider_http_error");
+    assert.equal(result.model, "gemini-3.5-flash");
+    assert.equal(result.providerAttempts.length, 1);
+    assert.equal(result.providerAttempts[0].transient, false);
+    assert.doesNotMatch(JSON.stringify(result), /super-secret-key/);
+    assert.doesNotMatch(readFileSync(result.reportPath, "utf8"), /super-secret-key|x-goog-api-key/i);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runner example strong Gemini model and pricing stay synchronized", () => {
+  const example = JSON.parse(readFileSync(path.join(process.cwd(), "tools/auto-runner/runner-config.example.json"), "utf8"));
+  const strong = example.reviewerTiers.strong_independent;
+  const tieBreaker = example.reviewerTiers.tie_breaker;
+  const strongProfile = example.reviewerProviderProfiles["gemini-strong"];
+  for (const tier of [strong, tieBreaker]) {
+    assert.equal(tier.model, "gemini-3.5-flash");
+    assert.equal(tier.inputUsdPerMillionTokens, 1.5);
+    assert.equal(tier.outputUsdPerMillionTokens, 9);
+    assert.doesNotMatch(tier.model, /latest|preview|experimental/i);
+  }
+  assert.equal(strongProfile.defaultModel, "gemini-3.5-flash");
+  assert.equal(resolveGeminiModelEndpoint(strong.model), supportedGeminiModelEndpoints["gemini-3.5-flash"]);
 });
 
 test("integrated Gemini retry count and delay are bounded even with pathological config", async () => {
@@ -5794,9 +5917,9 @@ function geminiSmokeConfig(logsRoot, overrides = {}) {
         provider: "gemini",
         providerProfile: "gemini-strong",
         command: null,
-        model: "gemini-2.5-pro",
-        inputUsdPerMillionTokens: 1.25,
-        outputUsdPerMillionTokens: 10,
+        model: "gemini-3.5-flash",
+        inputUsdPerMillionTokens: 1.5,
+        outputUsdPerMillionTokens: 9,
       },
       tie_breaker: {
         enabled: false,
@@ -5835,7 +5958,7 @@ function geminiSmokeConfig(logsRoot, overrides = {}) {
         provider: "gemini",
         apiKeyEnv: "GEMINI_API_KEY",
         envFilePath: null,
-        defaultModel: "gemini-2.5-pro",
+        defaultModel: "gemini-3.5-flash",
       },
       ...(overrides.reviewerProviderProfiles || {}),
     },
@@ -5869,9 +5992,9 @@ function geminiIntegratedConfig(logsRoot, overrides = {}) {
         provider: "gemini",
         providerProfile: "gemini-strong",
         command: null,
-        model: "gemini-2.5-pro",
-        inputUsdPerMillionTokens: 1.25,
-        outputUsdPerMillionTokens: 10,
+        model: "gemini-3.5-flash",
+        inputUsdPerMillionTokens: 1.5,
+        outputUsdPerMillionTokens: 9,
         ...(overrides.reviewerTiers?.strong_independent || {}),
       },
       tie_breaker: {
@@ -5911,7 +6034,9 @@ function workflowReviewPackage(overrides = {}) {
     autoMergeEligible: false,
     prCreationAllowed: true,
   };
-  const diff = overrides.diff || "diff --git a/tools/auto-runner/lib/gemini-reviewer.mjs b/tools/auto-runner/lib/gemini-reviewer.mjs\n+const ok = true;\n";
+  const diff =
+    overrides.diff ||
+    "diff --git a/tools/auto-runner/lib/gemini-reviewer.mjs b/tools/auto-runner/lib/gemini-reviewer.mjs\nindex 1111111..2222222 100644\n--- a/tools/auto-runner/lib/gemini-reviewer.mjs\n+++ b/tools/auto-runner/lib/gemini-reviewer.mjs\n@@ -1,0 +1,1 @@\n+const ok = true;\n";
   return {
     packagePath: "/workspace/logs/settleora-auto-runner/reviews/test-package.json",
     summary: {

@@ -20,6 +20,50 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #893 - Recovery, fix, existing-PR recovery, and continuation checkpoint
+
+- Task key: `20260713-1927`.
+- Branch:
+  `tools/auto-runner-recovery-continuation-893-20260713-1927`.
+- Base:
+  exact `origin/main` `db854eb306007e044b05ea47220da466ac2f04df`.
+- Bundle 3 prerequisite:
+  #891/#892 completed via PR #904, merge SHA
+  `db854eb306007e044b05ea47220da466ac2f04df`.
+- Bundle 4 implementation scope active:
+  - central recovery outcome taxonomy, phase model, retry budgets, durable
+    sanitized recovery state, evidence invalidation, and fail-closed drift
+    handling;
+  - existing runner-owned PR recovery gates, structured review/CI/scanner fix
+    classification, exact-head evidence regeneration, current-main scanner
+    reconciliation, and duplicate follow-up prevention;
+  - startup recovery discovery before unrelated issue polling, continuation
+    helpers, supervisor/report correlation, idempotent mutation markers, and
+    docs for bounded interruption recovery.
+- Checkpoint commits on this branch:
+  - `79db31cff49c4b2c2dbe9c9fdb8d76e0ac35417c`
+    `Add durable recovery state and retry taxonomy`.
+  - `2a38bcc153c008b6b60fd6c11a9cb08e9ed31023`
+    `Recover existing PRs and run bounded fix cycles`.
+  - Slice 3 commit pending at this ledger checkpoint.
+- Remaining foundation:
+  #894 remains the final foundation acceptance gate after #893 merge.
+- Post-foundation:
+  #902 remains post-foundation and untouched by this implementation.
+- Protected canaries:
+  #865 and #866 remain open with exact labels `area:mobile-ui`,
+  `auto-canary-ready`, `canary`, `workflow`, zero comments, no assignees, and
+  no milestone.
+- Scope confirmation:
+  this checkpoint is limited to `tools/auto-runner/**`,
+  `docs/workflow/AUTONOMOUS_CODEX_RUNNER.md`,
+  `docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md`,
+  `tools/auto-runner/README.md`, and this ledger. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migrations,
+  OpenAPI/generated clients, Docker/CI/deployment, secrets, active external
+  config, `.ai/*`, #894/#902 implementation, or protected canaries.
+
 ### Issues #891/#892 - Automatic work generation and progress hygiene implementation checkpoint
 
 - Task key: `20260713-1601`.

@@ -52,7 +52,6 @@ import {
 } from "./lib/review-fix-policy.mjs";
 import {
   buildIssueLinkageEvidence,
-  evaluateExistingPrRecoveryDecision,
   executeAutoMerge,
   inspectAutoMergeGithubState,
   requiresIndependentAiReview,
@@ -74,6 +73,17 @@ import {
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
+import { discoverStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary } from "./lib/recovery-continuation.mjs";
+import {
+  advanceRecoveryPhase,
+  bindRecoveryEvidence,
+  createInitialRecoveryState,
+  invalidateEvidenceForHeadChange,
+  recordIdempotentMutation,
+  recordRecoveryAttempt,
+  writeRecoveryState,
+} from "./lib/recovery-state.mjs";
+import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -256,6 +266,37 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     runIssueState: trackerSnapshot(issueTracker),
   };
 
+  const startupRecovery = discoverStartupRecovery(config);
+  if (startupRecovery.found) {
+    const continuation = startupRecovery.allowed
+      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
+      : { outcome: "blocked_recovery_state", reasonCode: startupRecovery.reasonCode, recovery: startupRecovery };
+    iteration.recovery = continuation.recovery || startupRecovery;
+    iteration.existingPrRecovery = continuation.result?.existingPrRecovery || null;
+    iteration.bundle = continuation.result?.bundle || null;
+    iteration.autoMerge = continuation.result?.autoMerge || null;
+    iteration.pr = continuation.result?.pr || null;
+    iteration.changedFiles = continuation.result?.changedFiles || [];
+    iteration.validation = continuation.result?.validation || null;
+    iteration.review = continuation.result?.review || null;
+    iteration.externalReview = continuation.result?.externalReview || null;
+    iteration.baseOriginMainSha = continuation.result?.baseOriginMainSha || startupRecovery.state?.baseSha || null;
+    iteration.runnerCreatedCommitSha = continuation.result?.expectedHeadSha || startupRecovery.state?.currentHeadSha || null;
+    iteration.outcome = continuation.outcome;
+    iteration.systemicStop = continuation.ok === false
+      ? `recoverable-work-blocked:${continuation.reasonCode}`
+      : continuation.outcome === "recovery_stopped_at_safe_boundary"
+        ? `recoverable-work-stopped:${continuation.reasonCode}`
+        : null;
+    iteration.finishedAt = new Date().toISOString();
+    logger.info(
+      startupRecovery.allowed
+        ? `Recoverable auto-runner state for issue #${startupRecovery.state?.issueNumber} executed phase ${iteration.recovery?.executedPhase || "unknown"}.`
+        : `Recoverable auto-runner state blocked polling: ${startupRecovery.reasonCode}`,
+    );
+    return iteration;
+  }
+
   const polled = pollEligibleIssues(config, logger);
   iteration.poll = { rawCount: polled.rawCount || 0, warning: polled.warning || null, searches: polled.searches || [] };
   if (polled.issues.length === 0) {
@@ -292,8 +333,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   };
   logger.info(`Iteration ${index}: selected issue #${issue.number} ${issue.title}`);
 
+  let recoveryRecorder = createProductionRecoveryRecorder(config, {
+    taskKey: safeTimestamp().slice(0, 13).replace(/[^0-9T]/g, ""),
+    issue,
+    runId,
+    supervisorRunId: config.supervisorRunId || null,
+    branchName: `pending/issue-${issue.number}-${runId}`,
+    baseSha: config.dryRun ? null : getRefSha("origin/main"),
+    currentHeadSha: config.dryRun ? null : getRefSha("HEAD"),
+    phase: "issue_poll_claim",
+    firstIncompleteAction: "claim_issue",
+  });
   const claim = claimIssue(config, issue, logger);
   iteration.claim = claim;
+  recoveryRecorder?.marker("claim", `issue-${issue.number}`, { target: issue.url || `#${issue.number}`, correlation: runId });
+  recoveryRecorder?.advance("branch_setup", "create_or_recover_task_branch");
   const claimRead = config.dryRun ? { ok: true, skipped: true, reason: "dry-run" } : readIssueLive(config, issue.number);
   const claimReread = claimRead.skipped
     ? {
@@ -316,6 +370,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   if (!claimReread.ok) {
     iteration.outcome = "auto_failed";
     iteration.systemicStop = `claim-reread-failed:${claimReread.reason}`;
+    recoveryRecorder?.stop("claim_reread_failed", claimReread.reason, "manual_recovery_required");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -331,6 +386,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Auto-runner canary policy did not implement #${issue.number}.\n\nOutcome: ${iteration.outcome}\nReason: ${iteration.canaryPolicy.reason}`,
     );
+    recoveryRecorder?.stop("canary_policy_blocked", iteration.canaryPolicy.reason, "stop_fail_closed");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -342,6 +398,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Auto-runner did not implement #${issue.number}.\n\nOutcome: ${iteration.outcome}\nReason: ${laneDecision.reason}`,
     );
+    recoveryRecorder?.stop("lane_policy_blocked", laneDecision.reason, "stop_fail_closed");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -352,6 +409,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       index,
       issue,
       laneDecision,
+      recoveryState: recoveryRecorder?.state || null,
       controlCheck: () => {
         const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
         return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -369,6 +427,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.pr = bundleResult.pr || null;
     iteration.ci = bundleResult.ci || null;
     iteration.autoMerge = bundleResult.autoMerge || null;
+    iteration.recovery = bundleResult.recovery || recoveryRecorder?.summary();
     iteration.runnerCreatedCommitSha = config.dryRun ? null : (bundleResult.stopReason ? null : getRefSha("HEAD"));
     iteration.outcome = bundleResult.outcome || (bundleResult.ok ? "approved_pr_opened" : "auto_failed");
     if (!config.dryRun) {
@@ -416,6 +475,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   fetchOriginMain(config);
   iteration.baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
   createTaskBranch(config, branchName);
+  recoveryRecorder?.setBranch({
+    branchName,
+    baseSha: iteration.baseOriginMainSha,
+    currentHeadSha: config.dryRun ? null : getRefSha("HEAD"),
+  });
+  recoveryRecorder?.advance("implementation_or_bundle_slice", "run_implementation");
   if (!config.dryRun) {
     iteration.mutationWorkspace = ensureTaskMutationWorkspace(config, {
       branchName,
@@ -429,15 +494,26 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     reportPath: promptInfo.reportPath,
     timestampKey: promptInfo.timestampKey,
   };
+  recoveryRecorder?.annotate({
+    taskKey: promptInfo.timestampKey,
+    lane: laneDecision.lane,
+    expectedReportPaths: {
+      repoReportPath: promptInfo.reportPath,
+      promptPath: promptInfo.promptPath,
+    },
+  });
 
   const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
   iteration.codex = codexResult;
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, codexFailureBody(issue, codexResult));
+    recoveryRecorder?.attempt("retryable_infrastructure", "codex_failed", codexResult.error || `status-${codexResult.status}`);
+    recoveryRecorder?.stop("codex_failed", codexResult.error || `status ${codexResult.status}`, "retry_bounded_or_manual");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
+  recoveryRecorder?.advance("checkpoint_validation_commit", "run_validation_and_commit");
 
   let changedFiles = listWorkingTreeChangedFiles();
   iteration.changedFiles = changedFiles;
@@ -449,6 +525,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Auto-runner made no changes for #${issue.number}; no PR was opened.`,
     );
+    recoveryRecorder?.stop("implementation_no_changes", "Implementation produced no changes.", "stop_terminal");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -463,6 +540,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Auto-runner blocked #${issue.number} because changed files crossed lane policy:\n\n${forbidden.join("\n")}`,
     );
+    recoveryRecorder?.stop("changed_files_forbidden", forbidden.join(","), "stop_fail_closed");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -475,15 +553,25 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Auto-runner did not open a PR for #${issue.number} because lane ${laneDecision.lane} does not allow PR creation.`,
     );
+    recoveryRecorder?.stop("pr_creation_not_allowed", laneDecision.lane, "stop_fail_closed");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
 
   const validationPlan = planValidation(changedFiles, laneDecision);
   iteration.validation = runValidationPlan(config, validationPlan);
+  recoveryRecorder?.evidence("localValidation", {
+    status: iteration.validation.passed ? "passed" : "failed",
+    headSha: config.dryRun ? null : getRefSha("HEAD"),
+    baseSha: iteration.baseOriginMainSha,
+    changedFiles,
+    summary: "checkpoint validation",
+  });
   if (!iteration.validation.passed) {
     iteration.outcome = "validation_failed";
     iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, validationFailureBody(issue, iteration.validation));
+    recoveryRecorder?.attempt("retryable_infrastructure", "checkpoint_validation_failed", "checkpoint_validation_failed");
+    recoveryRecorder?.stop("checkpoint_validation_failed", "Validation failed.", "retry_bounded_or_manual");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -497,6 +585,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Expected report missing: ${promptInfo.reportPath}`,
     );
+    recoveryRecorder?.stop("expected_report_missing", promptInfo.reportPath, "manual_recovery_required");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
@@ -510,12 +599,19 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       preReviewPrOwnershipFailureBody(issue, iteration.preReviewPrOwnership),
     );
+    recoveryRecorder?.stop("pre_review_pr_ownership_failed", "Unexpected PR or remote branch before review.", "stop_fail_closed");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
 
-    iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
+  iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
   iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "checkpoint_commit");
+  recoveryRecorder?.marker("checkpoint_commit", `issue-${issue.number}-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
+    target: branchName,
+    correlation: runId,
+  });
+  recoveryRecorder?.advance("aggregate_validation", "bind_exact_head_validation");
   if (!config.dryRun) {
     changedFiles = listChangedFiles("origin/main", "HEAD");
     iteration.changedFiles = changedFiles;
@@ -529,6 +625,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner blocked #${issue.number} because committed files crossed lane policy:\n\n${forbidden.join("\n")}`,
       );
+      recoveryRecorder?.stop("committed_files_forbidden", forbidden.join(","), "stop_fail_closed");
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
@@ -540,6 +637,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner blocked #${issue.number} because the exact-head commit left the worktree dirty before review.`,
       );
+      recoveryRecorder?.stop("dirty_after_commit", "Exact-head commit left worktree dirty.", "stop_fail_closed");
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
@@ -550,8 +648,17 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFiles,
     profile: laneDecision.validationProfile,
   });
+  recoveryRecorder?.evidence("localValidation", {
+    status: "passed",
+    headSha: iteration.runnerCreatedCommitSha,
+    baseSha: iteration.baseOriginMainSha,
+    changedFiles,
+    changedFilesDigest: iteration.validation.changedFilesDigest,
+    summary: "exact-head validation",
+  });
 
   const beforeReview = await checkoutFingerprint();
+  recoveryRecorder?.advance("external_review", "run_external_review");
   iteration.reviewPackage = await writeReviewPackage(config, {
     issue,
     promptInfo,
@@ -563,7 +670,17 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     diffHeadRef: "HEAD",
   });
   iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  recoveryRecorder?.evidence("externalReview", {
+    status: iteration.externalReview.status === "pass" ? "passed" : "blocked",
+    headSha: iteration.externalReview.reviewedHead || iteration.runnerCreatedCommitSha,
+    baseSha: iteration.baseOriginMainSha,
+    changedFiles,
+    changedFilesDigest: iteration.externalReview.changedFilesDigest,
+    evidencePath: iteration.externalReview.reportPath || iteration.externalReview.evidencePath,
+    summary: iteration.externalReview.reason,
+  });
   if (iteration.externalReview.status === "blocked") {
+    recoveryRecorder?.advance("review_fix", "run_external_review_fix");
     const fixAttempt = await runReviewFixCycle(config, {
       issue,
       laneDecision,
@@ -591,6 +708,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner did not open a PR for #${issue.number} because integrated Gemini pre-PR review returned ${iteration.externalReview.reason}. Review-fix status: ${fixAttempt.reason}.`,
       );
+      recoveryRecorder?.attempt("review_fix_safe", "external_review_blocked", fixAttempt.reason);
+      recoveryRecorder?.stop("external_review_fix_not_proceeded", fixAttempt.reason, "create_or_reuse_followup_or_escalate");
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
@@ -608,12 +727,18 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.validation = postFix.validation;
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+    recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_fix_commit");
+    recoveryRecorder?.marker("checkpoint_commit", `review-fix-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
+      target: branchName,
+      correlation: runId,
+    });
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
   }
   if (!iteration.review) {
+    recoveryRecorder?.advance("codex_mechanics_security_review", "run_codex_mechanics_review");
     iteration.review = runReviewPrompt(config, iteration.reviewPackage);
     const afterReview = await checkoutFingerprint();
     iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
@@ -625,10 +750,20 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner blocked #${issue.number} because pre-PR review mutated the checkout.`,
       );
+      recoveryRecorder?.stop("review_mutated_checkout", "Pre-PR review mutated the checkout.", "stop_fail_closed");
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
   }
+  recoveryRecorder?.evidence("codexReview", {
+    status: iteration.review.verdict?.verdict === "approve" ? "passed" : "blocked",
+    headSha: iteration.runnerCreatedCommitSha,
+    baseSha: iteration.baseOriginMainSha,
+    changedFiles,
+    changedFilesDigest: iteration.review.changedFilesDigest,
+    evidencePath: iteration.review.logPath || iteration.review.promptPath,
+    summary: iteration.review.reviewFailureReason || iteration.review.verdict?.verdict,
+  });
 
   if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
     const fixAttempt = await runReviewFixCycle(config, {
@@ -679,10 +814,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       issue,
       iteration.outcome,
       `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
-    );
-    iteration.finishedAt = new Date().toISOString();
-    return iteration;
-  }
+      );
+      recoveryRecorder?.stop("codex_review_not_approved", iteration.review.verdict.verdict, "run_focused_fix_or_escalate");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
   if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
     const fixAttempt = await runReviewFixCycle(config, {
       issue,
@@ -726,9 +862,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       issue,
       iteration.outcome,
       `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
-    );
-    iteration.finishedAt = new Date().toISOString();
-    return iteration;
+      );
+      recoveryRecorder?.stop("codex_review_not_approved", iteration.review.verdict.verdict, "run_focused_fix_or_escalate");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
   }
   const prePushReviewGate = evaluatePrePushReviewGate({
     laneDecision,
@@ -742,11 +879,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       issue,
       iteration.outcome,
       `Auto-runner did not open a PR for #${issue.number} because ${prePushReviewGate.message}.`,
-    );
-    iteration.finishedAt = new Date().toISOString();
-    return iteration;
+      );
+      recoveryRecorder?.stop("pre_push_review_gate_failed", prePushReviewGate.reason || prePushReviewGate.message, "stop_fail_closed");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
   }
 
+  recoveryRecorder?.advance("push", "push_branch");
   iteration.push = pushBranch(config, branchName);
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
@@ -756,13 +895,33 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Auto-runner failed while pushing branch ${branchName} for #${issue.number}.`,
     );
+    recoveryRecorder?.attempt("retryable_infrastructure", "push_failed", iteration.push.error || `status-${iteration.push.status}`);
+    recoveryRecorder?.stop("push_failed", iteration.push.error || `status ${iteration.push.status}`, "retry_bounded_or_manual");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
+  recoveryRecorder?.marker("push", `branch-${branchName}`, { target: branchName, correlation: iteration.runnerCreatedCommitSha || runId });
+  recoveryRecorder?.advance("pr_create_recover", "open_or_recover_pr");
   iteration.pr = openOrUpdatePr(config, issue, branchName, prSummary(iteration));
-  if (!config.dryRun && iteration.pr.url) {
-    iteration.ci = watchChecks(config, iteration.pr.url);
+  if (iteration.pr?.url || iteration.pr?.number) {
+    recoveryRecorder?.setPr(iteration.pr);
+    recoveryRecorder?.marker("pr_create", `issue-${issue.number}`, {
+      target: iteration.pr.url || String(iteration.pr.number),
+      correlation: iteration.runnerCreatedCommitSha || runId,
+    });
   }
+  if (!config.dryRun && iteration.pr.url) {
+    recoveryRecorder?.advance("ci_wait", "wait_for_checks");
+    iteration.ci = watchChecks(config, iteration.pr.url);
+    recoveryRecorder?.evidence("ciChecks", {
+      status: "recorded",
+      headSha: iteration.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+      summary: "GitHub check wait completed",
+    });
+  }
+  recoveryRecorder?.advance("exact_head_final_refresh", "evaluate_merge_or_pr_state");
   iteration.autoMerge = await evaluateOrExecuteAutoMerge(config, {
     issue,
     iteration,
@@ -771,6 +930,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     forbidden,
   });
   if (iteration.autoMerge.result === "merged") {
+    recoveryRecorder?.advance("merge", "merge_confirmed");
+    recoveryRecorder?.marker("merge", `pr-${iteration.pr?.number || iteration.pr?.url}-${iteration.runnerCreatedCommitSha || "head"}`, {
+      target: iteration.pr?.url || String(iteration.pr?.number || ""),
+      correlation: iteration.autoMerge.mergeSha || iteration.runnerCreatedCommitSha || runId,
+    });
+    recoveryRecorder?.advance("post_merge_current_main_checks_scanner_reconciliation", "reconcile_current_main");
     iteration.outcome = "auto_merged";
   } else if (config.allowAutoMerge && !config.dryRun) {
     iteration.outcome = "auto_failed";
@@ -780,6 +945,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Auto-runner opened a PR for #${issue.number} but did not auto-merge it.\n\nPR: ${iteration.pr?.url || "URL unavailable"}\nReason: ${iteration.autoMerge.reason}`,
     );
+    recoveryRecorder?.stop("auto_merge_failed", iteration.autoMerge.reason, "manual_recovery_required");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   } else {
@@ -793,13 +959,170 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner opened or updated a PR for #${issue.number}: ${iteration.pr?.url || "URL unavailable"}`,
       );
+      recoveryRecorder?.marker("issue_comment", `issue-${issue.number}-pr-opened`, {
+        target: issue.url || `#${issue.number}`,
+        correlation: iteration.pr?.url || "",
+      });
     }
   }
+  recoveryRecorder?.complete(iteration.outcome);
+  iteration.recovery = recoveryRecorder?.summary();
   iteration.finishedAt = new Date().toISOString();
   return iteration;
 }
 
-async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision) {
+function createProductionRecoveryRecorder(config, input) {
+  if (config.dryRun) return null;
+  let state = createInitialRecoveryState(input);
+  let statePath = null;
+  const persist = (nextState) => {
+    const written = writeRecoveryState(config, nextState);
+    state = written.state;
+    statePath = written.statePath;
+    return state;
+  };
+  persist(state);
+  return {
+    get state() {
+      return state;
+    },
+    setBranch({ branchName, baseSha, currentHeadSha }) {
+      return persist({
+        ...state,
+        branch: {
+          ...state.branch,
+          name: branchName || state.branch.name,
+          baseSha: baseSha || state.branch.baseSha,
+          currentHeadSha: currentHeadSha || state.branch.currentHeadSha,
+        },
+      });
+    },
+    setPr(pr) {
+      return persist({
+        ...state,
+        pr: {
+          number: Number.isInteger(pr?.number) ? pr.number : state.pr?.number || null,
+          url: pr?.url || state.pr?.url || null,
+          headSha: pr?.headSha || pr?.headRefOid || state.branch.currentHeadSha || null,
+          headRefName: pr?.headRefName || state.branch.name || null,
+          baseRefName: pr?.baseRefName || "main",
+          state: pr?.state || "OPEN",
+        },
+      });
+    },
+    advance(phase, firstIncompleteAction, nextSafeAction = firstIncompleteAction) {
+      return persist(advanceRecoveryPhase(state, { phase, firstIncompleteAction, nextSafeAction }));
+    },
+    evidence(kind, evidence) {
+      return persist(bindRecoveryEvidence(state, kind, evidence));
+    },
+    headChanged(newHeadSha, reasonCode) {
+      return persist(invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }));
+    },
+    marker(kind, key, marker = {}) {
+      return persist(recordIdempotentMutation(state, { kind, key, marker }));
+    },
+    annotate(metadata = {}) {
+      return persist({
+        ...state,
+        ...metadata,
+        taskKey: metadata.taskKey || state.taskKey,
+      });
+    },
+    attempt(outcomeClass, fingerprint, reasonCode) {
+      return persist(recordRecoveryAttempt(state, { outcomeClass, fingerprint, reasonCode, phase: state.phase }));
+    },
+    stop(reasonCode, reason, nextSafeAction = "stop_fail_closed") {
+      return persist({
+        ...advanceRecoveryPhase(state, { phase: "stopped", firstIncompleteAction: state.firstIncompleteAction, nextSafeAction }),
+        stopReason: { reasonCode, reason: String(reason || "").slice(0, 300) },
+      });
+    },
+    complete(outcome) {
+      return persist({
+        ...advanceRecoveryPhase(state, { phase: "completed", firstIncompleteAction: "none", nextSafeAction: "none" }),
+        stopReason: null,
+        completion: { outcome: String(outcome || "completed").slice(0, 80), completedAt: new Date().toISOString() },
+      });
+    },
+    summary() {
+      return {
+        action: "production_recovery_state_recorded",
+        statePath,
+        state: {
+          taskKey: state.taskKey,
+          issueNumber: state.issue?.number || null,
+          branchName: state.branch?.name || null,
+          baseSha: state.branch?.baseSha || null,
+          currentHeadSha: state.branch?.currentHeadSha || null,
+          prNumber: state.pr?.number || null,
+          prUrl: state.pr?.url || null,
+          phase: state.phase,
+          nextSafeAction: state.nextSafeAction,
+          stopReason: state.stopReason,
+        },
+      };
+    },
+  };
+}
+
+async function resumeStartupRecovery(config, logger, runId, index, startupRecovery) {
+  return executeStartupContinuation(config, startupRecovery, {
+    controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
+    default: async ({ state, boundary }) => {
+      const live = readIssueLive(config, state.issue.number);
+      if (!live.ok) {
+        return { ok: false, outcome: "blocked_recovery_state", reasonCode: live.reason || "recovery_issue_read_failed", state };
+      }
+      const issue = live.issue || state.issue;
+      const laneDecision = classifyIssueLane(issue);
+      if (state.featureBundle) {
+        const bundle = await runFeatureBundleIteration(config, logger, {
+          runId,
+          index,
+          issue,
+          laneDecision,
+          branchName: state.branch.name,
+          recoveryState: state,
+          controlCheck: () => {
+            const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
+            return control.action === "stop" ? { stop: true, reason: control.reason } : null;
+          },
+        });
+        return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
+      }
+      if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
+        const stopped = advanceRecoveryPhase(state, {
+          phase: "stopped",
+          firstIncompleteAction: boundary.firstIncompleteAction,
+          nextSafeAction: "manual_recovery_required",
+        });
+        writeRecoveryState(config, {
+          ...stopped,
+          stopReason: {
+            reasonCode: "unsupported_early_phase_recovery",
+            reason: `Startup continuation cannot safely reconstruct phase ${boundary.phase} without re-running implementation.`,
+          },
+        });
+        return { ok: false, outcome: "blocked_recovery_state", reasonCode: "unsupported_early_phase_recovery", state: stopped };
+      }
+      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state);
+      if (!existingPrRecovery) {
+        return { ok: false, outcome: "blocked_recovery_state", reasonCode: "recovery_existing_pr_context_missing", state };
+      }
+      return {
+        ok: existingPrRecovery.autoMerge?.result !== "blocked",
+        outcome: existingPrRecovery.autoMerge?.result === "merged" ? "auto_merged" : "recovery_existing_pr_continued",
+        reasonCode: existingPrRecovery.reason,
+        existingPrRecovery,
+        ...existingPrRecovery,
+        state,
+      };
+    },
+  });
+}
+
+async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null) {
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
   if (!recoveryConfig) return null;
@@ -932,9 +1255,74 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     exactHeadEvidence,
     issueLinkageEvidence,
   };
-  const recoveryDecision = evaluateExistingPrRecoveryDecision(context);
-  if (!recoveryDecision.eligible) {
-    const blocked = { ...recoveryDecision, evidence: writeAutoMergeEvidence(config, recoveryDecision, context) };
+  const strictRecoveryDecision = evaluateExistingPrRecovery({
+    allowExistingPrRecovery: config.allowExistingPrRecovery,
+    allowStateRebuildFromEvidence: Boolean(recoveryConfig.allowStateRebuildFromEvidence || exactHeadEvidence.recoveryStateRebuildable),
+    issue: context.issue,
+    pr: context.pr,
+    laneDecision,
+    changedFiles,
+    forbiddenChangedFiles: forbidden,
+    evidence: {
+      validation: context.validation?.passed
+        ? {
+            status: "passed",
+            headSha: expectedHeadSha,
+            changedFilesDigest: context.validation.changedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
+          }
+        : null,
+      externalReview: context.externalReview?.status === "pass"
+        ? {
+            status: "passed",
+            headSha: context.externalReview.reviewedHead || expectedHeadSha,
+            tier: context.externalReview.tier || exactHeadEvidence.geminiTier,
+            changedFilesDigest: context.externalReview.changedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
+          }
+        : null,
+      codexReview: context.review?.verdict?.verdict === "approve"
+        ? {
+            status: "passed",
+            headSha: context.review.reviewedHead || expectedHeadSha,
+            changedFilesDigest: context.review.changedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
+          }
+        : null,
+    },
+    recoveryState,
+    worktreeClean: context.worktreeClean,
+    checkoutReconstructable: Boolean(recoveryConfig.checkoutReconstructable),
+    expectedRepository: recoveryConfig.expectedRepository || "tommytang213/Settleora",
+    expectedHeadSha,
+    conflictingPrCount: githubState.conflictingPrCount || 0,
+    ambiguousPrCount: githubState.ambiguousPrCount || 0,
+    ciStatus: githubState.checkConclusion === "PENDING" || githubState.checkStatus === "pending" ? "pending" : null,
+    mergeConfirmed: githubState.pr?.state === "MERGED",
+    postMergeCurrentMainEvidence: exactHeadEvidence.postMergeCurrentMainEvidence || null,
+  });
+  if (!strictRecoveryDecision.ok || strictRecoveryDecision.nextAction === "regenerate_exact_head_evidence") {
+    const blocked = {
+      eligible: false,
+      result: "blocked",
+      reason: strictRecoveryDecision.reasonCode,
+      recovery: true,
+      strictRecoveryDecision,
+      evidence: writeAutoMergeEvidence(config, { result: "blocked", reason: strictRecoveryDecision.reasonCode }, context),
+    };
+    return {
+      reason: strictRecoveryDecision.reasonCode,
+      pr: context.pr,
+      changedFiles,
+      validation: context.validation,
+      review: context.review,
+      externalReview: context.externalReview,
+      generatedRecoveryEvidence,
+      baseOriginMainSha,
+      expectedHeadSha,
+      autoMerge: blocked,
+    };
+  }
+  const recoveryDecision = evaluateAutoMergeDecision(context);
+  if (!recoveryDecision.eligible && strictRecoveryDecision.nextAction !== "resume_ci_wait") {
+    const blocked = { ...recoveryDecision, recovery: true, strictRecoveryDecision, evidence: writeAutoMergeEvidence(config, recoveryDecision, context) };
     return {
       reason: recoveryDecision.reason,
       pr: context.pr,

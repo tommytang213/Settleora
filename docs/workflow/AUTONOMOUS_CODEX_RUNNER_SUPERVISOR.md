@@ -345,3 +345,11 @@ deployment/configuration on TrueNAS SCALE, notification-secret configuration,
 and any broader lane/run approval. Recovery from stale or orphaned state is
 explicit and evidence-bound; this foundation does not implement automatic
 resume.
+
+Recovery continuation preserves supervisor correlation when an operator starts
+a bounded recovery run. Recovery state stores only sanitized `supervisorRunId`,
+runner run ID, task key, branch, phase, blocker, and next safe action; reports
+and summaries must resolve through exact correlation rather than newest-file
+guessing. Recovery must not steal active locks, run a second mutating Codex
+process on the same branch, delete source branches, force-push, or push
+directly to `main`.
