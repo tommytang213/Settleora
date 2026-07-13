@@ -20,35 +20,48 @@ remain the source of truth.
 
 ## Current Checkpoints
 
-### Issue #899 - Invitation runtime test-harness CodeQL HTTPS transport PR checkpoint
+### Issue #899 - Invitation runtime test-harness CodeQL HTTPS transport SARIF follow-up checkpoint
 
 - GitHub/live state verified:
   - #899 is open as the focused P0 security hygiene tracker for CodeQL
     alerts #56 and #57.
-  - PR #900 is open against `main` from
-    `auth/codeql-invitation-test-harness-899-20260713-1046`.
+  - PR #900 merged to `main` at
+    `48853ce46e132e4f09949f7d70705355930f327e` after adding explicit
+    HTTPS `WebApplicationFactory` client base addresses.
+  - Post-merge CodeQL C# analysis `1469910875` on that exact main SHA still
+    reported alerts #56 and #57 because the SARIF flow terminated at the
+    `StringContent(json, Encoding.UTF8, "application/json")` request-body
+    helper and did not treat the HTTPS `HttpClient.BaseAddress` as sufficient
+    proof for relative request send sites.
+  - PR #901 is open against `main` from
+    `auth/codeql-invitation-explicit-https-899-20260713-1159` with exact
+    implementation commit `e8b82b19683e47ddf64a9c0049a3321c91308fff` before
+    this ledger checkpoint.
   - #890 remains open and untouched as the next autonomous-runner child after
     this manual security PR merges.
   - #865 and #866 remain open protected canaries with exact labels
     `area:mobile-ui`, `auto-canary-ready`, `canary`, and `workflow`, zero
     comments, no assignees, and no milestone.
-- This PR scope:
-  - Classifies alerts #56 and #57 as CodeQL C# `cs/sensitive-data-transmission`
-    test-harness findings where synthetic invitation/password/bearer-bearing
-    JSON flows into `StringContent` request bodies through WebApplicationFactory
-    clients using the default HTTP base address.
-  - Updates only the affected invitation runtime test classes to create
-    WebApplicationFactory clients with explicit `https://localhost` base
-    addresses while keeping path-only requests and in-memory TestServer
-    behavior.
+- PR #901 scope:
+  - Uses the exact main SARIF to classify alerts #56 and #57 as CodeQL C#
+    `cs/sensitive-data-transmission` test-harness findings where synthetic
+    invitation/password/bearer-bearing JSON flows into `StringContent` request
+    bodies without a statically proven HTTPS request URI.
+  - Updates only the affected invitation runtime test classes to keep
+    WebApplicationFactory clients on `https://localhost` and to pass absolute
+    HTTPS `Uri` values at the sensitive `PostAsync`, `GetAsync`, and
+    `HttpRequestMessage` construction/send sites while preserving in-memory
+    TestServer behavior.
   - Preserves invitation runtime coverage and safe-output assertions.
   - Uses no CodeQL dismissal, suppression, query-suite/workflow exclusion,
     scanner gaming, product runtime change, schema migration, OpenAPI/generated
     client change, deployment change, secret/config change, or money/storage
     authority change.
 - Close/keep-open recommendation:
-  keep #899 open until PR #900 passes exact-head CI/security/code-scanning and a
-  human performs the explicit manual merge gate. Keep #800 and #890 open.
+  keep #899 open until PR #901 passes exact-head CI/security/code-scanning,
+  the exact PR-head CodeQL C# SARIF proves the prior rule/path/fingerprint
+  results absent, and a human performs the explicit manual merge gate. Keep
+  #800 and #890 open.
 
 ### Issue #889 - Approved-domain exact-head auto-merge policy PR checkpoint
 
