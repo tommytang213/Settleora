@@ -20,6 +20,65 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #891/#892 - Automatic work generation and progress hygiene implementation checkpoint
+
+- Task key: `20260713-1601`.
+- Branch:
+  `tools/auto-runner-work-generation-progress-hygiene-891-892-20260713-1601`.
+- Base:
+  exact `origin/main` `8c1320695da430d8d0932988679209952d59a1b6`.
+- Bundle 2 prerequisite:
+  #890 completed via PR #903, merge SHA
+  `8c1320695da430d8d0932988679209952d59a1b6`.
+- Bundle 3 implementation scope now active:
+  - #891: deterministic generated-work derivation, evidence correlation,
+    duplicate prevention, strict proposal validation, idempotent issue
+    creation/reuse/queue pipeline, and default-off mutation capability.
+  - #892: post-merge narrow issue closure, completion comments, transient
+    label cleanup, parent progress comments, project-status safe no-op unless
+    configured, and ledger-reconciliation issue proposal through the generated
+    work pipeline.
+- Checkpoint commits on this branch:
+  - `c47a501` `Add durable generated-work derivation and deduplication`.
+  - `a134940` `Create and queue validated follow-up issues idempotently`.
+  - Slice 3 commit pending at this ledger checkpoint.
+- Remaining foundation issues:
+  #893 and #894 remain open and are not implemented by this branch. #800 must
+  remain open until #894 final acceptance.
+- Post-foundation:
+  #902 remains post-foundation and untouched by this implementation.
+- Scope confirmation:
+  this checkpoint is limited to `tools/auto-runner/**`,
+  `docs/workflow/AUTONOMOUS_CODEX_RUNNER.md`,
+  `tools/auto-runner/README.md`, and this ledger. It does not change product
+  runtime, API behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migrations,
+  OpenAPI/generated clients, Docker/CI/deployment, secrets, active external
+  config, `.ai/*`, or protected canaries.
+
+### Issue #890 - Real feature-bundle orchestration state and recovery completed
+
+- Task key: `20260713-1416`.
+- PR: #903.
+- Source branch:
+  `tools/auto-runner-feature-bundle-orchestration-890-20260713-1416`.
+- Source head:
+  `2e104e87ed1c6b6cbb264d2e7c235c2c61bcdcef`.
+- Merge SHA:
+  `8c1320695da430d8d0932988679209952d59a1b6`.
+- Completed scope:
+  strict two-to-four-slice feature-bundle contract planning, focused/manual/
+  split lane rejection, durable sanitized external bundle state, checkpoint
+  validation and recovery, one branch / one final PR path, aggregate scope
+  enforcement, stale evidence invalidation, and bounded non-regex wildcard
+  matching for the Semgrep #83 fix.
+- Post-merge evidence:
+  PR #903 exact-head CI/security and current-main checks passed; alert #83 is
+  fixed without dismissal; #890 is closed completed; #800 remains open.
+- Remaining foundation:
+  #891/#892 are active in Bundle 3; #893/#894 remain after Bundle 3; #902
+  remains post-foundation.
+
 ### Issue #890 - Real feature-bundle orchestration state and recovery implementation checkpoint
 
 - Task key: `20260713-1416`.

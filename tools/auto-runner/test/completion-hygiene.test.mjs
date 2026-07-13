@@ -1,0 +1,248 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import {
+  buildLedgerReconciliationProposal,
+  cleanupTransientLabels,
+  completeMergedIssueHygiene,
+  evaluateCloseDecision,
+  renderCompletionComment,
+  renderParentProgressComment,
+} from "../lib/completion-hygiene.mjs";
+import { executeAutoMerge } from "../lib/auto-merge-policy.mjs";
+
+const headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const baseSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const mergeSha = "cccccccccccccccccccccccccccccccccccccccc";
+
+function logsRoot() {
+  return mkdtempSync(path.join(tmpdir(), "settleora-completion-"));
+}
+
+function narrowIssue(overrides = {}) {
+  return {
+    number: 891,
+    title: "Narrow runnable generated work",
+    state: "OPEN",
+    labels: ["area:infra", "type:feature", "workflow", "auto-ready", "auto-claimed", "auto-running"],
+    body: "Close rule: close after merged PR proves automatic issue derivation/creation.",
+    comments: [],
+    ...overrides,
+  };
+}
+
+function context(overrides = {}) {
+  return {
+    issue: narrowIssue(),
+    parentIssue: 800,
+    pr: { number: 100, url: "https://github.com/tommytang213/Settleora/pull/100", headRefOid: headSha, baseRefName: "main" },
+    sourceHeadSha: headSha,
+    expectedHeadSha: headSha,
+    mergeSha,
+    validation: { passed: true },
+    externalReview: { status: "pass" },
+    review: { verdict: { verdict: "approve" } },
+    ciSecurityResult: "passed",
+    currentMainResult: "passed",
+    closeRuleSatisfied: true,
+    completedChildren: [891],
+    remainingChildren: [893, 894],
+    futureGates: [902],
+    generatedFollowups: [{ number: 1001 }],
+    ...overrides,
+  };
+}
+
+function runnerWith(fixtures = {}) {
+  const calls = [];
+  const runner = (command, args) => {
+    calls.push({ command, args });
+    const key = `${command} ${args.slice(0, 2).join(" ")}`;
+    if (fixtures[key]) return typeof fixtures[key] === "function" ? fixtures[key](command, args, calls) : fixtures[key];
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+      const number = Number(args[2]);
+      const issue = number === 800 ? fixtures.parentIssue || { number: 800, title: "Umbrella", state: "OPEN", labels: [], body: "", comments: [] } : fixtures.issue || narrowIssue();
+      return { status: 0, stdout: JSON.stringify(issue) };
+    }
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      return { status: 0, stdout: JSON.stringify(fixtures.pr || { number: 100, url: "https://github.com/tommytang213/Settleora/pull/100", headRefOid: headSha, mergeCommit: { oid: mergeSha } }) };
+    }
+    return { status: 0, stdout: "" };
+  };
+  runner.calls = calls;
+  return runner;
+}
+
+test("successful merge closes one narrow complete issue", () => {
+  const runner = runnerWith({ "git rev-parse origin/main": { status: 0, stdout: baseSha } });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context(), { runner });
+  assert.equal(result.status, "merged");
+  assert.equal(result.closeDecision.close, true);
+  assert.equal(result.closure.status, "updated");
+  assert.ok(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "close"));
+});
+
+test("ambiguous umbrella remains open and #800 stays open before final acceptance", () => {
+  const umbrella = narrowIssue({ number: 800, title: "DevBox auto-runner foundation tracker", body: "Keep #800 open until #894 final acceptance. Close rule: final acceptance only." });
+  assert.equal(evaluateCloseDecision(umbrella, context({ issue: umbrella })).close, false);
+  assert.equal(evaluateCloseDecision(umbrella, context({ issue: umbrella })).reason, "umbrella_or_tracker_keep_open");
+});
+
+test("partially complete issue remains open with remaining gates", () => {
+  const issue = narrowIssue({ body: "Close rule: close after all slices. Remaining gates: final acceptance." });
+  const decision = evaluateCloseDecision(issue, context({ issue, remainingGates: ["final acceptance"] }));
+  assert.equal(decision.close, false);
+  assert.equal(decision.reason, "remaining_gates_present");
+});
+
+test("merge success remains merged when closure/comment/label/project/ledger hygiene fails", () => {
+  const runner = runnerWith({
+    "gh issue comment": { status: 1, stderr: "comment failed" },
+    "gh issue close": { status: 1, stderr: "close failed" },
+    "gh issue edit": { status: 1, stderr: "label failed" },
+  });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot(), run: true, allowFollowupIssueCreation: false }, context(), { runner });
+  assert.equal(result.status, "merged");
+  assert.equal(result.closure.status, "failed");
+  assert.equal(result.labelCleanup.status, "failed");
+});
+
+test("retry does not duplicate completion comments or closure", () => {
+  const marker = `settleora-completion:891:${mergeSha}`;
+  const issue = narrowIssue({ state: "CLOSED", comments: [{ body: marker }] });
+  const runner = runnerWith({ issue });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ issue }), { runner });
+  assert.equal(result.comment.status, "skipped");
+  assert.equal(result.closure.status, "skipped");
+  assert.equal(result.closure.reason, "issue_already_closed");
+});
+
+test("transient labels are removed while durable labels remain", () => {
+  const runner = runnerWith({ "git rev-parse origin/main": { status: 0, stdout: baseSha } });
+  const result = cleanupTransientLabels(narrowIssue(), runner);
+  assert.equal(result.status, "updated");
+  assert.deepEqual(result.attemptedRemove.sort(), ["auto-claimed", "auto-running"]);
+  assert.ok(result.preserved.includes("area:infra"));
+  assert.ok(result.preserved.includes("auto-ready"));
+});
+
+test("parent progress shows completed, remaining, blockers, future, manual, and keep-open rationale", () => {
+  const body = renderParentProgressComment({
+    issue: { number: 892 },
+    parentIssue: 800,
+    mergeSha,
+    completedChildren: [890, 891, 892],
+    remainingChildren: [893, 894],
+    blockers: ["none"],
+    futureGates: [902],
+    manualDecisions: ["manual merge gate"],
+    generatedFollowups: [{ number: 1001 }],
+  });
+  assert.match(body, /Completed children: #890, #891, #892/);
+  assert.match(body, /Remaining children: #893, #894/);
+  assert.match(body, /Future gates: #902/);
+  assert.match(body, /Manual decisions: manual merge gate/);
+  assert.match(body, /#800 remains open until #894 final acceptance/);
+});
+
+test("exact PR/head/merge/validation/review/CI evidence is included", () => {
+  const body = renderCompletionComment(context());
+  assert.match(body, /PR: https:\/\/github.com\/tommytang213\/Settleora\/pull\/100/);
+  assert.match(body, new RegExp(headSha));
+  assert.match(body, new RegExp(mergeSha));
+  assert.match(body, /Validation: passed/);
+  assert.match(body, /External review: pass/);
+  assert.match(body, /Exact-head CI\/security: passed/);
+});
+
+test("ledger reconciliation creates or reuses one docs-planning work item and avoids recursion", () => {
+  const proposal = buildLedgerReconciliationProposal(context());
+  assert.equal(proposal.ok, true);
+  assert.equal(proposal.proposal.kind, "ledger_reconciliation");
+  assert.equal(proposal.proposal.autoRunnerContract.lane, "docs-planning");
+  const recursive = buildLedgerReconciliationProposal(context({ issue: { ...narrowIssue(), proposalKind: "ledger_reconciliation" } }));
+  assert.equal(recursive.skipped, true);
+});
+
+test("project fields are updated only with a tested supported mapping", () => {
+  const unsupported = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context(), { runner: runnerWith() });
+  assert.equal(unsupported.project.status, "not_updated");
+  const runner = runnerWith({ "git rev-parse origin/main": { status: 0, stdout: baseSha } });
+  const supported = completeMergedIssueHygiene(
+    { logsRoot: logsRoot(), projectStatusUpdates: { supported: true, projectId: "PVT", fieldId: "FIELD", doneOptionId: "DONE" } },
+    context(),
+    { runner },
+  );
+  assert.equal(supported.project.status, "updated");
+  assert.ok(runner.calls.some((call) => call.args[0] === "project" && call.args[1] === "item-edit"));
+});
+
+test("source branch is never deleted by completion hygiene", () => {
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context(), { runner: runnerWith() });
+  assert.equal(result.sourceBranchDeleted, false);
+});
+
+test("historical summaries/status/events remain readable and sanitized in comments", () => {
+  const body = renderCompletionComment(context({ generatedFollowups: [{ number: 1001, rawPayload: "GEMINI_API_KEY=secret" }] }));
+  assert.doesNotMatch(body, /GEMINI_API_KEY|secret/i);
+  assert.match(body, /#1001/);
+});
+
+test("ordinary merge path invokes the completion pipeline safely", () => {
+  const changedFiles = ["tools/auto-runner/lib/example.mjs"];
+  const digest = "18241bec16277a702d8fbc0bf037adcd214d3b804d200586c011fa1614b026ce";
+  const contextBase = {
+    config: {
+      allowAutoMerge: true,
+      autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"], requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"] },
+    },
+    issue: narrowIssue({ labels: ["area:infra", "workflow", "auto-ready"] }),
+    laneDecision: {
+      lane: "workflow-docs-tooling",
+      canonicalLane: "workflow-docs-tooling",
+      allowedToImplement: true,
+      autoMergeEligible: true,
+      manualMergeRequired: false,
+      branchStrategy: "normal",
+      reviewerTier: "cheap_independent",
+      validationProfile: "runner-tests",
+      allowedPaths: ["tools/auto-runner/**"],
+      laneManifest: { decisionType: "runnable", autoMergeAllowed: true },
+      contract: { autoMergeEligible: true, manualMergeRequired: false },
+    },
+    changedFiles,
+    forbiddenChangedFiles: [],
+    changedFilesExactlyMatchAllowedPaths: true,
+    externalReviewRequired: true,
+    externalReview: { status: "pass", tier: "cheap_independent", reviewedHead: headSha, changedFiles, changedFilesDigest: digest, provider: "gemini", independent: true, completedAt: "2026-07-13T08:00:00Z" },
+    review: { verdict: { verdict: "approve" }, reviewedHead: headSha, changedFiles, changedFilesDigest: digest, completedAt: "2026-07-13T08:00:00Z" },
+    validation: { passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-13T08:00:00Z", headSha, baseSha, changedFiles, changedFilesDigest: digest, profile: "runner-tests" },
+    worktreeClean: true,
+    branchName: "feature/auto-891-example",
+    runnerCreatedCommitSha: headSha,
+    expectedHeadSha: headSha,
+    expectedOriginMainSha: baseSha,
+    currentOriginMainSha: baseSha,
+    pr: { number: 100, url: "https://github.com/tommytang213/Settleora/pull/100", state: "OPEN", isDraft: false, baseRefName: "main", headRefName: "feature/auto-891-example", headRefOid: headSha, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", title: "Fix #891", body: "Closes #891" },
+    requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"].map((name) => ({ name, status: "COMPLETED", conclusion: "SUCCESS" })),
+    reviewThreads: [],
+    codeScanningAlerts: [],
+    blockingMarkers: [],
+  };
+  const runner = runnerWith({ "git rev-parse origin/main": { status: 0, stdout: baseSha } });
+  const result = executeAutoMerge(
+    { ...contextBase.config, repoRoot: "/workspace/repos/Settleora", logsRoot: logsRoot(), run: true, allowFollowupIssueCreation: false },
+    contextBase,
+    { runner, inspectState: () => ({}) },
+  );
+  assert.equal(result.result, "merged", JSON.stringify({ reason: result.reason, result }, null, 2));
+  assert.equal(result.completionHygiene.status, "merged");
+});
+
+test("feature-bundle context can use the same completion pipeline", () => {
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ bundle: { id: "issue-892-bundle-v1" } }), { runner: runnerWith() });
+  assert.equal(result.status, "merged");
+  assert.equal(result.closeDecision.close, true);
+});

@@ -77,6 +77,22 @@ test("duplicate search covers all evidence sources and exact correlation prevent
   assert.equal(result.matches[0].source, "issues.open");
 });
 
+test("source issue body, PR body, comments, reports, ledger, and correlation markers take priority", () => {
+  const proposal = deriveIssueProposals(baseEvent).proposals[0];
+  for (const [source, evidence] of [
+    ["source issue body", { openIssues: [{ number: 891, state: "OPEN", body: `Auto-runner contract\n${proposal.correlationKey}` }] }],
+    ["source PR body", { mergedPrs: [{ number: 903, state: "MERGED", body: `Generated marker ${proposal.idempotencyKey}` }] }],
+    ["comment", { comments: [{ body: `Generated-work correlation ${proposal.correlationKey}` }] }],
+    ["report", { reports: [{ text: `Report references ${proposal.idempotencyKey}` }] }],
+    ["ledger", { ledgerEntries: [{ text: `Ledger checkpoint ${proposal.correlationKey}` }] }],
+    ["correlation state", { correlationState: [{ correlationKey: proposal.correlationKey }] }],
+  ]) {
+    const result = searchDuplicateEvidence(proposal, evidence);
+    assert.equal(result.ok, true, source);
+    assert.match(result.action, /reuse/, source);
+  }
+});
+
 test("title-only and near-number matches do not cause false reuse", () => {
   const proposal = deriveIssueProposals(baseEvent).proposals[0];
   const result = searchDuplicateEvidence(proposal, {

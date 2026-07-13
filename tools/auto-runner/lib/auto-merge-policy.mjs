@@ -6,6 +6,7 @@ import { safeTimestamp } from "./logger.mjs";
 import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
+import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -349,15 +350,21 @@ export function executeAutoMerge(config, context, options = {}) {
 
   const mergeSha = context.mergeSha || readMergeSha(runner, config.repoRoot, prNumber);
   const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
-  const issueLabelCleanupResult = cleanupIssueLifecycleLabels(config, finalContext, runner);
-  const closeAllowed = !isUmbrellaIssue(finalContext.issue);
-  const closeIssue = closeAllowed
-    ? runner("gh", ["issue", "close", String(finalContext.issue.number), "--reason", "completed"], { cwd: config.repoRoot })
-    : { status: null, error: null, skipped: true };
+  const hygiene = completeMergedIssueHygiene(
+    config,
+    {
+      ...finalContext,
+      mergeSha,
+      sourceHeadSha: finalDecision.expectedHeadSha,
+      closeRuleSatisfied: true,
+      currentMainResult: "merge_completed",
+      ciSecurityResult: "exact_head_checks_passed",
+    },
+    {
+      runner: (command, args) => runner(command, args, { cwd: config.repoRoot }),
+    },
+  );
   const prComment = runner("gh", ["pr", "comment", String(prNumber), "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
-  const issueComment = runner("gh", ["issue", "comment", String(finalContext.issue.number), "--body", issueSummaryBody(finalContext, mergeSha)], {
-    cwd: config.repoRoot,
-  });
   const merged = {
     ...finalDecision,
     attempted: true,
@@ -365,11 +372,18 @@ export function executeAutoMerge(config, context, options = {}) {
     reason: "github_merge_commit_completed",
     mergeSha,
     sourceBranchRestoration: branchRestore,
-    issueLabelCleanupResult,
-    issueClosureResult: closeAllowed ? (closeIssue.status === 0 && !closeIssue.error ? "closed_completed" : "close_failed") : "skipped_umbrella_issue",
+    completionHygiene: hygiene,
+    issueLabelCleanupResult: legacyLabelCleanupResult(hygiene.labelCleanup),
+    issueClosureResult:
+      hygiene.closure?.status === "updated"
+        ? "closed_completed"
+        : hygiene.closure?.status === "skipped"
+          ? `skipped:${hygiene.closure.reason}`
+          : "close_failed",
     comments: {
       pr: commandStatus(prComment),
-      issue: commandStatus(issueComment),
+      issue: hygiene.comment,
+      parent: hygiene.parentProgress,
     },
   };
   return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
@@ -413,6 +427,33 @@ function executeAutoMergeWithWait(config, initialContext, options) {
     waitAttempts: attempts,
   };
   return { ...finalDecision, evidence: writeAutoMergeEvidence(config, finalDecision, context) };
+}
+
+function legacyLabelCleanupResult(labelCleanup = {}) {
+  if (labelCleanup.status === "updated") {
+    return {
+      status: "passed",
+      labelsRemoved: labelCleanup.removed || labelCleanup.attemptedRemove || [],
+      attemptedRemove: labelCleanup.attemptedRemove || labelCleanup.removed || [],
+      preserved: labelCleanup.preserved || [],
+    };
+  }
+  if (labelCleanup.status === "skipped") {
+    return {
+      status: "passed_noop",
+      labelsRemoved: [],
+      attemptedRemove: labelCleanup.attemptedRemove || [],
+      preserved: labelCleanup.preserved || [],
+      reason: labelCleanup.reason || "no_transient_labels",
+    };
+  }
+  return {
+    status: "failed",
+    labelsRemoved: [],
+    attemptedRemove: labelCleanup.attemptedRemove || [],
+    preserved: labelCleanup.preserved || [],
+    failureReason: labelCleanup.reason || "label_cleanup_failed",
+  };
 }
 
 export function normalizeAutoMergeWait(wait = {}) {
