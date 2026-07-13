@@ -22,7 +22,9 @@ namespace Settleora.Api.Tests;
 public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string InvitationsPath = "/api/v1/admin/auth/invitations";
+    private const string AcceptPath = "/api/v1/auth/invitations/accept";
     private const string WrongRawToken = "wrong-visible-invitation-management-session-token";
+    private static readonly Uri SecureTestBaseAddress = new("https://localhost");
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 7, 8, 12, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset ValidationTimestamp = InitialTimestamp.AddMinutes(10);
     private static readonly DateTimeOffset MutationTimestamp = InitialTimestamp.AddMinutes(20);
@@ -42,8 +44,20 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var client = CreateSecureTestClient(testFactory);
         var baseAddress = client.BaseAddress ?? throw new Xunit.Sdk.XunitException("Expected HTTPS test client base address.");
 
+        var invitationsUri = SecureTestUri(InvitationsPath);
+        using var bearerRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, WrongRawToken);
+
+        Assert.Equal("Microsoft.AspNetCore.TestHost.TestServer", testFactory.Server.GetType().FullName);
         Assert.Equal(Uri.UriSchemeHttps, baseAddress.Scheme);
         Assert.Equal("localhost", baseAddress.Host);
+        Assert.True(invitationsUri.IsAbsoluteUri);
+        Assert.Equal(Uri.UriSchemeHttps, invitationsUri.Scheme);
+        Assert.Equal("localhost", invitationsUri.Host);
+        Assert.NotNull(bearerRequest.RequestUri);
+        Assert.True(bearerRequest.RequestUri.IsAbsoluteUri);
+        Assert.Equal(Uri.UriSchemeHttps, bearerRequest.RequestUri.Scheme);
+        Assert.Equal("localhost", bearerRequest.RequestUri.Host);
+        Assert.Equal("Bearer", bearerRequest.Headers.Authorization?.Scheme);
         Assert.DoesNotContain("://", InvitationsPath, StringComparison.Ordinal);
     }
 
@@ -112,7 +126,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.User], "Normal User");
         using var client = CreateSecureTestClient(testFactory);
 
-        using var anonymousList = await client.GetAsync(InvitationsPath);
+        using var anonymousList = await client.GetAsync(SecureTestUri(InvitationsPath));
         using var invalidTokenList = await client.SendAsync(CreateBearerRequest(HttpMethod.Get, InvitationsPath, WrongRawToken));
         using var userList = await client.SendAsync(CreateBearerRequest(HttpMethod.Get, InvitationsPath, session.RawSessionToken));
         using var userCreateRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
@@ -511,10 +525,10 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         }
 
         using var oldAccept = await client.PostAsync(
-            "/api/v1/auth/invitations/accept",
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(oldRawInvitationSecret, "Old Secret User", "correct horse battery staple")));
         using var newAccept = await client.PostAsync(
-            "/api/v1/auth/invitations/accept",
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(deliveredRawInvitationSecret, "New Secret User", "correct horse battery staple")));
         var oldAcceptContent = await oldAccept.Content.ReadAsStringAsync();
         var newAcceptContent = await newAccept.Content.ReadAsStringAsync();
@@ -669,7 +683,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
     {
         return testFactory.CreateClient(new WebApplicationFactoryClientOptions
         {
-            BaseAddress = new Uri("https://localhost")
+            BaseAddress = SecureTestBaseAddress
         });
     }
 
@@ -860,9 +874,14 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
 
     private static HttpRequestMessage CreateBearerRequest(HttpMethod method, string path, string rawSessionToken)
     {
-        var request = new HttpRequestMessage(method, path);
+        var request = new HttpRequestMessage(method, SecureTestUri(path));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", rawSessionToken);
         return request;
+    }
+
+    private static Uri SecureTestUri(string path)
+    {
+        return new Uri(SecureTestBaseAddress, path);
     }
 
     private static StringContent JsonContent(string json)
