@@ -58,10 +58,28 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     diffTruncated: Boolean(summary.diffTruncated),
   });
   const effectiveDiffStats = normalizeReviewDiffStats(summary.diffStats, secretBoundary.diffStats);
+  const changedFilesDigest = digestStrings(changedFiles);
+  const rawDiffSha256 = secretBoundary.rawDiffSha256;
+  const providerBoundDiffSha256 = providerBoundReviewDigest(diff);
+  const reviewedHead = summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null;
+  const baseSha = summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null;
   const route = routeReviewer({
     changedFiles,
     laneDecision,
     stats: effectiveDiffStats,
+    largeBundleReviewApproval: config.largeBundleReviewApproval,
+    reviewPackageEvidence: buildLargeBundleReviewEvidence({
+      config,
+      summary,
+      changedFilesDigest,
+      rawDiffSha256,
+      providerBoundDiffSha256,
+      effectiveDiffStats,
+      secretBoundary,
+      reviewedHead,
+      baseSha,
+      diff,
+    }),
   });
   const { reviewerTiers, reviewerBudget } = mergeReviewerPolicyConfig(config);
   const tierId = route.tier;
@@ -72,8 +90,8 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   const promptSummary = {
     ...summary,
     diffStats: effectiveDiffStats,
-    rawDiffSha256: secretBoundary.rawDiffSha256,
-    providerBoundDiffSha256: providerBoundReviewDigest(diff),
+    rawDiffSha256,
+    providerBoundDiffSha256,
     secretBoundary: sanitizeBoundaryForPrompt(secretBoundary),
   };
   const estimatedInputTokens = estimateTokens(buildIntegratedReviewPrompt(promptSummary, diff));
@@ -99,15 +117,15 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     route,
     lane: laneDecision.lane || null,
     changedFiles,
-    changedFilesDigest: digestStrings(changedFiles),
+    changedFilesDigest,
     packageDigest: sha256Text(stableJson({ summary, diff })),
-    rawDiffSha256: secretBoundary.rawDiffSha256,
-    providerBoundDiffSha256: providerBoundReviewDigest(diff),
+    rawDiffSha256,
+    providerBoundDiffSha256,
     diffStats: effectiveDiffStats,
     secretBoundary: sanitizeBoundaryForEvidence(secretBoundary),
-    baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null,
+    baseSha,
     verdictSchemaVersion: 1,
-    reviewedHead: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null,
+    reviewedHead,
     issueNumber: summary.issue?.number || null,
     liveCallAttempted: false,
     status: "blocked",
@@ -983,6 +1001,78 @@ function sanitizeBoundaryForPrompt(boundary) {
     blockers: boundary?.blockers || [],
     allowedReferences: boundary?.allowedReferences || [],
   };
+}
+
+function buildLargeBundleReviewEvidence({
+  config,
+  summary,
+  changedFilesDigest,
+  rawDiffSha256,
+  providerBoundDiffSha256,
+  effectiveDiffStats,
+  secretBoundary,
+  reviewedHead,
+  baseSha,
+  diff,
+}) {
+  const issueContract = summary.issueContract || summary.issue?.contract || {};
+  const validation = summary.validation || {};
+  const labels = Array.isArray(summary.issue?.labels) ? summary.issue.labels : [];
+  const labelNames = labels.map((label) => (typeof label === "string" ? label : label?.name)).filter(Boolean);
+  const stopLabels = Array.isArray(config.stopLabels) ? config.stopLabels : [];
+  const taskKeys = [
+    summary.taskKey,
+    summary.bundle?.taskKey,
+    ...(Array.isArray(summary.bundle?.taskKeys) ? summary.bundle.taskKeys : []),
+    ...(Array.isArray(summary.allowedTaskKeys) ? summary.allowedTaskKeys : []),
+  ].filter(Boolean);
+  return {
+    issueNumber: summary.issue?.number || null,
+    repositorySlug: summary.repositorySlug || config.repositorySlug || null,
+    lane: summary.laneDecision?.lane || null,
+    baseSha,
+    headSha: reviewedHead,
+    changedFilesDigest,
+    rawDiffSha256,
+    providerBoundDiffSha256,
+    changedFileCount: effectiveDiffStats.files || (Array.isArray(summary.changedFiles) ? summary.changedFiles.length : 0),
+    additions: effectiveDiffStats.additions || 0,
+    deletions: effectiveDiffStats.deletions || 0,
+    totalChangedLines: (effectiveDiffStats.additions || 0) + (effectiveDiffStats.deletions || 0),
+    normalizedDomainSet: summary.normalizedDomainSet || summary.laneDecision?.normalizedDomainSet || inferNormalizedReviewDomainSet(summary.changedFiles || [], summary.laneDecision),
+    manualMergeRequired: summary.manualMergeRequired === true || issueContract.manualMergeRequired === true,
+    autoMergeEligible: summary.autoMergeEligible === true || issueContract.autoMergeEligible === true,
+    stopLabelPresent: labelNames.some((label) => stopLabels.includes(label)),
+    validationPassed: validation.passed === true,
+    validationHeadSha: validation.headSha || validation.reviewedHead || validation.currentHead || null,
+    secretBoundaryOk: secretBoundary.ok === true,
+    packageComplete: Boolean(diff) && summary.diffTruncated !== true,
+    diffTruncated: summary.diffTruncated === true,
+    taskKey: summary.taskKey || null,
+    bundleTaskKeys: taskKeys,
+    manualActionRequired: summary.manualActionRequired === true || issueContract.manualActionRequired === true,
+  };
+}
+
+function inferNormalizedReviewDomainSet(changedFiles = [], laneDecision = {}) {
+  const domains = new Set();
+  if (laneDecision?.lane) domains.add(laneDecision.lane);
+  for (const filePath of changedFiles) {
+    const file = String(filePath || "").replace(/\\/g, "/").replace(/^\.\//, "");
+    const [first, second] = file.split("/");
+    if (first === "docs") domains.add(`docs/${second || ""}`);
+    else if (first === "tools") domains.add(`tools/${second || ""}`);
+    else if (first) domains.add(first);
+  }
+  const normalized = new Set();
+  for (const domain of domains) {
+    if (["workflow-docs-tooling", "docs/workflow", "docs/planning", "docs/qa", "tools/auto-runner"].includes(domain)) {
+      normalized.add("workflow-docs-tooling");
+    } else {
+      normalized.add(domain);
+    }
+  }
+  return [...normalized].sort();
 }
 
 function sha256Text(text) {

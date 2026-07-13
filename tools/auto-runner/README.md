@@ -418,6 +418,18 @@ accounting under
 does not create GitHub comments, labels, issues, branches, commits, pushes, or
 PRs.
 
+Large-bundle review approval is a separate default-off review-routing
+capability. It can only be enabled by an explicit external config that binds
+one coherent workflow/tooling bundle to exact issue, repository, lane, base,
+head, changed-file digest, raw diff digest, provider-bound digest, true diff
+stats, normalized domain set, task key or expiry, manual-merge-required
+contract, auto-merge-ineligible contract, validation evidence, and clear
+secret-boundary evidence. A passing approval may convert only a size-based
+`block_split_or_escalate` route to `strong_independent`; it does not enable
+auto-merge, trusted real runs, issue creation, review-fix mutation, existing-PR
+mutation, stale-claim stealing, systemd, CI/security waivers, Codex review
+waivers, or manual merge waivers.
+
 External config activation example:
 
 ```json

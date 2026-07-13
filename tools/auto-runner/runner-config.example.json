@@ -1,6 +1,7 @@
 {
   "repoRoot": "/workspace/repos/Settleora",
   "logsRoot": "/workspace/logs/settleora-auto-runner",
+  "repositorySlug": "tommytang213/Settleora",
   "eligibleLabels": ["auto-ready", "auto-bundle"],
   "stopLabels": [
     "needs-tommy",
@@ -49,6 +50,10 @@
     "enabled": false,
     "marker": null,
     "markerId": null
+  },
+  "largeBundleReviewApproval": {
+    "enabled": false,
+    "approvals": []
   },
   "allowSystemdEnablement": false,
   "maxFollowupIssuesPerRun": 3,
