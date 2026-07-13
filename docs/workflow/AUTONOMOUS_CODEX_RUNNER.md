@@ -14,19 +14,24 @@ bounded DevBox process and let it process multiple eligible issues until it hits
 `--max-iterations`, `--max-runtime`, no eligible work, or a systemic unsafe
 condition.
 
-End-state note: PR #907 merged the final high-risk lane correction from exact
-source head `9472142f69b5db443d1d1693f4a68e38e491d96f` as current-main merge
-SHA `e58340855ab5f700342ce1bfa02d12d2e287b5b3`, and post-merge
-validation/check/scanner proof passed. #800, #894, and #889 remain open only
-pending the focused finalization PR and final current-main closure proof. The
-low-risk/canary defaults are fail-closed deployment defaults, not a permanent
-policy limit. The authoritative current audit is
+End-state note: the auto-runner foundation A-H scope is complete through PR
+#908. PR #907 merged the final high-risk lane correction from exact source head
+`9472142f69b5db443d1d1693f4a68e38e491d96f` as merge SHA
+`e58340855ab5f700342ce1bfa02d12d2e287b5b3`; PR #908 merged the final closure
+documentation from exact source head
+`f12d3ad1721506d1b9fa3d72f78a1417d457ff85` as current-main merge SHA
+`4cbb807d09eb732699fb82acc0336f985b94b617`. Final current-main
+validation/check/scanner proof passed, and #800, #894, and #889 are closed
+completed. The low-risk/canary defaults are fail-closed deployment defaults,
+not a permanent policy limit. The authoritative current audit is
 [Auto-Runner End-State Gap Audit](../planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md),
 and the durable final matrix is
 [Auto-Runner Final Acceptance Matrix #894](../planning/AUTO_RUNNER_FINAL_ACCEPTANCE_894.md).
 #887 through #893 plus the #889/#907 correction are completed foundation code
-children; #902 remains a post-foundation enhancement and must not start before
-the finalization/closure gate completes.
+children. #902 remains the next separate post-foundation enhancement and is
+not implemented yet. Completing the runner foundation does not mean the
+Settleora product Day 1 milestone is complete. Fail-closed defaults and
+genuine manual actions remain in force.
 
 The detached supervisor foundation adds an optional systemd-backed control
 surface around this runner. It submits immutable bounded run specs, starts a
