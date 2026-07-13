@@ -22,6 +22,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
     private const string SignInPath = "/api/v1/auth/sign-in";
     private const string RawInvitationSecret = "test-visible-invitation-acceptance-material";
     private const string LocalPassword = "correct horse battery staple";
+    private static readonly Uri SecureTestBaseAddress = new("https://localhost");
     private static readonly DateTimeOffset InitialTimestamp = new(2026, 7, 8, 13, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset AcceptanceTimestamp = InitialTimestamp.AddMinutes(15);
 
@@ -40,9 +41,20 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         using var client = CreateSecureTestClient(testFactory);
         var baseAddress = client.BaseAddress ?? throw new Xunit.Sdk.XunitException("Expected HTTPS test client base address.");
 
+        var acceptUri = SecureTestUri(AcceptPath);
+        var signInUri = SecureTestUri(SignInPath);
+
+        Assert.Equal("Microsoft.AspNetCore.TestHost.TestServer", testFactory.Server.GetType().FullName);
         Assert.Equal(Uri.UriSchemeHttps, baseAddress.Scheme);
         Assert.Equal("localhost", baseAddress.Host);
+        Assert.True(acceptUri.IsAbsoluteUri);
+        Assert.True(signInUri.IsAbsoluteUri);
+        Assert.Equal(Uri.UriSchemeHttps, acceptUri.Scheme);
+        Assert.Equal(Uri.UriSchemeHttps, signInUri.Scheme);
+        Assert.Equal("localhost", acceptUri.Host);
+        Assert.Equal("localhost", signInUri.Host);
         Assert.DoesNotContain("://", AcceptPath, StringComparison.Ordinal);
+        Assert.DoesNotContain("://", SignInPath, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -57,7 +69,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
 
         testContext.TimeProvider.SetUtcNow(AcceptanceTimestamp);
         using var response = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(RawInvitationSecret, "  Invited User  ", LocalPassword)));
         var content = await response.Content.ReadAsStringAsync();
 
@@ -99,7 +111,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         }
 
         using var signInResponse = await client.PostAsync(
-            SignInPath,
+            SecureTestUri(SignInPath),
             JsonContent($$"""{"identifier":"invitee@example.com","password":"{{LocalPassword}}"}"""));
         var signInContent = await signInResponse.Content.ReadAsStringAsync();
 
@@ -123,7 +135,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         using var client = CreateSecureTestClient(testFactory);
 
-        using var response = await client.PostAsync(AcceptPath, JsonContent(json));
+        using var response = await client.PostAsync(SecureTestUri(AcceptPath), JsonContent(json));
         var content = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -169,10 +181,10 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         using var client = CreateSecureTestClient(testFactory);
 
         using var first = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(RawInvitationSecret, "Replay User", LocalPassword)));
         using var second = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(RawInvitationSecret, "Replay User 2", LocalPassword)));
         var secondContent = await second.Content.ReadAsStringAsync();
 
@@ -202,7 +214,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         using var client = CreateSecureTestClient(testFactory);
 
         using var response = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(RawInvitationSecret, "Expired User", LocalPassword)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -226,7 +238,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         using var client = CreateSecureTestClient(testFactory);
 
         using var response = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(RawInvitationSecret, "Redacted User", LocalPassword)));
         var content = await response.Content.ReadAsStringAsync();
 
@@ -260,7 +272,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         using var client = CreateSecureTestClient(testFactory);
 
         using var response = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(RawInvitationSecret, "Rollback User", LocalPassword)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -289,10 +301,10 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         using var client = CreateSecureTestClient(testFactory);
 
         using var firstResponse = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson("unknown-material-for-throttle", "Unknown User", LocalPassword)));
         using var throttledResponse = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson("unknown-material-for-throttle", "Throttled User", LocalPassword)));
         var throttledContent = await throttledResponse.Content.ReadAsStringAsync();
 
@@ -341,7 +353,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         await EnableInvitationPolicyAsync(testFactory, inviter.AuthAccountId);
         using var client = CreateSecureTestClient(testFactory);
         using var response = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(rawSecret, "Unknown User", LocalPassword)));
         return new FailureAttemptResult(response.StatusCode, await response.Content.ReadAsStringAsync());
     }
@@ -372,7 +384,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
             revokedAtUtc);
         using var client = CreateSecureTestClient(testFactory);
         using var response = await client.PostAsync(
-            AcceptPath,
+            SecureTestUri(AcceptPath),
             JsonContent(CreateAcceptJson(RawInvitationSecret, "Failure User", LocalPassword)));
         return new FailureAttemptResult(response.StatusCode, await response.Content.ReadAsStringAsync());
     }
@@ -404,8 +416,13 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
     {
         return testFactory.CreateClient(new WebApplicationFactoryClientOptions
         {
-            BaseAddress = new Uri("https://localhost")
+            BaseAddress = SecureTestBaseAddress
         });
+    }
+
+    private static Uri SecureTestUri(string path)
+    {
+        return new Uri(SecureTestBaseAddress, path);
     }
 
     private static InvitationAbusePolicyOptions CreateStrictInvitationAbuseOptions()
