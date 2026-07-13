@@ -28,6 +28,21 @@ destructive execution, secret/auth credential mutation, public/admin exposure,
 branch deletion, force-like history changes, and unresolved product/policy/
 financial decisions remain manual-gated and do not auto-merge.
 
+Generated follow-up work remains default-off through
+`allowFollowupIssueCreation=false`. When explicitly enabled for a trusted run,
+the runner now uses the generated-work proposal pipeline rather than ad hoc
+issue creation: it validates proposal schema, idempotency/correlation,
+duplicate evidence, labels, paths, contracts, validation profiles, reviewer
+tiers, and manual-decision classification before mutation. Sanitized intent
+and result evidence is written under
+`/workspace/logs/settleora-auto-runner/generated-work/`.
+
+Post-merge issue hygiene is componentized. A successful exact-head merge stays
+`merged` even if later closure, comments, label cleanup, parent progress,
+project status, or ledger reconciliation partially fails. Narrow issues close
+only when their explicit close rule is satisfied; umbrellas such as #800 and
+partially complete issues stay open with evidence-backed progress comments.
+
 Preflight diagnostics:
 
 ```bash

@@ -1,0 +1,278 @@
+import { deriveIssueProposals } from "./issue-proposals.mjs";
+import { executeIssueMutationPipeline } from "./issue-mutation-pipeline.mjs";
+
+export const transientRunnerLabels = Object.freeze(["auto-claimed", "auto-running", "auto-pr-opened", "auto-failed"]);
+
+const umbrellaSignals = [
+  /\bumbrella\b/i,
+  /\bepic\b/i,
+  /\btracker\b/i,
+  /\bparent\b/i,
+  /do not close .*#?800/i,
+  /keep #?800 open/i,
+  /final acceptance/i,
+];
+
+export function completeMergedIssueHygiene(config = {}, context = {}, options = {}) {
+  const runner = options.runner || (() => ({ status: 0, stdout: "", stderr: "" }));
+  const refreshed = refreshCompletionState(context, runner);
+  const closeDecision = evaluateCloseDecision(refreshed.issue, refreshed);
+  const completionBody = renderCompletionComment(refreshed, closeDecision);
+  const duplicateComment = hasCompletionComment(refreshed.issue, refreshed);
+  const comment = duplicateComment
+    ? { status: "skipped", reason: "completion_comment_already_present" }
+    : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--body", completionBody]));
+  const closure =
+    closeDecision.close === true
+      ? commandComponent(runner("gh", ["issue", "close", String(refreshed.issue.number), "--reason", "completed"]))
+      : { status: "skipped", reason: closeDecision.reason };
+  const labelCleanup = cleanupTransientLabels(refreshed.issue, runner);
+  const parentProgress = postParentProgress(config, refreshed, runner);
+  const project = updateProjectStatusIfSupported(config, refreshed, runner);
+  const ledger = reconcileLedger(config, refreshed, runner);
+  return {
+    status: "merged",
+    mergeSha: refreshed.mergeSha,
+    sourceHeadSha: refreshed.sourceHeadSha,
+    issue: issueSummary(refreshed.issue),
+    closeDecision,
+    closure,
+    comment,
+    labelCleanup,
+    parentProgress,
+    project,
+    ledger,
+    generatedFollowups: refreshed.generatedFollowups || [],
+    sourceBranchDeleted: false,
+  };
+}
+
+export function evaluateCloseDecision(issue = {}, context = {}) {
+  if (!issue?.number) return { close: false, reason: "issue_missing" };
+  if (String(issue.state || "").toUpperCase() === "CLOSED") return { close: false, reason: "issue_already_closed" };
+  if (hasRemainingGates(issue, context)) return { close: false, reason: "remaining_gates_present" };
+  if (isUmbrellaIssue(issue)) return { close: false, reason: "umbrella_or_tracker_keep_open" };
+  if (!explicitCloseRuleSatisfied(issue, context)) return { close: false, reason: "close_rule_not_satisfied" };
+  return { close: true, reason: "explicit_close_rule_satisfied" };
+}
+
+export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 })) {
+  const labels = labelNames(issue.labels);
+  const remove = labels.filter((label) => transientRunnerLabels.includes(label));
+  const preserve = labels.filter((label) => !transientRunnerLabels.includes(label));
+  if (remove.length === 0) return { status: "skipped", reason: "no_transient_labels", removed: [], preserved: preserve };
+  const result = runner("gh", ["issue", "edit", String(issue.number), "--remove-label", remove.join(",")]);
+  return {
+    ...commandComponent(result),
+    removed: result.status === 0 && !result.error ? remove : [],
+    attemptedRemove: remove,
+    preserved: preserve,
+  };
+}
+
+export function renderCompletionComment(context = {}, closeDecision = evaluateCloseDecision(context.issue, context)) {
+  const pr = context.pr || {};
+  const validation = context.validation || {};
+  const externalReview = context.externalReview || {};
+  const codexReview = context.review || {};
+  return [
+    `Auto-runner merge completion evidence for #${context.issue?.number}.`,
+    "",
+    `PR: ${pr.url || (pr.number ? `#${pr.number}` : "unknown")}`,
+    `Source head: \`${context.sourceHeadSha || context.expectedHeadSha || "unknown"}\``,
+    `Merge SHA: \`${context.mergeSha || "unknown"}\``,
+    `Completed scope: ${context.completedScope || context.issue?.title || "bounded issue scope"}`,
+    `Validation: ${validation.passed === true ? "passed" : validation.passed === false ? "failed" : "unknown"}`,
+    `External review: ${externalReview.status || externalReview.verdict || "unknown"}`,
+    `Codex mechanics/security review: ${codexReview.verdict?.verdict || codexReview.status || "unknown"}`,
+    `Exact-head CI/security: ${context.ciSecurityResult || "unknown"}`,
+    `Post-merge/current-main: ${context.currentMainResult || "not_required_or_unknown"}`,
+    `Generated/reused follow-up issues: ${formatIssueList(context.generatedFollowups || [])}`,
+    `Remaining gates: ${formatList(context.remainingGates || [])}`,
+    `Close/keep-open rationale: ${closeDecision.reason}`,
+    "",
+    `Completion marker: settleora-completion:${context.issue?.number}:${context.mergeSha || "unknown"}`,
+  ].join("\n");
+}
+
+export function renderParentProgressComment(context = {}) {
+  return [
+    `Bundle progress update from issue #${context.issue?.number}.`,
+    "",
+    `Completed children: ${formatIssueList(context.completedChildren || [context.issue?.number].filter(Boolean))}`,
+    `Remaining children: ${formatIssueList(context.remainingChildren || [])}`,
+    `Blockers: ${formatList(context.blockers || [])}`,
+    `Future gates: ${formatIssueList(context.futureGates || [])}`,
+    `Manual decisions: ${formatList(context.manualDecisions || [])}`,
+    `Generated/reused follow-up issues: ${formatIssueList(context.generatedFollowups || [])}`,
+    `Keep-open/close rationale: ${context.parentKeepOpenRationale || "#800 remains open until #894 final acceptance."}`,
+    "",
+    `Parent progress marker: settleora-parent-progress:${context.parentIssue}:${context.mergeSha || "unknown"}:${context.issue?.number || "unknown"}`,
+  ].join("\n");
+}
+
+export function buildLedgerReconciliationProposal(context = {}) {
+  if (context.ledgerReconciliation?.skip || context.issue?.proposalKind === "ledger_reconciliation") {
+    return { skipped: true, reason: "ledger_reconciliation_recursion_guard" };
+  }
+  const result = deriveIssueProposals({
+    type: "ledger_reconciliation",
+    taskKey: context.taskKey || "post-merge",
+    issueNumber: context.issue?.number,
+    parentIssue: context.parentIssue || 800,
+    prNumber: context.pr?.number,
+    mergeSha: context.mergeSha,
+    title: `Reconcile ledger for #${context.issue?.number} merge ${shortSha(context.mergeSha)}`,
+    summary: `Record exact merge ${context.mergeSha || "unknown"} for #${context.issue?.number} without committing directly to main.`,
+  });
+  if (!result.ok) return { skipped: false, ok: false, reason: result.reason };
+  return { skipped: false, ok: true, proposal: result.proposals[0] };
+}
+
+function refreshCompletionState(context = {}, runner) {
+  const issue = context.issue?.number ? readIssue(context.issue, runner) : context.issue || {};
+  const pr = context.pr?.number || context.pr?.url ? readPr(context.pr, runner) : context.pr || {};
+  return {
+    ...context,
+    issue: { ...(context.issue || {}), ...issue },
+    pr: { ...(context.pr || {}), ...pr },
+    sourceHeadSha: context.sourceHeadSha || pr.headRefOid || context.expectedHeadSha || null,
+    mergeSha: context.mergeSha || pr.mergeCommit?.oid || null,
+  };
+}
+
+function readIssue(issue, runner) {
+  const result = runner("gh", ["issue", "view", String(issue.number), "--json", "number,title,body,state,labels,comments,url"]);
+  if (result.status !== 0 || result.error) return issue;
+  try {
+    return normalizeIssue(JSON.parse(result.stdout || "{}"));
+  } catch {
+    return issue;
+  }
+}
+
+function readPr(pr, runner) {
+  const ref = pr.number || pr.url;
+  const result = runner("gh", ["pr", "view", String(ref), "--json", "number,url,title,body,state,headRefName,headRefOid,baseRefName,mergeCommit,mergedAt"]);
+  if (result.status !== 0 || result.error) return pr;
+  try {
+    return JSON.parse(result.stdout || "{}");
+  } catch {
+    return pr;
+  }
+}
+
+function normalizeIssue(issue = {}) {
+  return {
+    ...issue,
+    labels: labelNames(issue.labels),
+    comments: Array.isArray(issue.comments) ? issue.comments : [],
+  };
+}
+
+function isUmbrellaIssue(issue = {}) {
+  const labels = labelNames(issue.labels);
+  const text = `${issue.title || ""}\n${issue.body || ""}\n${labels.join("\n")}`;
+  if (issue.number === 800) return true;
+  return umbrellaSignals.some((pattern) => pattern.test(text));
+}
+
+function hasRemainingGates(issue = {}, context = {}) {
+  const body = `${issue.body || ""}\n${context.remainingGates?.join("\n") || ""}`;
+  if ((context.remainingGates || []).length > 0) return true;
+  return /\b(remaining gates?|keep open until|partially complete|not complete|manual merge remains|required before close)\b/i.test(body);
+}
+
+function explicitCloseRuleSatisfied(issue = {}, context = {}) {
+  const body = `${issue.body || ""}\n${context.closeEvidence || ""}`;
+  if (!/\bClose rule:/i.test(body) && !context.closeRuleSatisfied) return false;
+  return Boolean(context.closeRuleSatisfied || (context.mergeSha && context.validation?.passed === true));
+}
+
+function hasCompletionComment(issue = {}, context = {}) {
+  const marker = `settleora-completion:${issue.number}:${context.mergeSha || "unknown"}`;
+  return (issue.comments || []).some((comment) => String(comment.body || "").includes(marker));
+}
+
+function postParentProgress(config, context, runner) {
+  const parentIssue = context.parentIssue || context.parent?.number || 800;
+  if (!parentIssue) return { status: "skipped", reason: "parent_issue_missing" };
+  const parent = readIssue({ number: parentIssue }, runner);
+  const body = renderParentProgressComment({ ...context, parentIssue });
+  const marker = `settleora-parent-progress:${parentIssue}:${context.mergeSha || "unknown"}:${context.issue?.number || "unknown"}`;
+  if ((parent.comments || []).some((comment) => String(comment.body || "").includes(marker))) {
+    return { status: "skipped", reason: "parent_progress_already_present", parentIssue };
+  }
+  return { ...commandComponent(runner("gh", ["issue", "comment", String(parentIssue), "--body", body])), parentIssue };
+}
+
+function updateProjectStatusIfSupported(config, context, runner) {
+  if (!config.projectStatusUpdates?.supported) return { status: "not_updated", reason: "project_status_mapping_not_configured" };
+  if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId) {
+    return { status: "not_updated", reason: "project_status_mapping_incomplete" };
+  }
+  return commandComponent(
+    runner("gh", [
+      "project",
+      "item-edit",
+      "--id",
+      String(context.issue?.number),
+      "--project-id",
+      config.projectStatusUpdates.projectId,
+      "--field-id",
+      config.projectStatusUpdates.fieldId,
+      "--single-select-option-id",
+      config.projectStatusUpdates.doneOptionId,
+    ]),
+  );
+}
+
+function reconcileLedger(config, context, runner) {
+  const proposalResult = buildLedgerReconciliationProposal(context);
+  if (proposalResult.skipped || !proposalResult.ok) return proposalResult;
+  const result = executeIssueMutationPipeline(
+    { ...config, maxFollowupIssuesPerRun: 1 },
+    [proposalResult.proposal],
+    context.ledgerEvidence || {},
+    { runner },
+  );
+  return {
+    status: result.results[0]?.action || "unknown",
+    reason: result.results[0]?.reason || null,
+    proposal: {
+      title: proposalResult.proposal.title,
+      correlationKey: proposalResult.proposal.correlationKey,
+      idempotencyKey: proposalResult.proposal.idempotencyKey,
+    },
+    result: result.results[0] || null,
+  };
+}
+
+function commandComponent(result = {}) {
+  return result.status === 0 && !result.error
+    ? { status: "updated" }
+    : { status: "failed", reason: result.stderr || result.error || "command_failed" };
+}
+
+function labelNames(labels = []) {
+  return labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean);
+}
+
+function issueSummary(issue = {}) {
+  return { number: issue.number, title: issue.title, state: issue.state, labels: labelNames(issue.labels), url: issue.url || null };
+}
+
+function formatIssueList(values = []) {
+  const issues = values
+    .map((value) => (typeof value === "number" ? `#${value}` : value?.number ? `#${value.number}` : String(value || "")))
+    .filter(Boolean);
+  return issues.length ? issues.join(", ") : "none";
+}
+
+function formatList(values = []) {
+  return values.length ? values.join(", ") : "none";
+}
+
+function shortSha(value) {
+  return String(value || "unknown").slice(0, 12);
+}

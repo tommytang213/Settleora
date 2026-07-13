@@ -118,6 +118,10 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
   prompt/report paths, checkpoint validation, checkpoint commits, final review,
   PR, CI, and bounded stop reasons. It never stores raw prompts, provider
   output, full diffs, secrets, environment data, or credential material.
+- `generated-work/` stores sanitized generated-issue mutation intent and
+  result evidence. Issue creation remains default-off and requires explicit
+  runtime capability plus proposal, duplicate, label, path, contract,
+  validation, and lane checks. Dry-run writes exact previews only.
 
 Stale locks are removed only when the recorded PID is no longer active. Active
 or unparsable locks stop the runner for human inspection.
@@ -167,6 +171,42 @@ It includes issue numbers, PR numbers, branch names, head SHAs, review
 verdicts, independent AI provider/tier/verdict, validation commands,
 check-wait attempts, merge SHAs, and final outcomes where recoverable. Missing
 or partially written evidence is `unknown`, not inferred.
+
+## Generated Work And Completion Hygiene
+
+Generated work is modeled as a strict proposal before any GitHub mutation.
+Each proposal carries a schema version, deterministic correlation key,
+idempotency digest, source issue/PR/report/run references, parent/related
+issues, scope/non-goals, architecture guardrails, allowed paths, validation
+profile, reviewer tier, exact-head gates, acceptance criteria, close rule,
+safe labels, and a machine-readable auto-runner contract.
+
+Duplicate prevention searches bounded current and historical evidence:
+open/closed issues, open/merged PRs, comments, review outcomes, sanitized
+reports/summaries/events, the issue progress ledger, source issue/PR evidence,
+and prior generated-work correlation state. Exact correlation/idempotency
+markers take priority. Title-only and near-number matches never cause reuse by
+themselves; ambiguous matches fail closed into one bounded manual triage item.
+Closed completed duplicates are reused as evidence, while closed incomplete or
+not-planned duplicates require explicit classification.
+
+Issue creation/reuse/queueing is handled by the generated-work mutation
+pipeline. It is idempotent across retries and uncertain create responses by
+re-reading correlation markers before creating and after ambiguous failures.
+It records component-level results for create, correlation comment, labels,
+project/status, and ledger reconciliation; a confirmed issue creation is not
+misreported as failed merely because a later component failed. Transient runner
+labels are never copied into generated issues.
+
+After an exact-head merge, completion hygiene treats the merge as
+authoritative even when later issue hygiene partially fails. The runner
+refreshes PR/issue/label/relationship evidence, closes only narrow issues whose
+explicit close rule is satisfied, keeps umbrellas and partially complete work
+open, posts evidence-backed completion and parent progress comments, removes
+only transient runner labels, and records project fields as `not_updated`
+unless a supported tested mapping exists. Ledger reconciliation is represented
+as generated docs-planning work for a later branch/PR; the runner never commits
+directly to `main` after merge.
 
 Safe local control is file-based under
 `/workspace/logs/settleora-auto-runner/state/runner-control.json`:
