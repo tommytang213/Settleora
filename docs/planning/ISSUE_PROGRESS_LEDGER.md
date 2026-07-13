@@ -47,7 +47,8 @@ remain the source of truth.
     `Add strict feature-bundle contract planning`.
   - `3945bc14ae88d3600c711496a7ec081ecbbcde29`
     `Persist and recover feature-bundle checkpoints`.
-  - Third orchestration checkpoint pending in this report until committed.
+  - `a322b77dbc8f4f6914e509e2fbf9859ec756337c`
+    `Orchestrate multi-slice feature bundles`.
 - Remaining foundation issues:
   #891, #892, #893, and #894 remain open and are not implemented by this
   branch. #893 contains only accepted #899 recovery lesson comments.
