@@ -20,6 +20,36 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #899 - Invitation runtime test-harness CodeQL HTTPS transport PR checkpoint
+
+- GitHub/live state verified:
+  - #899 is open as the focused P0 security hygiene tracker for CodeQL
+    alerts #56 and #57.
+  - PR #900 is open against `main` from
+    `auth/codeql-invitation-test-harness-899-20260713-1046`.
+  - #890 remains open and untouched as the next autonomous-runner child after
+    this manual security PR merges.
+  - #865 and #866 remain open protected canaries with exact labels
+    `area:mobile-ui`, `auto-canary-ready`, `canary`, and `workflow`, zero
+    comments, no assignees, and no milestone.
+- This PR scope:
+  - Classifies alerts #56 and #57 as CodeQL C# `cs/sensitive-data-transmission`
+    test-harness findings where synthetic invitation/password/bearer-bearing
+    JSON flows into `StringContent` request bodies through WebApplicationFactory
+    clients using the default HTTP base address.
+  - Updates only the affected invitation runtime test classes to create
+    WebApplicationFactory clients with explicit `https://localhost` base
+    addresses while keeping path-only requests and in-memory TestServer
+    behavior.
+  - Preserves invitation runtime coverage and safe-output assertions.
+  - Uses no CodeQL dismissal, suppression, query-suite/workflow exclusion,
+    scanner gaming, product runtime change, schema migration, OpenAPI/generated
+    client change, deployment change, secret/config change, or money/storage
+    authority change.
+- Close/keep-open recommendation:
+  keep #899 open until PR #900 passes exact-head CI/security/code-scanning and a
+  human performs the explicit manual merge gate. Keep #800 and #890 open.
+
 ### Issue #889 - Approved-domain exact-head auto-merge policy PR checkpoint
 
 - Scope:
