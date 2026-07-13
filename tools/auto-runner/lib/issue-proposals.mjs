@@ -176,8 +176,13 @@ export function validateIssueProposal(proposal = {}, options = {}) {
   if (typeof proposal.title !== "string" || !safeTitlePattern.test(proposal.title) || unsafeTextPattern.test(proposal.title)) {
     errors.push("title_invalid");
   }
-  if (containsUnsafeText(proposal.summary)) errors.push("summary_unsafe");
+  for (const unsafeField of unsafeProposalTextFields(proposal)) {
+    errors.push(`text_unsafe:${unsafeField}`);
+  }
   if (containsSecret(proposal)) errors.push("secret_like_value");
+  for (const requiredReading of proposal.requiredReading || []) {
+    if (!isSafeRepoPath(requiredReading)) errors.push(`required_reading_invalid:${requiredReading}`);
+  }
   if (!Array.isArray(proposal.allowedPaths) || proposal.allowedPaths.length === 0) errors.push("allowed_paths_missing");
   for (const allowedPath of proposal.allowedPaths || []) {
     if (!isSafeRepoGlob(allowedPath)) errors.push(`allowed_path_invalid:${allowedPath}`);
@@ -517,12 +522,66 @@ function isSafeRepoGlob(value) {
   return /^[A-Za-z0-9._*?/!-]+$/.test(text);
 }
 
+function isSafeRepoPath(value) {
+  const text = String(value || "");
+  if (text.length === 0 || text.length > 240) return false;
+  if (text.startsWith("/") || text.includes("\\") || text.includes("..") || text.includes("//")) return false;
+  if (/[\0\r\n`$<>|;&*?{}()[\]]/.test(text)) return false;
+  return /^[A-Za-z0-9._/!-]+$/.test(text);
+}
+
 function hasManualDecision(proposal = {}) {
   return Array.isArray(proposal.manualDecisions) && proposal.manualDecisions.length > 0;
 }
 
 function containsUnsafeText(value) {
   return typeof value === "string" && unsafeTextPattern.test(value);
+}
+
+function unsafeProposalTextFields(proposal = {}) {
+  const fields = [];
+  const check = (name, value) => {
+    if (containsUnsafeText(value)) fields.push(name);
+  };
+  const checkArray = (name, values) => {
+    if (!Array.isArray(values)) return;
+    values.forEach((value, index) => check(`${name}[${index}]`, value));
+  };
+  check("summary", proposal.summary);
+  check("workType", proposal.workType);
+  check("domain", proposal.domain);
+  check("dayScope", proposal.dayScope);
+  check("priority", proposal.priority);
+  check("estimate", proposal.estimate);
+  check("confidence", proposal.confidence);
+  check("pathStrategy", proposal.pathStrategy);
+  check("validationProfile", proposal.validationProfile);
+  check("reviewerTier", proposal.reviewerTier);
+  check("closeRule", proposal.closeRule);
+  checkArray("scope", proposal.scope);
+  checkArray("nonGoals", proposal.nonGoals);
+  checkArray("architectureGuardrails", proposal.architectureGuardrails);
+  checkArray("requiredReading", proposal.requiredReading);
+  checkArray("dependencies", proposal.dependencies);
+  checkArray("blockers", proposal.blockers);
+  checkArray("ciSecurityExactHeadGates", proposal.ciSecurityExactHeadGates);
+  checkArray("acceptanceCriteria", proposal.acceptanceCriteria);
+  if (Array.isArray(proposal.manualDecisions)) {
+    proposal.manualDecisions.forEach((decision, index) => {
+      if (typeof decision === "string") check(`manualDecisions[${index}]`, decision);
+      else if (decision && typeof decision === "object") {
+        for (const [key, value] of Object.entries(decision)) {
+          check(`manualDecisions[${index}].${key}`, value);
+        }
+      }
+    });
+  }
+  if (proposal.projectStatusIntent && typeof proposal.projectStatusIntent === "object") {
+    for (const [key, value] of Object.entries(proposal.projectStatusIntent)) {
+      check(`projectStatusIntent.${key}`, value);
+    }
+  }
+  return fields;
 }
 
 function containsSecret(value) {
