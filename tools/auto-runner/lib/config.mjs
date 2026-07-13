@@ -320,6 +320,7 @@ export function loadConfig(cliArgs) {
     path.join(config.logsRoot, "reports"),
     path.join(config.logsRoot, "reviews"),
     path.join(config.logsRoot, "review-fix"),
+    path.join(config.logsRoot, "recovery"),
     path.join(config.logsRoot, "summaries"),
     path.join(config.logsRoot, "locks"),
     path.join(config.logsRoot, "canary"),

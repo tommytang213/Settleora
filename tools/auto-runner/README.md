@@ -43,6 +43,20 @@ project status, or ledger reconciliation partially fails. Narrow issues close
 only when their explicit close rule is satisfied; umbrellas such as #800 and
 partially complete issues stay open with evidence-backed progress comments.
 
+Recovery and continuation state is centralized under
+`/workspace/logs/settleora-auto-runner/recovery/`. The state is versioned,
+sanitized, written by temporary file plus rename, and records issue/run/
+supervisor/task correlation, branch/base/head, PR linkage, current phase,
+first incomplete action, retry attempts by outcome class/fingerprint,
+head-bound validation/review/CI/scanner evidence, bundle/generated-work
+linkage, idempotent mutation markers, bounded stop reasons, and the next safe
+action. Head-changing actions invalidate local validation, external review,
+Codex mechanics/security review, CI, code-scanning, merge/final-refresh, and
+post-merge expectation evidence tied to older heads. Startup checks this
+recovery root before polling unrelated issues; with recovery capability
+default-off it fails closed for operator review instead of adopting arbitrary
+work.
+
 Preflight diagnostics:
 
 ```bash

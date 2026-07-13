@@ -79,6 +79,11 @@ function renderRunMarkdown(summary) {
         `  - Auto-merge: eligible=${iteration.autoMerge.eligible ? "yes" : "no"} attempted=${iteration.autoMerge.attempted ? "yes" : "no"} result=${iteration.autoMerge.result || "unknown"} prHead=${iteration.autoMerge.prHeadSha || "none"} mergeSha=${iteration.autoMerge.mergeSha || "none"} issueClosure=${iteration.autoMerge.issueClosureResult || "n/a"} labelCleanup=${cleanup?.status || "n/a"} blockedReason=${iteration.autoMerge.reason || "none"}`,
       );
     }
+    if (iteration.recovery) {
+      lines.push(
+        `  - Recovery: action=${iteration.recovery.action || "unknown"} phase=${iteration.recovery.state?.phase || "n/a"} attemptClass=${iteration.recovery.state?.attemptClass || "n/a"} blocker=${iteration.recovery.state?.blocker || iteration.recovery.reasonCode || "none"} next=${iteration.recovery.state?.nextSafeAction || iteration.recovery.nextAction || "n/a"}`,
+      );
+    }
     if (iteration.candidateSelection?.events?.length) {
       const skipped = iteration.candidateSelection.events.filter((event) => event.action === "candidate_skipped");
       lines.push(

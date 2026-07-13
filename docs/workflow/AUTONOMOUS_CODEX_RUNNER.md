@@ -122,6 +122,15 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
   result evidence. Issue creation remains default-off and requires explicit
   runtime capability plus proposal, duplicate, label, path, contract,
   validation, and lane checks. Dry-run writes exact previews only.
+- `recovery/` stores sanitized durable recovery and continuation state. It is
+  versioned JSON written atomically through a temporary file plus rename and
+  keyed from validated task/issue/run/branch/base identity. It records
+  branch/base/head, PR number/URL, current phase, first incomplete action,
+  bounded retry attempts by outcome class and fingerprint, validation/review/
+  CI/scanner evidence bindings, feature-bundle and generated-work linkage,
+  idempotent mutation markers, stop reason, next safe action, timestamps, and
+  schema version. It never stores raw prompts, provider responses, full diffs,
+  secrets, environment dumps, tokens, credentials, or unbounded logs.
 
 Stale locks are removed only when the recorded PID is no longer active. Active
 or unparsable locks stop the runner for human inspection.
@@ -227,6 +236,16 @@ stops, independent-review gates, changed-file policy, checks, code scanning,
 secrets policy, stop labels, auto-merge gates, or max-frequency/safety policy.
 If no active runner exists, control commands fail gracefully without writing a
 misleading pending control state.
+
+At startup the runner discovers any non-terminal recovery state before polling
+eligible issues. One active issue/branch/PR ownership record is supported; more
+than one recoverable state fails closed. Existing-PR recovery remains
+default-off, so a discovered recovery state blocks unrelated polling until a
+bounded trusted profile explicitly enables recovery or an operator resolves the
+state. When enabled, continuation resumes from the first safe incomplete phase
+and uses idempotent markers to avoid duplicate PR creation, comments,
+generated issue creation, merge attempts, source-branch restoration, closure,
+parent progress, or ledger hygiene.
 
 The detached supervisor control wrapper adds selected-run protection on top of
 that global runner control file. `settleora-auto-runnerctl pause`,

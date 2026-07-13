@@ -74,6 +74,7 @@ import {
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
+import { discoverStartupRecovery } from "./lib/recovery-continuation.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -255,6 +256,22 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     systemicStop: null,
     runIssueState: trackerSnapshot(issueTracker),
   };
+
+  const startupRecovery = discoverStartupRecovery(config);
+  if (startupRecovery.found) {
+    iteration.recovery = startupRecovery;
+    iteration.outcome = startupRecovery.allowed ? "recovery_resume_pending" : "blocked_recovery_state";
+    iteration.systemicStop = startupRecovery.allowed
+      ? "recoverable-work-discovered"
+      : `recoverable-work-blocked:${startupRecovery.reasonCode}`;
+    iteration.finishedAt = new Date().toISOString();
+    logger.info(
+      startupRecovery.allowed
+        ? `Recoverable auto-runner state discovered for issue #${startupRecovery.state?.issueNumber}; stopping before polling unrelated work.`
+        : `Recoverable auto-runner state blocked polling: ${startupRecovery.reasonCode}`,
+    );
+    return iteration;
+  }
 
   const polled = pollEligibleIssues(config, logger);
   iteration.poll = { rawCount: polled.rawCount || 0, warning: polled.warning || null, searches: polled.searches || [] };
