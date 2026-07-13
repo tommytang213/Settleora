@@ -7,16 +7,19 @@ It is issue-label driven and writes all mutable runtime state under
 Current end-state audit: #880 monitoring acceptance is complete, #887 through
 #893 are completed foundation children, and PR #907 merged the final #889
 high-risk lane correction from exact source head
-`9472142f69b5db443d1d1693f4a68e38e491d96f` as current-main merge SHA
-`e58340855ab5f700342ce1bfa02d12d2e287b5b3`. Current-main validation,
+`9472142f69b5db443d1d1693f4a68e38e491d96f` as merge SHA
+`e58340855ab5f700342ce1bfa02d12d2e287b5b3`. PR #908 then merged the final
+closure documentation from exact source head
+`f12d3ad1721506d1b9fa3d72f78a1417d457ff85` as current-main merge SHA
+`4cbb807d09eb732699fb82acc0336f985b94b617`. Final current-main validation,
 GitHub checks, and code-scanning proof passed after that merge. #800, #894,
-and #889 remain open only pending the focused finalization PR and final
-current-main closure proof. The current restrictive defaults are fail-closed
-deployment defaults, not a permanent low-risk-only design. See
+and #889 are closed completed. The current restrictive defaults are
+fail-closed deployment defaults, not a permanent low-risk-only design. See
 `docs/planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md` and
 `docs/planning/AUTO_RUNNER_FINAL_ACCEPTANCE_894.md` for the current evidence
-matrix. #902 remains a post-foundation enhancement and must not start before
-the finalization/closure gate completes.
+matrix. #902 remains the next separate post-foundation enhancement and is not
+implemented yet. Completing the runner foundation does not mean the Settleora
+product Day 1 milestone is complete. Genuine manual actions remain manual.
 
 Approved-domain auto-merge remains default-off. Enabling `allowAutoMerge` is
 not enough: external config must also set `autoMergePolicy.approvedLanes` to a

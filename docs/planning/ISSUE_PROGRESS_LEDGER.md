@@ -20,7 +20,63 @@ remain the source of truth.
 
 ## Current Checkpoints
 
-### Issues #889/#894/#800 - PR #907 merged, finalization pending
+### Issues #889/#894/#800 - Auto-runner foundation completed
+
+- Task key: `20260714-0143`.
+- PR #907:
+  - Source branch:
+    `tools/auto-runner-final-acceptance-894-20260713-2358`.
+  - Source head:
+    `9472142f69b5db443d1d1693f4a68e38e491d96f`.
+  - Merge SHA:
+    `e58340855ab5f700342ce1bfa02d12d2e287b5b3`.
+- PR #908:
+  - Source branch:
+    `docs/auto-runner-foundation-finalization-20260714-0107`.
+  - Source head:
+    `f12d3ad1721506d1b9fa3d72f78a1417d457ff85`.
+  - Merge SHA:
+    `4cbb807d09eb732699fb82acc0336f985b94b617`.
+  - Changed files: exactly the five finalization documentation paths.
+- Final current-main validation/check/scanner evidence on
+  `4cbb807d09eb732699fb82acc0336f985b94b617`:
+  `npm ci`, `npm run doctor:validation`, required syntax checks, focused
+  large-bundle tests `31/31`, focused auto-runner tests `191/191`, full
+  auto-runner tests `393/393`, readiness `27 pass / 1 warn / 0 fail`,
+  `npm run validate:docs`, and `npm run validate:scaffold` all passed.
+  Current-main Scaffold Validation, CodeQL configured analyses, Semgrep CE/OSS
+  where observed/configured, Trivy, and API Image GHCR passed.
+  Current-main and repository open code-scanning alerts were `[]`; no scanner
+  finding was dismissed, suppressed, waived, or excluded.
+- Final issue comments and closure states:
+  - #889 completion comment:
+    `https://github.com/tommytang213/Settleora/issues/889#issuecomment-4961074327`;
+    state `CLOSED`; closed at `2026-07-13T17:49:53Z`.
+  - #894 final acceptance comment:
+    `https://github.com/tommytang213/Settleora/issues/894#issuecomment-4961077405`;
+    state `CLOSED`; closed at `2026-07-13T18:05:44Z`.
+  - #800 final umbrella comment:
+    `https://github.com/tommytang213/Settleora/issues/800#issuecomment-4961080593`;
+    state `CLOSED`; closed at `2026-07-13T18:06:05Z`.
+- #902 remains `OPEN`, untouched by the foundation closure tasks, commentless
+  for those tasks, and next as the separate post-foundation Dependabot and
+  code-scanning ingestion enhancement.
+- Protected canaries #865 and #866 remained unchanged: open with labels exactly
+  `area:mobile-ui`, `auto-canary-ready`, `canary`, and `workflow`, zero
+  comments, no assignees, and no milestone.
+- Project fields:
+  `not_updated`; no supported tested mapping was exercised.
+- Close recommendation:
+  already executed for #889, #894, and #800 after PR #908 and final
+  current-main proof. There is no remaining auto-runner foundation gate.
+  Closing #800 means the auto-runner foundation A-H scope is complete; it does
+  not mean Settleora product Day 1 is complete.
+
+### Issues #889/#894/#800 - Historical: PR #907 merged, finalization pending
+
+This checkpoint is superseded by the `20260714-0143` completion checkpoint
+above. It remains as historical audit trail for the post-PR-907/pre-PR-908
+state.
 
 - Task key: `20260714-0107`.
 - PR #907:
