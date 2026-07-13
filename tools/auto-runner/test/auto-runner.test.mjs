@@ -4,7 +4,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { parseCliArgs, loadConfig } from "../lib/config.mjs";
+import { createHash } from "node:crypto";
+import { parseCliArgs, loadConfig, normalizeAutoMergePolicy } from "../lib/config.mjs";
 import {
   evaluateCanaryIssuePolicy,
   evaluateLowRiskAutoMergeCanaryApproval,
@@ -41,12 +42,16 @@ import { runPreflight } from "../lib/preflight.mjs";
 import { generateTaskPrompt } from "../lib/task-prompt.mjs";
 import { inspectPreReviewPrOwnership } from "../lib/pr-manager.mjs";
 import {
+  buildGeminiSmokePayload,
+  buildIntegratedReviewPayload,
+  externalReviewVerdictJsonSchema,
   loadGeminiApiKey,
   parseIntegratedVerdict,
   resolveGeminiModelEndpoint,
   runGeminiIntegratedReview,
   runGeminiReviewerSmokeTest,
   sanitizeSecretText,
+  smokeVerdictJsonSchema,
   supportedGeminiModelEndpoints,
   validateReviewerSecretMetadata,
 } from "../lib/gemini-reviewer.mjs";
@@ -1046,7 +1051,7 @@ test("readiness preflight fails when risky gates are enabled without approval", 
       { runner: createReadinessRunner() },
     );
     assert.ok(result.summary.fail >= 6);
-    assert.equal(result.checks.find((check) => check.name === "auto-merge-disabled").status, "fail");
+    assert.equal(result.checks.find((check) => check.name === "auto-merge-approved-domain-policy").status, "fail");
     assert.equal(result.checks.find((check) => check.name === "stale-claim-stealing-disabled").status, "fail");
     assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "fail");
   } finally {
@@ -1071,7 +1076,7 @@ test("readiness preflight distinguishes approved low-risk auto-merge canary conf
       { runner: createReadinessRunner() },
     );
     assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "pass");
-    const autoMerge = result.checks.find((check) => check.name === "auto-merge-disabled");
+    const autoMerge = result.checks.find((check) => check.name === "auto-merge-approved-domain-policy");
     assert.equal(autoMerge.status, "pass");
     assert.match(autoMerge.detail, /explicit config-scoped low-risk auto-merge canary approval/);
     const canary = result.checks.find((check) => check.name === "trusted-real-run-canary-policy");
@@ -1095,7 +1100,33 @@ test("readiness preflight rejects unsafe auto-merge config without canary approv
       { runner: createReadinessRunner() },
     );
     assert.equal(result.checks.find((check) => check.name === "config-parseable").status, "fail");
-    assert.equal(result.checks.find((check) => check.name === "auto-merge-disabled").status, "fail");
+    assert.equal(result.checks.find((check) => check.name === "auto-merge-approved-domain-policy").status, "fail");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight accepts explicit approved-domain auto-merge config without low-risk canary approval", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-approved-domain-auto-merge-"));
+  try {
+    const result = runPreflight(
+      {
+        ...readinessConfig(tempRoot),
+        configPath: "/workspace/logs/settleora-auto-runner/local-approved-domain.json",
+        allowAutoMerge: true,
+        autoMergePolicy: {
+          approvedLanes: ["api-domain-runtime"],
+          requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"],
+          allowedSkippedChecks: [],
+          allowedNeutralChecks: [],
+        },
+      },
+      { runner: createReadinessRunner() },
+    );
+    const autoMerge = result.checks.find((check) => check.name === "auto-merge-approved-domain-policy");
+    assert.equal(autoMerge.status, "pass");
+    assert.match(autoMerge.detail, /approved-domain auto-merge config is explicit/);
+    assert.doesNotMatch(autoMerge.detail, /low-risk auto-merge canary approval/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -1319,6 +1350,30 @@ test("Gemini smoke test fails closed for malformed JSON verdict", async () => {
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("Gemini smoke and integrated payloads include strict response schemas", () => {
+  const integratedSchema = externalReviewVerdictJsonSchema();
+  assert.deepEqual(integratedSchema.required, ["verdict", "confidence", "summary", "findings"]);
+  assert.equal(integratedSchema.additionalProperties, false);
+  assert.deepEqual(integratedSchema.propertyOrdering, ["verdict", "confidence", "summary", "findings"]);
+  assert.deepEqual(integratedSchema.properties.verdict.enum, ["pass", "fail", "needs_tommy", "danger_gate", "unable_to_review"]);
+  assert.deepEqual(integratedSchema.properties.confidence.enum, ["low", "medium", "high"]);
+  assert.equal(integratedSchema.properties.findings.maxItems, 20);
+
+  const integratedPayload = buildIntegratedReviewPayload("review prompt");
+  assert.equal(integratedPayload.generationConfig.temperature, 0);
+  assert.equal(integratedPayload.generationConfig.responseMimeType, "application/json");
+  assert.deepEqual(integratedPayload.generationConfig.responseJsonSchema, integratedSchema);
+  assert.equal(integratedPayload.generationConfig.thinkingConfig.thinkingBudget, 0);
+
+  const smokeSchema = smokeVerdictJsonSchema();
+  assert.deepEqual(smokeSchema.required, ["verdict", "findings"]);
+  assert.equal(smokeSchema.additionalProperties, false);
+  assert.deepEqual(smokeSchema.properties.verdict.enum, ["pass", "fail"]);
+  const smokePayload = buildGeminiSmokePayload();
+  assert.equal(smokePayload.generationConfig.responseMimeType, "application/json");
+  assert.deepEqual(smokePayload.generationConfig.responseJsonSchema, smokeSchema);
 });
 
 test("Gemini smoke test blocks before live call when reviewer budget hard stop would be exceeded", async () => {
@@ -1579,10 +1634,12 @@ test("eligible low-risk lane selects cheap Gemini reviewer and pass verdict proc
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-pass-"));
   try {
     const requestedUrls = [];
+    const requestBodies = [];
     const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
       env: { GEMINI_API_KEY: "super-secret-key" },
-      fetchImpl: async (url) => {
+      fetchImpl: async (url, request) => {
         requestedUrls.push(String(url));
+        requestBodies.push(JSON.parse(request.body));
         return fakeGeminiResponse({
           candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }],
           usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 120 },
@@ -1593,7 +1650,11 @@ test("eligible low-risk lane selects cheap Gemini reviewer and pass verdict proc
     assert.equal(result.status, "pass");
     assert.equal(result.tier, "cheap_independent");
     assert.equal(result.model, "gemini-2.5-flash-lite");
+    assert.equal(result.changedFilesDigest, sha256Strings(["tools/auto-runner/lib/gemini-reviewer.mjs"]));
     assert.equal(new URL(requestedUrls[0]).origin, "https://generativelanguage.googleapis.com");
+    assert.equal(requestBodies[0].generationConfig.responseMimeType, "application/json");
+    assert.equal(requestBodies[0].generationConfig.responseJsonSchema.additionalProperties, false);
+    assert.deepEqual(requestBodies[0].generationConfig.responseJsonSchema.required, ["verdict", "confidence", "summary", "findings"]);
     const report = readFileSync(result.reportPath, "utf8");
     const accounting = readFileSync(path.join(tempRoot, "state", "reviewer-accounting.json"), "utf8");
     assert.doesNotMatch(report, /super-secret-key|raw-provider-secret/);
@@ -1633,6 +1694,10 @@ test("client-ui-low-risk real-code lane selects cheap Gemini reviewer and pass v
     assert.equal(result.status, "pass");
     assert.equal(result.tier, "cheap_independent");
     assert.equal(result.reviewedHead, "head123");
+    assert.equal(result.changedFilesDigest, sha256Strings([
+      "apps/mobile/lib/ui/settleora_components.dart",
+      "apps/mobile/test/ui/settleora_component_guardrail_test.dart",
+    ]));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -1676,14 +1741,16 @@ test("sensitive domain uses strong integrated Gemini review when lane metadata r
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-integrated-sensitive-"));
   try {
     let calls = 0;
+    let prompt = "";
     const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage({
       changedFiles: ["services/api/Auth/SessionRuntime.cs"],
-      laneDecision: { lane: "security-runtime", dangerGate: true, reviewerTier: "strong_independent" },
+      laneDecision: { lane: "auth-session-security", dangerGate: true, reviewerTier: "strong_independent" },
       diff: "diff --git a/services/api/Auth/SessionRuntime.cs b/services/api/Auth/SessionRuntime.cs\n",
     }), {
       env: { GEMINI_API_KEY: "super-secret-key" },
-      fetchImpl: async () => {
+      fetchImpl: async (_url, request) => {
         calls += 1;
+        prompt = JSON.parse(request.body).contents[0].parts[0].text;
         return fakeGeminiResponse({ candidates: [{ content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] });
       },
     });
@@ -1691,6 +1758,12 @@ test("sensitive domain uses strong integrated Gemini review when lane metadata r
     assert.equal(result.tier, "strong_independent");
     assert.equal(result.model, "gemini-2.5-pro");
     assert.equal(calls, 1);
+    assert.doesNotMatch(prompt, /Approved first lanes are workflow-docs-tooling, docs-planning, and client-ui-low-risk only/);
+    assert.doesNotMatch(prompt, /Pass only if this low-risk Settleora/);
+    assert.match(prompt, /Approved sensitive implementation lanes are reviewable/);
+    assert.match(prompt, /manual actions/);
+    assert.match(prompt, /secret\/auth credential mutation/);
+    assert.match(prompt, /unable_to_review/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -1759,6 +1832,8 @@ test("malformed and non-pass integrated Gemini verdicts fail closed", async () =
     });
     assert.equal(malformed.status, "blocked");
     assert.equal(malformed.reason, "blocked_malformed_json_verdict");
+    assert.equal(malformed.providerAttempts.length, 1);
+    assert.equal(malformed.providerAttempts[0].transient, false);
 
     const nonPass = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
       env: { GEMINI_API_KEY: "super-secret-key" },
@@ -1769,6 +1844,55 @@ test("malformed and non-pass integrated Gemini verdicts fail closed", async () =
     assert.equal(nonPass.reason, "blocked_external_reviewer_non_pass");
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("integrated Gemini candidate and finish reason failures are structured and bounded", async () => {
+  const cases = [
+    {
+      name: "empty candidate list",
+      body: { candidates: [], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 0, totalTokenCount: 1 } },
+      reason: "blocked_provider_no_candidates",
+    },
+    {
+      name: "safety blocked candidate",
+      body: { candidates: [{ finishReason: "SAFETY", safetyRatings: [{ category: "HARM_CATEGORY_DANGEROUS_CONTENT" }] }] },
+      reason: "blocked_provider_candidate_safety_block",
+    },
+    {
+      name: "truncated candidate",
+      body: { candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] },
+      reason: "blocked_provider_response_truncated",
+    },
+    {
+      name: "unexpected finish reason",
+      body: { candidates: [{ finishReason: "OTHER", content: { parts: [{ text: integratedVerdictJson({ verdict: "pass" }) }] } }] },
+      reason: "blocked_provider_unexpected_finish_reason",
+    },
+    {
+      name: "empty text",
+      body: { candidates: [{ finishReason: "STOP", content: { parts: [{ text: "" }] } }] },
+      reason: "blocked_provider_empty_text",
+    },
+  ];
+  for (const item of cases) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-integrated-${item.name.replaceAll(" ", "-")}-`));
+    try {
+      const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage(), {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        fetchImpl: async () => fakeGeminiResponse(item.body),
+      });
+      assert.equal(result.status, "blocked", item.name);
+      assert.equal(result.reason, item.reason, item.name);
+      assert.equal(result.providerAttempts.length, 1, item.name);
+      assert.equal(result.providerAttempts[0].transient, false, item.name);
+      const report = readFileSync(result.reportPath, "utf8");
+      assert.doesNotMatch(report, /super-secret-key/);
+      assert.doesNotMatch(report, /rawProviderOnlyText/);
+      assert.match(report, /"candidateCount"/);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   }
 });
 
@@ -1980,10 +2104,30 @@ test("integrated Gemini accounting parse and write failures fail closed", async 
 
 test("integrated Gemini verdict parser rejects extra prose, unknown verdicts, and contradictory pass findings", () => {
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass" })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["No blocking findings remain."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["No unresolved blocking findings were found."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["The changes do not introduce any blocking issue."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["Blocking findings: none."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["No evidence in the reviewed diff suggests any blocking issue."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["No findings require a blocking follow-up."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["There are zero exact-head review concerns requiring a must fix change."] })).ok, true);
+  assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "fail" })).ok, true);
   assert.equal(parseIntegratedVerdict(`notes\n${integratedVerdictJson({ verdict: "pass" })}`).ok, false);
+  assert.equal(parseIntegratedVerdict(`\`\`\`json\n${integratedVerdictJson({ verdict: "pass" })}\n\`\`\``).ok, false);
   assert.equal(parseIntegratedVerdict(integratedVerdictJson({ verdict: "approve" })).ok, false);
+  assert.equal(parseIntegratedVerdict(JSON.stringify({ verdict: "pass", confidence: "high", summary: "ok", findings: [], extra: true })).ok, false);
+  assert.equal(parseIntegratedVerdict(JSON.stringify({ verdict: "pass", confidence: "high", summary: "ok" })).ok, false);
+  assert.equal(parseIntegratedVerdict(JSON.stringify({ verdict: "pass", confidence: "certain", summary: "ok", findings: [] })).ok, false);
   assert.equal(
     parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["blocking issue remains"] })).ok,
+    false,
+  );
+  assert.equal(
+    parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["A must fix change is required before merge"] })).ok,
+    false,
+  );
+  assert.equal(
+    parseIntegratedVerdict(integratedVerdictJson({ verdict: "pass", findings: ["The review identified a blocking issue in the exact-head checks"] })).ok,
     false,
   );
 });
@@ -2723,7 +2867,7 @@ test("normal dangerous issue without contract remains danger gated", () => {
   assert.ok(lane.dangerReasons.includes("openapi_generated_client"));
 });
 
-test("explicit domain lane matrix separates runnable sensitive implementation from auto-merge", () => {
+test("explicit domain lane matrix marks approved-domain runnable implementation auto-merge capable", () => {
   const cases = [
     {
       lane: "workflow-docs-tooling",
@@ -2867,7 +3011,8 @@ ${item.scope}
     });
     assert.equal(lane.allowedToImplement, true, item.lane);
     assert.equal(lane.prCreationAllowed, true, item.lane);
-    assert.equal(lane.autoMergeEligible, item.lane === "workflow-docs-tooling" || item.lane === "docs-planning", item.lane);
+    assert.equal(lane.autoMergeEligible, true, item.lane);
+    assert.equal(lane.manualMergeRequired, true, item.lane);
     assert.equal(lane.implementationSensitivity, item.sensitivity, item.lane);
     assert.equal(lane.branchStrategy, item.branchStrategy, item.lane);
     assert.equal(lane.reviewerTier, item.reviewerTier, item.lane);
@@ -3215,6 +3360,305 @@ test("approved low-risk lane with exact allowed paths and exact-head checks allo
   assert.equal(decision.prHeadSha, "head123");
 });
 
+test("approved-domain auto-merge accepts GitHub workflow-prefixed required check names", () => {
+  const decision = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      { name: "Scaffold Validation / Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "CodeQL / Analyze (csharp)", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Security Semgrep CE Scan / Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Security Trivy Scan / Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
+    ],
+  }));
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.reason, "all_auto_merge_gates_passed");
+});
+
+test("approved-domain auto-merge blocks unlisted exact-head check failures", () => {
+  const decision = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Unlisted exact-head check", status: "COMPLETED", conclusion: "FAILURE" },
+    ],
+  }));
+  assert.equal(decision.eligible, false);
+  assert.equal(decision.reason, "required_checks_not_successful");
+});
+
+test("approved-domain all-observed exact-head check conclusions fail closed", () => {
+  const terminalFailures = ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"];
+  for (const conclusion of terminalFailures) {
+    const decision = evaluateAutoMergeDecision(autoMergeContext({
+      requiredChecks: [
+        ...autoMergeRequiredChecks(),
+        { name: `unlisted-${conclusion}`, status: "COMPLETED", conclusion },
+      ],
+    }));
+    assert.equal(decision.eligible, false, conclusion);
+    assert.equal(decision.reason, "required_checks_not_successful", conclusion);
+  }
+
+  const missingConclusion = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Unlisted missing conclusion", status: "COMPLETED", conclusion: null },
+    ],
+  }));
+  assert.equal(missingConclusion.eligible, false);
+  assert.equal(missingConclusion.reason, "required_checks_not_successful");
+});
+
+test("approved-domain all-observed exact-head pending checks wait even when unlisted", () => {
+  const decision = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Unlisted pending check", status: "IN_PROGRESS", conclusion: null },
+    ],
+  }));
+  assert.equal(decision.eligible, false);
+  assert.equal(decision.reason, "required_checks_pending");
+});
+
+test("approved-domain required check presence and exact-name matching stay fail closed", () => {
+  const missing = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: autoMergeRequiredChecks().filter((check) => check.name !== "CodeQL"),
+  }));
+  assert.equal(missing.eligible, false);
+  assert.equal(missing.reason, "required_checks_not_successful");
+
+  const spoof = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      { name: "Validate scaffold spoof", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
+    ],
+  }));
+  assert.equal(spoof.eligible, false);
+  assert.equal(spoof.reason, "required_checks_not_successful");
+});
+
+test("approved-domain skipped and neutral check conclusions require canonical allowlists", () => {
+  const skippedAllowed = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedSkippedChecks: ["Optional docs"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Optional docs", status: "COMPLETED", conclusion: "SKIPPED" },
+    ],
+  }));
+  assert.equal(skippedAllowed.eligible, true);
+  assert.equal(skippedAllowed.reason, "all_auto_merge_gates_passed");
+
+  const skippedUnlisted = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedSkippedChecks: ["Optional docs"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Other optional docs", status: "COMPLETED", conclusion: "SKIPPED" },
+    ],
+  }));
+  assert.equal(skippedUnlisted.eligible, false);
+  assert.equal(skippedUnlisted.reason, "required_checks_not_successful");
+
+  const neutralAllowed = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedNeutralChecks: ["Optional advisory"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Advisory / Optional advisory", status: "COMPLETED", conclusion: "NEUTRAL" },
+    ],
+  }));
+  assert.equal(neutralAllowed.eligible, true);
+  assert.equal(neutralAllowed.reason, "all_auto_merge_gates_passed");
+
+  const neutralUnlisted = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedNeutralChecks: ["Optional advisory"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Other optional advisory", status: "COMPLETED", conclusion: "NEUTRAL" },
+    ],
+  }));
+  assert.equal(neutralUnlisted.eligible, false);
+  assert.equal(neutralUnlisted.reason, "required_checks_not_successful");
+});
+
+test("approved-domain duplicate check records cannot mask failed or pending instances", () => {
+  const duplicateFailure = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "FAILURE" },
+    ],
+  }));
+  assert.equal(duplicateFailure.eligible, false);
+  assert.equal(duplicateFailure.reason, "required_checks_not_successful");
+
+  const duplicatePending = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "Duplicate optional", status: "QUEUED", conclusion: null },
+    ],
+  }));
+  assert.equal(duplicatePending.eligible, false);
+  assert.equal(duplicatePending.reason, "required_checks_pending");
+
+  const failedPlusPending = evaluateAutoMergeDecision(autoMergeContext({
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Mixed optional", status: "COMPLETED", conclusion: "FAILURE" },
+      { name: "Other optional", status: "QUEUED", conclusion: null },
+    ],
+  }));
+  assert.equal(failedPlusPending.eligible, false);
+  assert.equal(failedPlusPending.reason, "required_checks_not_successful");
+
+  const allowedSkippedPlusFailure = evaluateAutoMergeDecision(autoMergeContext({
+    config: { autoMergePolicy: autoMergePolicyFixture({ allowedSkippedChecks: ["Duplicate optional"] }) },
+    requiredChecks: [
+      ...autoMergeRequiredChecks(),
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "SKIPPED" },
+      { name: "Duplicate optional", status: "COMPLETED", conclusion: "FAILURE" },
+    ],
+  }));
+  assert.equal(allowedSkippedPlusFailure.eligible, false);
+  assert.equal(allowedSkippedPlusFailure.reason, "required_checks_not_successful");
+});
+
+test("approved-domain auto-merge matrix covers normal focused lanes and manual-gated refusals", () => {
+  const autoMergeCases = [
+    ["workflow-docs-tooling", "cheap_independent", "normal", "tools/auto-runner/lib/auto-merge-policy.mjs", "runner-tests", "low"],
+    ["mobile-application", "cheap_independent", "normal", "apps/mobile/lib/features/example.dart", "mobile", "standard"],
+    ["web-user-ui", "cheap_independent", "normal", "apps/web-user/src/App.tsx", "web-ui", "standard"],
+    ["web-admin-ui", "strong_independent", "focused", "apps/web-admin/src/Admin.tsx", "web-ui", "sensitive"],
+    ["api-domain-runtime", "strong_independent", "focused", "services/api/Features/Example/ExampleService.cs", "api-domain", "sensitive"],
+  ];
+  for (const [lane, tier, branchStrategy, filePath, profile, implementationSensitivity] of autoMergeCases) {
+    const branchName = `${branchStrategy === "focused" ? "focused" : "feature"}/auto-1-test`;
+    const laneDecision = autoMergeLane({
+      lane,
+      canonicalLane: lane,
+      reviewerTier: tier,
+      branchStrategy,
+      allowedPaths: [filePath],
+      laneManifestAllowedPaths: [filePath],
+      validationProfile: profile,
+      implementationSensitivity,
+      laneManifest: { id: lane, decisionType: "runnable", autoMergeAllowed: true },
+      contract: { allowedPaths: [filePath], validationProfile: profile, manualMergeRequired: false, autoMergeEligible: true },
+    });
+    const decision = evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles: [filePath],
+      branchName,
+      pr: { headRefName: branchName },
+    }));
+    assert.equal(decision.reason, "all_auto_merge_gates_passed", lane);
+    assert.equal(decision.eligible, true, lane);
+  }
+
+  const manualGatedCases = [
+    ["auth-session-security", "strong_independent", "focused", "services/api/Auth/SessionRuntime.cs", "api-security", "high"],
+    ["storage-file-privacy-authz", "strong_independent", "focused", "services/api/Storage/FileAuthorizationService.cs", "api-storage", "high"],
+    ["money-settlement-payment", "strong_independent", "focused", "services/api/Settlement/SettlementPolicy.cs", "api-money", "high"],
+    ["schema-migrations", "strong_independent", "focused", "services/api/Infrastructure/Migrations/202607121903_AddFoo.cs", "api-migrations", "high"],
+    ["openapi-generated-clients", "strong_independent", "focused", "packages/contracts/openapi/settleora.v1.yaml", "openapi-generated-clients", "high"],
+    ["sync-import-export-restore", "strong_independent", "focused", "services/api/Sync/ImportRestoreService.cs", "sync-import-export", "high"],
+    ["docker-compose-ci-deployment", "strong_independent", "focused", "infra/docker-compose.yml", "compose-ci", "high"],
+  ];
+  for (const [lane, tier, branchStrategy, filePath, profile, implementationSensitivity] of manualGatedCases) {
+    const branchName = `${branchStrategy === "focused" ? "focused" : "feature"}/auto-1-test`;
+    const laneDecision = autoMergeLane({
+      lane,
+      canonicalLane: lane,
+      reviewerTier: tier,
+      branchStrategy,
+      allowedPaths: [filePath],
+      laneManifestAllowedPaths: [filePath],
+      validationProfile: profile,
+      implementationSensitivity,
+      laneManifest: { id: lane, decisionType: "runnable", autoMergeAllowed: true },
+      contract: { allowedPaths: [filePath], validationProfile: profile, manualMergeRequired: false, autoMergeEligible: true },
+    });
+    const decision = evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles: [filePath],
+      branchName,
+      pr: { headRefName: branchName },
+    }));
+    assert.equal(decision.reason, "lane_manual_gated_auto_merge_blocked", lane);
+    assert.equal(decision.eligible, false, lane);
+  }
+
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ config: { allowAutoMerge: true, autoMergePolicy: { approvedLanes: [], requiredChecks: ["Validate scaffold"], allowedSkippedChecks: [] } } })).reason, "lane_not_in_approved_auto_merge_config");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ lane: "cross-domain", canonicalLane: "cross-domain", splitRequired: true, branchStrategy: "split-required", laneManifest: { id: "cross-domain", decisionType: "split_required", autoMergeAllowed: false } }) })).reason, "lane_not_approved_domain_auto_merge_supported");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ manualActionRequired: true }) })).reason, "manual_or_danger_gate_present");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ branchStrategy: "focused" }) })).reason, "branch_strategy_mismatch");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ pr: { title: "No issue", body: "No linkage" } })).reason, "pr_missing_issue_linkage");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ validation: { passed: true } })).reason, "validation_exact_evidence_missing");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", changedFiles: ["other"], tier: "cheap_independent", independent: true, completedAt: "2026-07-12T00:00:00.000Z" } })).reason, "independent_review_files_mismatch");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ review: { verdict: { verdict: "approve" }, reviewedHead: "head123", changedFiles: ["other"], completedAt: "2026-07-12T00:00:00.000Z" } })).reason, "codex_mechanics_review_files_mismatch");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [] })).reason, "required_checks_not_successful");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ codeScanningAlerts: [{ state: "open" }] })).reason, "open_code_scanning_alerts");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
+  assert.throws(() => normalizeAutoMergePolicy({ approvedLanes: ["security-runtime"], requiredChecks: ["Validate scaffold"] }), /alias/);
+  assert.throws(() => normalizeAutoMergePolicy({ approvedLanes: ["unknown-lane"], requiredChecks: ["Validate scaffold"] }), /Unknown/);
+  assert.deepEqual(normalizeAutoMergePolicy({}).allowedNeutralChecks, []);
+  assert.throws(
+    () => normalizeAutoMergePolicy({ allowedNeutralChecks: ["Workflow / Optional advisory"] }),
+    /canonical check names/,
+  );
+});
+
+test("api-domain auto-merge cannot carry manual-gated API domains through broad service paths", () => {
+  const forbiddenPaths = [
+    "services/api/Auth/SessionRuntime.cs",
+    "services/api/Storage/FileAuthorizationService.cs",
+    "services/api/Settlement/SettlementPolicy.cs",
+    "services/api/Infrastructure/Migrations/202607121903_AddFoo.cs",
+    "services/api/OpenApi/GeneratedClientRefresh.cs",
+    "services/api/Sync/ImportRestoreService.cs",
+  ];
+  for (const filePath of forbiddenPaths) {
+    const laneDecision = autoMergeLane({
+      lane: "api-domain-runtime",
+      canonicalLane: "api-domain-runtime",
+      reviewerTier: "strong_independent",
+      branchStrategy: "focused",
+      allowedPaths: ["services/api/**"],
+      laneManifestAllowedPaths: ["services/api/**"],
+      validationProfile: "api-domain",
+      implementationSensitivity: "sensitive",
+      laneManifest: { id: "api-domain-runtime", decisionType: "runnable", autoMergeAllowed: true },
+      contract: { allowedPaths: ["services/api/**"], validationProfile: "api-domain", manualMergeRequired: false, autoMergeEligible: true },
+    });
+    const decision = evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles: [filePath],
+      branchName: "focused/auto-1-test",
+      pr: { headRefName: "focused/auto-1-test" },
+    }));
+    assert.match(decision.reason, /^forbidden_changed_files:/, filePath);
+    assert.equal(decision.eligible, false, filePath);
+  }
+
+  const classified = classifyIssueLane({
+    title: "API domain auth session change",
+    body: `${contractBody({
+      lane: "api-domain-runtime",
+      allowedPaths: ["services/api/Auth/SessionRuntime.cs"],
+      validationProfile: "api-domain",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    })}
+
+## Scope
+
+Implement auth session runtime behavior.
+`,
+    labels: ["auto-ready"],
+  });
+  assert.equal(classified.allowedToImplement, false);
+  assert.ok(classified.reasonCodes.includes("positive_scope_outside_lane"));
+});
+
 test("client-ui-low-risk lane with exact mobile UI paths allows merge decision", () => {
   const laneDecision = autoMergeLane({
     lane: "client-ui-low-risk",
@@ -3277,7 +3721,7 @@ test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mi
     evaluateAutoMergeDecision(
       autoMergeContext({
         ...base,
-        externalReview: { status: "pass", verdict: "pass", reviewedHead: "oldhead" },
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "oldhead", tier: "cheap_independent", changedFiles: base.changedFiles, independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
       }),
     ).reason,
     "independent_review_head_mismatch",
@@ -3286,10 +3730,28 @@ test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mi
     evaluateAutoMergeDecision(
       autoMergeContext({
         ...base,
-        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", changedFiles: ["apps/mobile/test/ui/other_test.dart"] },
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", tier: "cheap_independent", changedFiles: ["apps/mobile/test/ui/other_test.dart"], independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
       }),
     ).reason,
     "independent_review_files_mismatch",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        ...base,
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", tier: "cheap_independent", changedFiles: base.changedFiles, independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
+      }),
+    ).reason,
+    "independent_review_file_digest_missing",
+  );
+  assert.equal(
+    evaluateAutoMergeDecision(
+      autoMergeContext({
+        ...base,
+        externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", tier: "cheap_independent", changedFiles: base.changedFiles, changedFilesDigest: "wrong", independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
+      }),
+    ).reason,
+    "independent_review_file_digest_mismatch",
   );
 });
 
@@ -3327,7 +3789,12 @@ test("pre-push review gate blocks mutation and required independent-review failu
       externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
       reviewMutationGuard: { mutationDetected: false },
     }),
-    { ok: true, reason: "pre_push_review_gates_passed" },
+    {
+      ok: false,
+      outcome: "review_changes_requested_retry_exhausted",
+      reason: "exact_head_independent_review_not_passed:skipped_external_reviewer_tier_disabled",
+      message: "exact-head independent review returned skipped_external_reviewer_tier_disabled",
+    },
   );
 });
 
@@ -3408,11 +3875,11 @@ test("auto-merge requires Codex mechanics review changed-file metadata", () => {
 
 test("pending/failing checks, review threads, code scanning alerts, and issue stop labels block auto-merge", () => {
   assert.equal(
-    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "IN_PROGRESS", conclusion: null }] })).reason,
+    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: autoMergeRequiredChecks({ "Validate scaffold": { status: "IN_PROGRESS", conclusion: null } }) })).reason,
     "required_checks_pending",
   );
   assert.equal(
-    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "FAILURE" }] })).reason,
+    evaluateAutoMergeDecision(autoMergeContext({ requiredChecks: autoMergeRequiredChecks({ "Validate scaffold": { status: "COMPLETED", conclusion: "FAILURE" } }) })).reason,
     "required_checks_not_successful",
   );
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
@@ -3436,7 +3903,7 @@ test("auto-merge waits through blocked merge state after checks and then merges 
           inspections += 1;
           return {
             pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
-            requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "SUCCESS" }],
+            requiredChecks: autoMergeRequiredChecks(),
             reviewThreads: [],
             codeScanningAlerts: [],
             blockingMarkers: [],
@@ -3444,10 +3911,10 @@ test("auto-merge waits through blocked merge state after checks and then merges 
         },
       },
     );
-    assert.equal(inspections, 1);
+    assert.equal(inspections, 2);
     assert.equal(result.result, "merged");
     assert.equal(result.waitAttempts.length, 2);
-    assert.ok(calls.includes("gh pr merge 1 --merge"));
+    assert.ok(calls.includes("gh pr merge 1 --merge --match-head-commit head123"));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -3464,7 +3931,7 @@ test("auto-merge wait expires when merge state never becomes clean and writes ev
         sleep: () => {},
         inspectState: () => ({
           pr: { mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", headRefOid: "head123" },
-          requiredChecks: [{ name: "Validate", status: "COMPLETED", conclusion: "SUCCESS" }],
+          requiredChecks: autoMergeRequiredChecks(),
           reviewThreads: [],
           codeScanningAlerts: [],
           blockingMarkers: [],
@@ -3513,10 +3980,10 @@ test("auto-merge wait continues past the prior six-attempt pending-check window 
     const result = executeAutoMerge(
       { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 8, delayMs: 0 } },
       autoMergeContext({
-        requiredChecks: [
-          { name: "CodeQL", status: "IN_PROGRESS", conclusion: null },
-          { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
-        ],
+        requiredChecks: autoMergeRequiredChecks({
+          CodeQL: { status: "IN_PROGRESS", conclusion: null },
+          "Validate scaffold": { status: "IN_PROGRESS", conclusion: null },
+        }),
       }),
       {
         runner: createAutoMergeRunner([]),
@@ -3527,9 +3994,11 @@ test("auto-merge wait continues past the prior six-attempt pending-check window 
             return {
               pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
               requiredChecks: [
-                { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
-                { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
-              ],
+              { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null },
+              { name: "Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
+            ],
               reviewThreads: [],
               codeScanningAlerts: [],
               blockingMarkers: [],
@@ -3540,6 +4009,8 @@ test("auto-merge wait continues past the prior six-attempt pending-check window 
             requiredChecks: [
               { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
               { name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+              { name: "Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
             ],
             reviewThreads: [],
             codeScanningAlerts: [],
@@ -3562,13 +4033,13 @@ test("auto-merge wait expires fail-closed when checks remain pending beyond the 
   try {
     const result = executeAutoMerge(
       { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 3, delayMs: 0 } },
-      autoMergeContext({ requiredChecks: [{ name: "CodeQL", status: "IN_PROGRESS", conclusion: null }] }),
+      autoMergeContext({ requiredChecks: autoMergeRequiredChecks({ CodeQL: { status: "IN_PROGRESS", conclusion: null } }) }),
       {
         runner: createAutoMergeRunner([]),
         sleep: () => {},
         inspectState: () => ({
           pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
-          requiredChecks: [{ name: "CodeQL", status: "IN_PROGRESS", conclusion: null }],
+          requiredChecks: autoMergeRequiredChecks({ CodeQL: { status: "IN_PROGRESS", conclusion: null } }),
           reviewThreads: [],
           codeScanningAlerts: [],
           blockingMarkers: [],
@@ -3585,13 +4056,13 @@ test("auto-merge wait expires fail-closed when checks remain pending beyond the 
 });
 
 test("auto-merge does not wait on failed or cancelled checks", () => {
-  for (const conclusion of ["FAILURE", "CANCELLED"]) {
+  for (const conclusion of ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"]) {
     const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-auto-merge-terminal-${conclusion.toLowerCase()}-`));
     try {
       let inspections = 0;
       const result = executeAutoMerge(
         { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 8, delayMs: 0 } },
-        autoMergeContext({ requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion }] }),
+        autoMergeContext({ requiredChecks: [...autoMergeRequiredChecks(), { name: "Unlisted terminal check", status: "COMPLETED", conclusion }] }),
         {
           runner: createAutoMergeRunner([]),
           sleep: () => {},
@@ -3608,6 +4079,33 @@ test("auto-merge does not wait on failed or cancelled checks", () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
+  }
+});
+
+test("auto-merge final refresh catches newly failed unlisted exact-head checks", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-final-refresh-unlisted-check-"));
+  try {
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 1, delayMs: 0 } },
+      autoMergeContext(),
+      {
+        runner: createAutoMergeRunner([]),
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: [
+            ...autoMergeRequiredChecks(),
+            { name: "Unlisted final refresh check", status: "COMPLETED", conclusion: "FAILURE" },
+          ],
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason, "final_refresh_blocked:required_checks_not_successful");
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 
@@ -3652,7 +4150,7 @@ test("existing PR recovery regenerates missing Codex evidence outside independen
       codexMechanicsHeadSha: "head123",
       codexMechanicsChangedFiles: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"],
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldGenerateExistingPrRecoveryEvidence(autoMergeLane({ lane: "client-ui-low-risk" }), {
@@ -3777,7 +4275,7 @@ test("existing PR recovery blocks stale head, broad files, review/code scanning 
     ["thread", existingPrRecoveryContext({ reviewThreads: [{ isResolved: false }] }), /unresolved_review_threads/],
     ["scan", existingPrRecoveryContext({ codeScanningAlerts: [{ state: "open" }] }), /open_code_scanning_alerts/],
     ["stop", existingPrRecoveryContext({ issue: { labels: ["auto-canary-ready", "auto-failed"] } }), /issue_stop_label:auto-failed/],
-    ["missing evidence", existingPrRecoveryContext({ exactHeadEvidence: {} }), /missing_evidence_or_review/],
+    ["missing evidence", existingPrRecoveryContext({ exactHeadEvidence: {} }), /missing_independent_review_evidence|missing_evidence_or_review/],
     ["manual", existingPrRecoveryContext({ blockingMarkers: ["blocking_comment_or_review_marker"] }), /blocking_markers/],
   ];
   for (const [name, context, pattern] of cases) {
@@ -3862,12 +4360,37 @@ test("existing client-ui-low-risk PR recovery requires independent Gemini and Co
 test("existing PR recovery treats pending checks as refreshable wait state after evidence gates pass", () => {
   const decision = evaluateExistingPrRecoveryDecision(
     existingPrRecoveryContext({
-      requiredChecks: [{ name: "Validate scaffold", status: "IN_PROGRESS", conclusion: null }],
+      requiredChecks: autoMergeRequiredChecks({ "Validate scaffold": { status: "IN_PROGRESS", conclusion: null } }),
     }),
   );
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "existing_pr_recovery_waiting_for_refreshable_gate:required_checks_pending");
   assert.equal(decision.autoMergeDecision.reason, "required_checks_pending");
+});
+
+test("existing PR recovery applies all-observed exact-head check policy", () => {
+  const failed = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      requiredChecks: [
+        ...autoMergeRequiredChecks(),
+        { name: "Unlisted recovered PR check", status: "COMPLETED", conclusion: "FAILURE" },
+      ],
+    }),
+  );
+  assert.equal(failed.eligible, false);
+  assert.equal(failed.reason, "existing_pr_recovery_gate_blocked:required_checks_not_successful");
+  assert.equal(failed.autoMergeDecision.reason, "required_checks_not_successful");
+
+  const pending = evaluateExistingPrRecoveryDecision(
+    existingPrRecoveryContext({
+      requiredChecks: [
+        ...autoMergeRequiredChecks(),
+        { name: "Unlisted recovered PR pending check", status: "IN_PROGRESS", conclusion: null },
+      ],
+    }),
+  );
+  assert.equal(pending.eligible, true);
+  assert.equal(pending.reason, "existing_pr_recovery_waiting_for_refreshable_gate:required_checks_pending");
 });
 
 test("source branch restoration is executed after mocked merge auto-deletes branch", () => {
@@ -4856,8 +5379,10 @@ function createTempGitRepo() {
 }
 
 function autoMergeLane(overrides = {}) {
+  const lane = overrides.lane || "workflow-docs-tooling";
   return {
-    lane: "workflow-docs-tooling",
+    lane,
+    canonicalLane: overrides.canonicalLane || lane,
     allowedToImplement: true,
     dangerGate: false,
     allowedPaths: ["tools/auto-runner/**", "docs/workflow/**"],
@@ -4866,6 +5391,13 @@ function autoMergeLane(overrides = {}) {
     manualMergeRequired: false,
     autoMergeEligible: true,
     prCreationAllowed: true,
+    branchStrategy: "normal",
+    reviewerTier: "cheap_independent",
+    laneManifest: {
+      id: "workflow-docs-tooling",
+      decisionType: "runnable",
+      autoMergeAllowed: true,
+    },
     contract: {
       manualMergeRequired: false,
       autoMergeEligible: true,
@@ -4879,6 +5411,13 @@ function autoMergeLane(overrides = {}) {
 function autoMergeContext(overrides = {}) {
   const laneDecision = overrides.laneDecision || autoMergeLane();
   const changedFiles = overrides.changedFiles || ["tools/auto-runner/lib/auto-merge-policy.mjs"];
+  const fileDigest = sha256Strings(changedFiles);
+  const defaultRequiredChecks = [
+    { name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "Semgrep CE scan", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "Trivy repository scan", status: "COMPLETED", conclusion: "SUCCESS" },
+  ];
   const pr = {
     number: 1,
     url: "https://example.invalid/pull/1",
@@ -4889,6 +5428,8 @@ function autoMergeContext(overrides = {}) {
     headRefOid: "head123",
     mergeable: "MERGEABLE",
     mergeStateStatus: "CLEAN",
+    title: "Auto-runner: #1 Low risk auto merge",
+    body: "Closes or updates #1.",
     ...(overrides.pr || {}),
   };
   const issue = {
@@ -4900,7 +5441,16 @@ function autoMergeContext(overrides = {}) {
     ...(overrides.issue || {}),
   };
   return {
-    config: { allowAutoMerge: true, ...(overrides.config || {}) },
+    config: {
+      allowAutoMerge: true,
+      autoMergePolicy: {
+        approvedLanes: [laneDecision.canonicalLane || laneDecision.lane],
+        requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"],
+        allowedSkippedChecks: [],
+        allowedNeutralChecks: [],
+      },
+      ...(overrides.config || {}),
+    },
     issue,
     laneDecision,
     changedFiles,
@@ -4909,10 +5459,40 @@ function autoMergeContext(overrides = {}) {
     externalReviewRequired: overrides.externalReviewRequired ?? true,
     externalReview: Object.hasOwn(overrides, "externalReview")
       ? overrides.externalReview
-      : { status: "pass", reason: "integrated_review_passed", reviewedHead: "head123", changedFiles },
-    review: overrides.review || { verdict: { verdict: "approve" }, reviewedHead: "head123", changedFiles },
+      : {
+          status: "pass",
+          verdict: "pass",
+          reason: "integrated_review_passed",
+          reviewedHead: "head123",
+          baseSha: "base123",
+          changedFiles,
+          changedFilesDigest: fileDigest,
+          provider: "gemini",
+          tier: laneDecision.reviewerTier || "cheap_independent",
+          independent: true,
+          completedAt: "2026-07-12T00:00:00.000Z",
+          budget: { status: "pass" },
+        },
+    review: overrides.review || {
+      verdict: { verdict: "approve" },
+      reviewedHead: "head123",
+      baseSha: "base123",
+      changedFiles,
+      changedFilesDigest: fileDigest,
+      completedAt: "2026-07-12T00:00:00.000Z",
+      blockingFindings: [],
+    },
     codexMechanicsReviewApproved: overrides.codexMechanicsReviewApproved ?? true,
-    validation: overrides.validation || { passed: true },
+    validation: overrides.validation || {
+      passed: true,
+      profile: laneDecision.validationProfile,
+      headSha: "head123",
+      baseSha: "base123",
+      changedFiles,
+      changedFilesDigest: fileDigest,
+      completedAt: "2026-07-12T00:00:00.000Z",
+      results: [{ command: "npm run validate:scaffold", status: 0 }],
+    },
     worktreeClean: overrides.worktreeClean ?? true,
     pr,
     actualHeadSha: overrides.actualHeadSha || pr.headRefOid,
@@ -4921,11 +5501,33 @@ function autoMergeContext(overrides = {}) {
     branchName: overrides.branchName || "feature/auto-1-test",
     currentOriginMainSha: overrides.currentOriginMainSha || "base123",
     expectedOriginMainSha: overrides.expectedOriginMainSha || "base123",
-    requiredChecks: overrides.requiredChecks || [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+    requiredChecks: overrides.requiredChecks || defaultRequiredChecks,
     reviewThreads: overrides.reviewThreads || [],
     codeScanningAlerts: overrides.codeScanningAlerts || [],
     blockingMarkers: overrides.blockingMarkers || [],
   };
+}
+
+function autoMergeRequiredChecks(overrides = {}) {
+  return ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"].map((name) => ({
+    name,
+    status: overrides[name]?.status || "COMPLETED",
+    conclusion: Object.hasOwn(overrides[name] || {}, "conclusion") ? overrides[name].conclusion : "SUCCESS",
+  }));
+}
+
+function autoMergePolicyFixture(overrides = {}) {
+  return {
+    approvedLanes: ["workflow-docs-tooling"],
+    requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"],
+    allowedSkippedChecks: [],
+    allowedNeutralChecks: [],
+    ...overrides,
+  };
+}
+
+function sha256Strings(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
 }
 
 function existingPrRecoveryContext(overrides = {}) {
@@ -4978,12 +5580,21 @@ function existingPrRecoveryContext(overrides = {}) {
     exactHeadEvidence: overrides.exactHeadEvidence ?? {
       headSha: "head123",
       validationPassed: true,
+      validationResults: [{ command: "npm run validate:docs", status: 0 }],
+      validationCompletedAt: "2026-07-12T00:00:00.000Z",
       geminiPass: true,
       geminiHeadSha: "head123",
       geminiChangedFiles: changedFiles,
+      geminiChangedFilesDigest: sha256Strings(changedFiles),
+      geminiTier: "cheap_independent",
+      geminiProvider: "gemini",
+      geminiCompletedAt: "2026-07-12T00:00:00.000Z",
+      geminiBudget: { status: "pass" },
       codexMechanicsApproved: true,
       codexMechanicsHeadSha: "head123",
       codexMechanicsChangedFiles: changedFiles,
+      codexMechanicsChangedFilesDigest: sha256Strings(changedFiles),
+      codexMechanicsCompletedAt: "2026-07-12T00:00:00.000Z",
     },
   };
 }
@@ -4992,7 +5603,29 @@ function createAutoMergeRunner(calls) {
   return (command, args) => {
     calls.push(`${command} ${args.join(" ")}`);
     if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
+      return ok(JSON.stringify({
+        number: 1,
+        url: "https://example.invalid/pull/1",
+        state: "OPEN",
+        isDraft: false,
+        baseRefName: "main",
+        headRefName: "feature/auto-1-test",
+        headRefOid: "head123",
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        title: "Auto-runner: #1 Low risk auto merge",
+        body: "Closes or updates #1.",
+        statusCheckRollup: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+        comments: [],
+        reviews: [],
+      }));
+    }
     if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql") {
+      return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+    }
+    if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
     if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
     if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
     if (command === "gh" && args[0] === "issue" && args[1] === "view") {
@@ -5310,12 +5943,25 @@ function integratedVerdictJson(overrides = {}) {
 }
 
 function fakeGeminiResponse(body, status = 200) {
+  const normalizedBody = normalizeFakeGeminiBody(body);
   return {
     ok: status >= 200 && status < 300,
     status,
     async text() {
-      return JSON.stringify(body);
+      return JSON.stringify(normalizedBody);
     },
+  };
+}
+
+function normalizeFakeGeminiBody(body) {
+  if (!body || typeof body !== "object" || !Array.isArray(body.candidates)) return body;
+  return {
+    ...body,
+    candidates: body.candidates.map((candidate) => (
+      candidate && typeof candidate === "object" && !Object.hasOwn(candidate, "finishReason")
+        ? { finishReason: "STOP", ...candidate }
+        : candidate
+    )),
   };
 }
 

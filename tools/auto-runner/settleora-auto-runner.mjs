@@ -37,7 +37,7 @@ import {
 import { generateTaskPrompt } from "./lib/task-prompt.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./lib/codex-runner.mjs";
 import { collectReport } from "./lib/report-collector.mjs";
-import { planValidation, runValidationPlan } from "./lib/validation-planner.mjs";
+import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib/validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
@@ -370,7 +370,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   const slug = slugify(issue.title, 40);
-  const branchName = `feature/auto-${issue.number}-${slug}-${safeTimestamp().slice(0, 15).toLowerCase()}`;
+  const branchPrefix = laneDecision.branchStrategy === "focused" ? "focused" : "feature";
+  const branchName = `${branchPrefix}/auto-${issue.number}-${slug}-${safeTimestamp().slice(0, 15).toLowerCase()}`;
   iteration.branchName = branchName;
   fetchOriginMain(config);
   iteration.baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
@@ -473,7 +474,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
 
-  iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
+    iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
   iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   if (!config.dryRun) {
     changedFiles = listChangedFiles("origin/main", "HEAD");
@@ -503,6 +504,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       return iteration;
     }
   }
+  iteration.validation = bindValidationEvidence(iteration.validation, {
+    headSha: iteration.runnerCreatedCommitSha,
+    baseSha: iteration.baseOriginMainSha,
+    changedFiles,
+    profile: laneDecision.validationProfile,
+  });
 
   const beforeReview = await checkoutFingerprint();
   iteration.reviewPackage = await writeReviewPackage(config, {
@@ -791,8 +798,11 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
       geminiHeadSha: expectedHeadSha,
       geminiChangedFiles: changedFiles,
+      geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
       geminiProvider: generatedRecoveryEvidence.externalReview?.provider || exactHeadEvidence.geminiProvider || null,
       geminiTier: generatedRecoveryEvidence.externalReview?.tier || exactHeadEvidence.geminiTier || null,
+      geminiCompletedAt: generatedRecoveryEvidence.externalReview?.completedAt || null,
+      geminiBudget: generatedRecoveryEvidence.externalReview?.budget || null,
       geminiEvidencePath:
         generatedRecoveryEvidence.externalReview?.reportPath ||
         generatedRecoveryEvidence.externalReview?.evidencePath ||
@@ -801,10 +811,15 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
       codexMechanicsChangedFiles: changedFiles,
+      codexMechanicsChangedFilesDigest: generatedRecoveryEvidence.review?.changedFilesDigest || null,
+      codexMechanicsCompletedAt: generatedRecoveryEvidence.review?.completedAt || null,
       codexMechanicsEvidencePath: generatedRecoveryEvidence.review?.logPath || generatedRecoveryEvidence.review?.promptPath || null,
       codexMechanicsFailureReason: generatedRecoveryEvidence.review?.reviewFailureReason || null,
       codexMechanicsFailureCategory: generatedRecoveryEvidence.review?.reviewFailureCategory || null,
       codexMechanicsAttemptCount: generatedRecoveryEvidence.review?.attemptCount || null,
+      validationResults: generatedRecoveryEvidence.validation?.results || null,
+      validationCompletedAt: generatedRecoveryEvidence.validation?.completedAt || null,
+      changedFilesDigest: generatedRecoveryEvidence.validation?.changedFilesDigest || null,
     };
   }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
@@ -822,9 +837,14 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
           verdict: "pass",
           reason: "recovered_exact_head_gemini_evidence",
           reviewedHead: exactHeadEvidence.geminiHeadSha || exactHeadEvidence.headSha || null,
+          baseSha: exactHeadEvidence.baseSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
           changedFiles: exactHeadEvidence.geminiChangedFiles || changedFiles,
+          changedFilesDigest: exactHeadEvidence.geminiChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
           provider: exactHeadEvidence.geminiProvider || "gemini",
           tier: exactHeadEvidence.geminiTier || "cheap_independent",
+          independent: true,
+          completedAt: exactHeadEvidence.geminiCompletedAt || exactHeadEvidence.completedAt || null,
+          budget: exactHeadEvidence.geminiBudget || null,
           reportPath: exactHeadEvidence.geminiEvidencePath || null,
         }
       : { status: "blocked", reason: "missing_recovered_exact_head_gemini_evidence" },
@@ -833,12 +853,30 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
         ? {
             verdict: { verdict: "approve" },
             reviewedHead: exactHeadEvidence.codexMechanicsHeadSha || exactHeadEvidence.headSha || null,
+            baseSha: exactHeadEvidence.baseSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
             changedFiles: exactHeadEvidence.codexMechanicsChangedFiles,
+            changedFilesDigest: exactHeadEvidence.codexMechanicsChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
+            completedAt: exactHeadEvidence.codexMechanicsCompletedAt || exactHeadEvidence.completedAt || null,
             logPath: exactHeadEvidence.codexMechanicsEvidencePath || null,
           }
         : null),
     codexMechanicsReviewApproved: Boolean(exactHeadEvidence.codexMechanicsApproved),
-    validation: { passed: Boolean(exactHeadEvidence.validationPassed), recovered: true },
+    validation: exactHeadEvidence.validationPassed
+      ? bindValidationEvidence(
+          {
+            passed: true,
+            recovered: true,
+            results: exactHeadEvidence.validationResults,
+            completedAt: exactHeadEvidence.validationCompletedAt || exactHeadEvidence.completedAt || null,
+          },
+          {
+            headSha: expectedHeadSha,
+            baseSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+            changedFiles,
+            profile: laneDecision.validationProfile,
+          },
+        )
+      : { passed: false, recovered: true },
     worktreeClean: getStatusShort() === "",
     branchName: githubState.pr?.headRefName || recoveryConfig.branchName || null,
     runnerCreatedCommitSha: expectedHeadSha,
@@ -1344,7 +1382,7 @@ async function writeReviewPackage(config, payload) {
     }),
     changedFiles: payload.changedFiles,
     currentHead: config.dryRun ? null : getRefSha("HEAD"),
-    baseSha: payload.baseSha || payload.baseRefSha || null,
+    baseSha: payload.baseSha || payload.baseRefSha || payload.baseOriginMainSha || (config.dryRun ? null : getRefSha("origin/main")),
     validation: payload.validation,
     report: payload.report,
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,

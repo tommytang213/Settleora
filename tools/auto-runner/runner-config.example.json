@@ -23,6 +23,17 @@
   "allowStaleClaimSteal": false,
   "staleClaimAfterHours": 12,
   "allowAutoMerge": false,
+  "autoMergePolicy": {
+    "approvedLanes": [],
+    "requiredChecks": [
+      "Validate scaffold",
+      "CodeQL",
+      "Semgrep CE scan",
+      "Trivy repository scan"
+    ],
+    "allowedSkippedChecks": [],
+    "allowedNeutralChecks": []
+  },
   "allowExistingPrRecovery": false,
   "autoMergeWait": {
     "maxAttempts": 60,

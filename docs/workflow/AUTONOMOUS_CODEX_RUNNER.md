@@ -262,6 +262,40 @@ by a future approved slice, it must live under
 `/workspace/logs/settleora-auto-runner/state/`, not committed repository
 paths.
 
+## Approved-Domain Auto-Merge
+
+The final merge-policy direction is approved-domain, not low-risk-only.
+Repository defaults remain fail-closed: `allowAutoMerge` is false and
+`autoMergePolicy.approvedLanes` is empty. A deployment/profile that enables
+auto-merge must explicitly list supported canonical runnable lane IDs such as
+`workflow-docs-tooling`, `docs-planning`, `client-ui-low-risk`,
+`mobile-application`, `web-user-ui`, `web-admin-ui`, and
+`api-domain-runtime`. Alias-only, unknown, disabled, manual-gated, and
+split-required lanes are rejected by config normalization or the merge gate.
+
+An approved lane is only a capability. Auto-merge still requires a valid issue
+contract with `autoMergeEligible=true` and `manualMergeRequired=false`, no
+genuine manual action, exact changed-file matches against both the issue
+contract and lane manifest, the lane-appropriate branch strategy, structured
+validation evidence bound to exact head/base/files/profile, the #888 external
+review tier on that same evidence, independent Codex mechanics/security
+approval, required GitHub checks and security scans, all observed exact-head
+checks in acceptable final states, no open code-scanning alerts, no unresolved
+review threads or requested changes, an open issue with
+no stop labels, and an unchanged base/head through the final refresh. The
+merge command uses `gh pr merge --merge --match-head-commit <exact-head>`.
+
+Sensitive implementation is not a human decision by itself when the lane is
+explicitly auto-merge supported. Manual-gated domains and manual actions remain
+blocked regardless of review quality: auth/session/security-critical runtime,
+storage/file privacy/authz, money/settlement/payment authority, schema
+migrations, OpenAPI/generated clients, sync/import/export/restore authority,
+Docker/CI/deployment infrastructure, production deployment, mobile store
+release, destructive migration or data execution, secret or credential
+mutation, public/admin exposure, architecture replacement, force-like history,
+branch deletion/cleanup, Day 1 scope cuts, and unresolved product/policy or
+financial authority decisions.
+
 ## External Reviewer Tiers
 
 External reviewer execution is independent of Codex mechanics/security review.

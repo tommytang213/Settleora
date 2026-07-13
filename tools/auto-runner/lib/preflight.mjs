@@ -424,9 +424,28 @@ function checkAutoMergeApproval(config) {
       ),
     };
   }
+  const approvedLanes = Array.isArray(config.autoMergePolicy?.approvedLanes) ? config.autoMergePolicy.approvedLanes : [];
+  if (approvedLanes.length > 0) {
+    return {
+      name: "auto-merge-approved-domain-policy",
+      status: "pass",
+      detail: bounded(
+        JSON.stringify({
+          allowAutoMerge: true,
+          approvedDomainAutoMerge: true,
+          approvedLanes,
+          requiredChecks: config.autoMergePolicy?.requiredChecks || [],
+          allowedSkippedChecks: config.autoMergePolicy?.allowedSkippedChecks || [],
+          allowedNeutralChecks: config.autoMergePolicy?.allowedNeutralChecks || [],
+          defaultOffPosture: false,
+          reason: "approved-domain auto-merge config is explicit; final merge gates still require exact head, validation, external review, Codex review, CI/security, code scanning, issue, branch, and manual-action checks",
+        }),
+      ),
+    };
+  }
   const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
   return {
-    name: "auto-merge-disabled",
+    name: "auto-merge-approved-domain-policy",
     status: approval.approved ? "pass" : "fail",
     detail: approval.approved
       ? bounded(JSON.stringify({ allowAutoMerge: true, autoMergeCanaryApprovalMode: approval.mode, reason: approval.reason }))

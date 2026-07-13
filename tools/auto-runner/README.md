@@ -10,6 +10,24 @@ remains open. The current restrictive defaults are staged scaffolding. See
 target, remaining child issues #887-#894, feature-bundle order, and the
 recommended first implementation child (#887).
 
+Approved-domain auto-merge remains default-off. Enabling `allowAutoMerge` is
+not enough: external config must also set `autoMergePolicy.approvedLanes` to a
+bounded list of supported canonical runnable lane IDs and keep required
+CI/security check names explicit. All observed exact-head checks must pass; `SKIPPED` or
+`NEUTRAL` conclusions pass only for explicitly allowlisted canonical check
+names. The merge gate then still requires the issue contract to be
+auto-merge eligible, no manual action or split requirement, exact contract and
+lane path matches, exact-head validation evidence, independent external review,
+Codex mechanics/security review, GitHub checks, code scanning, clear review
+threads, open issue state, and unchanged base/head. Supported sensitive lanes
+can be approved this way only when they are not manual-gated. Auth/session
+security-critical runtime, storage/file privacy/authz, money/settlement/payment
+authority, schema migrations, OpenAPI/generated clients, sync/import/export/
+restore authority, Docker/CI/deployment infrastructure, production deploys,
+destructive execution, secret/auth credential mutation, public/admin exposure,
+branch deletion, force-like history changes, and unresolved product/policy/
+financial decisions remain manual-gated and do not auto-merge.
+
 Preflight diagnostics:
 
 ```bash
@@ -626,13 +644,13 @@ Implementation lane matrix:
 | `web-user-ui` | standard | normal | cheap | `web-ui` | implementation and PR creation only |
 | `web-admin-ui` | sensitive | focused | strong | `web-ui` | implementation and PR creation only |
 | `api-domain-runtime` | sensitive | focused | strong | `api-domain` | implementation and PR creation only |
-| `auth-session-security` | high | focused | strong | `api-security` | implementation and PR creation only |
-| `storage-file-privacy-authz` | high | focused | strong | `api-storage` | implementation and PR creation only |
-| `money-settlement-payment` | high | focused | strong | `api-money` | implementation and PR creation only |
-| `schema-migrations` | high | focused | strong | `api-migrations` | migration code review only; destructive application remains manual |
-| `openapi-generated-clients` | high | focused | strong | `openapi-generated-clients` | OpenAPI source plus generated clients through repo generation only |
-| `sync-import-export-restore` | high | focused | strong | `sync-import-export` | implementation under API-authoritative acceptance only |
-| `docker-compose-ci-deployment` | high | focused | strong | `compose-ci` | repo code only; live deployment/env/secret mutation remains manual |
+| `auth-session-security` | high | focused | strong | `api-security` | manual-gated PR only; no auto-merge |
+| `storage-file-privacy-authz` | high | focused | strong | `api-storage` | manual-gated PR only; no auto-merge |
+| `money-settlement-payment` | high | focused | strong | `api-money` | manual-gated PR only; no auto-merge |
+| `schema-migrations` | high | focused | strong | `api-migrations` | manual-gated PR only; no migration auto-merge |
+| `openapi-generated-clients` | high | focused | strong | `openapi-generated-clients` | manual-gated PR only; no auto-merge |
+| `sync-import-export-restore` | high | focused | strong | `sync-import-export` | manual-gated PR only; no auto-merge |
+| `docker-compose-ci-deployment` | high | focused | strong | `compose-ci` | manual-gated PR only; no deployment/CI auto-merge |
 | `cross-domain` | split | split-required | split/escalate | none | blocked until future bundle/split policy |
 
 Compatibility aliases map `security-runtime`, `storage-privacy`,
@@ -640,10 +658,10 @@ Compatibility aliases map `security-runtime`, `storage-privacy`,
 `product-runtime` remains a disabled placeholder until an issue selects a
 narrower domain lane.
 
-Sensitive lanes are PR-only in the current runner. #888 must operationalize
-external reviewer tiers, and #889 must implement exact-head auto-merge
-expansion before sensitive auto-merge can be enabled. The current policy does
-not enable reviewer providers or sensitive-domain auto-merge.
+Manual-gated lanes are PR-only in the current runner. #888 operationalizes
+external reviewer tiers, and #889 implements exact-head auto-merge expansion
+only for supported non-manual-gated domains. The current policy does not enable
+reviewer providers by default or high-risk/manual-gated domain auto-merge.
 
 Genuine manual actions remain blocked even when related code lanes are
 runnable: production deploy/promotion, mobile store/TestFlight/Play
