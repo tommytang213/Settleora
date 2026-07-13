@@ -298,10 +298,38 @@ function matchSegments(patternSegments, pathSegments) {
 }
 
 function segmentMatches(pattern, value) {
+  if (pattern.includes("/") || value.includes("/")) return false;
   if (pattern === "*") return true;
   if (!pattern.includes("*")) return pattern === value;
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");
-  return new RegExp(`^${escaped}$`).test(value);
+
+  let patternIndex = 0;
+  let valueIndex = 0;
+  let starIndex = -1;
+  let starValueIndex = 0;
+
+  while (valueIndex < value.length) {
+    if (pattern[patternIndex] === value[valueIndex]) {
+      patternIndex += 1;
+      valueIndex += 1;
+      continue;
+    }
+    if (pattern[patternIndex] === "*") {
+      starIndex = patternIndex;
+      starValueIndex = valueIndex;
+      patternIndex += 1;
+      continue;
+    }
+    if (starIndex !== -1) {
+      patternIndex = starIndex + 1;
+      starValueIndex += 1;
+      valueIndex = starValueIndex;
+      continue;
+    }
+    return false;
+  }
+
+  while (pattern[patternIndex] === "*") patternIndex += 1;
+  return patternIndex === pattern.length;
 }
 
 function isSafeRepoRelativePath(value, { allowGlob, maxLength }) {

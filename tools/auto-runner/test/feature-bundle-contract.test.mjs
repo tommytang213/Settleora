@@ -3,7 +3,15 @@ import test from "node:test";
 import { planFeatureBundleIssue } from "../lib/feature-bundle-contract.mjs";
 import { parseAutoRunnerContract } from "../lib/lane-policy.mjs";
 
-function issueWithBundle({ slices, lane = "workflow-docs-tooling", labels = ["auto-ready", "auto-bundle"], extraContract = "", extraBundle = "", bodyPrefix = "" }) {
+function issueWithBundle({
+  slices,
+  lane = "workflow-docs-tooling",
+  labels = ["auto-ready", "auto-bundle"],
+  allowedPaths = ["tools/auto-runner/**"],
+  extraContract = "",
+  extraBundle = "",
+  bodyPrefix = "",
+}) {
   return {
     number: 890,
     title: "Feature bundle fixture",
@@ -15,7 +23,7 @@ function issueWithBundle({ slices, lane = "workflow-docs-tooling", labels = ["au
 {
   "contractVersion": 1,
   "lane": "${lane}",
-  "allowedPaths": ["tools/auto-runner/**"],
+  "allowedPaths": ${JSON.stringify(allowedPaths)},
   "validationProfile": "runner-tests",
   "manualMergeRequired": true,
   "autoMergeEligible": false,
@@ -121,6 +129,63 @@ test("feature-bundle planner rejects unsupported profiles, path escapes, unsafe 
     planFeatureBundleIssue(issueWithBundle({ slices: [slice("first"), { ...slice("second"), unexpected: true }] })).reasonCode,
     "bundle_slice_unknown_field",
   );
+});
+
+test("feature-bundle segment glob matching supports approved wildcard shapes without dynamic regex", () => {
+  const accepted = [
+    ["exact match", "tools/auto-runner/lib/feature-bundle-contract.mjs", "tools/auto-runner/lib/feature-bundle-contract.mjs"],
+    ["full wildcard", "tools/auto-runner/lib/*", "tools/auto-runner/lib/file.mjs"],
+    ["prefix wildcard", "tools/auto-runner/lib/feature-*.mjs", "tools/auto-runner/lib/feature-bundle-contract.mjs"],
+    ["suffix wildcard", "tools/auto-runner/lib/*-contract.mjs", "tools/auto-runner/lib/feature-bundle-contract.mjs"],
+    ["middle wildcard", "tools/auto-runner/lib/feature-*-contract.mjs", "tools/auto-runner/lib/feature-bundle-contract.mjs"],
+    ["multiple wildcards", "tools/auto-runner/lib/f*e*b*c*.mjs", "tools/auto-runner/lib/feature-bundle-contract.mjs"],
+    ["zero-character wildcard", "tools/auto-runner/lib/feature-*bundle-contract.mjs", "tools/auto-runner/lib/feature-bundle-contract.mjs"],
+    ["literal regex metacharacters", "tools/auto-runner/lib/file.+(test)*.mjs", "tools/auto-runner/lib/file.+(test)-safe.mjs"],
+  ];
+
+  for (const [name, parentGlob, childPath] of accepted) {
+    const result = planFeatureBundleIssue(
+      issueWithBundle({
+        allowedPaths: [parentGlob],
+        slices: [slice("first", { allowedPaths: [childPath] }), slice("second", { allowedPaths: [childPath] })],
+      }),
+    );
+    assert.equal(result.ok, true, name);
+  }
+});
+
+test("feature-bundle segment glob matching rejects mismatches, slash crossing, and lane escapes", () => {
+  const rejected = [
+    ["mismatch", "tools/auto-runner/lib/feature-*.mjs", "tools/auto-runner/lib/state-bundle-contract.mjs", "bundle_slice_path_outside_parent"],
+    ["no slash crossing", "tools/auto-runner/*", "tools/auto-runner/lib/feature-bundle-contract.mjs", "bundle_slice_path_outside_parent"],
+    ["lane escape remains fail-closed", "services/api/*", "services/api/Program.cs", "parent_contract_not_runnable"],
+  ];
+
+  for (const [name, parentGlob, childPath, reasonCode] of rejected) {
+    const result = planFeatureBundleIssue(
+      issueWithBundle({
+        allowedPaths: [parentGlob],
+        slices: [slice("first", { allowedPaths: [childPath] }), slice("second", { allowedPaths: [childPath] })],
+      }),
+    );
+    assert.equal(result.ok, false, name);
+    assert.equal(result.reasonCode, reasonCode, name);
+  }
+});
+
+test("feature-bundle segment glob matching handles long bounded adversarial inputs", () => {
+  const prefix = "a".repeat(90);
+  const suffix = "b".repeat(90);
+  const result = planFeatureBundleIssue(
+    issueWithBundle({
+      allowedPaths: [`tools/auto-runner/lib/${prefix}*${suffix}.mjs`],
+      slices: [
+        slice("first", { allowedPaths: [`tools/auto-runner/lib/${prefix}${"x".repeat(20)}${suffix}.mjs`] }),
+        slice("second", { allowedPaths: [`tools/auto-runner/lib/${prefix}${"y".repeat(20)}${suffix}.mjs`] }),
+      ],
+    }),
+  );
+  assert.equal(result.ok, true);
 });
 
 test("feature-bundle planner rejects executable-looking text and focused or manual lanes", () => {
