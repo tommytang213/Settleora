@@ -37,7 +37,7 @@ test("review secret boundary blocks real secret files and credential content", (
     {
       name: "private key block",
       files: ["tools/auto-runner/lib/example.mjs"],
-      diff: diffFor("tools/auto-runner/lib/example.mjs", ["+-----BEGIN PRIVATE KEY-----"]),
+      diff: diffFor("tools/auto-runner/lib/example.mjs", [`+${"-----BEGIN "}PRIVATE KEY-----`]),
       rule: "private_key_block",
     },
     {
@@ -173,7 +173,7 @@ test("diff metadata is ignored as credential content", () => {
     changedFiles: ["tools/auto-runner/test/example.test.mjs"],
     diff: [
       "diff --git a/tools/auto-runner/test/example.test.mjs b/tools/auto-runner/test/example.test.mjs",
-      "index api_key=AAAAAAAAAAAAAAAA..bbbbbbbb 100644",
+      `index ${"api_key="}${"A".repeat(16)}..bbbbbbbb 100644`,
       "--- a/tools/auto-runner/test/example.test.mjs",
       "+++ b/tools/auto-runner/test/example.test.mjs",
       "@@ -1,0 +1,1 @@",

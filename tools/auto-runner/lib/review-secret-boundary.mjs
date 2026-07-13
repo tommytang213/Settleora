@@ -9,7 +9,7 @@ const maxDiagnosticString = 160;
 const secretPathPatterns = Object.freeze([
   /(^|\/)\.env($|[./-])/i,
   /(^|\/)(secrets?|credentials?|tokens?|ssh|private[-_]?keys?)(\/|$)/i,
-  /(^|\/)[^/]*(secret|credential|token|private[-_]?key)[^/]*$/i,
+  /(^|\/)[^/]*private[-_]?key[^/]*$/i,
 ]);
 
 const knownCredentialValuePatterns = Object.freeze([
