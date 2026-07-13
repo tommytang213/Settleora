@@ -4,6 +4,10 @@ Task key: `20260713-2358`
 
 Base evidence SHA: `b930badaa65ea72e8727c8ca272b3299a8174d35`
 
+Finalization task key: `20260714-0107`
+
+Current-main evidence SHA: `e58340855ab5f700342ce1bfa02d12d2e287b5b3`
+
 Parent tracker: #800
 
 Final acceptance gate: #894
@@ -17,13 +21,17 @@ no assignees, and no milestone.
 
 ## Current Status
 
-#800 remains open pending #894 merge and post-merge proof. PR #907 head
-`b95624196d2dcfbb38e94b99c2d47c646908e538` is superseded for final
+#800 remains open pending this finalization PR merge and final current-main
+proof. PR #907 originally had superseded head
+`b95624196d2dcfbb38e94b99c2d47c646908e538`, which did not satisfy final
 high-risk lane acceptance because `auto-merge-policy.mjs` still excluded the
 seven canonical high-risk runnable lanes from approved-domain auto-merge and
-blocked them categorically. The #907 correction removes that categorical
-block while preserving genuine manual-action gates and exact-head validation,
-review, CI, scanner, issue, branch, and path gates.
+blocked them categorically. Corrected PR #907 source head
+`9472142f69b5db443d1d1693f4a68e38e491d96f` removed that categorical block
+while preserving genuine manual-action gates and exact-head validation,
+review, CI, scanner, issue, branch, and path gates. PR #907 merged as
+`e58340855ab5f700342ce1bfa02d12d2e287b5b3`; post-merge current-main
+validation, GitHub checks, and code-scanning reconciliation passed.
 
 The foundational
 implementation children that were open in the `20260712-1821` audit are now
@@ -41,6 +49,10 @@ merged or completed:
   `db854eb306007e044b05ea47220da466ac2f04df`.
 - #893 completed through PR #906, merge SHA
   `b930badaa65ea72e8727c8ca272b3299a8174d35`.
+- #889 final correction completed through PR #907, source head
+  `9472142f69b5db443d1d1693f4a68e38e491d96f`, merge SHA
+  `e58340855ab5f700342ce1bfa02d12d2e287b5b3`, with current-main proof
+  passing after merge.
 - #880 remains accepted and closed for monitoring, notification, Windows-off,
   and rollback evidence.
 
@@ -80,11 +92,11 @@ accepted historical DevBox evidence for every #800 final acceptance row.
 | C. Issue creation | #891/#892/PR #904 added generated-work proposals, duplicate search, idempotency/correlation, issue mutation pipeline, and default-off creation. Tests: `issue-proposals.test.mjs`, `issue-mutation-pipeline.test.mjs`. | Pass for foundation behavior. | #894 review/merge. |
 | D. Closure/progress hygiene | #892/PR #904 added narrow close decisions, completion comments, transient label cleanup, parent comments, project `not_updated` fallback, and ledger proposal path. Tests: `completion-hygiene.test.mjs`. | Pass for foundation behavior. | #894 review/merge and post-merge #894/#800 comments. |
 | E. External review | #888/PR #897 added cheap/strong/tie-breaker routing, strong-review escalation, provider secret-boundary metadata validation, budget gates, and exact-head review package evidence. Tests include reviewer policy and integrated Gemini coverage in `auto-runner.test.mjs` and `large-bundle-review-approval.test.mjs`. | Pass for foundation behavior. | #894 exact-head strong independent review and Codex review. |
-| F. Exact-head approved-domain merge | #889/PR #898 added approved-lane auto-merge policy with exact issue contract, path, validation, review, CI/security, scanner, thread, issue-state, base/head, and `--match-head-commit` protection. #907 correction removes the stale categorical block for the seven canonical high-risk runnable lanes and adds positive/negative exact-gate regressions. | Pass only on corrected PR #907 exact head after validation/reviews/CI/scanner. | #894 remains manual-merge-required and must not auto-merge. |
+| F. Exact-head approved-domain merge | #889/PR #898 added approved-lane auto-merge policy with exact issue contract, path, validation, review, CI/security, scanner, thread, issue-state, base/head, and `--match-head-commit` protection. #907 correction removes the stale categorical block for the seven canonical high-risk runnable lanes and adds positive/negative exact-gate regressions. PR #907 merged from exact corrected head `9472142f69b5db443d1d1693f4a68e38e491d96f` as `e58340855ab5f700342ce1bfa02d12d2e287b5b3`; post-merge current-main proof passed. | Pass. | Finalization PR merge and final issue closure evidence. |
 | G. Recovery/continuation | #893/PR #906 added recovery state, outcome taxonomy, existing-PR recovery, bounded fix classification, exact-head evidence invalidation, current-main scanner reconciliation, startup recovery-before-polling, and fail-closed continuation dispatch. Tests: `recovery-state.test.mjs`, `recovery-orchestrator.test.mjs`, `recovery-continuation.test.mjs`, `production-recovery-wiring.test.mjs`. | Pass for foundation behavior. | #894 review/merge. |
 | H. Monitoring, Windows-off, rollback | #880 live acceptance and #879/#883/#885 repository slices prove read-only health, ntfy terminal notifier, notification dedupe, Windows-off supervisor continuation, and rollback boundaries. Tests: `health-service.test.mjs`, `terminal-notifier.test.mjs`, `supervisor.test.mjs`, `systemd-templates.test.mjs`. | Pass using exact historical live proof plus current deterministic tests. | No new live notification or Windows shutdown required. |
-| I. Protected canaries | Current #865/#866 live fingerprint remains open, exact labels, zero comments, no assignees, no milestone. #894 does not mutate them. | Pass if final after-fingerprint remains identical. | Recheck before final report/PR and after PR comments. |
-| J. Repository/security safety | Current task and foundation children did not push directly to `main`, force push, rebase/reset/amend, delete branches by request, change secrets, deploy, change schema/OpenAPI/generated clients, or alter product runtime authority. Current open code-scanning alerts are `0` on `origin/main` `b930badaa65ea72e8727c8ca272b3299a8174d35`. | Pass if #894 diff remains within docs/planning/workflow or auto-runner acceptance scope. | Final scope guard, validation, PR CI/security/scanner. |
+| I. Protected canaries | Current #865/#866 live fingerprint remains open, exact labels, zero comments, no assignees, no milestone. #894 does not mutate them. | Pass; final after-fingerprint must remain identical. | Recheck after finalization PR comments and final issue hygiene. |
+| J. Repository/security safety | Current task and foundation children did not push directly to `main`, force push, rebase/reset/amend, delete branches by request, change secrets, deploy, change schema/OpenAPI/generated clients, or alter product runtime authority. Current open code-scanning alerts are `0` on `origin/main` `e58340855ab5f700342ce1bfa02d12d2e287b5b3`. Project fields are `not_updated` because no supported tested mapping was exercised. | Pass if finalization diff remains within the approved docs paths. | Final scope guard, validation, PR CI/security/scanner. |
 
 ## Stale Or Conflicting State Reconciled
 
@@ -112,10 +124,11 @@ strong exact-head gates pass.
 
 ## Close Recommendation
 
-Keep #894 and #800 open while the #894 PR is unmerged. After #894 merges, close
-#894 only if exact-head local validation, strong independent review, Codex
-mechanics/security review, GitHub CI/security, current-main scanner
-reconciliation, protected-canary recheck, and ledger/report evidence all pass.
-Close #800 only after #894 closure evidence proves all matrix rows remain pass
-on current `main`. Keep #902 open as the post-foundation Dependabot and
-code-scanning ingestion enhancement.
+Keep #889, #894, and #800 open while this finalization PR is unmerged. After it
+merges, close #889, #894, and #800 only if final current-main validation,
+GitHub CI/security, current-main scanner reconciliation, protected-canary
+recheck, and ledger/report evidence all pass. #800 A-H foundation scope is
+complete after that closure sequence, but Settleora product Day 1 remains a
+separate broader product milestone. Keep #902 open as the post-foundation
+Dependabot/code-scanning ingestion enhancement and do not start it in this
+task.

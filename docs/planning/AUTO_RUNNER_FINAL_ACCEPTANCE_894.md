@@ -8,6 +8,8 @@ Parent: #800. Final proof issue: #894. Post-foundation follow-up: #902.
 
 Correction task key: `20260714-0033`.
 
+Finalization task key: `20260714-0107`.
+
 The original PR #907 head `b95624196d2dcfbb38e94b99c2d47c646908e538`
 did not satisfy row 5 because `tools/auto-runner/lib/auto-merge-policy.mjs`
 excluded the seven canonical high-risk runnable lanes from
@@ -17,9 +19,42 @@ package are superseded for high-risk lane acceptance. The corrected PR #907
 head must regenerate validation, independent review, Codex review, CI,
 scanner, review-thread, issue, and canary evidence before merge.
 
+PR #907 merged the corrected source head
+`9472142f69b5db443d1d1693f4a68e38e491d96f` into `main` as merge commit
+`e58340855ab5f700342ce1bfa02d12d2e287b5b3`. The merge parents were verified:
+first parent `b930badaa65ea72e8727c8ca272b3299a8174d35`, second parent
+`9472142f69b5db443d1d1693f4a68e38e491d96f`.
+
+Post-merge proof on current `main` at
+`e58340855ab5f700342ce1bfa02d12d2e287b5b3` passed:
+
+- `npm ci`
+- `npm run doctor:validation`
+- `node --check tools/auto-runner/lib/auto-merge-policy.mjs`
+- `node --check tools/auto-runner/lib/lane-policy.mjs`
+- `node --check tools/auto-runner/lib/reviewer-policy.mjs`
+- `node --check tools/auto-runner/test/auto-runner.test.mjs`
+- `node --test tools/auto-runner/test/large-bundle-review-approval.test.mjs`
+  (`31/31`)
+- `node --test tools/auto-runner/test/auto-runner.test.mjs` (`191/191`)
+- `node --test tools/auto-runner/test/*.test.mjs` (`393/393`)
+- `node tools/auto-runner/settleora-auto-runner.mjs --readiness`
+  (`27 pass / 1 warn / 0 fail`)
+- `npm run validate:docs`
+- `npm run validate:scaffold` (`19 paths`)
+
+Current-main GitHub checks on merge SHA `e58340855ab5f700342ce1bfa02d12d2e287b5b3`
+passed: Scaffold Validation, CodeQL, Semgrep CE, Trivy repository scan, and
+API Image GHCR. Current-main open code-scanning alerts were `0`; no scanner
+finding was dismissed, suppressed, waived, or excluded. Protected canaries #865
+and #866 remained open with exact labels `area:mobile-ui`,
+`auto-canary-ready`, `canary`, and `workflow`, zero comments, no assignees, and
+no milestone. Project fields are `not_updated` because no supported tested
+mapping was exercised.
+
 This document is a durable review artifact for #894. It does not close #894 or
-#800 by itself; closure still requires the #894 PR merge gate and post-merge
-current-main reconciliation.
+#800 by itself; closure still requires this focused finalization PR to merge,
+followed by final current-main reconciliation.
 
 ## Evidence Legend
 
@@ -35,9 +70,9 @@ current-main reconciliation.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Multi-issue unattended execution and recovery-first selection: multiple eligible issues in one bounded run, no repeat in same run, recovery before polling, ambiguous recovery fail-closed, bounded stop/no-work/budget outcomes. | `issue-selection.mjs`, `github-issues.mjs`, `recovery-continuation.mjs`, `control-plane.mjs`; tests in `auto-runner.test.mjs`, `recovery-continuation.test.mjs`, `production-recovery-wiring.test.mjs`. | Historical live multi-issue runs in `/workspace/logs/settleora-auto-runner/summaries/`, including #825/#826 and #839/#840; current status/list surfaces; #893 recovery code. | `node --test tools/auto-runner/test/*.test.mjs`; `node tools/auto-runner/settleora-auto-runner.mjs --status --json`; `node tools/auto-runner/settleora-auto-runner.mjs --readiness`. | Pass. | `historical-live` plus `deterministic-fixture`; #894 PR CI/review remains. |
 | 2 | Feature-bundle execution: one bundle branch/final PR, two to four ordered slices, durable checkpoint state and explicit-path commits, resume first incomplete slice, skip completed slices, stale/corrupt/dirty/partial/mismatched state fail closed, focused/split domains separated. | `feature-bundle-contract.mjs`, `feature-bundle-state.mjs`, `feature-bundle-orchestrator.mjs`; tests `feature-bundle-contract.test.mjs`, `feature-bundle-state.test.mjs`. | #890/PR #903, source head `2e104e87ed1c6b6cbb264d2e7c235c2c61bcdcef`, merge `8c1320695da430d8d0932988679209952d59a1b6`; reports `20260713-1416`, `20260713-1500`, `20260713-1531`. | Full runner tests and docs/scaffold validation. | Pass. | `current-state` and `historical-live`; #894 PR gate remains. |
-| 3 | Risk lanes and genuine manual decisions: approved normal/sensitive/high-risk code lanes are not categorically prohibited; lane branch/validation/path/review requirements apply; manual actions stop; broad UI/runtime bundles cannot mix security-critical/storage/money/schema/OpenAPI/sync/deployment authority; production/store/destructive/secret/public/architecture/force/branch deletion/Day 1 cut/unresolved authority decisions remain manual. | `lane-policy.mjs`, `validation-planner.mjs`, `auto-merge-policy.mjs`, docs in `AUTONOMOUS_CODEX_RUNNER.md`; tests in `auto-runner.test.mjs`. | #887/PR #896 plus #907 correction for the high-risk auto-merge allowlist. | Full runner tests; refreshed this audit and runner docs. | Pass only on the corrected PR #907 head after exact validation. | `current-state`; no manual actions weakened. |
+| 3 | Risk lanes and genuine manual decisions: approved normal/sensitive/high-risk code lanes are not categorically prohibited; lane branch/validation/path/review requirements apply; manual actions stop; broad UI/runtime bundles cannot mix security-critical/storage/money/schema/OpenAPI/sync/deployment authority; production/store/destructive/secret/public/architecture/force/branch deletion/Day 1 cut/unresolved authority decisions remain manual. | `lane-policy.mjs`, `validation-planner.mjs`, `auto-merge-policy.mjs`, docs in `AUTONOMOUS_CODEX_RUNNER.md`; tests in `auto-runner.test.mjs`. | #887/PR #896 plus #907 correction for the high-risk auto-merge allowlist. | Full runner tests on current main after PR #907 merge. | Pass. | `current-state`; no manual actions weakened. |
 | 4 | Reviewer tiers and exact-head evidence: cheap/strong route by policy; strong required for sensitive/high-risk/policy-critical; Codex mechanics/security remains separate; unavailable/malformed/failed/over-budget/secret-risk/file-mismatch/stale-head blocks; changed head invalidates review; tie-breaker/escalation bounded. | `reviewer-policy.mjs`, `gemini-reviewer.mjs`, `review-secret-boundary.mjs`, `codex-runner.mjs`; tests `auto-runner.test.mjs`, `large-bundle-review-approval.test.mjs`, `review-secret-boundary.test.mjs`. | #888/PR #897, merge `8ecaafcda5441c452396761ccb7653d31d64f1cb`; #893/PR #906 strong review regenerated after head change. | Full runner tests; secret metadata checked only by safe tooling, no secret contents read. | Pass. | `current-state` plus exact #906 historical-live review proof. |
-| 5 | Exact-head merge behavior: every canonical runnable approved lane, including auth/session/security, storage/file/privacy/authz, money/settlement/payment, schema/migrations, OpenAPI/generated clients, sync/import/export/restore, and Docker/CI/deployment code lanes, may auto-merge only after policy, contract, paths, validation, strong external/Codex reviews where required, CI/security, scanner, mergeability, issue state, exact-head refresh, and external config approval. Genuine manual actions remain manual; `--match-head-commit` prevents stale merges; base/head/scanner/thread/requested-change/stop/scope drift blocks; evidence is regenerated after fix commits; current-main scanner reconciliation runs when required. | `auto-merge-policy.mjs`, `completion-hygiene.mjs`, `settleora-auto-runner.mjs`; tests `auto-runner.test.mjs`, `completion-hygiene.test.mjs`. | #889/PR #898 supplied the base exact-head merge gate; #907 correction removes the high-risk categorical block and adds positive/negative high-risk lane regressions; #893/PR #906 proved exact-head merge protection on a recovery PR. | Full runner tests; syntax checks; readiness; PR #907 CI/security/scanner and review evidence regenerated on corrected head. | Pass only on the corrected PR #907 head. | `current-state` and `historical-live`; #894 itself remains manual merge. |
+| 5 | Exact-head merge behavior: every canonical runnable approved lane, including auth/session/security, storage/file/privacy/authz, money/settlement/payment, schema/migrations, OpenAPI/generated clients, sync/import/export/restore, and Docker/CI/deployment code lanes, may auto-merge only after policy, contract, paths, validation, strong external/Codex reviews where required, CI/security, scanner, mergeability, issue state, exact-head refresh, and external config approval. Genuine manual actions remain manual; `--match-head-commit` prevents stale merges; base/head/scanner/thread/requested-change/stop/scope drift blocks; evidence is regenerated after fix commits; current-main scanner reconciliation runs when required. | `auto-merge-policy.mjs`, `completion-hygiene.mjs`, `settleora-auto-runner.mjs`; tests `auto-runner.test.mjs`, `completion-hygiene.test.mjs`. | #889/PR #898 supplied the base exact-head merge gate; #907 correction removes the high-risk categorical block and adds positive/negative high-risk lane regressions; #893/PR #906 proved exact-head merge protection on a recovery PR. | Full runner tests; syntax checks; readiness; PR #907 exact-head CI/security/scanner and review evidence; current-main validation/check/scanner proof after merge. | Pass. | `current-state` and `historical-live`; closure waits for this finalization PR merge. |
 | 6 | Derived issue creation, reuse, and deduplication: complete contracts for implementation/fix/blocker/follow-up/future-gate, duplicate search across issues/PRs/comments/reports/ledger/prior state, correlation/idempotency, metadata/labels/paths/validation/reviewer/acceptance/close/linkage, ambiguous matches fail closed. | `issue-proposals.mjs`, `issue-mutation-pipeline.mjs`, `github-issues.mjs`; tests `issue-proposals.test.mjs`, `issue-mutation-pipeline.test.mjs`. | #891/#892/PR #904, source head `ddf98251f85121de9ffa50c9f0a84ef7cd914287`, merge `db854eb306007e044b05ea47220da466ac2f04df`; no disposable issue created for #894. | Full runner tests. | Pass. | `current-state`; issue creation remains default-off unless explicitly configured. |
 | 7 | Completion, closure, umbrella, ledger, and project hygiene: narrow issues close after authoritative merge and close-rule proof; ambiguous umbrellas stay open; completion comments include PR/head/merge/scope/validation/reviews/scanners/remaining gates; transient labels removed; project mappings tested or `not_updated`; ledger through PR work; replay idempotent. | `completion-hygiene.mjs`, `summary-writer.mjs`; tests `completion-hygiene.test.mjs`. | #891/#892/#893 closures and #800 progress comments; ledger updated by this #894 branch, not direct `main`. | Full runner tests; live #800/#894/#902 state verified. | Pass. | `current-state`; #894/#800 comments after PR creation remain. |
 | 8 | Review-fix, CI/security, existing-PR recovery, continuation: bounded source fixes within allowed paths; no alert dismissal/suppression/waiver/query exclusion/scanner gaming; source vs provider outage classification; bounded retries; head change invalidates evidence and regenerates; existing runner-owned PRs resume; completion/continuation idempotent; PR #905/#906 and alert #85 reconciled. | `recovery-state.mjs`, `recovery-orchestrator.mjs`, `recovery-continuation.mjs`, `review-fix-policy.mjs`; tests `recovery-state.test.mjs`, `recovery-orchestrator.test.mjs`, `recovery-continuation.test.mjs`, `production-recovery-wiring.test.mjs`. | #893/PR #906, fix commit `a1adb27941927f58ba4e41569bb8237cfaa10f78`, merge `b930badaa65ea72e8727c8ca272b3299a8174d35`; PR #905 closed as superseded after GitHub CodeQL outage; alert #85 fixed and not dismissed. | Full runner tests; current-main checks/scanner query. | Pass. | `historical-live` plus `deterministic-fixture`. |
@@ -50,24 +85,33 @@ current-main reconciliation.
 
 ## Current Live State Checkpoint
 
-- `origin/main`: `b930badaa65ea72e8727c8ca272b3299a8174d35`.
+- `origin/main`: `e58340855ab5f700342ce1bfa02d12d2e287b5b3`.
 - Original PR #907 head `b95624196d2dcfbb38e94b99c2d47c646908e538`
   is superseded for row 5 because high-risk canonical runnable lanes were
   still categorically blocked from auto-merge.
 - PR #906 merged from source head
   `a1adb27941927f58ba4e41569bb8237cfaa10f78`.
+- PR #907 merged from corrected source head
+  `9472142f69b5db443d1d1693f4a68e38e491d96f` as merge SHA
+  `e58340855ab5f700342ce1bfa02d12d2e287b5b3`.
 - #893 is closed completed.
-- #800, #894, and #902 are open.
+- #889, #800, #894, and #902 are open pending this finalization PR; #889 was
+  reopened after GitHub auto-closed it on PR #907 merge so closure remains
+  sequenced after final current-main proof.
 - #865 and #866 were verified open with exact labels, zero comments, no
   assignees, and no milestone before #894 edits.
-- Current-main workflow runs for `b930badaa65ea72e8727c8ca272b3299a8174d35`
+- Current-main workflow runs for `e58340855ab5f700342ce1bfa02d12d2e287b5b3`
   show Scaffold, CodeQL, Semgrep, Trivy, and API Image GHCR success.
 - Current open code-scanning alerts: `0`.
+- #902 remains open as the next post-foundation enhancement and no
+  implementation has started.
 
 ## Close Recommendation
 
-#894 can close only after this PR merges and post-merge current-main validation,
-CI/security/scanner reconciliation, and protected canary recheck remain clean.
-#800 can close only after #894 is closed with all rows still passing. #902 must
-remain open as the post-foundation Dependabot/code-scanning ingestion
-enhancement and was not started by this task.
+After this focused finalization PR merges and final current-main validation,
+CI/security/scanner reconciliation, protected canary recheck, and issue hygiene
+remain clean, #889, #894, and #800 should be closed as completed with evidence
+comments. #800 A-H foundation scope is then complete; that does not mean the
+Settleora product Day 1 is complete. #902 must remain open as the next
+post-foundation Dependabot/code-scanning ingestion enhancement and was not
+started by this task.
