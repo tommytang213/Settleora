@@ -12,6 +12,7 @@ import {
 
 const geminiApiOrigin = "https://generativelanguage.googleapis.com";
 export const supportedGeminiModelEndpoints = Object.freeze({
+  "gemini-3.5-flash": `${geminiApiOrigin}/v1beta/models/gemini-3.5-flash:generateContent`,
   "gemini-2.5-flash-lite": `${geminiApiOrigin}/v1beta/models/gemini-2.5-flash-lite:generateContent`,
   "gemini-2.5-flash": `${geminiApiOrigin}/v1beta/models/gemini-2.5-flash:generateContent`,
   "gemini-2.5-pro": `${geminiApiOrigin}/v1beta/models/gemini-2.5-pro:generateContent`,
@@ -236,7 +237,7 @@ async function callIntegratedGeminiOnce({ base, url, payload, fetchImpl, apiKey 
     const responseText = responseBody.text;
     const sanitizedText = sanitizeSecretText(responseText, apiKey);
     if (!response.ok) {
-      const transient = isTransientHttpStatus(response.status) || /\b(UNAVAILABLE|timeout|timed out|rate limit|429|503)\b/i.test(sanitizedText);
+      const transient = isTransientHttpStatus(response.status);
       return {
         ...base,
         reason: transient ? `blocked_provider_transient_http_error:${response.status || "unknown"}` : "blocked_provider_http_error",
@@ -824,7 +825,7 @@ function parseEnvFile(text) {
 export function resolveGeminiModelEndpoint(model) {
   const normalized = String(model || "");
   if (!/^gemini-[A-Za-z0-9][A-Za-z0-9.-]{0,80}$/.test(normalized)) return null;
-  return `${geminiApiOrigin}/v1beta/models/${normalized}:generateContent`;
+  return supportedGeminiModelEndpoints[normalized] || null;
 }
 
 function finishSmoke(config, result, startedAtMs, reason) {

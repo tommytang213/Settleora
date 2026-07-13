@@ -507,12 +507,17 @@ only sanitized provider profile names, whether a command is configured, model
 names, and token-price numbers.
 
 The first approved provider profile direction is Google-only. When explicitly
-configured outside the repository, `cheap_independent` should use a Gemini
-Flash or Flash-Lite class model such as `gemini-2.5-flash-lite` or
-`gemini-2.5-flash` for routine PRs, and `strong_independent` should use a
-Gemini Pro class model such as `gemini-2.5-pro` for risky, large, or sensitive
-PRs. `tie_breaker` remains disabled. This policy does not add or approve
-Claude or OpenAI reviewer provider wiring.
+configured outside the repository, `cheap_independent` should use a supported
+Gemini Flash or Flash-Lite class model for routine PRs. `strong_independent`
+and any enabled `tie_breaker` profile should use a specific stable Gemini
+model, currently `gemini-3.5-flash`, rather than a moving `latest` alias.
+Provider model lifecycle changes are operational failures, not review verdicts:
+do not silently fall back to weaker, preview, or alias models after an
+unavailable-model response. Model changes require official model,
+deprecation, and pricing verification; explicit endpoint support; token-price
+updates; a bounded smoke or integrated provider proof; and exact-head
+rereview. This policy does not add or approve Claude or OpenAI reviewer
+provider wiring.
 
 Gemini API keys must be supplied from the process environment as
 `GEMINI_API_KEY` or from an explicitly configured external env file under

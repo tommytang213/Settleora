@@ -347,11 +347,16 @@ total automation ceiling, and an 80% warning threshold. Cost estimates are
 local token-price arithmetic only and do not call external provider APIs.
 
 The approved independent reviewer provider direction is Google-only for now.
-`cheap_independent` may be configured to use a Gemini Flash or Flash-Lite class
-model such as `gemini-2.5-flash-lite` or `gemini-2.5-flash`, and
-`strong_independent` may be configured to use a Gemini Pro class model such as
-`gemini-2.5-pro`. `tie_breaker` remains disabled. Claude and OpenAI reviewer
-provider wiring is intentionally absent.
+`cheap_independent` may be configured to use a supported Gemini Flash or
+Flash-Lite class model. `strong_independent` and any enabled `tie_breaker`
+profile should use a specific stable Gemini model, currently
+`gemini-3.5-flash`, rather than a moving `latest` alias. Provider lifecycle
+changes such as an unavailable configured model are operational blockers, not
+review verdicts, and the runner must not silently fall back to weaker, preview,
+or alias models. Model changes require official model/deprecation/pricing
+verification, explicit endpoint support, token-price updates, a bounded smoke
+or integrated provider proof, and exact-head rereview. Claude and OpenAI
+reviewer provider wiring is intentionally absent.
 
 Gemini provider configuration is disabled by default in
 `runner-config.example.json`. Model names, token prices, and provider profile
