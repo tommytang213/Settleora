@@ -4,11 +4,14 @@ This directory contains the DevBox-native unattended Codex auto-runner skeleton.
 It is issue-label driven and writes all mutable runtime state under
 `/workspace/logs/settleora-auto-runner/`.
 
-Current end-state audit: #880 monitoring acceptance is complete and #800
-remains open. The current restrictive defaults are staged scaffolding. See
-`docs/planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md` for the authoritative A-H
-target, remaining child issues #887-#894, feature-bundle order, and the
-recommended first implementation child (#887).
+Current end-state audit: #880 monitoring acceptance is complete, #887 through
+#893 are completed foundation children, and #800 remains open pending final
+#894 acceptance merge and post-merge proof. The current restrictive defaults
+are fail-closed deployment defaults, not a permanent low-risk-only design. See
+`docs/planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md` and
+`docs/planning/AUTO_RUNNER_FINAL_ACCEPTANCE_894.md` for the current evidence
+matrix. #902 remains a post-foundation enhancement and must not start before
+#894 is accepted.
 
 Approved-domain auto-merge remains default-off. Enabling `allowAutoMerge` is
 not enough: external config must also set `autoMergePolicy.approvedLanes` to a

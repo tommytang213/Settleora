@@ -20,6 +20,94 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #894 - Final auto-runner foundation acceptance checkpoint
+
+- Task key: `20260713-2358`.
+- Branch:
+  `tools/auto-runner-final-acceptance-894-20260713-2358`.
+- Base:
+  exact `origin/main` `b930badaa65ea72e8727c8ca272b3299a8174d35`.
+- Current live state at start:
+  - #800 open.
+  - #894 open.
+  - #902 open and post-foundation.
+  - #893 closed completed after PR #906.
+  - Protected canaries #865 and #866 open with exact labels
+    `area:mobile-ui`, `auto-canary-ready`, `canary`, `workflow`, zero
+    comments, no assignees, and no milestone.
+  - Current-main open code-scanning alerts: `0`.
+- Completed foundation evidence reconciled:
+  - #887 via PR #896, merge SHA
+    `741aa0355bd213aab04c37a5f876de420485800c`.
+  - #888 via PR #897, merge SHA
+    `8ecaafcda5441c452396761ccb7653d31d64f1cb`.
+  - #889 via PR #898, merge SHA
+    `d21b83033abf8eb99b76dedc8574a270b90c0a54`.
+  - #890 via PR #903, merge SHA
+    `8c1320695da430d8d0932988679209952d59a1b6`.
+  - #891/#892 via PR #904, merge SHA
+    `db854eb306007e044b05ea47220da466ac2f04df`.
+  - #893 via PR #906, merge SHA
+    `b930badaa65ea72e8727c8ca272b3299a8174d35`.
+  - #880 monitoring/notification/Windows-off/rollback evidence remains
+    accepted and closed.
+- Documentation updates in this checkpoint:
+  - Added `docs/planning/AUTO_RUNNER_FINAL_ACCEPTANCE_894.md`.
+  - Refreshed `docs/planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md` from stale
+    pre-#887 status to current merged evidence and remaining gates.
+  - Updated workflow/tooling docs that still described #887-#893 as future
+    work.
+- Close/keep-open recommendation:
+  keep #894 and #800 open while this PR is unmerged. After merge, close #894
+  only after exact post-merge current-main validation/scanner/canary
+  reconciliation. Close #800 only after #894 is closed with all matrix rows
+  still passing. Keep #902 open and unstarted.
+- Scope confirmation:
+  this checkpoint is limited to planning/workflow evidence documentation and
+  final acceptance reporting. It does not change product runtime, API
+  behavior, auth/session/security runtime, storage/privacy/authz,
+  money/settlement/payment/bill calculation, schema/migrations,
+  OpenAPI/generated clients, Docker/CI/deployment, secrets, active external
+  config, `.ai/*`, #902 implementation, or protected canaries.
+
+### Issue #893 - Recovery, fix, existing-PR recovery, and continuation completed
+
+- Task keys:
+  `20260713-1927`, `20260713-2103`, `20260713-2133`,
+  `20260713-2147`, `20260713-2241`, and `20260713-2308`.
+- PR:
+  #906, superseding closed PR #905 after a GitHub-managed CodeQL
+  infrastructure outage.
+- Source branch:
+  `tools/auto-runner-recovery-continuation-893-20260713-1927`.
+- Source head:
+  `a1adb27941927f58ba4e41569bb8237cfaa10f78`.
+- Merge SHA:
+  `b930badaa65ea72e8727c8ca272b3299a8174d35`.
+- Completed scope:
+  recovery/continuation tooling, existing-PR recovery gates, bounded
+  review/CI/scanner fix classification, exact-head evidence regeneration,
+  current-main scanner reconciliation, and focused CodeQL alert #85
+  dispatch-boundary fix.
+- Alert/scanner evidence:
+  CodeQL alert #85 was fixed by source commit
+  `a1adb27941927f58ba4e41569bb8237cfaa10f78`; it was not dismissed or
+  suppressed. Current-main open code-scanning alerts on merge SHA
+  `b930badaa65ea72e8727c8ca272b3299a8174d35` were `0`.
+- Validation/reviews:
+  exact-head local validation, strong independent Gemini review, Codex
+  mechanics/security review, PR CI/security, review-thread reconciliation, and
+  current-main merge-SHA checks/scanners all passed.
+- Issue hygiene:
+  #893 is closed completed; #800 received the Bundle 4 checkpoint comment;
+  #894 remains the final foundation gate; #902 remains post-foundation and
+  untouched.
+- Scope confirmation:
+  no forbidden product runtime, API, auth/session/security runtime,
+  storage/privacy/authz, money/settlement/payment/bill calculation,
+  schema/migration, OpenAPI/generated-client, Docker/CI/deployment config,
+  secret, public exposure, #894, #902, or canary changes were made.
+
 ### Issue #893 - Recovery, fix, existing-PR recovery, and continuation checkpoint
 
 - Task key: `20260713-1927`.
