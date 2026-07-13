@@ -20,6 +20,50 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #889/#894/#800 - PR #907 merged, finalization pending
+
+- Task key: `20260714-0107`.
+- PR #907:
+  - Source branch:
+    `tools/auto-runner-final-acceptance-894-20260713-2358`.
+  - Source head:
+    `9472142f69b5db443d1d1693f4a68e38e491d96f`.
+  - Merge SHA:
+    `e58340855ab5f700342ce1bfa02d12d2e287b5b3`.
+  - Merge parents verified:
+    `b930badaa65ea72e8727c8ca272b3299a8174d35`
+    then `9472142f69b5db443d1d1693f4a68e38e491d96f`.
+- Post-merge current-main proof on
+  `e58340855ab5f700342ce1bfa02d12d2e287b5b3`:
+  `npm ci`, `npm run doctor:validation`, syntax checks for
+  `auto-merge-policy.mjs`, `lane-policy.mjs`, `reviewer-policy.mjs`, and
+  `auto-runner.test.mjs`, focused large-bundle tests `31/31`,
+  `auto-runner.test.mjs` `191/191`, full auto-runner tests `393/393`,
+  readiness `27 pass / 1 warn / 0 fail`, `npm run validate:docs`, and
+  `npm run validate:scaffold` all passed.
+- Current-main GitHub checks on the PR #907 merge SHA passed: Scaffold
+  Validation, CodeQL, Semgrep CE, Trivy repository scan, and API Image GHCR.
+  Current-main open code-scanning alerts were `0`; no scanner finding was
+  dismissed, suppressed, waived, or excluded.
+- Issue hygiene:
+  #889 was auto-closed by GitHub when PR #907 merged, then reopened because
+  this task requires #889 to remain open until the finalization PR and final
+  current-main proof also pass. #889, #894, and #800 remain open pending the
+  finalization PR. #902 remains open, commentless for this task, and
+  unstarted.
+- Protected canaries:
+  #865 and #866 remain open with exact labels `area:mobile-ui`,
+  `auto-canary-ready`, `canary`, and `workflow`, zero comments, no assignees,
+  and no milestone.
+- Project fields:
+  `not_updated`; no supported tested mapping was exercised.
+- Close recommendation:
+  after the focused finalization PR merges and final current-main
+  validation/check/scanner/canary reconciliation passes, close #889, #894, and
+  #800 as completed with evidence comments. Closing #800 means the auto-runner
+  foundation A-H scope is complete; it does not mean Settleora product Day 1 is
+  complete. #902 is the next eligible post-foundation enhancement.
+
 ### Issue #889 / PR #907 - High-risk approved-domain auto-merge correction checkpoint
 
 - Task key: `20260714-0033`.
@@ -41,10 +85,10 @@ remain the source of truth.
   genuine manual-action gates, add positive and negative exact-gate regression
   coverage, and supersede the old #894 all-rows-pass acceptance wording.
 - Issue hygiene:
-  #889 must be reopened and kept open until this correcting PR merges and
-  post-merge current-main proof passes. #894 and #800 remain open. #902 remains
-  post-foundation and unstarted. Protected canaries #865/#866 must remain
-  unchanged.
+  #889 must remain open until PR #907 merges, post-merge current-main proof
+  passes, the focused finalization PR merges, and final current-main proof
+  passes. #894 and #800 remain open. #902 remains post-foundation and
+  unstarted. Protected canaries #865/#866 must remain unchanged.
 - Manual boundary:
   repository code in high-risk runnable lanes may be eligible for auto-merge
   only after explicit external config approval, valid issue contract,
