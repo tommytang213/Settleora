@@ -3,6 +3,7 @@ import path from "node:path";
 import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
 import {
   createInitialBundleState,
+  loadBundleState,
   markBundleSliceCompleted,
   markBundleSliceStarted,
   markBundleStopped,
@@ -51,7 +52,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     };
   }
   const plan = planned.plan;
-  const bundleBranchName =
+  let bundleBranchName =
     branchName || `feature-bundle/auto-${issue.number}-${slugify(issue.title, 36)}-${safeTimestamp().slice(0, 15).toLowerCase()}`;
   const result = {
     ok: true,
@@ -69,39 +70,32 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   fetchOriginMain(config);
   const baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
   result.baseOriginMainSha = baseOriginMainSha;
-  createTaskBranch(config, bundleBranchName);
-  const startingHead = config.dryRun ? baseOriginMainSha : getRefSha("HEAD");
-  let state = createInitialBundleState({
-    plan,
-    runId,
-    supervisorRunId: config.supervisorRunId || null,
-    branchName: bundleBranchName,
-    baseSha: baseOriginMainSha,
-    currentHeadSha: startingHead,
-    taskKey: plan.taskKey || "auto-runner",
-  });
+  let state = null;
   if (!config.dryRun) {
-    const recovered = recoverBundleState(config, {
+    const loaded = recoverExistingBundleCheckout(config, { plan, baseOriginMainSha });
+    if (loaded.ok) {
+      state = loaded.state;
+      bundleBranchName = state.branch;
+      result.bundle.branchName = bundleBranchName;
+      result.bundle.recovery = loaded.recovery;
+    } else if (loaded.reasonCode !== "bundle_state_missing") {
+      return stopBundle(result, "bundle_recovery_failed", loaded.reasonCode, loaded.reason);
+    }
+  }
+  if (!state) {
+    createTaskBranch(config, bundleBranchName);
+    const startingHead = config.dryRun ? baseOriginMainSha : getRefSha("HEAD");
+    state = createInitialBundleState({
       plan,
+      runId,
+      supervisorRunId: config.supervisorRunId || null,
       branchName: bundleBranchName,
       baseSha: baseOriginMainSha,
       currentHeadSha: startingHead,
-      worktreeClean: getStatusShort() === "",
-      evidence: {
-        commitExists: (sha) => gitObjectExists(config, sha),
-        reportExists: (reportPath) => fileExists(reportPath),
-      },
+      taskKey: plan.taskKey || "auto-runner",
     });
-    if (recovered.ok) {
-      state = recovered.state;
-      result.bundle.recovery = {
-        reasonCode: recovered.reasonCode,
-        nextSliceId: recovered.nextSliceId,
-        completedSliceIds: recovered.completedSliceIds,
-      };
-    } else if (recovered.reasonCode !== "bundle_state_missing") {
-      return stopBundle(result, "bundle_recovery_failed", recovered.reasonCode, recovered.reason);
-    }
+  }
+  if (!config.dryRun) {
     writeBundleState(config, state);
   }
 
@@ -405,4 +399,63 @@ function gitObjectExists(config, sha) {
 
 function fileExists(filePath) {
   return Boolean(filePath && existsSync(filePath));
+}
+
+function recoverExistingBundleCheckout(config, { plan, baseOriginMainSha }) {
+  const loaded = recoverBundleState(config, {
+    plan,
+    branchName: "__probe__",
+    baseSha: baseOriginMainSha,
+    currentHeadSha: "__probe__",
+    worktreeClean: getStatusShort() === "",
+    evidence: {},
+  });
+  if (loaded.reasonCode === "bundle_state_missing") return loaded;
+  if (!loaded.state) {
+    return loaded.reasonCode === "bundle_state_branch_mismatch" || loaded.reasonCode === "bundle_state_head_mismatch"
+      ? loadStateForBranchSwitch(config, { plan, baseOriginMainSha })
+      : loaded;
+  }
+  return loaded;
+}
+
+function loadStateForBranchSwitch(config, { plan, baseOriginMainSha }) {
+  const state = readBundleStateForRecovery(config, plan);
+  if (!state.ok) return state;
+  if (state.state.baseSha !== baseOriginMainSha) {
+    return { ok: false, reasonCode: "bundle_state_base_mismatch", reason: "Bundle base changed." };
+  }
+  const switchResult = runGit(["switch", state.state.branch], { cwd: config.repoRoot });
+  if (switchResult.error || switchResult.status !== 0) {
+    return { ok: false, reasonCode: "bundle_state_branch_checkout_failed", reason: switchResult.stderr || switchResult.error };
+  }
+  const recovered = recoverBundleState(config, {
+    plan,
+    branchName: state.state.branch,
+    baseSha: baseOriginMainSha,
+    currentHeadSha: getRefSha("HEAD"),
+    worktreeClean: getStatusShort() === "",
+    evidence: {
+      commitExists: (sha) => gitObjectExists(config, sha),
+      reportExists: (reportPath) => fileExists(reportPath),
+    },
+  });
+  if (!recovered.ok) return recovered;
+  return {
+    ok: true,
+    state: recovered.state,
+    recovery: {
+      reasonCode: recovered.reasonCode,
+      nextSliceId: recovered.nextSliceId,
+      completedSliceIds: recovered.completedSliceIds,
+    },
+  };
+}
+
+function readBundleStateForRecovery(config, plan) {
+  try {
+    return loadBundleState(config, plan);
+  } catch (error) {
+    return { ok: false, reasonCode: "bundle_state_load_failed", reason: error.message };
+  }
 }
