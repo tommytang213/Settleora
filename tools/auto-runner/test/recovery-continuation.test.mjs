@@ -11,6 +11,7 @@ import {
 } from "../lib/recovery-state.mjs";
 import {
   discoverStartupRecovery,
+  executeStartupContinuation,
   evaluateCompletionHygieneResume,
   evaluateControlAtRecoveryBoundary,
   firstIncompleteContinuationAction,
@@ -41,6 +42,13 @@ function state(overrides = {}) {
     currentHeadSha: "c".repeat(40),
     ...overrides,
   });
+}
+
+async function runStartupContinuation(config, recoveryState, handlers) {
+  writeRecoveryState(config, recoveryState);
+  const discovery = discoverStartupRecovery(config);
+  assert.equal(discovery.allowed, true);
+  return executeStartupContinuation(config, discovery, handlers);
 }
 
 test("startup resumes recoverable work before polling a new issue", () => {
@@ -90,6 +98,191 @@ test("interruption at major phase resumes first incomplete phase", () => {
     );
     assert.equal(resumed.ok, true);
     assert.equal(resumed.nextSafeAction, `${phase}_next`);
+  }
+});
+
+test("startup continuation dispatches valid own phase handler", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const recovery = advanceRecoveryPhase(state(), {
+      phase: "ci_wait",
+      firstIncompleteAction: "wait_for_checks",
+    });
+    let called = false;
+    const continued = await runStartupContinuation(config, recovery, {
+      ci_wait: async ({ boundary }) => {
+        called = true;
+        assert.equal(boundary.phase, "ci_wait");
+        return { ok: true, outcome: "phase_handler_ok", reasonCode: "phase_handler_ok" };
+      },
+    });
+    assert.equal(called, true);
+    assert.equal(continued.outcome, "phase_handler_ok");
+    assert.equal(continued.recovery.executedPhase, "ci_wait");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup continuation dispatches valid own next-safe-action handler", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const recovery = advanceRecoveryPhase(state(), {
+      phase: "ci_wait",
+      firstIncompleteAction: "wait_for_checks",
+      nextSafeAction: "wait_for_checks",
+    });
+    let called = false;
+    const continued = await runStartupContinuation(config, recovery, {
+      wait_for_checks: async ({ boundary }) => {
+        called = true;
+        assert.equal(boundary.nextSafeAction, "wait_for_checks");
+        return { ok: true, outcome: "action_handler_ok", reasonCode: "action_handler_ok" };
+      },
+    });
+    assert.equal(called, true);
+    assert.equal(continued.outcome, "action_handler_ok");
+    assert.equal(continued.recovery.executedAction, "wait_for_checks");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup continuation uses valid own callable default fallback", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const recovery = advanceRecoveryPhase(state(), {
+      phase: "ci_wait",
+      firstIncompleteAction: "wait_for_checks",
+    });
+    let called = false;
+    const continued = await runStartupContinuation(config, recovery, {
+      default: async ({ boundary }) => {
+        called = true;
+        assert.equal(boundary.phase, "ci_wait");
+        return { ok: true, outcome: "default_handler_ok", reasonCode: "default_handler_ok" };
+      },
+    });
+    assert.equal(called, true);
+    assert.equal(continued.outcome, "default_handler_ok");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup continuation blocks missing or unknown persisted action handlers", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const recovery = advanceRecoveryPhase(state(), {
+      phase: "ci_wait",
+      firstIncompleteAction: "unexpected_action",
+      nextSafeAction: "unexpected_action",
+    });
+    const continued = await runStartupContinuation(config, recovery, {});
+    assert.equal(continued.ok, false);
+    assert.equal(continued.outcome, "blocked_recovery_state");
+    assert.equal(continued.reasonCode, "missing_recovery_phase_handler");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup continuation does not select inherited constructor handler", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const recovery = advanceRecoveryPhase(state(), {
+      phase: "ci_wait",
+      firstIncompleteAction: "constructor",
+      nextSafeAction: "constructor",
+    });
+    const handlers = Object.create({
+      constructor: async () => {
+        throw new Error("inherited constructor handler must not run");
+      },
+    });
+    const continued = await runStartupContinuation(config, recovery, handlers);
+    assert.equal(continued.ok, false);
+    assert.equal(continued.reasonCode, "missing_recovery_phase_handler");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup continuation rejects prototype-chain style action keys even when callable", async () => {
+  for (const key of ["__proto__", "prototype", "toString"]) {
+    const config = tempConfig({ allowExistingPrRecovery: true });
+    try {
+      const recovery = advanceRecoveryPhase(state(), {
+        phase: "ci_wait",
+        firstIncompleteAction: key,
+        nextSafeAction: key,
+      });
+      let called = false;
+      const handlers = {};
+      Object.defineProperty(handlers, key, {
+        value: async () => {
+          called = true;
+          return { ok: true };
+        },
+        enumerable: true,
+      });
+      const continued = await runStartupContinuation(config, recovery, handlers);
+      assert.equal(called, false, key);
+      assert.equal(continued.ok, false, key);
+      assert.equal(continued.reasonCode, "missing_recovery_phase_handler", key);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
+test("startup continuation rejects own non-function handler values", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const recovery = advanceRecoveryPhase(state(), {
+      phase: "ci_wait",
+      firstIncompleteAction: "wait_for_checks",
+      nextSafeAction: "wait_for_checks",
+    });
+    const continued = await runStartupContinuation(config, recovery, {
+      wait_for_checks: "not-callable",
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.reasonCode, "missing_recovery_phase_handler");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup continuation ignores inherited or non-callable controlCheck", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const recovery = advanceRecoveryPhase(state(), {
+      phase: "ci_wait",
+      firstIncompleteAction: "wait_for_checks",
+    });
+    let inheritedCalled = false;
+    const inheritedHandlers = Object.create({
+      controlCheck: () => {
+        inheritedCalled = true;
+        return { ok: true, action: "pause_at_safe_boundary" };
+      },
+    });
+    inheritedHandlers.default = async () => ({ ok: true, outcome: "continued_without_inherited_control", reasonCode: "continued" });
+    const inheritedContinued = await runStartupContinuation(config, recovery, inheritedHandlers);
+    assert.equal(inheritedCalled, false);
+    assert.equal(inheritedContinued.ok, true);
+    assert.equal(inheritedContinued.outcome, "continued_without_inherited_control");
+
+    const handlers = {
+      controlCheck: "not-callable",
+      default: async () => ({ ok: true, outcome: "continued_without_noncallable_control", reasonCode: "continued" }),
+    };
+    const continued = await runStartupContinuation(config, recovery, handlers);
+    assert.equal(continued.ok, true);
+    assert.equal(continued.outcome, "continued_without_noncallable_control");
+  } finally {
+    config.cleanup();
   }
 });
 

@@ -27,6 +27,22 @@ export const safeBoundaryPhases = Object.freeze([
   "issue_parent_ledger_hygiene",
 ]);
 
+const unsafeDynamicHandlerKeys = new Set([
+  "__defineGetter__",
+  "__defineSetter__",
+  "__lookupGetter__",
+  "__lookupSetter__",
+  "__proto__",
+  "constructor",
+  "hasOwnProperty",
+  "isPrototypeOf",
+  "propertyIsEnumerable",
+  "prototype",
+  "toLocaleString",
+  "toString",
+  "valueOf",
+]);
+
 export function discoverStartupRecovery(config) {
   const states = listRecoverableRecoveryStates(config);
   if (states.length === 0) {
@@ -95,7 +111,8 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery: { ...recovery, state: summarizeRecoverableState(state) },
     };
   }
-  const control = handlers.controlCheck ? handlers.controlCheck(state) : { ok: true, action: "continue" };
+  const controlCheck = selectOwnCallableHandler(handlers, "controlCheck");
+  const control = controlCheck ? controlCheck(state) : { ok: true, action: "continue" };
   if (control?.action && control.action !== "continue") {
     const stopped = advanceRecoveryPhase(state, {
       phase: "stopped",
@@ -110,7 +127,10 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery: { ...recovery, state: summarizeRecoverableState(stopped) },
     };
   }
-  const handler = handlers[boundary.phase] || handlers[boundary.nextSafeAction] || handlers.default;
+  const handler =
+    selectOwnCallableHandler(handlers, boundary.phase) ||
+    selectOwnCallableHandler(handlers, boundary.nextSafeAction) ||
+    selectOwnCallableHandler(handlers, "default");
   if (!handler) {
     return {
       ok: false,
@@ -133,6 +153,20 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     },
     result,
   };
+}
+
+function selectOwnCallableHandler(handlers, key) {
+  if (!handlers || typeof handlers !== "object" || typeof key !== "string" || key.length === 0) {
+    return null;
+  }
+  if (unsafeDynamicHandlerKeys.has(key)) {
+    return null;
+  }
+  if (!Object.hasOwn(handlers, key)) {
+    return null;
+  }
+  const handler = handlers[key];
+  return typeof handler === "function" ? handler : null;
 }
 
 export function firstIncompleteContinuationAction(state) {
