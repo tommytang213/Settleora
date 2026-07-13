@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   digestProposal,
   deriveIssueProposals,
+  markerMatches,
   searchDuplicateEvidence,
   validateIssueProposal,
   validateModelProposalOutput,
@@ -92,6 +93,56 @@ test("source issue body, PR body, comments, reports, ledger, and correlation mar
     assert.equal(result.ok, true, source);
     assert.match(result.action, /reuse/, source);
   }
+});
+
+test("literal marker matching preserves ASCII boundary semantics without dynamic regex", () => {
+  assert.equal(markerMatches("", ""), false);
+  assert.equal(markerMatches("marker at start", "marker"), true);
+  assert.equal(markerMatches("end marker", "marker"), true);
+  assert.equal(markerMatches("space marker space", "marker"), true);
+  assert.equal(markerMatches("punct(marker),", "marker"), true);
+  assert.equal(markerMatches("alphaXmarker", "marker"), false);
+  assert.equal(markerMatches("markerYalpha", "marker"), false);
+  assert.equal(markerMatches("digit7marker", "marker"), false);
+  assert.equal(markerMatches("marker8digit", "marker"), false);
+
+  for (const boundary of ["_", "-", ":", "."]) {
+    assert.equal(markerMatches(`${boundary}marker${boundary}`, "marker"), true, boundary);
+  }
+
+  for (const marker of [".", "*", "+", "?", "(", ")", "[", "]", "{", "}", "^", "$", "|", "\\"]) {
+    assert.equal(markerMatches(` ${marker} `, marker), true, marker);
+    assert.equal(markerMatches(`a${marker} `, marker), false, marker);
+    assert.equal(markerMatches(` ${marker}1`, marker), false, marker);
+  }
+
+  assert.equal(markerMatches("prefixmarker blocked; later marker works", "marker"), true);
+  assert.equal(markerMatches("no useful occurrence", "marker"), false);
+});
+
+test("duplicate search handles literal metacharacter markers and bounded adversarial text", () => {
+  const literalMarker = ".+?()[]{}^$|\\";
+  const literal = searchDuplicateEvidence(
+    { correlationKey: literalMarker, idempotencyKey: "idempotency-never-matches", title: "Literal marker proposal" },
+    { openIssues: [{ number: 40, state: "OPEN", body: `Generated marker: ${literalMarker}` }] },
+  );
+  assert.equal(literal.ok, true);
+  assert.equal(literal.action, "reuse");
+
+  const laterValid = searchDuplicateEvidence(
+    { correlationKey: "marker", idempotencyKey: "idempotency-never-matches", title: "Later marker proposal" },
+    { openIssues: [{ number: 41, state: "OPEN", body: `blockedXmarker then valid marker.` }] },
+  );
+  assert.equal(laterValid.ok, true);
+  assert.equal(laterValid.action, "reuse");
+
+  const adversarialText = `${"a".repeat(25_000)}.${literalMarker}.${"b".repeat(25_000)}`;
+  const adversarial = searchDuplicateEvidence(
+    { correlationKey: literalMarker, idempotencyKey: "idempotency-never-matches", title: "Adversarial marker proposal" },
+    { reports: [{ text: adversarialText }] },
+  );
+  assert.equal(adversarial.ok, true);
+  assert.equal(adversarial.action, "reuse");
 });
 
 test("title-only and near-number matches do not cause false reuse", () => {

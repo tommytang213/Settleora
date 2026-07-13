@@ -473,9 +473,27 @@ function searchableText(item = {}) {
     .join("\n");
 }
 
-function markerMatches(text, marker) {
-  const escaped = String(marker || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^A-Za-z0-9])${escaped}([^A-Za-z0-9]|$)`).test(text || "");
+export function markerMatches(text, marker) {
+  const haystack = String(text || "");
+  const needle = String(marker || "");
+  if (needle.length === 0) return false;
+  let fromIndex = 0;
+  while (fromIndex <= haystack.length) {
+    const index = haystack.indexOf(needle, fromIndex);
+    if (index === -1) return false;
+    const before = index === 0 ? "" : haystack[index - 1];
+    const afterIndex = index + needle.length;
+    const after = afterIndex >= haystack.length ? "" : haystack[afterIndex];
+    if (!isAsciiAlphaNumeric(before) && !isAsciiAlphaNumeric(after)) return true;
+    fromIndex = index + 1;
+  }
+  return false;
+}
+
+function isAsciiAlphaNumeric(character) {
+  if (!character) return false;
+  const code = character.charCodeAt(0);
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
 }
 
 function nearIssueNumberOnly(text, proposal) {
