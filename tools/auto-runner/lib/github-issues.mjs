@@ -207,19 +207,6 @@ export function commentIssueOutcome(config, issue, outcome, body) {
   return { skipped: false, status: result.status, stderr: result.stderr };
 }
 
-export function previewFollowupIssue(config, sourceIssue, title, body) {
-  const preview = {
-    title,
-    body,
-    labels: ["auto-followup", "needs-triage"],
-    sourceIssue: sourceIssue?.number || null,
-    wouldCreate: config.run && config.allowFollowupIssueCreation,
-  };
-  if (!preview.wouldCreate) return { skipped: true, preview };
-  const result = runGh(["issue", "create", "--title", title, "--body", body, "--label", preview.labels.join(",")]);
-  return { skipped: false, status: result.status, stdout: result.stdout, stderr: result.stderr };
-}
-
 function repoSlug() {
   const result = spawnSync("gh", ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], {
     encoding: "utf8",
