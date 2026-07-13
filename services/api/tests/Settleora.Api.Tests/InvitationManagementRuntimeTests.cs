@@ -35,13 +35,26 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public void InvitationManagementClientUsesHttpsBaseAddressForRelativeInMemoryRequests()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        using var client = CreateSecureTestClient(testFactory);
+        var baseAddress = client.BaseAddress ?? throw new Xunit.Sdk.XunitException("Expected HTTPS test client base address.");
+
+        Assert.Equal(Uri.UriSchemeHttps, baseAddress.Scheme);
+        Assert.Equal("localhost", baseAddress.Host);
+        Assert.DoesNotContain("://", InvitationsPath, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task OwnerCanCreateListAndGetInvitationWithoutRawSecretExposure()
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         testContext.TimeProvider.SetUtcNow(MutationTimestamp);
         using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
@@ -97,7 +110,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.User], "Normal User");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var anonymousList = await client.GetAsync(InvitationsPath);
         using var invalidTokenList = await client.SendAsync(CreateBearerRequest(HttpMethod.Get, InvitationsPath, WrongRawToken));
@@ -120,7 +133,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Admin], "Admin Actor");
         var invitationId = await SeedPendingInvitationAsync(testFactory, session, "pending@example.com");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
         createRequest.Content = JsonContent(
@@ -151,7 +164,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
         createRequest.Content = JsonContent(
@@ -172,7 +185,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         for (var index = 0; index < 2; index++)
         {
@@ -191,7 +204,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         var invitationId = await SeedPendingInvitationAsync(testFactory, session, "revoke@example.com");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var revokeRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/revoke", session.RawSessionToken);
         revokeRequest.Content = JsonContent("""{"reason":"admin_requested"}""");
@@ -230,7 +243,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
         createRequest.Content = JsonContent(
@@ -258,7 +271,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
         createRequest.Content = JsonContent(
@@ -289,7 +302,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
         createRequest.Content = JsonContent(
@@ -327,7 +340,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
         createRequest.Content = JsonContent(
@@ -366,7 +379,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var createRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
         createRequest.Content = JsonContent(
@@ -406,7 +419,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
         var invitationId = await SeedPendingInvitationAsync(testFactory, session, "resend.not.requested@example.com");
         var beforeHash = await ReadInvitationHashAsync(testFactory, invitationId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var resendRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
         resendRequest.Content = JsonContent("""{"deliveryRequested":false}""");
@@ -437,7 +450,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
         var invitationId = await SeedPendingInvitationAsync(testFactory, session, "resend.unavailable@example.com");
         var beforeHash = await ReadInvitationHashAsync(testFactory, invitationId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var resendRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
         resendRequest.Content = JsonContent("""{"deliveryRequested":true}""");
@@ -476,7 +489,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
             "resend.ready@example.invalid",
             oldRawInvitationSecret);
         var beforeHash = await ReadInvitationHashAsync(testFactory, invitationId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var resendRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
         resendRequest.Content = JsonContent("""{"deliveryRequested":true}""");
@@ -521,7 +534,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Admin], "Admin Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
         var invitationId = await SeedPendingInvitationAsync(testFactory, session, "resend@example.com");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var resendRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
         resendRequest.Content = JsonContent("""{"deliveryRequested":true}""");
@@ -560,7 +573,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var session = await SeedSessionActorAsync(testFactory, testContext.TimeProvider, [SystemRoles.Owner], "Owner Actor");
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var allowedRequest = CreateBearerRequest(HttpMethod.Post, InvitationsPath, session.RawSessionToken);
         allowedRequest.Content = JsonContent(
@@ -600,7 +613,7 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         await EnableInvitationPolicyAsync(testFactory, session.AuthAccountId);
         var invitationId = await SeedPendingInvitationAsync(testFactory, session, "throttle.resend@example.invalid");
         var beforeHash = await ReadInvitationHashAsync(testFactory, invitationId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var allowedRequest = CreateBearerRequest(HttpMethod.Post, $"{InvitationsPath}/{invitationId:D}/resend", session.RawSessionToken);
         allowedRequest.Content = JsonContent("""{"deliveryRequested":false}""");
@@ -650,6 +663,14 @@ public sealed class InvitationManagementRuntimeTests : IClassFixture<WebApplicat
         });
 
         return new FactoryTestContext(testFactory, timeProvider);
+    }
+
+    private static HttpClient CreateSecureTestClient(WebApplicationFactory<Program> testFactory)
+    {
+        return testFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
     }
 
     private static async Task EnableInvitationPolicyAsync(

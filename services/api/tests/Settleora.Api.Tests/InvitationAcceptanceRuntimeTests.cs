@@ -33,6 +33,19 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public void InvitationAcceptanceClientUsesHttpsBaseAddressForRelativeInMemoryRequests()
+    {
+        var testContext = CreateFactory();
+        using var testFactory = testContext.Factory;
+        using var client = CreateSecureTestClient(testFactory);
+        var baseAddress = client.BaseAddress ?? throw new Xunit.Sdk.XunitException("Expected HTTPS test client base address.");
+
+        Assert.Equal(Uri.UriSchemeHttps, baseAddress.Scheme);
+        Assert.Equal("localhost", baseAddress.Host);
+        Assert.DoesNotContain("://", AcceptPath, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PublicValidPendingInvitationAcceptsCreatesUserOnlyLocalAccountAndRequiresSignIn()
     {
         var testContext = CreateFactory();
@@ -40,7 +53,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         var inviter = await SeedAccountAsync(testFactory, "Inviting Admin", [SystemRoles.Admin]);
         await EnableInvitationPolicyAsync(testFactory, inviter.AuthAccountId);
         var invitationId = await SeedInvitationAsync(testFactory, inviter, RawInvitationSecret, "Invitee@Example.COM");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         testContext.TimeProvider.SetUtcNow(AcceptanceTimestamp);
         using var response = await client.PostAsync(
@@ -108,7 +121,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
     {
         var testContext = CreateFactory();
         using var testFactory = testContext.Factory;
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var response = await client.PostAsync(AcceptPath, JsonContent(json));
         var content = await response.Content.ReadAsStringAsync();
@@ -153,7 +166,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         var inviter = await SeedAccountAsync(testFactory, "Inviting Admin", [SystemRoles.Admin]);
         await EnableInvitationPolicyAsync(testFactory, inviter.AuthAccountId);
         await SeedInvitationAsync(testFactory, inviter, RawInvitationSecret, "replay@example.com");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var first = await client.PostAsync(
             AcceptPath,
@@ -186,7 +199,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
             RawInvitationSecret,
             "expired@example.com",
             expiresAtUtc: InitialTimestamp.AddMinutes(-1));
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var response = await client.PostAsync(
             AcceptPath,
@@ -210,7 +223,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         var inviter = await SeedAccountAsync(testFactory, "Inviting Admin", [SystemRoles.Admin]);
         await EnableInvitationPolicyAsync(testFactory, inviter.AuthAccountId);
         await SeedInvitationAsync(testFactory, inviter, RawInvitationSecret, "redacted@example.com");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var response = await client.PostAsync(
             AcceptPath,
@@ -244,7 +257,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         var inviter = await SeedAccountAsync(testFactory, "Inviting Admin", [SystemRoles.Admin]);
         await EnableInvitationPolicyAsync(testFactory, inviter.AuthAccountId);
         var invitationId = await SeedInvitationAsync(testFactory, inviter, RawInvitationSecret, "rollback@example.com");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var response = await client.PostAsync(
             AcceptPath,
@@ -273,7 +286,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         var inviter = await SeedAccountAsync(testFactory, "Inviting Admin", [SystemRoles.Admin]);
         await EnableInvitationPolicyAsync(testFactory, inviter.AuthAccountId);
         await SeedInvitationAsync(testFactory, inviter, RawInvitationSecret, "throttled.accept@example.com");
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
 
         using var firstResponse = await client.PostAsync(
             AcceptPath,
@@ -326,7 +339,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         using var testFactory = testContext.Factory;
         var inviter = await SeedAccountAsync(testFactory, "Inviting Admin", [SystemRoles.Admin]);
         await EnableInvitationPolicyAsync(testFactory, inviter.AuthAccountId);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
         using var response = await client.PostAsync(
             AcceptPath,
             JsonContent(CreateAcceptJson(rawSecret, "Unknown User", LocalPassword)));
@@ -357,7 +370,7 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
             expiresAtUtc,
             acceptedAtUtc,
             revokedAtUtc);
-        using var client = testFactory.CreateClient();
+        using var client = CreateSecureTestClient(testFactory);
         using var response = await client.PostAsync(
             AcceptPath,
             JsonContent(CreateAcceptJson(RawInvitationSecret, "Failure User", LocalPassword)));
@@ -385,6 +398,14 @@ public sealed class InvitationAcceptanceRuntimeTests : IClassFixture<WebApplicat
         });
 
         return new FactoryTestContext(testFactory, timeProvider);
+    }
+
+    private static HttpClient CreateSecureTestClient(WebApplicationFactory<Program> testFactory)
+    {
+        return testFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost")
+        });
     }
 
     private static InvitationAbusePolicyOptions CreateStrictInvitationAbuseOptions()
