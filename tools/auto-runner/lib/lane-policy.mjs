@@ -10,6 +10,16 @@ const contractFields = new Set([
   "manualMergeRequired",
   "autoMergeEligible",
   "requiredReading",
+  "bundle",
+]);
+const requiredContractFields = new Set([
+  "contractVersion",
+  "lane",
+  "allowedPaths",
+  "validationProfile",
+  "manualMergeRequired",
+  "autoMergeEligible",
+  "requiredReading",
 ]);
 
 const maxAllowedPathPatternLength = 240;
@@ -850,7 +860,7 @@ function validateContractShape(contract) {
       return { ok: false, reason: `Auto-runner contract contains unsupported field: ${key}.` };
     }
   }
-  for (const field of contractFields) {
+  for (const field of requiredContractFields) {
     if (!(field in contract)) {
       return { ok: false, reason: `Auto-runner contract is missing required field: ${field}.` };
     }
@@ -885,6 +895,9 @@ function validateContractShape(contract) {
   for (const glob of contract.allowedPaths) {
     const pathPolicy = validateAllowedPathPattern(glob);
     if (!pathPolicy.ok) return pathPolicy;
+  }
+  if ("bundle" in contract && (contract.bundle === null || typeof contract.bundle !== "object" || Array.isArray(contract.bundle))) {
+    return { ok: false, reason: "Auto-runner contract field bundle must be an object when present." };
   }
   return { ok: true };
 }

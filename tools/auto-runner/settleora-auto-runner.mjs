@@ -73,6 +73,7 @@ import {
   writeActiveRunState,
   writeControlCommand,
 } from "./lib/control-plane.mjs";
+import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -341,6 +342,45 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.outcome,
       `Auto-runner did not implement #${issue.number}.\n\nOutcome: ${iteration.outcome}\nReason: ${laneDecision.reason}`,
     );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+
+  if ((issue.labels || []).includes("auto-bundle")) {
+    const bundleResult = await runFeatureBundleIteration(config, logger, {
+      runId,
+      index,
+      issue,
+      laneDecision,
+      controlCheck: () => {
+        const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
+        return control.action === "stop" ? { stop: true, reason: control.reason } : null;
+      },
+    });
+    iteration.bundle = bundleResult.bundle;
+    iteration.branchName = bundleResult.bundle?.branchName || null;
+    iteration.baseOriginMainSha = bundleResult.baseOriginMainSha || null;
+    iteration.changedFiles = bundleResult.validation?.changedFiles || bundleResult.bundle?.slices?.flatMap((slice) => slice.changedFiles || []) || [];
+    iteration.validation = bundleResult.validation || null;
+    iteration.reviewPackage = bundleResult.reviewPackage || null;
+    iteration.externalReview = bundleResult.externalReview || null;
+    iteration.review = bundleResult.review || null;
+    iteration.push = bundleResult.push || null;
+    iteration.pr = bundleResult.pr || null;
+    iteration.ci = bundleResult.ci || null;
+    iteration.autoMerge = bundleResult.autoMerge || null;
+    iteration.runnerCreatedCommitSha = config.dryRun ? null : (bundleResult.stopReason ? null : getRefSha("HEAD"));
+    iteration.outcome = bundleResult.outcome || (bundleResult.ok ? "approved_pr_opened" : "auto_failed");
+    if (!config.dryRun) {
+      const detail = bundleResult.pr?.url ? `\n\nPR: ${bundleResult.pr.url}` : "";
+      const reason = bundleResult.stopReason?.reason ? `\nReason: ${bundleResult.stopReason.reason}` : "";
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner feature-bundle result for #${issue.number}: ${iteration.outcome}.${detail}${reason}`,
+      );
+    }
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }

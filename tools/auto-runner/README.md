@@ -603,6 +603,34 @@ fail closed as safe blocked outcomes. Issue text never supplies shell
 commands; it only names a validation profile defined in
 `tools/auto-runner/lib/lane-policy.mjs`.
 
+Feature bundles:
+
+`auto-bundle` additionally requires a validated contract `bundle` object with
+`bundleVersion: 1`, `strategy: "feature-bundle"`, and exactly two to four
+ordered slices. Slice IDs are stable bounded identifiers, each slice has a
+non-empty title/objective, slice paths must be subsets of the parent contract
+and lane manifest, slice validation profiles must be supported by the parent
+lane, and required-reading paths must be bounded repo-relative paths. Shell
+commands and executable-looking text are rejected from issue-provided bundle
+metadata.
+
+The runner executes a feature bundle as one branch and one final PR. It writes
+one generated prompt/report per slice, validates and commits each completed
+slice with explicit paths only, persists sanitized checkpoint state under
+`/workspace/logs/settleora-auto-runner/bundles/`, runs one aggregate final
+validation, builds one review package, requires strong independent external
+review plus separate Codex mechanics/security review, pushes once, opens or
+updates one PR, waits for exact-head checks, and then applies the existing
+conditional auto-merge policy only when the issue and config permit it.
+Manual-merge-required bundles leave the approved PR open.
+
+Recovery loads the bundle state by validated issue/bundle identity and checks
+schema version, plan digest, issue, branch, exact base, current head, clean
+worktree, completed checkpoint commits, completed reports, and validation
+evidence. Completed slices are never rerun. The first incomplete slice may
+restart only from the exact last checkpoint head. Corrupt, partial, missing,
+stale, mismatched, or ambiguous state fails closed.
+
 For eligible auto-runner issues, the classifier parses and validates the
 contract before applying broad danger-word heuristics. Explicit exclusion
 sections such as `## Non-goals`, `## Out of scope`, and
