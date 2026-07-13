@@ -1,171 +1,121 @@
 # Auto-Runner End-State Gap Audit
 
-Task key: `20260712-1821`
+Task key: `20260713-2358`
 
-Base evidence SHA: `56a3e46061f7c1fdf2e7567a3d1e3e306db30070`
+Base evidence SHA: `b930badaa65ea72e8727c8ca272b3299a8174d35`
 
 Parent tracker: #800
 
-Monitoring acceptance: #880 is accepted and closed. The DevBox read-only health
-service, Uptime Kuma incident/recovery path, ntfy activity path, dedupe, idle
-silence, Windows-off operation, and rollback evidence are complete. Protected
-canaries #865 and #866 remain open and untouched.
+Final acceptance gate: #894
+
+Post-foundation follow-up: #902, intentionally untouched until #894 is
+reviewed and merged.
+
+Protected canaries #865 and #866 must remain open with labels
+`area:mobile-ui`, `auto-canary-ready`, `canary`, and `workflow`, zero comments,
+no assignees, and no milestone.
 
 ## Current Status
 
-#800 remains open. The current runner is a proven staged scaffold: it can run
-bounded low-risk/canary work, enforce exact-head gates, perform low-risk
-auto-merge where approved, recover selected existing PR evidence, run bounded
-review-fix scaffolding, expose read-only health, and report local state. It is
-not yet the finished autonomous development loop.
+#800 remains open pending #894 merge and post-merge proof. PR #907 head
+`b95624196d2dcfbb38e94b99c2d47c646908e538` is superseded for final
+high-risk lane acceptance because `auto-merge-policy.mjs` still excluded the
+seven canonical high-risk runnable lanes from approved-domain auto-merge and
+blocked them categorically. The #907 correction removes that categorical
+block while preserving genuine manual-action gates and exact-head validation,
+review, CI, scanner, issue, branch, and path gates.
 
-The restrictive defaults are intentional scaffolding, not the final design:
+The foundational
+implementation children that were open in the `20260712-1821` audit are now
+merged or completed:
 
-- `tools/auto-runner/lib/lane-policy.mjs` allows only
-  `workflow-docs-tooling`, `docs-planning`, and `client-ui-low-risk`; normal
-  runtime, security, storage, money, schema, OpenAPI, and deployment lanes are
-  `dangerLane(...)`.
-- `tools/auto-runner/lib/auto-merge-policy.mjs` restricts auto-merge to
-  low-risk lanes and requires independent review only for
-  `client-ui-low-risk`.
-- `tools/auto-runner/lib/reviewer-policy.mjs` defines cheap, strong, and
-  tie-breaker tiers, but they are disabled by default in repository config;
-  only Codex mechanics is enabled by default.
-- `tools/auto-runner/lib/github-issues.mjs` can preview or create a basic
-  follow-up only when `allowFollowupIssueCreation` is enabled; it does not yet
-  derive complete implementation issues from merged planning work.
-- `auto-bundle` is currently an eligibility signal, not real feature-bundle
-  orchestration.
+- #887 completed through PR #896, merge SHA
+  `741aa0355bd213aab04c37a5f876de420485800c`.
+- #888 completed through PR #897, merge SHA
+  `8ecaafcda5441c452396761ccb7653d31d64f1cb`.
+- #889 completed through PR #898, merge SHA
+  `d21b83033abf8eb99b76dedc8574a270b90c0a54`.
+- #890 completed through PR #903, merge SHA
+  `8c1320695da430d8d0932988679209952d59a1b6`.
+- #891 and #892 completed through PR #904, merge SHA
+  `db854eb306007e044b05ea47220da466ac2f04df`.
+- #893 completed through PR #906, merge SHA
+  `b930badaa65ea72e8727c8ca272b3299a8174d35`.
+- #880 remains accepted and closed for monitoring, notification, Windows-off,
+  and rollback evidence.
 
-## Authoritative Finished Target
+The runner foundation is no longer low-risk-only in policy direction. Current
+code supports approved runnable lanes and strong review/merge gates where
+explicitly configured, while repository defaults remain fail-closed:
+`allowAutoMerge=false`, `autoMergePolicy.approvedLanes=[]`, external reviewer
+tiers disabled unless configured, generated issue creation disabled unless
+configured, existing-PR recovery disabled unless configured, and review-fix
+mutation disabled unless configured.
 
-A. The runner must work across normal development domains: workflow/tooling,
-docs/planning, mobile/web/admin UI, API/domain runtime, auth/session/security,
-storage/file privacy/authz, money/settlement/payment, schema/migrations,
-OpenAPI/generated clients, sync/import/export/restore, Docker/CI/deployment,
-and other normal Settleora domains. Sensitive work is not permanently manual
-when requirements and architecture are clear, but current repository manual
-gates remain authoritative until a reviewed policy PR explicitly narrows or
-reclassifies them. #887 must therefore define safe automatic lanes without
-silently overriding current manual-gate rules.
+Manual gates remain real gates. Sensitive and high-risk repository code work
+is not categorically prohibited from autonomous implementation or auto-merge
+when a reviewed lane policy permits it and all stronger exact-head gates pass.
+Genuine manual actions still block: production deploy, mobile store release,
+destructive data/migration execution, secret/auth config mutation,
+public/admin/network exposure, architecture replacement, force-like history,
+branch deletion/cleanup, Day 1 cuts, and unresolved product/policy,
+authorization, privacy, security, or financial authority decisions. Schema or
+migration code may merge after gates, but destructive application remains
+manual; Docker/CI/deployment code may merge after gates, but live deployment,
+environment, network, and secret mutation remain manual.
 
-B. Feature-bundle execution must support one bundle branch, two to four related
-sub-slices, checkpoint validation, persistent bundle state/reports, recovery,
-one final validation, mandatory reviews, one PR, CI, and conditional
-auto-merge. Hard domains must split into focused branches.
+## Final Acceptance Evidence
 
-C. After design/planning merges and during implementation, review, CI, and
-acceptance, the runner must create high-quality linked implementation,
-blocker, fix, cleanup, follow-up, and future-gate issues after duplicate
-search across issues, PRs, comments, reports, and the ledger.
-
-D. After merge, the runner must close narrow complete issues, comment with
-evidence, clean transient labels, update project/status/progress where safe,
-update the ledger, and update umbrellas without closing ambiguous epics.
-
-E. Every auto-merged PR requires independent external review, Codex
-mechanics/security review, relevant local validation, GitHub CI/security
-checks, and exact-head verification.
-
-F. Auto-merge must extend beyond low-risk canaries to approved domains when all
-scope, validation, review, CI/security, issue, and exact-head gates pass.
-Production deploys and other explicit manual actions remain separate.
-
-G. The runner must handle requested review fixes, CI fixes, code-scanning
-fixes, exact-head re-review after head changes, existing PR recovery,
-continuation after interruption, report correlation, bundle checkpoints,
-generated follow-up issues, and safe retry classification.
-
-H. #800 must not close until current repo/live evidence proves all final
-acceptance criteria, including high-risk lane execution, multi-issue and
-multi-slice unattended execution, automatic issue creation and closure,
-progress hygiene, recovery, monitoring, Windows-off continuation, no secret
-leaks, protected canaries unaffected except explicit canary tasks, and no
-direct main push or unsafe history operations.
+The durable #894 evidence matrix lives in
+[AUTO_RUNNER_FINAL_ACCEPTANCE_894.md](AUTO_RUNNER_FINAL_ACCEPTANCE_894.md).
+It reconciles current code/tests, live PR/issue/check/scanner evidence, and
+accepted historical DevBox evidence for every #800 final acceptance row.
 
 ## Evidence Matrix
 
-| Target | Current evidence | Classification | Remaining gates |
+| Target | Current evidence | Classification | Remaining gate |
 | --- | --- | --- | --- |
-| A. Cross-domain autonomy | `lane-policy.mjs` supports three allowed lanes and danger-lanes normal sensitive domains. | Partial/scaffold; final target requires policy work, but current manual gates remain authoritative until explicitly changed. | #887. |
-| B. Feature bundles | `auto-bundle` is searchable and documented as an eligibility signal only. No bundle state machine exists. | Missing. | #890. |
-| C. Issue creation | `previewFollowupIssue` exists, gated by `allowFollowupIssueCreation`, with only basic labels. | Partial/scaffold. | #891. |
-| D. Closure/progress | Low-risk merge comment/closure/label cleanup exists, with failure evidence, but no umbrella/project/ledger automation. | Partial. | #892. |
-| E. External review | Reviewer routing logic and Gemini provider code exist; tiers are default-disabled and only client UI requires independent review in merge policy. | Implemented but unproven/partial. | #888. |
-| F. Auto-merge domains | `lowRiskAutoMergeLanes` is limited to workflow/docs/client low-risk. | Partial/scaffold. | #889. |
-| G. Recovery/continuation | Review-fix and existing-PR recovery scaffolds exist with exact-head evidence checks; broad CI/security fix and continuation are incomplete. | Partial. | #893. |
-| H. Final acceptance | Monitoring #880 is complete; canary/low-risk proofs exist. High-risk, bundle, issue creation, closure hygiene, and final proof are missing. | Not complete. | #894 after #887-#893. |
+| A. Cross-domain autonomy and risk lanes | #887/PR #896 updated lane/manual-decision policy. Current docs and `tools/auto-runner/lib/lane-policy.mjs` distinguish runnable approved lanes, focused/split-required lanes, and manual-gated work. | Pass for foundation policy; no broad product implementation implied. | #894 review/merge and post-merge reconciliation before #800 closure. |
+| B. Feature bundles | #890/PR #903 added two-to-four-slice bundle contracts, one branch/final PR orchestration, durable bundle state, checkpoint commits, recovery, and fail-closed drift handling. Tests: `feature-bundle-contract.test.mjs`, `feature-bundle-state.test.mjs`. | Pass for foundation behavior. | #894 review/merge. |
+| C. Issue creation | #891/#892/PR #904 added generated-work proposals, duplicate search, idempotency/correlation, issue mutation pipeline, and default-off creation. Tests: `issue-proposals.test.mjs`, `issue-mutation-pipeline.test.mjs`. | Pass for foundation behavior. | #894 review/merge. |
+| D. Closure/progress hygiene | #892/PR #904 added narrow close decisions, completion comments, transient label cleanup, parent comments, project `not_updated` fallback, and ledger proposal path. Tests: `completion-hygiene.test.mjs`. | Pass for foundation behavior. | #894 review/merge and post-merge #894/#800 comments. |
+| E. External review | #888/PR #897 added cheap/strong/tie-breaker routing, strong-review escalation, provider secret-boundary metadata validation, budget gates, and exact-head review package evidence. Tests include reviewer policy and integrated Gemini coverage in `auto-runner.test.mjs` and `large-bundle-review-approval.test.mjs`. | Pass for foundation behavior. | #894 exact-head strong independent review and Codex review. |
+| F. Exact-head approved-domain merge | #889/PR #898 added approved-lane auto-merge policy with exact issue contract, path, validation, review, CI/security, scanner, thread, issue-state, base/head, and `--match-head-commit` protection. #907 correction removes the stale categorical block for the seven canonical high-risk runnable lanes and adds positive/negative exact-gate regressions. | Pass only on corrected PR #907 exact head after validation/reviews/CI/scanner. | #894 remains manual-merge-required and must not auto-merge. |
+| G. Recovery/continuation | #893/PR #906 added recovery state, outcome taxonomy, existing-PR recovery, bounded fix classification, exact-head evidence invalidation, current-main scanner reconciliation, startup recovery-before-polling, and fail-closed continuation dispatch. Tests: `recovery-state.test.mjs`, `recovery-orchestrator.test.mjs`, `recovery-continuation.test.mjs`, `production-recovery-wiring.test.mjs`. | Pass for foundation behavior. | #894 review/merge. |
+| H. Monitoring, Windows-off, rollback | #880 live acceptance and #879/#883/#885 repository slices prove read-only health, ntfy terminal notifier, notification dedupe, Windows-off supervisor continuation, and rollback boundaries. Tests: `health-service.test.mjs`, `terminal-notifier.test.mjs`, `supervisor.test.mjs`, `systemd-templates.test.mjs`. | Pass using exact historical live proof plus current deterministic tests. | No new live notification or Windows shutdown required. |
+| I. Protected canaries | Current #865/#866 live fingerprint remains open, exact labels, zero comments, no assignees, no milestone. #894 does not mutate them. | Pass if final after-fingerprint remains identical. | Recheck before final report/PR and after PR comments. |
+| J. Repository/security safety | Current task and foundation children did not push directly to `main`, force push, rebase/reset/amend, delete branches by request, change secrets, deploy, change schema/OpenAPI/generated clients, or alter product runtime authority. Current open code-scanning alerts are `0` on `origin/main` `b930badaa65ea72e8727c8ca272b3299a8174d35`. | Pass if #894 diff remains within docs/planning/workflow or auto-runner acceptance scope. | Final scope guard, validation, PR CI/security/scanner. |
 
-## Stale Or Conflicting State
+## Stale Or Conflicting State Reconciled
 
-- The #800 original body previously said real unattended mutation and
-  auto-merge remain disabled/gated. That wording is now historical foundation
-  state, not the final requirement. #800 was updated during task
-  `20260712-1821`.
-- Documentation that describes `auto-bundle` as future behavior remains true
-  only if read as scaffolding.
-- Current manual-gated danger lanes are safe staging defaults. They conflict
-  with the final A-H target only if treated as permanent policy, but they must
-  not be bypassed before an explicit reviewed policy change.
+The earlier `20260712-1821` audit intentionally described pre-#887 scaffolding:
+low-risk-only merge defaults, `auto-bundle` as only an eligibility signal,
+basic follow-up previews, partial progress hygiene, and incomplete recovery.
+That status is now historical. Current implementation and live issue/PR state
+supersede it.
 
-## Child Issues And Bundles
-
-Bundle 1, policy and review gates:
-
-- #887 - lane policy and genuine manual-decision classification.
-- #888 - external reviewer providers and tier routing.
-- #889 - exact-head auto-merge across approved domains.
-
-Bundle 2, multi-slice execution:
-
-- #890 - real feature-bundle orchestration state and recovery.
-
-Bundle 3, work generation and progress hygiene:
-
-- #891 - automatic implementation issue derivation and creation.
-- #892 - automatic issue closure and progress hygiene.
-
-Bundle 4, recovery and continuation:
-
-- #893 - review-fix, CI/security-fix, existing-PR recovery, and continuation.
-
-Bundle 5, final proof:
-
-- #894 - final cross-domain unattended acceptance proof.
-
-Recommended first implementation child: #887. Lane/manual-decision policy is
-the blocker that determines which later reviewer, merge, issue, bundle, and
-recovery behavior is valid.
+The default example configuration remains conservative. Those defaults are not
+evidence that approved-domain autonomy is unimplemented; they are the
+fail-closed deployment posture that requires explicit reviewed configuration.
 
 ## Genuine Manual Decisions
 
-Manual gates remain required for production deploys, mobile store releases,
-destructive migrations or data operations, secret/auth configuration,
-public/admin exposure, architecture replacement, force-like history changes,
-branch deletion/cleanup, Day 1 scope cuts, unresolved product/policy behavior,
-auth/session/security-critical runtime work, storage/file privacy/authz
-changes, money/settlement calculation authority changes, schema migrations,
-OpenAPI/generated-client changes, CI/deployment infrastructure changes, and
-tasks explicitly marked PR-only or human-merge-only until those gates are
-explicitly changed by reviewed policy.
+Manual gates still include production deploys, mobile store releases,
+destructive migrations or data operations, secret/auth configuration mutation,
+public/admin/network exposure, architecture replacement, force-like history
+changes, branch deletion/cleanup, Day 1 scope cuts, unresolved product/policy
+behavior, unresolved authorization/privacy/security authority, unresolved
+financial semantics, and tasks explicitly marked PR-only or human-merge-only.
+They do not categorically cover every repository code PR in the associated
+high-risk lane when the lane is runnable, explicitly config-approved, and all
+strong exact-head gates pass.
 
-## Final Acceptance Matrix
+## Close Recommendation
 
-#800 can close only when #894 records evidence for:
-
-- multi-issue unattended execution;
-- feature-bundle multi-slice execution;
-- high-risk lane execution;
-- cheap and strong reviewer routing;
-- mandatory external review before every auto-merge;
-- exact-head auto-merge across approved domains;
-- automatic issue creation;
-- automatic narrow-issue closure;
-- umbrella/ledger/project progress hygiene;
-- review-fix and existing-PR recovery;
-- monitoring and notifications;
-- Windows-off continuation;
-- rollback and failure behavior;
-- protected canaries unaffected except explicit canary tasks;
-- no secrets leaked;
-- no direct main push or unsafe history operations.
+Keep #894 and #800 open while the #894 PR is unmerged. After #894 merges, close
+#894 only if exact-head local validation, strong independent review, Codex
+mechanics/security review, GitHub CI/security, current-main scanner
+reconciliation, protected-canary recheck, and ledger/report evidence all pass.
+Close #800 only after #894 closure evidence proves all matrix rows remain pass
+on current `main`. Keep #902 open as the post-foundation Dependabot and
+code-scanning ingestion enhancement.

@@ -14,13 +14,14 @@ bounded DevBox process and let it process multiple eligible issues until it hits
 `--max-iterations`, `--max-runtime`, no eligible work, or a systemic unsafe
 condition.
 
-End-state note: #800 remains open after #880 monitoring acceptance. The
-current low-risk/canary defaults are staged scaffolding, not the final runner
-target. The authoritative gap audit is
-[Auto-Runner End-State Gap Audit](../planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md).
-The remaining implementation children are #887 through #894; #887 is the
-recommended first blocker because lane/manual-decision classification controls
-later reviewer, merge, bundle, issue-creation, and recovery behavior.
+End-state note: #800 remains open pending final #894 acceptance merge and
+post-merge proof. The low-risk/canary defaults are fail-closed deployment
+defaults, not a permanent policy limit. The authoritative current audit is
+[Auto-Runner End-State Gap Audit](../planning/AUTO_RUNNER_END_STATE_GAP_AUDIT.md),
+and the durable final matrix is
+[Auto-Runner Final Acceptance Matrix #894](../planning/AUTO_RUNNER_FINAL_ACCEPTANCE_894.md).
+#887 through #893 are completed foundation children; #902 remains a
+post-foundation enhancement and must not start before #894 is accepted.
 
 The detached supervisor foundation adds an optional systemd-backed control
 surface around this runner. It submits immutable bounded run specs, starts a
@@ -336,8 +337,12 @@ Repository defaults remain fail-closed: `allowAutoMerge` is false and
 auto-merge must explicitly list supported canonical runnable lane IDs such as
 `workflow-docs-tooling`, `docs-planning`, `client-ui-low-risk`,
 `mobile-application`, `web-user-ui`, `web-admin-ui`, and
-`api-domain-runtime`. Alias-only, unknown, disabled, manual-gated, and
-split-required lanes are rejected by config normalization or the merge gate.
+`api-domain-runtime`, `auth-session-security`,
+`storage-file-privacy-authz`, `money-settlement-payment`,
+`schema-migrations`, `openapi-generated-clients`,
+`sync-import-export-restore`, and `docker-compose-ci-deployment`.
+Alias-only, unknown, disabled, and split-required lanes are rejected by config
+normalization or the merge gate.
 
 An approved lane is only a capability. Auto-merge still requires a valid issue
 contract with `autoMergeEligible=true` and `manualMergeRequired=false`, no
@@ -352,15 +357,16 @@ no stop labels, and an unchanged base/head through the final refresh. The
 merge command uses `gh pr merge --merge --match-head-commit <exact-head>`.
 
 Sensitive implementation is not a human decision by itself when the lane is
-explicitly auto-merge supported. Manual-gated domains and manual actions remain
-blocked regardless of review quality: auth/session/security-critical runtime,
-storage/file privacy/authz, money/settlement/payment authority, schema
-migrations, OpenAPI/generated clients, sync/import/export/restore authority,
-Docker/CI/deployment infrastructure, production deployment, mobile store
-release, destructive migration or data execution, secret or credential
-mutation, public/admin exposure, architecture replacement, force-like history,
-branch deletion/cleanup, Day 1 scope cuts, and unresolved product/policy or
-financial authority decisions.
+explicitly auto-merge supported. Repository code changes in auth/security,
+storage/privacy/authz, money/settlement/payment, schema migrations,
+OpenAPI/generated clients, sync/import/export/restore, and Docker/CI/deployment
+may auto-merge only after their stronger exact-head gates pass. The live/manual
+actions still block regardless of review quality: production deployment,
+mobile store release, destructive migration or data execution, secret or
+credential/auth-config mutation, public/admin exposure, architecture
+replacement, force-like history, branch deletion/cleanup, Day 1 scope cuts,
+and unresolved product/policy/authorization/privacy/security/financial
+authority decisions.
 
 ## External Reviewer Tiers
 
@@ -781,7 +787,7 @@ For eligible auto-runner issues, explicit exclusion sections such as
 `Non-goals`, `Out of scope`, and `Prohibited actions` are treated as negative
 scope rather than positive implementation requests. Positive scope text,
 dangerous `allowedPaths`, malformed contracts, disabled lanes, and
-manual-gated domains still fail closed.
+disabled lanes still fail closed.
 
 Implemented lane matrix:
 
@@ -810,10 +816,11 @@ Compatibility aliases map deterministically where safe:
 `docker-compose-ci-deployment`. `product-runtime` remains a disabled
 placeholder until a narrower domain lane is selected.
 
-Sensitive lanes being runnable does not enable sensitive auto-merge. #888 must
-make the external reviewer tiers operational, and #889 must implement exact-head
-auto-merge expansion. Until then, sensitive lanes are PR-only even when the
-issue contract asks for auto-merge.
+Sensitive and high-risk lanes are not categorically PR-only. #888
+operationalized external reviewer tiers, and #889 plus the #907 correction
+implement exact-head auto-merge expansion for supported canonical runnable
+domains. Reviewer providers and approved lanes remain disabled by default until
+an external profile explicitly enables them.
 
 The contract `allowedPaths` must be a subset of the lane manifest allowlist.
 PR creation is blocked if any changed file is outside either the contract

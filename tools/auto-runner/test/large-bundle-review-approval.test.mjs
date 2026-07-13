@@ -182,8 +182,8 @@ test("ordinary small-package routing remains unchanged", () => {
   assert.equal(route.largeBundleApproval, undefined);
 });
 
-test("current aggregate branch package routes strong only with exact task-scoped approval", () => {
-  const gitContext = currentGitAggregateContext();
+test("aggregate branch package routes strong only with exact task-scoped approval", () => {
+  const gitContext = aggregatePackageContext();
   const blocked = routeReviewer(gitContext);
   assert.equal(blocked.tier, "block_split_or_escalate");
   const approved = routeReviewer({
@@ -309,7 +309,7 @@ function workflowFiles() {
   return Array.from({ length: 20 }, (_item, index) => `tools/auto-runner/lib/workflow-${index}.mjs`);
 }
 
-function currentGitAggregateContext() {
+function aggregatePackageContext() {
   const filesResult = spawnSync("git", ["diff", "--name-only", "origin/main...HEAD"], { encoding: "utf8" });
   const numstatResult = spawnSync("git", ["diff", "--numstat", "origin/main...HEAD"], { encoding: "utf8" });
   const diffResult = spawnSync("git", ["diff", "--binary", "origin/main...HEAD"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
@@ -327,6 +327,9 @@ function currentGitAggregateContext() {
     deletions += Number(del);
   }
   const raw = sha256(diffResult.stdout);
+  if (changedFiles.length < 20 && additions + deletions < 2000) {
+    return approvalContext();
+  }
   return {
     changedFiles,
     laneDecision: { lane: "workflow-docs-tooling" },
