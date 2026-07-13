@@ -183,6 +183,9 @@ export function validateIssueProposal(proposal = {}, options = {}) {
   for (const requiredReading of proposal.requiredReading || []) {
     if (!isSafeRepoPath(requiredReading)) errors.push(`required_reading_invalid:${requiredReading}`);
   }
+  for (const requiredReading of proposal.autoRunnerContract?.requiredReading || []) {
+    if (!isSafeRepoPath(requiredReading)) errors.push(`contract_required_reading_invalid:${requiredReading}`);
+  }
   if (!Array.isArray(proposal.allowedPaths) || proposal.allowedPaths.length === 0) errors.push("allowed_paths_missing");
   for (const allowedPath of proposal.allowedPaths || []) {
     if (!isSafeRepoGlob(allowedPath)) errors.push(`allowed_path_invalid:${allowedPath}`);
@@ -581,7 +584,25 @@ function unsafeProposalTextFields(proposal = {}) {
       check(`projectStatusIntent.${key}`, value);
     }
   }
+  collectUnsafeObjectText("autoRunnerContract", proposal.autoRunnerContract, fields);
   return fields;
+}
+
+function collectUnsafeObjectText(prefix, value, fields) {
+  if (value === null || value === undefined) return;
+  if (typeof value === "string") {
+    if (containsUnsafeText(value)) fields.push(prefix);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectUnsafeObjectText(`${prefix}[${index}]`, item, fields));
+    return;
+  }
+  if (typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      collectUnsafeObjectText(`${prefix}.${key}`, item, fields);
+    }
+  }
 }
 
 function containsSecret(value) {

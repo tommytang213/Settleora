@@ -255,5 +255,5 @@ test("bundle proposals can receive auto-bundle only with valid bundle contract",
   });
   const injectedResult = validateMutationProposal(injected);
   assert.equal(injectedResult.ok, false);
-  assert.equal(injectedResult.reason, "generated_bundle_contract_invalid:bundle_slice_executable_text");
+  assert.equal(injectedResult.reason, "text_unsafe:autoRunnerContract.bundle.slices[0].objective");
 });
