@@ -23,13 +23,14 @@ auto-merge eligible, no manual action or split requirement, exact contract and
 lane path matches, exact-head validation evidence, independent external review,
 Codex mechanics/security review, GitHub checks, code scanning, clear review
 threads, open issue state, and unchanged base/head. Supported sensitive lanes
-can be approved this way only when they are not manual-gated. Auth/session
-security-critical runtime, storage/file privacy/authz, money/settlement/payment
-authority, schema migrations, OpenAPI/generated clients, sync/import/export/
-restore authority, Docker/CI/deployment infrastructure, production deploys,
-destructive execution, secret/auth credential mutation, public/admin exposure,
-branch deletion, force-like history changes, and unresolved product/policy/
-financial decisions remain manual-gated and do not auto-merge.
+and high-risk lanes can be approved this way when their exact lane contract,
+paths, validation, strong review, Codex review, CI, scanner, issue-state, and
+final refresh gates pass. Genuine manual decisions and actions remain manual:
+production deploys, mobile store/TestFlight/Play submission, destructive
+migration or data execution, secret/auth credential or auth-config mutation,
+public/admin/network exposure, branch cleanup, force-like history changes,
+Day 1 scope cuts, architecture replacement, and unresolved product, policy,
+authorization, privacy, security, or financial authority decisions.
 
 Generated follow-up work remains default-off through
 `allowFollowupIssueCreation=false`. When explicitly enabled for a trusted run,
@@ -410,10 +411,10 @@ for the first approved low-risk lanes only:
 - `client-ui-low-risk` with changed files under `apps/mobile/lib/ui/**` or
   `apps/mobile/test/ui/**`.
 
-All other lanes, sensitive routes, strong-review routes, huge/cross-domain
-routes, unsupported models, missing keys, malformed verdicts, provider
-failures, budget failures, accounting failures, and secret-boundary violations
-fail closed before PR creation. The integrated Gemini reviewer writes only
+Strong-review routes, huge/cross-domain routes, unsupported models, missing
+keys, malformed verdicts, provider failures, budget failures, accounting
+failures, and secret-boundary violations fail closed before PR creation. The
+integrated Gemini reviewer writes only
 sanitized local evidence under
 `/workspace/logs/settleora-auto-runner/reviews/integrated/` and sanitized
 accounting under
@@ -685,8 +686,8 @@ contract before applying broad danger-word heuristics. Explicit exclusion
 sections such as `## Non-goals`, `## Out of scope`, and
 `## Prohibited actions` are treated as negative scope, not implementation
 requests. Positive scope text, the title, dangerous contract `allowedPaths`,
-malformed contracts, disabled lanes, and manual-gated domains still fail
-closed with the normal danger/manual gate outcomes.
+malformed contracts, disabled lanes, and genuine manual-action requests still
+fail closed with the normal danger/manual gate outcomes.
 
 Positive-scope scanning remains fail-closed. The only context-aware exception
 is for validated `client-ui-low-risk` contracts using the exact
@@ -721,13 +722,13 @@ Implementation lane matrix:
 | `web-user-ui` | standard | normal | cheap | `web-ui` | implementation and PR creation only |
 | `web-admin-ui` | sensitive | focused | strong | `web-ui` | implementation and PR creation only |
 | `api-domain-runtime` | sensitive | focused | strong | `api-domain` | implementation and PR creation only |
-| `auth-session-security` | high | focused | strong | `api-security` | manual-gated PR only; no auto-merge |
-| `storage-file-privacy-authz` | high | focused | strong | `api-storage` | manual-gated PR only; no auto-merge |
-| `money-settlement-payment` | high | focused | strong | `api-money` | manual-gated PR only; no auto-merge |
-| `schema-migrations` | high | focused | strong | `api-migrations` | manual-gated PR only; no migration auto-merge |
-| `openapi-generated-clients` | high | focused | strong | `openapi-generated-clients` | manual-gated PR only; no auto-merge |
-| `sync-import-export-restore` | high | focused | strong | `sync-import-export` | manual-gated PR only; no auto-merge |
-| `docker-compose-ci-deployment` | high | focused | strong | `compose-ci` | manual-gated PR only; no deployment/CI auto-merge |
+| `auth-session-security` | high | focused | strong | `api-security` | code PR auto-merge eligible only after stronger exact gates; unresolved security policy and credential/auth-config mutation remain manual |
+| `storage-file-privacy-authz` | high | focused | strong | `api-storage` | code PR auto-merge eligible only after stronger exact gates; unresolved privacy/authorization authority remains manual |
+| `money-settlement-payment` | high | focused | strong | `api-money` | code PR auto-merge eligible only after stronger exact gates; unresolved financial semantics remain manual |
+| `schema-migrations` | high | focused | strong | `api-migrations` | migration code may auto-merge after gates; destructive application remains manual |
+| `openapi-generated-clients` | high | focused | strong | `openapi-generated-clients` | contract plus generated clients may auto-merge only through repo generation/validation gates |
+| `sync-import-export-restore` | high | focused | strong | `sync-import-export` | code PR auto-merge eligible only under API/domain-authoritative acceptance; live restore/import/export mutation remains manual |
+| `docker-compose-ci-deployment` | high | focused | strong | `compose-ci` | repo code may auto-merge after gates; live deployment/env/network/secret mutation remains manual |
 | `cross-domain` | split | split-required | split/escalate | none | blocked until future bundle/split policy |
 
 Compatibility aliases map `security-runtime`, `storage-privacy`,
@@ -735,10 +736,11 @@ Compatibility aliases map `security-runtime`, `storage-privacy`,
 `product-runtime` remains a disabled placeholder until an issue selects a
 narrower domain lane.
 
-Manual-gated lanes are PR-only in the current runner. #888 operationalizes
-external reviewer tiers, and #889 implements exact-head auto-merge expansion
-only for supported non-manual-gated domains. The current policy does not enable
-reviewer providers by default or high-risk/manual-gated domain auto-merge.
+High-risk lanes are not categorically PR-only. #888 operationalized external
+reviewer tiers, and #889 plus the #907 correction implement exact-head
+auto-merge expansion for supported canonical runnable domains. Reviewer
+providers and approved lanes remain disabled by default until an external
+profile explicitly enables them.
 
 Genuine manual actions remain blocked even when related code lanes are
 runnable: production deploy/promotion, mobile store/TestFlight/Play

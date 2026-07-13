@@ -17,8 +17,6 @@ export const approvedDomainAutoMergeLanes = Object.freeze([
   "web-user-ui",
   "web-admin-ui",
   "api-domain-runtime",
-]);
-const manualGatedAutoMergeLanes = new Set([
   "auth-session-security",
   "storage-file-privacy-authz",
   "money-settlement-payment",
@@ -522,7 +520,6 @@ export function shouldGenerateExistingPrRecoveryEvidence(laneDecision = {}, exac
 
 function evaluateApprovedLanePolicy(config = {}, laneDecision = {}) {
   const canonicalLane = laneDecision.canonicalLane || laneDecision.lane;
-  if (manualGatedAutoMergeLanes.has(canonicalLane)) return { ok: false, reason: "lane_manual_gated_auto_merge_blocked" };
   if (!approvedDomainAutoMergeLanes.includes(canonicalLane)) return { ok: false, reason: "lane_not_approved_domain_auto_merge_supported" };
   if (laneDecision.splitRequired || laneDecision.branchStrategy === "split-required") return { ok: false, reason: "split_required_lanes_do_not_auto_merge" };
   if (laneDecision.manualActionRequired || laneDecision.manualGate || laneDecision.dangerGate) return { ok: false, reason: "manual_or_danger_gate_present" };

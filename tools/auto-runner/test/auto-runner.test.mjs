@@ -3645,13 +3645,20 @@ test("approved-domain duplicate check records cannot mask failed or pending inst
   assert.equal(allowedSkippedPlusFailure.reason, "required_checks_not_successful");
 });
 
-test("approved-domain auto-merge matrix covers normal focused lanes and manual-gated refusals", () => {
+test("approved-domain auto-merge matrix covers all canonical runnable lanes including high-risk focused lanes", () => {
   const autoMergeCases = [
     ["workflow-docs-tooling", "cheap_independent", "normal", "tools/auto-runner/lib/auto-merge-policy.mjs", "runner-tests", "low"],
     ["mobile-application", "cheap_independent", "normal", "apps/mobile/lib/features/example.dart", "mobile", "standard"],
     ["web-user-ui", "cheap_independent", "normal", "apps/web-user/src/App.tsx", "web-ui", "standard"],
     ["web-admin-ui", "strong_independent", "focused", "apps/web-admin/src/Admin.tsx", "web-ui", "sensitive"],
     ["api-domain-runtime", "strong_independent", "focused", "services/api/Features/Example/ExampleService.cs", "api-domain", "sensitive"],
+    ["auth-session-security", "strong_independent", "focused", "services/api/Auth/SessionRuntime.cs", "api-security", "high"],
+    ["storage-file-privacy-authz", "strong_independent", "focused", "services/api/Storage/FileAuthorizationService.cs", "api-storage", "high"],
+    ["money-settlement-payment", "strong_independent", "focused", "services/api/Settlement/SettlementPolicy.cs", "api-money", "high"],
+    ["schema-migrations", "strong_independent", "focused", "services/api/Infrastructure/Migrations/202607121903_AddFoo.cs", "api-migrations", "high"],
+    ["openapi-generated-clients", "strong_independent", "focused", "packages/contracts/openapi/settleora.v1.yaml", "openapi-generated-clients", "high"],
+    ["sync-import-export-restore", "strong_independent", "focused", "services/api/Sync/ImportRestoreService.cs", "sync-import-export", "high"],
+    ["docker-compose-ci-deployment", "strong_independent", "focused", "infra/docker-compose.yml", "compose-ci", "high"],
   ];
   for (const [lane, tier, branchStrategy, filePath, profile, implementationSensitivity] of autoMergeCases) {
     const branchName = `${branchStrategy === "focused" ? "focused" : "feature"}/auto-1-test`;
@@ -3677,41 +3684,9 @@ test("approved-domain auto-merge matrix covers normal focused lanes and manual-g
     assert.equal(decision.eligible, true, lane);
   }
 
-  const manualGatedCases = [
-    ["auth-session-security", "strong_independent", "focused", "services/api/Auth/SessionRuntime.cs", "api-security", "high"],
-    ["storage-file-privacy-authz", "strong_independent", "focused", "services/api/Storage/FileAuthorizationService.cs", "api-storage", "high"],
-    ["money-settlement-payment", "strong_independent", "focused", "services/api/Settlement/SettlementPolicy.cs", "api-money", "high"],
-    ["schema-migrations", "strong_independent", "focused", "services/api/Infrastructure/Migrations/202607121903_AddFoo.cs", "api-migrations", "high"],
-    ["openapi-generated-clients", "strong_independent", "focused", "packages/contracts/openapi/settleora.v1.yaml", "openapi-generated-clients", "high"],
-    ["sync-import-export-restore", "strong_independent", "focused", "services/api/Sync/ImportRestoreService.cs", "sync-import-export", "high"],
-    ["docker-compose-ci-deployment", "strong_independent", "focused", "infra/docker-compose.yml", "compose-ci", "high"],
-  ];
-  for (const [lane, tier, branchStrategy, filePath, profile, implementationSensitivity] of manualGatedCases) {
-    const branchName = `${branchStrategy === "focused" ? "focused" : "feature"}/auto-1-test`;
-    const laneDecision = autoMergeLane({
-      lane,
-      canonicalLane: lane,
-      reviewerTier: tier,
-      branchStrategy,
-      allowedPaths: [filePath],
-      laneManifestAllowedPaths: [filePath],
-      validationProfile: profile,
-      implementationSensitivity,
-      laneManifest: { id: lane, decisionType: "runnable", autoMergeAllowed: true },
-      contract: { allowedPaths: [filePath], validationProfile: profile, manualMergeRequired: false, autoMergeEligible: true },
-    });
-    const decision = evaluateAutoMergeDecision(autoMergeContext({
-      laneDecision,
-      changedFiles: [filePath],
-      branchName,
-      pr: { headRefName: branchName },
-    }));
-    assert.equal(decision.reason, "lane_manual_gated_auto_merge_blocked", lane);
-    assert.equal(decision.eligible, false, lane);
-  }
-
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ config: { allowAutoMerge: true, autoMergePolicy: { approvedLanes: [], requiredChecks: ["Validate scaffold"], allowedSkippedChecks: [] } } })).reason, "lane_not_in_approved_auto_merge_config");
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ lane: "cross-domain", canonicalLane: "cross-domain", splitRequired: true, branchStrategy: "split-required", laneManifest: { id: "cross-domain", decisionType: "split_required", autoMergeAllowed: false } }) })).reason, "lane_not_approved_domain_auto_merge_supported");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ lane: "product-runtime", canonicalLane: "product-runtime", laneManifest: { id: "product-runtime", decisionType: "manual", autoMergeAllowed: false } }) })).reason, "lane_not_approved_domain_auto_merge_supported");
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ manualActionRequired: true }) })).reason, "manual_or_danger_gate_present");
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ laneDecision: autoMergeLane({ branchStrategy: "focused" }) })).reason, "branch_strategy_mismatch");
   assert.equal(evaluateAutoMergeDecision(autoMergeContext({ pr: { title: "No issue", body: "No linkage" } })).reason, "pr_missing_issue_linkage");
@@ -3728,6 +3703,48 @@ test("approved-domain auto-merge matrix covers normal focused lanes and manual-g
     () => normalizeAutoMergePolicy({ allowedNeutralChecks: ["Workflow / Optional advisory"] }),
     /canonical check names/,
   );
+});
+
+test("high-risk approved-domain auto-merge keeps strong-review and exact-gate failures fail-closed", () => {
+  const laneDecision = autoMergeLane({
+    lane: "auth-session-security",
+    canonicalLane: "auth-session-security",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+    allowedPaths: ["services/api/Auth/SessionRuntime.cs"],
+    laneManifestAllowedPaths: ["services/api/Auth/SessionRuntime.cs"],
+    validationProfile: "api-security",
+    implementationSensitivity: "high",
+    laneManifest: { id: "auth-session-security", decisionType: "runnable", autoMergeAllowed: true },
+    contract: {
+      allowedPaths: ["services/api/Auth/SessionRuntime.cs"],
+      validationProfile: "api-security",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const base = {
+    laneDecision,
+    changedFiles: ["services/api/Auth/SessionRuntime.cs"],
+    branchName: "focused/auto-1-test",
+    pr: { headRefName: "focused/auto-1-test" },
+  };
+
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({
+      ...base,
+      externalReview: { status: "pass", verdict: "pass", reviewedHead: "head123", tier: "cheap_independent", changedFiles: base.changedFiles, changedFilesDigest: sha256Strings(base.changedFiles), provider: "gemini", independent: true, completedAt: "2026-07-12T00:00:00.000Z" },
+    })).reason,
+    "independent_review_tier_downgrade",
+  );
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ ...base, laneDecision: { ...laneDecision, manualMergeRequired: true } })).reason, "manual_merge_required");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ ...base, laneDecision: { ...laneDecision, manualActionRequired: true } })).reason, "manual_or_danger_gate_present");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ ...base, pr: { headRefName: "focused/auto-1-test", headRefOid: "stale" }, actualHeadSha: "stale" })).reason, "pr_head_sha_mismatch");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ ...base, currentOriginMainSha: "base-new" })).reason, "origin_main_base_mismatch");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ ...base, changedFiles: ["services/api/Authz/SessionRuntime.cs"] })).reason, "forbidden_changed_files:services/api/Authz/SessionRuntime.cs");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ ...base, reviewThreads: [{ isResolved: false }] })).reason, "unresolved_review_threads");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ ...base, requiredChecks: autoMergeRequiredChecks({ CodeQL: { status: "COMPLETED", conclusion: "FAILURE" } }) })).reason, "required_checks_not_successful");
+  assert.equal(evaluateAutoMergeDecision(autoMergeContext({ ...base, codeScanningAlerts: [{ state: "open" }] })).reason, "open_code_scanning_alerts");
 });
 
 test("api-domain auto-merge cannot carry manual-gated API domains through broad service paths", () => {

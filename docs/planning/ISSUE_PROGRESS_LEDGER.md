@@ -20,6 +20,41 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #889 / PR #907 - High-risk approved-domain auto-merge correction checkpoint
+
+- Task key: `20260714-0033`.
+- Branch:
+  `tools/auto-runner-final-acceptance-894-20260713-2358`.
+- Original PR #907 head:
+  `b95624196d2dcfbb38e94b99c2d47c646908e538`.
+- Verified defect:
+  at the original PR #907 head,
+  `tools/auto-runner/lib/auto-merge-policy.mjs` excluded the seven canonical
+  high-risk runnable lanes from `approvedDomainAutoMergeLanes` and blocked
+  them through a categorical manual-gated auto-merge set:
+  `auth-session-security`, `storage-file-privacy-authz`,
+  `money-settlement-payment`, `schema-migrations`,
+  `openapi-generated-clients`, `sync-import-export-restore`, and
+  `docker-compose-ci-deployment`.
+- Correction scope:
+  remove the categorical high-risk lane auto-merge prohibition, preserve
+  genuine manual-action gates, add positive and negative exact-gate regression
+  coverage, and supersede the old #894 all-rows-pass acceptance wording.
+- Issue hygiene:
+  #889 must be reopened and kept open until this correcting PR merges and
+  post-merge current-main proof passes. #894 and #800 remain open. #902 remains
+  post-foundation and unstarted. Protected canaries #865/#866 must remain
+  unchanged.
+- Manual boundary:
+  repository code in high-risk runnable lanes may be eligible for auto-merge
+  only after explicit external config approval, valid issue contract,
+  exact path/profile/branch evidence, strong independent review, Codex
+  mechanics/security review, CI/security/scanner/thread/issue gates, and
+  unchanged base/head final refresh. Production deploys, mobile store release,
+  destructive application, secret/auth-config mutation, public/admin/network
+  exposure, force-like history, branch cleanup, Day 1 cuts, architecture
+  replacement, and unresolved authority decisions remain manual.
+
 ### Issue #894 - Final auto-runner foundation acceptance checkpoint
 
 - Task key: `20260713-2358`.
@@ -306,8 +341,10 @@ remain the source of truth.
 
 - Scope:
   - Replaces the permanent low-risk-only auto-merge bottleneck with an
-    explicit approved-domain policy model for supported non-manual-gated
-    runnable lane manifests.
+    explicit approved-domain policy model for then-supported runnable lane
+    manifests. The `20260714-0033` checkpoint supersedes this wording for the
+    seven high-risk canonical runnable lanes, which must not remain
+    categorically blocked.
   - Keeps repository defaults fail-closed: `allowAutoMerge=false` and
     `autoMergePolicy.approvedLanes=[]`.
   - Requires canonical runnable lane approval, exact issue contract
