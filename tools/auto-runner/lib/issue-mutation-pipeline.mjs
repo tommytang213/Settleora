@@ -9,6 +9,7 @@ import {
   validateIssueProposal,
 } from "./issue-proposals.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
+import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
 
 const defaultMaxIssuesPerRun = 3;
 const knownLabelSet = new Set([
@@ -137,7 +138,20 @@ export function validateMutationProposal(proposal = {}) {
   const body = renderProposalIssueBody(validated);
   const parsed = parseAutoRunnerContract(body);
   if (!parsed.ok) return { ok: false, reason: `generated_contract_parse_failed:${parsed.reason}`, proposal: validated };
+  if (labels.includes("auto-bundle")) {
+    const bundlePlan = planFeatureBundleIssue({
+      number: 0,
+      title: validated.title,
+      body: renderContractOnlyBody(validated.autoRunnerContract),
+      labels,
+    });
+    if (!bundlePlan.ok) return { ok: false, reason: `generated_bundle_contract_invalid:${bundlePlan.reasonCode}`, proposal: validated, bundlePlan };
+  }
   return { ok: true, proposal: validated, body };
+}
+
+function renderContractOnlyBody(contract) {
+  return ["## Auto-runner contract", "", "```json", JSON.stringify(contract, null, 2), "```"].join("\n");
 }
 
 export function mutationCapability(config = {}) {
