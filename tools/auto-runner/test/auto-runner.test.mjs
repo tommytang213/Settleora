@@ -1683,7 +1683,7 @@ test("client-ui-low-risk real-code lane selects cheap Gemini reviewer and pass v
           manualMergeRequired: false,
           autoMergeEligible: true,
         },
-        diff: "diff --git a/apps/mobile/lib/ui/settleora_components.dart b/apps/mobile/lib/ui/settleora_components.dart\n+const ok = true;\n",
+        diff: "diff --git a/apps/mobile/lib/ui/settleora_components.dart b/apps/mobile/lib/ui/settleora_components.dart\nindex 1111111..2222222 100644\n--- a/apps/mobile/lib/ui/settleora_components.dart\n+++ b/apps/mobile/lib/ui/settleora_components.dart\n@@ -1,0 +1,1 @@\n+const ok = true;\n",
         summary: { currentHead: "head123" },
       }),
       {
@@ -6034,7 +6034,9 @@ function workflowReviewPackage(overrides = {}) {
     autoMergeEligible: false,
     prCreationAllowed: true,
   };
-  const diff = overrides.diff || "diff --git a/tools/auto-runner/lib/gemini-reviewer.mjs b/tools/auto-runner/lib/gemini-reviewer.mjs\n+const ok = true;\n";
+  const diff =
+    overrides.diff ||
+    "diff --git a/tools/auto-runner/lib/gemini-reviewer.mjs b/tools/auto-runner/lib/gemini-reviewer.mjs\nindex 1111111..2222222 100644\n--- a/tools/auto-runner/lib/gemini-reviewer.mjs\n+++ b/tools/auto-runner/lib/gemini-reviewer.mjs\n@@ -1,0 +1,1 @@\n+const ok = true;\n";
   return {
     packagePath: "/workspace/logs/settleora-auto-runner/reviews/test-package.json",
     summary: {

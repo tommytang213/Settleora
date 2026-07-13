@@ -9,6 +9,7 @@ import {
   mergeReviewerPolicyConfig,
   routeReviewer,
 } from "./reviewer-policy.mjs";
+import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
 
 const geminiApiOrigin = "https://generativelanguage.googleapis.com";
 export const supportedGeminiModelEndpoints = Object.freeze({
@@ -31,19 +32,6 @@ const maxGeminiRequestMs = 45_000;
 const maxGeminiReviewerRetries = 2;
 const maxGeminiRetryBackoffMs = 10_000;
 const geminiRetryDelayBucketsMs = Object.freeze([0, 100, 500, 1000, 2000, 5000, 10_000]);
-const secretLikePatterns = Object.freeze([
-  /(^|\/)\.env($|[./-])/i,
-]);
-const secretLikePathPatterns = Object.freeze([
-  /(^|\/)\.env($|[./-])/i,
-  /(^|\/)(secrets?|credentials?|tokens?|ssh)(\/|$)/i,
-  /\/workspace\/logs\/settleora-auto-runner\/secrets\//i,
-]);
-const credentialValuePatterns = Object.freeze([
-  /\b(api[_-]?key|authorization|x-goog-api-key)\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{12,}/i,
-  /\bbearer\s+[A-Za-z0-9._~+/-]{12,}/i,
-  /\b[A-Za-z_][A-Za-z0-9_]*_(TOKEN|SECRET|KEY)\s*=\s*["']?[A-Za-z0-9._~+/-]{12,}/,
-]);
 const integratedVerdictFields = Object.freeze(["verdict", "confidence", "summary", "findings"]);
 const integratedVerdictValues = Object.freeze(["pass", "fail", "needs_tommy", "danger_gate", "unable_to_review"]);
 const confidenceValues = Object.freeze(["low", "medium", "high"]);
@@ -64,10 +52,16 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   const laneDecision = summary.laneDecision || {};
   const changedFiles = Array.isArray(summary.changedFiles) ? summary.changedFiles : [];
   const diff = String(packageInfo?.diff || "");
+  const secretBoundary = analyzeReviewSecretBoundary({
+    changedFiles,
+    diff,
+    diffTruncated: Boolean(summary.diffTruncated),
+  });
+  const effectiveDiffStats = normalizeReviewDiffStats(summary.diffStats, secretBoundary.diffStats);
   const route = routeReviewer({
     changedFiles,
     laneDecision,
-    stats: summary.diffStats || {},
+    stats: effectiveDiffStats,
   });
   const { reviewerTiers, reviewerBudget } = mergeReviewerPolicyConfig(config);
   const tierId = route.tier;
@@ -75,7 +69,14 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   const providerProfiles = config.reviewerProviderProfiles || {};
   const profile = providerProfiles[tier?.providerProfile] || providerProfiles.gemini || {};
   const model = tier?.model || profile.defaultModel || "gemini-2.5-flash-lite";
-  const estimatedInputTokens = estimateTokens(buildIntegratedReviewPrompt(summary, diff));
+  const promptSummary = {
+    ...summary,
+    diffStats: effectiveDiffStats,
+    rawDiffSha256: secretBoundary.rawDiffSha256,
+    providerBoundDiffSha256: providerBoundReviewDigest(diff),
+    secretBoundary: sanitizeBoundaryForPrompt(secretBoundary),
+  };
+  const estimatedInputTokens = estimateTokens(buildIntegratedReviewPrompt(promptSummary, diff));
   const estimatedOutputTokens = integratedOutputTokenEstimate;
   const estimatedCostUsd = estimateReviewerCostUsd({
     inputTokens: estimatedInputTokens,
@@ -100,6 +101,10 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     changedFiles,
     changedFilesDigest: digestStrings(changedFiles),
     packageDigest: sha256Text(stableJson({ summary, diff })),
+    rawDiffSha256: secretBoundary.rawDiffSha256,
+    providerBoundDiffSha256: providerBoundReviewDigest(diff),
+    diffStats: effectiveDiffStats,
+    secretBoundary: sanitizeBoundaryForEvidence(secretBoundary),
     baseSha: summary.baseSha || summary.baseRefSha || summary.baseOriginMainSha || null,
     verdictSchemaVersion: 1,
     reviewedHead: summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null,
@@ -122,11 +127,11 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     completedAt: null,
   };
 
-  if (!tier || !tier.enabled) return finishIntegrated(config, base, startedAtMs, "skipped_external_reviewer_tier_disabled");
   if (route.tier === "block_split_or_escalate") {
     return finishIntegrated(config, base, startedAtMs, "blocked_external_reviewer_split_required");
   }
-  if (hasSecretBoundaryViolation(changedFiles, diff)) {
+  if (!tier || !tier.enabled) return finishIntegrated(config, base, startedAtMs, "skipped_external_reviewer_tier_disabled");
+  if (!secretBoundary.ok) {
     return finishIntegrated(config, base, startedAtMs, "blocked_secret_boundary_violation");
   }
   if (tier.provider !== "gemini") return finishIntegrated(config, base, startedAtMs, "blocked_provider_tier_not_gemini");
@@ -162,7 +167,7 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
   });
   if (!keyResult.ok) return finishIntegrated(config, base, startedAtMs, keyResult.reason.replace("smoke_test", "integrated_review"));
 
-  const prompt = buildIntegratedReviewPrompt(summary, diff);
+  const prompt = buildIntegratedReviewPrompt(promptSummary, diff);
   const payload = buildIntegratedReviewPayload(prompt);
   const url = new URL(endpoint);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
@@ -689,6 +694,10 @@ function buildIntegratedReviewPrompt(summary, diff) {
       : null,
     scope: {
       laneDecision: summary.laneDecision || null,
+      diffStats: summary.diffStats || null,
+      rawDiffSha256: summary.rawDiffSha256 || summary.diffSha256 || null,
+      providerBoundDiffSha256: summary.providerBoundDiffSha256 || null,
+      secretBoundary: summary.secretBoundary || null,
       nonGoals: [
         "No GitHub mutation from reviewer output.",
         "No auth/session/security runtime, storage/privacy, money, schema, OpenAPI, generated-client, Docker, CI, deployment, OCR, sync/import/export, mobile release, public/admin exposure, or production changes.",
@@ -933,17 +942,47 @@ function estimateTokens(text) {
   return Math.max(1, Math.ceil(String(text || "").length / 4));
 }
 
-function hasSecretBoundaryViolation(changedFiles, diff) {
-  return (
-    changedFiles.some((file) => secretLikePathPatterns.some((pattern) => pattern.test(file))) ||
-    secretLikePatterns.some((pattern) => pattern.test(diff)) ||
-    credentialValuePatterns.some((pattern) => pattern.test(diff))
-  );
-}
-
 function timeoutSignal() {
   if (typeof AbortSignal?.timeout === "function") return AbortSignal.timeout(maxGeminiRequestMs);
   return undefined;
+}
+
+function normalizeReviewDiffStats(summaryStats, parsedStats) {
+  const parsed = parsedStats && typeof parsedStats === "object" ? parsedStats : {};
+  const summary = summaryStats && typeof summaryStats === "object" ? summaryStats : {};
+  return {
+    additions: finiteNonNegative(summary.additions) ?? finiteNonNegative(parsed.additions) ?? 0,
+    deletions: finiteNonNegative(summary.deletions) ?? finiteNonNegative(parsed.deletions) ?? 0,
+    files: finiteNonNegative(summary.files) ?? finiteNonNegative(parsed.files) ?? 0,
+  };
+}
+
+function finiteNonNegative(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function sanitizeBoundaryForEvidence(boundary) {
+  return {
+    ok: Boolean(boundary?.ok),
+    blocked: Boolean(boundary?.blocked),
+    reason: boundary?.reason || null,
+    blockers: boundary?.blockers || [],
+    allowedReferences: boundary?.allowedReferences || [],
+    sanitizedDiagnostics: boundary?.sanitizedDiagnostics || [],
+    diffStats: boundary?.diffStats || null,
+    parsedFilesDigest: digestStrings(boundary?.parsedFiles || []),
+  };
+}
+
+function sanitizeBoundaryForPrompt(boundary) {
+  return {
+    ok: Boolean(boundary?.ok),
+    blocked: Boolean(boundary?.blocked),
+    reason: boundary?.reason || null,
+    blockers: boundary?.blockers || [],
+    allowedReferences: boundary?.allowedReferences || [],
+  };
 }
 
 function sha256Text(text) {
