@@ -34,6 +34,8 @@ const safeLabelPattern = /^[A-Za-z0-9][A-Za-z0-9:_ .-]{0,80}$/;
 const safeTitlePattern = /^[^\r\n`$<>]{8,180}$/;
 const unsafeTextPattern =
   /(?:^|\s)(?:bash|sh|pwsh|powershell|cmd|node|npm|npx|curl|wget|git|docker|kubectl|ssh|scp|rm|sudo|chmod|chown)(?:\s|$)|[`$<>]|&&|\|\||;/i;
+const promptInjectionTextPattern =
+  /\b(?:ignore|disregard|override)\b.{0,80}\b(?:prior|previous|earlier|all|system|developer)?\s*instructions?\b|\b(?:system|developer)\s+(?:prompt|message)\b|\bmark\b.{0,80}\bsafe\b|\bclose\b.{0,80}\b(?:parent|umbrella|tracker)\b/i;
 const secretPattern =
   /(?:GEMINI_API_KEY|authorization|x-goog-api-key|bearer\s+[A-Za-z0-9._~+/-]+|api[_-]?key\s*[:=]|secret\s*[:=]|token\s*[:=]|password\s*[:=])/i;
 const maxEvidenceItemsPerSource = 50;
@@ -577,7 +579,7 @@ function hasManualDecision(proposal = {}) {
 }
 
 function containsUnsafeText(value) {
-  return typeof value === "string" && unsafeTextPattern.test(value);
+  return typeof value === "string" && (unsafeTextPattern.test(value) || promptInjectionTextPattern.test(value));
 }
 
 function unsafeProposalTextFields(proposal = {}) {
