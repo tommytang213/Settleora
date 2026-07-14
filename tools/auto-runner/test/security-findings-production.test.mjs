@@ -84,6 +84,39 @@ test("enabled production phase runs bounded sanitized no-op before issue polling
   }
 });
 
+test("enabled production phase fails closed on incomplete source coverage", async () => {
+  const config = tempConfig({ securityFindings: { allowSecurityFindingsProductionPhase: true } });
+  try {
+    const result = await runSecurityFindingsProductionPhase(config, {
+      runId: "run-incomplete-source",
+      adapter: {
+        async fetchSource(sourceKind) {
+          if (sourceKind === "dependabot_alert") {
+            return {
+              sourceKind,
+              status: "truncated",
+              reason: "page_limit_reached",
+              completeness: "truncated",
+              findings: [],
+              failures: ["page_limit_reached"],
+            };
+          }
+          return { sourceKind, status: "ok", completeness: "complete", findings: [], failures: [] };
+        },
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.outcome, "security_findings_phase_blocked");
+    assert.equal(result.reason, "source_failures");
+    assert.equal(result.dryRunEquivalent.failuresByReason.page_limit_reached, 1);
+    assert.equal(result.dryRunEquivalent.dispositionReadyCount, 0);
+    assert.equal(result.dryRunEquivalent.completionReadyCount, 0);
+    assert.equal(result.mutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("disposition cap consumes attempted slot and blocks second disposition", () => {
   const config = tempConfig({
     securityFindings: {

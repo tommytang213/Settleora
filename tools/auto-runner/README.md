@@ -96,6 +96,16 @@ dry-run path forces previews only. It does not create issues, edit PRs, change
 labels, dismiss alerts, close findings, update dependencies, push branches,
 open PRs, merge, or mutate product code.
 
+GitHub-backed security sources use explicit bounded pagination. Dependabot
+alerts use GitHub's cursor pagination (`after` plus `Link: rel="next"`), while
+Dependabot-authored PRs use repository pull-request page pagination. Each source
+advances one page at a time until an empty/partial page or missing next cursor
+proves exhaustion. A full final configured page is reported as truncated, an
+item cap is reported as bounded, and provider or parser failures on later pages
+fail the source instead of converting it into zero findings. Only fully complete
+source reads can feed classification, disposition, proposal, or completion
+planning by default.
+
 False-positive disposition readiness is also default-off and fail-closed.
 `allowFalsePositiveEvidence` only enables bounded packet/readiness evaluation
 inside the non-mutating security-finding dry-run. A live disposition would

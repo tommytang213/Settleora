@@ -116,12 +116,13 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
       : await adapter.fetchSource(sourceKind);
     result.sources[sourceKind] = summarizeSource(sourceResult);
     result.sourceCounts[sourceKind] = sourceResult.findings?.length || 0;
-    normalized.push(...(sourceResult.findings || []));
     for (const reason of sourceResult.failures || []) increment(result.failuresByReason, reason);
     if (sourceResult.status !== "ok") {
       result.failureCount += 1;
       providerFailures.push({ sourceKind, reason: sourceResult.reason || sourceResult.failures?.[0] || "source_failed", httpStatus: sourceResult.httpStatus || null });
+      continue;
     }
+    normalized.push(...(sourceResult.findings || []));
   }
   result.normalizedCount = normalized.length;
 
@@ -334,6 +335,7 @@ function summarizeSource(sourceResult = {}) {
   return {
     status: sourceResult.status || "unknown",
     reason: sourceResult.reason || null,
+    completeness: sourceResult.completeness || "unknown",
     count: sourceResult.findings?.length || 0,
     failures: sourceResult.failures || [],
     httpStatus: sourceResult.httpStatus || null,

@@ -20,10 +20,10 @@ export class GitHubSecurityFindingAdapter {
 
   async fetchSource(sourceKind) {
     if (sourceKind === "dependabot_alert") {
-      return this.fetchPaginated(sourceKind, "/dependabot/alerts", normalizeDependabotAlert, { pageParameter: false });
+      return this.fetchCursorPaginated(sourceKind, "/dependabot/alerts", normalizeDependabotAlert);
     }
     if (sourceKind === "code_scanning_alert") return this.fetchPaginated(sourceKind, "/code-scanning/alerts", normalizeCodeScanningAlert);
-    if (sourceKind === "dependabot_pr") return this.fetchDependabotPrs();
+    if (sourceKind === "dependabot_pr") return this.fetchPaginated(sourceKind, "/pulls", normalizeDependabotPr, { skipReason: "dependabot_pr_author_unverified" });
     if (sourceKind === "semgrep_artifact" || sourceKind === "trivy_artifact") {
       return { sourceKind, status: "unsupported", reason: "artifact_provider_not_configured", findings: [], failures: ["artifact_provider_not_configured"] };
     }
@@ -34,50 +34,105 @@ export class GitHubSecurityFindingAdapter {
     const settings = securitySettings(this.config);
     const findings = [];
     const failures = [];
+    const seen = new Set();
+    const pageSignatures = new Set();
     let page = 1;
     while (page <= settings.maxPages && findings.length < settings.maxItems) {
-      const query = options.pageParameter === false
-        ? `${endpoint}?state=open&per_page=${settings.perPage}`
-        : `${endpoint}?state=open&per_page=${settings.perPage}&page=${page}`;
+      const query = `${endpoint}?state=open&per_page=${settings.perPage}&page=${page}`;
       const result = this.api(query);
       if (!result.ok) return sourceFailure(sourceKind, result);
       if (!Array.isArray(result.json)) return sourceFailure(sourceKind, { status: "malformed", reason: "malformed_response_not_array" });
+      if (result.json.length > settings.perPage) return sourceFailure(sourceKind, { status: "malformed", reason: "provider_page_size_exceeded" });
       if (result.json.length === 0) break;
-      for (const item of result.json.slice(0, settings.maxItems - findings.length)) {
-        const normalized = normalizer(item, { repository: settings.repository, now: this.now() });
-        if (normalized.ok) findings.push(normalized.finding);
-        else failures.push(normalized.reason);
+      const pageSignature = providerPageSignature(sourceKind, result.json);
+      if (result.json.length === settings.perPage) {
+        if (pageSignatures.has(pageSignature)) return sourceFailure(sourceKind, { status: "failed", reason: "repeated_full_page_detected" });
+        pageSignatures.add(pageSignature);
       }
-      if (result.json.length < settings.perPage) break;
-      if (options.pageParameter === false) break;
+      for (const item of result.json) {
+        if (findings.length >= settings.maxItems) break;
+        const normalized = normalizer(item, { repository: settings.repository, now: this.now() });
+        if (normalized.ok) {
+          const key = exactFindingKey(normalized.finding);
+          if (!seen.has(key)) {
+            seen.add(key);
+            findings.push(normalized.finding);
+          }
+        } else if (normalized.reason !== options.skipReason) {
+          failures.push(normalized.reason);
+        }
+      }
+      if (failures.length > 0) return sourceResult(sourceKind, findings, failures, { completeness: "failed", reason: failures[0] });
+      if (findings.length >= settings.maxItems) {
+        return sourceResult(sourceKind, findings, ["item_limit_reached"], { status: "bounded_complete", completeness: "bounded_complete", reason: "item_limit_reached" });
+      }
+      if (result.json.length < settings.perPage) return sourceResult(sourceKind, findings, failures, { completeness: "complete", reason: "partial_page_exhausted" });
+      if (page === settings.maxPages) {
+        return sourceResult(sourceKind, findings, ["page_limit_reached"], { status: "truncated", completeness: "truncated", reason: "page_limit_reached" });
+      }
       page += 1;
     }
-    if (page > settings.maxPages) failures.push("page_limit_exceeded");
-    return sourceResult(sourceKind, findings, failures);
+    return sourceResult(sourceKind, findings, failures, { completeness: "complete", reason: "empty_page_exhausted" });
   }
 
-  fetchDependabotPrs() {
+  fetchCursorPaginated(sourceKind, endpoint, normalizer, options = {}) {
     const settings = securitySettings(this.config);
-    const result = this.api(`/pulls?state=open&per_page=${settings.perPage}`);
-    if (!result.ok) return sourceFailure("dependabot_pr", result);
-    if (!Array.isArray(result.json)) return sourceFailure("dependabot_pr", { status: "malformed", reason: "malformed_response_not_array" });
     const findings = [];
     const failures = [];
-    for (const pr of result.json.slice(0, settings.maxItems)) {
-      const normalized = normalizeDependabotPr(pr, { repository: settings.repository, now: this.now() });
-      if (normalized.ok) findings.push(normalized.finding);
-      else if (normalized.reason !== "dependabot_pr_author_unverified") failures.push(normalized.reason);
+    const seen = new Set();
+    const pageSignatures = new Set();
+    const seenCursors = new Set();
+    let after = null;
+    for (let page = 1; page <= settings.maxPages && findings.length < settings.maxItems; page += 1) {
+      const cursorQuery = after ? `&after=${encodeURIComponent(after)}` : "";
+      const result = this.api(`${endpoint}?state=open&per_page=${settings.perPage}${cursorQuery}`, { includeHeaders: true });
+      if (!result.ok) return sourceFailure(sourceKind, result);
+      if (!Array.isArray(result.json)) return sourceFailure(sourceKind, { status: "malformed", reason: "malformed_response_not_array" });
+      if (result.json.length > settings.perPage) return sourceFailure(sourceKind, { status: "malformed", reason: "provider_page_size_exceeded" });
+      if (result.json.length === 0) return sourceResult(sourceKind, findings, failures, { completeness: "complete", reason: "empty_page_exhausted" });
+      const pageSignature = providerPageSignature(sourceKind, result.json);
+      if (result.json.length === settings.perPage) {
+        if (pageSignatures.has(pageSignature)) return sourceFailure(sourceKind, { status: "failed", reason: "repeated_full_page_detected" });
+        pageSignatures.add(pageSignature);
+      }
+      for (const item of result.json) {
+        if (findings.length >= settings.maxItems) break;
+        const normalized = normalizer(item, { repository: settings.repository, now: this.now() });
+        if (normalized.ok) {
+          const key = exactFindingKey(normalized.finding);
+          if (!seen.has(key)) {
+            seen.add(key);
+            findings.push(normalized.finding);
+          }
+        } else if (normalized.reason !== options.skipReason) {
+          failures.push(normalized.reason);
+        }
+      }
+      if (failures.length > 0) return sourceResult(sourceKind, findings, failures, { completeness: "failed", reason: failures[0] });
+      if (findings.length >= settings.maxItems) {
+        return sourceResult(sourceKind, findings, ["item_limit_reached"], { status: "bounded_complete", completeness: "bounded_complete", reason: "item_limit_reached" });
+      }
+      if (result.json.length < settings.perPage) return sourceResult(sourceKind, findings, failures, { completeness: "complete", reason: "partial_page_exhausted" });
+      const nextCursor = nextCursorFromLink(result.headers?.link);
+      if (!nextCursor) return sourceResult(sourceKind, findings, failures, { completeness: "complete", reason: "cursor_exhausted" });
+      if (seenCursors.has(nextCursor)) return sourceFailure(sourceKind, { status: "failed", reason: "non_advancing_cursor_detected" });
+      seenCursors.add(nextCursor);
+      if (page === settings.maxPages) {
+        return sourceResult(sourceKind, findings, ["page_limit_reached"], { status: "truncated", completeness: "truncated", reason: "page_limit_reached" });
+      }
+      after = nextCursor;
     }
-    return sourceResult("dependabot_pr", findings, failures);
+    return sourceResult(sourceKind, findings, failures, { completeness: "complete", reason: "cursor_exhausted" });
   }
 
-  api(endpoint) {
+  api(endpoint, options = {}) {
     const settings = securitySettings(this.config);
     const args = ["api", `repos/${settings.repository}${endpoint}`, "--header", "Accept: application/vnd.github+json"];
+    if (options.includeHeaders) args.splice(1, 0, "--include");
     let last = null;
     for (let attempt = 0; attempt <= settings.maxRetries; attempt += 1) {
       const result = this.runner("gh", args, { timeoutMs: settings.timeoutMs });
-      last = classifyGhApiResult(result);
+      last = classifyGhApiResult(result, options);
       if (last.ok || !retryableStatus.has(last.httpStatus || 0) || attempt === settings.maxRetries) return last;
     }
     return { ...last, status: "provider_failure", reason: "retry_budget_exhausted" };
@@ -163,9 +218,16 @@ function safeArtifactPath(name) {
   return Boolean(name && !name.startsWith("/") && !name.includes("\\") && !name.split("/").includes(".."));
 }
 
-function sourceResult(sourceKind, findings, failures) {
-  if (failures.length > 0) return { sourceKind, status: "partial", findings, failures };
-  return { sourceKind, status: "ok", findings, failures: [] };
+function sourceResult(sourceKind, findings, failures, metadata = {}) {
+  const status = metadata.status || (failures.length > 0 ? "partial" : "ok");
+  return {
+    sourceKind,
+    status,
+    reason: metadata.reason || (failures.length > 0 ? failures[0] : null),
+    completeness: metadata.completeness || (status === "ok" ? "complete" : "failed"),
+    findings,
+    failures: failures.length > 0 ? failures : [],
+  };
 }
 
 function sourceFailure(sourceKind, result) {
@@ -173,13 +235,65 @@ function sourceFailure(sourceKind, result) {
     sourceKind,
     status: result.status || "failed",
     reason: result.reason || "source_failed",
+    completeness: "failed",
     findings: [],
     failures: [result.reason || "source_failed"],
     httpStatus: result.httpStatus || null,
   };
 }
 
-function classifyGhApiResult(result = {}) {
+function exactFindingKey(finding = {}) {
+  return JSON.stringify({
+    sourceKind: finding.sourceKind || null,
+    correlationKey: finding.correlationKey || null,
+    idempotencyKey: finding.idempotencyKey || null,
+    alertId: finding.alertId || null,
+    fingerprint: finding.fingerprint || null,
+    prNumber: finding.prNumber || null,
+    updatedAt: finding.updatedAt || null,
+  });
+}
+
+function providerPageSignature(sourceKind, items = []) {
+  return JSON.stringify(items.map((item) => providerRecordIdentity(sourceKind, item)));
+}
+
+function providerRecordIdentity(sourceKind, item = {}) {
+  if (sourceKind === "dependabot_pr") {
+    return {
+      number: item.number || null,
+      node_id: item.node_id || null,
+      user: item.user?.login || item.author?.login || null,
+      type: item.user?.type || item.author?.type || null,
+      state: item.state || null,
+      headRef: item.head?.ref || item.headRefName || null,
+      headSha: item.head?.sha || item.headRefOid || null,
+      updatedAt: item.updated_at || item.updatedAt || null,
+    };
+  }
+  return {
+    number: item.number || null,
+    id: item.id || null,
+    state: item.state || null,
+    dependency: item.security_vulnerability?.package?.name || item.dependency?.package?.name || null,
+    ecosystem: item.security_vulnerability?.package?.ecosystem || item.dependency?.package?.ecosystem || null,
+    manifestPath: item.dependency?.manifest_path || item.security_vulnerability?.manifest_path || null,
+    updatedAt: item.updated_at || item.updatedAt || null,
+  };
+}
+
+function nextCursorFromLink(linkHeader) {
+  const link = String(linkHeader || "");
+  for (const part of link.split(",")) {
+    if (!/;\s*rel="next"/i.test(part)) continue;
+    const url = part.match(/<([^>]+)>/)?.[1];
+    if (!url) return null;
+    return new URL(url).searchParams.get("after");
+  }
+  return null;
+}
+
+function classifyGhApiResult(result = {}, options = {}) {
   if (result.error) return { ok: false, status: "provider_failure", reason: "provider_execution_failed" };
   const stderr = String(result.stderr || "");
   if (result.status !== 0) {
@@ -190,10 +304,25 @@ function classifyGhApiResult(result = {}) {
     return { ok: false, status: "provider_failure", reason: "provider_api_failed", httpStatus };
   }
   try {
-    return { ok: true, status: "ok", json: JSON.parse(result.stdout || "[]") };
+    const parsed = options.includeHeaders ? parseIncludedGhResponse(result.stdout || "") : { body: result.stdout || "[]", headers: {} };
+    return { ok: true, status: "ok", json: JSON.parse(parsed.body || "[]"), headers: parsed.headers };
   } catch {
     return { ok: false, status: "malformed", reason: "malformed_json_response" };
   }
+}
+
+function parseIncludedGhResponse(stdout) {
+  const separator = stdout.includes("\r\n\r\n") ? "\r\n\r\n" : "\n\n";
+  const index = stdout.indexOf(separator);
+  if (index < 0) return { headers: {}, body: stdout };
+  const headerText = stdout.slice(0, index);
+  const headers = {};
+  for (const line of headerText.split(/\r?\n/).slice(1)) {
+    const colon = line.indexOf(":");
+    if (colon <= 0) continue;
+    headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+  }
+  return { headers, body: stdout.slice(index + separator.length) };
 }
 
 function ghRunner(command, args, options = {}) {

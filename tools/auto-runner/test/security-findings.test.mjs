@@ -127,10 +127,10 @@ test("key semantics change for fingerprint rule analyzer sha and dependency iden
 test("adapters distinguish pagination zero permission unavailable malformed and verified dependabot PRs", async () => {
   const pages = new Map([
     ["repos/tommytang213/Settleora/dependabot/alerts?state=open&per_page=2", [dependabotAlert(), dependabotAlert(2)]],
-    ["repos/tommytang213/Settleora/pulls?state=open&per_page=2", [dependabotPr(), { ...dependabotPr(), number: 3, user: { login: "person", type: "User" } }]],
+    ["repos/tommytang213/Settleora/pulls?state=open&per_page=2&page=1", [dependabotPr(), { ...dependabotPr(3), user: { login: "person", type: "User" } }]],
   ]);
   const adapter = new GitHubSecurityFindingAdapter(tempConfig(), {
-    runner: (_cmd, args) => ({ status: 0, stdout: JSON.stringify(pages.get(args[1]) ?? []), stderr: "" }),
+    runner: (_cmd, args) => ({ status: 0, stdout: JSON.stringify(pages.get(endpointArg(args)) ?? []), stderr: "" }),
   });
   const dependabot = await adapter.fetchSource("dependabot_alert");
   assert.equal(dependabot.status, "ok");
@@ -153,6 +153,192 @@ test("adapters distinguish pagination zero permission unavailable malformed and 
   }
   const malformed = new GitHubSecurityFindingAdapter(tempConfig(), { runner: () => ({ status: 0, stdout: "{bad", stderr: "" }) });
   assert.equal((await malformed.fetchSource("dependabot_alert")).reason, "malformed_json_response");
+});
+
+test("dependabot alerts paginate through cursor pages to partial or empty terminal pages", async () => {
+  const calls = [];
+  const adapter = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 4, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const endpoint = endpointArg(args);
+      calls.push(endpoint);
+      const after = new URLSearchParams(endpoint.split("?")[1]).get("after");
+      if (!after) return { status: 0, stdout: includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1"), stderr: "" };
+      if (after === "cursor-1") return { status: 0, stdout: includedJson([dependabotAlert(3), dependabotAlert(4)], "cursor-2"), stderr: "" };
+      return { status: 0, stdout: includedJson([dependabotAlert(5)]), stderr: "" };
+    },
+  });
+  const result = await adapter.fetchSource("dependabot_alert");
+  assert.equal(result.status, "ok");
+  assert.equal(result.completeness, "complete");
+  assert.equal(result.reason, "partial_page_exhausted");
+  assert.equal(result.findings.length, 5);
+  assert.deepEqual(calls.map((call) => new URLSearchParams(call.split("?")[1]).get("after")), [null, "cursor-1", "cursor-2"]);
+
+  const emptySecond = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 4, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const after = new URLSearchParams(endpointArg(args).split("?")[1]).get("after");
+      return { status: 0, stdout: after ? includedJson([]) : includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1"), stderr: "" };
+    },
+  });
+  const emptyResult = await emptySecond.fetchSource("dependabot_alert");
+  assert.equal(emptyResult.status, "ok");
+  assert.equal(emptyResult.reason, "empty_page_exhausted");
+  assert.equal(emptyResult.findings.length, 2);
+});
+
+test("dependabot alert pagination fails honestly on later-page provider and malformed responses", async () => {
+  for (const [stderr, expectedReason, expectedStatus] of [
+    ["gh: Resource not accessible by integration (HTTP 403)", "permission_denied", "permission_denied"],
+    ["gh: Not Found (HTTP 404)", "endpoint_unavailable_or_inaccessible", "endpoint_unavailable"],
+    ["gh: Bad Gateway (HTTP 502)", "provider_retryable_failure", "provider_failure"],
+  ]) {
+    let calls = 0;
+    const adapter = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2, maxRetries: 1 } }), {
+      runner: () => {
+        calls += 1;
+        if (calls === 1) return { status: 0, stdout: includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1"), stderr: "" };
+        return { status: 1, stdout: "", stderr };
+      },
+    });
+    const result = await adapter.fetchSource("dependabot_alert");
+    assert.equal(result.status, expectedStatus);
+    assert.equal(result.reason, expectedReason);
+    assert.equal(result.completeness, "failed");
+    assert.equal(result.findings.length, 0);
+    if (expectedStatus === "provider_failure") assert.equal(calls, 3);
+  }
+
+  const malformedJson = new GitHubSecurityFindingAdapter(tempConfig(), {
+    runner: (_cmd, args) => {
+      const after = new URLSearchParams(endpointArg(args).split("?")[1]).get("after");
+      return !after
+        ? { status: 0, stdout: includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1"), stderr: "" }
+        : { status: 0, stdout: includedJson({ bad: true }), stderr: "" };
+    },
+  });
+  assert.equal((await malformedJson.fetchSource("dependabot_alert")).reason, "malformed_response_not_array");
+});
+
+test("dependabot alert pagination reports bounds page-size repeats duplicates and normalization failures", async () => {
+  const truncated = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 1, perPage: 2 } }), {
+    runner: () => ({ status: 0, stdout: includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1"), stderr: "" }),
+  });
+  assert.deepEqual(
+    pickSource(await truncated.fetchSource("dependabot_alert")),
+    { status: "truncated", reason: "page_limit_reached", completeness: "truncated", count: 2 },
+  );
+
+  const bounded = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 5, perPage: 2, maxItems: 3 } }), {
+    runner: (_cmd, args) => {
+      const after = new URLSearchParams(endpointArg(args).split("?")[1]).get("after");
+      return { status: 0, stdout: !after ? includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1") : includedJson([dependabotAlert(3), dependabotAlert(4)], "cursor-2"), stderr: "" };
+    },
+  });
+  assert.deepEqual(
+    pickSource(await bounded.fetchSource("dependabot_alert")),
+    { status: "bounded_complete", reason: "item_limit_reached", completeness: "bounded_complete", count: 3 },
+  );
+
+  const oversized = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { perPage: 2 } }), {
+    runner: () => ({ status: 0, stdout: JSON.stringify([dependabotAlert(1), dependabotAlert(2), dependabotAlert(3)]), stderr: "" }),
+  });
+  assert.equal((await oversized.fetchSource("dependabot_alert")).reason, "provider_page_size_exceeded");
+
+  const repeated = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const after = new URLSearchParams(endpointArg(args).split("?")[1]).get("after");
+      return { status: 0, stdout: includedJson([dependabotAlert(1), dependabotAlert(2)], after ? "cursor-2" : "cursor-1"), stderr: "" };
+    },
+  });
+  assert.equal((await repeated.fetchSource("dependabot_alert")).reason, "repeated_full_page_detected");
+
+  const duplicate = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 3 } }), {
+    runner: (_cmd, args) => {
+      const after = new URLSearchParams(endpointArg(args).split("?")[1]).get("after");
+      return { status: 0, stdout: !after ? includedJson([dependabotAlert(1), dependabotAlert(2), dependabotAlert(4)], "cursor-1") : includedJson([dependabotAlert(2), dependabotAlert(3)]), stderr: "" };
+    },
+  });
+  const duplicateResult = await duplicate.fetchSource("dependabot_alert");
+  assert.equal(duplicateResult.status, "ok");
+  assert.deepEqual(duplicateResult.findings.map((finding) => finding.alertId), ["1", "2", "4", "3"]);
+
+  const changedIdentity = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const after = new URLSearchParams(endpointArg(args).split("?")[1]).get("after");
+      return { status: 0, stdout: !after ? includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1") : includedJson([{ ...dependabotAlert(2), updated_at: "2026-07-03T00:00:00Z" }]), stderr: "" };
+    },
+  });
+  const changedResult = await changedIdentity.fetchSource("dependabot_alert");
+  assert.equal(changedResult.status, "ok");
+  assert.equal(changedResult.findings.filter((finding) => finding.alertId === "2").length, 2);
+
+  const badNormalized = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const after = new URLSearchParams(endpointArg(args).split("?")[1]).get("after");
+      return { status: 0, stdout: !after ? includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1") : includedJson([{ ...dependabotAlert(3), dependency: { manifest_path: "../package-lock.json" } }]), stderr: "" };
+    },
+  });
+  const badResult = await badNormalized.fetchSource("dependabot_alert");
+  assert.equal(badResult.status, "partial");
+  assert.match(badResult.failures.join(","), /manifestPath_invalid/);
+});
+
+test("dependabot PR pagination verifies authors on every page and skips non-dependabot PRs", async () => {
+  const calls = [];
+  const adapter = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 4, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      calls.push(args[1]);
+      const page = Number(new URLSearchParams(args[1].split("?")[1]).get("page"));
+      const pages = {
+        1: [dependabotPr(1), { ...dependabotPr(2), title: "Bump yaml", user: { login: "person", type: "User" }, head: { ref: "dependabot/npm/fake", sha: "b".repeat(40) } }],
+        2: [dependabotPr(3), dependabotPr(4)],
+        3: [dependabotPr(5)],
+      };
+      return { status: 0, stdout: JSON.stringify(pages[page] ?? []), stderr: "" };
+    },
+  });
+  const result = await adapter.fetchSource("dependabot_pr");
+  assert.equal(result.status, "ok");
+  assert.deepEqual(result.findings.map((finding) => finding.prNumber), [1, 3, 4, 5]);
+  assert.deepEqual(calls.map((call) => new URLSearchParams(call.split("?")[1]).get("page")), ["1", "2", "3"]);
+});
+
+test("dependabot PR pagination reports later failures duplicates changed identity and malformed candidates", async () => {
+  const pageTwoFailure = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const page = Number(new URLSearchParams(args[1].split("?")[1]).get("page"));
+      return page === 1
+        ? { status: 0, stdout: JSON.stringify([dependabotPr(1), dependabotPr(2)]), stderr: "" }
+        : { status: 1, stdout: "", stderr: "gh: Bad Gateway (HTTP 502)" };
+    },
+  });
+  assert.equal((await pageTwoFailure.fetchSource("dependabot_pr")).reason, "provider_retryable_failure");
+
+  const malformedCandidate = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const page = Number(new URLSearchParams(args[1].split("?")[1]).get("page"));
+      return { status: 0, stdout: JSON.stringify(page === 1 ? [dependabotPr(1), dependabotPr(2)] : [{ ...dependabotPr(3), head: { ref: "../bad", sha: "c".repeat(40) } }]), stderr: "" };
+    },
+  });
+  const malformedResult = await malformedCandidate.fetchSource("dependabot_pr");
+  assert.equal(malformedResult.status, "partial");
+  assert.match(malformedResult.failures.join(","), /ref_invalid/);
+
+  const duplicate = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const page = Number(new URLSearchParams(args[1].split("?")[1]).get("page"));
+      return { status: 0, stdout: JSON.stringify(page === 1 ? [dependabotPr(1), dependabotPr(2)] : [dependabotPr(2)]), stderr: "" };
+    },
+  });
+  assert.deepEqual((await duplicate.fetchSource("dependabot_pr")).findings.map((finding) => finding.prNumber), [1, 2]);
+
+  const changed = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2 } }), {
+    runner: (_cmd, args) => {
+      const page = Number(new URLSearchParams(args[1].split("?")[1]).get("page"));
+      return { status: 0, stdout: JSON.stringify(page === 1 ? [dependabotPr(1), dependabotPr(2)] : [{ ...dependabotPr(2), head: { ref: "dependabot/npm/yaml-2.8.2", sha: "c".repeat(40) } }]), stderr: "" };
+    },
+  });
+  assert.equal((await changed.fetchSource("dependabot_pr")).findings.filter((finding) => finding.prNumber === 2).length, 2);
 });
 
 test("artifact parser bounds JSON SARIF MIME traversal nested archives and size", () => {
@@ -290,6 +476,43 @@ test("dry-run returns nonzero-worthy result for partial provider and ambiguous d
   }
 });
 
+test("dry-run reports source completeness and refuses planning on incomplete pagination", async () => {
+  const config = tempConfig({ securityFindings: { allowSecurityFindingClassification: true, allowFalsePositiveEvidence: true } });
+  try {
+    const finding = normalizeDependabotAlert(dependabotAlert(), { repository, now }).finding;
+    const result = await runSecurityFindingsDryRun(config, {
+      adapter: {
+        async fetchSource(sourceKind) {
+          if (sourceKind !== "dependabot_alert") return { sourceKind, status: "ok", completeness: "complete", findings: [], failures: [] };
+          return {
+            sourceKind,
+            status: "truncated",
+            reason: "page_limit_reached",
+            completeness: "truncated",
+            findings: [finding],
+            failures: ["page_limit_reached"],
+          };
+        },
+      },
+      reports: [],
+      classificationInputs: {
+        [finding.correlationKey]: { hasProposedFix: false, hasDeterministicFalsePositiveProof: true },
+      },
+      falsePositiveEvidence: {
+        [finding.correlationKey]: { deterministicProofs: ["synthetic proof"], analysisKind: "dependency_not_present_or_reachable" },
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "source_failures");
+    assert.equal(result.sources.dependabot_alert.status, "truncated");
+    assert.equal(result.sources.dependabot_alert.completeness, "truncated");
+    assert.equal(result.dispositionReadyCount, 0);
+    assert.equal(result.completionReadyCount, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("CLI accepts security findings dry-run as explicit JSON special mode", () => {
   assert.equal(parseCliArgs(["--security-findings-dry-run", "--config", "/tmp/config.json", "--json"]).securityFindingsDryRun, true);
   assert.throws(() => parseCliArgs(["--security-findings-dry-run"]), /requires an explicit --config/);
@@ -319,13 +542,34 @@ function dependabotAlert(number = 1) {
   };
 }
 
-function dependabotPr() {
+function pickSource(result) {
   return {
-    number: 2,
+    status: result.status,
+    reason: result.reason,
+    completeness: result.completeness,
+    count: result.findings.length,
+  };
+}
+
+function endpointArg(args) {
+  return args.find((arg) => String(arg).startsWith("repos/"));
+}
+
+function includedJson(json, nextCursor = null) {
+  const link = nextCursor
+    ? `Link: <https://api.github.com/repos/${repository}/dependabot/alerts?state=open&per_page=2&after=${nextCursor}>; rel="next"\n`
+    : "";
+  return `HTTP/2.0 200 OK\n${link}Content-Type: application/json; charset=utf-8\n\n${JSON.stringify(json)}`;
+}
+
+function dependabotPr(number = 2) {
+  return {
+    number,
+    node_id: `PR_kwDO-test-${number}`,
     state: "open",
-    html_url: `https://github.com/${repository}/pull/2`,
+    html_url: `https://github.com/${repository}/pull/${number}`,
     user: { login: "dependabot[bot]", type: "Bot" },
-    head: { ref: "dependabot/npm/yaml-2.8.1", sha: "a".repeat(40) },
+    head: { ref: `dependabot/npm/yaml-2.8.${number}`, sha: String(number).repeat(40).slice(0, 40) },
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-02T00:00:00Z",
   };
