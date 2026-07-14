@@ -2,6 +2,24 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { getValidationProfile } from "./lane-policy.mjs";
 
+export const mobileBuildPlatformChecks = Object.freeze({
+  androidFlutterBuildApkDebug: "mobile-build:android:flutter-build-apk-debug",
+  androidGradleDebugRuntimeClasspath: "mobile-build:android:gradle-debug-runtime-classpath",
+  androidGradleAssembleDebug: "mobile-build:android:gradle-assemble-debug",
+  webFlutterBuildWeb: "mobile-build:web:flutter-build-web",
+  linuxExternalBuild: "mobile-build:linux:external-ci",
+  iosExternalBuild: "mobile-build:ios:external-ci",
+  macosExternalBuild: "mobile-build:macos:external-ci",
+  windowsExternalBuild: "mobile-build:windows:external-ci",
+});
+
+const mobileBuildLocalCommandMap = Object.freeze({
+  [mobileBuildPlatformChecks.androidFlutterBuildApkDebug]: ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter build apk --debug"]],
+  [mobileBuildPlatformChecks.androidGradleDebugRuntimeClasspath]: ["bash", ["-lc", "cd apps/mobile/android && ./gradlew :app:dependencies --configuration debugRuntimeClasspath"]],
+  [mobileBuildPlatformChecks.androidGradleAssembleDebug]: ["bash", ["-lc", "cd apps/mobile/android && ./gradlew :app:assembleDebug"]],
+  [mobileBuildPlatformChecks.webFlutterBuildWeb]: ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter build web"]],
+});
+
 export function planValidation(changedFiles, laneDecision) {
   const profileName = laneDecision.validationProfile || fallbackProfileForChangedFiles(changedFiles, laneDecision);
   const commands = getValidationProfile(profileName);
@@ -9,7 +27,14 @@ export function planValidation(changedFiles, laneDecision) {
     throw new Error(`Unsupported validation profile: ${profileName}`);
   }
   const plan = commands.map(([command, args]) => ({ command, args, display: `${command} ${args.join(" ")}` }));
+  const platformRequirements = inferMobileBuildPlatformRequirements(changedFiles, laneDecision);
+  for (const checkId of platformRequirements.localCheckIds) {
+    const command = mobileBuildLocalCommandMap[checkId];
+    if (!command) continue;
+    plan.push({ command: command[0], args: command[1], display: `${command[0]} ${command[1].join(" ")}`, platformBuildCheckId: checkId });
+  }
   plan.profile = profileName;
+  plan.mobileBuildPlatformRequirements = platformRequirements;
   return plan;
 }
 
@@ -27,6 +52,7 @@ export function runValidationPlan(config, plan) {
       stdout: bounded(result.stdout || ""),
       stderr: bounded(result.stderr || ""),
       error: result.error ? result.error.message : null,
+      platformBuildCheckId: item.platformBuildCheckId || null,
     });
     if (result.error || result.status !== 0) {
       break;
@@ -42,6 +68,15 @@ export function runValidationPlan(config, plan) {
 
 export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile }) {
   const files = [...(changedFiles || [])].map(String).sort();
+  const requirements = inferMobileBuildPlatformRequirements(files);
+  const localChecks = (validation?.results || [])
+    .filter((result) => result.platformBuildCheckId)
+    .map((result) => ({
+      checkId: result.platformBuildCheckId,
+      command: result.command,
+      status: result.status,
+      passed: !result.error && result.status === 0,
+    }));
   return {
     ...(validation || {}),
     profile: profile || validation?.profile || null,
@@ -49,8 +84,86 @@ export function bindValidationEvidence(validation, { headSha, baseSha, changedFi
     baseSha: baseSha || null,
     changedFiles: files,
     changedFilesDigest: createHash("sha256").update(files.join("\n")).digest("hex"),
+    mobileBuildPlatformEvidence: {
+      headSha: headSha || null,
+      baseSha: baseSha || null,
+      changedFilesDigest: createHash("sha256").update(files.join("\n")).digest("hex"),
+      platforms: requirements.platforms,
+      localCheckIds: requirements.localCheckIds,
+      externalCheckIds: requirements.externalCheckIds,
+      localChecks,
+    },
     completedAt: validation?.completedAt || new Date().toISOString(),
   };
+}
+
+export function inferMobileBuildPlatformRequirements(changedFiles = [], laneDecision = {}) {
+  const lane = laneDecision.canonicalLane || laneDecision.lane;
+  if (lane && lane !== "mobile-build-config") {
+    return emptyMobileBuildPlatformRequirements();
+  }
+  const files = [...(changedFiles || [])].map((file) => String(file || "")).filter(Boolean).sort();
+  const platformSet = new Set();
+  const localChecks = new Set();
+  const externalChecks = new Set();
+  const addAndroid = () => {
+    platformSet.add("android");
+    localChecks.add(mobileBuildPlatformChecks.androidFlutterBuildApkDebug);
+    localChecks.add(mobileBuildPlatformChecks.androidGradleDebugRuntimeClasspath);
+    localChecks.add(mobileBuildPlatformChecks.androidGradleAssembleDebug);
+  };
+  const addWeb = () => {
+    platformSet.add("web");
+    localChecks.add(mobileBuildPlatformChecks.webFlutterBuildWeb);
+  };
+  const addLinuxExternal = () => {
+    platformSet.add("linux");
+    externalChecks.add(mobileBuildPlatformChecks.linuxExternalBuild);
+  };
+  const addIosExternal = () => {
+    platformSet.add("ios");
+    externalChecks.add(mobileBuildPlatformChecks.iosExternalBuild);
+  };
+  const addMacosExternal = () => {
+    platformSet.add("macos");
+    externalChecks.add(mobileBuildPlatformChecks.macosExternalBuild);
+  };
+  const addWindowsExternal = () => {
+    platformSet.add("windows");
+    externalChecks.add(mobileBuildPlatformChecks.windowsExternalBuild);
+  };
+  const addCrossPlatformDependencyProof = () => {
+    addAndroid();
+    addWeb();
+    addLinuxExternal();
+    addIosExternal();
+    addMacosExternal();
+    addWindowsExternal();
+  };
+
+  for (const file of files) {
+    if (/^apps\/mobile\/(?:pubspec\.yaml|pubspec\.lock|assets\/|l10n\/)/.test(file)) addCrossPlatformDependencyProof();
+    else if (/^apps\/mobile\/android\//.test(file)) addAndroid();
+    else if (/^apps\/mobile\/web\//.test(file)) addWeb();
+    else if (/^apps\/mobile\/linux\//.test(file)) addLinuxExternal();
+    else if (/^apps\/mobile\/ios\//.test(file)) addIosExternal();
+    else if (/^apps\/mobile\/macos\//.test(file)) addMacosExternal();
+    else if (/^apps\/mobile\/windows\//.test(file)) addWindowsExternal();
+  }
+
+  return Object.freeze({
+    platforms: Object.freeze([...platformSet].sort()),
+    localCheckIds: Object.freeze([...localChecks]),
+    externalCheckIds: Object.freeze([...externalChecks].sort()),
+  });
+}
+
+function emptyMobileBuildPlatformRequirements() {
+  return Object.freeze({
+    platforms: Object.freeze([]),
+    localCheckIds: Object.freeze([]),
+    externalCheckIds: Object.freeze([]),
+  });
 }
 
 function bounded(value, max = 6000) {

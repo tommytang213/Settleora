@@ -5,6 +5,7 @@ import path from "node:path";
 import { safeTimestamp } from "./logger.mjs";
 import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
+import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 
@@ -109,6 +110,8 @@ export function evaluateAutoMergeDecision(input) {
   }
   const validation = evaluateValidationEvidence(input, { expectedHeadSha, expectedBaseSha: input.expectedOriginMainSha, changedFiles, laneDecision });
   if (!validation.ok) return block(validation.reason);
+  const platformBuildEvidence = evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedBaseSha: input.expectedOriginMainSha, changedFiles, laneDecision });
+  if (!platformBuildEvidence.ok) return block(platformBuildEvidence.reason);
   const independentReview = evaluateIndependentReviewEvidence(input);
   if (!independentReview.ok) return block(independentReview.reason);
   const codexReview = evaluateCodexReviewEvidence(input, { expectedHeadSha, expectedBaseSha: input.expectedOriginMainSha, changedFiles });
@@ -550,6 +553,50 @@ function evaluateValidationEvidence(input, { expectedHeadSha, expectedBaseSha, c
   if (!sameStringSet(validation.changedFiles, changedFiles)) return { ok: false, reason: "validation_files_mismatch" };
   if (validation.changedFilesDigest !== digestStrings(changedFiles)) return { ok: false, reason: "validation_file_digest_mismatch" };
   if (validation.profile !== laneDecision.validationProfile) return { ok: false, reason: "validation_profile_mismatch" };
+  return { ok: true };
+}
+
+function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedBaseSha, changedFiles, laneDecision }) {
+  const canonicalLane = laneDecision.canonicalLane || laneDecision.lane;
+  if (canonicalLane !== "mobile-build-config") return { ok: true };
+  const requirements = inferMobileBuildPlatformRequirements(changedFiles, laneDecision);
+  if (requirements.localCheckIds.length === 0 && requirements.externalCheckIds.length === 0) return { ok: true };
+  const validationEvidence = input.validation?.mobileBuildPlatformEvidence || {};
+  if (validationEvidence.headSha !== expectedHeadSha) return { ok: false, reason: "mobile_platform_validation_head_mismatch" };
+  if (expectedBaseSha && validationEvidence.baseSha !== expectedBaseSha) return { ok: false, reason: "mobile_platform_validation_base_mismatch" };
+  if (validationEvidence.changedFilesDigest !== digestStrings(changedFiles)) {
+    return { ok: false, reason: "mobile_platform_validation_file_digest_mismatch" };
+  }
+  if (!sameStringSet(validationEvidence.platforms || [], requirements.platforms)) {
+    return { ok: false, reason: "mobile_platform_set_mismatch" };
+  }
+  if (!sameStringSet(validationEvidence.localCheckIds || [], requirements.localCheckIds)) {
+    return { ok: false, reason: "mobile_platform_local_check_set_mismatch" };
+  }
+  if (!sameStringSet(validationEvidence.externalCheckIds || [], requirements.externalCheckIds)) {
+    return { ok: false, reason: "mobile_platform_external_check_set_mismatch" };
+  }
+  const localChecks = Array.isArray(validationEvidence.localChecks) ? validationEvidence.localChecks : [];
+  for (const checkId of requirements.localCheckIds) {
+    const check = localChecks.find((item) => item.checkId === checkId);
+    if (!check) return { ok: false, reason: `mobile_platform_local_check_missing:${checkId}` };
+    if (check.passed !== true || check.status !== 0) return { ok: false, reason: `mobile_platform_local_check_failed:${checkId}` };
+  }
+  const externalEvidence = Array.isArray(input.externalPlatformBuildEvidence) ? input.externalPlatformBuildEvidence : [];
+  for (const checkId of requirements.externalCheckIds) {
+    const check = externalEvidence.find((item) => item.checkId === checkId);
+    if (!check) return { ok: false, reason: `mobile_platform_external_check_missing:${checkId}` };
+    if (check.status !== "COMPLETED" || check.conclusion !== "SUCCESS") {
+      return { ok: false, reason: `mobile_platform_external_check_not_successful:${checkId}` };
+    }
+    if (check.headSha !== expectedHeadSha) return { ok: false, reason: `mobile_platform_external_check_head_mismatch:${checkId}` };
+    if (expectedBaseSha && check.baseSha !== expectedBaseSha) {
+      return { ok: false, reason: `mobile_platform_external_check_base_mismatch:${checkId}` };
+    }
+    if (check.changedFilesDigest !== digestStrings(changedFiles)) {
+      return { ok: false, reason: `mobile_platform_external_check_file_digest_mismatch:${checkId}` };
+    }
+  }
   return { ok: true };
 }
 

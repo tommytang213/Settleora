@@ -87,7 +87,7 @@ import {
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
-import { planValidation } from "../lib/validation-planner.mjs";
+import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import {
@@ -1030,6 +1030,37 @@ test("readiness preflight succeeds with safe defaults and reports manual gates",
     assert.ok(result.readinessReports.markdownPath.endsWith(".md"));
     assert.match(readFileSync(result.readinessReports.markdownPath, "utf8"), /Remaining Manual Gates/);
     assert.match(readFileSync(result.readinessReports.markdownPath, "utf8"), /trusted overnight operation/);
+    assert.doesNotMatch(readFileSync(result.readinessReports.markdownPath, "utf8"), /#888|#889/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight uses durable foundation completion and ignores later tracker closure", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-foundation-"));
+  try {
+    const runner = createReadinessRunner({ issueStates: { 800: "CLOSED", 805: "CLOSED", 910: "CLOSED" } });
+    const result = runPreflight(readinessConfig(tempRoot), { runner });
+    assert.equal(result.summary.fail, 0);
+    assert.equal(result.checks.find((check) => check.name === "issue-800-state").status, "pass");
+    assert.equal(result.checks.find((check) => check.name === "issue-910-state"), undefined);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight fails on foundation regression and GitHub issue polling failures", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-foundation-regression-"));
+  try {
+    const foundationRegression = runPreflight(readinessConfig(tempRoot), {
+      runner: createReadinessRunner({ issueStates: { 800: "OPEN", 805: "CLOSED" } }),
+    });
+    assert.equal(foundationRegression.checks.find((check) => check.name === "issue-800-state").status, "fail");
+
+    const githubFailure = runPreflight(readinessConfig(tempRoot), {
+      runner: createReadinessRunner({ failIssueList: true }),
+    });
+    assert.equal(githubFailure.checks.find((check) => check.name === "github-issue-polling").status, "fail");
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -3135,6 +3166,16 @@ test("mobile-build-config validation profile is exact and lane-scoped", () => {
     "bash -lc cd apps/mobile && /opt/flutter/bin/flutter pub get",
     "bash -lc cd apps/mobile && /opt/flutter/bin/flutter analyze",
     "bash -lc cd apps/mobile && /opt/flutter/bin/flutter test",
+    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter build apk --debug",
+    "bash -lc cd apps/mobile/android && ./gradlew :app:dependencies --configuration debugRuntimeClasspath",
+    "bash -lc cd apps/mobile/android && ./gradlew :app:assembleDebug",
+    "bash -lc cd apps/mobile && /opt/flutter/bin/flutter build web",
+  ]);
+  assert.deepEqual(inferMobileBuildPlatformRequirements(["apps/mobile/pubspec.yaml"], lane).externalCheckIds, [
+    mobileBuildPlatformChecks.iosExternalBuild,
+    mobileBuildPlatformChecks.linuxExternalBuild,
+    mobileBuildPlatformChecks.macosExternalBuild,
+    mobileBuildPlatformChecks.windowsExternalBuild,
   ]);
   assert.throws(() => planValidation(["apps/mobile/pubspec.yaml"], { ...lane, validationProfile: "unknown-mobile-profile" }), /Unsupported validation profile/);
 
@@ -4075,6 +4116,242 @@ test("mobile-build-config auto-merge requires strong review exact gates and bloc
     assert.match(decision.reason, /^forbidden_changed_files:/, filePath);
     assert.equal(decision.eligible, false, filePath);
   }
+});
+
+test("mobile-build-config appends platform proof from actual changed files and broad globs cannot bypass it", () => {
+  const lane = classifyIssueLane({
+    title: "Mobile build config broad Android contract",
+    body: contractBody({
+      lane: "mobile-build-config",
+      allowedPaths: ["apps/mobile/android/**", "apps/mobile/ios/**"],
+      validationProfile: "mobile-build-config",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-ready"],
+  });
+  const androidPlan = planValidation(["apps/mobile/android/app/src/main/AndroidManifest.xml"], lane);
+  assert.deepEqual(androidPlan.mobileBuildPlatformRequirements.localCheckIds, [
+    mobileBuildPlatformChecks.androidFlutterBuildApkDebug,
+    mobileBuildPlatformChecks.androidGradleDebugRuntimeClasspath,
+    mobileBuildPlatformChecks.androidGradleAssembleDebug,
+  ]);
+  assert.deepEqual(androidPlan.mobileBuildPlatformRequirements.externalCheckIds, []);
+  assert.ok(androidPlan.some((item) => item.platformBuildCheckId === mobileBuildPlatformChecks.androidGradleAssembleDebug));
+
+  const iosPlan = planValidation(["apps/mobile/ios/Runner/Info.plist"], lane);
+  assert.deepEqual(iosPlan.mobileBuildPlatformRequirements.localCheckIds, []);
+  assert.deepEqual(iosPlan.mobileBuildPlatformRequirements.externalCheckIds, [mobileBuildPlatformChecks.iosExternalBuild]);
+});
+
+test("mobile-build-config web and linux paths use supported local proof or fail-closed external proof", () => {
+  const lane = autoMergeLane({
+    lane: "mobile-build-config",
+    canonicalLane: "mobile-build-config",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+    allowedPaths: ["apps/mobile/web/manifest.json"],
+    laneManifestAllowedPaths: ["apps/mobile/web/**"],
+    validationProfile: "mobile-build-config",
+    implementationSensitivity: "high",
+    laneManifest: { id: "mobile-build-config", decisionType: "runnable", autoMergeAllowed: true },
+    contract: {
+      allowedPaths: ["apps/mobile/web/manifest.json"],
+      validationProfile: "mobile-build-config",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  assert.deepEqual(inferMobileBuildPlatformRequirements(["apps/mobile/web/manifest.json"], lane).localCheckIds, [
+    mobileBuildPlatformChecks.webFlutterBuildWeb,
+  ]);
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision: lane,
+      changedFiles: ["apps/mobile/web/manifest.json"],
+      branchName: "focused/auto-911-test",
+      pr: { headRefName: "focused/auto-911-test" },
+    })).reason,
+    "all_auto_merge_gates_passed",
+  );
+
+  const linuxLane = { ...lane, allowedPaths: ["apps/mobile/linux/CMakeLists.txt"], laneManifestAllowedPaths: ["apps/mobile/linux/**"], contract: { ...lane.contract, allowedPaths: ["apps/mobile/linux/CMakeLists.txt"] } };
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision: linuxLane,
+      changedFiles: ["apps/mobile/linux/CMakeLists.txt"],
+      branchName: "focused/auto-911-test",
+      pr: { headRefName: "focused/auto-911-test" },
+      externalPlatformBuildEvidence: [],
+    })).reason,
+    `mobile_platform_external_check_missing:${mobileBuildPlatformChecks.linuxExternalBuild}`,
+  );
+});
+
+test("mobile-build-config platform auto-merge blocks failed local Android proof", () => {
+  const laneDecision = autoMergeLane({
+    lane: "mobile-build-config",
+    canonicalLane: "mobile-build-config",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+    allowedPaths: ["apps/mobile/android/app/build.gradle.kts"],
+    laneManifestAllowedPaths: ["apps/mobile/android/**"],
+    validationProfile: "mobile-build-config",
+    implementationSensitivity: "high",
+    laneManifest: { id: "mobile-build-config", decisionType: "runnable", autoMergeAllowed: true },
+    contract: {
+      allowedPaths: ["apps/mobile/android/app/build.gradle.kts"],
+      validationProfile: "mobile-build-config",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const changedFiles = ["apps/mobile/android/app/build.gradle.kts"];
+  const fileDigest = sha256Strings(changedFiles);
+  const requirements = inferMobileBuildPlatformRequirements(changedFiles, laneDecision);
+  const validation = {
+    passed: true,
+    profile: "mobile-build-config",
+    headSha: "head123",
+    baseSha: "base123",
+    changedFiles,
+    changedFilesDigest: fileDigest,
+    completedAt: "2026-07-12T00:00:00.000Z",
+    results: [{ command: "fixture", status: 0 }],
+    mobileBuildPlatformEvidence: {
+      headSha: "head123",
+      baseSha: "base123",
+      changedFilesDigest: fileDigest,
+      platforms: requirements.platforms,
+      localCheckIds: requirements.localCheckIds,
+      externalCheckIds: requirements.externalCheckIds,
+      localChecks: requirements.localCheckIds.map((checkId) => ({
+        checkId,
+        command: `fixture ${checkId}`,
+        status: checkId === mobileBuildPlatformChecks.androidGradleAssembleDebug ? 1 : 0,
+        passed: checkId !== mobileBuildPlatformChecks.androidGradleAssembleDebug,
+      })),
+    },
+  };
+  assert.equal(
+    evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles,
+      branchName: "focused/auto-911-test",
+      pr: { headRefName: "focused/auto-911-test" },
+      validation,
+    })).reason,
+    `mobile_platform_local_check_failed:${mobileBuildPlatformChecks.androidGradleAssembleDebug}`,
+  );
+});
+
+test("mobile-build-config iOS macOS Windows and dependency changes require exact successful platform evidence", () => {
+  const baseLane = autoMergeLane({
+    lane: "mobile-build-config",
+    canonicalLane: "mobile-build-config",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+    allowedPaths: ["apps/mobile/ios/Runner/Info.plist"],
+    laneManifestAllowedPaths: ["apps/mobile/ios/**", "apps/mobile/macos/**", "apps/mobile/windows/**", "apps/mobile/pubspec.yaml", "apps/mobile/pubspec.lock"],
+    validationProfile: "mobile-build-config",
+    implementationSensitivity: "high",
+    laneManifest: { id: "mobile-build-config", decisionType: "runnable", autoMergeAllowed: true },
+    contract: {
+      allowedPaths: ["apps/mobile/ios/Runner/Info.plist"],
+      validationProfile: "mobile-build-config",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const cases = [
+    ["apps/mobile/ios/Runner/Info.plist", mobileBuildPlatformChecks.iosExternalBuild],
+    ["apps/mobile/macos/Runner/Info.plist", mobileBuildPlatformChecks.macosExternalBuild],
+    ["apps/mobile/windows/CMakeLists.txt", mobileBuildPlatformChecks.windowsExternalBuild],
+    ["apps/mobile/pubspec.lock", mobileBuildPlatformChecks.iosExternalBuild],
+  ];
+  for (const [filePath, checkId] of cases) {
+    const laneDecision = {
+      ...baseLane,
+      allowedPaths: [filePath],
+      contract: { ...baseLane.contract, allowedPaths: [filePath] },
+    };
+    const missing = evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles: [filePath],
+      branchName: "focused/auto-911-test",
+      pr: { headRefName: "focused/auto-911-test" },
+      externalPlatformBuildEvidence: [],
+    }));
+    assert.equal(missing.reason, `mobile_platform_external_check_missing:${checkId}`, filePath);
+
+    const skipped = evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles: [filePath],
+      branchName: "focused/auto-911-test",
+      pr: { headRefName: "focused/auto-911-test" },
+      externalPlatformBuildEvidence: [{
+        checkId,
+        status: "COMPLETED",
+        conclusion: "SKIPPED",
+        headSha: "head123",
+        baseSha: "base123",
+        changedFilesDigest: sha256Strings([filePath]),
+      }],
+    }));
+    assert.equal(skipped.reason, `mobile_platform_external_check_not_successful:${checkId}`, filePath);
+
+    const stale = evaluateAutoMergeDecision(autoMergeContext({
+      laneDecision,
+      changedFiles: [filePath],
+      branchName: "focused/auto-911-test",
+      pr: { headRefName: "focused/auto-911-test" },
+      externalPlatformBuildEvidence: [{
+        checkId,
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        headSha: "old-head",
+        baseSha: "base123",
+        changedFilesDigest: sha256Strings([filePath]),
+      }],
+    }));
+    assert.equal(stale.reason, `mobile_platform_external_check_head_mismatch:${checkId}`, filePath);
+  }
+});
+
+test("mobile-build-config similarly named platform checks do not satisfy canonical evidence", () => {
+  const laneDecision = autoMergeLane({
+    lane: "mobile-build-config",
+    canonicalLane: "mobile-build-config",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+    allowedPaths: ["apps/mobile/ios/Runner/Info.plist"],
+    laneManifestAllowedPaths: ["apps/mobile/ios/**"],
+    validationProfile: "mobile-build-config",
+    implementationSensitivity: "high",
+    laneManifest: { id: "mobile-build-config", decisionType: "runnable", autoMergeAllowed: true },
+    contract: {
+      allowedPaths: ["apps/mobile/ios/Runner/Info.plist"],
+      validationProfile: "mobile-build-config",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const changedFiles = ["apps/mobile/ios/Runner/Info.plist"];
+  const decision = evaluateAutoMergeDecision(autoMergeContext({
+    laneDecision,
+    changedFiles,
+    branchName: "focused/auto-911-test",
+    pr: { headRefName: "focused/auto-911-test" },
+    externalPlatformBuildEvidence: [{
+      checkId: `${mobileBuildPlatformChecks.iosExternalBuild}:extra`,
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      headSha: "head123",
+      baseSha: "base123",
+      changedFilesDigest: sha256Strings(changedFiles),
+    }],
+  }));
+  assert.equal(decision.reason, `mobile_platform_external_check_missing:${mobileBuildPlatformChecks.iosExternalBuild}`);
 });
 
 test("api-domain auto-merge cannot carry manual-gated API domains through broad service paths", () => {
@@ -5882,6 +6159,21 @@ function autoMergeContext(overrides = {}) {
   const laneDecision = overrides.laneDecision || autoMergeLane();
   const changedFiles = overrides.changedFiles || ["tools/auto-runner/lib/auto-merge-policy.mjs"];
   const fileDigest = sha256Strings(changedFiles);
+  const platformRequirements = inferMobileBuildPlatformRequirements(changedFiles, laneDecision);
+  const platformEvidence = {
+    headSha: "head123",
+    baseSha: "base123",
+    changedFilesDigest: fileDigest,
+    platforms: platformRequirements.platforms,
+    localCheckIds: platformRequirements.localCheckIds,
+    externalCheckIds: platformRequirements.externalCheckIds,
+    localChecks: platformRequirements.localCheckIds.map((checkId) => ({
+      checkId,
+      command: `fixture ${checkId}`,
+      status: 0,
+      passed: true,
+    })),
+  };
   const defaultRequiredChecks = [
     { name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" },
     { name: "CodeQL", status: "COMPLETED", conclusion: "SUCCESS" },
@@ -5960,9 +6252,20 @@ function autoMergeContext(overrides = {}) {
       baseSha: "base123",
       changedFiles,
       changedFilesDigest: fileDigest,
+      mobileBuildPlatformEvidence: platformEvidence,
       completedAt: "2026-07-12T00:00:00.000Z",
       results: [{ command: "npm run validate:scaffold", status: 0 }],
     },
+    externalPlatformBuildEvidence: Object.hasOwn(overrides, "externalPlatformBuildEvidence")
+      ? overrides.externalPlatformBuildEvidence
+      : platformRequirements.externalCheckIds.map((checkId) => ({
+          checkId,
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+          headSha: "head123",
+          baseSha: "base123",
+          changedFilesDigest: fileDigest,
+        })),
     worktreeClean: overrides.worktreeClean ?? true,
     pr,
     actualHeadSha: overrides.actualHeadSha || pr.headRefOid,
@@ -6478,6 +6781,7 @@ function createReadinessRunner(overrides = {}) {
   const activeClaims = overrides.activeClaims || [];
   const autoPrOpenedIssues = overrides.autoPrOpenedIssues || [];
   const openPrs = overrides.openPrs || [];
+  const issueStates = overrides.issueStates || {};
   const runner = (command, args) => {
     commands.push(`${command} ${args.join(" ")}`);
     if (command === "git" && args[0] === "ls-remote") return ok("2d1cbe475bf15ed2dc481d1e29b8cfc0a8c54dd3\trefs/heads/main\n");
@@ -6487,16 +6791,18 @@ function createReadinessRunner(overrides = {}) {
     if (command === "gh" && args[0] === "repo") return ok("tommytang213/Settleora\n");
     if (command === "gh" && args[0] === "issue" && args[1] === "view") {
       const number = Number(args[2]);
+      const state = issueStates[number] || (number === 800 || number === 805 ? "CLOSED" : "OPEN");
       return ok(
         JSON.stringify({
           number,
-          state: number === 805 ? "CLOSED" : "OPEN",
+          state,
           title: number === 805 ? "Auto-runner canary" : "Auto-runner foundation",
           url: `https://example.invalid/issues/${number}`,
         }),
       );
     }
     if (command === "gh" && args[0] === "issue" && args[1] === "list") {
+      if (overrides.failIssueList) return fail("GitHub API unavailable");
       const search = args[args.indexOf("--search") + 1] || "";
       if (search.includes("label:auto-claimed") || search.includes("label:auto-running")) return ok(JSON.stringify(activeClaims));
       if (search.includes("label:auto-pr-opened")) return ok(JSON.stringify(autoPrOpenedIssues));

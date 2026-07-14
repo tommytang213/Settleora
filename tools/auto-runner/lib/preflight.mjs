@@ -18,14 +18,10 @@ const riskyGateKeys = Object.freeze([
   "allowReviewFixMutation",
   "allowSystemdEnablement",
 ]);
-const manualGates = Object.freeze([
+const alwaysManualGates = Object.freeze([
   "trusted overnight operation",
   "systemd service/timer installation or enablement",
-  "sensitive-lane auto-merge until #889",
-  "external reviewer provider execution until #888",
-  "stale-claim stealing",
-  "follow-up issue creation",
-  "review-fix mutation",
+  "external production profile activation and live acceptance tracked by #912",
   "genuine manual actions: production deploy, mobile store release, destructive data operation, secret mutation, public/admin exposure, force/history/branch cleanup, Day 1 scope cuts, unresolved product or authority decisions",
 ]);
 
@@ -38,7 +34,7 @@ export function runPreflight(config, options = {}) {
   checks.push(checkGhAvailable(runner));
   checks.push(checkGhAuthStatus(config, runner));
   checks.push(checkGhRepoView(config, runner));
-  checks.push(checkIssueState(config, runner, 910, "OPEN"));
+  checks.push(checkIssueState(config, runner, 800, "CLOSED"));
   checks.push(checkIssueState(config, runner, 805, "CLOSED"));
   checks.push(checkIssuePolling(config, runner));
   checks.push(checkCodexResolution(config));
@@ -104,12 +100,25 @@ export function runPreflight(config, options = {}) {
     configPathUsed: config.configPath || "default built-in config",
     logsRoot: config.logsRoot,
     readinessReports: null,
-    remainingManualGates: [...manualGates],
+    remainingManualGates: buildRemainingManualGates(config),
     summary: summarize(checks),
     checks,
   };
   result.readinessReports = writeReadinessReports(config, result);
   return result;
+}
+
+function buildRemainingManualGates(config) {
+  const gates = [...alwaysManualGates];
+  if (!config.allowStaleClaimSteal) gates.push("stale-claim stealing is disabled by current config");
+  if (!config.allowFollowupIssueCreation) gates.push("follow-up issue creation is disabled by current config");
+  if (!config.allowReviewFixMutation || config.maxReviewFixCycles === 0) {
+    gates.push("review-fix mutation is disabled by current config");
+  }
+  if (!config.allowAutoMerge || !Array.isArray(config.autoMergePolicy?.approvedLanes) || config.autoMergePolicy.approvedLanes.length === 0) {
+    gates.push("approved-domain auto-merge remains disabled until an external profile explicitly approves lanes and checks");
+  }
+  return gates;
 }
 
 function checkRepoRoot(config) {

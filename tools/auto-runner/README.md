@@ -91,7 +91,9 @@ file digest, package digest, route/tier, provider profile/model, bounded
 pricing, attempts, budget/accounting, sanitized evidence path, and a bounded
 verdict schema. Provider keys must come only from the approved owner-only
 secret file boundary or process environment and are sent in headers, never URL
-query strings. This does not enable #889 sensitive-domain auto-merge.
+query strings. This package mode only creates review evidence; approved-lane
+auto-merge still requires explicit external profile configuration and all
+exact-head gates.
 
 Local status and control:
 
@@ -781,15 +783,31 @@ Gradle files, Xcode project metadata, non-secret entitlements, `Podfile`, and
 checked-in platform source/resources are not manual merely because they are
 native inputs.
 
-The `mobile-build-config` validation profile is fixed in runner source as:
+The base `mobile-build-config` validation profile is fixed in runner source as:
 `git status --short`, `git diff --name-only`, `git diff --check`,
 `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, Flutter `pub get`,
 Flutter `analyze`, and full Flutter `test` from `apps/mobile` using
-`/opt/flutter/bin/flutter`. On Linux
-this is deterministic static validation for iOS/macOS project inputs; Xcode
-compile/archive, signing, and store submission remain macOS CI/manual gates
-where unavoidable. This lane does not activate #912 external production
-profiles and does not claim Day 1 product completion.
+`/opt/flutter/bin/flutter`. The validation planner appends platform build
+proof from actual changed files. Android native/project changes append
+`flutter build apk --debug`,
+`./gradlew :app:dependencies --configuration debugRuntimeClasspath`, and
+`./gradlew :app:assembleDebug`. Web project changes append
+`flutter build web`.
+
+Linux, iOS, macOS, and Windows project changes fail closed for auto-merge
+unless exact external platform evidence is present. Current Linux DevBox proof
+cannot complete `flutter build linux` because the host lacks
+`libsecret-1>=0.18.4`, required by `flutter_secure_storage_linux`; Linux
+changes therefore require `mobile-build:linux:external-ci` until the runner
+host supports that build. iOS/macOS/Windows require
+`mobile-build:ios:external-ci`, `mobile-build:macos:external-ci`, or
+`mobile-build:windows:external-ci`. External evidence must match the exact
+head SHA, base SHA, changed-file digest, inferred platform set, and canonical
+check identifier; missing, skipped, neutral, stale, wrong-digest, or similarly
+named checks block. `pubspec.yaml`, `pubspec.lock`, tracked assets, and
+localizations are cross-platform build/dependency inputs and receive this
+native/build posture rather than Dart-only proof. This lane does not activate
+#912 external production profiles and does not claim Day 1 product completion.
 Auto-merge, stale-claim stealing, follow-up issue creation, review-fix
 mutation, trusted overnight real-run operation, and systemd enablement remain
 disabled/gated. Review-fix mutation is built as a default-off low-risk

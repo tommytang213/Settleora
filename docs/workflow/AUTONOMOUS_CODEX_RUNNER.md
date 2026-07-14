@@ -358,8 +358,8 @@ An approved lane is only a capability. Auto-merge still requires a valid issue
 contract with `autoMergeEligible=true` and `manualMergeRequired=false`, no
 genuine manual action, exact changed-file matches against both the issue
 contract and lane manifest, the lane-appropriate branch strategy, structured
-validation evidence bound to exact head/base/files/profile, the #888 external
-review tier on that same evidence, independent Codex mechanics/security
+validation evidence bound to exact head/base/files/profile, the configured
+external review tier on that same evidence, independent Codex mechanics/security
 approval, required GitHub checks and security scans, all observed exact-head
 checks in acceptable final states, no open code-scanning alerts, no unresolved
 review threads or requested changes, an open issue with
@@ -409,7 +409,7 @@ sanitized evidence path. Any head/base/file/digest mismatch detected by a gate,
 missing or malformed verdict, provider failure, disabled tier, unavailable
 model, timeout, budget hard stop, secret-like path/diff, or non-pass verdict
 blocks. This package mode does not start the issue loop, mutate GitHub, or
-enable the future #889 sensitive-domain auto-merge expansion.
+enable approved-domain auto-merge by itself.
 
 ## Low-Risk Auto-Merge Wait And Recovery Evidence
 
@@ -864,15 +864,37 @@ paths. Ordinary non-secret `Info.plist`, manifests, Gradle files, Xcode
 metadata, non-secret entitlements, `Podfile`, and checked-in native
 source/resources are not manual solely because they are native build inputs.
 
-The `mobile-build-config` validation profile runs `git status --short`,
+The base `mobile-build-config` validation profile runs `git status --short`,
 `git diff --name-only`, `git diff --check`,
 `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, then
 `/opt/flutter/bin/flutter pub get`, `analyze`, and full `test` from
-`apps/mobile`. On Linux this is deterministic static validation for iOS/macOS
-inputs; Xcode compile/archive, signing credentials, TestFlight, App Store, and
-Play submission remain macOS CI/manual gates where unavoidable. The lane does
-not activate #912 external production profiles and does not claim Settleora
-Day 1 product completion.
+`apps/mobile`. The validation planner then derives platform proof from actual
+changed files, not from broad contract globs alone. Android project/config
+changes append `flutter build apk --debug`, Gradle debug runtime dependency
+resolution, and `:app:assembleDebug`. Web project/config changes append
+`flutter build web`.
+
+Linux, iOS, macOS, and Windows project inputs are fail-closed unless exact
+platform evidence is available for the current head. Current Linux DevBox
+validation cannot complete `flutter build linux` because
+`flutter_secure_storage_linux` requires `libsecret-1>=0.18.4`, so Linux
+project changes require the canonical external check
+`mobile-build:linux:external-ci` until that host dependency is present in the
+validated runner. iOS, macOS, and Windows builds cannot be proven by the Linux
+runner and require `mobile-build:ios:external-ci`,
+`mobile-build:macos:external-ci`, or `mobile-build:windows:external-ci`
+respectively. External platform evidence must be bound to the exact head SHA,
+base SHA, changed-file digest, inferred platform set, and canonical check
+identifier. Missing, skipped, neutral, stale, wrong-head, wrong-digest, or
+similarly named checks block auto-merge.
+
+`apps/mobile/pubspec.yaml`, `apps/mobile/pubspec.lock`, tracked assets, and
+localization inputs are treated as cross-platform build/dependency inputs, not
+Dart-only proof. They require Android and web local proof plus the unavailable
+host-platform external checks described above. Xcode compile/archive, signing
+credentials, TestFlight, App Store, and Play submission remain macOS CI/manual
+gates where unavoidable. The lane does not activate #912 external production
+profiles and does not claim Settleora Day 1 product completion.
 
 The runner must label/comment a bounded manual/split stop instead of
 implementing unattended work for genuine human actions or decisions:
