@@ -78,7 +78,7 @@ export function evaluateAutoRunnerHealth({
       heartbeat: baseHeartbeatSection(),
       reportResolution: null,
       summary: null,
-      outageResubmission: buildHealthOutageSection(logsRoot),
+      outageResubmission: buildHealthOutageSection(logsRoot, runnerStatus),
     });
     return { httpStatus: response.status === "healthy" ? 200 : 503, body: response };
   }
@@ -131,7 +131,7 @@ export function evaluateAutoRunnerHealth({
     heartbeat: buildHeartbeatSection(heartbeatValue, now),
     reportResolution,
     summary: buildSummarySection(summary.value),
-    outageResubmission: buildHealthOutageSection(logsRoot),
+    outageResubmission: buildHealthOutageSection(logsRoot, activeRunner),
   });
   return { httpStatus: status === "healthy" ? 200 : 503, body: response };
 }
@@ -356,7 +356,10 @@ function buildResponse({ status, mode, reasonCode, supervisor, runner, heartbeat
   });
 }
 
-function buildHealthOutageSection(logsRoot) {
+function buildHealthOutageSection(logsRoot, runnerStatus = null) {
+  if (runnerStatus?.outageResubmission && typeof runnerStatus.outageResubmission === "object") {
+    return boundObject(runnerStatus.outageResubmission);
+  }
   return buildOutageResubmissionStatus({ logsRoot, outageResubmission: { allowBoundedOutageResubmission: false } });
 }
 

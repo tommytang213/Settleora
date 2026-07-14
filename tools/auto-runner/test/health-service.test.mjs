@@ -34,6 +34,38 @@ test("auto-runner health initializes healthy with no history and no lock", () =>
   });
 });
 
+test("auto-runner health surfaces sanitized outage status from runner status", () => {
+  withLogs((logsRoot) => {
+    const result = evaluateAutoRunnerHealth({
+      logsRoot,
+      now: defaultNow,
+      runnerStatus: {
+        active: false,
+        activeRunId: null,
+        supervisorRunId: null,
+        outageResubmission: {
+          enabled: true,
+          defaultOff: false,
+          activeSourceRun: "supervised-20260712T055900Z-aaaaaaaaaaaa",
+          attemptCount: 1,
+          maxAttempts: 3,
+          nextEligibleAt: "2026-07-12T06:05:00.000Z",
+          deadlineAt: "2026-07-12T07:00:00.000Z",
+          circuitState: "half_open",
+          lastSanitizedReason: "github_api_5xx",
+          childRunId: null,
+          terminalOutcome: null,
+          recordCount: 1,
+        },
+      },
+    });
+    assert.equal(result.httpStatus, 200);
+    assert.equal(result.body.outageResubmission.enabled, true);
+    assert.equal(result.body.outageResubmission.circuitState, "half_open");
+    assert.equal(result.body.outageResubmission.lastSanitizedReason, "github_api_5xx");
+  });
+});
+
 test("auto-runner health classifies fresh active heartbeat as healthy active", () => {
   withLogs((logsRoot) => {
     const runId = writeRun(logsRoot, {
