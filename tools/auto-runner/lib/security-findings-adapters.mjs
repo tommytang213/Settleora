@@ -113,12 +113,28 @@ export class GitHubSecurityFindingAdapter {
         return sourceResult(sourceKind, findings, ["item_limit_reached"], { status: "bounded_complete", completeness: "bounded_complete", reason: "item_limit_reached" });
       }
       if (result.json.length < settings.perPage) return sourceResult(sourceKind, findings, failures, { completeness: "complete", reason: "partial_page_exhausted" });
-      const nextCursor = nextCursorFromLink(result.headers?.link);
-      if (!nextCursor) return sourceResult(sourceKind, findings, failures, { completeness: "complete", reason: "cursor_exhausted" });
+      const nextCursorResult = nextCursorFromLink(result.headers?.link, settings, endpoint);
+      if (!nextCursorResult.ok) return sourceFailure(sourceKind, { status: "failed", reason: nextCursorResult.reason });
+      const nextCursor = nextCursorResult.cursor;
+      if (!nextCursor) return sourceResult(sourceKind, findings, failures, {
+        completeness: "complete",
+        reason: "cursor_exhausted",
+        pagesRead: page,
+        itemsRead: findings.length,
+        nextCursorPresent: false,
+      });
       if (seenCursors.has(nextCursor)) return sourceFailure(sourceKind, { status: "failed", reason: "non_advancing_cursor_detected" });
       seenCursors.add(nextCursor);
       if (page === settings.maxPages) {
-        return sourceResult(sourceKind, findings, ["page_limit_reached"], { status: "truncated", completeness: "truncated", reason: "page_limit_reached" });
+        return sourceResult(sourceKind, findings, ["page_limit_reached"], {
+          status: "truncated",
+          completeness: "truncated",
+          reason: "page_limit_reached",
+          pagesRead: page,
+          itemsRead: findings.length,
+          nextCursorPresent: true,
+          boundedBy: "maxPages",
+        });
       }
       after = nextCursor;
     }
@@ -227,6 +243,10 @@ function sourceResult(sourceKind, findings, failures, metadata = {}) {
     completeness: metadata.completeness || (status === "ok" ? "complete" : "failed"),
     findings,
     failures: failures.length > 0 ? failures : [],
+    pagesRead: metadata.pagesRead || null,
+    itemsRead: metadata.itemsRead ?? findings.length,
+    nextCursorPresent: metadata.nextCursorPresent ?? false,
+    boundedBy: metadata.boundedBy || null,
   };
 }
 
@@ -239,6 +259,10 @@ function sourceFailure(sourceKind, result) {
     findings: [],
     failures: [result.reason || "source_failed"],
     httpStatus: result.httpStatus || null,
+    pagesRead: null,
+    itemsRead: 0,
+    nextCursorPresent: false,
+    boundedBy: null,
   };
 }
 
@@ -282,15 +306,30 @@ function providerRecordIdentity(sourceKind, item = {}) {
   };
 }
 
-function nextCursorFromLink(linkHeader) {
+function nextCursorFromLink(linkHeader, settings, endpoint) {
   const link = String(linkHeader || "");
   for (const part of link.split(",")) {
     if (!/;\s*rel="next"/i.test(part)) continue;
     const url = part.match(/<([^>]+)>/)?.[1];
-    if (!url) return null;
-    return new URL(url).searchParams.get("after");
+    if (!url) return { ok: false, reason: "next_cursor_url_missing" };
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { ok: false, reason: "next_cursor_url_invalid" };
+    }
+    if (parsed.protocol !== "https:") return { ok: false, reason: "next_cursor_url_not_https" };
+    if (parsed.hostname !== "api.github.com") return { ok: false, reason: "next_cursor_host_unexpected" };
+    if (parsed.pathname !== `/repos/${settings.repository}${endpoint}`) return { ok: false, reason: "next_cursor_path_unexpected" };
+    if (parsed.searchParams.get("state") !== "open") return { ok: false, reason: "next_cursor_state_unexpected" };
+    if (parsed.searchParams.get("per_page") !== String(settings.perPage)) return { ok: false, reason: "next_cursor_per_page_unexpected" };
+    const cursor = parsed.searchParams.get("after");
+    if (!cursor) return { ok: false, reason: "next_cursor_missing" };
+    if (cursor.length > 512) return { ok: false, reason: "next_cursor_too_long" };
+    if (/[\u0000-\u001f\u007f]/.test(cursor)) return { ok: false, reason: "next_cursor_control_character" };
+    return { ok: true, cursor };
   }
-  return null;
+  return { ok: true, cursor: null };
 }
 
 function classifyGhApiResult(result = {}, options = {}) {

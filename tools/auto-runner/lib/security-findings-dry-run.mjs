@@ -339,6 +339,10 @@ function summarizeSource(sourceResult = {}) {
     count: sourceResult.findings?.length || 0,
     failures: sourceResult.failures || [],
     httpStatus: sourceResult.httpStatus || null,
+    pagesRead: sourceResult.pagesRead || null,
+    itemsRead: sourceResult.itemsRead ?? (sourceResult.findings?.length || 0),
+    nextCursorPresent: sourceResult.nextCursorPresent ?? false,
+    boundedBy: sourceResult.boundedBy || null,
   };
 }
 

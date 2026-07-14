@@ -219,6 +219,29 @@ test("dependabot alert pagination fails honestly on later-page provider and malf
   assert.equal((await malformedJson.fetchSource("dependabot_alert")).reason, "malformed_response_not_array");
 });
 
+test("dependabot alert pagination rejects untrusted next cursor links", async () => {
+  const cases = [
+    ["http://api.github.com/repos/tommytang213/Settleora/dependabot/alerts?state=open&per_page=2&after=c1", "next_cursor_url_not_https"],
+    ["https://evil.example/repos/tommytang213/Settleora/dependabot/alerts?state=open&per_page=2&after=c1", "next_cursor_host_unexpected"],
+    ["https://api.github.com/repos/tommytang213/Other/dependabot/alerts?state=open&per_page=2&after=c1", "next_cursor_path_unexpected"],
+    ["https://api.github.com/repos/tommytang213/Settleora/code-scanning/alerts?state=open&per_page=2&after=c1", "next_cursor_path_unexpected"],
+    ["https://api.github.com/repos/tommytang213/Settleora/dependabot/alerts?state=dismissed&per_page=2&after=c1", "next_cursor_state_unexpected"],
+    ["https://api.github.com/repos/tommytang213/Settleora/dependabot/alerts?state=open&per_page=100&after=c1", "next_cursor_per_page_unexpected"],
+    ["https://api.github.com/repos/tommytang213/Settleora/dependabot/alerts?state=open&per_page=2", "next_cursor_missing"],
+    [`https://api.github.com/repos/tommytang213/Settleora/dependabot/alerts?state=open&per_page=2&after=${"c".repeat(513)}`, "next_cursor_too_long"],
+  ];
+  for (const [link, reason] of cases) {
+    const adapter = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 2 } }), {
+      runner: () => ({ status: 0, stdout: includedJsonWithLink([dependabotAlert(1), dependabotAlert(2)], link), stderr: "" }),
+    });
+    const result = await adapter.fetchSource("dependabot_alert");
+    assert.equal(result.status, "failed", reason);
+    assert.equal(result.reason, reason);
+    assert.equal(result.completeness, "failed");
+    assert.equal(result.findings.length, 0);
+  }
+});
+
 test("dependabot alert pagination reports bounds page-size repeats duplicates and normalization failures", async () => {
   const truncated = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 1, perPage: 2 } }), {
     runner: () => ({ status: 0, stdout: includedJson([dependabotAlert(1), dependabotAlert(2)], "cursor-1"), stderr: "" }),
@@ -255,7 +278,7 @@ test("dependabot alert pagination reports bounds page-size repeats duplicates an
   const duplicate = new GitHubSecurityFindingAdapter(tempConfig({ securityFindings: { maxPages: 3, perPage: 3 } }), {
     runner: (_cmd, args) => {
       const after = new URLSearchParams(endpointArg(args).split("?")[1]).get("after");
-      return { status: 0, stdout: !after ? includedJson([dependabotAlert(1), dependabotAlert(2), dependabotAlert(4)], "cursor-1") : includedJson([dependabotAlert(2), dependabotAlert(3)]), stderr: "" };
+      return { status: 0, stdout: !after ? includedJson([dependabotAlert(1), dependabotAlert(2), dependabotAlert(4)], "cursor-1", 3) : includedJson([dependabotAlert(2), dependabotAlert(3)]), stderr: "" };
     },
   });
   const duplicateResult = await duplicate.fetchSource("dependabot_alert");
@@ -555,11 +578,15 @@ function endpointArg(args) {
   return args.find((arg) => String(arg).startsWith("repos/"));
 }
 
-function includedJson(json, nextCursor = null) {
+function includedJson(json, nextCursor = null, perPage = 2) {
   const link = nextCursor
-    ? `Link: <https://api.github.com/repos/${repository}/dependabot/alerts?state=open&per_page=2&after=${nextCursor}>; rel="next"\n`
+    ? `Link: <https://api.github.com/repos/${repository}/dependabot/alerts?state=open&per_page=${perPage}&after=${nextCursor}>; rel="next"\n`
     : "";
   return `HTTP/2.0 200 OK\n${link}Content-Type: application/json; charset=utf-8\n\n${JSON.stringify(json)}`;
+}
+
+function includedJsonWithLink(json, linkUrl) {
+  return `HTTP/2.0 200 OK\nLink: <${linkUrl}>; rel="next"\nContent-Type: application/json; charset=utf-8\n\n${JSON.stringify(json)}`;
 }
 
 function dependabotPr(number = 2) {
