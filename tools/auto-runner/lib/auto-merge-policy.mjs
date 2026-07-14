@@ -596,6 +596,9 @@ function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedB
     if (check.changedFilesDigest !== digestStrings(changedFiles)) {
       return { ok: false, reason: `mobile_platform_external_check_file_digest_mismatch:${checkId}` };
     }
+    if (!sameStringSet(check.platforms || [], requirements.platforms)) {
+      return { ok: false, reason: `mobile_platform_external_check_platform_set_mismatch:${checkId}` };
+    }
   }
   return { ok: true };
 }

@@ -4296,6 +4296,7 @@ test("mobile-build-config iOS macOS Windows and dependency changes require exact
         headSha: "head123",
         baseSha: "base123",
         changedFilesDigest: sha256Strings([filePath]),
+        platforms: inferMobileBuildPlatformRequirements([filePath], laneDecision).platforms,
       }],
     }));
     assert.equal(skipped.reason, `mobile_platform_external_check_not_successful:${checkId}`, filePath);
@@ -4312,10 +4313,52 @@ test("mobile-build-config iOS macOS Windows and dependency changes require exact
         headSha: "old-head",
         baseSha: "base123",
         changedFilesDigest: sha256Strings([filePath]),
+        platforms: inferMobileBuildPlatformRequirements([filePath], laneDecision).platforms,
       }],
     }));
     assert.equal(stale.reason, `mobile_platform_external_check_head_mismatch:${checkId}`, filePath);
   }
+});
+
+test("mobile-build-config external platform evidence is bound to the inferred platform set", () => {
+  const laneDecision = autoMergeLane({
+    lane: "mobile-build-config",
+    canonicalLane: "mobile-build-config",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
+    allowedPaths: ["apps/mobile/pubspec.lock"],
+    laneManifestAllowedPaths: ["apps/mobile/pubspec.lock"],
+    validationProfile: "mobile-build-config",
+    implementationSensitivity: "high",
+    laneManifest: { id: "mobile-build-config", decisionType: "runnable", autoMergeAllowed: true },
+    contract: {
+      allowedPaths: ["apps/mobile/pubspec.lock"],
+      validationProfile: "mobile-build-config",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    },
+  });
+  const changedFiles = ["apps/mobile/pubspec.lock"];
+  const requirements = inferMobileBuildPlatformRequirements(changedFiles, laneDecision);
+  const decision = evaluateAutoMergeDecision(autoMergeContext({
+    laneDecision,
+    changedFiles,
+    branchName: "focused/auto-911-test",
+    pr: { headRefName: "focused/auto-911-test" },
+    externalPlatformBuildEvidence: requirements.externalCheckIds.map((checkId) => ({
+      checkId,
+      status: "COMPLETED",
+      conclusion: "SUCCESS",
+      headSha: "head123",
+      baseSha: "base123",
+      changedFilesDigest: sha256Strings(changedFiles),
+      platforms: checkId === mobileBuildPlatformChecks.iosExternalBuild ? ["ios"] : requirements.platforms,
+    })),
+  }));
+  assert.equal(
+    decision.reason,
+    `mobile_platform_external_check_platform_set_mismatch:${mobileBuildPlatformChecks.iosExternalBuild}`,
+  );
 });
 
 test("mobile-build-config similarly named platform checks do not satisfy canonical evidence", () => {
@@ -4349,6 +4392,7 @@ test("mobile-build-config similarly named platform checks do not satisfy canonic
       headSha: "head123",
       baseSha: "base123",
       changedFilesDigest: sha256Strings(changedFiles),
+      platforms: inferMobileBuildPlatformRequirements(changedFiles, laneDecision).platforms,
     }],
   }));
   assert.equal(decision.reason, `mobile_platform_external_check_missing:${mobileBuildPlatformChecks.iosExternalBuild}`);
@@ -6265,6 +6309,7 @@ function autoMergeContext(overrides = {}) {
           headSha: "head123",
           baseSha: "base123",
           changedFilesDigest: fileDigest,
+          platforms: platformRequirements.platforms,
         })),
     worktreeClean: overrides.worktreeClean ?? true,
     pr,
