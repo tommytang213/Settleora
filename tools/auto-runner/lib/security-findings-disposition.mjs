@@ -16,7 +16,7 @@ export const supportedDispositionReasons = Object.freeze({
 const shaPattern = /^[0-9a-f]{40}$/i;
 const digestPattern = /^[0-9a-f]{16,64}$/i;
 const idPattern = /^[A-Za-z0-9._:/@+ -]{1,240}$/;
-const githubAlertIdPattern = /^[0-9]{1,20}$/;
+const githubAlertIdPattern = /^[1-9][0-9]{0,9}$/;
 const refPattern = /^(refs\/(?:heads|pull|tags)\/[A-Za-z0-9._/:-]{1,200}|[A-Za-z0-9._/-]{1,120})$/;
 const defaultPreconditionTtlMs = 5 * 60_000;
 
@@ -57,6 +57,7 @@ export function validateDispositionPolicy(packet = {}, reason = null) {
   if (!reasons) return fail("disposition_source_kind_unsupported");
   if (!reasons.includes(reason)) return fail("disposition_reason_unsupported");
   if (!githubAlertIdPattern.test(packet.alertId || "")) return fail("disposition_alert_id_not_numeric");
+  if (Number(packet.alertId) > 1_000_000_000) return fail("disposition_alert_id_out_of_bounds");
   if (packet.sourceKind === "code_scanning_alert" && reason !== "false positive") return fail("code_scanning_reason_not_false_positive");
   if (packet.sourceKind === "dependabot_alert" && reason !== "inaccurate") return fail("dependabot_reason_not_inaccurate");
   return { ok: true, endpoint: endpointForPacket(packet), reason };
@@ -139,6 +140,7 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
   }
   const confirmation = await adapter.rereadAlert(packet);
   if (!["dismissed", "closed"].includes(confirmation.state) || confirmation.dismissedReason !== reason) {
+    recordDispositionRunOutcome(config, options.runId, packet, "uncertain");
     return fail("disposition_confirmation_failed", { confirmation: sanitizeReread(confirmation) });
   }
   recordDispositionRunOutcome(config, options.runId, packet, "confirmed");

@@ -355,6 +355,7 @@ function adapterFor(packet, options = {}) {
       }
       if (options.badDigest) return { ...openRead, rereadDigest: "8".repeat(64) };
       if (options.changed) return { ...openRead, fingerprint: "changed" };
+      if (options.afterMutation && options.confirmationMismatch) return { ...openRead, state: "open" };
       if (options.afterMutation) return { ...openRead, state: "dismissed", dismissedReason: options.reason || (packet.sourceKind === "dependabot_alert" ? "inaccurate" : "false positive") };
       return openRead;
     },
@@ -447,7 +448,11 @@ test("disposition policy supports only exact provider false-positive equivalents
   const dep = packetFor(depFinding()).packet;
   assert.equal(validateDispositionPolicy(code, "false positive").ok, true);
   assert.equal(validateDispositionPolicy(dep, "inaccurate").ok, true);
-  assert.equal(validateDispositionPolicy({ ...code, alertId: "../42" }, "false positive").reason, "disposition_alert_id_not_numeric");
+  for (const alertId of ["../42", "42/1", "42?x=1", "42#x", "4.2", "+42", "1e2", " 42", "٤٢", "00042", "0"]) {
+    assert.equal(validateDispositionPolicy({ ...code, alertId }, "false positive").reason, "disposition_alert_id_not_numeric", alertId);
+  }
+  assert.equal(validateDispositionPolicy({ ...code, alertId: "1000000001" }, "false positive").reason, "disposition_alert_id_out_of_bounds");
+  assert.equal(validateDispositionPolicy({ ...code, alertId: "1000000000" }, "false positive").ok, true);
   assert.equal(validateDispositionPolicy(code, "risk accepted").reason, "disposition_reason_unsupported");
   assert.equal(validateDispositionPolicy({ ...code, sourceKind: "semgrep_artifact" }, "false positive").reason, "disposition_source_kind_unsupported");
   assert.deepEqual(supportedDispositionReasons.dependabot_alert, ["inaccurate"]);
@@ -494,6 +499,15 @@ test("default-off disposition refuses dry-run, confirms success, and uses reread
   const locked = await executeFalsePositiveDisposition(realConfig, packet, bundle, ready.precondition, lockedAdapter, { now, runId: "run-uncertain-disposition" });
   assert.equal(locked.reason, "security_findings_disposition_cap_locked_by_uncertain_outcome");
   assert.equal(lockedAdapter.mutationCalls, 0);
+
+  const confirmationConfig = realDispositionConfig({ securityFindings: { maxDispositionsPerRun: 2 } });
+  const confirmationAdapter = adapterFor(packet, { confirmationMismatch: true });
+  const confirmation = await executeFalsePositiveDisposition(confirmationConfig, packet, bundle, ready.precondition, confirmationAdapter, { now, runId: "run-confirmation-failed" });
+  assert.equal(confirmation.reason, "disposition_confirmation_failed");
+  const postConfirmationAdapter = adapterFor(packet);
+  const postConfirmation = await executeFalsePositiveDisposition(confirmationConfig, packet, bundle, ready.precondition, postConfirmationAdapter, { now, runId: "run-confirmation-failed" });
+  assert.equal(postConfirmation.reason, "security_findings_disposition_cap_locked_by_uncertain_outcome");
+  assert.equal(postConfirmationAdapter.mutationCalls, 0);
 });
 
 test("configuration remains fail-closed for invalid disposition combinations", () => {
