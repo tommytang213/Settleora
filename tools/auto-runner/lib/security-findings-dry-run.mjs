@@ -240,15 +240,6 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     result.reuseCount = mutation.results.filter((item) => item.action === "reuse" || item.action === "reuse_completed_evidence").length;
   }
 
-  if (securityConfig.persistState && !partialSourceCoverage) {
-    const written = writeSecurityFindingsState(mergedConfig, mergeSecurityFindingRecords(durableState, plannedRecords.length > 0 ? plannedRecords : normalized), {
-      taskKey: options.taskKey || null,
-      runId: options.runId || null,
-      supervisorRunId: config.supervisorRunId || null,
-      repository: securityConfig.allowedRepository,
-    });
-    result.statePath = written.statePath;
-  }
   if ((result.failureCount > 0 || result.ambiguousCount > 0) && !securityConfig.allowPartialPlanning) {
     result.ok = false;
     result.reason = result.ambiguousCount > 0 ? "ambiguous_duplicate_evidence" : "source_failures";
@@ -258,6 +249,15 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     result.ok = true;
     result.reason = "dry_run_partial_source_failures";
     return result;
+  }
+  if (securityConfig.persistState && result.failureCount === 0 && result.ambiguousCount === 0) {
+    const written = writeSecurityFindingsState(mergedConfig, mergeSecurityFindingRecords(durableState, plannedRecords.length > 0 ? plannedRecords : normalized), {
+      taskKey: options.taskKey || null,
+      runId: options.runId || null,
+      supervisorRunId: config.supervisorRunId || null,
+      repository: securityConfig.allowedRepository,
+    });
+    result.statePath = written.statePath;
   }
   result.ok = true;
   result.reason = "dry_run_complete";

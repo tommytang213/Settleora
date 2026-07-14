@@ -487,6 +487,8 @@ test("dry-run returns nonzero-worthy result for partial provider and ambiguous d
     });
     assert.equal(partial.ok, false);
     assert.equal(partial.reason, "source_failures");
+    assert.equal(partial.statePath, null);
+    assert.equal(existsSync(securityFindingsStatePath(config)), false);
     const ambiguous = await runSecurityFindingsDryRun(config, {
       adapter: { async fetchSource(sourceKind) { return sourceKind === "dependabot_alert" ? { sourceKind, status: "ok", findings: [finding], failures: [] } : { sourceKind, status: "ok", findings: [], failures: [] }; } },
       evidence: { openIssues: [{ body: finding.correlationKey }], openPrs: [{ body: finding.idempotencyKey }] },
@@ -494,6 +496,8 @@ test("dry-run returns nonzero-worthy result for partial provider and ambiguous d
     });
     assert.equal(ambiguous.ok, false);
     assert.equal(ambiguous.reason, "ambiguous_duplicate_evidence");
+    assert.equal(ambiguous.statePath, null);
+    assert.equal(existsSync(securityFindingsStatePath(config)), false);
   } finally {
     config.cleanup();
   }
