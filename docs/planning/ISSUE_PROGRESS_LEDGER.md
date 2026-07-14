@@ -20,6 +20,38 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #913 - bounded outage resubmission feature bundle in progress
+
+- Task key: `20260715-0013`.
+- Branch:
+  `feature/auto-913-bounded-outage-resubmission-20260715-0013`.
+- Starting current-main:
+  `3b3212c43c702db3cabdaff1c28d089f39c54441`.
+- Predecessor:
+  #902 completed through PR #916, source head
+  `3cde022834cb3097c2a6aa5cccd0e837e48dec48`, merged as current-main
+  `3b3212c43c702db3cabdaff1c28d089f39c54441`.
+- Completed checkpoints on this branch:
+  - `2e100e1` - `Model bounded outage resubmission`.
+  - `165aac3` - `Wire supervisor outage recovery`.
+- Current scope:
+  default-off supervisor-side bounded outage resubmission foundation,
+  recovery-first controller dry-run planning, strict outage taxonomy,
+  backoff/jitter/attempt/wall-clock bounds, circuit breaker, exact
+  correlation, duplicate/uncertain child prevention, stale-head invalidation,
+  operator pause/stop and lock safety, sanitized status/health/monitoring
+  docs, and fixture-only acceptance.
+- Safety:
+  no production profile activation, no live supervisor run, no systemd
+  enablement/start/restart, no canary run, no #912 activation, no product
+  runtime/API/auth/storage/money/schema/OpenAPI/generated-client/deployment/
+  secret changes.
+- Tracker state:
+  #910 remains open. #912 remains open, manual-gated, and unactivated. #913
+  remains open until a later exact-head merge/current-main proof and closure
+  task. This ledger is supporting/cache-only; live GitHub, PR checks, reports,
+  and repository state remain authoritative.
+
 ### Auto-runner operational readiness plan - 20260714-1010
 
 - Task key: `20260714-1010`.

@@ -659,7 +659,12 @@ test("monitoring outbox is local, owner-only, closed-event, and nonfatal", () =>
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-outbox-"));
   const logsRoot = path.join(tempRoot, "settleora-auto-runner");
   const runId = generateRunId();
-  assert.deepEqual([...monitoringEvents].sort(), ["blocked", "cancelled", "completed", "failed", "heartbeat", "partial", "started", "submitted"]);
+  for (const eventName of ["blocked", "cancelled", "completed", "failed", "heartbeat", "partial", "started", "submitted"]) {
+    assert.equal(monitoringEvents.has(eventName), true, eventName);
+  }
+  for (const eventName of ["prolonged_outage_detected", "outage_resubmission_planned", "outage_uncertain_submission"]) {
+    assert.equal(monitoringEvents.has(eventName), true, eventName);
+  }
   const result = recordMonitoringEvent("heartbeat", {
     runId,
     state: "running",

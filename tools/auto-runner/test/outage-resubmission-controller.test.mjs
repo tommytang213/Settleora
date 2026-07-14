@@ -7,6 +7,9 @@ import { runOutageResubmissionController, evaluateSourceRunEligibility } from ".
 import { createOutageResubmissionState, transitionOutageMarker } from "../lib/outage-resubmission-state.mjs";
 import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
 import { resolveProfile } from "../supervisor/run-spec.mjs";
+import { getRunnerStatus } from "../lib/control-plane.mjs";
+import { evaluateAutoRunnerHealth } from "../lib/health-service.mjs";
+import { monitoringEvents, recordMonitoringEvent } from "../supervisor/monitoring-outbox.mjs";
 
 const shaA = "a".repeat(40);
 const shaB = "b".repeat(40);
@@ -199,6 +202,52 @@ test("controller enforces attempt and wall-clock exhaustion without child creati
   }
 });
 
+test("status and health expose sanitized default-off outage state without mutation authority", () => {
+  const config = tempConfig({ enabled: false });
+  try {
+    const outageState = fixtureOutageState();
+    // Write state directly through the state module path exercised by controller dry-run tests.
+    const planned = runOutageResubmissionController({
+      config,
+      source: source(),
+      dryRun: true,
+      now,
+      childRunId: "supervised-20260715T010000Z-000000000123",
+    });
+    assert.equal(planned.counts.realMutationCalls, 0);
+    assert.equal(outageState.status, "planned");
+
+    const status = getRunnerStatus(config);
+    assert.equal(status.outageResubmission.enabled, false);
+    assert.equal(status.outageResubmission.defaultOff, true);
+    assert.equal(status.outageResubmission.recordCount, 0);
+
+    const health = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now });
+    assert.equal(health.body.outageResubmission.enabled, false);
+    assert.equal(health.body.outageResubmission.defaultOff, true);
+    assert.equal(JSON.stringify(health.body).includes("raw"), false);
+    assert.equal(JSON.stringify(health.body).includes("secret"), false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("monitoring outbox allows bounded outage events and rejects unsupported events", () => {
+  const config = tempConfig();
+  try {
+    assert.equal(monitoringEvents.has("outage_resubmission_planned"), true);
+    const written = recordMonitoringEvent("outage_resubmission_planned", {
+      runId: source().supervisorRunId,
+      rawProviderBody: "secret raw body",
+      reasonCode: "github_api_5xx",
+    }, { logsRoot: config.logsRoot });
+    assert.equal(written.ok, true);
+    assert.throws(() => recordMonitoringEvent("outage_webhook_send", { runId: source().supervisorRunId }, { logsRoot: config.logsRoot }), /Unsupported/);
+  } finally {
+    config.cleanup();
+  }
+});
+
 function source(overrides = {}) {
   return {
     taskKey: "20260715-0013",
@@ -250,7 +299,7 @@ function fixtureOutageState() {
   });
 }
 
-function tempConfig() {
+function tempConfig({ enabled = true } = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-outage-controller-"));
   const profilePath = resolveProfile("default", logsRoot).runnerConfigPath;
   mkdirSync(path.dirname(profilePath), { recursive: true, mode: 0o700 });
@@ -258,7 +307,7 @@ function tempConfig() {
   return {
     logsRoot,
     outageResubmission: {
-      allowBoundedOutageResubmission: true,
+      allowBoundedOutageResubmission: enabled,
       minimumOutageAgeMs: 10 * 60 * 1000,
       baseBackoffMs: 5 * 60 * 1000,
       maxBackoffMs: 30 * 60 * 1000,

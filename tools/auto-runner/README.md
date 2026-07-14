@@ -69,6 +69,35 @@ recovery root before polling unrelated issues; with recovery capability
 default-off it fails closed for operator review instead of adopting arbitrary
 work.
 
+Bounded outage resubmission is a separate supervisor-side recovery controller
+and remains default-off. It is not an immortal mutation worker and does not
+poll unrelated issues before recovery state is reconciled. When explicitly
+enabled by later external configuration, it may consider only exact
+task/run/supervisor/issue/branch/base/head/PR-correlated terminal or proven
+inactive source runs whose failure is a recognized prolonged transient outage:
+GitHub API/Actions rate-limit, 5xx, timeout, or transport evidence; Codex,
+independent reviewer, or scanner provider 429/5xx/timeout/transport evidence;
+or explicit DevBox DNS/routing/TLS/connection failures. It refuses 401,
+ordinary 403 without trusted rate-limit headers, 404, missing secrets/config,
+dirty worktrees, corrupt state, stale evidence, identity drift, merge
+conflict, failed tests/validation, code defects, review or scanner findings,
+policy/manual/destructive gates, unsupported sources, unknown failures, and
+terminal application failures.
+
+The controller uses a configured minimum outage age, bounded exponential
+backoff, deterministic-testable jitter, maximum attempts, maximum wall-clock
+deadline, and provider/global circuit breaker. State lives under the recovery
+root in sanitized owner-only JSON written by temp file plus rename. Dedicated
+`outage_resubmission` markers move through `planned`,
+`submission_uncertain`, `submitted`, `confirmed_running`, `recovered`,
+`exhausted`, or `blocked` and are keyed from exact correlation, attempt, and
+spec digest. Uncertain submissions are reconciled against existing local
+supervisor state before any new child can be planned. Head/base/PR drift
+invalidates old exact-head evidence instead of reusing it. Pause/stop and
+manual gates always win. The dry-run fixture path reports intended child specs
+and mutation-call counters only; production activation remains a separate
+manual #912 task.
+
 Preflight diagnostics:
 
 ```bash
@@ -157,6 +186,13 @@ node tools/auto-runner/settleora-auto-runner.mjs --extend --max-iterations +5
 node tools/auto-runner/settleora-auto-runner.mjs --extend --max-prs +5
 node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
 ```
+
+Status and health readouts include a sanitized outage-recovery summary:
+enabled/default-off posture, active source run, attempt budget, next eligible
+time, deadline, circuit state, last reason, child run ID, and terminal outcome.
+They never expose raw provider bodies, prompts, arbitrary config paths, shell
+commands, secrets, issue bodies, or full diffs, and they do not trigger
+resubmission.
 
 Detached supervisor foundation:
 

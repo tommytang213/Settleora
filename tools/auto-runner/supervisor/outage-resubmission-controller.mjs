@@ -7,6 +7,7 @@ import {
 } from "../lib/outage-resubmission-policy.mjs";
 import {
   createOutageResubmissionState,
+  listOutageResubmissionStates,
   loadOutageResubmissionState,
   transitionOutageMarker,
   verifyOutageCorrelation,
@@ -36,6 +37,31 @@ export function evaluateSourceRunEligibility(input = {}) {
   const classification = classifyOutageFailure(input.failure || source.failure || {});
   if (!classification.retryable) return block("source_failure_nonretryable", { classification });
   return { eligible: true, reasonCode: "source_run_eligible", classification, policy };
+}
+
+export function buildOutageResubmissionStatus(config = {}) {
+  const policy = normalizeOutageResubmissionConfig(config.outageResubmission || {});
+  let states = [];
+  try {
+    states = listOutageResubmissionStates(config).slice(-20);
+  } catch {
+    states = [];
+  }
+  const active = states.find((state) => !["recovered", "exhausted", "blocked"].includes(state.status)) || null;
+  return {
+    enabled: policy.allowBoundedOutageResubmission,
+    defaultOff: policy.allowBoundedOutageResubmission !== true,
+    activeSourceRun: active ? summarizeOutageState(active) : null,
+    attemptCount: active?.mutationMarker?.attemptNumber || 0,
+    maxAttempts: policy.maxAttempts,
+    nextEligibleAt: active?.schedule?.nextEligibleAt || null,
+    deadlineAt: active?.schedule?.deadlineAt || null,
+    circuitState: active?.circuit?.state || "closed",
+    lastSanitizedReason: active?.outage?.reasonCode || active?.mutationMarker?.reasonCode || null,
+    childRunId: active?.childSupervisorRunId || null,
+    terminalOutcome: active && ["recovered", "exhausted", "blocked"].includes(active.status) ? active.status : null,
+    recordCount: states.length,
+  };
 }
 
 export function runOutageResubmissionController(input = {}) {
@@ -260,6 +286,23 @@ function findExactChild(children, source, outageState) {
     child?.sourceBranchName === source.branchName &&
     (!outageState?.mutationMarker?.key || child?.outageResubmission?.markerKey === outageState.mutationMarker.key)
   )) || null;
+}
+
+function summarizeOutageState(state) {
+  return {
+    taskKey: state.correlation?.taskKey || null,
+    runnerRunId: state.correlation?.runnerRunId || null,
+    supervisorRunId: state.correlation?.supervisorRunId || null,
+    issueNumber: state.correlation?.issueNumber || null,
+    branchName: state.correlation?.branchName || null,
+    baseSha: state.correlation?.baseSha || null,
+    currentHeadSha: state.correlation?.currentHeadSha || null,
+    prNumber: state.correlation?.prNumber || null,
+    prHeadSha: state.correlation?.prHeadSha || null,
+    providerDomain: state.outage?.providerDomain || null,
+    outageClass: state.outage?.outageClass || null,
+    status: state.status || null,
+  };
 }
 
 function buildCorrelation(source, classification) {

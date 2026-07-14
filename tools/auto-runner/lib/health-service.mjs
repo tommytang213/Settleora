@@ -7,6 +7,7 @@ import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.
 import { defaultHeartbeatIntervalSeconds, defaultHeartbeatLeaseSeconds, isHeartbeatStale } from "../supervisor/heartbeat.mjs";
 import { classifySupervisorLifecycleState, terminalStates } from "../supervisor/supervisor-state.mjs";
 import { storageKeyForLogicalId, storageKeyPattern } from "../supervisor/supervisor-paths.mjs";
+import { buildOutageResubmissionStatus } from "../supervisor/outage-resubmission-controller.mjs";
 
 export const healthSchemaVersion = 1;
 export const defaultHealthHost = "127.0.0.1";
@@ -77,6 +78,7 @@ export function evaluateAutoRunnerHealth({
       heartbeat: baseHeartbeatSection(),
       reportResolution: null,
       summary: null,
+      outageResubmission: buildHealthOutageSection(logsRoot),
     });
     return { httpStatus: response.status === "healthy" ? 200 : 503, body: response };
   }
@@ -129,6 +131,7 @@ export function evaluateAutoRunnerHealth({
     heartbeat: buildHeartbeatSection(heartbeatValue, now),
     reportResolution,
     summary: buildSummarySection(summary.value),
+    outageResubmission: buildHealthOutageSection(logsRoot),
   });
   return { httpStatus: status === "healthy" ? 200 : 503, body: response };
 }
@@ -338,7 +341,7 @@ function sanitizeReportResolution(value) {
   };
 }
 
-function buildResponse({ status, mode, reasonCode, supervisor, runner, heartbeat, reportResolution, summary }) {
+function buildResponse({ status, mode, reasonCode, supervisor, runner, heartbeat, reportResolution, summary, outageResubmission }) {
   return boundObject({
     schemaVersion: healthSchemaVersion,
     status,
@@ -349,7 +352,12 @@ function buildResponse({ status, mode, reasonCode, supervisor, runner, heartbeat
     heartbeat,
     reportResolution,
     summary,
+    outageResubmission,
   });
+}
+
+function buildHealthOutageSection(logsRoot) {
+  return buildOutageResubmissionStatus({ logsRoot, outageResubmission: { allowBoundedOutageResubmission: false } });
 }
 
 function buildSupervisorSection(state) {

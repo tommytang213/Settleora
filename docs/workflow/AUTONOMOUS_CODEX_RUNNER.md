@@ -148,6 +148,28 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
   idempotent mutation markers, stop reason, next safe action, timestamps, and
   schema version. It never stores raw prompts, provider responses, full diffs,
   secrets, environment dumps, tokens, credentials, or unbounded logs.
+- `recovery/outage-resubmission/` stores sanitized bounded outage
+  resubmission state linked to the authoritative recovery record. The
+  controller is supervisor-side, default-off, recovery-first, and finite. It
+  persists exact task/run/supervisor/issue/branch/base/head/PR/profile/config/
+  spec-digest correlation, sanitized outage class/fingerprint, attempt,
+  deadline, next eligible time, circuit state, child supervisor run ID, and an
+  `outage_resubmission` marker. It never stores raw provider bodies, prompts,
+  arbitrary commands, config paths, secrets, tokens, source snippets, or full
+  diffs.
+
+Bounded outage resubmission is eligible only for recognized prolonged
+transient infrastructure/provider failures: trusted GitHub API/Actions
+rate-limit, 5xx, timeout, or transport evidence; Codex/reviewer/scanner
+429/5xx/timeout/transport evidence; or explicit DevBox DNS/routing/TLS/
+connection failures. It is not eligible for 401, ordinary 403, 404,
+missing/invalid secrets or config, dirty worktrees, corrupt state, stale
+evidence, identity drift, merge conflicts, failed tests or validation, code
+defects, review/scanner findings, policy/manual/destructive gates,
+unsupported sources, unknown failures, or terminal application failures.
+Minimum outage age, backoff, jitter, max attempts, wall-clock deadline, and
+provider/global circuit breaker are explicit config values. Production
+activation remains separate/manual under #912.
 
 Stale locks are removed only when the recorded PID is no longer active. Active
 or unparsable locks stop the runner for human inspection.

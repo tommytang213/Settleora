@@ -225,6 +225,40 @@ does not invent a report path. If the child exits nonzero but a trusted
 summary pair exists, the mapped report is retained while the child-derived
 terminal state remains authoritative.
 
+## Bounded Outage Resubmission
+
+The bounded outage resubmission controller is supervisor-side and outside the
+runner mutation worker. It remains default-off in repository defaults and
+example config. It does not restart itself forever, poll unrelated issues
+first, call GitHub issue/PR/branch/merge mutations, bypass recovery state, or
+execute shell commands from persisted/provider input.
+
+Each controller iteration is recovery-first:
+
+1. read operator pause/stop control;
+2. verify locks and active state through existing lock policy;
+3. inspect recoverable recovery state;
+4. reconcile uncertain/pending outage markers;
+5. reconcile exact existing child supervisor runs;
+6. resume safe recovery when present;
+7. only then consider a new bounded child resubmission.
+
+Source-run eligibility requires terminal or proven inactive source state,
+exact task/run/supervisor/issue/branch/base/head/PR/profile/config/spec
+correlation, a recognized prolonged transient outage, no stale head-bound
+evidence, no manual/authority/destructive gate, no active child, available
+attempt/wall-clock budget, closed or eligible half-open circuit, and explicit
+capability enablement. A new child spec carries bounded parent/source/outage
+metadata and continues the existing recovery boundary. Dry-run/fixture mode
+plans the child spec and exposes mutation-call counters while making zero
+systemd, GitHub, or live supervisor submission calls.
+
+Rollback is disabling `outageResubmission.allowBoundedOutageResubmission` in
+the external profile. Existing sanitized state is preserved for operator
+inspection; no branch/history rewrite, state deletion, systemd change, or
+production deployment is required. #912 remains the separate manual activation
+and live-configuration acceptance gate.
+
 ## State And Heartbeat
 
 Supervisor state lives under:
