@@ -9,7 +9,7 @@ import {
   mergeReviewerPolicyConfig,
   routeReviewer,
 } from "./reviewer-policy.mjs";
-import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
+import { analyzeReviewSecretBoundary, providerBoundReviewDiffChars, providerBoundReviewDigest } from "./review-secret-boundary.mjs";
 
 const geminiApiOrigin = "https://generativelanguage.googleapis.com";
 export const supportedGeminiModelEndpoints = Object.freeze({
@@ -742,7 +742,7 @@ function buildIntegratedReviewPrompt(summary, diff) {
     JSON.stringify(packageSummary, null, 2),
     "",
     "Sanitized bounded diff:",
-    bounded(diff, 90_000),
+    bounded(diff, providerBoundReviewDiffChars),
   ].join("\n");
 }
 

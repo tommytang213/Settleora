@@ -8,6 +8,7 @@ import {
   normalizeLargeBundleReviewApprovalConfig,
   routeReviewer,
 } from "../lib/reviewer-policy.mjs";
+import { providerBoundReviewDiffChars } from "../lib/review-secret-boundary.mjs";
 
 const now = new Date("2026-07-13T13:00:00.000Z");
 const baseSha = "1111111111111111111111111111111111111111";
@@ -341,7 +342,7 @@ function aggregatePackageContext() {
       headSha: headResult.stdout.trim(),
       changedFilesDigest: digestStrings(changedFiles),
       rawDiffSha256: raw,
-      providerBoundDiffSha256: sha256(boundText(diffResult.stdout, 90_000)),
+      providerBoundDiffSha256: sha256(boundText(diffResult.stdout, providerBoundReviewDiffChars)),
       changedFileCount: changedFiles.length,
       additions,
       deletions,

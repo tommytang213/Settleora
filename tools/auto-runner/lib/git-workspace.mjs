@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
 
 export function runGit(args, options = {}) {
   const result = spawnSync("git", args, {
@@ -142,7 +143,7 @@ export function workingTreeDiffHash() {
   return createHash("sha256").update(getWorkingTreeDiffText()).digest("hex");
 }
 
-export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxChars = 120000) {
+export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxChars = providerBoundReviewDiffChars) {
   const result = runGit(["diff", "--binary", `${baseRef}...${headRef}`]);
   assertGitSuccess(result, "Unable to read diff");
   if (result.stdout.length <= maxChars) {
@@ -151,7 +152,7 @@ export function getBoundedDiff(baseRef = "origin/main", headRef = "HEAD", maxCha
   return { truncated: true, text: result.stdout.slice(0, maxChars) };
 }
 
-export function getBoundedWorkingTreeDiff(maxChars = 120000) {
+export function getBoundedWorkingTreeDiff(maxChars = providerBoundReviewDiffChars) {
   const text = getWorkingTreeDiffText();
   if (text.length <= maxChars) {
     return { truncated: false, text };

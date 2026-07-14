@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 const approvedSecretRoot = "/workspace/logs/settleora-auto-runner/secrets";
 const maxDiffBytes = 2 * 1024 * 1024;
+export const providerBoundReviewDiffChars = 512_000;
 const maxDiagnostics = 50;
 const maxCandidates = 500;
 const maxDiagnosticString = 160;
@@ -115,7 +116,7 @@ export function analyzeReviewSecretBoundary({ changedFiles = [], diff = "", diff
 }
 
 export function providerBoundReviewDigest(diff) {
-  return sha256Text(boundText(diff, 90_000));
+  return sha256Text(boundText(diff, providerBoundReviewDiffChars));
 }
 
 function parseUnifiedDiff(text) {
