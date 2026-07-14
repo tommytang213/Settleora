@@ -96,8 +96,21 @@ dry-run path forces previews only. It does not create issues, edit PRs, change
 labels, dismiss alerts, close findings, update dependencies, push branches,
 open PRs, merge, or mutate product code.
 
+False-positive disposition readiness is also default-off and fail-closed.
+`allowFalsePositiveEvidence` only enables bounded packet/readiness evaluation
+inside the non-mutating security-finding dry-run. A live disposition would
+require separate trusted real-run approval plus
+`allowSecurityFindingDisposition`,
+`allowProvenFalsePositiveDisposition`, and exact source-specific supported
+reasons. Repository defaults and this example keep those capabilities false,
+`dispositionDryRunOnly=true`, `maxDispositionsPerRun=1`, short packet TTLs,
+exact reread/precondition checks, strong/Codex/tie-breaker review gates, and
+post-disposition reconciliation before linked issue completion hygiene.
+Semgrep and Trivy artifact findings have no assumed mutable alert endpoint.
+
 ```bash
 node tools/auto-runner/settleora-auto-runner.mjs --security-findings-dry-run --config /workspace/logs/settleora-auto-runner/security-findings/<task-key>/config.json --json
+node tools/auto-runner/settleora-auto-runner.mjs --security-findings-disposition-dry-run --config /workspace/logs/settleora-auto-runner/security-findings/<task-key>/config.json --json
 ```
 
 The package reviewer routes to `cheap_independent`, `strong_independent`, or

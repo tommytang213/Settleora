@@ -15,6 +15,16 @@ export const securityFindingLifecycleStages = Object.freeze([
   "retry_scheduled",
   "manual_gated",
   "false_positive_evidence_pending",
+  "false_positive_packet_ready",
+  "false_positive_reviews_pending",
+  "false_positive_reviewed",
+  "disposition_precondition_ready",
+  "disposition_in_progress",
+  "disposition_confirmed",
+  "post_disposition_reconciliation_pending",
+  "post_disposition_reconciled",
+  "linked_issue_completion_pending",
+  "completed",
   "resolved_or_superseded",
   "blocked",
 ]);
@@ -23,9 +33,19 @@ const lifecycleStageSet = new Set(securityFindingLifecycleStages);
 const allowedTransitions = new Map([
   ["ingested", new Set(["classified", "blocked"])],
   ["classified", new Set(["reconciled", "manual_gated", "false_positive_evidence_pending", "retry_scheduled", "blocked"])],
-  ["reconciled", new Set(["proposal_planned", "resolved_or_superseded", "blocked"])],
+  ["reconciled", new Set(["proposal_planned", "false_positive_evidence_pending", "resolved_or_superseded", "blocked"])],
   ["proposal_planned", new Set(["proposal_reused", "proposal_created", "blocked"])],
   ["retry_scheduled", new Set(["classified", "blocked"])],
+  ["false_positive_evidence_pending", new Set(["false_positive_packet_ready", "blocked"])],
+  ["false_positive_packet_ready", new Set(["false_positive_reviews_pending", "blocked"])],
+  ["false_positive_reviews_pending", new Set(["false_positive_reviewed", "blocked"])],
+  ["false_positive_reviewed", new Set(["disposition_precondition_ready", "blocked"])],
+  ["disposition_precondition_ready", new Set(["disposition_in_progress", "blocked"])],
+  ["disposition_in_progress", new Set(["disposition_confirmed", "blocked"])],
+  ["disposition_confirmed", new Set(["post_disposition_reconciliation_pending", "blocked"])],
+  ["post_disposition_reconciliation_pending", new Set(["post_disposition_reconciled", "blocked"])],
+  ["post_disposition_reconciled", new Set(["linked_issue_completion_pending", "completed", "blocked"])],
+  ["linked_issue_completion_pending", new Set(["completed", "blocked"])],
 ]);
 
 export function securityFindingsStateRoot(config = {}) {
@@ -109,13 +129,29 @@ export function validateSecurityFindingsState(state = {}) {
   return { ok: true };
 }
 
-export function createLifecycleRecord({ stage = "ingested", classificationDigest = null, reconciliationDigest = null, proposalDigest = null, updatedAt = new Date().toISOString() } = {}) {
+export function createLifecycleRecord({
+  stage = "ingested",
+  classificationDigest = null,
+  reconciliationDigest = null,
+  proposalDigest = null,
+  packetDigest = null,
+  reviewDigest = null,
+  preconditionDigest = null,
+  mutationDigest = null,
+  resultDigest = null,
+  updatedAt = new Date().toISOString(),
+} = {}) {
   const record = {
     lifecycleVersion: 1,
     stage,
     classificationDigest,
     reconciliationDigest,
     proposalDigest,
+    packetDigest,
+    reviewDigest,
+    preconditionDigest,
+    mutationDigest,
+    resultDigest,
     history: [{ stage, at: updatedAt }],
     updatedAt,
   };
@@ -140,6 +176,11 @@ export function advanceSecurityFindingLifecycle(lifecycle = null, nextStage, met
     classificationDigest: metadata.classificationDigest || current.classificationDigest || null,
     reconciliationDigest: metadata.reconciliationDigest || current.reconciliationDigest || null,
     proposalDigest: metadata.proposalDigest || current.proposalDigest || null,
+    packetDigest: metadata.packetDigest || current.packetDigest || null,
+    reviewDigest: metadata.reviewDigest || current.reviewDigest || null,
+    preconditionDigest: metadata.preconditionDigest || current.preconditionDigest || null,
+    mutationDigest: metadata.mutationDigest || current.mutationDigest || null,
+    resultDigest: metadata.resultDigest || current.resultDigest || null,
     history: [...(current.history || []), { stage: nextStage, at: updatedAt }].slice(-20),
     updatedAt,
   };

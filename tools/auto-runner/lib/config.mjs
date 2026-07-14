@@ -62,6 +62,18 @@ export const defaultConfig = Object.freeze({
     allowSecurityFindingClassification: false,
     allowSecurityFindingProposalPlanning: false,
     allowSecurityFindingIssueCreation: false,
+    allowFalsePositiveEvidence: false,
+    allowSecurityFindingDisposition: false,
+    allowProvenFalsePositiveDisposition: false,
+    allowSecurityFindingCompletionHygiene: false,
+    dispositionDryRunOnly: true,
+    packetTtlMinutes: 60,
+    maxDispositionsPerRun: 1,
+    allowedDispositionReasons: {
+      code_scanning_alert: ["false positive"],
+      dependabot_alert: ["inaccurate"],
+    },
+    requirePostDispositionReconciliation: true,
     dryRunOnly: true,
     persistState: true,
     enabledSourceKinds: [
@@ -169,6 +181,7 @@ export function parseCliArgs(argv) {
     fixtureIssuesPath: null,
     supervisorRunId: null,
     securityFindingsDryRun: false,
+    securityFindingsDispositionDryRun: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -205,6 +218,10 @@ export function parseCliArgs(argv) {
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
     else if (arg === "--security-findings-dry-run") args.securityFindingsDryRun = true;
+    else if (arg === "--security-findings-disposition-dry-run") {
+      args.securityFindingsDryRun = true;
+      args.securityFindingsDispositionDryRun = true;
+    }
     else if (arg === "--reviewer-smoke-tier") args.reviewerSmokeTier = readValue(argv, ++index, arg);
     else if (arg === "--since") args.sinceMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-runtime") {
@@ -327,6 +344,7 @@ export function loadConfig(cliArgs) {
     config.mode = "security-findings-dry-run";
     config.dryRun = true;
     config.run = false;
+    config.securityFindingsDispositionDryRun = Boolean(cliArgs.securityFindingsDispositionDryRun);
   }
   if (cliArgs.reviewerSmokeTest) {
     config.mode = "reviewer-smoke-test";

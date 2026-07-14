@@ -50,6 +50,18 @@
     "allowSecurityFindingClassification": false,
     "allowSecurityFindingProposalPlanning": false,
     "allowSecurityFindingIssueCreation": false,
+    "allowFalsePositiveEvidence": false,
+    "allowSecurityFindingDisposition": false,
+    "allowProvenFalsePositiveDisposition": false,
+    "allowSecurityFindingCompletionHygiene": false,
+    "dispositionDryRunOnly": true,
+    "packetTtlMinutes": 60,
+    "maxDispositionsPerRun": 1,
+    "allowedDispositionReasons": {
+      "code_scanning_alert": ["false positive"],
+      "dependabot_alert": ["inaccurate"]
+    },
+    "requirePostDispositionReconciliation": true,
     "dryRunOnly": true,
     "persistState": true,
     "enabledSourceKinds": [

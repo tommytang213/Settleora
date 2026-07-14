@@ -2,6 +2,9 @@ import { GitHubSecurityFindingAdapter, parseSecurityArtifactEntries } from "./se
 import { classifySecurityFinding } from "./security-findings-classifier.mjs";
 import { buildSecurityFindingEvidence, evaluateSecurityFindingDuplicate, readRepositoryCorrelationReports } from "./security-findings-dedupe.mjs";
 import { executeIssueMutationPipeline } from "./issue-mutation-pipeline.mjs";
+import { buildFalsePositivePacket } from "./security-findings-false-positive.mjs";
+import { normalizeSecurityFindingDispositionConfig, prepareDispositionPrecondition, validateDispositionPolicy } from "./security-findings-disposition.mjs";
+import { buildReviewBundle, validateFalsePositiveReviewBundle } from "./security-findings-reviews.mjs";
 import { buildSecurityFindingProposal, securityFindingIssueCreationCapability } from "./security-findings-proposals.mjs";
 import { reconcileSecurityFinding } from "./security-findings-reconciliation.mjs";
 import { routeSecurityFindingRemediation } from "./security-findings-remediation.mjs";
@@ -42,10 +45,15 @@ export function normalizeSecurityFindingConfig(config = {}) {
     allowSecurityFindingClassification: Boolean(raw.allowSecurityFindingClassification),
     allowSecurityFindingProposalPlanning: Boolean(raw.allowSecurityFindingProposalPlanning),
     allowSecurityFindingIssueCreation: Boolean(raw.allowSecurityFindingIssueCreation),
+    allowFalsePositiveEvidence: Boolean(raw.allowFalsePositiveEvidence),
+    allowSecurityFindingDisposition: Boolean(raw.allowSecurityFindingDisposition),
+    allowProvenFalsePositiveDisposition: Boolean(raw.allowProvenFalsePositiveDisposition),
+    allowSecurityFindingCompletionHygiene: Boolean(raw.allowSecurityFindingCompletionHygiene),
     maxProposalsPerRun: boundedInt(raw.maxProposalsPerRun, 0, 25, 5, "securityFindings.maxProposalsPerRun"),
     classificationPolicyVersion: boundedInt(raw.classificationPolicyVersion, 1, 10, 1, "securityFindings.classificationPolicyVersion"),
     reconciliationRequired: raw.reconciliationRequired !== false,
     allowPartialPlanning: Boolean(raw.allowPartialPlanning),
+    disposition: normalizeSecurityFindingDispositionConfig({ ...config, securityFindings: raw }),
   };
 }
 
@@ -69,6 +77,14 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     retryCount: 0,
     manualCount: 0,
     falsePositiveCandidateCount: 0,
+    packetReadyCount: 0,
+    packetBlockedCount: 0,
+    reviewReadyCount: 0,
+    tieBreakerRequiredCount: 0,
+    dispositionReadyCount: 0,
+    dispositionBlockedCount: 0,
+    reconciliationReadyCount: 0,
+    completionReadyCount: 0,
     ambiguousCount: 0,
     failureCount: 0,
     failuresByReason: {},
@@ -140,6 +156,25 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
       if (route.route === "retry_later") result.retryCount += 1;
       if (route.route === "manual_gate") result.manualCount += 1;
       if (route.route === "blocked_ambiguous") result.ambiguousCount += 1;
+      if (route.route === "collect_false_positive_evidence" && securityConfig.allowFalsePositiveEvidence) {
+        if (nextLifecycle.ok) nextLifecycle = advanceSecurityFindingLifecycle(nextLifecycle.lifecycle, "false_positive_evidence_pending");
+        const readiness = await evaluateFalsePositiveDispositionReadiness({
+          finding,
+          classification,
+          reconciliation,
+          route,
+          securityConfig,
+          options,
+          now: options.now?.() || new Date().toISOString(),
+        });
+        for (const [key, value] of Object.entries(readiness.counts)) result[key] += value;
+        for (const reason of readiness.failures) increment(result.failuresByReason, reason);
+        if (readiness.counts.packetReadyCount > 0 && nextLifecycle.ok) {
+          nextLifecycle = advanceSecurityFindingLifecycle(nextLifecycle.lifecycle, "false_positive_packet_ready", {
+            packetDigest: options.falsePositiveEvidence?.[finding.correlationKey]?.packetDigest || null,
+          });
+        }
+      }
       if (route.route === "propose_issue" && securityConfig.allowSecurityFindingProposalPlanning && proposals.length < securityConfig.maxProposalsPerRun) {
         const proposal = buildSecurityFindingProposal({ finding, classification, reconciliation, route });
         if (proposal.ok) {
@@ -214,6 +249,77 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
   result.ok = true;
   result.reason = "dry_run_complete";
   return result;
+}
+
+async function evaluateFalsePositiveDispositionReadiness({ finding, classification, reconciliation, securityConfig, options, now }) {
+  const counts = {
+    packetReadyCount: 0,
+    packetBlockedCount: 0,
+    reviewReadyCount: 0,
+    tieBreakerRequiredCount: 0,
+    dispositionReadyCount: 0,
+    dispositionBlockedCount: 0,
+    reconciliationReadyCount: 0,
+    completionReadyCount: 0,
+  };
+  const failures = [];
+  const evidence = options.falsePositiveEvidence?.[finding.correlationKey];
+  if (!evidence) {
+    counts.packetBlockedCount += 1;
+    failures.push("false_positive_evidence_missing");
+    return { counts, failures };
+  }
+  const packetResult = buildFalsePositivePacket({
+    finding,
+    classification,
+    reconciliation,
+    linkedIssue: evidence.linkedIssue || null,
+    analysisKind: evidence.analysisKind,
+    analysisReasonCodes: evidence.analysisReasonCodes,
+    deterministicProofs: evidence.deterministicProofs,
+    currentMainProof: evidence.currentMainProof,
+    noWeakeningProof: evidence.noWeakeningProof,
+    reviewPackageDigest: evidence.reviewPackageDigest,
+  }, { now, ttlMinutes: securityConfig.disposition.packetTtlMinutes });
+  if (!packetResult.ok) {
+    counts.packetBlockedCount += 1;
+    failures.push(packetResult.reason);
+    return { counts, failures };
+  }
+  counts.packetReadyCount += 1;
+  const reviewBundle = evidence.reviewBundle || buildReviewBundle(evidence.reviews || {}, packetResult.packet);
+  const reviewValidation = validateFalsePositiveReviewBundle(reviewBundle, packetResult.packet, { now });
+  if (!reviewValidation.ok) {
+    failures.push(reviewValidation.reason);
+    counts.dispositionBlockedCount += 1;
+    if (reviewValidation.tieBreakerRequired) counts.tieBreakerRequiredCount += 1;
+    return { counts, failures };
+  }
+  counts.reviewReadyCount += 1;
+  if (reviewValidation.tieBreakerRequired) counts.tieBreakerRequiredCount += 1;
+  const reason = evidence.dispositionReason || (finding.sourceKind === "dependabot_alert" ? "inaccurate" : "false positive");
+  const policy = validateDispositionPolicy(packetResult.packet, reason);
+  if (!policy.ok) {
+    counts.dispositionBlockedCount += 1;
+    failures.push(policy.reason);
+    return { counts, failures };
+  }
+  const adapter = evidence.adapter || options.dispositionAdapter;
+  if (!adapter) {
+    counts.dispositionBlockedCount += 1;
+    failures.push("disposition_adapter_missing");
+    return { counts, failures };
+  }
+  const precondition = await prepareDispositionPrecondition(packetResult.packet, reviewBundle, adapter, { now });
+  if (!precondition.ok) {
+    counts.dispositionBlockedCount += 1;
+    failures.push(precondition.reason);
+    return { counts, failures };
+  }
+  counts.dispositionReadyCount += 1;
+  if (evidence.postDispositionReconciliationReady === true) counts.reconciliationReadyCount += 1;
+  if (evidence.completionReady === true) counts.completionReadyCount += 1;
+  return { counts, failures };
 }
 
 function fail(result, reason) {

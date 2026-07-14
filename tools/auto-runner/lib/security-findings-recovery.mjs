@@ -6,6 +6,13 @@ export const securityFindingRecoveryActions = Object.freeze([
   "security_finding_proposal_planning",
   "security_finding_duplicate_reuse_lookup",
   "security_finding_issue_mutation",
+  "security_finding_false_positive_packet",
+  "security_finding_false_positive_review",
+  "security_finding_disposition_precondition",
+  "security_finding_disposition_attempt",
+  "security_finding_disposition_confirm",
+  "security_finding_post_disposition_reconciliation",
+  "security_finding_linked_issue_completion",
   "security_finding_retry_scheduling",
   "security_finding_current_main_reconciliation",
 ]);
@@ -34,6 +41,31 @@ export function recordSecurityFindingMutationMarker(state, proposal, marker = {}
     marker: {
       component: "security_finding_issue_mutation",
       proposalDigest: proposal?.idempotencyKey || null,
+      ...marker,
+    },
+  });
+}
+
+export function planSecurityFindingDispositionMarker(state, packet, stage = "planned") {
+  const key = packet?.packetDigest || packet?.correlationKey || "missing";
+  const kind = `security_finding_disposition_${stage}`;
+  if (recoveryHasMutationMarker(state, kind, key)) {
+    return { action: "skip_existing_marker", mutate: false, kind, key };
+  }
+  return { action: "perform_once", mutate: true, kind, key };
+}
+
+export function recordSecurityFindingDispositionMarker(state, packet, marker = {}) {
+  const key = packet?.packetDigest || packet?.correlationKey || "missing";
+  const stage = marker.stage || "planned";
+  return recordIdempotentMutation(state, {
+    kind: `security_finding_disposition_${stage}`,
+    key,
+    marker: {
+      component: "security_finding_disposition",
+      packetDigest: packet?.packetDigest || null,
+      correlationKey: packet?.correlationKey || null,
+      stage,
       ...marker,
     },
   });

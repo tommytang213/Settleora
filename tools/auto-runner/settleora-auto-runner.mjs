@@ -1976,6 +1976,13 @@ function renderSecurityFindingsDryRunText(result) {
     `New: ${result.newCount}`,
     `Ambiguous: ${result.ambiguousCount}`,
     `Source failures: ${result.failureCount}`,
+    `False-positive candidates: ${result.falsePositiveCandidateCount || 0}`,
+    `Packets ready/blocked: ${result.packetReadyCount || 0}/${result.packetBlockedCount || 0}`,
+    `Reviews ready: ${result.reviewReadyCount || 0}`,
+    `Tie-breakers required: ${result.tieBreakerRequiredCount || 0}`,
+    `Disposition ready/blocked: ${result.dispositionReadyCount || 0}/${result.dispositionBlockedCount || 0}`,
+    `Reconciliation ready: ${result.reconciliationReadyCount || 0}`,
+    `Completion ready: ${result.completionReadyCount || 0}`,
   ];
   for (const [sourceKind, source] of Object.entries(result.sources || {})) {
     lines.push(`- ${sourceKind}: ${source.status}; count=${source.count}; reason=${source.reason || "none"}`);
