@@ -2,8 +2,31 @@ import { existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync,
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
-export const securityFindingsStateVersion = 1;
+export const securityFindingsStateVersion = 2;
+export const compatibleSecurityFindingsStateVersions = Object.freeze([1, 2]);
 export const securityFindingsStateDir = "security-findings";
+export const securityFindingLifecycleStages = Object.freeze([
+  "ingested",
+  "classified",
+  "reconciled",
+  "proposal_planned",
+  "proposal_reused",
+  "proposal_created",
+  "retry_scheduled",
+  "manual_gated",
+  "false_positive_evidence_pending",
+  "resolved_or_superseded",
+  "blocked",
+]);
+
+const lifecycleStageSet = new Set(securityFindingLifecycleStages);
+const allowedTransitions = new Map([
+  ["ingested", new Set(["classified", "blocked"])],
+  ["classified", new Set(["reconciled", "manual_gated", "false_positive_evidence_pending", "retry_scheduled", "blocked"])],
+  ["reconciled", new Set(["proposal_planned", "resolved_or_superseded", "blocked"])],
+  ["proposal_planned", new Set(["proposal_reused", "proposal_created", "blocked"])],
+  ["retry_scheduled", new Set(["classified", "blocked"])],
+]);
 
 export function securityFindingsStateRoot(config = {}) {
   return path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", securityFindingsStateDir);
@@ -24,7 +47,7 @@ export function readSecurityFindingsState(config = {}) {
     const parsed = JSON.parse(readFileSync(statePath, "utf8"));
     const validation = validateSecurityFindingsState(parsed);
     if (!validation.ok) return validation;
-    return { ok: true, state: parsed, statePath };
+    return { ok: true, state: migrateSecurityFindingsState(parsed), statePath };
   } catch {
     return { ok: false, reason: "security_findings_state_corrupt", statePath };
   }
@@ -64,7 +87,7 @@ export function mergeSecurityFindingRecords(existing = [], incoming = []) {
 
 export function validateSecurityFindingsState(state = {}) {
   if (!state || typeof state !== "object") return { ok: false, reason: "security_findings_state_not_object" };
-  if (state.stateVersion !== securityFindingsStateVersion) return { ok: false, reason: "security_findings_state_version_unsupported" };
+  if (!compatibleSecurityFindingsStateVersions.includes(state.stateVersion)) return { ok: false, reason: "security_findings_state_version_unsupported" };
   if (!Array.isArray(state.records)) return { ok: false, reason: "security_findings_state_records_missing" };
   if (state.records.length > 2_000) return { ok: false, reason: "security_findings_state_records_oversized" };
   const keys = new Set();
@@ -77,8 +100,52 @@ export function validateSecurityFindingsState(state = {}) {
     if (/rawSarif|rawPayload|providerPayload|snippet|Bearer\s+|token=|password=|secret=/i.test(serialized)) {
       return { ok: false, reason: "security_findings_state_unsanitized_record" };
     }
+    const lifecycle = record.lifecycle;
+    if (lifecycle !== undefined) {
+      const lifecycleValidation = validateLifecycleRecord(lifecycle);
+      if (!lifecycleValidation.ok) return lifecycleValidation;
+    }
   }
   return { ok: true };
+}
+
+export function createLifecycleRecord({ stage = "ingested", classificationDigest = null, reconciliationDigest = null, proposalDigest = null, updatedAt = new Date().toISOString() } = {}) {
+  const record = {
+    lifecycleVersion: 1,
+    stage,
+    classificationDigest,
+    reconciliationDigest,
+    proposalDigest,
+    history: [{ stage, at: updatedAt }],
+    updatedAt,
+  };
+  const validation = validateLifecycleRecord(record);
+  if (!validation.ok) throw new Error(validation.reason);
+  return record;
+}
+
+export function advanceSecurityFindingLifecycle(lifecycle = null, nextStage, metadata = {}) {
+  const current = lifecycle || createLifecycleRecord();
+  const validation = validateLifecycleRecord(current);
+  if (!validation.ok) return { ok: false, reason: validation.reason };
+  if (!lifecycleStageSet.has(nextStage)) return { ok: false, reason: "security_findings_lifecycle_stage_invalid" };
+  if (current.stage !== nextStage) {
+    const allowed = allowedTransitions.get(current.stage) || new Set();
+    if (!allowed.has(nextStage)) return { ok: false, reason: "security_findings_lifecycle_transition_invalid" };
+  }
+  const updatedAt = metadata.updatedAt || new Date().toISOString();
+  const next = {
+    ...current,
+    stage: nextStage,
+    classificationDigest: metadata.classificationDigest || current.classificationDigest || null,
+    reconciliationDigest: metadata.reconciliationDigest || current.reconciliationDigest || null,
+    proposalDigest: metadata.proposalDigest || current.proposalDigest || null,
+    history: [...(current.history || []), { stage: nextStage, at: updatedAt }].slice(-20),
+    updatedAt,
+  };
+  const nextValidation = validateLifecycleRecord(next);
+  if (!nextValidation.ok) return nextValidation;
+  return { ok: true, lifecycle: next };
 }
 
 function emptyState() {
@@ -89,6 +156,34 @@ function emptyState() {
     metadata: {},
     records: [],
   };
+}
+
+function migrateSecurityFindingsState(state) {
+  if (state.stateVersion === securityFindingsStateVersion) return state;
+  return {
+    ...state,
+    stateVersion: securityFindingsStateVersion,
+    schema: "settleora.securityFindings.ingestionState",
+    records: (state.records || []).map((record) => ({
+      ...record,
+      lifecycle: record.lifecycle || createLifecycleRecord({ stage: "ingested", updatedAt: record.ingestedAt || state.updatedAt || new Date().toISOString() }),
+    })),
+  };
+}
+
+function validateLifecycleRecord(lifecycle) {
+  if (!lifecycle || typeof lifecycle !== "object" || Array.isArray(lifecycle)) return { ok: false, reason: "security_findings_lifecycle_not_object" };
+  if (lifecycle.lifecycleVersion !== 1) return { ok: false, reason: "security_findings_lifecycle_version_unsupported" };
+  if (!lifecycleStageSet.has(lifecycle.stage)) return { ok: false, reason: "security_findings_lifecycle_stage_invalid" };
+  if (!Array.isArray(lifecycle.history) || lifecycle.history.length > 20) return { ok: false, reason: "security_findings_lifecycle_history_invalid" };
+  for (const entry of lifecycle.history) {
+    if (!entry || !lifecycleStageSet.has(entry.stage) || typeof entry.at !== "string") return { ok: false, reason: "security_findings_lifecycle_history_invalid" };
+  }
+  const text = JSON.stringify(lifecycle);
+  if (/rawSarif|rawPayload|providerPayload|snippet|Bearer\s+|token=|password=|secret=/i.test(text)) {
+    return { ok: false, reason: "security_findings_lifecycle_unsanitized" };
+  }
+  return { ok: true };
 }
 
 function dedupeRecords(records) {

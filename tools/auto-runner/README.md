@@ -83,13 +83,18 @@ task-scoped config path:
 node tools/auto-runner/settleora-auto-runner.mjs --review-package /workspace/logs/settleora-auto-runner/reviews/package.json --config /workspace/logs/settleora-auto-runner/reviewer-validation/<task-key>/config.json
 ```
 
-Security findings ingestion is default-off. Checkpoint 1 exposes only a
-non-mutating dry-run that requires an explicit task-scoped config. The dry-run
-reads enabled sources, normalizes sanitized records, derives correlation and
-idempotency keys, checks duplicate evidence, and may persist sanitized state
-under `/workspace/logs/settleora-auto-runner/security-findings/`. It does not
-create issues, edit PRs, change labels, dismiss alerts, close findings, update
-dependencies, push branches, open PRs, merge, or mutate product code.
+Security findings ingestion is default-off. The explicit non-mutating dry-run
+requires a task-scoped config. It reads enabled sources, normalizes sanitized
+records, derives correlation and idempotency keys, checks duplicate evidence,
+and may persist sanitized state under
+`/workspace/logs/settleora-auto-runner/security-findings/`. Checkpoint 2 can
+also opt in to deterministic classification and proposal planning with
+`allowSecurityFindingClassification` and
+`allowSecurityFindingProposalPlanning`; issue creation still requires both the
+global follow-up capability and `allowSecurityFindingIssueCreation`, and the
+dry-run path forces previews only. It does not create issues, edit PRs, change
+labels, dismiss alerts, close findings, update dependencies, push branches,
+open PRs, merge, or mutate product code.
 
 ```bash
 node tools/auto-runner/settleora-auto-runner.mjs --security-findings-dry-run --config /workspace/logs/settleora-auto-runner/security-findings/<task-key>/config.json --json

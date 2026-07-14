@@ -1,6 +1,13 @@
 import { GitHubSecurityFindingAdapter, parseSecurityArtifactEntries } from "./security-findings-adapters.mjs";
+import { classifySecurityFinding } from "./security-findings-classifier.mjs";
 import { buildSecurityFindingEvidence, evaluateSecurityFindingDuplicate, readRepositoryCorrelationReports } from "./security-findings-dedupe.mjs";
+import { executeIssueMutationPipeline } from "./issue-mutation-pipeline.mjs";
+import { buildSecurityFindingProposal, securityFindingIssueCreationCapability } from "./security-findings-proposals.mjs";
+import { reconcileSecurityFinding } from "./security-findings-reconciliation.mjs";
+import { routeSecurityFindingRemediation } from "./security-findings-remediation.mjs";
 import {
+  advanceSecurityFindingLifecycle,
+  createLifecycleRecord,
   mergeSecurityFindingRecords,
   readSecurityFindingsState,
   writeSecurityFindingsState,
@@ -32,6 +39,13 @@ export function normalizeSecurityFindingConfig(config = {}) {
     maxStateRecords: boundedInt(raw.maxStateRecords, 1, 2_000, 500, "securityFindings.maxStateRecords"),
     maxArtifactEntries: boundedInt(raw.maxArtifactEntries, 1, 50, 10, "securityFindings.maxArtifactEntries"),
     maxArtifactEntryBytes: boundedInt(raw.maxArtifactEntryBytes, 1_024, 5 * 1024 * 1024, 2 * 1024 * 1024, "securityFindings.maxArtifactEntryBytes"),
+    allowSecurityFindingClassification: Boolean(raw.allowSecurityFindingClassification),
+    allowSecurityFindingProposalPlanning: Boolean(raw.allowSecurityFindingProposalPlanning),
+    allowSecurityFindingIssueCreation: Boolean(raw.allowSecurityFindingIssueCreation),
+    maxProposalsPerRun: boundedInt(raw.maxProposalsPerRun, 0, 25, 5, "securityFindings.maxProposalsPerRun"),
+    classificationPolicyVersion: boundedInt(raw.classificationPolicyVersion, 1, 10, 1, "securityFindings.classificationPolicyVersion"),
+    reconciliationRequired: raw.reconciliationRequired !== false,
+    allowPartialPlanning: Boolean(raw.allowPartialPlanning),
   };
 }
 
@@ -45,11 +59,21 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     sources: {},
     sourceCounts: {},
     normalizedCount: 0,
+    classificationCounts: {},
+    reconciliationCounts: {},
+    routeCounts: {},
     duplicateCount: 0,
     newCount: 0,
+    proposalCount: 0,
+    reuseCount: 0,
+    retryCount: 0,
+    manualCount: 0,
+    falsePositiveCandidateCount: 0,
     ambiguousCount: 0,
     failureCount: 0,
     failuresByReason: {},
+    mutationCalls: 0,
+    issueCreationCapability: {},
     statePath: null,
     evidencePath: null,
   };
@@ -65,6 +89,7 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
 
   const adapter = options.adapter || new GitHubSecurityFindingAdapter(mergedConfig, { runner: options.runner, now: options.now });
   const normalized = [];
+  const providerFailures = [];
   for (const sourceKind of securityConfig.enabledSourceKinds) {
     const sourceResult = options.artifactEntries?.[sourceKind]
       ? parseSecurityArtifactEntries(options.artifactEntries[sourceKind], { sourceKind, repository: securityConfig.allowedRepository }, {
@@ -77,12 +102,17 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     result.sourceCounts[sourceKind] = sourceResult.findings?.length || 0;
     normalized.push(...(sourceResult.findings || []));
     for (const reason of sourceResult.failures || []) increment(result.failuresByReason, reason);
-    if (sourceResult.status !== "ok") result.failureCount += 1;
+    if (sourceResult.status !== "ok") {
+      result.failureCount += 1;
+      providerFailures.push({ sourceKind, reason: sourceResult.reason || sourceResult.failures?.[0] || "source_failed", httpStatus: sourceResult.httpStatus || null });
+    }
   }
   result.normalizedCount = normalized.length;
 
   const repoReports = options.reports || readRepositoryCorrelationReports(config.repoRoot || "/workspace/repos/Settleora");
   const durableState = stateRead.state.records || [];
+  const plannedRecords = [];
+  const proposals = [];
   for (const finding of normalized) {
     const duplicate = evaluateSecurityFindingDuplicate(
       finding,
@@ -95,10 +125,80 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     if (!duplicate.ok || duplicate.status === "ambiguous") result.ambiguousCount += 1;
     else if (duplicate.status === "duplicate") result.duplicateCount += 1;
     else result.newCount += 1;
+    const lifecycle = createLifecycleRecord({ stage: "ingested", updatedAt: finding.ingestedAt });
+    if (securityConfig.allowSecurityFindingClassification || securityConfig.allowSecurityFindingProposalPlanning) {
+      const classificationInput = options.classificationInputs?.[finding.correlationKey] || {};
+      const classification = classifySecurityFinding({ finding, sourceIdentityVerified: true, authorityResolved: true, ...classificationInput }, { now: options.now?.() });
+      increment(result.classificationCounts, classification.category);
+      if (classification.category === "false_positive_candidate") result.falsePositiveCandidateCount += 1;
+      let nextLifecycle = advanceSecurityFindingLifecycle(lifecycle, "classified", { classificationDigest: classification.policyDigest });
+      const reconciliation = reconcileSecurityFinding({ finding, current: options.currentFindings?.[finding.correlationKey] || finding, requiresCurrentMainScan: options.requiresCurrentMainScan?.has?.(finding.correlationKey) }, { now: options.now?.() });
+      increment(result.reconciliationCounts, reconciliation.state);
+      if (nextLifecycle.ok) nextLifecycle = advanceSecurityFindingLifecycle(nextLifecycle.lifecycle, "reconciled", { reconciliationDigest: reconciliation.digest });
+      const route = routeSecurityFindingRemediation({ finding, classification, reconciliation, duplicate });
+      increment(result.routeCounts, route.route);
+      if (route.route === "retry_later") result.retryCount += 1;
+      if (route.route === "manual_gate") result.manualCount += 1;
+      if (route.route === "blocked_ambiguous") result.ambiguousCount += 1;
+      if (route.route === "propose_issue" && securityConfig.allowSecurityFindingProposalPlanning && proposals.length < securityConfig.maxProposalsPerRun) {
+        const proposal = buildSecurityFindingProposal({ finding, classification, reconciliation, route });
+        if (proposal.ok) {
+          proposals.push(proposal.proposal);
+          result.proposalCount += 1;
+          if (nextLifecycle.ok) nextLifecycle = advanceSecurityFindingLifecycle(nextLifecycle.lifecycle, "proposal_planned", { proposalDigest: proposal.proposal.idempotencyKey });
+        } else {
+          increment(result.failuresByReason, proposal.reason);
+          result.failureCount += 1;
+        }
+      }
+      plannedRecords.push({
+        ...finding,
+        lifecycle: nextLifecycle.ok ? nextLifecycle.lifecycle : lifecycle,
+        classification: summarizeClassification(classification),
+        reconciliation: summarizeReconciliation(reconciliation),
+        route: summarizeRoute(route),
+      });
+    } else {
+      plannedRecords.push({ ...finding, lifecycle });
+    }
+  }
+
+  for (const failure of providerFailures) {
+    if (!securityConfig.allowSecurityFindingClassification) continue;
+    const classification = classifySecurityFinding({
+      finding: {
+        sourceKind: failure.sourceKind,
+        correlationKey: `settleora:security-provider:v1:${failure.sourceKind}`,
+        idempotencyKey: `settleora:security-provider:v1:${failure.sourceKind}:${failure.reason}`,
+      },
+      providerFailure: failure,
+    }, { now: options.now?.() });
+    increment(result.classificationCounts, classification.category);
+    const route = routeSecurityFindingRemediation({ finding: {}, classification, reconciliation: { state: "missing_or_inaccessible" } });
+    increment(result.routeCounts, route.route);
+    if (route.route === "retry_later") result.retryCount += 1;
+  }
+
+  result.issueCreationCapability = securityFindingIssueCreationCapability({ ...config, securityFindings: securityConfig });
+  if (proposals.length > 0) {
+    const mutationConfig = {
+      ...config,
+      dryRun: true,
+      run: false,
+      allowFollowupIssueCreation: false,
+      maxFollowupIssuesPerRun: securityConfig.maxProposalsPerRun,
+    };
+    const mutation = executeIssueMutationPipeline(mutationConfig, proposals, options.proposalEvidence || {}, {
+      runner: () => {
+        result.mutationCalls += 1;
+        return { status: 1, stderr: "mutation runner must not be called in security findings dry-run" };
+      },
+    });
+    result.reuseCount = mutation.results.filter((item) => item.action === "reuse" || item.action === "reuse_completed_evidence").length;
   }
 
   if (securityConfig.persistState) {
-    const written = writeSecurityFindingsState(mergedConfig, mergeSecurityFindingRecords(durableState, normalized), {
+    const written = writeSecurityFindingsState(mergedConfig, mergeSecurityFindingRecords(durableState, plannedRecords.length > 0 ? plannedRecords : normalized), {
       taskKey: options.taskKey || null,
       runId: options.runId || null,
       supervisorRunId: config.supervisorRunId || null,
@@ -106,7 +206,7 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     });
     result.statePath = written.statePath;
   }
-  if (result.failureCount > 0 || result.ambiguousCount > 0) {
+  if ((result.failureCount > 0 || result.ambiguousCount > 0) && !securityConfig.allowPartialPlanning) {
     result.ok = false;
     result.reason = result.ambiguousCount > 0 ? "ambiguous_duplicate_evidence" : "source_failures";
     return result;
@@ -138,6 +238,40 @@ function increment(map, key) {
   map[key] = (map[key] || 0) + 1;
 }
 
+function summarizeClassification(classification) {
+  return {
+    classificationVersion: classification.classificationVersion,
+    category: classification.category,
+    confidence: classification.confidence,
+    reasonCodes: classification.reasonCodes,
+    requiredReconciliation: classification.requiredReconciliation,
+    suggestedLane: classification.suggestedLane,
+    suggestedValidationProfile: classification.suggestedValidationProfile,
+    manualGateRequired: classification.manualGateRequired,
+    proposalEligible: classification.proposalEligible,
+    policyDigest: classification.policyDigest,
+  };
+}
+
+function summarizeReconciliation(reconciliation) {
+  return {
+    reconciliationVersion: reconciliation.reconciliationVersion,
+    state: reconciliation.state,
+    reasonCodes: reconciliation.reasonCodes,
+    requiredCurrentMainScan: reconciliation.requiredCurrentMainScan,
+    digest: reconciliation.digest,
+  };
+}
+
+function summarizeRoute(route) {
+  return {
+    routeVersion: route.routeVersion,
+    route: route.route,
+    reasonCodes: route.reasonCodes,
+    proposalAllowed: route.proposalAllowed,
+  };
+}
+
 function boundedInt(value, min, max, fallback, field) {
   if (value === undefined || value === null) return fallback;
   const number = Number(value);
@@ -148,8 +282,8 @@ function boundedInt(value, min, max, fallback, field) {
 }
 
 export const securityFindingExtensionSeams = Object.freeze({
-  classifier: "checkpoint_2_pending",
-  remediationProposal: "checkpoint_2_pending",
+  classifier: "checkpoint_2_available",
+  remediationProposal: "checkpoint_2_available",
   falsePositiveEvidencePacket: "checkpoint_3_pending",
   dispositionMutationAdapter: "checkpoint_3_pending",
   completionHygiene: "checkpoint_3_pending",

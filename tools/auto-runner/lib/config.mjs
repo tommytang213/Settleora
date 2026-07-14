@@ -59,6 +59,9 @@ export const defaultConfig = Object.freeze({
   allowFollowupIssueCreation: false,
   securityFindings: {
     allowSecurityFindingIngestion: false,
+    allowSecurityFindingClassification: false,
+    allowSecurityFindingProposalPlanning: false,
+    allowSecurityFindingIssueCreation: false,
     dryRunOnly: true,
     persistState: true,
     enabledSourceKinds: [
@@ -74,6 +77,10 @@ export const defaultConfig = Object.freeze({
     maxStateRecords: 500,
     maxArtifactEntries: 10,
     maxArtifactEntryBytes: 2097152,
+    maxProposalsPerRun: 5,
+    classificationPolicyVersion: 1,
+    reconciliationRequired: true,
+    allowPartialPlanning: false,
     allowedRepository: "tommytang213/Settleora",
   },
   allowReviewFixMutation: false,
