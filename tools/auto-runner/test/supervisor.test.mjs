@@ -92,6 +92,47 @@ test("run-spec canonical serialization, exclusive create, digest, tamper, symlin
   assert.throws(() => buildRunSpec({ profile, initialOriginMainSha: fakeSha, logsRoot }), /Group\/world-writable/);
 });
 
+test("run-spec validates complete outage resubmission source identity", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-supervisor-outage-"));
+  const outageResubmission = {
+    attemptNumber: 1,
+    markerKey: "a".repeat(64),
+    outageFingerprint: "b".repeat(64),
+    originalSupervisorSpecDigest: "c".repeat(64),
+    taskKey: "20260715-0308",
+    currentHeadSha: "d".repeat(40),
+    prNumber: 917,
+    prHeadSha: "d".repeat(40),
+  };
+  try {
+    const { spec } = buildRunSpec({
+      runId: "supervised-20260715T010000Z-000000000abc",
+      profile: "default",
+      initialOriginMainSha: fakeSha,
+      outageResubmission,
+      allowMissingConfig: true,
+      logsRoot: tempRoot,
+    });
+    assert.equal(spec.outageResubmission.taskKey, "20260715-0308");
+    assert.equal(spec.outageResubmission.currentHeadSha, "d".repeat(40));
+    assert.equal(spec.outageResubmission.prNumber, 917);
+    assert.equal(spec.outageResubmission.prHeadSha, "d".repeat(40));
+    assert.doesNotThrow(() => validateRunSpecShape({
+      ...spec,
+      outageResubmission: { ...outageResubmission, prNumber: null, prHeadSha: null },
+    }));
+    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, taskKey: "bad/key" }, allowMissingConfig: true, logsRoot: tempRoot }), /taskKey/);
+    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, currentHeadSha: "D".repeat(40) }, allowMissingConfig: true, logsRoot: tempRoot }), /currentHeadSha/);
+    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, prNumber: 917, prHeadSha: null }, allowMissingConfig: true, logsRoot: tempRoot }), /paired/);
+    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, prNumber: null, prHeadSha: "d".repeat(40) }, allowMissingConfig: true, logsRoot: tempRoot }), /paired/);
+    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, prNumber: 0 }, allowMissingConfig: true, logsRoot: tempRoot }), /prNumber/);
+    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, prHeadSha: "g".repeat(40) }, allowMissingConfig: true, logsRoot: tempRoot }), /prHeadSha/);
+    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, extra: "nope" }, allowMissingConfig: true, logsRoot: tempRoot }), /Unknown outageResubmission field/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("storage keys and fixed artifact paths keep raw identifiers out of filesystem sinks", () => {
   const rawRunId = "supervised-20260711T063151Z-066b80f4fc16";
   const otherRunId = "supervised-20260711T063151Z-166b80f4fc16";

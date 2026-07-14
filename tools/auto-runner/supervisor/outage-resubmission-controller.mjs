@@ -273,7 +273,13 @@ export function runOutageResubmissionController(input = {}) {
     circuit,
   });
 
-  const child = buildChildRunPlan({ config, source, state: plannedState, now, childRunId: input.childRunId });
+  let child;
+  try {
+    child = buildChildRunPlan({ config, source, state: plannedState, now, childRunId: input.childRunId });
+  } catch (error) {
+    event("child_spec_identity_blocked", { reasonCode: error.message });
+    return result("blocked", "child_spec_identity_invalid", { events, counts, outageState: plannedState });
+  }
   const beforeSubmitGate = applyOutageOperatorGate({ operatorControl: input.operatorControlBeforeSubmit || input.operatorControl || {} });
   if (beforeSubmitGate.reasonCode === "operator_pause" || beforeSubmitGate.reasonCode === "operator_stop") {
     event("operator_pause_stop", beforeSubmitGate);
@@ -333,10 +339,17 @@ function buildChildRunPlan({ config, source, state, now, childRunId }) {
       markerKey: state.mutationMarker.key,
       outageFingerprint: state.outage.outageFingerprint,
       originalSupervisorSpecDigest: source.originalSupervisorSpecDigest,
+      taskKey: source.taskKey,
+      currentHeadSha: source.currentHeadSha,
+      prNumber: source.prNumber || null,
+      prHeadSha: source.prHeadSha || null,
     },
     allowMissingConfig: true,
     logsRoot: config.logsRoot,
   }).spec;
+  if (spec.runnerConfigSha256 !== source.runnerConfigDigest) {
+    throw new Error("runner_config_digest_mismatch");
+  }
   return { spec, specSha256: sha256Text(canonicalJson(spec)) };
 }
 

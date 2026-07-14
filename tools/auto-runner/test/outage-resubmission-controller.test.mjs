@@ -6,7 +6,7 @@ import path from "node:path";
 import { runOutageResubmissionController, evaluateSourceRunEligibility } from "../supervisor/outage-resubmission-controller.mjs";
 import { createOutageResubmissionState, transitionOutageMarker } from "../lib/outage-resubmission-state.mjs";
 import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
-import { resolveProfile } from "../supervisor/run-spec.mjs";
+import { canonicalJson, readAndVerifyRunSpec, resolveProfile, sha256Text, writeImmutableRunSpec } from "../supervisor/run-spec.mjs";
 import { getRunnerStatus } from "../lib/control-plane.mjs";
 import { evaluateAutoRunnerHealth } from "../lib/health-service.mjs";
 import { monitoringEvents, recordMonitoringEvent } from "../supervisor/monitoring-outbox.mjs";
@@ -15,6 +15,8 @@ const shaA = "a".repeat(40);
 const shaB = "b".repeat(40);
 const digestA = "a".repeat(64);
 const digestB = "b".repeat(64);
+const profileConfig = '{"trustedRealRunApproved":true}\n';
+const profileConfigDigest = "2642cfcf41be23ff01aa228eb94455d0e67aa12945ca2d335bed7e9bc99774a4";
 const now = new Date("2026-07-15T01:00:00.000Z");
 
 test("source eligibility is not inferred from age or stopped state alone", () => {
@@ -77,7 +79,160 @@ test("controller plans one exact correlated child in dry-run with zero live muta
     assert.equal(result.child.spec.sourceIssueNumber, 913);
     assert.equal(result.child.spec.sourceBranchName, source().branchName);
     assert.equal(result.child.spec.outageResubmission.attemptNumber, 1);
+    assert.equal(result.child.spec.outageResubmission.taskKey, source().taskKey);
+    assert.equal(result.child.spec.outageResubmission.currentHeadSha, source().currentHeadSha);
+    assert.equal(result.child.spec.outageResubmission.prNumber, source().prNumber);
+    assert.equal(result.child.spec.outageResubmission.prHeadSha, source().prHeadSha);
     assert.match(result.child.specSha256, /^[a-f0-9]{64}$/);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("complete child spec identity survives canonical write read and reconciles from disk only", () => {
+  const config = tempConfig();
+  try {
+    const sourceInput = source({ runnerConfigDigest: config.runnerConfigDigest });
+    const planned = runOutageResubmissionController({
+      config,
+      source: sourceInput,
+      dryRun: true,
+      now,
+      childRunId: "supervised-20260715T010000Z-000000000120",
+    });
+    const state = transitionOutageMarker(planned.outageState, {
+      status: "submitted",
+      childSupervisorRunId: planned.child.spec.runId,
+      specDigest: planned.child.specSha256,
+      reasonCode: "child_submission_confirmed",
+    });
+    const written = writeImmutableRunSpec(planned.child.spec, config.logsRoot);
+    assert.equal(written.specSha256, planned.child.specSha256);
+
+    const loaded = readAndVerifyRunSpec(planned.child.spec.runId, planned.child.specSha256, config.logsRoot);
+    assert.equal(loaded.spec.outageResubmission.taskKey, sourceInput.taskKey);
+    assert.equal(loaded.spec.outageResubmission.currentHeadSha, sourceInput.currentHeadSha);
+    assert.equal(loaded.spec.outageResubmission.prNumber, sourceInput.prNumber);
+    assert.equal(loaded.spec.outageResubmission.prHeadSha, sourceInput.prHeadSha);
+
+    let result = runOutageResubmissionController({
+      config,
+      source: sourceInput,
+      outageState: state,
+      existingChildren: [{ ...loaded.spec, specSha256: loaded.specSha256 }],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "submitted_child_reconciled");
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    const confirmed = transitionOutageMarker(state, {
+      status: "confirmed_running",
+      childSupervisorRunId: planned.child.spec.runId,
+      specDigest: planned.child.specSha256,
+      reasonCode: "submitted_child_reconciled",
+    });
+    result = runOutageResubmissionController({
+      config,
+      source: sourceInput,
+      outageState: confirmed,
+      existingChildren: [{ ...loaded.spec, specSha256: loaded.specSha256, state: "running" }],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "observed");
+    assert.equal(result.reasonCode, "confirmed_running_child_observed");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("child spec digest changes when persisted source identity changes", () => {
+  const config = tempConfig();
+  try {
+    const first = runOutageResubmissionController({ config, source: source(), dryRun: true, now, childRunId: "supervised-20260715T010000Z-000000000121" });
+    const changedTask = {
+      ...first.child.spec,
+      outageResubmission: {
+        ...first.child.spec.outageResubmission,
+        taskKey: "20260715-9999",
+      },
+    };
+    const changedHead = {
+      ...first.child.spec,
+      outageResubmission: {
+        ...first.child.spec.outageResubmission,
+        currentHeadSha: "c".repeat(40),
+        prHeadSha: "c".repeat(40),
+      },
+    };
+    assert.notEqual(sha256Text(canonicalJson(changedTask)), first.child.specSha256);
+    assert.notEqual(sha256Text(canonicalJson(changedHead)), first.child.specSha256);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("child planning blocks when source runner config digest no longer matches the immutable spec", () => {
+  const config = tempConfig();
+  try {
+    const result = runOutageResubmissionController({
+      config,
+      source: source({ runnerConfigDigest: digestA }),
+      dryRun: true,
+      now,
+      childRunId: "supervised-20260715T010000Z-000000000123",
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "child_spec_identity_invalid");
+    assert.equal(result.counts.realMutationCalls, 0);
+    assert.equal(result.events.some((item) => item.event === "child_spec_identity_blocked"), true);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("disk-reloaded incomplete historical child specs fail closed without mutable inference", () => {
+  const config = tempConfig();
+  try {
+    const sourceInput = source({ runnerConfigDigest: config.runnerConfigDigest });
+    const planned = runOutageResubmissionController({
+      config,
+      source: sourceInput,
+      dryRun: true,
+      now,
+      childRunId: "supervised-20260715T010000Z-000000000122",
+    });
+    const state = transitionOutageMarker(planned.outageState, {
+      status: "submitted",
+      childSupervisorRunId: planned.child.spec.runId,
+      specDigest: planned.child.specSha256,
+      reasonCode: "child_submission_confirmed",
+    });
+    const complete = planned.child.spec;
+    for (const outageResubmission of [
+      { ...complete.outageResubmission, taskKey: undefined },
+      { ...complete.outageResubmission, currentHeadSha: undefined },
+      { ...complete.outageResubmission, prNumber: null, prHeadSha: null },
+    ]) {
+      const incomplete = {
+        ...complete,
+        outageResubmission: Object.fromEntries(Object.entries(outageResubmission).filter(([, value]) => value !== undefined)),
+        specSha256: planned.child.specSha256,
+      };
+      const result = runOutageResubmissionController({
+        config,
+        source: sourceInput,
+        outageState: state,
+        existingChildren: [incomplete],
+        dryRun: true,
+        now,
+      });
+      assert.equal(result.outcome, "blocked");
+      assert.match(result.reasonCode, /^outage_child_(ambiguous|identity_mismatch)_requires_reconciliation$/);
+      assert.equal(result.counts.realMutationCalls, 0);
+    }
   } finally {
     config.cleanup();
   }
@@ -622,7 +777,7 @@ function source(overrides = {}) {
     prNumber: 917,
     prHeadSha: shaB,
     runnerProfile: "default",
-    runnerConfigDigest: digestA,
+    runnerConfigDigest: profileConfigDigest,
     originalSupervisorSpecDigest: digestB,
     terminal: true,
     failure: { domain: "github_api", status: 503 },
@@ -695,9 +850,10 @@ function tempConfig({ enabled = true } = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-outage-controller-"));
   const profilePath = resolveProfile("default", logsRoot).runnerConfigPath;
   mkdirSync(path.dirname(profilePath), { recursive: true, mode: 0o700 });
-  writeFileSync(profilePath, '{"trustedRealRunApproved":true}\n', { mode: 0o600 });
+  writeFileSync(profilePath, profileConfig, { mode: 0o600 });
   return {
     logsRoot,
+    runnerConfigDigest: profileConfigDigest,
     outageResubmission: {
       allowBoundedOutageResubmission: enabled,
       minimumOutageAgeMs: 10 * 60 * 1000,

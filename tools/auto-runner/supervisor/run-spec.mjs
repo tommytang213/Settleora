@@ -292,9 +292,33 @@ function normalizeOptionalBranchName(value) {
 
 function normalizeOptionalOutageResubmission(value) {
   if (value === null || value === undefined) return null;
-  const allowedKeys = new Set(["attemptNumber", "markerKey", "outageFingerprint", "originalSupervisorSpecDigest"]);
+  const allowedKeys = new Set([
+    "attemptNumber",
+    "markerKey",
+    "outageFingerprint",
+    "originalSupervisorSpecDigest",
+    "taskKey",
+    "currentHeadSha",
+    "prNumber",
+    "prHeadSha",
+  ]);
   for (const key of Object.keys(value || {})) {
     if (!allowedKeys.has(key)) throw new Error(`Unknown outageResubmission field: ${key}`);
+  }
+  const taskKey = String(value.taskKey || "").trim();
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(taskKey) || taskKey.includes("..")) {
+    throw new Error("outageResubmission.taskKey is invalid");
+  }
+  const currentHeadSha = String(value.currentHeadSha || "").trim();
+  if (!/^[a-f0-9]{40}$/.test(currentHeadSha)) throw new Error("outageResubmission.currentHeadSha is invalid");
+  const prNumber = value.prNumber === null || value.prNumber === undefined ? null : value.prNumber;
+  const prHeadSha = value.prHeadSha === null || value.prHeadSha === undefined ? null : String(value.prHeadSha || "").trim();
+  if (prNumber !== null && (!Number.isSafeInteger(prNumber) || prNumber < 1 || prNumber > 9999999)) {
+    throw new Error("outageResubmission.prNumber is invalid");
+  }
+  if (prHeadSha !== null && !/^[a-f0-9]{40}$/.test(prHeadSha)) throw new Error("outageResubmission.prHeadSha is invalid");
+  if ((prNumber === null) !== (prHeadSha === null)) {
+    throw new Error("outageResubmission.prNumber and prHeadSha must be paired");
   }
   if (!Number.isSafeInteger(value.attemptNumber) || value.attemptNumber < 1 || value.attemptNumber > 20) {
     throw new Error("outageResubmission.attemptNumber is invalid");
@@ -307,5 +331,9 @@ function normalizeOptionalOutageResubmission(value) {
     markerKey: value.markerKey,
     outageFingerprint: value.outageFingerprint,
     originalSupervisorSpecDigest: value.originalSupervisorSpecDigest,
+    taskKey,
+    currentHeadSha,
+    prNumber,
+    prHeadSha,
   };
 }

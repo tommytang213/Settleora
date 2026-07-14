@@ -38,9 +38,10 @@ remain the source of truth.
   default-off supervisor-side bounded outage resubmission foundation,
   recovery-first controller dry-run planning, strict outage taxonomy,
   backoff/jitter/attempt/wall-clock bounds, circuit breaker, exact
-  correlation, duplicate/uncertain child prevention, stale-head invalidation,
-  operator pause/stop and lock safety, sanitized status/health/monitoring
-  docs, and fixture-only acceptance.
+  correlation, duplicate/uncertain child prevention, immutable child task/head/
+  PR identity persistence, disk-only child reconciliation, stale-head
+  invalidation, operator pause/stop and lock safety, sanitized
+  status/health/monitoring docs, and fixture-only acceptance.
 - Safety:
   no production profile activation, no live supervisor run, no systemd
   enablement/start/restart, no canary run, no #912 activation, no product

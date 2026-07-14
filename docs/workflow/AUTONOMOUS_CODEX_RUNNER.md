@@ -157,6 +157,10 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
   `outage_resubmission` marker. It never stores raw provider bodies, prompts,
   arbitrary commands, config paths, secrets, tokens, source snippets, or full
   diffs.
+  Outage child specs also persist the task key, current head SHA, and paired
+  PR number/head SHA required by later reconciliation; incomplete historical
+  child specs remain fail-closed operator evidence and are not repaired with
+  mutable source values.
 
 Bounded outage resubmission is eligible only for recognized prolonged
 transient infrastructure/provider failures: trusted GitHub API/Actions

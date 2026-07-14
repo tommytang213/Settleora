@@ -249,9 +249,15 @@ correlation, a recognized prolonged transient outage, no stale head-bound
 evidence, no manual/authority/destructive gate, no active child, available
 attempt/wall-clock budget, closed or eligible half-open circuit, and explicit
 capability enablement. A new child spec carries bounded parent/source/outage
-metadata and continues the existing recovery boundary. Dry-run/fixture mode
-plans the child spec and exposes mutation-call counters while making zero
-systemd, GitHub, or live supervisor submission calls.
+metadata and continues the existing recovery boundary. The outage child spec
+persists the immutable task key, current head SHA, and paired PR number/head
+SHA when a PR exists, and creation fails if the live profile config digest no
+longer matches the source run's recorded digest. Later reconciliation uses the
+persisted child spec and state only; incomplete historical child artifacts
+remain fail-closed operator-reconciliation evidence and are not backfilled from
+mutable source state. Dry-run/fixture mode plans the child spec and exposes
+mutation-call counters while making zero systemd, GitHub, or live supervisor
+submission calls.
 
 Rollback is disabling `outageResubmission.allowBoundedOutageResubmission` in
 the external profile. Existing sanitized state is preserved for operator
