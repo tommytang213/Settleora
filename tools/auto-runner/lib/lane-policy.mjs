@@ -96,6 +96,8 @@ const mobileBuildConfigForbiddenPathPatterns = [
   { key: "mobile_nested_build_output", pattern: /^apps\/mobile\/.*\/build(?:\/|$)/ },
   { key: "mobile_gradle_cache", pattern: /^apps\/mobile\/android\/\.gradle(?:\/|$)/ },
   { key: "mobile_ios_pods", pattern: /^apps\/mobile\/ios\/Pods(?:\/|$)/ },
+  { key: "mobile_ios_generated_xcconfig", pattern: /^apps\/mobile\/ios\/Flutter\/Generated\.xcconfig$/ },
+  { key: "mobile_ios_generated_plugin_registrant", pattern: /^apps\/mobile\/ios\/Runner\/GeneratedPluginRegistrant\.(?:h|m|swift|\*)$/ },
   { key: "xcode_derived_data", pattern: /(^|\/)DerivedData(?:\/|$)/ },
   { key: "certificate_material", pattern: /\.(?:p12|pfx|cer|mobileprovision)$/i },
   { key: "android_signing_material", pattern: /\.(?:jks|keystore)$/i },
