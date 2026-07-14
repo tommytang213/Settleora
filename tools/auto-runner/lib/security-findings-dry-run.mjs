@@ -251,13 +251,21 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     return result;
   }
   if (securityConfig.persistState && result.failureCount === 0 && result.ambiguousCount === 0) {
-    const written = writeSecurityFindingsState(mergedConfig, mergeSecurityFindingRecords(durableState, plannedRecords.length > 0 ? plannedRecords : normalized), {
-      taskKey: options.taskKey || null,
-      runId: options.runId || null,
-      supervisorRunId: config.supervisorRunId || null,
-      repository: securityConfig.allowedRepository,
-    });
-    result.statePath = written.statePath;
+    try {
+      const written = writeSecurityFindingsState(mergedConfig, mergeSecurityFindingRecords(durableState, plannedRecords.length > 0 ? plannedRecords : normalized), {
+        taskKey: options.taskKey || null,
+        runId: options.runId || null,
+        supervisorRunId: config.supervisorRunId || null,
+        repository: securityConfig.allowedRepository,
+      });
+      result.statePath = written.statePath;
+    } catch {
+      result.ok = false;
+      result.reason = "security_findings_state_write_failed";
+      increment(result.failuresByReason, result.reason);
+      result.failureCount += 1;
+      return result;
+    }
   }
   result.ok = true;
   result.reason = "dry_run_complete";

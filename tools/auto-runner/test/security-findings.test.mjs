@@ -477,6 +477,35 @@ test("dry-run refuses default-off config, supports explicit success, no mutation
   }
 });
 
+test("dry-run state writer failure reports failure and preserves prior valid state", async () => {
+  const config = tempConfig();
+  try {
+    const existing = normalizeDependabotAlert(dependabotAlert(1), { repository, now }).finding;
+    const incoming = normalizeDependabotAlert(dependabotAlert(2), { repository, now }).finding;
+    const written = writeSecurityFindingsState(config, [existing], { taskKey: "20260714-2237" });
+    const before = readFileSync(written.statePath, "utf8");
+    const result = await runSecurityFindingsDryRun(config, {
+      adapter: {
+        async fetchSource(sourceKind) {
+          if (sourceKind === "dependabot_alert") {
+            chmodSync(securityFindingsStateRoot(config), 0o500);
+            return { sourceKind, status: "ok", findings: [incoming], failures: [] };
+          }
+          return { sourceKind, status: "ok", findings: [], failures: [] };
+        },
+      },
+      reports: [],
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "security_findings_state_write_failed");
+    assert.equal(result.statePath, null);
+    assert.equal(readFileSync(written.statePath, "utf8"), before);
+  } finally {
+    chmodSync(securityFindingsStateRoot(config), 0o700);
+    config.cleanup();
+  }
+});
+
 test("dry-run returns nonzero-worthy result for partial provider and ambiguous duplicate states", async () => {
   const config = tempConfig();
   try {
