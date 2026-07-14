@@ -191,4 +191,3 @@ function sanitizeSecurityFindingPhaseResult(result = {}) {
     mutationCalls: result.mutationCalls || 0,
   };
 }
-
