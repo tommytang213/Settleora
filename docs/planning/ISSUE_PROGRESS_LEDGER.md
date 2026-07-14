@@ -20,6 +20,36 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Auto-runner operational readiness plan - 20260714-1010
+
+- Task key: `20260714-1010`.
+- Branch:
+  `docs/auto-runner-operational-readiness-plan-20260714-1010`.
+- Starting `origin/main`:
+  `d923655348e232fff1642d563a02f9d610196faa`.
+- Planning artifact:
+  `docs/planning/AUTO_RUNNER_OPERATIONAL_READINESS_PLAN.md`.
+- Scope:
+  operational activation planning only. This checkpoint does not activate
+  external profiles, run canaries, change runner/mobile implementation, dismiss
+  scanner alerts, change settlement/payment/bill calculation logic, alter
+  schemas, change OpenAPI/generated clients, deploy, release, or mutate
+  secrets.
+- Key planned follow-ups:
+  production profile activation/live acceptance, canonical
+  `mobile-build-config` lane, #902 scanner/dependency ingestion with strongly
+  proven false-positive automatic disposition, bounded outage resubmission, and
+  continued ledger cache-only hierarchy.
+- Ledger hierarchy:
+  this row is a derived convenience index. Current GitHub state, PR state,
+  checks, scanners, exact reports, and the current repository tree remain
+  authoritative for selection, duplication, completion, closure, and merge
+  gates.
+- Close/keep-open recommendation:
+  keep any readiness umbrella open until the implementation/activation children
+  are complete. Do not use this ledger row as proof that external production
+  activation or #902 implementation has occurred.
+
 ### Issues #889/#894/#800 - Auto-runner foundation completed
 
 - Task key: `20260714-0143`.
