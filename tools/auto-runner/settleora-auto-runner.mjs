@@ -85,6 +85,7 @@ import {
 } from "./lib/recovery-state.mjs";
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
+import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -303,6 +304,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         : `Recoverable auto-runner state blocked polling: ${startupRecovery.reasonCode}`,
     );
     return iteration;
+  }
+
+  if (securityFindingsProductionPhaseEnabled(config)) {
+    iteration.securityFindings = await runSecurityFindingsProductionPhase(config, { runId, iterationIndex: index });
+    if (!iteration.securityFindings.ok || iteration.securityFindings.outcome === "blocked_uncertain_disposition_recovery_required") {
+      iteration.outcome = iteration.securityFindings.outcome || "security_findings_phase_blocked";
+      iteration.systemicStop = `security-findings:${iteration.securityFindings.reason || "blocked"}`;
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+  } else {
+    iteration.securityFindings = {
+      enabled: false,
+      reason: "security_findings_production_phase_disabled",
+    };
   }
 
   const polled = pollEligibleIssues(config, logger);

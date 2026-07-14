@@ -58,6 +58,7 @@ export const defaultConfig = Object.freeze({
   },
   allowFollowupIssueCreation: false,
   securityFindings: {
+    allowSecurityFindingsProductionPhase: false,
     allowSecurityFindingIngestion: false,
     allowSecurityFindingClassification: false,
     allowSecurityFindingProposalPlanning: false,
