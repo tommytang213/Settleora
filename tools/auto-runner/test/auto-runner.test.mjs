@@ -3084,7 +3084,7 @@ test("mobile-build-config rejects generated caches signing credentials release a
     assert.ok(classified.reasonCodes.includes("contract_path_forbidden"), allowedPath);
   }
 
-  const outsideLaneSecret = classifyIssueLane({
+  const outsideLaneEnvPath = classifyIssueLane({
     title: "Forbidden mobile build config env path",
     body: contractBody({
       lane: "mobile-build-config",
@@ -3095,8 +3095,8 @@ test("mobile-build-config rejects generated caches signing credentials release a
     }),
     labels: ["auto-ready"],
   });
-  assert.equal(outsideLaneSecret.allowedToImplement, false);
-  assert.ok(outsideLaneSecret.reasonCodes.includes("contract_path_outside_lane"));
+  assert.equal(outsideLaneEnvPath.allowedToImplement, false);
+  assert.ok(outsideLaneEnvPath.reasonCodes.includes("contract_path_outside_lane"));
 });
 
 test("mobile-build-config validation profile is exact and lane-scoped", () => {
