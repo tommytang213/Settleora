@@ -11,6 +11,9 @@ export const supportedDispositionReasons = Object.freeze({
 
 const shaPattern = /^[0-9a-f]{40}$/i;
 const digestPattern = /^[0-9a-f]{16,64}$/i;
+const idPattern = /^[A-Za-z0-9._:/@+ -]{1,240}$/;
+const refPattern = /^(refs\/(?:heads|pull|tags)\/[A-Za-z0-9._/:-]{1,200}|[A-Za-z0-9._/-]{1,120})$/;
+const defaultPreconditionTtlMs = 5 * 60_000;
 
 export function normalizeSecurityFindingDispositionConfig(config = {}) {
   const raw = config.securityFindings || {};
@@ -65,17 +68,28 @@ export async function prepareDispositionPrecondition(packet = {}, reviewBundle =
   if (options.unresolvedReviewThreads === true) return fail("unresolved_review_threads");
   if (options.manualGateActive === true) return fail("manual_gate_active");
   if (options.contradictoryFinding === true) return fail("contradictory_finding_present");
-  const digest = preconditionDigest({ packetDigest: packet.packetDigest, reviewBundleDigest: reviewBundle.reviewBundleDigest, rereadDigest: reread.rereadDigest });
+  const createdAt = options.now || new Date().toISOString();
+  const expiresAt = new Date(new Date(createdAt).getTime() + (options.preconditionTtlMs || defaultPreconditionTtlMs)).toISOString();
+  const digest = preconditionDigest({
+    packetDigest: packet.packetDigest,
+    reviewBundleDigest: reviewBundle.reviewBundleDigest,
+    rereadDigest: match.rereadDigest,
+    sourceIdentityDigest: sourceIdentityDigest(packet),
+    createdAt,
+    expiresAt,
+  });
   return {
     ok: true,
     precondition: {
       preconditionVersion: securityFindingDispositionVersion,
       packetDigest: packet.packetDigest,
       reviewBundleDigest: reviewBundle.reviewBundleDigest,
-      rereadDigest: reread.rereadDigest,
+      rereadDigest: match.rereadDigest,
+      sourceIdentityDigest: sourceIdentityDigest(packet),
       state: reread.state,
       reason: "exact_alert_current_open",
-      createdAt: options.now || new Date().toISOString(),
+      createdAt,
+      expiresAt,
       preconditionDigest: digest,
     },
   };
@@ -88,12 +102,20 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
   const reason = options.reason || defaultReason(packet);
   const policy = validateDispositionPolicy(packet, reason);
   if (!policy.ok) return policy;
-  if (!precondition?.preconditionDigest || precondition.packetDigest !== packet.packetDigest) return fail("disposition_precondition_invalid");
+  const boundary = validateDispositionMutationBoundary(packet, reviewBundle, precondition, { now: options.now, reason });
+  if (!boundary.ok) return boundary;
   if (!adapter || typeof adapter.rereadAlert !== "function" || typeof adapter.dismissAlert !== "function") return fail("disposition_adapter_missing");
   const finalRead = await adapter.rereadAlert(packet);
   const finalMatch = validateAlertReread(packet, finalRead);
   if (!finalMatch.ok) return finalMatch;
-  const finalDigest = preconditionDigest({ packetDigest: packet.packetDigest, reviewBundleDigest: reviewBundle.reviewBundleDigest, rereadDigest: finalRead.rereadDigest });
+  const finalDigest = preconditionDigest({
+    packetDigest: packet.packetDigest,
+    reviewBundleDigest: reviewBundle.reviewBundleDigest,
+    rereadDigest: finalMatch.rereadDigest,
+    sourceIdentityDigest: sourceIdentityDigest(packet),
+    createdAt: precondition.createdAt,
+    expiresAt: precondition.expiresAt,
+  });
   if (finalDigest !== precondition.preconditionDigest) return fail("disposition_precondition_race");
   const mutation = await adapter.dismissAlert({ packet, endpoint: policy.endpoint, reason });
   if (!mutation || mutation.status !== "ok") {
@@ -118,35 +140,83 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
       endpoint: policy.endpoint,
       reason,
       mutationDigest: digestObject(sanitizeMutation(mutation)),
-      confirmationDigest: confirmation.rereadDigest || digestObject(sanitizeReread(confirmation)),
+      confirmationDigest: digestObject(sanitizeReread(confirmation)),
       confirmedAt: options.now || new Date().toISOString(),
     },
   };
 }
 
+export function validateDispositionMutationBoundary(packet = {}, reviewBundle = {}, precondition = {}, options = {}) {
+  const packetValidation = validateFalsePositivePacket(packet, { now: options.now });
+  if (!packetValidation.ok) return packetValidation;
+  const reviewValidation = validateFalsePositiveReviewBundle(reviewBundle, packet, { now: options.now });
+  if (!reviewValidation.ok) return reviewValidation;
+  const policy = validateDispositionPolicy(packet, options.reason || defaultReason(packet));
+  if (!policy.ok) return policy;
+  const preconditionValidation = validateDispositionPrecondition(packet, reviewBundle, precondition, { now: options.now });
+  if (!preconditionValidation.ok) return preconditionValidation;
+  return { ok: true };
+}
+
+export function validateDispositionPrecondition(packet = {}, reviewBundle = {}, precondition = {}, options = {}) {
+  if (!precondition || typeof precondition !== "object" || Array.isArray(precondition)) return fail("disposition_precondition_not_object");
+  const allowed = new Set(["preconditionVersion", "packetDigest", "reviewBundleDigest", "rereadDigest", "sourceIdentityDigest", "state", "reason", "createdAt", "expiresAt", "preconditionDigest"]);
+  const unknown = Object.keys(precondition).find((key) => !allowed.has(key));
+  if (unknown) return fail(`disposition_precondition_unknown_field:${unknown}`);
+  if (precondition.preconditionVersion !== securityFindingDispositionVersion) return fail("disposition_precondition_version_unsupported");
+  if (precondition.packetDigest !== packet.packetDigest) return fail("disposition_precondition_packet_digest_mismatch");
+  if (precondition.reviewBundleDigest !== reviewBundle.reviewBundleDigest) return fail("disposition_precondition_review_digest_mismatch");
+  if (precondition.sourceIdentityDigest !== sourceIdentityDigest(packet)) return fail("disposition_precondition_source_identity_mismatch");
+  if (!digestPattern.test(precondition.rereadDigest || "")) return fail("disposition_precondition_reread_digest_invalid");
+  if (precondition.state !== "open") return fail("disposition_precondition_state_invalid");
+  if (precondition.reason !== "exact_alert_current_open") return fail("disposition_precondition_reason_invalid");
+  if (!validIso(precondition.createdAt) || !validIso(precondition.expiresAt)) return fail("disposition_precondition_timestamps_invalid");
+  const nowMs = new Date(options.now || new Date()).getTime();
+  if (new Date(precondition.expiresAt).getTime() <= nowMs) return fail("disposition_precondition_expired");
+  const expected = preconditionDigest({
+    packetDigest: packet.packetDigest,
+    reviewBundleDigest: reviewBundle.reviewBundleDigest,
+    rereadDigest: precondition.rereadDigest,
+    sourceIdentityDigest: sourceIdentityDigest(packet),
+    createdAt: precondition.createdAt,
+    expiresAt: precondition.expiresAt,
+  });
+  if (precondition.preconditionDigest !== expected) return fail("disposition_precondition_digest_mismatch");
+  return { ok: true };
+}
+
 export function validateAlertReread(packet = {}, reread = {}) {
-  if (!reread || typeof reread !== "object") return fail("alert_reread_missing");
+  if (!reread || typeof reread !== "object" || Array.isArray(reread)) return fail("alert_reread_missing");
   if (reread.status && reread.status !== "ok") return fail(`alert_reread_inaccessible:${reread.reason || "unknown"}`);
-  const fields = ["repository", "sourceKind", "provider", "tool", "alertId", "ruleId", "fingerprint", "ref", "analyzedSha"];
+  const allowed = new Set(["status", "reason", "repository", "sourceKind", "provider", "tool", "alertId", "ruleId", "fingerprint", "ref", "analyzedSha", "dependencyIdentity", "state", "dismissedReason", "current", "currentMainSha", "checkedAt", "rereadDigest"]);
+  const unknown = Object.keys(reread).find((key) => !allowed.has(key));
+  if (unknown) return fail(`alert_reread_unknown_field:${unknown}`);
+  const fields = requiredRereadFields(packet);
   for (const field of fields) {
-    if (packet[field] && reread[field] && packet[field] !== reread[field]) return fail(`alert_reread_${field}_mismatch`);
+    if (reread[field] === null || reread[field] === undefined || reread[field] === "") return fail(`alert_reread_${field}_missing`);
+    if (packet[field] !== reread[field]) return fail(`alert_reread_${field}_mismatch`);
   }
-  if (packet.dependencyIdentity && JSON.stringify(packet.dependencyIdentity) !== JSON.stringify(reread.dependencyIdentity || null)) {
+  if (packet.sourceKind === "code_scanning_alert") {
+    if (!refPattern.test(reread.ref || "")) return fail("alert_reread_ref_invalid");
+    if (!shaPattern.test(reread.analyzedSha || "")) return fail("alert_reread_analyzedSha_invalid");
+  }
+  if (packet.sourceKind === "dependabot_alert" && !reread.dependencyIdentity) return fail("alert_reread_dependency_identity_missing");
+  if (packet.dependencyIdentity && digestObject(packet.dependencyIdentity) !== digestObject(reread.dependencyIdentity || null)) {
     return fail("alert_reread_dependency_identity_mismatch");
   }
   if (reread.state !== "open") return fail("alert_reread_not_open");
   if (reread.current !== true) return fail("alert_reread_not_current");
-  if (!digestPattern.test(reread.rereadDigest || "")) return fail("alert_reread_digest_invalid");
-  return { ok: true };
+  if (reread.currentMainSha !== undefined && !shaPattern.test(reread.currentMainSha || "")) return fail("alert_reread_current_main_sha_invalid");
+  if (!validIso(reread.checkedAt)) return fail("alert_reread_checked_at_invalid");
+  const localDigest = canonicalRereadDigest(packet, reread);
+  if (reread.rereadDigest !== undefined && reread.rereadDigest !== localDigest) return fail("alert_reread_digest_mismatch");
+  return { ok: true, rereadDigest: localDigest };
 }
 
 export function postDispositionReconciliation(packet = {}, dispositionResult = {}, evidence = {}) {
   if (!dispositionResult?.result) return fail("post_disposition_result_missing");
-  if (evidence.providerState !== "dismissed" && evidence.providerState !== "closed") return fail("post_disposition_provider_state_invalid");
-  if (evidence.reason !== dispositionResult.result.reason) return fail("post_disposition_reason_mismatch");
-  if (evidence.noWeakeningVerified !== true) return fail("post_disposition_no_weakening_missing");
-  if (evidence.currentMainScannerClean !== true) return fail("post_disposition_current_main_not_clean");
-  if (evidence.supersedingFingerprintPresent === true) return fail("post_disposition_superseding_fingerprint");
+  const validated = validatePostDispositionEvidence(packet, dispositionResult, evidence);
+  if (!validated.ok) return validated;
   return {
     ok: true,
     reconciliation: {
@@ -155,16 +225,50 @@ export function postDispositionReconciliation(packet = {}, dispositionResult = {
       dispositionDigest: digestObject(dispositionResult.result),
       providerState: evidence.providerState,
       reason: evidence.reason,
-      currentMainDigest: evidence.currentMainDigest || null,
+      providerRereadDigest: validated.providerRereadDigest,
+      currentMainDigest: evidence.currentMainEvidence.digest,
+      noWeakeningDigest: evidence.noWeakeningEvidence.digest,
+      currentFindingQueryDigest: evidence.currentFindingQuery.digest,
       reconciledAt: evidence.reconciledAt || new Date().toISOString(),
       reconciliationDigest: digestObject({
         packetDigest: packet.packetDigest,
+        dispositionDigest: digestObject(dispositionResult.result),
         providerState: evidence.providerState,
         reason: evidence.reason,
-        currentMainDigest: evidence.currentMainDigest || null,
+        providerRereadDigest: validated.providerRereadDigest,
+        currentMainDigest: evidence.currentMainEvidence.digest,
+        noWeakeningDigest: evidence.noWeakeningEvidence.digest,
+        currentFindingQueryDigest: evidence.currentFindingQuery.digest,
       }),
     },
   };
+}
+
+export function validatePostDispositionEvidence(packet = {}, dispositionResult = {}, evidence = {}) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return fail("post_disposition_evidence_missing");
+  const allowed = new Set(["providerState", "reason", "providerReread", "currentMainEvidence", "noWeakeningEvidence", "currentFindingQuery", "supersedingFingerprint", "reconciledAt"]);
+  const unknown = Object.keys(evidence).find((key) => !allowed.has(key));
+  if (unknown) return fail(`post_disposition_unknown_field:${unknown}`);
+  if (!["dismissed", "closed"].includes(evidence.providerState)) return fail("post_disposition_provider_state_invalid");
+  if (evidence.reason !== dispositionResult.result?.reason) return fail("post_disposition_reason_mismatch");
+  const providerRereadDigest = validateDismissedProviderReread(packet, evidence.providerReread, evidence.reason);
+  if (!providerRereadDigest.ok) return providerRereadDigest;
+  const currentMain = validateDigestEvidence(evidence.currentMainEvidence, "current_main", ["repository", "ref", "mainSha", "scannerDigest", "checkConclusion"]);
+  if (!currentMain.ok) return currentMain;
+  if (evidence.currentMainEvidence.repository !== packet.repository) return fail("post_disposition_current_main_repository_mismatch");
+  if (!shaPattern.test(evidence.currentMainEvidence.mainSha || "")) return fail("post_disposition_current_main_sha_invalid");
+  if (evidence.currentMainEvidence.checkConclusion !== "success") return fail("post_disposition_current_main_not_clean");
+  const noWeakening = validateDigestEvidence(evidence.noWeakeningEvidence, "no_weakening", ["digest", "packetDigest", "forbiddenSignalsAbsent"]);
+  if (!noWeakening.ok) return noWeakening;
+  if (evidence.noWeakeningEvidence.packetDigest !== packet.packetDigest) return fail("post_disposition_no_weakening_packet_mismatch");
+  if (evidence.noWeakeningEvidence.forbiddenSignalsAbsent !== true) return fail("post_disposition_no_weakening_missing");
+  const query = validateDigestEvidence(evidence.currentFindingQuery, "current_finding_query", ["digest", "packetDigest", "matchesCurrentFingerprint"]);
+  if (!query.ok) return query;
+  if (evidence.currentFindingQuery.packetDigest !== packet.packetDigest) return fail("post_disposition_current_finding_packet_mismatch");
+  if (evidence.currentFindingQuery.matchesCurrentFingerprint !== false) return fail("post_disposition_current_fingerprint_still_present");
+  if (evidence.supersedingFingerprint?.present === true) return fail("post_disposition_superseding_fingerprint");
+  if (!validIso(evidence.reconciledAt)) return fail("post_disposition_reconciled_at_invalid");
+  return { ok: true, providerRereadDigest: providerRereadDigest.rereadDigest };
 }
 
 function defaultReason(packet) {
@@ -179,6 +283,68 @@ function endpointForPacket(packet) {
 
 function preconditionDigest(value) {
   return digestObject(value);
+}
+
+export function sourceIdentityDigest(packet = {}) {
+  return digestObject({
+    repository: packet.repository,
+    sourceKind: packet.sourceKind,
+    provider: packet.provider,
+    tool: packet.tool,
+    alertId: packet.alertId,
+    ruleId: packet.ruleId,
+    fingerprint: packet.fingerprint,
+    ref: packet.ref || null,
+    analyzedSha: packet.analyzedSha || null,
+    dependencyIdentity: packet.dependencyIdentity || null,
+  });
+}
+
+function requiredRereadFields(packet = {}) {
+  const common = ["repository", "sourceKind", "provider", "tool", "alertId", "ruleId", "fingerprint"];
+  if (packet.sourceKind === "code_scanning_alert") return [...common, "ref", "analyzedSha"];
+  return common;
+}
+
+function canonicalRereadDigest(packet = {}, reread = {}) {
+  return digestObject({
+    sourceIdentityDigest: sourceIdentityDigest(packet),
+    repository: reread.repository,
+    sourceKind: reread.sourceKind,
+    provider: reread.provider,
+    tool: reread.tool,
+    alertId: reread.alertId,
+    ruleId: reread.ruleId,
+    fingerprint: reread.fingerprint,
+    ref: reread.ref || null,
+    analyzedSha: reread.analyzedSha || null,
+    dependencyIdentity: reread.dependencyIdentity || null,
+    state: reread.state,
+    dismissedReason: reread.dismissedReason || null,
+    current: reread.current,
+    currentMainSha: reread.currentMainSha || null,
+  });
+}
+
+function validateDismissedProviderReread(packet = {}, reread = {}, reason) {
+  if (!reread || typeof reread !== "object" || Array.isArray(reread)) return fail("post_disposition_provider_reread_missing");
+  const openEquivalent = { ...reread, state: "open", dismissedReason: undefined, rereadDigest: undefined };
+  const identity = validateAlertReread(packet, openEquivalent);
+  if (!identity.ok && identity.reason !== "alert_reread_not_open") return identity;
+  if (!["dismissed", "closed"].includes(reread.state)) return fail("post_disposition_provider_state_invalid");
+  if (reread.dismissedReason !== reason) return fail("post_disposition_reason_mismatch");
+  return { ok: true, rereadDigest: canonicalRereadDigest(packet, reread) };
+}
+
+function validateDigestEvidence(evidence = {}, name, required = []) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return fail(`${name}_evidence_missing`);
+  for (const key of required) {
+    if (evidence[key] === undefined || evidence[key] === null || evidence[key] === "") return fail(`${name}_${key}_missing`);
+  }
+  if (!digestPattern.test(evidence.digest || "")) return fail(`${name}_digest_invalid`);
+  const expected = digestObject({ ...evidence, digest: undefined });
+  if (evidence.digest !== expected) return fail(`${name}_digest_mismatch`);
+  return { ok: true };
 }
 
 function digestObject(value) {
@@ -220,4 +386,8 @@ function boundedInt(value, min, max, fallback, name) {
 
 function fail(reason, extra = {}) {
   return { ok: false, reason, ...extra };
+}
+
+function validIso(value) {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value)) && value.includes("T");
 }

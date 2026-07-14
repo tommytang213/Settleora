@@ -127,9 +127,10 @@ export function validateFalsePositivePacket(packet = {}, context = {}) {
   if (!repoPattern.test(packet.repository || "")) errors.push("repository_invalid");
   if (!sourceKinds.has(packet.sourceKind)) errors.push("source_kind_unsupported");
   for (const key of ["provider", "tool", "correlationKey", "idempotencyKey"]) validateBoundedId(packet[key], key, errors);
-  for (const key of ["alertId", "ruleId", "fingerprint", "reviewPackageDigest"]) validateOptionalId(packet[key], key, errors);
+  for (const key of ["alertId", "ruleId", "fingerprint", "reviewPackageDigest"]) validateRequiredId(packet[key], key, errors);
   if (packet.ref && !refPattern.test(packet.ref)) errors.push("ref_invalid");
   if (packet.analyzedSha && !shaPattern.test(packet.analyzedSha)) errors.push("analyzed_sha_invalid");
+  validateSourceSpecificIdentity(packet, errors);
   if (!falsePositiveAnalysisKinds.includes(packet.analysisKind)) errors.push("analysis_kind_unsupported");
   if (!Array.isArray(packet.analysisReasonCodes) || packet.analysisReasonCodes.length === 0 || packet.analysisReasonCodes.length > 10) {
     errors.push("analysis_reason_codes_invalid");
@@ -215,17 +216,49 @@ function validateDeterministicProofs(analysisKind, proofs = []) {
 
 function validateCurrentMainProof(proof = {}, packet = {}) {
   if (!proof || typeof proof !== "object" || Array.isArray(proof)) return fail("current_main_proof_missing");
-  const allowed = new Set(["proofVersion", "repository", "mainSha", "scannerDigest", "ruleId", "fingerprintAbsentOrSuperseded", "checkedAt"]);
+  const allowed = new Set(["proofVersion", "repository", "sourceKind", "ref", "mainSha", "scannerDigest", "ruleId", "fingerprint", "fingerprintAbsentOrSuperseded", "checkedAt"]);
   const unknown = Object.keys(proof).find((key) => !allowed.has(key));
   if (unknown) return fail(`current_main_unknown_field:${unknown}`);
   if (proof.proofVersion !== 1) return fail("current_main_version_unsupported");
   if (proof.repository !== packet.repository) return fail("current_main_repository_mismatch");
+  if (proof.sourceKind !== packet.sourceKind) return fail("current_main_source_kind_mismatch");
+  if (!proof.ref || !refPattern.test(proof.ref)) return fail("current_main_ref_invalid");
+  if (packet.ref && proof.ref !== packet.ref) return fail("current_main_ref_mismatch");
   if (!shaPattern.test(proof.mainSha || "")) return fail("current_main_sha_invalid");
   if (!digestPattern.test(proof.scannerDigest || "")) return fail("current_main_scanner_digest_invalid");
   if (packet.ruleId && proof.ruleId !== packet.ruleId) return fail("current_main_rule_mismatch");
+  if (proof.fingerprint !== packet.fingerprint) return fail("current_main_fingerprint_mismatch");
   if (proof.fingerprintAbsentOrSuperseded !== true) return fail("current_main_fingerprint_not_absent");
   if (!validIso(proof.checkedAt)) return fail("current_main_checked_at_invalid");
   return { ok: true };
+}
+
+function validateSourceSpecificIdentity(packet, errors) {
+  if (packet.sourceKind === "code_scanning_alert") {
+    for (const key of ["repository", "sourceKind", "provider", "tool", "alertId", "ruleId", "fingerprint", "ref", "analyzedSha"]) {
+      if (packet[key] === null || packet[key] === undefined || packet[key] === "") errors.push(`code_scanning_${key}_required`);
+    }
+    if (!refPattern.test(packet.ref || "")) errors.push("code_scanning_ref_invalid");
+    if (!shaPattern.test(packet.analyzedSha || "")) errors.push("code_scanning_analyzed_sha_invalid");
+    if (packet.dependencyIdentity !== null && packet.dependencyIdentity !== undefined) errors.push("code_scanning_dependency_identity_forbidden");
+  } else if (packet.sourceKind === "dependabot_alert") {
+    for (const key of ["repository", "sourceKind", "provider", "tool", "alertId", "ruleId", "fingerprint"]) {
+      if (packet[key] === null || packet[key] === undefined || packet[key] === "") errors.push(`dependabot_${key}_required`);
+    }
+    const dep = packet.dependencyIdentity;
+    if (!dep || typeof dep !== "object" || Array.isArray(dep)) {
+      errors.push("dependabot_dependency_identity_required");
+      return;
+    }
+    const allowed = new Set(["dependency", "packageEcosystem", "manifestPath"]);
+    for (const key of Object.keys(dep)) {
+      if (!allowed.has(key)) errors.push(`dependabot_dependency_identity_unknown_field:${key}`);
+    }
+    for (const key of ["dependency", "packageEcosystem", "manifestPath"]) {
+      if (typeof dep[key] !== "string" || !idPattern.test(dep[key])) errors.push(`dependabot_${key}_required`);
+    }
+  }
+  if (!Number.isInteger(packet.linkedIssue) || packet.linkedIssue < 1) errors.push("linked_issue_required");
 }
 
 function packetDigest(packet) {
@@ -258,8 +291,8 @@ function validateBoundedId(value, key, errors) {
   if (typeof value !== "string" || !idPattern.test(value)) errors.push(`${key}_invalid`);
 }
 
-function validateOptionalId(value, key, errors) {
-  if (value !== null && value !== undefined && (typeof value !== "string" || !idPattern.test(value))) errors.push(`${key}_invalid`);
+function validateRequiredId(value, key, errors) {
+  if (typeof value !== "string" || !idPattern.test(value)) errors.push(`${key}_invalid`);
 }
 
 function validIso(value) {

@@ -176,9 +176,12 @@ function currentMainProof(finding) {
   return {
     proofVersion: 1,
     repository,
+    sourceKind: finding.sourceKind,
+    ref: finding.ref || "refs/heads/main",
     mainSha: baseSha,
     scannerDigest: "4".repeat(64),
     ruleId: finding.ruleId,
+    fingerprint: finding.fingerprint,
     fingerprintAbsentOrSuperseded: true,
     checkedAt: now,
   };
@@ -273,6 +276,46 @@ function digest(value) {
   return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
 }
 
+function digestEvidence(value) {
+  const evidence = { ...value };
+  evidence.digest = digest(evidence);
+  return evidence;
+}
+
+function completionEvidence({ packet, disposition, reconciliation, issueNumber, remainingCurrentAlert = false }) {
+  const evidence = {
+    evidenceVersion: 1,
+    linkedIssue: {
+      number: issueNumber,
+      state: "OPEN",
+      correlationKey: packet.correlationKey,
+      closeRule: "confirmed_false_positive_disposition",
+    },
+    parentIssue: {
+      number: 910,
+      state: "OPEN",
+    },
+    prReviewState: {
+      unresolved: false,
+      requestedChanges: false,
+      blockingComments: false,
+    },
+    manualGateState: {
+      active: false,
+      labels: [],
+    },
+    remainingAlertQuery: {
+      packetDigest: packet.packetDigest,
+      remainingCurrentAlert,
+    },
+    dispositionDigest: digest(disposition.result),
+    reconciliationDigest: reconciliation.reconciliation.reconciliationDigest,
+    checkedAt: now,
+  };
+  evidence.completionEvidenceDigest = digest(evidence);
+  return evidence;
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === "object") {
@@ -297,7 +340,8 @@ function adapterFor(packet, options = {}) {
     dependencyIdentity: packet.dependencyIdentity,
     state: "open",
     current: true,
-    rereadDigest: "8".repeat(64),
+    currentMainSha: baseSha,
+    checkedAt: now,
   };
   return {
     get mutationCalls() {
@@ -305,8 +349,13 @@ function adapterFor(packet, options = {}) {
     },
     async rereadAlert() {
       if (options.inaccessible) return { status: "failed", reason: "permission_denied" };
-      if (options.changed) return { ...openRead, fingerprint: "changed", rereadDigest: "9".repeat(64) };
-      if (options.afterMutation) return { ...openRead, state: "dismissed", dismissedReason: options.reason || "false positive", rereadDigest: "a".repeat(64) };
+      if (options.omitRule) {
+        const { ruleId: _ruleId, ...omitted } = openRead;
+        return omitted;
+      }
+      if (options.badDigest) return { ...openRead, rereadDigest: "8".repeat(64) };
+      if (options.changed) return { ...openRead, fingerprint: "changed" };
+      if (options.afterMutation) return { ...openRead, state: "dismissed", dismissedReason: options.reason || (packet.sourceKind === "dependabot_alert" ? "inaccurate" : "false positive") };
       return openRead;
     },
     async dismissAlert() {
@@ -336,6 +385,13 @@ test("packet validation rejects unknown fields invalid ids tampering expiry miss
   assert.match(validateFalsePositivePacket({ ...packet, expiresAt: "2026-07-14T07:19:00.000Z" }, { now }).errors.join(","), /packet_expired/);
   assert.match(validateFalsePositivePacket({ ...packet, deterministicProofs: [{ ...packet.deterministicProofs[0], rawPayload: "x" }] }, { now }).errors.join(","), /deterministic_proof_unknown_field/);
   assert.match(validateFalsePositivePacket(packet, { classification: { ...classification, policyDigest: "0".repeat(32) }, reconciliation, now }).errors.join(","), /classification_digest_mismatch/);
+  for (const field of ["alertId", "ruleId", "fingerprint", "ref", "analyzedSha"]) {
+    assert.match(validateFalsePositivePacket({ ...packet, [field]: null }, { now }).errors.join(","), new RegExp(`${field}_invalid|code_scanning_${field}_required`));
+  }
+  const dep = packetFor(depFinding()).packet;
+  for (const key of ["dependency", "packageEcosystem", "manifestPath"]) {
+    assert.match(validateFalsePositivePacket({ ...dep, dependencyIdentity: { ...dep.dependencyIdentity, [key]: null } }, { now }).errors.join(","), new RegExp(`dependabot_${key}_required`));
+  }
 });
 
 test("no-weakening proof detects query exclusions path ignores suppressions skipped checks and scanner drift", () => {
@@ -404,9 +460,13 @@ test("precondition reread blocks provider outages identity changes non-open stat
   assert.equal(ready.ok, true);
   assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { inaccessible: true }), { now })).reason, "alert_reread_inaccessible:permission_denied");
   assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { changed: true }), { now })).reason, "alert_reread_fingerprint_mismatch");
+  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { omitRule: true }), { now })).reason, "alert_reread_ruleId_missing");
+  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { badDigest: true }), { now })).reason, "alert_reread_digest_mismatch");
 
   const race = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapterFor(packet, { changed: true }), { now });
   assert.equal(race.reason, "alert_reread_fingerprint_mismatch");
+  const expired = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapter, { now: "2026-07-14T07:26:00.000Z" });
+  assert.equal(expired.reason, "disposition_precondition_expired");
 });
 
 test("default-off disposition refuses dry-run, confirms success, and uses reread recovery on uncertain outcome", async () => {
@@ -440,32 +500,68 @@ test("post-disposition reconciliation and linked issue completion fail closed be
   const ready = await prepareDispositionPrecondition(packet, bundle, adapterFor(packet), { now });
   const disposition = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapterFor(packet), { now });
   const bad = postDispositionReconciliation(packet, disposition, { providerState: "dismissed", reason: "false positive", noWeakeningVerified: false, currentMainScannerClean: true });
-  assert.equal(bad.reason, "post_disposition_no_weakening_missing");
+  assert.equal(bad.reason, "post_disposition_unknown_field:noWeakeningVerified");
   const reconciliation = postDispositionReconciliation(packet, disposition, {
     providerState: "dismissed",
     reason: "false positive",
-    noWeakeningVerified: true,
-    currentMainScannerClean: true,
-    currentMainDigest: "d".repeat(64),
+    providerReread: {
+      repository: packet.repository,
+      sourceKind: packet.sourceKind,
+      provider: packet.provider,
+      tool: packet.tool,
+      alertId: packet.alertId,
+      ruleId: packet.ruleId,
+      fingerprint: packet.fingerprint,
+      ref: packet.ref,
+      analyzedSha: packet.analyzedSha,
+      dependencyIdentity: packet.dependencyIdentity,
+      state: "dismissed",
+      dismissedReason: "false positive",
+      current: true,
+      currentMainSha: baseSha,
+      checkedAt: now,
+    },
+    currentMainEvidence: digestEvidence({
+      repository: packet.repository,
+      ref: "refs/heads/main",
+      mainSha: baseSha,
+      scannerDigest: "d".repeat(64),
+      checkConclusion: "success",
+    }),
+    noWeakeningEvidence: digestEvidence({
+      packetDigest: packet.packetDigest,
+      forbiddenSignalsAbsent: true,
+    }),
+    currentFindingQuery: digestEvidence({
+      packetDigest: packet.packetDigest,
+      matchesCurrentFingerprint: false,
+    }),
+    supersedingFingerprint: { present: false },
     reconciledAt: now,
   });
   assert.equal(reconciliation.ok, true);
   const blocked = evaluateSecurityFindingLinkedIssueCompletion({
-    issue: { number: 902, state: "OPEN", correlationKey: packet.correlationKey, closeRule: "confirmed_false_positive_disposition" },
     packet,
     disposition,
     reconciliation,
+    evidence: completionEvidence({ packet, disposition, reconciliation, issueNumber: 902 }),
   });
   assert.equal(blocked.reason, "linked_issue_not_narrow");
   const close = evaluateSecurityFindingLinkedIssueCompletion({
-    issue: { number: 1001, state: "OPEN", correlationKey: packet.correlationKey, closeRule: "confirmed_false_positive_disposition" },
     packet,
     disposition,
     reconciliation,
-    parentIssueState: "OPEN",
+    evidence: completionEvidence({ packet, disposition, reconciliation, issueNumber: 1001 }),
   });
   assert.equal(close.close, true);
   assert.doesNotMatch(close.evidenceComment, /rawPayload|Bearer|token=/i);
+  const mismatch = evaluateSecurityFindingLinkedIssueCompletion({
+    packet,
+    disposition,
+    reconciliation,
+    evidence: completionEvidence({ packet, disposition, reconciliation, issueNumber: 1001, remainingCurrentAlert: true }),
+  });
+  assert.equal(mismatch.reason, "remaining_current_alert");
 });
 
 test("lifecycle and recovery markers cover disposition stages and invalid transitions", () => {
