@@ -191,7 +191,7 @@ export function normalizeCodeScanningAlert(alert = {}, context = {}) {
     tool: alert.tool?.name || instance.analysis?.tool_name || "code-scanning",
     ruleId: alert.rule?.id || alert.rule_id || null,
     alertId: alert.number ? String(alert.number) : alert.id ? String(alert.id) : null,
-    fingerprint: instance.fingerprint || alert.fingerprint || alert.number ? `code-scanning-${alert.number}` : null,
+    fingerprint: instance.fingerprint || alert.fingerprint || (alert.number ? `code-scanning-${alert.number}` : null),
     state: mapState(alert.state),
     severity: mapSeverity(alert.rule?.security_severity_level || alert.rule?.severity || alert.severity),
     ref: instance.ref || alert.ref,

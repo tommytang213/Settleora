@@ -64,6 +64,7 @@ test("normalization accepts all five source kinds and derives stable keys", () =
     assert.match(finding.idempotencyKey, /^settleora:security-ingestion:v1:/);
     assert.equal(JSON.stringify(finding).includes("rawSarif"), false);
   }
+  assert.equal(normalizeCodeScanningAlert(codeScanningAlert(), { repository, now }).finding.fingerprint, "fingerprint-1");
   const first = normalizeDependabotAlert(dependabotAlert(), { repository, now }).finding;
   const second = normalizeDependabotAlert(dependabotAlert(), { repository, now }).finding;
   assert.equal(first.correlationKey, second.correlationKey);

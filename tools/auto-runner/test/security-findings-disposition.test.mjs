@@ -447,6 +447,7 @@ test("disposition policy supports only exact provider false-positive equivalents
   const dep = packetFor(depFinding()).packet;
   assert.equal(validateDispositionPolicy(code, "false positive").ok, true);
   assert.equal(validateDispositionPolicy(dep, "inaccurate").ok, true);
+  assert.equal(validateDispositionPolicy({ ...code, alertId: "../42" }, "false positive").reason, "disposition_alert_id_not_numeric");
   assert.equal(validateDispositionPolicy(code, "risk accepted").reason, "disposition_reason_unsupported");
   assert.equal(validateDispositionPolicy({ ...code, sourceKind: "semgrep_artifact" }, "false positive").reason, "disposition_source_kind_unsupported");
   assert.deepEqual(supportedDispositionReasons.dependabot_alert, ["inaccurate"]);
@@ -463,9 +464,9 @@ test("precondition reread blocks provider outages identity changes non-open stat
   assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { omitRule: true }), { now })).reason, "alert_reread_ruleId_missing");
   assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { badDigest: true }), { now })).reason, "alert_reread_digest_mismatch");
 
-  const race = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapterFor(packet, { changed: true }), { now });
+  const race = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapterFor(packet, { changed: true }), { now, runId: "run-race" });
   assert.equal(race.reason, "alert_reread_fingerprint_mismatch");
-  const expired = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapter, { now: "2026-07-14T07:26:00.000Z" });
+  const expired = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapter, { now: "2026-07-14T07:26:00.000Z", runId: "run-expired" });
   assert.equal(expired.reason, "disposition_precondition_expired");
 });
 
@@ -475,16 +476,24 @@ test("default-off disposition refuses dry-run, confirms success, and uses reread
   const adapter = adapterFor(packet);
   const ready = await prepareDispositionPrecondition(packet, bundle, adapter, { now });
   assert.equal(executeFalsePositiveDisposition(tempConfig(), packet, bundle, ready.precondition, adapter, { now }) instanceof Promise, true);
-  assert.equal((await executeFalsePositiveDisposition(tempConfig(), packet, bundle, ready.precondition, adapter, { now })).reason, "disposition_capability_disabled");
+  assert.equal((await executeFalsePositiveDisposition(tempConfig(), packet, bundle, ready.precondition, adapter, { now, runId: "run-disabled" })).reason, "disposition_capability_disabled");
   const realConfig = realDispositionConfig();
   const successAdapter = adapterFor(packet);
-  const success = await executeFalsePositiveDisposition(realConfig, packet, bundle, ready.precondition, successAdapter, { now });
+  const success = await executeFalsePositiveDisposition(realConfig, packet, bundle, ready.precondition, successAdapter, { now, runId: "run-success" });
   assert.equal(success.ok, true);
   assert.equal(successAdapter.mutationCalls, 1);
+  const cappedAdapter = adapterFor(packet);
+  const capped = await executeFalsePositiveDisposition(realConfig, packet, bundle, ready.precondition, cappedAdapter, { now, runId: "run-success" });
+  assert.equal(capped.reason, "security_findings_disposition_cap_exhausted");
+  assert.equal(cappedAdapter.mutationCalls, 0);
   const uncertainAdapter = adapterFor(packet, { uncertain: true });
-  const uncertain = await executeFalsePositiveDisposition(realConfig, packet, bundle, ready.precondition, uncertainAdapter, { now });
+  const uncertain = await executeFalsePositiveDisposition(realConfig, packet, bundle, ready.precondition, uncertainAdapter, { now, runId: "run-uncertain-disposition" });
   assert.equal(uncertain.reason, "disposition_outcome_uncertain");
   assert.equal(uncertainAdapter.mutationCalls, 1);
+  const lockedAdapter = adapterFor(packet);
+  const locked = await executeFalsePositiveDisposition(realConfig, packet, bundle, ready.precondition, lockedAdapter, { now, runId: "run-uncertain-disposition" });
+  assert.equal(locked.reason, "security_findings_disposition_cap_locked_by_uncertain_outcome");
+  assert.equal(lockedAdapter.mutationCalls, 0);
 });
 
 test("configuration remains fail-closed for invalid disposition combinations", () => {
@@ -498,7 +507,7 @@ test("post-disposition reconciliation and linked issue completion fail closed be
   const { packet } = packetFor();
   const bundle = reviewsFor(packet);
   const ready = await prepareDispositionPrecondition(packet, bundle, adapterFor(packet), { now });
-  const disposition = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapterFor(packet), { now });
+  const disposition = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapterFor(packet), { now, runId: "run-reconciliation" });
   const bad = postDispositionReconciliation(packet, disposition, { providerState: "dismissed", reason: "false positive", noWeakeningVerified: false, currentMainScannerClean: true });
   assert.equal(bad.reason, "post_disposition_unknown_field:noWeakeningVerified");
   const reconciliation = postDispositionReconciliation(packet, disposition, {

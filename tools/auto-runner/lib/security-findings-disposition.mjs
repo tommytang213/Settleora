@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  consumeDispositionRunSlot,
+  recordDispositionRunOutcome,
+} from "./security-findings-disposition-cap.mjs";
 import { validateFalsePositivePacket } from "./security-findings-false-positive.mjs";
 import { validateFalsePositiveReviewBundle } from "./security-findings-reviews.mjs";
 
@@ -12,6 +16,7 @@ export const supportedDispositionReasons = Object.freeze({
 const shaPattern = /^[0-9a-f]{40}$/i;
 const digestPattern = /^[0-9a-f]{16,64}$/i;
 const idPattern = /^[A-Za-z0-9._:/@+ -]{1,240}$/;
+const githubAlertIdPattern = /^[0-9]{1,20}$/;
 const refPattern = /^(refs\/(?:heads|pull|tags)\/[A-Za-z0-9._/:-]{1,200}|[A-Za-z0-9._/-]{1,120})$/;
 const defaultPreconditionTtlMs = 5 * 60_000;
 
@@ -51,6 +56,7 @@ export function validateDispositionPolicy(packet = {}, reason = null) {
   const reasons = supportedDispositionReasons[packet.sourceKind];
   if (!reasons) return fail("disposition_source_kind_unsupported");
   if (!reasons.includes(reason)) return fail("disposition_reason_unsupported");
+  if (!githubAlertIdPattern.test(packet.alertId || "")) return fail("disposition_alert_id_not_numeric");
   if (packet.sourceKind === "code_scanning_alert" && reason !== "false positive") return fail("code_scanning_reason_not_false_positive");
   if (packet.sourceKind === "dependabot_alert" && reason !== "inaccurate") return fail("dependabot_reason_not_inaccurate");
   return { ok: true, endpoint: endpointForPacket(packet), reason };
@@ -104,6 +110,9 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
   if (!policy.ok) return policy;
   const boundary = validateDispositionMutationBoundary(packet, reviewBundle, precondition, { now: options.now, reason });
   if (!boundary.ok) return boundary;
+  if (!options.runId) return fail("disposition_run_id_required");
+  const cap = consumeDispositionRunSlot(config, options.runId, packet, "attempted", dispositionConfig.maxDispositionsPerRun);
+  if (!cap.ok) return cap;
   if (!adapter || typeof adapter.rereadAlert !== "function" || typeof adapter.dismissAlert !== "function") return fail("disposition_adapter_missing");
   const finalRead = await adapter.rereadAlert(packet);
   const finalMatch = validateAlertReread(packet, finalRead);
@@ -119,6 +128,7 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
   if (finalDigest !== precondition.preconditionDigest) return fail("disposition_precondition_race");
   const mutation = await adapter.dismissAlert({ packet, endpoint: policy.endpoint, reason });
   if (!mutation || mutation.status !== "ok") {
+    recordDispositionRunOutcome(config, options.runId, packet, "uncertain");
     const recoveryRead = await adapter.rereadAlert(packet);
     return {
       ok: false,
@@ -131,6 +141,7 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
   if (!["dismissed", "closed"].includes(confirmation.state) || confirmation.dismissedReason !== reason) {
     return fail("disposition_confirmation_failed", { confirmation: sanitizeReread(confirmation) });
   }
+  recordDispositionRunOutcome(config, options.runId, packet, "confirmed");
   return {
     ok: true,
     result: {
