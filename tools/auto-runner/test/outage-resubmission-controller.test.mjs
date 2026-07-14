@@ -87,14 +87,7 @@ test("controller reuses existing child and reconciles uncertain submission", () 
   const config = tempConfig();
   try {
     const baseState = fixtureOutageState();
-    const existingChild = {
-      runId: "supervised-20260715T010000Z-000000000002",
-      parentSupervisorRunId: source().supervisorRunId,
-      parentRunnerRunId: source().runnerRunId,
-      sourceIssueNumber: 913,
-      sourceBranchName: source().branchName,
-      outageResubmission: { markerKey: baseState.mutationMarker.key },
-    };
+    const existingChild = exactChild(baseState);
     let result = runOutageResubmissionController({
       config,
       source: source(),
@@ -103,8 +96,8 @@ test("controller reuses existing child and reconciles uncertain submission", () 
       dryRun: true,
       now,
     });
-    assert.equal(result.outcome, "noop");
-    assert.equal(result.reasonCode, "existing_child_resubmission_present");
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "planned_child_reconciled");
 
     const uncertain = transitionOutageMarker(baseState, { status: "submission_uncertain", childSupervisorRunId: existingChild.runId });
     result = runOutageResubmissionController({
@@ -121,6 +114,131 @@ test("controller reuses existing child and reconciles uncertain submission", () 
     result = runOutageResubmissionController({ config, source: source(), outageState: uncertain, existingChildren: [], dryRun: true, now });
     assert.equal(result.outcome, "blocked");
     assert.equal(result.reasonCode, "uncertain_submission_requires_reconciliation");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("submitted and confirmed markers with missing children block reconciliation before planning", () => {
+  const config = tempConfig();
+  try {
+    const baseState = fixtureOutageState();
+    const submitted = transitionOutageMarker(baseState, {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000333",
+      specDigest: digestB,
+      reasonCode: "child_submission_confirmed",
+    });
+    const confirmed = transitionOutageMarker(baseState, {
+      status: "confirmed_running",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000444",
+      specDigest: digestB,
+      reasonCode: "submitted_child_reconciled",
+    });
+
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [],
+      circuitRecords: [
+        { at: "2026-07-15T00:55:00.000Z", providerDomain: "github_api", outageFingerprint: digestA, supervisorRunId: "supervised-20260715T005500Z-000000000001" },
+        { at: "2026-07-15T00:56:00.000Z", providerDomain: "github_api", outageFingerprint: digestB, supervisorRunId: "supervised-20260715T005600Z-000000000002" },
+      ],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "submitted_child_missing_requires_reconciliation");
+    assert.equal(result.counts.realMutationCalls, 0);
+    assert.equal(result.events.filter((item) => item.event === "submitted_child_missing_requires_reconciliation").length, 1);
+    assert.equal(result.events.some((item) => item.event === "circuit_checked"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+
+    const repeated = runOutageResubmissionController({ config, source: source(), outageState: submitted, existingChildren: [], dryRun: true, now });
+    assert.equal(repeated.reasonCode, "submitted_child_missing_requires_reconciliation");
+    assert.deepEqual(repeated.outageState.mutationMarker, submitted.mutationMarker);
+
+    result = runOutageResubmissionController({ config, source: source(), outageState: confirmed, existingChildren: [], dryRun: true, now });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "confirmed_child_missing_requires_reconciliation");
+    assert.equal(result.counts.realMutationCalls, 0);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("submitted and confirmed markers reconcile exact children without duplicate submission", () => {
+  const config = tempConfig();
+  try {
+    const baseState = fixtureOutageState();
+    const submitted = transitionOutageMarker(baseState, {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000333",
+      specDigest: digestB,
+    });
+    const submittedChild = exactChild(submitted, { runId: submitted.childSupervisorRunId });
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [submittedChild],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "submitted_child_reconciled");
+    assert.equal(result.outageState.mutationMarker.status, "confirmed_running");
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    const confirmed = transitionOutageMarker(baseState, {
+      status: "confirmed_running",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000444",
+      specDigest: digestB,
+    });
+    const runningChild = exactChild(confirmed, { runId: confirmed.childSupervisorRunId, state: "running" });
+    result = runOutageResubmissionController({ config, source: source(), outageState: confirmed, existingChildren: [runningChild], dryRun: true, now });
+    assert.equal(result.outcome, "observed");
+    assert.equal(result.reasonCode, "confirmed_running_child_observed");
+
+    const terminalChild = exactChild(confirmed, { runId: confirmed.childSupervisorRunId, state: "completed", terminalOutcome: "completed" });
+    result = runOutageResubmissionController({ config, source: source(), outageState: confirmed, existingChildren: [terminalChild], dryRun: true, now });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.reasonCode, "confirmed_child_recovered");
+    assert.equal(result.outageState.mutationMarker.status, "recovered");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("ambiguous or mismatched child candidates fail closed", () => {
+  const config = tempConfig();
+  try {
+    const baseState = fixtureOutageState();
+    const child = exactChild(baseState);
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: baseState,
+      existingChildren: [child, { ...child }],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_ambiguous_requires_reconciliation");
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: baseState,
+      existingChildren: [exactChild(baseState, { currentHeadSha: shaA })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("currentHeadSha"), true);
   } finally {
     config.cleanup();
   }
@@ -297,6 +415,36 @@ function fixtureOutageState() {
       maxWallClockMs: 24 * 60 * 60 * 1000,
     },
   });
+}
+
+function exactChild(state = fixtureOutageState(), overrides = {}) {
+  const runId = overrides.runId || state.childSupervisorRunId || "supervised-20260715T010000Z-000000000002";
+  return {
+    runId,
+    parentSupervisorRunId: source().supervisorRunId,
+    parentRunnerRunId: source().runnerRunId,
+    taskKey: source().taskKey,
+    sourceIssueNumber: source().issueNumber,
+    sourceBranchName: source().branchName,
+    baseSha: source().baseSha,
+    currentHeadSha: source().currentHeadSha,
+    prNumber: source().prNumber,
+    prHeadSha: source().prHeadSha,
+    runnerProfile: source().runnerProfile,
+    runnerConfigDigest: source().runnerConfigDigest,
+    originalSupervisorSpecDigest: source().originalSupervisorSpecDigest,
+    specSha256: state.mutationMarker.specDigest || digestB,
+    state: "running",
+    outageResubmission: {
+      taskKey: source().taskKey,
+      markerKey: state.mutationMarker.key,
+      attemptNumber: state.mutationMarker.attemptNumber,
+      outageFingerprint: state.outage.outageFingerprint,
+      originalSupervisorSpecDigest: source().originalSupervisorSpecDigest,
+      childSpecDigest: state.mutationMarker.specDigest || digestB,
+    },
+    ...overrides,
+  };
 }
 
 function tempConfig({ enabled = true } = {}) {

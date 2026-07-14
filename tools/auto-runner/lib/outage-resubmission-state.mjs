@@ -133,7 +133,12 @@ export function buildOutageResubmissionMarker({ correlation, attemptNumber, spec
   };
 }
 
-export function transitionOutageMarker(state, { status, childSupervisorRunId = state.childSupervisorRunId || null, reasonCode = null } = {}) {
+export function transitionOutageMarker(state, {
+  status,
+  childSupervisorRunId = state.childSupervisorRunId || null,
+  reasonCode = null,
+  specDigest = state.mutationMarker?.specDigest || null,
+} = {}) {
   if (!outageMarkerStatuses.includes(status)) throw new Error(`Invalid outage marker status: ${status}`);
   const next = sanitizeState({
     ...state,
@@ -144,6 +149,7 @@ export function transitionOutageMarker(state, { status, childSupervisorRunId = s
       status,
       childSupervisorRunId: bounded(childSupervisorRunId, 80) || null,
       reasonCode: bounded(reasonCode, 120) || null,
+      specDigest: digestOrNull(specDigest),
       updatedAt: new Date().toISOString(),
     },
   });

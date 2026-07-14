@@ -105,7 +105,16 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   event("outage_marker_reconciled");
-  const existingChild = findExactChild(input.existingChildren || [], source, existingOutageState);
+  const childReconciliation = reconcileExactChild(input.existingChildren || [], source, existingOutageState);
+  if (!childReconciliation.ok) {
+    event("outage_child_reconciliation_blocked", { reasonCode: childReconciliation.reasonCode });
+    return result("blocked", childReconciliation.reasonCode, { events, counts, outageState: existingOutageState, childReconciliation });
+  }
+  const existingChild = childReconciliation.child;
+  if (existingOutageState && ["recovered", "exhausted", "blocked"].includes(existingOutageState.mutationMarker?.status || existingOutageState.status)) {
+    event("terminal_outage_marker_preserved", { status: existingOutageState.status });
+    return result("noop", "terminal_outage_marker_preserved", { events, counts, outageState: existingOutageState });
+  }
   if (existingOutageState?.mutationMarker?.status === "submission_uncertain") {
     if (existingChild) {
       const confirmed = transitionOutageMarker(existingOutageState, {
@@ -120,7 +129,58 @@ export function runOutageResubmissionController(input = {}) {
     event("uncertain_submission_requires_reconciliation");
     return result("blocked", "uncertain_submission_requires_reconciliation", { events, counts, outageState: existingOutageState });
   }
+  if (existingOutageState?.mutationMarker?.status === "submitted") {
+    if (!existingChild) {
+      event("submitted_child_missing_requires_reconciliation", { childSupervisorRunId: existingOutageState.childSupervisorRunId || null });
+      return result("blocked", "submitted_child_missing_requires_reconciliation", { events, counts, outageState: existingOutageState });
+    }
+    const confirmed = transitionOutageMarker(existingOutageState, {
+      status: "confirmed_running",
+      childSupervisorRunId: existingChild.runId,
+      specDigest: existingOutageState.mutationMarker?.specDigest || childDigest(existingChild),
+      reasonCode: "submitted_child_reconciled",
+    });
+    if (!dryRun) writeOutageResubmissionState(config, confirmed);
+    event("submitted_child_reconciled", { childSupervisorRunId: existingChild.runId });
+    return result("confirmed_existing_child", "submitted_child_reconciled", { events, counts, outageState: confirmed, childRunId: existingChild.runId });
+  }
+  if (existingOutageState?.mutationMarker?.status === "confirmed_running") {
+    if (!existingChild) {
+      event("confirmed_child_missing_requires_reconciliation", { childSupervisorRunId: existingOutageState.childSupervisorRunId || null });
+      return result("blocked", "confirmed_child_missing_requires_reconciliation", { events, counts, outageState: existingOutageState });
+    }
+    if (isTerminalChild(existingChild)) {
+      const terminalStatus = existingChild.terminalOutcome === "completed" || existingChild.state === "completed" ? "recovered" : "blocked";
+      const classified = transitionOutageMarker(existingOutageState, {
+        status: terminalStatus,
+        childSupervisorRunId: existingChild.runId,
+        specDigest: existingOutageState.mutationMarker?.specDigest || childDigest(existingChild),
+        reasonCode: terminalStatus === "recovered" ? "confirmed_child_recovered" : "confirmed_child_terminal_blocked",
+      });
+      if (!dryRun) writeOutageResubmissionState(config, classified);
+      event("confirmed_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminalStatus });
+      return result(terminalStatus, terminalStatus === "recovered" ? "confirmed_child_recovered" : "confirmed_child_terminal_blocked", {
+        events,
+        counts,
+        outageState: classified,
+        childRunId: existingChild.runId,
+      });
+    }
+    event("confirmed_running_child_observed", { childSupervisorRunId: existingChild.runId });
+    return result("observed", "confirmed_running_child_observed", { events, counts, outageState: existingOutageState, childRunId: existingChild.runId });
+  }
   if (existingChild) {
+    if (existingOutageState?.mutationMarker?.status === "planned") {
+      const reconciled = transitionOutageMarker(existingOutageState, {
+        status: "confirmed_running",
+        childSupervisorRunId: existingChild.runId,
+        specDigest: childDigest(existingChild) || existingOutageState.mutationMarker?.specDigest,
+        reasonCode: "planned_child_reconciled",
+      });
+      if (!dryRun) writeOutageResubmissionState(config, reconciled);
+      event("planned_child_reconciled", { childSupervisorRunId: existingChild.runId });
+      return result("confirmed_existing_child", "planned_child_reconciled", { events, counts, outageState: reconciled, childRunId: existingChild.runId });
+    }
     event("existing_child_reused", { childSupervisorRunId: existingChild.runId });
     return result("noop", "existing_child_resubmission_present", { events, counts, childRunId: existingChild.runId });
   }
@@ -224,6 +284,7 @@ export function runOutageResubmissionController(input = {}) {
     const dryState = transitionOutageMarker(plannedState, {
       status: "planned",
       childSupervisorRunId: child.spec.runId,
+      specDigest: child.specSha256,
       reasonCode: "dry_run_planned",
     });
     event("dry_run_child_spec_planned", { childSupervisorRunId: child.spec.runId, specSha256: child.specSha256 });
@@ -233,6 +294,7 @@ export function runOutageResubmissionController(input = {}) {
   const uncertain = transitionOutageMarker(plannedState, {
     status: "submission_uncertain",
     childSupervisorRunId: child.spec.runId,
+    specDigest: child.specSha256,
     reasonCode: "submission_started",
   });
   writeOutageResubmissionState(config, uncertain);
@@ -246,7 +308,7 @@ export function runOutageResubmissionController(input = {}) {
     writeOutageResubmissionState(config, blocked);
     return result("blocked", "child_submission_failed", { events, counts, outageState: blocked, child, submitted });
   }
-  const confirmed = transitionOutageMarker(uncertain, { status: "submitted", childSupervisorRunId: child.spec.runId, reasonCode: "child_submission_confirmed" });
+  const confirmed = transitionOutageMarker(uncertain, { status: "submitted", childSupervisorRunId: child.spec.runId, specDigest: child.specSha256, reasonCode: "child_submission_confirmed" });
   writeOutageResubmissionState(config, confirmed);
   event("child_submission_confirmed", { childSupervisorRunId: child.spec.runId });
   return result("submitted", "child_submission_confirmed", { events, counts, outageState: confirmed, child, submitted });
@@ -278,14 +340,61 @@ function buildChildRunPlan({ config, source, state, now, childRunId }) {
   return { spec, specSha256: sha256Text(canonicalJson(spec)) };
 }
 
-function findExactChild(children, source, outageState) {
-  return children.find((child) => (
-    child?.parentSupervisorRunId === source.supervisorRunId &&
-    child?.parentRunnerRunId === source.runnerRunId &&
-    child?.sourceIssueNumber === source.issueNumber &&
-    child?.sourceBranchName === source.branchName &&
-    (!outageState?.mutationMarker?.key || child?.outageResubmission?.markerKey === outageState.mutationMarker.key)
-  )) || null;
+function reconcileExactChild(children, source, outageState) {
+  const authoritative = (children || []).filter((child) => child && typeof child === "object");
+  const intendedRunId = outageState?.childSupervisorRunId || outageState?.mutationMarker?.childSupervisorRunId || null;
+  const candidates = authoritative.filter((child) => {
+    if (intendedRunId) return child.runId === intendedRunId;
+    return (
+      child.parentSupervisorRunId === source.supervisorRunId &&
+      child.parentRunnerRunId === source.runnerRunId &&
+      child.sourceIssueNumber === source.issueNumber &&
+      child.sourceBranchName === source.branchName
+    );
+  });
+  if (candidates.length > 1) return { ok: false, reasonCode: "outage_child_ambiguous_requires_reconciliation", candidates: candidates.length };
+  const child = candidates[0] || null;
+  if (!child) return { ok: true, child: null, reasonCode: "exact_child_absent" };
+  const mismatches = exactChildMismatches(child, source, outageState);
+  if (mismatches.length > 0) {
+    return { ok: false, reasonCode: "outage_child_identity_mismatch_requires_reconciliation", mismatches };
+  }
+  return { ok: true, child, reasonCode: "exact_child_found" };
+}
+
+function exactChildMismatches(child, source, outageState) {
+  const marker = outageState?.mutationMarker || {};
+  const outage = child.outageResubmission || {};
+  const checks = [
+    ["parentSupervisorRunId", child.parentSupervisorRunId, source.supervisorRunId],
+    ["parentRunnerRunId", child.parentRunnerRunId, source.runnerRunId],
+    ["taskKey", child.taskKey || child.sourceTaskKey || outage.taskKey, source.taskKey],
+    ["sourceIssueNumber", child.sourceIssueNumber, source.issueNumber],
+    ["sourceBranchName", child.sourceBranchName, source.branchName],
+    ["baseSha", child.baseSha || child.initialOriginMainSha || outage.baseSha, source.baseSha],
+    ["currentHeadSha", child.currentHeadSha || child.headSha || outage.currentHeadSha, source.currentHeadSha],
+    ["prNumber", child.prNumber || outage.prNumber || null, source.prNumber || null],
+    ["prHeadSha", child.prHeadSha || outage.prHeadSha || null, source.prHeadSha || null],
+    ["runnerProfile", child.runnerProfile || child.profile || outage.runnerProfile, source.runnerProfile],
+    ["runnerConfigDigest", child.runnerConfigDigest || child.runnerConfigSha256 || outage.runnerConfigDigest, source.runnerConfigDigest],
+    ["originalSupervisorSpecDigest", child.originalSupervisorSpecDigest || outage.originalSupervisorSpecDigest, source.originalSupervisorSpecDigest],
+    ["attemptNumber", outage.attemptNumber, marker.attemptNumber],
+    ["outageFingerprint", outage.outageFingerprint, outageState?.outage?.outageFingerprint || source.outageFingerprint],
+    ["markerKey", outage.markerKey, marker.key],
+    ["childLogicalId", child.runId || outage.childLogicalId, outage.childLogicalId || child.runId],
+    ["childSpecDigest", childDigest(child), marker.specDigest],
+  ];
+  return checks
+    .filter(([, actual, expected]) => expected !== null && expected !== undefined && actual !== expected)
+    .map(([field]) => field);
+}
+
+function childDigest(child) {
+  return child?.specSha256 || child?.specDigest || child?.outageResubmission?.childSpecDigest || child?.outageResubmission?.specDigest || null;
+}
+
+function isTerminalChild(child) {
+  return child?.terminal === true || ["completed", "failed", "blocked", "cancelled", "partial"].includes(child?.state) || Boolean(child?.terminalOutcome);
 }
 
 function summarizeOutageState(state) {
