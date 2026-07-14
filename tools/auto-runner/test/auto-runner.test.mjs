@@ -18,6 +18,7 @@ import {
   createTaskBranch,
   ensureLaunchWorkspace,
   ensureTaskMutationWorkspace,
+  getBoundedDiff,
   listWorkingTreeChangedFiles,
 } from "../lib/git-workspace.mjs";
 import {
@@ -149,6 +150,35 @@ test("CLI accepts supervisor correlation only for normal real runs", () => {
   assert.throws(() => parseCliArgs(["--preflight", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
   assert.throws(() => parseCliArgs(["--status", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
   assert.throws(() => parseCliArgs(["--reviewer-smoke-test", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
+});
+
+test("review package diff helper keeps approved aggregate-sized diffs complete by default", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-diff-bound-"));
+  const previousCwd = process.cwd();
+  try {
+    runTempGit(tempRoot, ["init", "-b", "main"]);
+    runTempGit(tempRoot, ["config", "user.email", "codex@example.invalid"]);
+    runTempGit(tempRoot, ["config", "user.name", "Codex Test"]);
+    writeFileSync(path.join(tempRoot, "large.mjs"), "export const before = true;\n");
+    runTempGit(tempRoot, ["add", "large.mjs"]);
+    runTempGit(tempRoot, ["commit", "-m", "base"]);
+    const baseSha = runTempGit(tempRoot, ["rev-parse", "HEAD"]).stdout.trim();
+    const lines = Array.from({ length: 700 }, (_item, index) => `export const generatedLine${index} = "${"x".repeat(180)}";`);
+    writeFileSync(path.join(tempRoot, "large.mjs"), `${lines.join("\n")}\n`);
+    runTempGit(tempRoot, ["add", "large.mjs"]);
+    runTempGit(tempRoot, ["commit", "-m", "large diff"]);
+    const headSha = runTempGit(tempRoot, ["rev-parse", "HEAD"]).stdout.trim();
+
+    process.chdir(tempRoot);
+    const result = getBoundedDiff(baseSha, headSha);
+
+    assert.equal(result.text.length > 120_000, true);
+    assert.equal(result.truncated, false);
+    assert.match(result.text, /generatedLine699/);
+  } finally {
+    process.chdir(previousCwd);
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("trust policy refuses normal --run by default", () => {
@@ -7033,4 +7063,10 @@ function reviewFixLaneDecision({ allowedPaths }) {
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
   };
+}
+
+function runTempGit(cwd, args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result;
 }

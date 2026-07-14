@@ -100,6 +100,10 @@ const allowedMutationMarkerKinds = new Set([
   "label_cleanup",
   "ledger_hygiene",
   "followup_issue",
+  "security_finding_disposition_planned",
+  "security_finding_disposition_attempted",
+  "security_finding_disposition_confirmed",
+  "security_finding_disposition_reconciled",
 ]);
 
 export function recoveryStorageKey(input = {}) {

@@ -118,6 +118,12 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
 - `reports/` stores copied local Codex reports.
 - `summaries/` stores per-run JSON/Markdown and recent rollups.
 - `auto-merge/` stores sanitized low-risk auto-merge decision evidence.
+- `security-findings/` stores sanitized security-finding ingestion state from
+  the explicit non-mutating dry-run mode. False-positive disposition readiness
+  evidence is bounded to packet, review, precondition, reconciliation,
+  completion, and recovery digests, never raw SARIF, provider payloads, source
+  snippets, request/response bodies, credentials, tokens, prompts, or user
+  data.
 - `canary/` stores trusted-real-run canary evidence JSON for dry-run fixture
   exercises and any future manually approved canary real-run.
 - `readiness/` stores report-only overnight readiness preflight JSON and
@@ -227,6 +233,33 @@ only transient runner labels, and records project fields as `not_updated`
 unless a supported tested mapping exists. Ledger reconciliation is represented
 as generated docs-planning work for a later branch/PR; the runner never commits
 directly to `main` after merge.
+
+Security finding false-positive disposition is stricter than ordinary issue
+hygiene and remains default-off. A finding may only become disposition-ready
+after a versioned strongly-proven packet binds exact repository/source/tool/
+rule/fingerprint/ref/SHA/dependency identity, classification and
+reconciliation digests, deterministic analysis proofs, current-main proof, and
+no-weakening proof. Strong independent review and separate Codex
+mechanics/security review must bind to the exact packet; a tie-breaker is
+required for disagreement, conditional results, findings, digest drift, or
+changed evidence. Code-scanning disposition is limited to the provider
+`false positive` reason, Dependabot alert disposition is limited to
+`inaccurate`, and Semgrep/Trivy artifact findings have no assumed mutable
+endpoint. Any 403/404/provider failure is inaccessible, not resolved. Before a
+future mutation, the adapter must reread the exact alert, produce a
+precondition digest, reread again immediately before mutation, confirm by
+post-mutation reread, reconcile current-main/scanner state, and only then allow
+linked narrow issue completion hygiene. Repository defaults and the example
+config keep all live disposition capabilities false.
+
+Security finding duplicate handling is authoritative before proposal,
+false-positive, retry, disposition, or completion planning. Exactly one active
+authoritative match from live issues, PRs, reports, or durable state routes to
+`reuse_existing_work`, increments duplicate/reuse counts, keeps mutation and
+proposal authority false, and persists only bounded duplicate metadata. A
+completed/merged duplicate while the provider finding remains current open
+blocks as ambiguous for reconciliation; ledger-only evidence remains
+supporting and cannot suppress genuinely new work.
 
 Safe local control is file-based under
 `/workspace/logs/settleora-auto-runner/state/runner-control.json`:

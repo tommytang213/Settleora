@@ -57,6 +57,45 @@ export const defaultConfig = Object.freeze({
     backoffMs: 2000,
   },
   allowFollowupIssueCreation: false,
+  securityFindings: {
+    allowSecurityFindingsProductionPhase: false,
+    allowSecurityFindingIngestion: false,
+    allowSecurityFindingClassification: false,
+    allowSecurityFindingProposalPlanning: false,
+    allowSecurityFindingIssueCreation: false,
+    allowFalsePositiveEvidence: false,
+    allowSecurityFindingDisposition: false,
+    allowProvenFalsePositiveDisposition: false,
+    allowSecurityFindingCompletionHygiene: false,
+    dispositionDryRunOnly: true,
+    packetTtlMinutes: 60,
+    maxDispositionsPerRun: 1,
+    allowedDispositionReasons: {
+      code_scanning_alert: ["false positive"],
+      dependabot_alert: ["inaccurate"],
+    },
+    requirePostDispositionReconciliation: true,
+    dryRunOnly: true,
+    persistState: true,
+    enabledSourceKinds: [
+      "dependabot_alert",
+      "dependabot_pr",
+      "code_scanning_alert",
+    ],
+    maxPages: 2,
+    perPage: 50,
+    maxItems: 100,
+    maxRetries: 0,
+    timeoutMs: 20000,
+    maxStateRecords: 500,
+    maxArtifactEntries: 10,
+    maxArtifactEntryBytes: 2097152,
+    maxProposalsPerRun: 5,
+    classificationPolicyVersion: 1,
+    reconciliationRequired: true,
+    allowPartialPlanning: false,
+    allowedRepository: "tommytang213/Settleora",
+  },
   allowReviewFixMutation: false,
   reviewFixCanaryFixture: {
     enabled: false,
@@ -142,6 +181,8 @@ export function parseCliArgs(argv) {
     configPath: null,
     fixtureIssuesPath: null,
     supervisorRunId: null,
+    securityFindingsDryRun: false,
+    securityFindingsDispositionDryRun: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -177,6 +218,11 @@ export function parseCliArgs(argv) {
     else if (arg === "--config") args.configPath = readValue(argv, ++index, arg);
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
+    else if (arg === "--security-findings-dry-run") args.securityFindingsDryRun = true;
+    else if (arg === "--security-findings-disposition-dry-run") {
+      args.securityFindingsDryRun = true;
+      args.securityFindingsDispositionDryRun = true;
+    }
     else if (arg === "--reviewer-smoke-tier") args.reviewerSmokeTier = readValue(argv, ++index, arg);
     else if (arg === "--since") args.sinceMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-runtime") {
@@ -211,7 +257,7 @@ export function parseCliArgs(argv) {
   }
 
   const controlMode = args.status || args.listRuns || args.listEvents || Boolean(args.controlCommand);
-  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest || controlMode;
+  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest || controlMode || args.securityFindingsDryRun;
   if (!specialMode && args.dryRun === args.run) {
     throw new Error("Pass exactly one of --dry-run or --run");
   }
@@ -220,6 +266,12 @@ export function parseCliArgs(argv) {
   }
   if (args.supervisorRunId && (!args.run || args.dryRun || specialMode)) {
     throw new Error("--supervisor-run-id is only valid with a normal real --run");
+  }
+  if (args.securityFindingsDryRun && (args.dryRun || args.run || args.preflight || args.canary || args.reviewerSmokeTest || args.writeSummary || args.reviewPackage || controlMode)) {
+    throw new Error("--security-findings-dry-run runs as its own non-mutating mode");
+  }
+  if (args.securityFindingsDryRun && !args.configPath) {
+    throw new Error("--security-findings-dry-run requires an explicit --config path");
   }
   if (args.preflight && (args.dryRun || args.run)) {
     throw new Error("--preflight runs as its own non-mutating mode; do not pass --dry-run or --run");
@@ -236,8 +288,8 @@ export function parseCliArgs(argv) {
   if (args.fixtureIssuesPath && (args.writeSummary || args.reviewPackage || args.preflight)) {
     throw new Error("--fixture-issues can only be used with the normal dry-run loop");
   }
-  if (args.json && !(args.status || args.listRuns || args.listEvents)) {
-    throw new Error("--json is only valid with --status, --list-runs, or --list-events");
+  if (args.json && !(args.status || args.listRuns || args.listEvents || args.securityFindingsDryRun)) {
+    throw new Error("--json is only valid with --status, --list-runs, --list-events, or --security-findings-dry-run");
   }
   if (args.listEvents && !args.eventRunId) {
     throw new Error("--list-events requires --run-id <run-id> or --list-events --run <run-id>");
@@ -288,6 +340,12 @@ export function loadConfig(cliArgs) {
     config.mode = cliArgs.readiness ? "readiness" : "preflight";
     config.dryRun = true;
     config.run = false;
+  }
+  if (cliArgs.securityFindingsDryRun) {
+    config.mode = "security-findings-dry-run";
+    config.dryRun = true;
+    config.run = false;
+    config.securityFindingsDispositionDryRun = Boolean(cliArgs.securityFindingsDispositionDryRun);
   }
   if (cliArgs.reviewerSmokeTest) {
     config.mode = "reviewer-smoke-test";

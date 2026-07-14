@@ -83,6 +83,55 @@ task-scoped config path:
 node tools/auto-runner/settleora-auto-runner.mjs --review-package /workspace/logs/settleora-auto-runner/reviews/package.json --config /workspace/logs/settleora-auto-runner/reviewer-validation/<task-key>/config.json
 ```
 
+Security findings ingestion is default-off. The explicit non-mutating dry-run
+requires a task-scoped config. It reads enabled sources, normalizes sanitized
+records, derives correlation and idempotency keys, checks duplicate evidence,
+and may persist sanitized state under
+`/workspace/logs/settleora-auto-runner/security-findings/`. Checkpoint 2 can
+also opt in to deterministic classification and proposal planning with
+`allowSecurityFindingClassification` and
+`allowSecurityFindingProposalPlanning`; issue creation still requires both the
+global follow-up capability and `allowSecurityFindingIssueCreation`, and the
+dry-run path forces previews only. It does not create issues, edit PRs, change
+labels, dismiss alerts, close findings, update dependencies, push branches,
+open PRs, merge, or mutate product code.
+
+GitHub-backed security sources use explicit bounded pagination. Dependabot
+alerts use GitHub's cursor pagination (`after` plus `Link: rel="next"`), while
+Dependabot-authored PRs use repository pull-request page pagination. Each source
+advances one page at a time until an empty/partial page or missing next cursor
+proves exhaustion. A full final configured page is reported as truncated, an
+item cap is reported as bounded, and provider or parser failures on later pages
+fail the source instead of converting it into zero findings. Only fully complete
+source reads can feed classification, disposition, proposal, or completion
+planning by default.
+
+Authoritative duplicate evidence is handled before any new-work path. Exactly
+one active authoritative issue, PR, report, or durable-state match routes to
+`reuse_existing_work`, increments duplicate/reuse counts, and cannot build a
+proposal, call the issue mutation pipeline, evaluate false-positive
+disposition readiness, schedule retry work, or advance linked issue
+completion. Completed/merged duplicate evidence while the finding remains
+current open blocks as ambiguous until reconciled. Ledger-only evidence stays
+supporting and does not suppress new work.
+
+False-positive disposition readiness is also default-off and fail-closed.
+`allowFalsePositiveEvidence` only enables bounded packet/readiness evaluation
+inside the non-mutating security-finding dry-run. A live disposition would
+require separate trusted real-run approval plus
+`allowSecurityFindingDisposition`,
+`allowProvenFalsePositiveDisposition`, and exact source-specific supported
+reasons. Repository defaults and this example keep those capabilities false,
+`dispositionDryRunOnly=true`, `maxDispositionsPerRun=1`, short packet TTLs,
+exact reread/precondition checks, strong/Codex/tie-breaker review gates, and
+post-disposition reconciliation before linked issue completion hygiene.
+Semgrep and Trivy artifact findings have no assumed mutable alert endpoint.
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --security-findings-dry-run --config /workspace/logs/settleora-auto-runner/security-findings/<task-key>/config.json --json
+node tools/auto-runner/settleora-auto-runner.mjs --security-findings-disposition-dry-run --config /workspace/logs/settleora-auto-runner/security-findings/<task-key>/config.json --json
+```
+
 The package reviewer routes to `cheap_independent`, `strong_independent`, or
 `block_split_or_escalate` from lane metadata plus changed-file and size
 evidence. Lane-required strong review is never downgraded. Evidence records

@@ -84,6 +84,8 @@ import {
   writeRecoveryState,
 } from "./lib/recovery-state.mjs";
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
+import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
+import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -158,6 +160,13 @@ async function main() {
       result.status === "pass" || result.status === "skipped" || result.reason === "blocked_for_live_smoke_test_key_missing"
         ? 0
         : 1;
+    return;
+  }
+  if (cliArgs.securityFindingsDryRun) {
+    const config = loadConfig(cliArgs);
+    const result = await runSecurityFindingsDryRun(config, { taskKey: "security-findings-dry-run" });
+    console.log(cliArgs.json ? JSON.stringify(result, null, 2) : renderSecurityFindingsDryRunText(result));
+    process.exitCode = result.ok ? 0 : 1;
     return;
   }
 
@@ -295,6 +304,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         : `Recoverable auto-runner state blocked polling: ${startupRecovery.reasonCode}`,
     );
     return iteration;
+  }
+
+  if (securityFindingsProductionPhaseEnabled(config)) {
+    iteration.securityFindings = await runSecurityFindingsProductionPhase(config, { runId, iterationIndex: index });
+    if (!iteration.securityFindings.ok || iteration.securityFindings.outcome === "blocked_uncertain_disposition_recovery_required") {
+      iteration.outcome = iteration.securityFindings.outcome || "security_findings_phase_blocked";
+      iteration.systemicStop = `security-findings:${iteration.securityFindings.reason || "blocked"}`;
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+  } else {
+    iteration.securityFindings = {
+      enabled: false,
+      reason: "security_findings_production_phase_disabled",
+    };
   }
 
   const polled = pollEligibleIssues(config, logger);
@@ -1957,6 +1981,30 @@ function summarizeCodex(codex) {
     purpose: codex.purpose || null,
     logPath: codex.logPath || null,
   };
+}
+
+function renderSecurityFindingsDryRunText(result) {
+  const lines = [
+    `Security findings dry-run: ${result.ok ? "ok" : "failed"} (${result.reason || "unknown"})`,
+    `Repository: ${result.repository}`,
+    `Normalized: ${result.normalizedCount}`,
+    `Duplicate: ${result.duplicateCount}`,
+    `New: ${result.newCount}`,
+    `Ambiguous: ${result.ambiguousCount}`,
+    `Source failures: ${result.failureCount}`,
+    `False-positive candidates: ${result.falsePositiveCandidateCount || 0}`,
+    `Packets ready/blocked: ${result.packetReadyCount || 0}/${result.packetBlockedCount || 0}`,
+    `Reviews ready: ${result.reviewReadyCount || 0}`,
+    `Tie-breakers required: ${result.tieBreakerRequiredCount || 0}`,
+    `Disposition ready/blocked: ${result.dispositionReadyCount || 0}/${result.dispositionBlockedCount || 0}`,
+    `Reconciliation ready: ${result.reconciliationReadyCount || 0}`,
+    `Completion ready: ${result.completionReadyCount || 0}`,
+  ];
+  for (const [sourceKind, source] of Object.entries(result.sources || {})) {
+    lines.push(`- ${sourceKind}: ${source.status}; count=${source.count}; reason=${source.reason || "none"}`);
+  }
+  if (result.statePath) lines.push(`State: ${result.statePath}`);
+  return `${lines.join("\n")}\n`;
 }
 
 main().catch((error) => {

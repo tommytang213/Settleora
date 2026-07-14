@@ -45,6 +45,45 @@
     "backoffMs": 2000
   },
   "allowFollowupIssueCreation": false,
+  "securityFindings": {
+    "allowSecurityFindingsProductionPhase": false,
+    "allowSecurityFindingIngestion": false,
+    "allowSecurityFindingClassification": false,
+    "allowSecurityFindingProposalPlanning": false,
+    "allowSecurityFindingIssueCreation": false,
+    "allowFalsePositiveEvidence": false,
+    "allowSecurityFindingDisposition": false,
+    "allowProvenFalsePositiveDisposition": false,
+    "allowSecurityFindingCompletionHygiene": false,
+    "dispositionDryRunOnly": true,
+    "packetTtlMinutes": 60,
+    "maxDispositionsPerRun": 1,
+    "allowedDispositionReasons": {
+      "code_scanning_alert": ["false positive"],
+      "dependabot_alert": ["inaccurate"]
+    },
+    "requirePostDispositionReconciliation": true,
+    "dryRunOnly": true,
+    "persistState": true,
+    "enabledSourceKinds": [
+      "dependabot_alert",
+      "dependabot_pr",
+      "code_scanning_alert"
+    ],
+    "maxPages": 2,
+    "perPage": 50,
+    "maxItems": 100,
+    "maxRetries": 0,
+    "timeoutMs": 20000,
+    "maxStateRecords": 500,
+    "maxArtifactEntries": 10,
+    "maxArtifactEntryBytes": 2097152,
+    "maxProposalsPerRun": 5,
+    "classificationPolicyVersion": 1,
+    "reconciliationRequired": true,
+    "allowPartialPlanning": false,
+    "allowedRepository": "tommytang213/Settleora"
+  },
   "allowReviewFixMutation": false,
   "reviewFixCanaryFixture": {
     "enabled": false,

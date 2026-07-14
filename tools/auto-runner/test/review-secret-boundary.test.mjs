@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { analyzeReviewSecretBoundary, providerBoundReviewDigest } from "../lib/review-secret-boundary.mjs";
+import { analyzeReviewSecretBoundary, providerBoundReviewDiffChars, providerBoundReviewDigest } from "../lib/review-secret-boundary.mjs";
 import { runGeminiIntegratedReview } from "../lib/gemini-reviewer.mjs";
 
 test("review secret boundary blocks real secret files and credential content", () => {
@@ -233,6 +233,39 @@ test("synthetic fixtures remain visible in provider-bound review text", async ()
     assert.match(prompt, /not-a-real-api-key-for-boundary-test/);
     assert.equal(result.secretBoundary.ok, true);
     assert.equal(result.secretBoundary.allowedReferences.some((item) => item.classification === "synthetic_test_fixture"), true);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("provider-bound integrated review text includes large approved aggregate diffs", async () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-boundary-provider-large-"));
+  try {
+    const lines = Array.from({ length: 700 }, (_item, index) => `+const generatedLine${index} = "${"x".repeat(180)}";`);
+    const diff = diffFor("tools/auto-runner/test/large-aggregate.test.mjs", lines);
+    assert.equal(diff.length > 120_000, true);
+    assert.equal(diff.length < providerBoundReviewDiffChars, true);
+
+    let prompt = "";
+    const result = await runGeminiIntegratedReview(
+      geminiConfig(tempRoot),
+      reviewPackage({
+        changedFiles: ["tools/auto-runner/test/large-aggregate.test.mjs"],
+        diff,
+      }),
+      {
+        env: { GEMINI_API_KEY: "super-secret-key" },
+        fetchImpl: async (_url, request) => {
+          prompt = JSON.parse(request.body).contents[0].parts[0].text;
+          return fakeGeminiResponse({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: integratedVerdict() }] } }] });
+        },
+      },
+    );
+
+    assert.equal(result.status, "pass");
+    assert.equal(result.providerBoundDiffSha256, providerBoundReviewDigest(diff));
+    assert.match(prompt, /generatedLine699/);
+    assert.doesNotMatch(prompt, /\n\[truncated\]\s*$/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
