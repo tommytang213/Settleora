@@ -671,6 +671,62 @@ test("disposition readiness dry-run reports packet review disposition reconcilia
   }
 });
 
+test("partial source coverage cannot authorize false-positive disposition or completion readiness", async () => {
+  const finding = codeFinding();
+  const { packet } = packetFor(finding);
+  const bundle = reviewsFor(packet);
+  const adapter = adapterFor(packet);
+  const config = tempConfig();
+  config.securityFindings.allowPartialPlanning = true;
+  config.securityFindings.persistState = true;
+  try {
+    const result = await runSecurityFindingsDryRun(config, {
+      adapter: {
+        async fetchSource(sourceKind) {
+          if (sourceKind === "code_scanning_alert") return { sourceKind, status: "ok", completeness: "complete", findings: [finding], failures: [] };
+          return { sourceKind, status: "truncated", completeness: "truncated", reason: "page_limit_reached", findings: [], failures: ["page_limit_reached"] };
+        },
+      },
+      reports: [],
+      now: () => now,
+      currentFindings: { [finding.correlationKey]: finding },
+      classificationInputs: {
+        [finding.correlationKey]: { falsePositiveCandidate: { authorizedAnalysis: true, requiredProofGates: ["exact_alert", "review", "current_main"] } },
+      },
+      falsePositiveEvidence: {
+        [finding.correlationKey]: {
+          analysisKind: packet.analysisKind,
+          analysisReasonCodes: packet.analysisReasonCodes,
+          deterministicProofs: packet.deterministicProofs,
+          currentMainProof: packet.currentMainProof,
+          noWeakeningProof: packet.noWeakeningProof,
+          reviewPackageDigest: packet.reviewPackageDigest,
+          linkedIssue: packet.linkedIssue,
+          reviewBundle: bundle,
+          adapter,
+          dispositionReason: "false positive",
+          postDispositionReconciliationReady: true,
+          completionReady: true,
+        },
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.reason, "dry_run_partial_source_failures");
+    assert.equal(result.falsePositiveCandidateCount, 1);
+    assert.equal(result.routeCounts.collect_false_positive_evidence, 1);
+    assert.equal(result.packetReadyCount, 0);
+    assert.equal(result.reviewReadyCount, 0);
+    assert.equal(result.dispositionReadyCount, 0);
+    assert.equal(result.reconciliationReadyCount, 0);
+    assert.equal(result.completionReadyCount, 0);
+    assert.equal(result.proposalCount, 0);
+    assert.equal(result.mutationCalls, 0);
+    assert.equal(result.statePath, null);
+  } finally {
+    config.cleanup();
+  }
+});
+
 function realDispositionConfig(extra = {}) {
   const base = tempConfig({
     dryRun: false,

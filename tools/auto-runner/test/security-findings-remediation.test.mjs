@@ -19,6 +19,7 @@ import {
 import { classifySecurityFindingRecovery, planSecurityFindingMutationMarker, recordSecurityFindingMutationMarker } from "../lib/security-findings-recovery.mjs";
 import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
 import { runSecurityFindingsDryRun } from "../lib/security-findings-dry-run.mjs";
+import { classifyIssueLane } from "../lib/lane-policy.mjs";
 
 const repository = "tommytang213/Settleora";
 const now = "2026-07-14T06:50:00.000Z";
@@ -137,6 +138,57 @@ test("classifier covers all categories and fails closed on unsafe evidence", () 
     "manual_security_product_decision",
     "unsupported_ambiguous",
   ]));
+});
+
+test("root npm dependabot paths use exact workflow tooling lane scope only", () => {
+  for (const allowedPath of ["package.json", "package-lock.json", "npm-shrinkwrap.json"]) {
+    const lane = classifyIssueLane({
+      number: 0,
+      title: `Dependency update for ${allowedPath}`,
+      labels: ["auto-ready"],
+      body: [
+        "## Auto-runner contract",
+        "",
+        "```json",
+        JSON.stringify({
+          contractVersion: 1,
+          lane: "workflow-docs-tooling",
+          allowedPaths: [allowedPath],
+          validationProfile: "runner-tests",
+          manualMergeRequired: true,
+          autoMergeEligible: false,
+          requiredReading: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+        }, null, 2),
+        "```",
+      ].join("\n"),
+    });
+    assert.equal(lane.allowedToImplement, true, allowedPath);
+    assert.equal(lane.canonicalLane, "workflow-docs-tooling");
+  }
+
+  for (const rejectedPath of [".npmrc", ".env", "package.json.bak", "packages/client-web/package.json", ".github/workflows/scanner.yml"]) {
+    const lane = classifyIssueLane({
+      number: 0,
+      title: `Dependency update for ${rejectedPath}`,
+      labels: ["auto-ready"],
+      body: [
+        "## Auto-runner contract",
+        "",
+        "```json",
+        JSON.stringify({
+          contractVersion: 1,
+          lane: "workflow-docs-tooling",
+          allowedPaths: [rejectedPath],
+          validationProfile: "runner-tests",
+          manualMergeRequired: true,
+          autoMergeEligible: false,
+          requiredReading: ["docs/workflow/AUTONOMOUS_CODEX_RUNNER.md"],
+        }, null, 2),
+        "```",
+      ].join("\n"),
+    });
+    assert.equal(lane.allowedToImplement, false, rejectedPath);
+  }
 });
 
 test("reconciliation distinguishes current stale superseded resolved inaccessible and ambiguous states", () => {

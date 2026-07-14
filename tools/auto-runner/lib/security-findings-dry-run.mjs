@@ -130,6 +130,7 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     result.reason = "source_failures";
     return result;
   }
+  const partialSourceCoverage = providerFailures.length > 0;
   result.normalizedCount = normalized.length;
 
   const repoReports = options.reports || readRepositoryCorrelationReports(config.repoRoot || "/workspace/repos/Settleora");
@@ -163,7 +164,7 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
       if (route.route === "retry_later") result.retryCount += 1;
       if (route.route === "manual_gate") result.manualCount += 1;
       if (route.route === "blocked_ambiguous") result.ambiguousCount += 1;
-      if (route.route === "collect_false_positive_evidence" && securityConfig.allowFalsePositiveEvidence) {
+      if (route.route === "collect_false_positive_evidence" && securityConfig.allowFalsePositiveEvidence && !partialSourceCoverage) {
         if (nextLifecycle.ok) nextLifecycle = advanceSecurityFindingLifecycle(nextLifecycle.lifecycle, "false_positive_evidence_pending");
         const readiness = await evaluateFalsePositiveDispositionReadiness({
           finding,
@@ -182,7 +183,7 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
           });
         }
       }
-      if (route.route === "propose_issue" && securityConfig.allowSecurityFindingProposalPlanning && proposals.length < securityConfig.maxProposalsPerRun) {
+      if (route.route === "propose_issue" && securityConfig.allowSecurityFindingProposalPlanning && !partialSourceCoverage && proposals.length < securityConfig.maxProposalsPerRun) {
         const proposal = buildSecurityFindingProposal({ finding, classification, reconciliation, route });
         if (proposal.ok) {
           proposals.push(proposal.proposal);
@@ -239,7 +240,7 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     result.reuseCount = mutation.results.filter((item) => item.action === "reuse" || item.action === "reuse_completed_evidence").length;
   }
 
-  if (securityConfig.persistState) {
+  if (securityConfig.persistState && !partialSourceCoverage) {
     const written = writeSecurityFindingsState(mergedConfig, mergeSecurityFindingRecords(durableState, plannedRecords.length > 0 ? plannedRecords : normalized), {
       taskKey: options.taskKey || null,
       runId: options.runId || null,
@@ -251,6 +252,11 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
   if ((result.failureCount > 0 || result.ambiguousCount > 0) && !securityConfig.allowPartialPlanning) {
     result.ok = false;
     result.reason = result.ambiguousCount > 0 ? "ambiguous_duplicate_evidence" : "source_failures";
+    return result;
+  }
+  if (partialSourceCoverage) {
+    result.ok = true;
+    result.reason = "dry_run_partial_source_failures";
     return result;
   }
   result.ok = true;
