@@ -24,6 +24,7 @@ export function evaluateSecurityFindingDuplicate(finding = {}, evidence = {}) {
       state: item.state || null,
       confidence: stateMatch ? "exact_state_key" : "exact_marker",
       authority: item.authority,
+      lifecycle: completedState(item) ? "completed" : "active",
       url: item.url || null,
     };
     if (item.authority === "supporting") supporting.push(normalized);

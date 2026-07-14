@@ -161,6 +161,7 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
       if (nextLifecycle.ok) nextLifecycle = advanceSecurityFindingLifecycle(nextLifecycle.lifecycle, "reconciled", { reconciliationDigest: reconciliation.digest });
       const route = routeSecurityFindingRemediation({ finding, classification, reconciliation, duplicate });
       increment(result.routeCounts, route.route);
+      if (route.route === "reuse_existing_work") result.reuseCount += 1;
       if (route.route === "retry_later") result.retryCount += 1;
       if (route.route === "manual_gate") result.manualCount += 1;
       if (route.route === "blocked_ambiguous") result.ambiguousCount += 1;
@@ -414,6 +415,8 @@ function summarizeRoute(route) {
     route: route.route,
     reasonCodes: route.reasonCodes,
     proposalAllowed: route.proposalAllowed,
+    mutationAllowed: route.mutationAllowed,
+    duplicateEvidence: route.duplicateEvidence || [],
   };
 }
 

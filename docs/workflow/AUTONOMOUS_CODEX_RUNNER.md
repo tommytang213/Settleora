@@ -252,6 +252,15 @@ post-mutation reread, reconcile current-main/scanner state, and only then allow
 linked narrow issue completion hygiene. Repository defaults and the example
 config keep all live disposition capabilities false.
 
+Security finding duplicate handling is authoritative before proposal,
+false-positive, retry, disposition, or completion planning. Exactly one active
+authoritative match from live issues, PRs, reports, or durable state routes to
+`reuse_existing_work`, increments duplicate/reuse counts, keeps mutation and
+proposal authority false, and persists only bounded duplicate metadata. A
+completed/merged duplicate while the provider finding remains current open
+blocks as ambiguous for reconciliation; ledger-only evidence remains
+supporting and cannot suppress genuinely new work.
+
 Safe local control is file-based under
 `/workspace/logs/settleora-auto-runner/state/runner-control.json`:
 

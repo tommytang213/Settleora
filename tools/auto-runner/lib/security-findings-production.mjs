@@ -96,6 +96,7 @@ function sanitizeSecurityFindingPhaseResult(result = {}) {
     sourceCounts: result.sourceCounts || {},
     classificationCounts: result.classificationCounts || {},
     routeCounts: result.routeCounts || {},
+    duplicateCount: result.duplicateCount || 0,
     proposalCount: result.proposalCount || 0,
     reuseCount: result.reuseCount || 0,
     retryCount: result.retryCount || 0,

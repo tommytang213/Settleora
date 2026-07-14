@@ -164,6 +164,34 @@ test("enabled production phase does not inject sensitive authority resolution", 
   }
 });
 
+test("enabled production phase reuses authoritative duplicates without proposals", async () => {
+  const config = tempConfig({ securityFindings: { allowSecurityFindingsProductionPhase: true } });
+  try {
+    const finding = codeFinding({ alertId: "77", fingerprint: "fp-77" });
+    const result = await runSecurityFindingsProductionPhase(config, {
+      runId: "run-duplicate-reuse",
+      now: () => now,
+      currentFindings: { [finding.correlationKey]: finding },
+      evidence: { openIssues: [{ state: "OPEN", number: 902, body: finding.correlationKey }] },
+      adapter: {
+        async fetchSource(sourceKind) {
+          return { sourceKind, status: "ok", completeness: "complete", findings: sourceKind === "code_scanning_alert" ? [finding] : [], failures: [] };
+        },
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.dryRunEquivalent.duplicateCount, 1);
+    assert.equal(result.dryRunEquivalent.reuseCount, 1);
+    assert.equal(result.dryRunEquivalent.routeCounts.reuse_existing_work, 1);
+    assert.equal(result.dryRunEquivalent.proposalCount, 0);
+    assert.equal(result.dryRunEquivalent.dispositionReadyCount, 0);
+    assert.equal(result.dryRunEquivalent.completionReadyCount, 0);
+    assert.equal(result.mutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("disposition cap consumes attempted slot and blocks second disposition", () => {
   const config = tempConfig({
     securityFindings: {

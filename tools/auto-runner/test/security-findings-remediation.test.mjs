@@ -27,6 +27,7 @@ const now = "2026-07-14T06:50:00.000Z";
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-security-remediation-"));
   chmodSync(logsRoot, 0o700);
+  const { securityFindings = {}, ...rest } = extra;
   return {
     repoRoot: "/workspace/repos/Settleora",
     logsRoot,
@@ -46,9 +47,9 @@ function tempConfig(extra = {}) {
       timeoutMs: 1000,
       persistState: true,
       maxProposalsPerRun: 10,
-      ...extra.securityFindings,
+      ...securityFindings,
     },
-    ...extra,
+    ...rest,
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
   };
 }
@@ -233,12 +234,50 @@ test("routes enforce current reconciliation before proposals and no mutation rou
   const safe = classifySecurityFinding({ finding, authorityResolved: true }, { now });
   assert.equal(routeSecurityFindingRemediation({ finding, classification: safe, reconciliation: { state: "current_open" } }).route, "propose_issue");
   assert.equal(routeSecurityFindingRemediation({ finding, classification: safe, reconciliation: { state: "resolved_upstream" } }).route, "no_action_resolved");
+  const duplicateReuse = routeSecurityFindingRemediation({
+    finding,
+    classification: safe,
+    reconciliation: { state: "current_open" },
+    duplicate: {
+      ok: true,
+      status: "duplicate",
+      evidence: [{ source: "issues.open", number: 902, state: "OPEN", confidence: "exact_marker", authority: "authoritative", lifecycle: "active", body: "must not persist" }],
+    },
+  });
+  assert.equal(duplicateReuse.route, "reuse_existing_work");
+  assert.equal(duplicateReuse.proposalAllowed, false);
+  assert.equal(duplicateReuse.mutationAllowed, false);
+  assert.deepEqual(duplicateReuse.reasonCodes, ["authoritative_duplicate_reuse"]);
+  assert.deepEqual(duplicateReuse.duplicateEvidence, [{ source: "issues.open", number: 902, state: "OPEN", confidence: "exact_marker", authority: "authoritative", lifecycle: "active" }]);
+  const completedDuplicate = routeSecurityFindingRemediation({
+    finding,
+    classification: safe,
+    reconciliation: { state: "current_open" },
+    duplicate: {
+      ok: true,
+      status: "duplicate",
+      evidence: [{ source: "prs.closed", number: 916, state: "CLOSED", confidence: "exact_marker", authority: "authoritative", lifecycle: "completed" }],
+    },
+  });
+  assert.equal(completedDuplicate.route, "blocked_ambiguous");
+  assert.deepEqual(completedDuplicate.reasonCodes, ["completed_duplicate_still_open_requires_reconciliation"]);
+  assert.equal(routeSecurityFindingRemediation({
+    finding,
+    classification: safe,
+    reconciliation: { state: "resolved_upstream" },
+    duplicate: {
+      ok: true,
+      status: "duplicate",
+      evidence: [{ source: "prs.closed", number: 916, state: "CLOSED", confidence: "exact_marker", authority: "authoritative", lifecycle: "completed" }],
+    },
+  }).route, "no_action_resolved");
   assert.equal(routeSecurityFindingRemediation({ finding, classification: { category: "retryable_infrastructure" }, reconciliation: {} }).route, "retry_later");
   assert.equal(routeSecurityFindingRemediation({ finding, classification: { category: "false_positive_candidate" }, reconciliation: {} }).route, "collect_false_positive_evidence");
   assert.equal(routeSecurityFindingRemediation({ finding, classification: { category: "manual_security_product_decision" }, reconciliation: {} }).route, "manual_gate");
   assert.equal(routeSecurityFindingRemediation({ finding, classification: safe, reconciliation: { state: "ambiguous" } }).route, "blocked_ambiguous");
   assert.deepEqual(new Set(securityFindingRoutes), new Set([
     "propose_issue",
+    "reuse_existing_work",
     "retry_later",
     "collect_false_positive_evidence",
     "manual_gate",
@@ -342,13 +381,218 @@ test("synthetic planning dry-run covers categories routes and zero mutation call
   }
 });
 
+test("authoritative duplicates reuse existing work without proposal mutation retry or disposition paths", async () => {
+  const cases = [
+    {
+      name: "open issue duplicate",
+      finding: codeFinding({ alertId: "101", fingerprint: "fp-101" }),
+      evidenceFor: (finding) => ({ openIssues: [{ state: "OPEN", number: 902, body: finding.correlationKey }] }),
+      classificationInputs: {},
+    },
+    {
+      name: "open PR duplicate",
+      finding: codeFinding({ alertId: "102", fingerprint: "fp-102" }),
+      evidenceFor: (finding) => ({ openPrs: [{ state: "OPEN", number: 916, body: finding.idempotencyKey }] }),
+      classificationInputs: {},
+    },
+    {
+      name: "active durable state duplicate",
+      finding: codeFinding({ alertId: "103", fingerprint: "fp-103" }),
+      seedState: true,
+      evidenceFor: () => ({}),
+      classificationInputs: {},
+    },
+    {
+      name: "false positive duplicate",
+      finding: codeFinding({ alertId: "104", fingerprint: "fp-104" }),
+      evidenceFor: (finding) => ({ openIssues: [{ state: "OPEN", number: 902, body: finding.correlationKey }] }),
+      classificationInputs: (finding) => ({
+        [finding.correlationKey]: {
+          falsePositiveCandidate: { authorizedAnalysis: true, requiredProofGates: ["exact_alert", "review", "current_main"] },
+        },
+      }),
+    },
+    {
+      name: "retryable classification duplicate",
+      finding: codeFinding({ alertId: "105", fingerprint: "fp-105" }),
+      evidenceFor: (finding) => ({ openIssues: [{ state: "OPEN", number: 902, body: finding.correlationKey }] }),
+      classificationInputs: (finding) => ({
+        [finding.correlationKey]: { providerFailure: { reason: "provider_retryable_failure" } },
+      }),
+    },
+  ];
+
+  for (const item of cases) {
+    const config = tempConfig({ securityFindings: { allowFalsePositiveEvidence: true } });
+    try {
+      const finding = item.finding;
+      if (item.seedState) writeSecurityFindingsState(config, [finding], { taskKey: "duplicate-seed" });
+      const result = await runSecurityFindingsDryRun(config, {
+        adapter: {
+          async fetchSource(sourceKind) {
+            return { sourceKind, status: "ok", findings: sourceKind === "code_scanning_alert" ? [finding] : [], failures: [] };
+          },
+        },
+        reports: [],
+        evidence: item.evidenceFor(finding),
+        now: () => now,
+        currentFindings: { [finding.correlationKey]: finding },
+        classificationInputs: typeof item.classificationInputs === "function" ? item.classificationInputs(finding) : item.classificationInputs,
+      });
+      assert.equal(result.ok, true, item.name);
+      assert.equal(result.duplicateCount, 1, item.name);
+      assert.equal(result.reuseCount, 1, item.name);
+      assert.equal(result.newCount, 0, item.name);
+      assert.equal(result.routeCounts.reuse_existing_work, 1, item.name);
+      assert.equal(result.proposalCount, 0, item.name);
+      assert.equal(result.mutationCalls, 0, item.name);
+      assert.equal(result.retryCount, 0, item.name);
+      assert.equal(result.packetReadyCount, 0, item.name);
+      assert.equal(result.packetBlockedCount, 0, item.name);
+      assert.equal(result.dispositionReadyCount, 0, item.name);
+      assert.equal(result.completionReadyCount, 0, item.name);
+      const persisted = JSON.parse(readFileSync(result.statePath, "utf8"));
+      assert.equal(persisted.records.length, 1, item.name);
+      assert.equal(persisted.records[0].lifecycle.stage, "reconciled", item.name);
+      assert.equal(persisted.records[0].route.route, "reuse_existing_work", item.name);
+      assert.doesNotMatch(JSON.stringify(persisted), /must not persist|rawPayload|SARIF|snippet|Bearer|token=|secret=/i, item.name);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
+test("duplicate evidence classes distinguish completed stale supporting and new findings", async () => {
+  const cases = [
+    {
+      name: "completed closed duplicate remains ambiguous while finding is current",
+      evidenceFor: (finding) => ({ closedIssues: [{ state: "CLOSED", number: 902, body: finding.correlationKey, reason: "completed" }] }),
+      expected: { ok: false, reason: "ambiguous_duplicate_evidence", route: "blocked_ambiguous", duplicateCount: 1, newCount: 0, ambiguousMin: 1, proposalCount: 0 },
+    },
+    {
+      name: "multiple authoritative matches are ambiguous",
+      evidenceFor: (finding) => ({ openIssues: [{ state: "OPEN", body: finding.correlationKey }], openPrs: [{ state: "OPEN", body: finding.idempotencyKey }] }),
+      expected: { ok: false, reason: "ambiguous_duplicate_evidence", route: "blocked_ambiguous", duplicateCount: 0, newCount: 0, ambiguousMin: 1, proposalCount: 0 },
+    },
+    {
+      name: "stale closed non-completed evidence is ambiguous",
+      evidenceFor: (finding) => ({ closedIssues: [{ state: "CLOSED", body: finding.correlationKey, reason: "not planned" }] }),
+      expected: { ok: false, reason: "ambiguous_duplicate_evidence", route: "blocked_ambiguous", duplicateCount: 0, newCount: 0, ambiguousMin: 1, proposalCount: 0 },
+    },
+    {
+      name: "ledger-only supporting evidence remains new",
+      evidenceFor: (finding) => ({ ledgerEntries: [{ text: finding.correlationKey }] }),
+      expected: { ok: true, reason: "dry_run_complete", route: "propose_issue", duplicateCount: 0, newCount: 1, ambiguousMin: 0, proposalCount: 1 },
+    },
+    {
+      name: "no evidence remains new",
+      evidenceFor: () => ({}),
+      expected: { ok: true, reason: "dry_run_complete", route: "propose_issue", duplicateCount: 0, newCount: 1, ambiguousMin: 0, proposalCount: 1 },
+    },
+  ];
+
+  for (const item of cases) {
+    const config = tempConfig({ securityFindings: { persistState: false } });
+    try {
+      const finding = codeFinding({ alertId: item.name.replaceAll(/[^A-Za-z0-9]/g, "-").slice(0, 40), fingerprint: `fp-${item.name.length}` });
+      const result = await runSecurityFindingsDryRun(config, {
+        adapter: {
+          async fetchSource(sourceKind) {
+            return { sourceKind, status: "ok", findings: sourceKind === "code_scanning_alert" ? [finding] : [], failures: [] };
+          },
+        },
+        reports: [],
+        evidence: item.evidenceFor(finding),
+        now: () => now,
+        currentFindings: { [finding.correlationKey]: finding },
+      });
+      assert.equal(result.ok, item.expected.ok, item.name);
+      assert.equal(result.reason, item.expected.reason, item.name);
+      assert.equal(result.routeCounts[item.expected.route], 1, item.name);
+      assert.equal(result.duplicateCount, item.expected.duplicateCount, item.name);
+      assert.equal(result.newCount, item.expected.newCount, item.name);
+      assert.equal(result.proposalCount, item.expected.proposalCount, item.name);
+      assert.equal(result.mutationCalls, 0, item.name);
+      assert.ok(result.ambiguousCount >= item.expected.ambiguousMin, item.name);
+      if (!item.expected.ok) assert.equal(result.statePath, null, item.name);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
+test("authoritative duplicate reruns are idempotent and incomplete source coverage is not authoritative", async () => {
+  const config = tempConfig();
+  try {
+    const finding = codeFinding({ alertId: "106", fingerprint: "fp-106" });
+    const adapter = {
+      async fetchSource(sourceKind) {
+        return { sourceKind, status: "ok", findings: sourceKind === "code_scanning_alert" ? [finding] : [], failures: [] };
+      },
+    };
+    const first = await runSecurityFindingsDryRun(config, {
+      adapter,
+      reports: [],
+      now: () => now,
+      currentFindings: { [finding.correlationKey]: finding },
+    });
+    assert.equal(first.ok, true);
+    assert.equal(first.proposalCount, 1);
+    assert.equal(first.mutationCalls, 0);
+    const second = await runSecurityFindingsDryRun(config, {
+      adapter,
+      reports: [],
+      now: () => now,
+      currentFindings: { [finding.correlationKey]: finding },
+    });
+    assert.equal(second.ok, true);
+    assert.equal(second.duplicateCount, 1);
+    assert.equal(second.routeCounts.reuse_existing_work, 1);
+    assert.equal(second.reuseCount, 1);
+    assert.equal(second.proposalCount, 0);
+    assert.equal(second.mutationCalls, 0);
+    const state = JSON.parse(readFileSync(second.statePath, "utf8"));
+    assert.equal(state.records.length, 1);
+    assert.equal(state.records[0].route.route, "reuse_existing_work");
+    assert.equal(state.records[0].lifecycle.stage, "reconciled");
+
+    const partialConfig = tempConfig({ securityFindings: { allowPartialPlanning: true } });
+    try {
+      const partial = await runSecurityFindingsDryRun(partialConfig, {
+        adapter: {
+          async fetchSource(sourceKind) {
+            if (sourceKind === "dependabot_alert") return { sourceKind, status: "permission_denied", findings: [], failures: ["permission_denied"], reason: "permission_denied", httpStatus: 403 };
+            return { sourceKind, status: "ok", findings: sourceKind === "code_scanning_alert" ? [finding] : [], failures: [] };
+          },
+        },
+        reports: [],
+        evidence: { openIssues: [{ state: "OPEN", body: finding.correlationKey }] },
+        now: () => now,
+        currentFindings: { [finding.correlationKey]: finding },
+      });
+      assert.equal(partial.ok, true);
+      assert.equal(partial.reason, "dry_run_partial_source_failures");
+      assert.equal(partial.duplicateCount, 1);
+      assert.equal(partial.reuseCount, 1);
+      assert.equal(partial.proposalCount, 0);
+      assert.equal(partial.mutationCalls, 0);
+      assert.equal(partial.statePath, null);
+      assert.equal(partial.failuresByReason.permission_denied, 1);
+    } finally {
+      partialConfig.cleanup();
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("dry-run keeps sensitive authority unresolved unless trusted input explicitly resolves it", async () => {
   for (const locationPath of [
     "services/api/Auth/Sessions.cs",
     "services/api/Storage/FilePolicy.cs",
     "services/api/Settlement/PaymentService.cs",
   ]) {
-    const config = tempConfig();
+    const config = tempConfig({ securityFindings: { persistState: false } });
     try {
       const finding = codeFinding({ locationPath });
       const adapter = {

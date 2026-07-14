@@ -106,6 +106,15 @@ fail the source instead of converting it into zero findings. Only fully complete
 source reads can feed classification, disposition, proposal, or completion
 planning by default.
 
+Authoritative duplicate evidence is handled before any new-work path. Exactly
+one active authoritative issue, PR, report, or durable-state match routes to
+`reuse_existing_work`, increments duplicate/reuse counts, and cannot build a
+proposal, call the issue mutation pipeline, evaluate false-positive
+disposition readiness, schedule retry work, or advance linked issue
+completion. Completed/merged duplicate evidence while the finding remains
+current open blocks as ambiguous until reconciled. Ledger-only evidence stays
+supporting and does not suppress new work.
+
 False-positive disposition readiness is also default-off and fail-closed.
 `allowFalsePositiveEvidence` only enables bounded packet/readiness evaluation
 inside the non-mutating security-finding dry-run. A live disposition would
