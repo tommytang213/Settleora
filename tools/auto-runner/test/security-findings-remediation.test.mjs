@@ -119,6 +119,16 @@ test("classifier covers all categories and fails closed on unsafe evidence", () 
   const unverifiedPr = classifySecurityFinding({ finding: { ...dependencyFinding(), sourceKind: "dependabot_pr", manifestPath: null }, sourceIdentityVerified: false }, { now });
   assert.equal(unverifiedPr.category, "unsupported_ambiguous");
 
+  const rootNpm = classifySecurityFinding({
+    finding: dependencyFinding({
+      dependency: { package: { name: "yaml", ecosystem: "npm" }, manifest_path: "package-lock.json" },
+      security_vulnerability: { package: { name: "yaml", ecosystem: "npm" } },
+    }),
+    sourceIdentityVerified: true,
+  }, { now });
+  assert.equal(rootNpm.category, "dependency_update");
+  assert.equal(rootNpm.suggestedLane, "workflow-docs-tooling");
+
   assert.deepEqual(new Set(securityFindingCategories), new Set([
     "safe_code_fix",
     "dependency_update",
@@ -276,7 +286,36 @@ test("inaccessible endpoint fails planning instead of becoming zero findings", a
     });
     assert.equal(result.ok, false);
     assert.equal(result.reason, "source_failures");
-    assert.equal(result.classificationCounts.unsupported_ambiguous, 2);
+    assert.deepEqual(result.classificationCounts, {});
+    assert.deepEqual(result.routeCounts, {});
+    assert.equal(result.proposalCount, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("incomplete source coverage blocks complete-source findings before planning", async () => {
+  const config = tempConfig();
+  try {
+    const dep = dependencyFinding();
+    const result = await runSecurityFindingsDryRun(config, {
+      adapter: {
+        async fetchSource(sourceKind) {
+          if (sourceKind === "dependabot_alert") return { sourceKind, status: "ok", completeness: "complete", findings: [dep], failures: [] };
+          return { sourceKind, status: "truncated", completeness: "truncated", reason: "page_limit_reached", findings: [], failures: ["page_limit_reached"] };
+        },
+      },
+      reports: [],
+      now: () => now,
+      currentFindings: { [dep.correlationKey]: dep },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "source_failures");
+    assert.equal(result.normalizedCount, 0);
+    assert.deepEqual(result.classificationCounts, {});
+    assert.deepEqual(result.routeCounts, {});
+    assert.equal(result.proposalCount, 0);
+    assert.equal(result.mutationCalls, 0);
   } finally {
     config.cleanup();
   }

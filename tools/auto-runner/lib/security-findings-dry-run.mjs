@@ -124,6 +124,12 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     }
     normalized.push(...(sourceResult.findings || []));
   }
+  if (providerFailures.length > 0 && !securityConfig.allowPartialPlanning) {
+    result.normalizedCount = 0;
+    result.ok = false;
+    result.reason = "source_failures";
+    return result;
+  }
   result.normalizedCount = normalized.length;
 
   const repoReports = options.reports || readRepositoryCorrelationReports(config.repoRoot || "/workspace/repos/Settleora");

@@ -240,7 +240,7 @@ export const laneManifest = Object.freeze({
   "workflow-docs-tooling": Object.freeze({
     id: "workflow-docs-tooling",
     purpose: "Auto-runner, workflow documentation, and AI controller tooling.",
-    allowedPaths: Object.freeze(["tools/auto-runner/**", "docs/workflow/**", "scripts/ai/**"]),
+    allowedPaths: Object.freeze(["tools/auto-runner/**", "docs/workflow/**", "scripts/ai/**", "package.json", "package-lock.json", "npm-shrinkwrap.json"]),
     defaultValidationProfile: "workflow-tooling",
     supportedValidationProfiles: Object.freeze(["workflow-tooling", "runner-tests", "scaffold-docs", "docs-only"]),
     implementationAllowed: true,
