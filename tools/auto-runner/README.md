@@ -331,7 +331,7 @@ stdout, and writes both JSON and Markdown reports under:
 The readiness report includes timestamp, repository, current branch and `HEAD`,
 config path, pass/warn/fail totals, remaining manual gates, repo-root and clean
 worktree checks, `origin/main` reachability, local `HEAD` relation to
-`origin/main`, `gh auth status`, repository reachability, #800 open state,
+`origin/main`, `gh auth status`, repository reachability, #910 open state,
 #805 closed state, eligible issue search health using simple per-label
 queries, trusted real-run refusal state, separate canary approval state,
 risky gate defaults, reviewer tier/budget policy, active/stale claim label
@@ -727,6 +727,7 @@ Implementation lane matrix:
 | `docs-planning` | low | normal | cheap | `docs-only` | implementation, PR, and existing low-risk auto-merge gates when explicitly configured |
 | `client-ui-low-risk` | low | normal | cheap | `mobile-ui-low-risk` | narrow protected canary lane preserved |
 | `mobile-application` | standard | normal | cheap | `mobile` | implementation and PR creation only |
+| `mobile-build-config` | high | focused | strong | `mobile-build-config` | checked-in Flutter/native build inputs may auto-merge only after stronger exact gates; signing, release, generated output, and credentials remain manual/forbidden |
 | `web-user-ui` | standard | normal | cheap | `web-ui` | implementation and PR creation only |
 | `web-admin-ui` | sensitive | focused | strong | `web-ui` | implementation and PR creation only |
 | `api-domain-runtime` | sensitive | focused | strong | `api-domain` | implementation and PR creation only |
@@ -763,6 +764,32 @@ storage/privacy/authz, money/settlement/payment/bill calculation authority,
 schema/migration, OpenAPI/generated-client, sync/import/export, OCR runtime,
 Docker/CI/deployment/env, mobile release/signing, public/admin exposure, broad
 `apps/mobile/**`, or generated files.
+
+`mobile-build-config` is separate from `mobile-application`.
+`mobile-application` remains for Flutter product code under
+`apps/mobile/lib/**` and tests under `apps/mobile/test/**`. The build-config
+lane is for focused changes to checked-in project inputs such as
+`apps/mobile/pubspec.yaml`, `apps/mobile/pubspec.lock`, tracked
+`apps/mobile/assets/**` or `apps/mobile/l10n/**` when present, and native
+platform project files under `android/`, `ios/`, `macos/`, `linux/`,
+`windows/`, and `web/`. The lane does not permit generated output, caches,
+signing/provisioning files, keystores, private keys, `.env` files, provider or
+store credentials, TestFlight/App Store/Play publication, live release
+actions, generated OpenAPI Dart clients, CI/deployment workflows, or unrelated
+mobile product/runtime files. Ordinary non-secret manifests, plist files,
+Gradle files, Xcode project metadata, non-secret entitlements, `Podfile`, and
+checked-in platform source/resources are not manual merely because they are
+native inputs.
+
+The `mobile-build-config` validation profile is fixed in runner source as:
+`git status --short`, `git diff --name-only`, `git diff --check`,
+`PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, Flutter `pub get`,
+Flutter `analyze`, and full Flutter `test` from `apps/mobile` using
+`/opt/flutter/bin/flutter`. On Linux
+this is deterministic static validation for iOS/macOS project inputs; Xcode
+compile/archive, signing, and store submission remain macOS CI/manual gates
+where unavoidable. This lane does not activate #912 external production
+profiles and does not claim Day 1 product completion.
 Auto-merge, stale-claim stealing, follow-up issue creation, review-fix
 mutation, trusted overnight real-run operation, and systemd enablement remain
 disabled/gated. Review-fix mutation is built as a default-off low-risk

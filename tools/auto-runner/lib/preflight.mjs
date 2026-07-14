@@ -38,7 +38,7 @@ export function runPreflight(config, options = {}) {
   checks.push(checkGhAvailable(runner));
   checks.push(checkGhAuthStatus(config, runner));
   checks.push(checkGhRepoView(config, runner));
-  checks.push(checkIssueState(config, runner, 800, "OPEN"));
+  checks.push(checkIssueState(config, runner, 910, "OPEN"));
   checks.push(checkIssueState(config, runner, 805, "CLOSED"));
   checks.push(checkIssuePolling(config, runner));
   checks.push(checkCodexResolution(config));

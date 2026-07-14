@@ -61,6 +61,7 @@ function fallbackProfileForChangedFiles(changedFiles, laneDecision) {
   if (laneDecision.lane === "workflow-docs-tooling") return "workflow-tooling";
   if (laneDecision.lane === "client-ui-low-risk") return "mobile-ui-low-risk";
   if (laneDecision.canonicalLane === "mobile-application" || laneDecision.lane === "mobile-application") return "mobile";
+  if (laneDecision.canonicalLane === "mobile-build-config" || laneDecision.lane === "mobile-build-config") return "mobile-build-config";
   if (laneDecision.canonicalLane === "web-user-ui" || laneDecision.lane === "web-user-ui") return "web-ui";
   if (laneDecision.canonicalLane === "web-admin-ui" || laneDecision.lane === "web-admin-ui") return "web-ui";
   if (laneDecision.canonicalLane === "api-domain-runtime" || laneDecision.lane === "api-domain-runtime") return "api-domain";

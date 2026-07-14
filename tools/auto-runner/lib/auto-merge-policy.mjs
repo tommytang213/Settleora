@@ -14,6 +14,7 @@ export const approvedDomainAutoMergeLanes = Object.freeze([
   "docs-planning",
   "client-ui-low-risk",
   "mobile-application",
+  "mobile-build-config",
   "web-user-ui",
   "web-admin-ui",
   "api-domain-runtime",
