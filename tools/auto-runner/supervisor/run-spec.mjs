@@ -38,6 +38,11 @@ export const allowedSpecFields = new Set([
   "runnerConfigSha256",
   "initialOriginMainSha",
   "requestedBy",
+  "parentSupervisorRunId",
+  "parentRunnerRunId",
+  "sourceIssueNumber",
+  "sourceBranchName",
+  "outageResubmission",
 ]);
 
 export function generateRunId(date = new Date()) {
@@ -148,6 +153,11 @@ export function buildRunSpec({
   profile = "default",
   initialOriginMainSha,
   requestedBy = "operator",
+  parentSupervisorRunId = null,
+  parentRunnerRunId = null,
+  sourceIssueNumber = null,
+  sourceBranchName = null,
+  outageResubmission = null,
   allowMissingConfig = false,
   logsRoot = defaultLogsRoot,
 } = {}) {
@@ -172,6 +182,11 @@ export function buildRunSpec({
     runnerConfigSha256: config.sha256,
     initialOriginMainSha,
     requestedBy: normalizeRequestedBy(requestedBy),
+    parentSupervisorRunId: normalizeOptionalSupervisorRunId(parentSupervisorRunId),
+    parentRunnerRunId: normalizeOptionalRunnerRunId(parentRunnerRunId),
+    sourceIssueNumber: normalizeOptionalIssueNumber(sourceIssueNumber),
+    sourceBranchName: normalizeOptionalBranchName(sourceBranchName),
+    outageResubmission: normalizeOptionalOutageResubmission(outageResubmission),
   };
   validateRunSpecShape(spec);
   return { spec, config };
@@ -195,6 +210,11 @@ export function validateRunSpecShape(spec) {
     throw new Error("initialOriginMainSha must be a 40-character git SHA");
   }
   normalizeRequestedBy(spec.requestedBy);
+  normalizeOptionalSupervisorRunId(spec.parentSupervisorRunId);
+  normalizeOptionalRunnerRunId(spec.parentRunnerRunId);
+  normalizeOptionalIssueNumber(spec.sourceIssueNumber);
+  normalizeOptionalBranchName(spec.sourceBranchName);
+  normalizeOptionalOutageResubmission(spec.outageResubmission);
   return spec;
 }
 
@@ -241,4 +261,51 @@ function normalizeRequestedBy(value) {
   const normalized = String(value || "").trim();
   if (!/^[a-zA-Z0-9_.@-]{1,64}$/.test(normalized)) throw new Error("requestedBy is invalid");
   return normalized;
+}
+
+function normalizeOptionalSupervisorRunId(value) {
+  if (value === null || value === undefined) return null;
+  return validateRunId(value);
+}
+
+function normalizeOptionalRunnerRunId(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value || "").trim();
+  if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(normalized)) throw new Error("parentRunnerRunId is invalid");
+  return normalized;
+}
+
+function normalizeOptionalIssueNumber(value) {
+  if (value === null || value === undefined) return null;
+  if (!Number.isSafeInteger(value) || value < 1 || value > 9999999) throw new Error("sourceIssueNumber is invalid");
+  return value;
+}
+
+function normalizeOptionalBranchName(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value || "").trim();
+  if (!/^(feature|focused|feature-bundle|tools)\/[A-Za-z0-9._/-]{1,180}$/.test(normalized) || normalized.includes("..")) {
+    throw new Error("sourceBranchName is invalid");
+  }
+  return normalized;
+}
+
+function normalizeOptionalOutageResubmission(value) {
+  if (value === null || value === undefined) return null;
+  const allowedKeys = new Set(["attemptNumber", "markerKey", "outageFingerprint", "originalSupervisorSpecDigest"]);
+  for (const key of Object.keys(value || {})) {
+    if (!allowedKeys.has(key)) throw new Error(`Unknown outageResubmission field: ${key}`);
+  }
+  if (!Number.isSafeInteger(value.attemptNumber) || value.attemptNumber < 1 || value.attemptNumber > 20) {
+    throw new Error("outageResubmission.attemptNumber is invalid");
+  }
+  for (const key of ["markerKey", "outageFingerprint", "originalSupervisorSpecDigest"]) {
+    if (!/^[a-f0-9]{64}$/.test(String(value[key] || ""))) throw new Error(`outageResubmission.${key} is invalid`);
+  }
+  return {
+    attemptNumber: value.attemptNumber,
+    markerKey: value.markerKey,
+    outageFingerprint: value.outageFingerprint,
+    originalSupervisorSpecDigest: value.originalSupervisorSpecDigest,
+  };
 }
