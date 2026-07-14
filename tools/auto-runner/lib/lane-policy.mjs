@@ -90,6 +90,29 @@ const dangerousPathPatterns = [
   { key: "mobile_release", pattern: /(^|\/)(testflight|app-store|signing|mobile-release)(\/|$)/i },
 ];
 
+const mobileBuildConfigForbiddenPathPatterns = [
+  { key: "mobile_build_output", pattern: /^apps\/mobile\/build(?:\/|$)/ },
+  { key: "mobile_dart_tool", pattern: /^apps\/mobile\/\.dart_tool(?:\/|$)/ },
+  { key: "mobile_nested_build_output", pattern: /^apps\/mobile\/.*\/build(?:\/|$)/ },
+  { key: "mobile_gradle_cache", pattern: /^apps\/mobile\/android\/\.gradle(?:\/|$)/ },
+  { key: "mobile_ios_pods", pattern: /^apps\/mobile\/ios\/Pods(?:\/|$)/ },
+  { key: "mobile_ios_generated_xcconfig", pattern: /^apps\/mobile\/ios\/Flutter\/Generated\.xcconfig$/ },
+  { key: "mobile_ios_generated_plugin_registrant", pattern: /^apps\/mobile\/ios\/Runner\/GeneratedPluginRegistrant\.(?:h|m|swift|\*)$/ },
+  { key: "xcode_derived_data", pattern: /(^|\/)DerivedData(?:\/|$)/ },
+  { key: "certificate_material", pattern: /\.(?:p12|pfx|cer|mobileprovision)$/i },
+  { key: "android_signing_material", pattern: /\.(?:jks|keystore)$/i },
+  { key: "ssh_private_key", pattern: /(^|\/)(?:id_rsa|id_ed25519)$/ },
+  { key: "env_file", pattern: /(^|\/)\.env(?:\.|$)/ },
+  { key: "private_key_material", pattern: /(^|\/)[^/]*private[^/]*key[^/]*(?:\/|$)/i },
+  { key: "android_key_properties", pattern: /^apps\/mobile\/android\/key\.properties$/ },
+  { key: "android_local_properties", pattern: /^apps\/mobile\/android\/local\.properties$/ },
+  { key: "store_publication", pattern: /(^|\/)(?:testflight|app-store|play-store|store-release|publication|upload-key|provisioning)(?:\/|$)/i },
+  { key: "generated_openapi_dart_client", pattern: /^packages\/client-dart\/lib\/generated(?:\/|$)/ },
+  { key: "ci_deployment_workflow", pattern: /^\.github\/workflows(?:\/|$)/ },
+  { key: "deployment_infra", pattern: /^(?:infra|docs\/deployment)(?:\/|$)/ },
+  { key: "api_auth_money_storage_schema_runtime", pattern: /^(?:services\/api|packages\/contracts|packages\/client-web|apps\/mobile\/lib|apps\/mobile\/test)(?:\/|$)/ },
+];
+
 export const validationProfiles = Object.freeze({
   "docs-only": Object.freeze([
     ["git", ["status", "--short"]],
@@ -138,6 +161,15 @@ export const validationProfiles = Object.freeze({
     ["git", ["diff", "--check"]],
     ["npm", ["run", "doctor:mobile"]],
     ["npm", ["run", "validate:mobile"]],
+  ]),
+  "mobile-build-config": Object.freeze([
+    ["git", ["status", "--short"]],
+    ["git", ["diff", "--name-only"]],
+    ["git", ["diff", "--check"]],
+    ["bash", ["-lc", "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile"]],
+    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter pub get"]],
+    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter analyze"]],
+    ["bash", ["-lc", "cd apps/mobile && /opt/flutter/bin/flutter test"]],
   ]),
   "web-ui": Object.freeze([
     ["git", ["status", "--short"]],
@@ -265,6 +297,28 @@ export const laneManifest = Object.freeze({
     sensitivity: "standard",
     reviewerTier: "cheap_independent",
     branchStrategy: "normal",
+  }),
+  "mobile-build-config": policyLane({
+    id: "mobile-build-config",
+    purpose:
+      "Checked-in Flutter/native platform build inputs without generated output, caches, signing material, credentials, store publication, or product runtime code.",
+    allowedPaths: [
+      "apps/mobile/pubspec.yaml",
+      "apps/mobile/pubspec.lock",
+      "apps/mobile/assets/**",
+      "apps/mobile/l10n/**",
+      "apps/mobile/android/**",
+      "apps/mobile/ios/**",
+      "apps/mobile/macos/**",
+      "apps/mobile/linux/**",
+      "apps/mobile/windows/**",
+      "apps/mobile/web/**",
+    ],
+    defaultValidationProfile: "mobile-build-config",
+    supportedValidationProfiles: ["mobile-build-config"],
+    sensitivity: "high",
+    reviewerTier: "strong_independent",
+    branchStrategy: "focused",
   }),
   "web-user-ui": policyLane({
     id: "web-user-ui",
@@ -637,6 +691,16 @@ function buildContractDecision(contract) {
       laneManifest: lane,
     });
   }
+  const mobileBuildForbiddenReasons = detectMobileBuildConfigForbiddenPathReasons(contract.allowedPaths, lane);
+  if (mobileBuildForbiddenReasons.length > 0) {
+    return blockedDecision(contract.lane, "Contract allowed path contains a mobile build-config forbidden path.", {
+      contract,
+      dangerGate: true,
+      dangerReasons: mobileBuildForbiddenReasons,
+      reasonCodes: ["contract_path_forbidden"],
+      laneManifest: lane,
+    });
+  }
 
   const autoMergeEligible = Boolean(contract.autoMergeEligible && lane.autoMergeAllowed);
   return {
@@ -765,6 +829,20 @@ function detectDangerousPathReasons(paths, laneDecisionOrManifest = {}) {
     ...new Set(
       paths.flatMap((filePath) =>
         dangerousPathPatterns.filter((entry) => entry.pattern.test(normalizePath(filePath))).map((entry) => entry.key),
+      ),
+    ),
+  ];
+}
+
+function detectMobileBuildConfigForbiddenPathReasons(paths, laneDecisionOrManifest = {}) {
+  const lane = laneDecisionOrManifest.id || laneDecisionOrManifest.canonicalLane || laneDecisionOrManifest.lane;
+  if (lane !== "mobile-build-config") return [];
+  return [
+    ...new Set(
+      paths.flatMap((filePath) =>
+        mobileBuildConfigForbiddenPathPatterns
+          .filter((entry) => entry.pattern.test(normalizePath(filePath)))
+          .map((entry) => entry.key),
       ),
     ),
   ];
@@ -1012,6 +1090,10 @@ function dangerLane(id, purpose) {
 }
 
 function isForbiddenPath(filePath, laneDecision = {}) {
+  const canonicalLane = laneDecision.canonicalLane || laneDecision.lane;
+  if (canonicalLane === "mobile-build-config" && mobileBuildConfigForbiddenPathPatterns.some((entry) => entry.pattern.test(filePath))) {
+    return true;
+  }
   if ((laneDecision.canonicalLane || laneDecision.lane) === "api-domain-runtime" && detectDangerousPathReasons([filePath]).length > 0) {
     return true;
   }

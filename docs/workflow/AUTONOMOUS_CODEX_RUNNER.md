@@ -315,7 +315,7 @@ operation.
 
 The readiness preflight checks repository existence, clean worktree state,
 `origin/main` reachability, local `HEAD` relation to `origin/main`, GitHub
-authentication and repository reachability, #800/#805 state, eligible issue
+authentication and repository reachability, #910/#805 state, eligible issue
 searches using simple per-label queries, trusted real-run refusal, separate
 canary approval state, risky gate defaults, active claim labels, stale-claim
 stealing posture, active `auto-pr-opened` issues, open auto-runner PRs, Codex
@@ -346,7 +346,7 @@ Repository defaults remain fail-closed: `allowAutoMerge` is false and
 `autoMergePolicy.approvedLanes` is empty. A deployment/profile that enables
 auto-merge must explicitly list supported canonical runnable lane IDs such as
 `workflow-docs-tooling`, `docs-planning`, `client-ui-low-risk`,
-`mobile-application`, `web-user-ui`, `web-admin-ui`, and
+`mobile-application`, `mobile-build-config`, `web-user-ui`, `web-admin-ui`, and
 `api-domain-runtime`, `auth-session-security`,
 `storage-file-privacy-authz`, `money-settlement-payment`,
 `schema-migrations`, `openapi-generated-clients`,
@@ -358,8 +358,8 @@ An approved lane is only a capability. Auto-merge still requires a valid issue
 contract with `autoMergeEligible=true` and `manualMergeRequired=false`, no
 genuine manual action, exact changed-file matches against both the issue
 contract and lane manifest, the lane-appropriate branch strategy, structured
-validation evidence bound to exact head/base/files/profile, the #888 external
-review tier on that same evidence, independent Codex mechanics/security
+validation evidence bound to exact head/base/files/profile, the configured
+external review tier on that same evidence, independent Codex mechanics/security
 approval, required GitHub checks and security scans, all observed exact-head
 checks in acceptable final states, no open code-scanning alerts, no unresolved
 review threads or requested changes, an open issue with
@@ -409,7 +409,7 @@ sanitized evidence path. Any head/base/file/digest mismatch detected by a gate,
 missing or malformed verdict, provider failure, disabled tier, unavailable
 model, timeout, budget hard stop, secret-like path/diff, or non-pass verdict
 blocks. This package mode does not start the issue loop, mutate GitHub, or
-enable the future #889 sensitive-domain auto-merge expansion.
+enable approved-domain auto-merge by itself.
 
 ## Low-Risk Auto-Merge Wait And Recovery Evidence
 
@@ -807,6 +807,7 @@ Implemented lane matrix:
 | `docs-planning` | low | normal | cheap | `docs-only` | implementation, PR, and existing low-risk auto-merge gates remain available when explicitly configured |
 | `client-ui-low-risk` | low | normal | cheap | `mobile-ui-low-risk` | narrow protected canary lane preserved |
 | `mobile-application` | standard | normal | cheap | `mobile` | implementation and PR creation only |
+| `mobile-build-config` | high | focused | strong | `mobile-build-config` | checked-in Flutter/native build inputs through stronger exact gates; signing, release, generated output, and credentials remain manual/forbidden |
 | `web-user-ui` | standard | normal | cheap | `web-ui` | implementation and PR creation only |
 | `web-admin-ui` | sensitive | focused | strong | `web-ui` | implementation and PR creation only |
 | `api-domain-runtime` | sensitive | focused | strong | `api-domain` | implementation and PR creation only |
@@ -837,6 +838,63 @@ PR creation is blocked if any changed file is outside either the contract
 allowlist or the lane allowlist. Generic words such as `config` do not by
 themselves trigger a manual gate; secret files, `.env`, local credentials,
 SSH material, and credential mutation remain forbidden.
+
+`mobile-build-config` is a focused high-sensitivity lane for source-controlled
+Flutter/native platform build inputs. It is intentionally separate from
+`mobile-application`: product runtime code under `apps/mobile/lib/**` and
+Flutter app tests under `apps/mobile/test/**` stay in the application lane,
+while build-config contracts may target exact checked-in inputs such as
+`apps/mobile/pubspec.yaml`, `apps/mobile/pubspec.lock`, tracked assets or
+localizations when present, Android manifests/resources/Kotlin/Gradle wrapper
+metadata, iOS and macOS plist/project/workspace/scheme/xcconfig/Podfile files,
+non-secret entitlements, Linux/Windows CMake and runner resources, and web
+manifest/index/icon inputs. Issue contracts must remain narrower than the
+lane maximum.
+
+The lane forbids generated output and caches including
+`apps/mobile/build/**`, `apps/mobile/.dart_tool/**`,
+`apps/mobile/**/build/**`, `apps/mobile/android/.gradle/**`,
+`apps/mobile/ios/Pods/**`, and `**/DerivedData/**`; signing/provisioning and
+credential material including `*.p12`, `*.pfx`, `*.cer`,
+`*.mobileprovision`, `*.jks`, `*.keystore`, private SSH keys, `.env` files,
+and private-key material; TestFlight/App Store/Play publication or live
+release actions; generated OpenAPI Dart clients; CI/deployment workflow
+changes; and unrelated product/runtime/API/auth/security/money/storage/schema
+paths. Ordinary non-secret `Info.plist`, manifests, Gradle files, Xcode
+metadata, non-secret entitlements, `Podfile`, and checked-in native
+source/resources are not manual solely because they are native build inputs.
+
+The base `mobile-build-config` validation profile runs `git status --short`,
+`git diff --name-only`, `git diff --check`,
+`PATH=/opt/flutter/bin:$PATH npm run doctor:mobile`, then
+`/opt/flutter/bin/flutter pub get`, `analyze`, and full `test` from
+`apps/mobile`. The validation planner then derives platform proof from actual
+changed files, not from broad contract globs alone. Android project/config
+changes append `flutter build apk --debug`, Gradle debug runtime dependency
+resolution, and `:app:assembleDebug`. Web project/config changes append
+`flutter build web`.
+
+Linux, iOS, macOS, and Windows project inputs are fail-closed unless exact
+platform evidence is available for the current head. Current Linux DevBox
+validation cannot complete `flutter build linux` because
+`flutter_secure_storage_linux` requires `libsecret-1>=0.18.4`, so Linux
+project changes require the canonical external check
+`mobile-build:linux:external-ci` until that host dependency is present in the
+validated runner. iOS, macOS, and Windows builds cannot be proven by the Linux
+runner and require `mobile-build:ios:external-ci`,
+`mobile-build:macos:external-ci`, or `mobile-build:windows:external-ci`
+respectively. External platform evidence must be bound to the exact head SHA,
+base SHA, changed-file digest, inferred platform set, and canonical check
+identifier. Missing, skipped, neutral, stale, wrong-head, wrong-digest, or
+similarly named checks block auto-merge.
+
+`apps/mobile/pubspec.yaml`, `apps/mobile/pubspec.lock`, tracked assets, and
+localization inputs are treated as cross-platform build/dependency inputs, not
+Dart-only proof. They require Android and web local proof plus the unavailable
+host-platform external checks described above. Xcode compile/archive, signing
+credentials, TestFlight, App Store, and Play submission remain macOS CI/manual
+gates where unavoidable. The lane does not activate #912 external production
+profiles and does not claim Settleora Day 1 product completion.
 
 The runner must label/comment a bounded manual/split stop instead of
 implementing unattended work for genuine human actions or decisions:
