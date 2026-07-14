@@ -101,7 +101,12 @@ export function runOutageResubmissionController(input = {}) {
   let existingOutageState = input.outageState || null;
   if (!existingOutageState && stateKey) {
     const loaded = loadOutageResubmissionState(config, stateKey);
-    if (loaded.ok) existingOutageState = loaded.state;
+    if (loaded.ok) {
+      existingOutageState = loaded.state;
+    } else {
+      event("outage_state_load_blocked", { reasonCode: loaded.reasonCode });
+      return result("blocked", "outage_resubmission_state_untrusted", { events, counts, outageStateLoad: loaded });
+    }
   }
 
   event("outage_marker_reconciled");

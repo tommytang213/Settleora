@@ -193,6 +193,29 @@ test("child planning blocks when source runner config digest no longer matches t
   }
 });
 
+test("persisted outage state load failures block before child reconciliation or planning", () => {
+  const config = tempConfig();
+  try {
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageStateKey: "c".repeat(64),
+      existingChildren: [exactChild(fixtureOutageState())],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_resubmission_state_untrusted");
+    assert.equal(result.outageStateLoad.reasonCode, "outage_resubmission_state_missing");
+    assert.equal(result.events.some((item) => item.event === "outage_state_load_blocked"), true);
+    assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("disk-reloaded incomplete historical child specs fail closed without mutable inference", () => {
   const config = tempConfig();
   try {
