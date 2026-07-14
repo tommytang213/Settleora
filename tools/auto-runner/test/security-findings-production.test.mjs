@@ -9,8 +9,10 @@ import {
   runSecurityFindingsProductionPhase,
   securityFindingsProductionPhaseEnabled,
 } from "../lib/security-findings-production.mjs";
+import { normalizeSecurityFinding } from "../lib/security-findings-model.mjs";
 
 const repository = "tommytang213/Settleora";
+const now = "2026-07-14T07:40:00.000Z";
 
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-security-production-"));
@@ -48,6 +50,27 @@ function tempConfig(extra = {}) {
     ...Object.fromEntries(Object.entries(extra).filter(([key]) => key !== "securityFindings")),
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
   };
+}
+
+function codeFinding(overrides = {}) {
+  const result = normalizeSecurityFinding({
+    sourceKind: "code_scanning_alert",
+    repository,
+    provider: "github",
+    tool: "CodeQL",
+    ruleId: "cs/test-rule",
+    alertId: "42",
+    fingerprint: "fp-42",
+    state: "open",
+    severity: "high",
+    ref: "refs/heads/main",
+    analyzedSha: "a".repeat(40),
+    locationPath: "services/api/Auth/Sessions.cs",
+    locationLine: 12,
+    ...overrides,
+  }, { now });
+  assert.equal(result.ok, true, result.errors?.join(","));
+  return result.finding;
 }
 
 test("security-findings production phase is default-off and dormant", async () => {
@@ -111,6 +134,30 @@ test("enabled production phase fails closed on incomplete source coverage", asyn
     assert.equal(result.dryRunEquivalent.failuresByReason.page_limit_reached, 1);
     assert.equal(result.dryRunEquivalent.dispositionReadyCount, 0);
     assert.equal(result.dryRunEquivalent.completionReadyCount, 0);
+    assert.equal(result.mutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("enabled production phase does not inject sensitive authority resolution", async () => {
+  const config = tempConfig({ securityFindings: { allowSecurityFindingsProductionPhase: true } });
+  try {
+    const finding = codeFinding();
+    const result = await runSecurityFindingsProductionPhase(config, {
+      runId: "run-sensitive-manual",
+      now: () => now,
+      currentFindings: { [finding.correlationKey]: finding },
+      adapter: {
+        async fetchSource(sourceKind) {
+          return { sourceKind, status: "ok", completeness: "complete", findings: sourceKind === "code_scanning_alert" ? [finding] : [], failures: [] };
+        },
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.dryRunEquivalent.classificationCounts.manual_security_product_decision, 1);
+    assert.equal(result.dryRunEquivalent.routeCounts.manual_gate, 1);
+    assert.equal(result.dryRunEquivalent.proposalCount, 0);
     assert.equal(result.mutationCalls, 0);
   } finally {
     config.cleanup();

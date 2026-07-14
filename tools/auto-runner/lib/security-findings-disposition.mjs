@@ -22,15 +22,18 @@ const defaultPreconditionTtlMs = 5 * 60_000;
 
 export function normalizeSecurityFindingDispositionConfig(config = {}) {
   const raw = config.securityFindings || {};
-  const allowedSourceReasons = raw.allowedDispositionReasons || supportedDispositionReasons;
+  const allowedSourceReasons = raw.allowedDispositionReasons === undefined ? supportedDispositionReasons : raw.allowedDispositionReasons;
+  if (!allowedSourceReasons || typeof allowedSourceReasons !== "object" || Array.isArray(allowedSourceReasons)) {
+    throw new Error("securityFindings.allowedDispositionReasons must be an object");
+  }
   const normalizedReasons = {};
   for (const [sourceKind, reasons] of Object.entries(allowedSourceReasons)) {
     if (!supportedDispositionReasons[sourceKind]) throw new Error(`Unsupported disposition source kind: ${sourceKind}`);
     if (!Array.isArray(reasons) || reasons.length === 0) throw new Error(`Disposition reasons missing for ${sourceKind}`);
-    normalizedReasons[sourceKind] = reasons.map((reason) => {
+    normalizedReasons[sourceKind] = Object.freeze([...new Set(reasons.map((reason) => {
       if (!supportedDispositionReasons[sourceKind].includes(reason)) throw new Error(`Unsupported disposition reason for ${sourceKind}: ${reason}`);
       return reason;
-    });
+    }))]);
   }
   const allowSecurityFindingDisposition = Boolean(raw.allowSecurityFindingDisposition);
   const allowProvenFalsePositiveDisposition = Boolean(raw.allowProvenFalsePositiveDisposition);
@@ -47,20 +50,24 @@ export function normalizeSecurityFindingDispositionConfig(config = {}) {
     dispositionDryRunOnly: raw.dispositionDryRunOnly !== false,
     packetTtlMinutes: boundedInt(raw.packetTtlMinutes, 1, 24 * 60, 60, "securityFindings.packetTtlMinutes"),
     maxDispositionsPerRun: boundedInt(raw.maxDispositionsPerRun, 0, 5, 1, "securityFindings.maxDispositionsPerRun"),
-    allowedDispositionReasons: normalizedReasons,
+    allowedDispositionReasons: Object.freeze(normalizedReasons),
+    allowedDispositionPolicyDigest: dispositionPolicyDigest(normalizedReasons),
     requirePostDispositionReconciliation: raw.requirePostDispositionReconciliation !== false,
   };
 }
 
-export function validateDispositionPolicy(packet = {}, reason = null) {
-  const reasons = supportedDispositionReasons[packet.sourceKind];
-  if (!reasons) return fail("disposition_source_kind_unsupported");
-  if (!reasons.includes(reason)) return fail("disposition_reason_unsupported");
+export function validateDispositionPolicy(packet = {}, reason = null, allowedDispositionReasons = null) {
+  const providerReasons = supportedDispositionReasons[packet.sourceKind];
+  if (!providerReasons) return fail("disposition_source_kind_unsupported");
+  if (!providerReasons.includes(reason)) return fail("disposition_reason_unsupported");
+  if (!allowedDispositionReasons || typeof allowedDispositionReasons !== "object" || Array.isArray(allowedDispositionReasons)) return fail("disposition_allowlist_required");
+  const allowedReasons = allowedDispositionReasons[packet.sourceKind];
+  if (!Array.isArray(allowedReasons) || !allowedReasons.includes(reason)) return fail("disposition_reason_not_configured");
   if (!githubAlertIdPattern.test(packet.alertId || "")) return fail("disposition_alert_id_not_numeric");
   if (Number(packet.alertId) > 1_000_000_000) return fail("disposition_alert_id_out_of_bounds");
   if (packet.sourceKind === "code_scanning_alert" && reason !== "false positive") return fail("code_scanning_reason_not_false_positive");
   if (packet.sourceKind === "dependabot_alert" && reason !== "inaccurate") return fail("dependabot_reason_not_inaccurate");
-  return { ok: true, endpoint: endpointForPacket(packet), reason };
+  return { ok: true, endpoint: endpointForPacket(packet), reason, policyDigest: dispositionPolicyDigest(allowedDispositionReasons) };
 }
 
 export async function prepareDispositionPrecondition(packet = {}, reviewBundle = {}, adapter, options = {}) {
@@ -68,6 +75,9 @@ export async function prepareDispositionPrecondition(packet = {}, reviewBundle =
   if (!packetValidation.ok) return packetValidation;
   const reviewValidation = validateFalsePositiveReviewBundle(reviewBundle, packet, { now: options.now });
   if (!reviewValidation.ok) return reviewValidation;
+  const selectedReason = options.reason || defaultReason(packet);
+  const policy = validateDispositionPolicy(packet, selectedReason, options.allowedDispositionReasons);
+  if (!policy.ok) return policy;
   if (!adapter || typeof adapter.rereadAlert !== "function") return fail("disposition_adapter_missing_reread");
   const reread = await adapter.rereadAlert(packet);
   const match = validateAlertReread(packet, reread);
@@ -82,6 +92,9 @@ export async function prepareDispositionPrecondition(packet = {}, reviewBundle =
     reviewBundleDigest: reviewBundle.reviewBundleDigest,
     rereadDigest: match.rereadDigest,
     sourceIdentityDigest: sourceIdentityDigest(packet),
+    sourceKind: packet.sourceKind,
+    reason: selectedReason,
+    allowedDispositionPolicyDigest: policy.policyDigest,
     createdAt,
     expiresAt,
   });
@@ -93,8 +106,11 @@ export async function prepareDispositionPrecondition(packet = {}, reviewBundle =
       reviewBundleDigest: reviewBundle.reviewBundleDigest,
       rereadDigest: match.rereadDigest,
       sourceIdentityDigest: sourceIdentityDigest(packet),
+      sourceKind: packet.sourceKind,
       state: reread.state,
       reason: "exact_alert_current_open",
+      dispositionReason: selectedReason,
+      allowedDispositionPolicyDigest: policy.policyDigest,
       createdAt,
       expiresAt,
       preconditionDigest: digest,
@@ -107,9 +123,9 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
   if (!dispositionConfig.allowSecurityFindingDisposition || !dispositionConfig.allowProvenFalsePositiveDisposition) return fail("disposition_capability_disabled");
   if (config.dryRun || config.mode === "dry-run" || dispositionConfig.dispositionDryRunOnly) return fail("disposition_refuses_dry_run");
   const reason = options.reason || defaultReason(packet);
-  const policy = validateDispositionPolicy(packet, reason);
+  const policy = validateDispositionPolicy(packet, reason, dispositionConfig.allowedDispositionReasons);
   if (!policy.ok) return policy;
-  const boundary = validateDispositionMutationBoundary(packet, reviewBundle, precondition, { now: options.now, reason });
+  const boundary = validateDispositionMutationBoundary(packet, reviewBundle, precondition, { now: options.now, reason, allowedDispositionReasons: dispositionConfig.allowedDispositionReasons });
   if (!boundary.ok) return boundary;
   if (!options.runId) return fail("disposition_run_id_required");
   const cap = consumeDispositionRunSlot(config, options.runId, packet, "attempted", dispositionConfig.maxDispositionsPerRun);
@@ -123,6 +139,9 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
     reviewBundleDigest: reviewBundle.reviewBundleDigest,
     rereadDigest: finalMatch.rereadDigest,
     sourceIdentityDigest: sourceIdentityDigest(packet),
+    sourceKind: packet.sourceKind,
+    reason,
+    allowedDispositionPolicyDigest: policy.policyDigest,
     createdAt: precondition.createdAt,
     expiresAt: precondition.expiresAt,
   });
@@ -150,6 +169,7 @@ export async function executeFalsePositiveDisposition(config = {}, packet = {}, 
       dispositionVersion: securityFindingDispositionVersion,
       packetDigest: packet.packetDigest,
       preconditionDigest: precondition.preconditionDigest,
+      allowedDispositionPolicyDigest: policy.policyDigest,
       endpoint: policy.endpoint,
       reason,
       mutationDigest: digestObject(sanitizeMutation(mutation)),
@@ -164,25 +184,35 @@ export function validateDispositionMutationBoundary(packet = {}, reviewBundle = 
   if (!packetValidation.ok) return packetValidation;
   const reviewValidation = validateFalsePositiveReviewBundle(reviewBundle, packet, { now: options.now });
   if (!reviewValidation.ok) return reviewValidation;
-  const policy = validateDispositionPolicy(packet, options.reason || defaultReason(packet));
+  const policy = validateDispositionPolicy(packet, options.reason || defaultReason(packet), options.allowedDispositionReasons);
   if (!policy.ok) return policy;
-  const preconditionValidation = validateDispositionPrecondition(packet, reviewBundle, precondition, { now: options.now });
+  const preconditionValidation = validateDispositionPrecondition(packet, reviewBundle, precondition, {
+    now: options.now,
+    reason: options.reason || defaultReason(packet),
+    allowedDispositionReasons: options.allowedDispositionReasons,
+  });
   if (!preconditionValidation.ok) return preconditionValidation;
   return { ok: true };
 }
 
 export function validateDispositionPrecondition(packet = {}, reviewBundle = {}, precondition = {}, options = {}) {
   if (!precondition || typeof precondition !== "object" || Array.isArray(precondition)) return fail("disposition_precondition_not_object");
-  const allowed = new Set(["preconditionVersion", "packetDigest", "reviewBundleDigest", "rereadDigest", "sourceIdentityDigest", "state", "reason", "createdAt", "expiresAt", "preconditionDigest"]);
+  const allowed = new Set(["preconditionVersion", "packetDigest", "reviewBundleDigest", "rereadDigest", "sourceIdentityDigest", "sourceKind", "state", "reason", "dispositionReason", "allowedDispositionPolicyDigest", "createdAt", "expiresAt", "preconditionDigest"]);
   const unknown = Object.keys(precondition).find((key) => !allowed.has(key));
   if (unknown) return fail(`disposition_precondition_unknown_field:${unknown}`);
   if (precondition.preconditionVersion !== securityFindingDispositionVersion) return fail("disposition_precondition_version_unsupported");
   if (precondition.packetDigest !== packet.packetDigest) return fail("disposition_precondition_packet_digest_mismatch");
   if (precondition.reviewBundleDigest !== reviewBundle.reviewBundleDigest) return fail("disposition_precondition_review_digest_mismatch");
   if (precondition.sourceIdentityDigest !== sourceIdentityDigest(packet)) return fail("disposition_precondition_source_identity_mismatch");
+  if (precondition.sourceKind !== packet.sourceKind) return fail("disposition_precondition_source_kind_mismatch");
   if (!digestPattern.test(precondition.rereadDigest || "")) return fail("disposition_precondition_reread_digest_invalid");
   if (precondition.state !== "open") return fail("disposition_precondition_state_invalid");
   if (precondition.reason !== "exact_alert_current_open") return fail("disposition_precondition_reason_invalid");
+  const selectedReason = options.reason || defaultReason(packet);
+  if (precondition.dispositionReason !== selectedReason) return fail("disposition_precondition_disposition_reason_mismatch");
+  const policy = validateDispositionPolicy(packet, selectedReason, options.allowedDispositionReasons);
+  if (!policy.ok) return policy;
+  if (precondition.allowedDispositionPolicyDigest !== policy.policyDigest) return fail("disposition_precondition_policy_digest_mismatch");
   if (!validIso(precondition.createdAt) || !validIso(precondition.expiresAt)) return fail("disposition_precondition_timestamps_invalid");
   const nowMs = new Date(options.now || new Date()).getTime();
   if (new Date(precondition.expiresAt).getTime() <= nowMs) return fail("disposition_precondition_expired");
@@ -191,6 +221,9 @@ export function validateDispositionPrecondition(packet = {}, reviewBundle = {}, 
     reviewBundleDigest: reviewBundle.reviewBundleDigest,
     rereadDigest: precondition.rereadDigest,
     sourceIdentityDigest: sourceIdentityDigest(packet),
+    sourceKind: packet.sourceKind,
+    reason: selectedReason,
+    allowedDispositionPolicyDigest: policy.policyDigest,
     createdAt: precondition.createdAt,
     expiresAt: precondition.expiresAt,
   });
@@ -311,6 +344,10 @@ export function sourceIdentityDigest(packet = {}) {
     analyzedSha: packet.analyzedSha || null,
     dependencyIdentity: packet.dependencyIdentity || null,
   });
+}
+
+export function dispositionPolicyDigest(allowedDispositionReasons = {}) {
+  return digestObject({ allowedDispositionReasons });
 }
 
 function requiredRereadFields(packet = {}) {

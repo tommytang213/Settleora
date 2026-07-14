@@ -20,6 +20,7 @@ import {
 } from "../lib/security-findings-reviews.mjs";
 import {
   executeFalsePositiveDisposition,
+  dispositionPolicyDigest,
   normalizeSecurityFindingDispositionConfig,
   postDispositionReconciliation,
   prepareDispositionPrecondition,
@@ -42,6 +43,10 @@ const repository = "tommytang213/Settleora";
 const now = "2026-07-14T07:20:00.000Z";
 const baseSha = "a".repeat(40);
 const headSha = "b".repeat(40);
+const defaultAllowedDispositionReasons = Object.freeze({
+  code_scanning_alert: Object.freeze(["false positive"]),
+  dependabot_alert: Object.freeze(["inaccurate"]),
+});
 
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-security-disposition-"));
@@ -255,6 +260,14 @@ function reviewsFor(packet, overrides = {}) {
   return buildReviewBundle({ strongIndependent: strong, codexMechanics: codex, tieBreaker }, packet);
 }
 
+function preconditionOptions(extra = {}) {
+  return {
+    now,
+    allowedDispositionReasons: defaultAllowedDispositionReasons,
+    ...extra,
+  };
+}
+
 function review(input) {
   const output = {
     reviewVersion: 1,
@@ -446,28 +459,108 @@ test("review gates require exact strong and Codex approval and tie-breaker on di
 test("disposition policy supports only exact provider false-positive equivalents", () => {
   const code = packetFor(codeFinding()).packet;
   const dep = packetFor(depFinding()).packet;
-  assert.equal(validateDispositionPolicy(code, "false positive").ok, true);
-  assert.equal(validateDispositionPolicy(dep, "inaccurate").ok, true);
+  assert.equal(validateDispositionPolicy(code, "false positive", defaultAllowedDispositionReasons).ok, true);
+  assert.equal(validateDispositionPolicy(dep, "inaccurate", defaultAllowedDispositionReasons).ok, true);
+  assert.equal(validateDispositionPolicy(dep, "inaccurate").reason, "disposition_allowlist_required");
   for (const alertId of ["../42", "42/1", "42?x=1", "42#x", "4.2", "+42", "1e2", " 42", "٤٢", "00042", "0"]) {
-    assert.equal(validateDispositionPolicy({ ...code, alertId }, "false positive").reason, "disposition_alert_id_not_numeric", alertId);
+    assert.equal(validateDispositionPolicy({ ...code, alertId }, "false positive", defaultAllowedDispositionReasons).reason, "disposition_alert_id_not_numeric", alertId);
   }
-  assert.equal(validateDispositionPolicy({ ...code, alertId: "1000000001" }, "false positive").reason, "disposition_alert_id_out_of_bounds");
-  assert.equal(validateDispositionPolicy({ ...code, alertId: "1000000000" }, "false positive").ok, true);
-  assert.equal(validateDispositionPolicy(code, "risk accepted").reason, "disposition_reason_unsupported");
-  assert.equal(validateDispositionPolicy({ ...code, sourceKind: "semgrep_artifact" }, "false positive").reason, "disposition_source_kind_unsupported");
+  assert.equal(validateDispositionPolicy({ ...code, alertId: "1000000001" }, "false positive", defaultAllowedDispositionReasons).reason, "disposition_alert_id_out_of_bounds");
+  assert.equal(validateDispositionPolicy({ ...code, alertId: "1000000000" }, "false positive", defaultAllowedDispositionReasons).ok, true);
+  assert.equal(validateDispositionPolicy(code, "risk accepted", defaultAllowedDispositionReasons).reason, "disposition_reason_unsupported");
+  assert.equal(validateDispositionPolicy({ ...code, sourceKind: "semgrep_artifact" }, "false positive", defaultAllowedDispositionReasons).reason, "disposition_source_kind_unsupported");
   assert.deepEqual(supportedDispositionReasons.dependabot_alert, ["inaccurate"]);
+});
+
+test("configured disposition allowlist is authoritative for readiness and mutation", async () => {
+  const code = packetFor(codeFinding()).packet;
+  const dep = packetFor(depFinding()).packet;
+  const codeOnlyConfig = normalizeSecurityFindingDispositionConfig(tempConfig({
+    securityFindings: { allowedDispositionReasons: { code_scanning_alert: ["false positive"] } },
+  }));
+  const depOnlyConfig = normalizeSecurityFindingDispositionConfig(tempConfig({
+    securityFindings: { allowedDispositionReasons: { dependabot_alert: ["inaccurate"] } },
+  }));
+  const emptyConfig = normalizeSecurityFindingDispositionConfig(tempConfig({
+    securityFindings: { allowedDispositionReasons: {} },
+  }));
+  assert.equal(validateDispositionPolicy(code, "false positive", codeOnlyConfig.allowedDispositionReasons).ok, true);
+  assert.equal(validateDispositionPolicy(dep, "inaccurate", codeOnlyConfig.allowedDispositionReasons).reason, "disposition_reason_not_configured");
+  assert.equal(validateDispositionPolicy(code, "false positive", depOnlyConfig.allowedDispositionReasons).reason, "disposition_reason_not_configured");
+  assert.equal(validateDispositionPolicy(dep, "inaccurate", emptyConfig.allowedDispositionReasons).reason, "disposition_reason_not_configured");
+  assert.equal(codeOnlyConfig.allowedDispositionPolicyDigest, dispositionPolicyDigest(codeOnlyConfig.allowedDispositionReasons));
+
+  const depBundle = reviewsFor(dep);
+  const depAdapter = adapterFor(dep);
+  assert.equal((await prepareDispositionPrecondition(dep, depBundle, depAdapter, preconditionOptions({
+    reason: "inaccurate",
+    allowedDispositionReasons: codeOnlyConfig.allowedDispositionReasons,
+  }))).reason, "disposition_reason_not_configured");
+
+  const depReady = await prepareDispositionPrecondition(dep, depBundle, depAdapter, preconditionOptions({
+    reason: "inaccurate",
+    allowedDispositionReasons: depOnlyConfig.allowedDispositionReasons,
+  }));
+  assert.equal(depReady.ok, true);
+  const blockedDirectMutation = await executeFalsePositiveDisposition(
+    realDispositionConfig({ securityFindings: { allowedDispositionReasons: { code_scanning_alert: ["false positive"] } } }),
+    dep,
+    depBundle,
+    depReady.precondition,
+    depAdapter,
+    { now, runId: "run-dependabot-blocked" },
+  );
+  assert.equal(blockedDirectMutation.reason, "disposition_reason_not_configured");
+  assert.equal(depAdapter.mutationCalls, 0);
+});
+
+test("disposition precondition binds selected source reason and allowlist digest", async () => {
+  const { packet } = packetFor();
+  const bundle = reviewsFor(packet);
+  const narrowed = { code_scanning_alert: ["false positive"] };
+  const widened = { code_scanning_alert: ["false positive"], dependabot_alert: ["inaccurate"] };
+  const empty = {};
+  const ready = await prepareDispositionPrecondition(packet, bundle, adapterFor(packet), preconditionOptions({
+    allowedDispositionReasons: narrowed,
+  }));
+  assert.equal(ready.ok, true);
+  assert.equal(ready.precondition.sourceKind, "code_scanning_alert");
+  assert.equal(ready.precondition.dispositionReason, "false positive");
+  assert.equal(ready.precondition.allowedDispositionPolicyDigest, dispositionPolicyDigest(narrowed));
+  assert.notEqual(dispositionPolicyDigest(narrowed), dispositionPolicyDigest(widened));
+  assert.notEqual(dispositionPolicyDigest(narrowed), dispositionPolicyDigest(empty));
+
+  const narrowedAfterPrecondition = await executeFalsePositiveDisposition(
+    realDispositionConfig({ securityFindings: { allowedDispositionReasons: {} } }),
+    packet,
+    bundle,
+    ready.precondition,
+    adapterFor(packet),
+    { now, runId: "run-policy-narrowed" },
+  );
+  assert.equal(narrowedAfterPrecondition.reason, "disposition_reason_not_configured");
+
+  const widenedAfterPrecondition = await executeFalsePositiveDisposition(
+    realDispositionConfig({ securityFindings: { allowedDispositionReasons: widened } }),
+    packet,
+    bundle,
+    ready.precondition,
+    adapterFor(packet),
+    { now, runId: "run-policy-widened" },
+  );
+  assert.equal(widenedAfterPrecondition.reason, "disposition_precondition_policy_digest_mismatch");
 });
 
 test("precondition reread blocks provider outages identity changes non-open state and races", async () => {
   const { packet } = packetFor();
   const bundle = reviewsFor(packet);
   const adapter = adapterFor(packet);
-  const ready = await prepareDispositionPrecondition(packet, bundle, adapter, { now });
+  const ready = await prepareDispositionPrecondition(packet, bundle, adapter, preconditionOptions());
   assert.equal(ready.ok, true);
-  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { inaccessible: true }), { now })).reason, "alert_reread_inaccessible:permission_denied");
-  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { changed: true }), { now })).reason, "alert_reread_fingerprint_mismatch");
-  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { omitRule: true }), { now })).reason, "alert_reread_ruleId_missing");
-  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { badDigest: true }), { now })).reason, "alert_reread_digest_mismatch");
+  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { inaccessible: true }), preconditionOptions())).reason, "alert_reread_inaccessible:permission_denied");
+  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { changed: true }), preconditionOptions())).reason, "alert_reread_fingerprint_mismatch");
+  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { omitRule: true }), preconditionOptions())).reason, "alert_reread_ruleId_missing");
+  assert.equal((await prepareDispositionPrecondition(packet, bundle, adapterFor(packet, { badDigest: true }), preconditionOptions())).reason, "alert_reread_digest_mismatch");
 
   const race = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapterFor(packet, { changed: true }), { now, runId: "run-race" });
   assert.equal(race.reason, "alert_reread_fingerprint_mismatch");
@@ -479,7 +572,7 @@ test("default-off disposition refuses dry-run, confirms success, and uses reread
   const { packet } = packetFor();
   const bundle = reviewsFor(packet);
   const adapter = adapterFor(packet);
-  const ready = await prepareDispositionPrecondition(packet, bundle, adapter, { now });
+  const ready = await prepareDispositionPrecondition(packet, bundle, adapter, preconditionOptions());
   assert.equal(executeFalsePositiveDisposition(tempConfig(), packet, bundle, ready.precondition, adapter, { now }) instanceof Promise, true);
   assert.equal((await executeFalsePositiveDisposition(tempConfig(), packet, bundle, ready.precondition, adapter, { now, runId: "run-disabled" })).reason, "disposition_capability_disabled");
   const realConfig = realDispositionConfig();
@@ -520,7 +613,7 @@ test("configuration remains fail-closed for invalid disposition combinations", (
 test("post-disposition reconciliation and linked issue completion fail closed before exact proof", async () => {
   const { packet } = packetFor();
   const bundle = reviewsFor(packet);
-  const ready = await prepareDispositionPrecondition(packet, bundle, adapterFor(packet), { now });
+  const ready = await prepareDispositionPrecondition(packet, bundle, adapterFor(packet), preconditionOptions());
   const disposition = await executeFalsePositiveDisposition(realDispositionConfig(), packet, bundle, ready.precondition, adapterFor(packet), { now, runId: "run-reconciliation" });
   const bad = postDispositionReconciliation(packet, disposition, { providerState: "dismissed", reason: "false positive", noWeakeningVerified: false, currentMainScannerClean: true });
   assert.equal(bad.reason, "post_disposition_unknown_field:noWeakeningVerified");

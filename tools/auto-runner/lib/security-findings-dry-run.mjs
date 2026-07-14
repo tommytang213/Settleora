@@ -151,8 +151,8 @@ export async function runSecurityFindingsDryRun(config = {}, options = {}) {
     else result.newCount += 1;
     const lifecycle = createLifecycleRecord({ stage: "ingested", updatedAt: finding.ingestedAt });
     if (securityConfig.allowSecurityFindingClassification || securityConfig.allowSecurityFindingProposalPlanning) {
-      const classificationInput = options.classificationInputs?.[finding.correlationKey] || {};
-      const classification = classifySecurityFinding({ finding, sourceIdentityVerified: true, authorityResolved: true, ...classificationInput }, { now: options.now?.() });
+      const classificationInput = trustedClassificationInput(options.classificationInputs?.[finding.correlationKey] || {});
+      const classification = classifySecurityFinding({ finding, sourceIdentityVerified: true, ...classificationInput }, { now: options.now?.() });
       increment(result.classificationCounts, classification.category);
       if (classification.category === "false_positive_candidate") result.falsePositiveCandidateCount += 1;
       let nextLifecycle = advanceSecurityFindingLifecycle(lifecycle, "classified", { classificationDigest: classification.policyDigest });
@@ -311,7 +311,7 @@ async function evaluateFalsePositiveDispositionReadiness({ finding, classificati
   counts.reviewReadyCount += 1;
   if (reviewValidation.tieBreakerRequired) counts.tieBreakerRequiredCount += 1;
   const reason = evidence.dispositionReason || (finding.sourceKind === "dependabot_alert" ? "inaccurate" : "false positive");
-  const policy = validateDispositionPolicy(packetResult.packet, reason);
+  const policy = validateDispositionPolicy(packetResult.packet, reason, securityConfig.disposition.allowedDispositionReasons);
   if (!policy.ok) {
     counts.dispositionBlockedCount += 1;
     failures.push(policy.reason);
@@ -323,7 +323,11 @@ async function evaluateFalsePositiveDispositionReadiness({ finding, classificati
     failures.push("disposition_adapter_missing");
     return { counts, failures };
   }
-  const precondition = await prepareDispositionPrecondition(packetResult.packet, reviewBundle, adapter, { now });
+  const precondition = await prepareDispositionPrecondition(packetResult.packet, reviewBundle, adapter, {
+    now,
+    reason,
+    allowedDispositionReasons: securityConfig.disposition.allowedDispositionReasons,
+  });
   if (!precondition.ok) {
     counts.dispositionBlockedCount += 1;
     failures.push(precondition.reason);
@@ -385,6 +389,15 @@ function summarizeReconciliation(reconciliation) {
     requiredCurrentMainScan: reconciliation.requiredCurrentMainScan,
     digest: reconciliation.digest,
   };
+}
+
+function trustedClassificationInput(input = {}) {
+  const { authorityResolved: _authorityResolved, authorityEvidenceTrusted, trustedAuthorityResolved, ...rest } = input;
+  if (_authorityResolved === true && (authorityEvidenceTrusted === true || trustedAuthorityResolved === true)) {
+    return { ...rest, authorityResolved: true };
+  }
+  if (_authorityResolved === false) return { ...rest, authorityResolved: false };
+  return rest;
 }
 
 function summarizeRoute(route) {

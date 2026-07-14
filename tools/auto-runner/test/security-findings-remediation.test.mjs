@@ -111,6 +111,20 @@ test("classifier covers all categories and fails closed on unsafe evidence", () 
   const manual = classifySecurityFinding({ finding: codeFinding({ locationPath: "services/api/Auth/Sessions.cs" }), authorityResolved: false }, { now });
   assert.equal(manual.category, "manual_security_product_decision");
 
+  for (const locationPath of [
+    "services/api/Auth/Sessions.cs",
+    "services/api/Storage/FilePolicy.cs",
+    "services/api/Settlement/PaymentService.cs",
+  ]) {
+    const unresolved = classifySecurityFinding({ finding: codeFinding({ locationPath }) }, { now });
+    assert.equal(unresolved.category, "manual_security_product_decision", locationPath);
+    assert.equal(unresolved.manualGateRequired, true, locationPath);
+    const explicitFalse = classifySecurityFinding({ finding: codeFinding({ locationPath }), authorityResolved: false }, { now });
+    assert.equal(explicitFalse.category, "manual_security_product_decision", locationPath);
+    const explicitTrue = classifySecurityFinding({ finding: codeFinding({ locationPath }), authorityResolved: true }, { now });
+    assert.equal(explicitTrue.category, "safe_code_fix", locationPath);
+  }
+
   const ambiguous = classifySecurityFinding({ finding: codeFinding({ locationPath: "apps/mobile/lib/a.dart" }), relatedPaths: ["services/api/Auth/Sessions.cs"] }, { now });
   assert.equal(ambiguous.category, "unsupported_ambiguous");
 
@@ -325,6 +339,67 @@ test("synthetic planning dry-run covers categories routes and zero mutation call
     assert.equal(result.issueCreationCapability.allowed, false);
   } finally {
     config.cleanup();
+  }
+});
+
+test("dry-run keeps sensitive authority unresolved unless trusted input explicitly resolves it", async () => {
+  for (const locationPath of [
+    "services/api/Auth/Sessions.cs",
+    "services/api/Storage/FilePolicy.cs",
+    "services/api/Settlement/PaymentService.cs",
+  ]) {
+    const config = tempConfig();
+    try {
+      const finding = codeFinding({ locationPath });
+      const adapter = {
+        async fetchSource(sourceKind) {
+          return { sourceKind, status: "ok", findings: sourceKind === "code_scanning_alert" ? [finding] : [], failures: [] };
+        },
+      };
+      const noInput = await runSecurityFindingsDryRun(config, {
+        adapter,
+        reports: [],
+        now: () => now,
+        currentFindings: { [finding.correlationKey]: finding },
+      });
+      assert.equal(noInput.ok, true, locationPath);
+      assert.equal(noInput.classificationCounts.manual_security_product_decision, 1, locationPath);
+      assert.equal(noInput.routeCounts.manual_gate, 1, locationPath);
+      assert.equal(noInput.proposalCount, 0, locationPath);
+
+      const explicitFalse = await runSecurityFindingsDryRun(config, {
+        adapter,
+        reports: [],
+        now: () => now,
+        currentFindings: { [finding.correlationKey]: finding },
+        classificationInputs: { [finding.correlationKey]: { authorityResolved: false } },
+      });
+      assert.equal(explicitFalse.classificationCounts.manual_security_product_decision, 1, locationPath);
+      assert.equal(explicitFalse.proposalCount, 0, locationPath);
+
+      const untrustedTrue = await runSecurityFindingsDryRun(config, {
+        adapter,
+        reports: [],
+        now: () => now,
+        currentFindings: { [finding.correlationKey]: finding },
+        classificationInputs: { [finding.correlationKey]: { authorityResolved: true, title: "safe", locationPath } },
+      });
+      assert.equal(untrustedTrue.classificationCounts.manual_security_product_decision, 1, locationPath);
+      assert.equal(untrustedTrue.proposalCount, 0, locationPath);
+
+      const trustedTrue = await runSecurityFindingsDryRun(config, {
+        adapter,
+        reports: [],
+        now: () => now,
+        currentFindings: { [finding.correlationKey]: finding },
+        classificationInputs: { [finding.correlationKey]: { authorityResolved: true, authorityEvidenceTrusted: true } },
+      });
+      assert.equal(trustedTrue.classificationCounts.safe_code_fix, 1, locationPath);
+      assert.equal(trustedTrue.routeCounts.propose_issue, 1, locationPath);
+      assert.equal(trustedTrue.proposalCount, 1, locationPath);
+    } finally {
+      config.cleanup();
+    }
   }
 });
 
