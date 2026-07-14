@@ -221,7 +221,174 @@ test("ambiguous or mismatched child candidates fail closed", () => {
       config,
       source: source(),
       outageState: baseState,
-      existingChildren: [child, { ...child }],
+      existingChildren: [child, exactChild(baseState, { runId: "supervised-20260715T010000Z-000000000003" })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_ambiguous_requires_reconciliation");
+
+    const intendedState = transitionOutageMarker(baseState, {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000004",
+      specDigest: digestB,
+    });
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: intendedState,
+      existingChildren: [exactChild(intendedState, { runId: intendedState.childSupervisorRunId, currentHeadSha: shaA })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("currentHeadSha"), true);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("correlated duplicate children are detected before intended child narrowing", () => {
+  const config = tempConfig();
+  try {
+    const baseState = fixtureOutageState();
+    const submitted = transitionOutageMarker(baseState, {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000111",
+      specDigest: digestB,
+      reasonCode: "child_submission_confirmed",
+    });
+    const childA = exactChild(submitted, { runId: submitted.childSupervisorRunId });
+    const childB = exactChild(submitted, {
+      runId: "supervised-20260715T010000Z-000000000222",
+      specSha256: digestB,
+    });
+
+    for (const status of ["submitted", "confirmed_running", "submission_uncertain"]) {
+      const state = transitionOutageMarker(baseState, {
+        status,
+        childSupervisorRunId: childA.runId,
+        specDigest: digestB,
+        reasonCode: "existing_marker",
+      });
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState: state,
+        existingChildren: [childA, childB],
+        circuitRecords: [
+          { at: "2026-07-15T00:55:00.000Z", providerDomain: "github_api", outageFingerprint: digestA, supervisorRunId: "supervised-20260715T005500Z-000000000001" },
+          { at: "2026-07-15T00:56:00.000Z", providerDomain: "github_api", outageFingerprint: digestB, supervisorRunId: "supervised-20260715T005600Z-000000000002" },
+        ],
+        dryRun: true,
+        now,
+      });
+      assert.equal(result.outcome, "blocked", status);
+      assert.equal(result.reasonCode, "outage_child_ambiguous_requires_reconciliation", status);
+      assert.equal(result.counts.githubMutationCalls, 0);
+      assert.equal(result.counts.systemdCalls, 0);
+      assert.equal(result.counts.realMutationCalls, 0);
+      assert.equal(result.events.some((item) => item.event === "circuit_checked"), false);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+      assert.equal(result.events.filter((item) => item.event === "outage_child_reconciliation_blocked").length, 1);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("planned duplicate children block before eligibility and planning", () => {
+  const config = tempConfig();
+  try {
+    const planned = fixtureOutageState();
+    const childA = exactChild(planned, { runId: "supervised-20260715T010000Z-000000000111" });
+    const childB = exactChild(planned, { runId: "supervised-20260715T010000Z-000000000222" });
+    const result = runOutageResubmissionController({
+      config,
+      source: source({ terminal: false, provenInactive: false }),
+      outageState: planned,
+      existingChildren: [childA, childB],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_ambiguous_requires_reconciliation");
+    assert.equal(result.events.some((item) => item.event === "source_eligibility_checked"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("intended child reconciles with unrelated or fully distinguished attempts", () => {
+  const config = tempConfig();
+  try {
+    const submitted = transitionOutageMarker(fixtureOutageState(), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000111",
+      specDigest: digestB,
+    });
+    const intended = exactChild(submitted, { runId: submitted.childSupervisorRunId });
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [
+        intended,
+        exactChild(submitted, { runId: "supervised-20260715T010000Z-000000000999", sourceIssueNumber: 914, sourceBranchName: "feature/auto-914-unrelated" }),
+      ],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "submitted_child_reconciled");
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [
+        intended,
+        exactChild(submitted, {
+          runId: "supervised-20260715T010000Z-000000000998",
+          outageResubmission: {
+            ...intended.outageResubmission,
+            attemptNumber: 2,
+            markerKey: "c".repeat(64),
+            outageFingerprint: "c".repeat(64),
+          },
+        }),
+      ],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "submitted_child_reconciled");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("same-source partial child or differently named exact child blocks intended reconciliation", () => {
+  const config = tempConfig();
+  try {
+    const submitted = transitionOutageMarker(fixtureOutageState(), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000111",
+      specDigest: digestB,
+    });
+    const intended = exactChild(submitted, { runId: submitted.childSupervisorRunId });
+    const partial = exactChild(submitted, {
+      runId: "supervised-20260715T010000Z-000000000333",
+      outageResubmission: {},
+    });
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [intended, partial],
       dryRun: true,
       now,
     });
@@ -231,14 +398,91 @@ test("ambiguous or mismatched child candidates fail closed", () => {
     result = runOutageResubmissionController({
       config,
       source: source(),
-      outageState: baseState,
-      existingChildren: [exactChild(baseState, { currentHeadSha: shaA })],
+      outageState: submitted,
+      existingChildren: [exactChild(submitted, { runId: "supervised-20260715T010000Z-000000000222" })],
       dryRun: true,
       now,
     });
     assert.equal(result.outcome, "blocked");
     assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
-    assert.equal(result.childReconciliation.mismatches.includes("currentHeadSha"), true);
+    assert.equal(result.childReconciliation.mismatches.includes("childLogicalId"), true);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("canonical child representations dedupe only when immutable identity is consistent", () => {
+  const config = tempConfig();
+  try {
+    const submitted = transitionOutageMarker(fixtureOutageState(), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000111",
+      specDigest: digestB,
+    });
+    const child = exactChild(submitted, { runId: submitted.childSupervisorRunId });
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [child, { ...child }],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "submitted_child_reconciled");
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [child, { ...child, specSha256: "c".repeat(64) }],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("childSpecDigest"), true);
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [child, { ...child, baseSha: "c".repeat(40) }],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("baseSha"), true);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("children with different issue branch or parent identity are unrelated", () => {
+  const config = tempConfig();
+  try {
+    const submitted = transitionOutageMarker(fixtureOutageState(), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000111",
+      specDigest: digestB,
+    });
+    const intended = exactChild(submitted, { runId: submitted.childSupervisorRunId });
+    for (const unrelated of [
+      exactChild(submitted, { runId: "supervised-20260715T010000Z-000000000222", sourceIssueNumber: 914, sourceBranchName: "feature/auto-914-unrelated" }),
+      exactChild(submitted, { runId: "supervised-20260715T010000Z-000000000333", parentSupervisorRunId: "supervised-20260715T020000Z-000000000333", parentRunnerRunId: "run-2026-07-15T020000Z" }),
+    ]) {
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState: submitted,
+        existingChildren: [intended, unrelated],
+        dryRun: true,
+        now,
+      });
+      assert.equal(result.outcome, "confirmed_existing_child");
+      assert.equal(result.reasonCode, "submitted_child_reconciled");
+    }
   } finally {
     config.cleanup();
   }

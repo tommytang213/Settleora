@@ -342,18 +342,42 @@ function buildChildRunPlan({ config, source, state, now, childRunId }) {
 
 function reconcileExactChild(children, source, outageState) {
   const authoritative = (children || []).filter((child) => child && typeof child === "object");
+  const canonical = canonicalizeChildRepresentations(authoritative);
+  if (!canonical.ok) return canonical;
   const intendedRunId = outageState?.childSupervisorRunId || outageState?.mutationMarker?.childSupervisorRunId || null;
-  const candidates = authoritative.filter((child) => {
-    if (intendedRunId) return child.runId === intendedRunId;
-    return (
-      child.parentSupervisorRunId === source.supervisorRunId &&
-      child.parentRunnerRunId === source.runnerRunId &&
-      child.sourceIssueNumber === source.issueNumber &&
-      child.sourceBranchName === source.branchName
-    );
-  });
-  if (candidates.length > 1) return { ok: false, reasonCode: "outage_child_ambiguous_requires_reconciliation", candidates: candidates.length };
-  const child = candidates[0] || null;
+
+  const exact = [];
+  const indeterminate = [];
+  for (const child of canonical.children) {
+    const correlation = classifyChildCorrelation(child, source, outageState);
+    if (correlation.kind === "exact") exact.push(child);
+    if (correlation.kind === "indeterminate") indeterminate.push({ child, missing: correlation.missing });
+  }
+
+  if (exact.length > 1 || indeterminate.length > 0) {
+    return {
+      ok: false,
+      reasonCode: "outage_child_ambiguous_requires_reconciliation",
+      candidates: exact.length + indeterminate.length,
+      candidateIds: [...exact, ...indeterminate.map((item) => item.child)].map((child) => ({ runId: child.runId || null, specDigest: childDigest(child) })).slice(0, 10),
+    };
+  }
+
+  const child = exact[0] || null;
+  if (intendedRunId && child && child.runId !== intendedRunId) {
+    return { ok: false, reasonCode: "outage_child_identity_mismatch_requires_reconciliation", mismatches: ["childLogicalId"], intendedRunId, correlatedRunId: child.runId };
+  }
+  if (intendedRunId && !child) {
+    const intended = canonical.children.find((candidate) => candidate.runId === intendedRunId) || null;
+    if (intended) {
+      return {
+        ok: false,
+        reasonCode: "outage_child_identity_mismatch_requires_reconciliation",
+        mismatches: exactChildMismatches(intended, source, outageState),
+        intendedRunId,
+      };
+    }
+  }
   if (!child) return { ok: true, child: null, reasonCode: "exact_child_absent" };
   const mismatches = exactChildMismatches(child, source, outageState);
   if (mismatches.length > 0) {
@@ -362,10 +386,71 @@ function reconcileExactChild(children, source, outageState) {
   return { ok: true, child, reasonCode: "exact_child_found" };
 }
 
+function canonicalizeChildRepresentations(children) {
+  const byRunId = new Map();
+  for (const child of children) {
+    if (!child.runId) continue;
+    const digest = childDigest(child);
+    const existing = byRunId.get(child.runId);
+    if (!existing) {
+      byRunId.set(child.runId, { ...child });
+      continue;
+    }
+    const existingDigest = childDigest(existing);
+    if ((existingDigest || null) !== (digest || null)) {
+      return {
+        ok: false,
+        reasonCode: "outage_child_identity_mismatch_requires_reconciliation",
+        mismatches: ["childSpecDigest"],
+        candidateIds: [{ runId: child.runId, specDigest: existingDigest || null }, { runId: child.runId, specDigest: digest || null }],
+      };
+    }
+    const conflicts = conflictingChildIdentityFields(existing, child);
+    if (conflicts.length > 0) {
+      return {
+        ok: false,
+        reasonCode: "outage_child_identity_mismatch_requires_reconciliation",
+        mismatches: conflicts,
+        candidateIds: [{ runId: child.runId, specDigest: digest || null }],
+      };
+    }
+    byRunId.set(child.runId, mergeChildRepresentations(existing, child));
+  }
+  return { ok: true, children: [...byRunId.values()] };
+}
+
+function classifyChildCorrelation(child, source, outageState) {
+  const sourceFields = sourceCorrelationChecks(child, source, outageState);
+  if (sourceFields.every((check) => check.expected === null || check.expected === undefined || check.actual === check.expected)) return { kind: "exact" };
+
+  const sourceCore = sourceFields.filter((check) => !["attemptNumber", "outageFingerprint", "markerKey"].includes(check.field));
+  const hasCoreConflict = sourceCore.some((check) => check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected);
+  if (hasCoreConflict) return { kind: "unrelated" };
+
+  const strongCoreFields = new Set(["parentSupervisorRunId", "parentRunnerRunId", "taskKey", "sourceIssueNumber", "sourceBranchName", "baseSha", "currentHeadSha", "runnerProfile", "runnerConfigDigest", "originalSupervisorSpecDigest"]);
+  const hasStrongCoreMatch = sourceCore
+    .filter((check) => strongCoreFields.has(check.field))
+    .some((check) => check.expected !== null && check.expected !== undefined && check.actual === check.expected);
+  if (!hasStrongCoreMatch) return { kind: "unrelated" };
+
+  const missing = sourceFields
+    .filter((check) => check.expected !== null && check.expected !== undefined && (check.actual === null || check.actual === undefined))
+    .map((check) => check.field);
+  if (missing.length > 0) return { kind: "indeterminate", missing };
+
+  return { kind: "unrelated" };
+}
+
 function exactChildMismatches(child, source, outageState) {
+  return sourceCorrelationChecks(child, source, outageState)
+    .filter((check) => check.expected !== null && check.expected !== undefined && check.actual !== check.expected)
+    .map((check) => check.field);
+}
+
+function sourceCorrelationChecks(child, source, outageState) {
   const marker = outageState?.mutationMarker || {};
   const outage = child.outageResubmission || {};
-  const checks = [
+  return [
     ["parentSupervisorRunId", child.parentSupervisorRunId, source.supervisorRunId],
     ["parentRunnerRunId", child.parentRunnerRunId, source.runnerRunId],
     ["taskKey", child.taskKey || child.sourceTaskKey || outage.taskKey, source.taskKey],
@@ -383,10 +468,43 @@ function exactChildMismatches(child, source, outageState) {
     ["markerKey", outage.markerKey, marker.key],
     ["childLogicalId", child.runId || outage.childLogicalId, outage.childLogicalId || child.runId],
     ["childSpecDigest", childDigest(child), marker.specDigest],
-  ];
-  return checks
-    .filter(([, actual, expected]) => expected !== null && expected !== undefined && actual !== expected)
-    .map(([field]) => field);
+  ].map(([field, actual, expected]) => ({ field, actual, expected }));
+}
+
+function conflictingChildIdentityFields(left, right) {
+  const fields = sourceCorrelationChecks(right, {
+    taskKey: left.taskKey || left.sourceTaskKey || left.outageResubmission?.taskKey,
+    supervisorRunId: left.parentSupervisorRunId,
+    runnerRunId: left.parentRunnerRunId,
+    issueNumber: left.sourceIssueNumber,
+    branchName: left.sourceBranchName,
+    baseSha: left.baseSha || left.initialOriginMainSha || left.outageResubmission?.baseSha,
+    currentHeadSha: left.currentHeadSha || left.headSha || left.outageResubmission?.currentHeadSha,
+    prNumber: left.prNumber || left.outageResubmission?.prNumber || null,
+    prHeadSha: left.prHeadSha || left.outageResubmission?.prHeadSha || null,
+    runnerProfile: left.runnerProfile || left.profile || left.outageResubmission?.runnerProfile,
+    runnerConfigDigest: left.runnerConfigDigest || left.runnerConfigSha256 || left.outageResubmission?.runnerConfigDigest,
+    originalSupervisorSpecDigest: left.originalSupervisorSpecDigest || left.outageResubmission?.originalSupervisorSpecDigest,
+  }, {
+    mutationMarker: {
+      attemptNumber: left.outageResubmission?.attemptNumber,
+      key: left.outageResubmission?.markerKey,
+      specDigest: childDigest(left),
+    },
+    outage: {
+      outageFingerprint: left.outageResubmission?.outageFingerprint,
+    },
+  });
+  return fields
+    .filter((check) => !["childLogicalId"].includes(check.field))
+    .filter((check) => check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected)
+    .map((check) => check.field);
+}
+
+function mergeChildRepresentations(left, right) {
+  const merged = { ...left, ...right };
+  merged.outageResubmission = { ...(left.outageResubmission || {}), ...(right.outageResubmission || {}) };
+  return merged;
 }
 
 function childDigest(child) {
