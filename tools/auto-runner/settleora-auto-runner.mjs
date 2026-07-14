@@ -84,6 +84,7 @@ import {
   writeRecoveryState,
 } from "./lib/recovery-state.mjs";
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
+import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -158,6 +159,13 @@ async function main() {
       result.status === "pass" || result.status === "skipped" || result.reason === "blocked_for_live_smoke_test_key_missing"
         ? 0
         : 1;
+    return;
+  }
+  if (cliArgs.securityFindingsDryRun) {
+    const config = loadConfig(cliArgs);
+    const result = await runSecurityFindingsDryRun(config, { taskKey: "security-findings-dry-run" });
+    console.log(cliArgs.json ? JSON.stringify(result, null, 2) : renderSecurityFindingsDryRunText(result));
+    process.exitCode = result.ok ? 0 : 1;
     return;
   }
 
@@ -1957,6 +1965,23 @@ function summarizeCodex(codex) {
     purpose: codex.purpose || null,
     logPath: codex.logPath || null,
   };
+}
+
+function renderSecurityFindingsDryRunText(result) {
+  const lines = [
+    `Security findings dry-run: ${result.ok ? "ok" : "failed"} (${result.reason || "unknown"})`,
+    `Repository: ${result.repository}`,
+    `Normalized: ${result.normalizedCount}`,
+    `Duplicate: ${result.duplicateCount}`,
+    `New: ${result.newCount}`,
+    `Ambiguous: ${result.ambiguousCount}`,
+    `Source failures: ${result.failureCount}`,
+  ];
+  for (const [sourceKind, source] of Object.entries(result.sources || {})) {
+    lines.push(`- ${sourceKind}: ${source.status}; count=${source.count}; reason=${source.reason || "none"}`);
+  }
+  if (result.statePath) lines.push(`State: ${result.statePath}`);
+  return `${lines.join("\n")}\n`;
 }
 
 main().catch((error) => {

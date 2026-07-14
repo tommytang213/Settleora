@@ -83,6 +83,18 @@ task-scoped config path:
 node tools/auto-runner/settleora-auto-runner.mjs --review-package /workspace/logs/settleora-auto-runner/reviews/package.json --config /workspace/logs/settleora-auto-runner/reviewer-validation/<task-key>/config.json
 ```
 
+Security findings ingestion is default-off. Checkpoint 1 exposes only a
+non-mutating dry-run that requires an explicit task-scoped config. The dry-run
+reads enabled sources, normalizes sanitized records, derives correlation and
+idempotency keys, checks duplicate evidence, and may persist sanitized state
+under `/workspace/logs/settleora-auto-runner/security-findings/`. It does not
+create issues, edit PRs, change labels, dismiss alerts, close findings, update
+dependencies, push branches, open PRs, merge, or mutate product code.
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs --security-findings-dry-run --config /workspace/logs/settleora-auto-runner/security-findings/<task-key>/config.json --json
+```
+
 The package reviewer routes to `cheap_independent`, `strong_independent`, or
 `block_split_or_escalate` from lane metadata plus changed-file and size
 evidence. Lane-required strong review is never downgraded. Evidence records

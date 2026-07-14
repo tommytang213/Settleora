@@ -118,6 +118,8 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
 - `reports/` stores copied local Codex reports.
 - `summaries/` stores per-run JSON/Markdown and recent rollups.
 - `auto-merge/` stores sanitized low-risk auto-merge decision evidence.
+- `security-findings/` stores sanitized security-finding ingestion state from
+  the explicit non-mutating dry-run mode.
 - `canary/` stores trusted-real-run canary evidence JSON for dry-run fixture
   exercises and any future manually approved canary real-run.
 - `readiness/` stores report-only overnight readiness preflight JSON and

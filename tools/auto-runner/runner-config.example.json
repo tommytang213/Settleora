@@ -45,6 +45,25 @@
     "backoffMs": 2000
   },
   "allowFollowupIssueCreation": false,
+  "securityFindings": {
+    "allowSecurityFindingIngestion": false,
+    "dryRunOnly": true,
+    "persistState": true,
+    "enabledSourceKinds": [
+      "dependabot_alert",
+      "dependabot_pr",
+      "code_scanning_alert"
+    ],
+    "maxPages": 2,
+    "perPage": 50,
+    "maxItems": 100,
+    "maxRetries": 0,
+    "timeoutMs": 20000,
+    "maxStateRecords": 500,
+    "maxArtifactEntries": 10,
+    "maxArtifactEntryBytes": 2097152,
+    "allowedRepository": "tommytang213/Settleora"
+  },
   "allowReviewFixMutation": false,
   "reviewFixCanaryFixture": {
     "enabled": false,
