@@ -135,6 +135,27 @@ test("head change invalidates validation review CI scanner and merge evidence", 
   assert.equal(state.nextSafeAction, "regenerate_exact_head_evidence");
 });
 
+test("repeated identical head change preserves first stale-head invalidation evidence", () => {
+  let state = initial();
+  for (const kind of headBoundEvidenceKinds) {
+    state = bindRecoveryEvidence(state, kind, {
+      status: "passed",
+      headSha: "b".repeat(40),
+      baseSha: "a".repeat(40),
+      changedFiles: ["tools/auto-runner/lib/recovery-state.mjs"],
+    });
+  }
+  const invalidated = invalidateEvidenceForHeadChange(state, { newHeadSha: "c".repeat(40), reasonCode: "review_fix_committed" });
+  const repeated = invalidateEvidenceForHeadChange(invalidated, { newHeadSha: "c".repeat(40), reasonCode: "review_fix_committed" });
+  for (const kind of headBoundEvidenceKinds) {
+    assert.equal(repeated.evidence[kind].invalidatedAt, invalidated.evidence[kind].invalidatedAt, kind);
+    assert.equal(repeated.evidence[kind].invalidatedOldHeadSha, "b".repeat(40), kind);
+    assert.equal(repeated.evidence[kind].invalidatedNewHeadSha, "c".repeat(40), kind);
+  }
+  assert.equal(repeated.branch.currentHeadSha, "c".repeat(40));
+  assert.equal(repeated.nextSafeAction, "regenerate_exact_head_evidence");
+});
+
 test("base or branch drift fails closed", () => {
   const config = tempConfig();
   try {

@@ -17,7 +17,12 @@ import {
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
 import { firstIncompleteContinuationAction } from "../lib/recovery-continuation.mjs";
-import { bindOutageResubmissionToRecoveryState, invalidateEvidenceForHeadChange, writeRecoveryState } from "../lib/recovery-state.mjs";
+import {
+  bindOutageResubmissionToRecoveryState,
+  invalidateEvidenceForHeadChange,
+  recoveryRequiresExactHeadEvidenceRegeneration,
+  writeRecoveryState,
+} from "../lib/recovery-state.mjs";
 import { buildRunSpec, generateRunId, sha256Text, canonicalJson, writeImmutableRunSpec } from "./run-spec.mjs";
 import { writeSupervisorState } from "./supervisor-state.mjs";
 import { startUserUnit } from "./systemd-client.mjs";
@@ -373,7 +378,6 @@ export function runOutageResubmissionController(input = {}) {
   const currentPrIdentity = validateCurrentPrIdentityForSource(source, input.currentIdentity);
   if (!currentPrIdentity.ok) return result("blocked", currentPrIdentity.reasonCode, { events, counts });
 
-  event("resubmission_planned");
   const plannedState = existingOutageState || createOutageResubmissionState({
     correlation,
     outage: {
@@ -404,6 +408,8 @@ export function runOutageResubmissionController(input = {}) {
     event("outage_recovery_target_blocked", { reasonCode: recoveryTarget.reasonCode, field: recoveryTarget.field });
     return result("blocked", recoveryTarget.reasonCode, { events, counts, outageState: plannedState, recoveryTarget });
   }
+
+  event("resubmission_planned");
 
   let boundRecoveryState = recoveryTarget.state;
   if (!dryRun) {
@@ -675,6 +681,14 @@ function validateOutageRecoveryTargetForSource({ source, recovery, recoveryState
   if (["completed", "stopped"].includes(state.phase)) return { ok: false, reasonCode: "outage_recovery_target_not_safe", field: "phase" };
   const boundary = firstIncompleteContinuationAction(state);
   if (!boundary.ok) return { ok: false, reasonCode: "outage_recovery_target_not_safe", field: boundary.phase || "phase" };
+  const regeneration = recoveryRequiresExactHeadEvidenceRegeneration(state);
+  if (regeneration.required) {
+    return {
+      ok: false,
+      reasonCode: regeneration.reasonCode,
+      staleEvidenceKinds: regeneration.staleEvidenceKinds,
+    };
+  }
   const target = recoveryOnlyTargetFromState(state, outageState);
   const checks = [
     ["taskKey", target.taskKey, source.taskKey],

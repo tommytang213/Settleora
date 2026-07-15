@@ -352,23 +352,23 @@ export function bindRecoveryEvidence(state, kind, evidence) {
 
 export function invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode = "head_changed" }) {
   const oldHeadSha = state.branch.currentHeadSha || null;
+  const requestedNewHeadSha = newHeadSha || null;
   const evidence = {};
   for (const kind of headBoundEvidenceKinds) {
     const existing = state.evidence?.[kind] || null;
+    const equivalentInvalidation =
+      existing?.stale === true &&
+      existing.invalidatedBy === reasonCode &&
+      existing.invalidatedNewHeadSha === requestedNewHeadSha &&
+      (existing.invalidatedOldHeadSha === oldHeadSha || oldHeadSha === requestedNewHeadSha);
     evidence[kind] = existing
       ? {
           ...existing,
           stale: true,
           invalidatedBy: reasonCode,
-          invalidatedAt:
-            existing.stale === true &&
-            existing.invalidatedBy === reasonCode &&
-            existing.invalidatedOldHeadSha === oldHeadSha &&
-            existing.invalidatedNewHeadSha === (newHeadSha || null)
-              ? existing.invalidatedAt
-              : new Date().toISOString(),
-          invalidatedOldHeadSha: oldHeadSha,
-          invalidatedNewHeadSha: newHeadSha || null,
+          invalidatedAt: equivalentInvalidation ? existing.invalidatedAt : new Date().toISOString(),
+          invalidatedOldHeadSha: equivalentInvalidation ? existing.invalidatedOldHeadSha : oldHeadSha,
+          invalidatedNewHeadSha: requestedNewHeadSha,
         }
       : null;
   }

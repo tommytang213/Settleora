@@ -13,7 +13,13 @@ import {
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
 import { outageFingerprint } from "../lib/outage-resubmission-policy.mjs";
-import { bindRecoveryEvidence, createInitialRecoveryState, loadRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
+import {
+  bindRecoveryEvidence,
+  createInitialRecoveryState,
+  invalidateEvidenceForHeadChange,
+  loadRecoveryState,
+  writeRecoveryState,
+} from "../lib/recovery-state.mjs";
 import { canonicalJson, readAndVerifyRunSpec, resolveProfile, sha256Text, writeImmutableRunSpec } from "../supervisor/run-spec.mjs";
 import { readSupervisorState } from "../supervisor/supervisor-state.mjs";
 import { getRunnerStatus } from "../lib/control-plane.mjs";
@@ -2125,7 +2131,10 @@ test("controller stale head invalidation dry-run writer-failure no-state and ide
       now,
     });
     assert.equal(result.reasonCode, "stale_head_evidence_regeneration_required");
-    assert.equal(loadRecoveryState(config, recoveryState).state.evidence.ciChecks.invalidatedAt, firstInvalidatedAt);
+    const repeatedInvalidation = loadRecoveryState(config, recoveryState).state;
+    assert.equal(repeatedInvalidation.evidence.ciChecks.invalidatedAt, firstInvalidatedAt);
+    assert.equal(repeatedInvalidation.evidence.ciChecks.invalidatedOldHeadSha, shaB);
+    assert.equal(repeatedInvalidation.evidence.ciChecks.invalidatedNewHeadSha, "c".repeat(40));
 
     writes = 0;
     result = runOutageResubmissionController({
@@ -2144,6 +2153,111 @@ test("controller stale head invalidation dry-run writer-failure no-state and ide
     });
     assert.equal(result.reasonCode, "dry_run_no_mutation");
     assert.equal(writes, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("controller rejects stale outage recovery targets before planning or mutation", () => {
+  const cases = [
+    {
+      name: "next-safe-action",
+      build: () => ({ ...incompleteRecoveryState(), nextSafeAction: "regenerate_exact_head_evidence" }),
+    },
+    {
+      name: "stale-evidence",
+      build: () => ({
+        ...incompleteRecoveryState(),
+        evidence: {
+          ciChecks: {
+            status: "passed",
+            headSha: shaA,
+            baseSha: shaA,
+            stale: true,
+            invalidatedBy: "review_fix_committed",
+            invalidatedAt: "2026-07-15T00:45:00.000Z",
+            invalidatedOldHeadSha: shaA,
+            invalidatedNewHeadSha: shaB,
+          },
+        },
+      }),
+    },
+    {
+      name: "persisted-identical-head-drift",
+      build: () => invalidateEvidenceForHeadChange(
+        bindRecoveryEvidence(incompleteRecoveryState(), "ciChecks", { status: "passed", headSha: shaA, baseSha: shaA }),
+        { newHeadSha: shaB, reasonCode: "review_fix_committed" },
+      ),
+    },
+  ];
+
+  for (const { name, build } of cases) {
+    const config = tempConfig();
+    try {
+      const staleRecoveryState = build();
+      const written = writeRecoveryState(config, staleRecoveryState);
+      const before = readFileSync(written.statePath, "utf8");
+      const writes = [];
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        recoveryState: staleRecoveryState,
+        dryRun: false,
+        writeRecoveryState: () => {
+          writes.push("recovery");
+          throw new Error("must_not_write_recovery");
+        },
+        writeOutageState: () => {
+          writes.push("outage");
+          throw new Error("must_not_write_outage");
+        },
+        startUserUnit: () => {
+          writes.push("systemd");
+          throw new Error("must_not_start");
+        },
+        now,
+        rng: () => 0.5,
+        childRunId: "supervised-20260715T010000Z-000000000991",
+      });
+
+      assert.equal(result.outcome, "blocked", name);
+      assert.equal(result.reasonCode, "recovery_exact_head_evidence_regeneration_required", name);
+      assert.deepEqual(writes, [], name);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, name);
+      assert.equal(result.events.some((item) => item.event === "outage_marker_created"), false, name);
+      assert.equal(result.events.some((item) => item.event === "outage_recovery_state_bound"), false, name);
+      assert.equal(result.events.some((item) => item.event === "dry_run_child_spec_planned"), false, name);
+      assert.equal(result.counts.githubMutationCalls, 0, name);
+      assert.equal(result.counts.systemdCalls, 0, name);
+      assert.equal(result.counts.realMutationCalls, 0, name);
+      assert.equal(readFileSync(written.statePath, "utf8"), before, name);
+      assert.equal(loadRecoveryState(config, staleRecoveryState).ok, true, name);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
+test("controller still allows clean exact outage recovery target planning", () => {
+  const config = tempConfig();
+  try {
+    const recoveryState = incompleteRecoveryState();
+    writeRecoveryState(config, recoveryState);
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      dryRun: true,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000991",
+    });
+    assert.equal(result.outcome, "planned");
+    assert.equal(result.reasonCode, "dry_run_no_mutation");
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), true);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
   } finally {
     config.cleanup();
   }
