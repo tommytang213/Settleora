@@ -104,36 +104,37 @@ export function discoverTargetedStartupRecovery(config) {
       states: [],
     };
   }
-  if (states.length > 1) {
+  const partition = partitionRecoveryStatesByTarget(states, target);
+  if (partition.exactMatches.length === 0) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_mismatch",
+      states: [],
+      stateCounts: partition.counts,
+    };
+  }
+  if (partition.exactMatches.length > 1) {
     return {
       found: true,
       allowed: false,
       action: "stop_fail_closed",
       reasonCode: "outage_recovery_target_ambiguous",
-      states: states.map(summarizeRecoverableState),
+      states: partition.exactMatches.map(summarizeRecoverableState),
+      stateCounts: partition.counts,
     };
   }
+  const state = partition.exactMatches[0];
   if (!config.allowExistingPrRecovery) {
     return {
       found: true,
       allowed: false,
       action: "stop_fail_closed",
       reasonCode: "recoverable_state_requires_explicit_recovery_capability",
-      state: summarizeRecoverableState(states[0]),
-      states: states.map(summarizeRecoverableState),
-    };
-  }
-  const state = states[0];
-  const comparison = compareRecoveryStateToTarget(state, target);
-  if (!comparison.ok) {
-    return {
-      found: true,
-      allowed: false,
-      action: "stop_fail_closed",
-      reasonCode: comparison.reasonCode,
-      field: comparison.field,
       state: summarizeRecoverableState(state),
-      states: states.map(summarizeRecoverableState),
+      states: partition.exactMatches.map(summarizeRecoverableState),
+      stateCounts: partition.counts,
     };
   }
   const boundary = firstIncompleteContinuationAction(state);
@@ -144,7 +145,8 @@ export function discoverTargetedStartupRecovery(config) {
       action: "stop_fail_closed",
       reasonCode: "outage_recovery_target_not_safe",
       state: summarizeRecoverableState(state),
-      states: states.map(summarizeRecoverableState),
+      states: partition.exactMatches.map(summarizeRecoverableState),
+      stateCounts: partition.counts,
     };
   }
   return {
@@ -154,7 +156,8 @@ export function discoverTargetedStartupRecovery(config) {
     reasonCode: "outage_recovery_target_discovered",
     outcome: classifyRecoveryOutcome("pending", { reasonCode: "outage_recovery_target_discovered" }),
     state: summarizeRecoverableState(state),
-    states: states.map(summarizeRecoverableState),
+    states: partition.exactMatches.map(summarizeRecoverableState),
+    stateCounts: partition.counts,
     target,
   };
 }
@@ -321,6 +324,27 @@ function summarizeRecoverableState(state) {
     blocker: state.stopReason?.reasonCode || null,
     runId: state.run?.runId || null,
     supervisorRunId: state.run?.supervisorRunId || null,
+  };
+}
+
+function partitionRecoveryStatesByTarget(states, target) {
+  const exactMatches = [];
+  let nonMatchCount = 0;
+  for (const state of states) {
+    const comparison = compareRecoveryStateToTarget(state, target);
+    if (comparison.ok) {
+      exactMatches.push(state);
+    } else {
+      nonMatchCount += 1;
+    }
+  }
+  return {
+    exactMatches,
+    counts: {
+      totalRecoverableCount: states.length,
+      exactMatchingCount: exactMatches.length,
+      ignoredNonmatchingCount: nonMatchCount,
+    },
   };
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -45,6 +45,41 @@ function state(overrides = {}) {
   });
 }
 
+function recoveryWithPr(overrides = {}) {
+  return state({
+    pr: {
+      number: 917,
+      url: "https://example.invalid/pull/917",
+      headSha: "c".repeat(40),
+      headRefName: "tools/auto-runner-recovery-continuation-893-20260713-1927",
+      baseRefName: "main",
+      state: "OPEN",
+    },
+    ...overrides,
+  });
+}
+
+function unrelatedRecovery(overrides = {}) {
+  return recoveryWithPr({
+    taskKey: "20260713-1930",
+    issue: { number: 891, title: "Other recovery", url: "https://example.invalid/891" },
+    runId: "run-2026-07-13T113000Z",
+    supervisorRunId: "supervised-20260713T113000Z-fedcbafedcba",
+    branchName: "feature/auto-891-other",
+    baseSha: "a".repeat(40),
+    currentHeadSha: "d".repeat(40),
+    pr: {
+      number: 918,
+      url: "https://example.invalid/pull/918",
+      headSha: "d".repeat(40),
+      headRefName: "feature/auto-891-other",
+      baseRefName: "main",
+      state: "OPEN",
+    },
+    ...overrides,
+  });
+}
+
 function targetFor(recoveryState) {
   return {
     taskKey: recoveryState.taskKey,
@@ -85,9 +120,7 @@ test("startup resumes recoverable work before polling a new issue", () => {
 });
 
 test("targeted outage recovery resumes only the exact matching recovery state", () => {
-  const recovery = state({
-    pr: { number: 917, url: "u", headSha: "c".repeat(40), headRefName: "tools/auto-runner-recovery-continuation-893-20260713-1927", baseRefName: "main", state: "OPEN" },
-  });
+  const recovery = recoveryWithPr();
   const config = tempConfig({
     allowExistingPrRecovery: true,
     outageRecoveryOnly: true,
@@ -105,10 +138,88 @@ test("targeted outage recovery resumes only the exact matching recovery state", 
   }
 });
 
-test("targeted outage recovery blocks zero mismatched or ambiguous states", () => {
-  const recovery = state({
-    pr: { number: 917, url: "u", headSha: "c".repeat(40), headRefName: "tools/auto-runner-recovery-continuation-893-20260713-1927", baseRefName: "main", state: "OPEN" },
+test("targeted outage recovery selects one exact state and ignores unrelated states", async () => {
+  const exact = recoveryWithPr();
+  const unrelated = unrelatedRecovery();
+  const config = tempConfig({
+    allowExistingPrRecovery: true,
+    outageRecoveryOnly: true,
+    outageRecoveryTarget: targetFor(exact),
   });
+  try {
+    writeRecoveryState(config, unrelated);
+    const unrelatedPath = writeRecoveryState(config, unrelated).statePath;
+    const beforeUnrelated = readFileSync(unrelatedPath, "utf8");
+    writeRecoveryState(config, exact);
+
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, true);
+    assert.equal(discovery.reasonCode, "outage_recovery_target_discovered");
+    assert.equal(discovery.state.issueNumber, 893);
+    assert.deepEqual(discovery.stateCounts, {
+      totalRecoverableCount: 2,
+      exactMatchingCount: 1,
+      ignoredNonmatchingCount: 1,
+    });
+    assert.deepEqual(discovery.states.map((item) => item.issueNumber), [893]);
+
+    let executed = false;
+    const continued = await executeStartupContinuation(config, discovery, {
+      default: async ({ state: loadedState }) => {
+        executed = true;
+        assert.equal(loadedState.issue.number, 893);
+        return { ok: true, outcome: "targeted_exact_state_executed", reasonCode: "targeted_exact_state_executed" };
+      },
+    });
+    assert.equal(executed, true);
+    assert.equal(continued.outcome, "targeted_exact_state_executed");
+    assert.equal(readFileSync(unrelatedPath, "utf8"), beforeUnrelated);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("targeted outage recovery handles exact and near-match partitions without order dependence", () => {
+  const exact = recoveryWithPr();
+  const target = targetFor(exact);
+  const nearMatches = [
+    ["taskKey", recoveryWithPr({ taskKey: "20260713-1928" })],
+    ["issueNumber", recoveryWithPr({ issue: { number: 894, title: "Near issue", url: "https://example.invalid/894" } })],
+    ["branchName", recoveryWithPr({ branchName: "feature/auto-893-near" })],
+    ["baseSha", recoveryWithPr({ baseSha: "1".repeat(40) })],
+    ["currentHeadSha", recoveryWithPr({ currentHeadSha: "2".repeat(40), runId: "run-2026-07-13T113101Z" })],
+    ["prNumber", recoveryWithPr({ runId: "run-2026-07-13T113102Z", pr: { ...exact.pr, number: 919 } })],
+    ["prHeadSha", recoveryWithPr({ runId: "run-2026-07-13T113103Z", pr: { ...exact.pr, headSha: "3".repeat(40) } })],
+    ["runnerRunId", recoveryWithPr({ runId: "run-2026-07-13T113001Z" })],
+    [
+      "supervisorRunId",
+      recoveryWithPr({
+        runId: "run-2026-07-13T113105Z",
+        supervisorRunId: "supervised-20260713T113001Z-abcdefabcdef",
+      }),
+    ],
+    ["missingTargetField", recoveryWithPr({ runId: "run-2026-07-13T113104Z", pr: { ...exact.pr, headSha: null } })],
+  ];
+
+  for (const [name, nearMatch] of nearMatches) {
+    const config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+    try {
+      writeRecoveryState(config, nearMatch);
+      writeRecoveryState(config, exact);
+      const discovery = discoverTargetedStartupRecovery(config);
+      assert.equal(discovery.allowed, true, name);
+      assert.equal(discovery.state.issueNumber, 893, name);
+      assert.equal(discovery.stateCounts.totalRecoverableCount, 2, name);
+      assert.equal(discovery.stateCounts.exactMatchingCount, 1, name);
+      assert.equal(discovery.stateCounts.ignoredNonmatchingCount, 1, name);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
+test("targeted outage recovery blocks zero mismatched or duplicate exact states", () => {
+  const recovery = recoveryWithPr();
   const target = targetFor(recovery);
   let config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
   try {
@@ -123,18 +234,82 @@ test("targeted outage recovery blocks zero mismatched or ambiguous states", () =
     const discovery = discoverTargetedStartupRecovery(config);
     assert.equal(discovery.allowed, false);
     assert.equal(discovery.reasonCode, "outage_recovery_target_mismatch");
-    assert.equal(discovery.field, "issueNumber");
+    assert.equal(discovery.stateCounts.totalRecoverableCount, 1);
+    assert.equal(discovery.stateCounts.exactMatchingCount, 0);
   } finally {
     config.cleanup();
   }
 
   config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
   try {
-    writeRecoveryState(config, recovery);
-    writeRecoveryState(config, state({ issue: { number: 891, title: "B", url: "u" }, branchName: "feature/auto-891-b" }));
+    const written = writeRecoveryState(config, recovery);
+    copyFileSync(written.statePath, path.join(path.dirname(written.statePath), "duplicate-exact.json"));
     const discovery = discoverTargetedStartupRecovery(config);
     assert.equal(discovery.allowed, false);
     assert.equal(discovery.reasonCode, "outage_recovery_target_ambiguous");
+    assert.deepEqual(discovery.stateCounts, {
+      totalRecoverableCount: 2,
+      exactMatchingCount: 2,
+      ignoredNonmatchingCount: 0,
+    });
+  } finally {
+    config.cleanup();
+  }
+
+  config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    writeRecoveryState(config, unrelatedRecovery());
+    writeRecoveryState(config, unrelatedRecovery({ issue: { number: 892, title: "Other two", url: "https://example.invalid/892" }, branchName: "feature/auto-892-other" }));
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "outage_recovery_target_mismatch");
+    assert.equal(discovery.stateCounts.totalRecoverableCount, 2);
+    assert.equal(discovery.stateCounts.exactMatchingCount, 0);
+    assert.equal(discovery.stateCounts.ignoredNonmatchingCount, 2);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("targeted outage recovery applies capability and terminal exact-state blockers only to the target", () => {
+  const exact = recoveryWithPr();
+  const target = targetFor(exact);
+  let config = tempConfig({ allowExistingPrRecovery: false, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    writeRecoveryState(config, unrelatedRecovery());
+    writeRecoveryState(config, exact);
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "recoverable_state_requires_explicit_recovery_capability");
+    assert.equal(discovery.state.issueNumber, 893);
+    assert.equal(discovery.stateCounts.ignoredNonmatchingCount, 1);
+  } finally {
+    config.cleanup();
+  }
+
+  config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    writeRecoveryState(config, unrelatedRecovery());
+    writeRecoveryState(config, advanceRecoveryPhase(exact, { phase: "completed", firstIncompleteAction: "none", nextSafeAction: "none" }));
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "outage_recovery_target_mismatch");
+    assert.equal(discovery.stateCounts.totalRecoverableCount, 1);
+    assert.equal(discovery.stateCounts.exactMatchingCount, 0);
+    assert.equal(discovery.stateCounts.ignoredNonmatchingCount, 1);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("normal startup still blocks multiple recoverable states", () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    writeRecoveryState(config, recoveryWithPr());
+    writeRecoveryState(config, unrelatedRecovery());
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "multiple_recoverable_states");
   } finally {
     config.cleanup();
   }
