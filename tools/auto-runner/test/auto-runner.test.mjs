@@ -153,6 +153,95 @@ test("CLI accepts supervisor correlation only for normal real runs", () => {
   assert.throws(() => parseCliArgs(["--reviewer-smoke-test", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
 });
 
+test("CLI strictly parses outage recovery target numerics", () => {
+  const baseTarget = targetForCliRecovery(cliRecoveryState());
+  const cases = [
+    {
+      option: "--outage-target-issue",
+      field: "issueNumber",
+      valid: ["913", "9999999"],
+    },
+    {
+      option: "--outage-target-pr",
+      field: "prNumber",
+      valid: ["917", "9999999"],
+    },
+    {
+      option: "--outage-target-attempt",
+      field: "attemptNumber",
+      valid: ["1", "20"],
+    },
+  ];
+  const invalidValues = [
+    "913abc",
+    "abc913",
+    "7.9",
+    "1e3",
+    "+7",
+    "-7",
+    "0",
+    "",
+    " 7",
+    "7 ",
+    "9007199254740992",
+  ];
+
+  for (const item of cases) {
+    for (const raw of item.valid) {
+      const parsed = parseCliArgs(outageRecoveryCliArgs({ ...baseTarget, [item.field]: raw }));
+      assert.equal(parsed.outageRecoveryTarget[item.field], Number(raw), `${item.option} accepts ${raw}`);
+    }
+    for (const raw of invalidValues) {
+      assert.throws(
+        () => parseCliArgs(outageRecoveryCliArgs({ ...baseTarget, [item.field]: raw })),
+        (error) => {
+          assert.match(error.message, new RegExp(item.option.replaceAll("-", "\\-")));
+          if (raw.length > 0) {
+            assert.equal(error.message.includes(raw), false, `${item.option} error must not echo ${raw}`);
+          }
+          return true;
+        },
+        `${item.option} rejects ${raw}`,
+      );
+    }
+    assert.throws(
+      () => {
+        const argv = outageRecoveryCliArgs(baseTarget);
+        argv.splice(argv.indexOf(item.option) + 1, 1);
+        parseCliArgs(argv);
+      },
+      (error) => {
+        assert.match(error.message, new RegExp(`Missing value for ${item.option.replaceAll("-", "\\-")}`));
+        return true;
+      },
+      `${item.option} rejects missing value`,
+    );
+  }
+});
+
+test("malformed outage recovery target numerics exit before runner side effects", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-outage-recovery-bad-numeric-"));
+  try {
+    const repoRoot = path.join(tempRoot, "repo");
+    const logsRoot = path.join(tempRoot, "logs");
+    setupCleanRunnerLaunchRepo(repoRoot);
+    const recovery = cliRecoveryState();
+    const target = { ...targetForCliRecovery(recovery), issueNumber: "913abc" };
+    const configPath = path.join(tempRoot, "runner-config.json");
+    writeFileSync(configPath, `${JSON.stringify({ repoRoot, logsRoot, trustedRealRunApproved: true, allowExistingPrRecovery: true }, null, 2)}\n`);
+
+    const result = spawnOutageRecoveryOnly(configPath, repoRoot, target);
+
+    assert.equal(result.status, 1);
+    assert.equal(result.signal, null);
+    assert.match(result.stderr, /--outage-target-issue/);
+    assert.equal(result.stderr.includes("913abc"), false);
+    assert.equal(existsSync(logsRoot), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("outage recovery-only blocked targets exit nonzero after writing summaries and cleanup", () => {
   const cases = [
     {
@@ -7197,6 +7286,41 @@ function targetForCliRecovery(recoveryState) {
     outageFingerprint: recoveryState.outageResubmission?.outageFingerprint,
     attemptNumber: recoveryState.outageResubmission?.attemptNumber,
   };
+}
+
+function outageRecoveryCliArgs(target) {
+  return [
+    "--run",
+    "--supervisor-run-id",
+    "supervised-20260715T120000Z-000000000917",
+    "--outage-recovery-only",
+    "--outage-target-task-key",
+    target.taskKey,
+    "--outage-target-issue",
+    String(target.issueNumber),
+    "--outage-target-branch",
+    target.branchName,
+    "--outage-target-base-sha",
+    target.baseSha,
+    "--outage-target-head-sha",
+    target.currentHeadSha,
+    "--outage-target-pr",
+    String(target.prNumber),
+    "--outage-target-pr-head-sha",
+    target.prHeadSha,
+    "--outage-target-runner-run-id",
+    target.runnerRunId,
+    "--outage-target-supervisor-run-id",
+    target.supervisorRunId,
+    "--outage-target-original-spec-digest",
+    target.originalSupervisorSpecDigest,
+    "--outage-target-marker-key",
+    target.markerKey,
+    "--outage-target-fingerprint",
+    target.outageFingerprint,
+    "--outage-target-attempt",
+    String(target.attemptNumber),
+  ];
 }
 
 function cliOutageBinding(overrides = {}) {

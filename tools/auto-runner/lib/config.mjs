@@ -155,6 +155,17 @@ export function parseDurationExtension(value) {
   return durationMs;
 }
 
+function parseOutageTargetPositiveInteger(raw, optionName) {
+  if (!/^[1-9][0-9]*$/.test(String(raw))) {
+    throw new Error(`Invalid positive integer for ${optionName}`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`Invalid positive integer for ${optionName}`);
+  }
+  return value;
+}
+
 export function parseCliArgs(argv) {
   const args = {
     dryRun: false,
@@ -224,18 +235,18 @@ export function parseCliArgs(argv) {
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
     else if (arg === "--outage-recovery-only") args.outageRecoveryOnly = true;
     else if (arg === "--outage-target-task-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), taskKey: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-issue") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), issueNumber: Number.parseInt(readValue(argv, ++index, arg), 10) };
+    else if (arg === "--outage-target-issue") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), issueNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
     else if (arg === "--outage-target-branch") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), branchName: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-base-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), baseSha: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-head-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), currentHeadSha: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-pr") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prNumber: Number.parseInt(readValue(argv, ++index, arg), 10) };
+    else if (arg === "--outage-target-pr") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
     else if (arg === "--outage-target-pr-head-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prHeadSha: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-runner-run-id") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), runnerRunId: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-supervisor-run-id") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), supervisorRunId: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-original-spec-digest") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), originalSupervisorSpecDigest: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-marker-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), markerKey: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-fingerprint") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), outageFingerprint: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-attempt") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), attemptNumber: Number.parseInt(readValue(argv, ++index, arg), 10) };
+    else if (arg === "--outage-target-attempt") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), attemptNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
     else if (arg === "--security-findings-dry-run") args.securityFindingsDryRun = true;
     else if (arg === "--security-findings-disposition-dry-run") {
       args.securityFindingsDryRun = true;
