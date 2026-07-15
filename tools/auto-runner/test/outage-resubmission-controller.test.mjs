@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runOutageResubmissionController, evaluateSourceRunEligibility } from "../supervisor/outage-resubmission-controller.mjs";
-import { createOutageResubmissionState, transitionOutageMarker } from "../lib/outage-resubmission-state.mjs";
+import { createOutageResubmissionState, outageResubmissionStatePath, transitionOutageMarker } from "../lib/outage-resubmission-state.mjs";
 import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
 import { canonicalJson, readAndVerifyRunSpec, resolveProfile, sha256Text, writeImmutableRunSpec } from "../supervisor/run-spec.mjs";
 import { getRunnerStatus } from "../lib/control-plane.mjs";
@@ -196,7 +196,7 @@ test("child planning blocks when source runner config digest no longer matches t
 test("persisted outage state load failures block before child reconciliation or planning", () => {
   const config = tempConfig();
   try {
-    const result = runOutageResubmissionController({
+    let result = runOutageResubmissionController({
       config,
       source: source(),
       outageStateKey: "c".repeat(64),
@@ -210,6 +210,27 @@ test("persisted outage state load failures block before child reconciliation or 
     assert.equal(result.events.some((item) => item.event === "outage_state_load_blocked"), true);
     assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
     assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    const state = fixtureOutageState();
+    const statePath = outageResubmissionStatePath(config, state);
+    mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+    writeFileSync(statePath, `${JSON.stringify({ ...state, unexpected: true }, null, 2)}\n`, { mode: 0o600 });
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageStateKey: state.correlation,
+      existingChildren: [exactChild(state)],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_resubmission_state_untrusted");
+    assert.equal(result.outageStateLoad.reasonCode, "outage_resubmission_state_schema_invalid");
+    assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
     assert.equal(result.counts.realMutationCalls, 0);
   } finally {
     config.cleanup();

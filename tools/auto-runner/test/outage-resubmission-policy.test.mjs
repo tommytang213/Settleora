@@ -22,6 +22,7 @@ import {
   outageResubmissionStatePath,
   recordOutageAttempt,
   transitionOutageMarker,
+  validateOutageResubmissionState,
   verifyOutageCorrelation,
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
@@ -267,15 +268,93 @@ test("outage resubmission state validates identity, atomic writes, markers, corr
   }
 });
 
-test("outage state listing returns only valid bounded records and sanitizes untrusted fields", () => {
+test("persisted outage state schema rejects unknown fields and partial PR identity", () => {
+  const cases = [
+    ["root unknown", (state) => ({ ...state, unexpected: true })],
+    ["correlation unknown", (state) => ({ ...state, correlation: { ...state.correlation, unexpected: true } })],
+    ["outage unknown", (state) => ({ ...state, outage: { ...state.outage, unexpected: true } })],
+    ["schedule unknown", (state) => ({ ...state, schedule: { ...state.schedule, unexpected: true } })],
+    ["circuit unknown", (state) => ({ ...state, circuit: { state: "closed", reasonCode: null, openedAt: null, nextProbeAt: null, unexpected: true } })],
+    ["mutation marker unknown", (state) => ({ ...state, mutationMarker: { ...state.mutationMarker, unexpected: true } })],
+    ["attempt history unknown", (state) => recordOutageAttempt(state, { status: "planned", reasonCode: "planned" })],
+    ["pr number without head", (state) => ({ ...state, correlation: { ...state.correlation, prNumber: 917, prHeadSha: null } })],
+    ["pr head without number", (state) => ({ ...state, correlation: { ...state.correlation, prNumber: null, prHeadSha: shaB } })],
+  ];
+
+  for (const [label, mutate] of cases) {
+    let state = fixtureState();
+    if (label === "attempt history unknown") {
+      state = mutate(state);
+      state.attemptHistory = [{ ...state.attemptHistory[0], unexpected: true }];
+    } else {
+      state = mutate(state);
+    }
+    assert.equal(validateOutageResubmissionState(state).ok, false, label);
+  }
+});
+
+test("persisted outage state schema rejects invalid identity and status combinations", () => {
+  const invalidCases = [
+    ["task key", (state) => ({ ...state, correlation: { ...state.correlation, taskKey: "../bad" } })],
+    ["issue", (state) => ({ ...state, correlation: { ...state.correlation, issueNumber: 0 } })],
+    ["branch", (state) => ({ ...state, correlation: { ...state.correlation, branchName: "main" } })],
+    ["base sha", (state) => ({ ...state, correlation: { ...state.correlation, baseSha: "A".repeat(40) } })],
+    ["current head", (state) => ({ ...state, correlation: { ...state.correlation, currentHeadSha: "bad" } })],
+    ["pr number", (state) => ({ ...state, correlation: { ...state.correlation, prNumber: -1 } })],
+    ["pr head", (state) => ({ ...state, correlation: { ...state.correlation, prHeadSha: "A".repeat(40) } })],
+    ["profile", (state) => ({ ...state, correlation: { ...state.correlation, runnerProfile: "../default" } })],
+    ["config digest", (state) => ({ ...state, correlation: { ...state.correlation, runnerConfigDigest: "bad" } })],
+    ["original spec digest", (state) => ({ ...state, correlation: { ...state.correlation, originalSupervisorSpecDigest: "bad" } })],
+    ["attempt", (state) => ({ ...state, schedule: { ...state.schedule, attemptNumber: 0 }, mutationMarker: { ...state.mutationMarker, attemptNumber: 0 } })],
+    ["marker key", (state) => ({ ...state, mutationMarker: { ...state.mutationMarker, key: "bad" } })],
+    ["fingerprint mismatch", (state) => ({ ...state, outage: { ...state.outage, outageFingerprint: digestB } })],
+    ["uncertain missing child", (state) => ({ ...transitionOutageMarker(state, { status: "submission_uncertain", childSupervisorRunId: "supervised-20260715T000000Z-abcdefabcdef" }), childSupervisorRunId: null, mutationMarker: { ...transitionOutageMarker(state, { status: "submission_uncertain", childSupervisorRunId: "supervised-20260715T000000Z-abcdefabcdef" }).mutationMarker, childSupervisorRunId: null } })],
+    ["submitted missing spec", (state) => ({ ...transitionOutageMarker(state, { status: "submitted", childSupervisorRunId: "supervised-20260715T000000Z-abcdefabcdef" }), mutationMarker: { ...transitionOutageMarker(state, { status: "submitted", childSupervisorRunId: "supervised-20260715T000000Z-abcdefabcdef" }).mutationMarker, specDigest: null } })],
+    ["confirmed missing child", (state) => ({ ...transitionOutageMarker(state, { status: "confirmed_running", childSupervisorRunId: "supervised-20260715T000000Z-abcdefabcdef" }), childSupervisorRunId: null })],
+    ["terminal missing reason", (state) => ({
+      ...state,
+      status: "blocked",
+      mutationMarker: { ...state.mutationMarker, status: "blocked", reasonCode: null },
+    })],
+  ];
+  for (const [label, mutate] of invalidCases) {
+    assert.equal(validateOutageResubmissionState(mutate(fixtureState())).ok, false, label);
+  }
+});
+
+test("schema-invalid outage state fails load and failed writes preserve prior valid file", () => {
   const config = tempConfig();
   try {
     const state = fixtureState();
-    const written = writeOutageResubmissionState(config, {
-      ...state,
-      rawProviderBody: "Bearer secret should not persist",
-      outage: { ...state.outage, rawBody: "GITHUB_TOKEN=secret" },
-    });
+    const written = writeOutageResubmissionState(config, state);
+    const before = readFileSync(written.statePath, "utf8");
+    assert.throws(
+      () => writeOutageResubmissionState(config, { ...state, correlation: { ...state.correlation, prNumber: 917, prHeadSha: null } }),
+      /Invalid outage resubmission state/,
+    );
+    assert.equal(readFileSync(written.statePath, "utf8"), before);
+    writeFileSync(written.statePath, `${JSON.stringify({ ...state, unexpected: true }, null, 2)}\n`);
+    const loaded = loadOutageResubmissionState(config, state);
+    assert.equal(loaded.ok, false);
+    assert.equal(loaded.reasonCode, "outage_resubmission_state_schema_invalid");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("outage state listing returns only valid bounded records and rejects untrusted fields", () => {
+  const config = tempConfig();
+  try {
+    const state = fixtureState();
+    assert.throws(
+      () => writeOutageResubmissionState(config, { ...state, rawProviderBody: "Bearer secret should not persist" }),
+      /unknown state field/,
+    );
+    assert.throws(
+      () => writeOutageResubmissionState(config, { ...state, outage: { ...state.outage, rawBody: "GITHUB_TOKEN=secret" } }),
+      /unknown outage field/,
+    );
+    const written = writeOutageResubmissionState(config, state);
     const text = readFileSync(written.statePath, "utf8");
     assert.equal(text.includes("rawProviderBody"), false);
     assert.equal(text.includes("rawBody"), false);
