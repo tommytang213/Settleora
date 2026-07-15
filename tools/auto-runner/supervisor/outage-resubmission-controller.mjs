@@ -306,6 +306,12 @@ export function runOutageResubmissionController(input = {}) {
     return result("deferred", finalGate.reasonCode, { events, counts, circuit, schedule, classification: eligibility.classification });
   }
 
+  if (config.allowExistingPrRecovery !== true) {
+    const reasonCode = "recoverable_state_requires_explicit_recovery_capability";
+    event("outage_recovery_capability_blocked", { reasonCode });
+    return result("blocked", reasonCode, { events, counts, circuit, schedule, classification: eligibility.classification });
+  }
+
   event("resubmission_planned");
   const plannedState = existingOutageState || createOutageResubmissionState({
     correlation,

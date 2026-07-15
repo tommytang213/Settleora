@@ -36,8 +36,8 @@ const githubApi502Fingerprint = outageFingerprint({
   status: 502,
   reasonCode: "unknown",
 });
-const profileConfig = '{"trustedRealRunApproved":true}\n';
-const profileConfigDigest = "2642cfcf41be23ff01aa228eb94455d0e67aa12945ca2d335bed7e9bc99774a4";
+const profileConfig = '{"trustedRealRunApproved":true,"allowExistingPrRecovery":true}\n';
+const profileConfigDigest = "1e0f2e46bf002c58a643e4fc8e902fc70094d72f8f7a3c3136ac1bfe20d67b63";
 const now = new Date("2026-07-15T01:00:00.000Z");
 
 test("source eligibility is not inferred from age or stopped state alone", () => {
@@ -228,8 +228,44 @@ test("controller checks recovery before planning a new child", () => {
   }
 });
 
+test("recovery capability false or omitted blocks new outage child before side effects", () => {
+  const cases = [
+    ["omitted", tempConfig({ allowExistingPrRecovery: undefined })],
+    ["explicit false", tempConfig({ allowExistingPrRecovery: false })],
+  ];
+  for (const [label, config] of cases) {
+    try {
+      const beforeFiles = listRelativeFiles(config.logsRoot);
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        recoveryState: incompleteRecoveryState(),
+        dryRun: false,
+        now,
+        rng: () => 0.5,
+        childRunId: "supervised-20260715T010000Z-000000000124",
+      });
+      assert.equal(result.outcome, "blocked", label);
+      assert.equal(result.reasonCode, "recoverable_state_requires_explicit_recovery_capability", label);
+      assert.equal(result.child, undefined, label);
+      assert.equal(result.childRunId, undefined, label);
+      assert.equal(result.outageState, undefined, label);
+      assert.equal(result.events.some((item) => item.event === "outage_recovery_capability_blocked"), true, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.events.some((item) => item.event === "outage_recovery_target_blocked"), false, label);
+      assert.equal(result.events.some((item) => item.event === "dry_run_child_spec_planned"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+      assert.deepEqual(listRelativeFiles(config.logsRoot), beforeFiles, label);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
 test("pending outage children reconcile before incomplete source recovery", () => {
-  const config = tempConfig();
+  const config = tempConfig({ allowExistingPrRecovery: false });
   try {
     const recoveryState = incompleteRecoveryState();
     const baseState = fixtureOutageState();
@@ -265,7 +301,7 @@ test("pending outage children reconcile before incomplete source recovery", () =
 });
 
 test("submitted and confirmed outage children win before incomplete source recovery", () => {
-  const config = tempConfig();
+  const config = tempConfig({ allowExistingPrRecovery: false });
   try {
     const recoveryState = incompleteRecoveryState();
     const baseState = fixtureOutageState();
@@ -319,7 +355,7 @@ test("submitted and confirmed outage children win before incomplete source recov
 });
 
 test("terminal outage children classify before incomplete source recovery", () => {
-  const config = tempConfig();
+  const config = tempConfig({ allowExistingPrRecovery: false });
   try {
     const recoveryState = incompleteRecoveryState();
     const confirmed = transitionOutageMarker(fixtureOutageState(), {
@@ -409,6 +445,7 @@ test("controller plans one exact correlated child in dry-run with zero live muta
     assert.equal(result.child.spec.outageResubmission.currentHeadSha, source().currentHeadSha);
     assert.equal(result.child.spec.outageResubmission.prNumber, source().prNumber);
     assert.equal(result.child.spec.outageResubmission.prHeadSha, source().prHeadSha);
+    assert.equal(JSON.parse(readFileSync(resolveProfile(result.child.spec.profile, config.logsRoot).runnerConfigPath, "utf8")).allowExistingPrRecovery, true);
     assert.match(result.child.specSha256, /^[a-f0-9]{64}$/);
   } finally {
     config.cleanup();
@@ -1999,12 +2036,13 @@ function isoAtMinutes(minutes) {
   return new Date(Date.parse("2026-07-15T00:00:00.000Z") + minutes * 60 * 1000).toISOString();
 }
 
-function tempConfig({ enabled = true } = {}) {
+function tempConfig(options = {}) {
+  const { enabled = true } = options;
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-outage-controller-"));
   const profilePath = resolveProfile("default", logsRoot).runnerConfigPath;
   mkdirSync(path.dirname(profilePath), { recursive: true, mode: 0o700 });
   writeFileSync(profilePath, profileConfig, { mode: 0o600 });
-  return {
+  const config = {
     logsRoot,
     runnerConfigDigest: profileConfigDigest,
     outageResubmission: {
@@ -2022,4 +2060,24 @@ function tempConfig({ enabled = true } = {}) {
     },
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
   };
+  if (Object.hasOwn(options, "allowExistingPrRecovery")) {
+    config.allowExistingPrRecovery = options.allowExistingPrRecovery;
+  } else {
+    config.allowExistingPrRecovery = true;
+  }
+  return config;
+}
+
+function listRelativeFiles(root, base = root) {
+  const entries = readdirSync(root, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const absolute = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listRelativeFiles(absolute, base));
+    } else {
+      files.push(path.relative(base, absolute));
+    }
+  }
+  return files.sort();
 }
