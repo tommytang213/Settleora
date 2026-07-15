@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -91,6 +91,7 @@ import {
 import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
+import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import {
   evaluateReviewFixCanaryFixtureApproval,
   normalizeReviewFixCanaryFixtureConfig,
@@ -150,6 +151,87 @@ test("CLI accepts supervisor correlation only for normal real runs", () => {
   assert.throws(() => parseCliArgs(["--preflight", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
   assert.throws(() => parseCliArgs(["--status", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
   assert.throws(() => parseCliArgs(["--reviewer-smoke-test", "--supervisor-run-id", runId]), /only valid with a normal real --run/);
+});
+
+test("outage recovery-only blocked targets exit nonzero after writing summaries and cleanup", () => {
+  const cases = [
+    {
+      name: "missing-exact-target",
+      allowExistingPrRecovery: true,
+      states: () => [],
+      target: (recovery) => targetForCliRecovery(recovery),
+      reasonCode: "outage_recovery_target_missing",
+    },
+    {
+      name: "target-mismatch",
+      allowExistingPrRecovery: true,
+      states: (recovery) => [recovery],
+      target: (recovery) => ({ ...targetForCliRecovery(recovery), issueNumber: 914 }),
+      reasonCode: "outage_recovery_target_mismatch",
+    },
+    {
+      name: "ambiguous-target",
+      allowExistingPrRecovery: true,
+      states: (recovery) => [recovery, recovery],
+      target: (recovery) => targetForCliRecovery(recovery),
+      reasonCode: "outage_recovery_target_ambiguous",
+    },
+    {
+      name: "capability-disabled",
+      allowExistingPrRecovery: false,
+      states: (recovery) => [recovery],
+      target: (recovery) => targetForCliRecovery(recovery),
+      reasonCode: "recoverable_state_requires_explicit_recovery_capability",
+    },
+  ];
+
+  for (const item of cases) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-outage-recovery-${item.name}-`));
+    try {
+      const repoRoot = path.join(tempRoot, "repo");
+      const logsRoot = path.join(tempRoot, "logs");
+      setupCleanRunnerLaunchRepo(repoRoot);
+      const recovery = cliRecoveryState();
+      const config = {
+        repoRoot,
+        logsRoot,
+        trustedRealRunApproved: true,
+        allowExistingPrRecovery: item.allowExistingPrRecovery,
+      };
+      let firstWritten = null;
+      for (const [index, state] of item.states(recovery).entries()) {
+        if (index === 1 && firstWritten) {
+          const duplicatePath = path.join(path.dirname(firstWritten.statePath), `duplicate-${item.name}.json`);
+          writeFileSync(duplicatePath, readFileSync(firstWritten.statePath, "utf8"), { mode: 0o600 });
+          break;
+        }
+        firstWritten = writeRecoveryState(config, state);
+      }
+      const recoveryBefore = snapshotFiles(path.join(logsRoot, "recovery"));
+      const configPath = path.join(tempRoot, "runner-config.json");
+      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+      const result = spawnOutageRecoveryOnly(configPath, repoRoot, item.target(recovery));
+
+      assert.notEqual(result.status, 0, item.name);
+      assert.equal(result.signal, null, item.name);
+      const summary = readOnlyRunSummary(logsRoot);
+      assert.equal(summary.stopReason, `recoverable-work-blocked:${item.reasonCode}`, item.name);
+      assert.notEqual(summary.stopReason, "max-iterations-reached", item.name);
+      assert.equal(summary.iterations.length, 1, item.name);
+      assert.equal(summary.iterations[0].outcome, "blocked_recovery_state", item.name);
+      assert.equal(summary.iterations[0].systemicStop, `recoverable-work-blocked:${item.reasonCode}`, item.name);
+      assert.equal(summary.iterations[0].recovery.reasonCode, item.reasonCode, item.name);
+      assert.equal(summary.iterations[0].poll, undefined, item.name);
+      assert.equal(existsSync(path.join(logsRoot, "locks", "settleora-auto-runner.lock")), false, item.name);
+      const active = JSON.parse(readFileSync(path.join(logsRoot, "state", "active-run.json"), "utf8"));
+      assert.equal(active.active, false, item.name);
+      assert.equal(Boolean(active.summaryPath), true, item.name);
+      assert.deepEqual(snapshotFiles(path.join(logsRoot, "recovery")), recoveryBefore, item.name);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
 });
 
 test("review package diff helper keeps approved aggregate-sized diffs complete by default", () => {
@@ -7063,6 +7145,116 @@ function reviewFixLaneDecision({ allowedPaths }) {
     followupIssueCreationAllowed: false,
     reviewFixMutationAllowed: false,
   };
+}
+
+function setupCleanRunnerLaunchRepo(repoRoot) {
+  mkdirSync(repoRoot, { recursive: true });
+  runTempGit(repoRoot, ["init", "-b", "feature/auto-913-test"]);
+  runTempGit(repoRoot, ["config", "user.email", "codex@example.invalid"]);
+  runTempGit(repoRoot, ["config", "user.name", "Codex Test"]);
+  writeFileSync(path.join(repoRoot, "README.md"), "temporary runner launch repo\n");
+  runTempGit(repoRoot, ["add", "README.md"]);
+  runTempGit(repoRoot, ["commit", "-m", "base"]);
+  const head = runTempGit(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+  runTempGit(repoRoot, ["update-ref", "refs/remotes/origin/main", head]);
+}
+
+function cliRecoveryState(overrides = {}) {
+  return createInitialRecoveryState({
+    taskKey: "20260715-1957",
+    issue: { number: 913, title: "Bounded outage resubmission", url: "https://example.invalid/913" },
+    runId: "run-2026-07-15T120000Z",
+    supervisorRunId: "supervised-20260715T120000Z-abcdefabcdef",
+    branchName: "feature/auto-913-bounded-outage-resubmission-20260715-0013",
+    baseSha: "b".repeat(40),
+    currentHeadSha: "c".repeat(40),
+    pr: {
+      number: 917,
+      url: "https://example.invalid/pull/917",
+      headSha: "c".repeat(40),
+      headRefName: "feature/auto-913-bounded-outage-resubmission-20260715-0013",
+      baseRefName: "main",
+      state: "OPEN",
+    },
+    ...overrides,
+  });
+}
+
+function targetForCliRecovery(recoveryState) {
+  return {
+    taskKey: recoveryState.taskKey,
+    issueNumber: recoveryState.issue.number,
+    branchName: recoveryState.branch.name,
+    baseSha: recoveryState.branch.baseSha,
+    currentHeadSha: recoveryState.branch.currentHeadSha,
+    prNumber: recoveryState.pr.number,
+    prHeadSha: recoveryState.pr.headSha,
+    runnerRunId: recoveryState.run.runId,
+    supervisorRunId: recoveryState.run.supervisorRunId,
+    originalSupervisorSpecDigest: "d".repeat(64),
+    markerKey: "e".repeat(64),
+    outageFingerprint: "f".repeat(64),
+    attemptNumber: 1,
+  };
+}
+
+function spawnOutageRecoveryOnly(configPath, cwd, target) {
+  return spawnSync(
+    process.execPath,
+    [
+      path.join(process.cwd(), "tools/auto-runner/settleora-auto-runner.mjs"),
+      "--run",
+      "--config",
+      configPath,
+      "--supervisor-run-id",
+      "supervised-20260715T120000Z-000000000917",
+      "--outage-recovery-only",
+      "--outage-target-task-key",
+      target.taskKey,
+      "--outage-target-issue",
+      String(target.issueNumber),
+      "--outage-target-branch",
+      target.branchName,
+      "--outage-target-base-sha",
+      target.baseSha,
+      "--outage-target-head-sha",
+      target.currentHeadSha,
+      "--outage-target-pr",
+      String(target.prNumber),
+      "--outage-target-pr-head-sha",
+      target.prHeadSha,
+      "--outage-target-runner-run-id",
+      target.runnerRunId,
+      "--outage-target-supervisor-run-id",
+      target.supervisorRunId,
+      "--outage-target-original-spec-digest",
+      target.originalSupervisorSpecDigest,
+      "--outage-target-marker-key",
+      target.markerKey,
+      "--outage-target-fingerprint",
+      target.outageFingerprint,
+      "--outage-target-attempt",
+      String(target.attemptNumber),
+    ],
+    { cwd, encoding: "utf8" },
+  );
+}
+
+function readOnlyRunSummary(logsRoot) {
+  const summaryDir = path.join(logsRoot, "summaries");
+  const files = readdirSync(summaryDir).filter((name) => /^run-.*\.json$/.test(name));
+  assert.equal(files.length, 1);
+  return JSON.parse(readFileSync(path.join(summaryDir, files[0]), "utf8"));
+}
+
+function snapshotFiles(root) {
+  if (!existsSync(root)) return {};
+  return Object.fromEntries(
+    readdirSync(root)
+      .filter((name) => name.endsWith(".json"))
+      .sort()
+      .map((name) => [name, readFileSync(path.join(root, name), "utf8")]),
+  );
 }
 
 function runTempGit(cwd, args) {

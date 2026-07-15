@@ -302,6 +302,41 @@ test("targeted outage recovery applies capability and terminal exact-state block
   }
 });
 
+test("blocked startup recovery continuations explicitly fail with bounded reasons", async () => {
+  const reasons = [
+    "outage_recovery_target_missing",
+    "outage_recovery_target_mismatch",
+    "outage_recovery_target_ambiguous",
+    "recoverable_state_requires_explicit_recovery_capability",
+    "outage_recovery_target_not_safe",
+    "multiple_recoverable_states",
+  ];
+  const config = tempConfig();
+  try {
+    for (const reasonCode of reasons) {
+      const recovery = {
+        found: true,
+        allowed: false,
+        action: "stop_fail_closed",
+        reasonCode,
+        state: reasonCode === "outage_recovery_target_missing" ? undefined : { issueNumber: 893 },
+        states: [],
+      };
+      const continuation = await executeStartupContinuation(config, recovery, {
+        default: async () => {
+          throw new Error("blocked recovery must not execute a handler");
+        },
+      });
+      assert.equal(continuation.ok, false, reasonCode);
+      assert.equal(continuation.outcome, "blocked_recovery_state", reasonCode);
+      assert.equal(continuation.reasonCode, reasonCode);
+      assert.deepEqual(continuation.recovery, recovery);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("normal startup still blocks multiple recoverable states", () => {
   const config = tempConfig({ allowExistingPrRecovery: true });
   try {

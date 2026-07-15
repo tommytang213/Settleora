@@ -261,6 +261,13 @@ async function main() {
     clearActiveRunState(config, paths.jsonPath);
     logger.info(`Settleora auto-runner finished: ${paths.markdownPath}`);
   }
+  if (isFatalRunStopReason(summary.stopReason)) {
+    process.exitCode = 1;
+  }
+}
+
+function isFatalRunStopReason(stopReason) {
+  return typeof stopReason === "string" && stopReason.startsWith("recoverable-work-blocked:");
 }
 
 async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker()) {
@@ -279,7 +286,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   if (startupRecovery.found) {
     const continuation = startupRecovery.allowed
       ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
-      : { outcome: "blocked_recovery_state", reasonCode: startupRecovery.reasonCode, recovery: startupRecovery };
+      : await executeStartupContinuation(config, startupRecovery);
     iteration.recovery = continuation.recovery || startupRecovery;
     iteration.existingPrRecovery = continuation.result?.existingPrRecovery || null;
     iteration.bundle = continuation.result?.bundle || null;
