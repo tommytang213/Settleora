@@ -699,7 +699,46 @@ test("persisted outage state load failures block before child reconciliation or 
     });
     assert.equal(result.outcome, "blocked");
     assert.equal(result.reasonCode, "outage_resubmission_state_untrusted");
-    assert.equal(result.outageStateLoad.reasonCode, "outage_resubmission_state_schema_invalid");
+    assert.equal(result.outageStateInventory.reasonCode, "malformed_state");
+    assert.equal(result.events.some((item) => item.event === "outage_state_inventory_blocked"), true);
+    assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("invalid canonical outage inventory blocks controller without explicit state key", () => {
+  const config = tempConfig();
+  try {
+    const state = fixtureOutageState();
+    writeOutageResubmissionState(config, state);
+    const root = path.dirname(outageResubmissionStatePath(config, state));
+    writeFileSync(path.join(root, `${"f".repeat(64)}.json`), "{not-json", { mode: 0o600 });
+
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState: incompleteRecoveryState(),
+      existingChildren: [exactChild(state)],
+      dryRun: true,
+      now,
+    });
+
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_resubmission_state_untrusted");
+    assert.deepEqual(result.outageStateInventory, {
+      readStatus: "malformed_state",
+      reasonCode: "malformed_state",
+      operatorActionRequired: true,
+      totalRecordCount: 2,
+      validRecordCount: 1,
+      invalidRecordCount: 1,
+    });
+    assert.equal(result.events.some((item) => item.event === "outage_state_inventory_blocked"), true);
     assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
     assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
     assert.equal(result.counts.githubMutationCalls, 0);
@@ -1622,6 +1661,38 @@ test("source completion dry-run, repeated terminal, mismatch, and persistence fa
     assert.equal(result.counts.githubMutationCalls, 0);
     assert.equal(result.counts.systemdCalls, 0);
     assert.equal(result.counts.realMutationCalls, 0);
+
+    const prePrSource = source({ prNumber: null, prHeadSha: null, merged: true, completed: true });
+    const prePrPlanned = fixtureOutageStateForSource(prePrSource);
+    writeOutageResubmissionState(config, prePrPlanned);
+    for (const [identity, reasonCode] of [
+      [{ merged: true, prNumber: 917, prHeadSha: shaB }, "pr_identity_mismatch"],
+      [{ issueClosed: true, merged: false, prHeadSha: shaB }, "pr_head_identity_mismatch"],
+    ]) {
+      result = runOutageResubmissionController({
+        config,
+        source: prePrSource,
+        outageState: prePrPlanned,
+        currentIdentity: {
+          issueNumber: prePrSource.issueNumber,
+          branchName: prePrSource.branchName,
+          baseSha: prePrSource.baseSha,
+          currentHeadSha: prePrSource.currentHeadSha,
+          ...identity,
+        },
+        dryRun: false,
+        now,
+      });
+      assert.equal(result.outcome, "blocked");
+      assert.equal(result.reasonCode, reasonCode);
+      assert.equal(loadOutageResubmissionState(config, prePrPlanned.correlation).state.status, "planned");
+      assert.equal(result.events.some((item) => item.event === "outage_source_completion_recovered"), false);
+      assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+      assert.equal(result.counts.githubMutationCalls, 0);
+      assert.equal(result.counts.systemdCalls, 0);
+      assert.equal(result.counts.realMutationCalls, 0);
+    }
 
     result = runOutageResubmissionController({
       config,

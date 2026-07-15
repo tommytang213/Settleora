@@ -90,6 +90,12 @@ export function runOutageResubmissionController(input = {}) {
   if (input.lock?.active) return result("blocked", "active_lock", { events, counts });
   if (input.lock?.stale && input.lock?.safeToClear !== true) return result("blocked", "stale_lock_requires_existing_policy", { events, counts });
 
+  const inventory = readOutageResubmissionInventory(config);
+  if (!inventory.ok) {
+    event("outage_state_inventory_blocked", { reasonCode: inventory.reasonCode, invalidRecordCount: inventory.invalidCount });
+    return result("blocked", "outage_resubmission_state_untrusted", { events, counts, outageStateInventory: summarizeOutageInventory(inventory) });
+  }
+
   const recovery = input.recoveryState || null;
 
   const source = input.source || {};
@@ -968,15 +974,30 @@ function validateCurrentCompletionIdentity(source, currentIdentity = null) {
   if (currentIdentity.branchName !== source.branchName) return { ok: false, reasonCode: "branch_identity_mismatch" };
   if (currentIdentity.baseSha !== source.baseSha) return { ok: false, reasonCode: "base_identity_mismatch" };
   if (currentIdentity.currentHeadSha !== source.currentHeadSha) return { ok: false, reasonCode: "current_head_identity_mismatch" };
-  if (source.prNumber || source.prHeadSha) {
-    if (currentIdentity.prNumber !== source.prNumber) return { ok: false, reasonCode: "pr_identity_mismatch" };
-    if (currentIdentity.prHeadSha !== source.prHeadSha) return { ok: false, reasonCode: "pr_head_identity_mismatch" };
-  }
+  const prMismatches = optionalPrIdentityMismatches({
+    actualPrNumber: currentIdentity.prNumber,
+    actualPrHeadSha: currentIdentity.prHeadSha,
+    expectedPrNumber: source.prNumber,
+    expectedPrHeadSha: source.prHeadSha,
+  });
+  if (prMismatches.includes("prNumber")) return { ok: false, reasonCode: "pr_identity_mismatch" };
+  if (prMismatches.includes("prHeadSha")) return { ok: false, reasonCode: "pr_head_identity_mismatch" };
   if (currentIdentity.issueNumber !== undefined && currentIdentity.issueNumber !== source.issueNumber) return { ok: false, reasonCode: "issue_identity_mismatch" };
   return {
     ok: true,
     complete: true,
     reasonCode: currentIdentity.merged ? "source_current_pr_merged" : "source_current_issue_closed",
+  };
+}
+
+function summarizeOutageInventory(inventory) {
+  return {
+    readStatus: inventory.readStatus,
+    reasonCode: inventory.reasonCode,
+    operatorActionRequired: inventory.operatorActionRequired,
+    totalRecordCount: inventory.totalRecordCount,
+    validRecordCount: inventory.validCount,
+    invalidRecordCount: inventory.invalidCount,
   };
 }
 
