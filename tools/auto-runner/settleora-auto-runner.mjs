@@ -73,7 +73,7 @@ import {
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
-import { discoverStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary } from "./lib/recovery-continuation.mjs";
+import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary } from "./lib/recovery-continuation.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -275,7 +275,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     runIssueState: trackerSnapshot(issueTracker),
   };
 
-  const startupRecovery = discoverStartupRecovery(config);
+  const startupRecovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
   if (startupRecovery.found) {
     const continuation = startupRecovery.allowed
       ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
@@ -303,6 +303,15 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         ? `Recoverable auto-runner state for issue #${startupRecovery.state?.issueNumber} executed phase ${iteration.recovery?.executedPhase || "unknown"}.`
         : `Recoverable auto-runner state blocked polling: ${startupRecovery.reasonCode}`,
     );
+    return iteration;
+  }
+
+  if (config.outageRecoveryOnly) {
+    iteration.recovery = startupRecovery;
+    iteration.outcome = "blocked_recovery_state";
+    iteration.systemicStop = "recoverable-work-blocked:outage_recovery_target_missing";
+    iteration.finishedAt = new Date().toISOString();
+    logger.info("Recovery-only outage child found no exact recoverable target; polling is disabled.");
     return iteration;
   }
 

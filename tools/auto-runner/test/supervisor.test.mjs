@@ -104,12 +104,33 @@ test("run-spec validates complete outage resubmission source identity", () => {
     prNumber: 917,
     prHeadSha: "d".repeat(40),
   };
+  const recoveryOnlyTarget = {
+    taskKey: outageResubmission.taskKey,
+    issueNumber: 913,
+    branchName: "feature/auto-913-bounded-outage-resubmission-20260715-0013",
+    baseSha: fakeSha,
+    currentHeadSha: outageResubmission.currentHeadSha,
+    prNumber: outageResubmission.prNumber,
+    prHeadSha: outageResubmission.prHeadSha,
+    runnerRunId: "run-2026-07-15T030800Z",
+    supervisorRunId: "supervised-20260715T030800Z-000000000913",
+    originalSupervisorSpecDigest: outageResubmission.originalSupervisorSpecDigest,
+    markerKey: outageResubmission.markerKey,
+    outageFingerprint: outageResubmission.outageFingerprint,
+    attemptNumber: outageResubmission.attemptNumber,
+  };
   try {
     const { spec } = buildRunSpec({
       runId: "supervised-20260715T010000Z-000000000abc",
       profile: "default",
       initialOriginMainSha: fakeSha,
+      mode: "trusted",
+      parentSupervisorRunId: recoveryOnlyTarget.supervisorRunId,
+      parentRunnerRunId: recoveryOnlyTarget.runnerRunId,
+      sourceIssueNumber: recoveryOnlyTarget.issueNumber,
+      sourceBranchName: recoveryOnlyTarget.branchName,
       outageResubmission,
+      recoveryOnlyTarget,
       allowMissingConfig: true,
       logsRoot: tempRoot,
     });
@@ -117,17 +138,24 @@ test("run-spec validates complete outage resubmission source identity", () => {
     assert.equal(spec.outageResubmission.currentHeadSha, "d".repeat(40));
     assert.equal(spec.outageResubmission.prNumber, 917);
     assert.equal(spec.outageResubmission.prHeadSha, "d".repeat(40));
+    assert.equal(spec.recoveryOnlyTarget.issueNumber, 913);
+    assert.equal(spec.recoveryOnlyTarget.runnerRunId, "run-2026-07-15T030800Z");
+    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission, allowMissingConfig: true, logsRoot: tempRoot }), /paired recoveryOnlyTarget/);
     assert.doesNotThrow(() => validateRunSpecShape({
       ...spec,
       outageResubmission: { ...outageResubmission, prNumber: null, prHeadSha: null },
+      recoveryOnlyTarget: { ...recoveryOnlyTarget, prNumber: null, prHeadSha: null },
     }));
-    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, taskKey: "bad/key" }, allowMissingConfig: true, logsRoot: tempRoot }), /taskKey/);
-    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, currentHeadSha: "D".repeat(40) }, allowMissingConfig: true, logsRoot: tempRoot }), /currentHeadSha/);
-    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, prNumber: 917, prHeadSha: null }, allowMissingConfig: true, logsRoot: tempRoot }), /paired/);
-    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, prNumber: null, prHeadSha: "d".repeat(40) }, allowMissingConfig: true, logsRoot: tempRoot }), /paired/);
-    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, prNumber: 0 }, allowMissingConfig: true, logsRoot: tempRoot }), /prNumber/);
-    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, prHeadSha: "g".repeat(40) }, allowMissingConfig: true, logsRoot: tempRoot }), /prHeadSha/);
-    assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission: { ...outageResubmission, extra: "nope" }, allowMissingConfig: true, logsRoot: tempRoot }), /Unknown outageResubmission field/);
+    const base = { profile: "default", initialOriginMainSha: fakeSha, mode: "trusted", parentSupervisorRunId: recoveryOnlyTarget.supervisorRunId, parentRunnerRunId: recoveryOnlyTarget.runnerRunId, sourceIssueNumber: recoveryOnlyTarget.issueNumber, sourceBranchName: recoveryOnlyTarget.branchName, recoveryOnlyTarget, allowMissingConfig: true, logsRoot: tempRoot };
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, taskKey: "bad/key" } }), /taskKey/);
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, currentHeadSha: "D".repeat(40) } }), /currentHeadSha/);
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, prNumber: 917, prHeadSha: null } }), /paired/);
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, prNumber: null, prHeadSha: "d".repeat(40) } }), /paired/);
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, prNumber: 0 } }), /prNumber/);
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, prHeadSha: "g".repeat(40) } }), /prHeadSha/);
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, extra: "nope" } }), /Unknown outageResubmission field/);
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission, recoveryOnlyTarget: { ...recoveryOnlyTarget, issueNumber: 914 } }), /identity mismatch: sourceIssueNumber/);
+    assert.throws(() => buildRunSpec({ ...base, outageResubmission, recoveryOnlyTarget: { ...recoveryOnlyTarget, extra: "nope" } }), /Unknown recoveryOnlyTarget field/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -186,6 +214,61 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.equal(argv.includes("--canary"), false);
   const canaryArgv = runnerArgvForSpec({ ...spec, mode: "canary" });
   assert.equal(canaryArgv.includes("--canary"), true);
+});
+
+test("outage recovery-only run-spec maps to fixed target argv", () => {
+  const runId = generateRunId();
+  const recoveryOnlyTarget = {
+    taskKey: "20260715-1425",
+    issueNumber: 913,
+    branchName: "feature/auto-913-bounded-outage-resubmission-20260715-0013",
+    baseSha: fakeSha,
+    currentHeadSha: "d".repeat(40),
+    prNumber: 917,
+    prHeadSha: "d".repeat(40),
+    runnerRunId: "run-2026-07-15T142500Z",
+    supervisorRunId: "supervised-20260715T142500Z-000000000913",
+    originalSupervisorSpecDigest: "c".repeat(64),
+    markerKey: "a".repeat(64),
+    outageFingerprint: "b".repeat(64),
+    attemptNumber: 1,
+  };
+  const spec = {
+    specVersion: 1,
+    runId,
+    createdAt: new Date().toISOString(),
+    maxTasks: 8,
+    maxRuntime: "8h",
+    mode: "trusted",
+    profile: "default",
+    runnerConfigSha256: "b".repeat(64),
+    initialOriginMainSha: fakeSha,
+    requestedBy: "outage-controller",
+    parentSupervisorRunId: recoveryOnlyTarget.supervisorRunId,
+    parentRunnerRunId: recoveryOnlyTarget.runnerRunId,
+    sourceIssueNumber: recoveryOnlyTarget.issueNumber,
+    sourceBranchName: recoveryOnlyTarget.branchName,
+    outageResubmission: {
+      attemptNumber: recoveryOnlyTarget.attemptNumber,
+      markerKey: recoveryOnlyTarget.markerKey,
+      outageFingerprint: recoveryOnlyTarget.outageFingerprint,
+      originalSupervisorSpecDigest: recoveryOnlyTarget.originalSupervisorSpecDigest,
+      taskKey: recoveryOnlyTarget.taskKey,
+      currentHeadSha: recoveryOnlyTarget.currentHeadSha,
+      prNumber: recoveryOnlyTarget.prNumber,
+      prHeadSha: recoveryOnlyTarget.prHeadSha,
+    },
+    recoveryOnlyTarget,
+  };
+  validateRunSpecShape(spec);
+  const argv = runnerArgvForSpec(spec);
+  assert.equal(argv.includes("--outage-recovery-only"), true);
+  assert.equal(argv[argv.indexOf("--max-iterations") + 1], "1");
+  assert.equal(argv[argv.indexOf("--outage-target-issue") + 1], "913");
+  assert.equal(argv[argv.indexOf("--outage-target-pr") + 1], "917");
+  assert.equal(argv[argv.indexOf("--outage-target-marker-key") + 1], recoveryOnlyTarget.markerKey);
+  assert.equal(argv.includes("{"), false);
+  assert.equal(argv.some((part) => String(part).includes("/tmp/evil")), false);
 });
 
 test("trusted summary resolver maps exactly one correlated JSON and Markdown pair", () => {

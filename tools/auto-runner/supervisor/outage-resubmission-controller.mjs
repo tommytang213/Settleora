@@ -7,6 +7,7 @@ import {
 } from "../lib/outage-resubmission-policy.mjs";
 import {
   createOutageResubmissionState,
+  readOutageResubmissionInventory,
   listOutageResubmissionStates,
   loadOutageResubmissionState,
   rebuildExhaustedOutageState,
@@ -38,29 +39,32 @@ export function evaluateSourceRunEligibility(input = {}) {
 
 export function buildOutageResubmissionStatus(config = {}) {
   const policy = normalizeOutageResubmissionConfig(config.outageResubmission || {});
-  let states = [];
-  try {
-    states = listOutageResubmissionStates(config).slice(-20);
-  } catch {
-    states = [];
-  }
+  const inventory = readOutageResubmissionInventory(config);
+  const states = inventory.ok ? inventory.validStates.slice(-20) : [];
   const active = states.find((state) => !isTerminalOutageStatus(state.status)) || null;
   const terminal = active ? null : [...states].reverse().find((state) => isTerminalOutageStatus(state.status)) || null;
   const statusSource = active || terminal || null;
-  return {
+  const status = {
     enabled: policy.allowBoundedOutageResubmission,
     defaultOff: policy.allowBoundedOutageResubmission !== true,
-    activeSourceRun: active ? summarizeOutageState(active) : null,
+    activeSourceRun: inventory.operatorActionRequired ? null : active ? summarizeOutageState(active) : null,
     attemptCount: statusSource?.mutationMarker?.attemptNumber || 0,
     maxAttempts: policy.maxAttempts,
-    nextEligibleAt: active?.schedule?.nextEligibleAt || null,
+    nextEligibleAt: inventory.operatorActionRequired ? null : active?.schedule?.nextEligibleAt || null,
     deadlineAt: statusSource?.schedule?.deadlineAt || null,
     circuitState: statusSource?.circuit?.state || "closed",
-    lastSanitizedReason: statusSource?.mutationMarker?.reasonCode || statusSource?.outage?.reasonCode || null,
-    childRunId: statusSource?.childSupervisorRunId || null,
-    terminalOutcome: terminal?.status || null,
-    recordCount: states.length,
+    lastSanitizedReason: inventory.reasonCode || statusSource?.mutationMarker?.reasonCode || statusSource?.outage?.reasonCode || null,
+    childRunId: inventory.operatorActionRequired ? null : statusSource?.childSupervisorRunId || null,
+    terminalOutcome: inventory.operatorActionRequired ? null : terminal?.status || null,
+    recordCount: inventory.totalRecordCount,
+    stateReadStatus: inventory.readStatus,
+    reasonCode: inventory.reasonCode,
+    operatorActionRequired: inventory.operatorActionRequired,
+    totalRecordCount: inventory.totalRecordCount,
+    validRecordCount: inventory.validCount,
+    invalidRecordCount: inventory.invalidCount,
   };
+  return status;
 }
 
 export function runOutageResubmissionController(input = {}) {
@@ -213,13 +217,6 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   event("recovery_state_inspected");
-  if (recovery && !["completed", "stopped"].includes(recovery.phase)) {
-    const boundary = firstIncompleteContinuationAction(recovery);
-    if (boundary.ok) {
-      event("recoverable_state_wins", { phase: recovery.phase, nextSafeAction: recovery.nextSafeAction });
-      return result("resume_recovery", "existing_recoverable_state_first", { events, counts, outageState: existingOutageState, recoveryBoundary: boundary });
-    }
-  }
 
   event("source_eligibility_checked");
   eligibility = eligibility || evaluateSourceRunEligibility({ config, source, failure: input.failure });
@@ -330,9 +327,20 @@ export function runOutageResubmissionController(input = {}) {
     circuit,
   });
 
+  const recoveryTarget = validateOutageRecoveryTargetForSource({
+    source,
+    recovery,
+    recoveryStates: input.recoveryStates,
+    outageState: plannedState,
+  });
+  if (!recoveryTarget.ok) {
+    event("outage_recovery_target_blocked", { reasonCode: recoveryTarget.reasonCode, field: recoveryTarget.field });
+    return result("blocked", recoveryTarget.reasonCode, { events, counts, outageState: plannedState, recoveryTarget });
+  }
+
   let child;
   try {
-    child = buildChildRunPlan({ config, source, state: plannedState, now, childRunId: input.childRunId });
+    child = buildChildRunPlan({ config, source, state: plannedState, recoveryTarget: recoveryTarget.target, now, childRunId: input.childRunId });
   } catch (error) {
     event("child_spec_identity_blocked", { reasonCode: error.message });
     return result("blocked", "child_spec_identity_invalid", { events, counts, outageState: plannedState });
@@ -533,7 +541,7 @@ function terminalizeOutageExhaustion({
   });
 }
 
-function buildChildRunPlan({ config, source, state, now, childRunId }) {
+function buildChildRunPlan({ config, source, state, recoveryTarget, now, childRunId }) {
   const runId = childRunId || generateRunId(now);
   const spec = buildRunSpec({
     runId,
@@ -557,6 +565,7 @@ function buildChildRunPlan({ config, source, state, now, childRunId }) {
       prNumber: source.prNumber || null,
       prHeadSha: source.prHeadSha || null,
     },
+    recoveryOnlyTarget: recoveryTarget,
     allowMissingConfig: true,
     logsRoot: config.logsRoot,
   }).spec;
@@ -564,6 +573,53 @@ function buildChildRunPlan({ config, source, state, now, childRunId }) {
     throw new Error("runner_config_digest_mismatch");
   }
   return { spec, specSha256: sha256Text(canonicalJson(spec)) };
+}
+
+function validateOutageRecoveryTargetForSource({ source, recovery, recoveryStates, outageState }) {
+  const candidates = Array.isArray(recoveryStates) ? recoveryStates.filter(Boolean) : recovery ? [recovery] : [];
+  if (candidates.length === 0) return { ok: false, reasonCode: "outage_recovery_target_missing" };
+  if (candidates.length > 1) return { ok: false, reasonCode: "outage_recovery_target_ambiguous", count: candidates.length };
+  const state = candidates[0];
+  if (["completed", "stopped"].includes(state.phase)) return { ok: false, reasonCode: "outage_recovery_target_not_safe", field: "phase" };
+  const boundary = firstIncompleteContinuationAction(state);
+  if (!boundary.ok) return { ok: false, reasonCode: "outage_recovery_target_not_safe", field: boundary.phase || "phase" };
+  const target = recoveryOnlyTargetFromState(state, outageState);
+  const checks = [
+    ["taskKey", target.taskKey, source.taskKey],
+    ["issueNumber", target.issueNumber, source.issueNumber],
+    ["branchName", target.branchName, source.branchName],
+    ["baseSha", target.baseSha, source.baseSha],
+    ["currentHeadSha", target.currentHeadSha, source.currentHeadSha],
+    ["prNumber", target.prNumber, source.prNumber || null],
+    ["prHeadSha", target.prHeadSha, source.prHeadSha || null],
+    ["runnerRunId", target.runnerRunId, source.runnerRunId],
+    ["supervisorRunId", target.supervisorRunId, source.supervisorRunId],
+    ["originalSupervisorSpecDigest", target.originalSupervisorSpecDigest, source.originalSupervisorSpecDigest],
+    ["markerKey", target.markerKey, outageState?.mutationMarker?.key],
+    ["outageFingerprint", target.outageFingerprint, outageState?.outage?.outageFingerprint || source.outageFingerprint],
+    ["attemptNumber", target.attemptNumber, outageState?.mutationMarker?.attemptNumber || source.attemptNumber || 1],
+  ];
+  const mismatch = checks.find(([, actual, expected]) => actual !== expected);
+  if (mismatch) return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
+  return { ok: true, target, boundary };
+}
+
+function recoveryOnlyTargetFromState(state, outageState) {
+  return {
+    taskKey: state.taskKey || null,
+    issueNumber: state.issue?.number || null,
+    branchName: state.branch?.name || null,
+    baseSha: state.branch?.baseSha || null,
+    currentHeadSha: state.branch?.currentHeadSha || null,
+    prNumber: state.pr?.number || null,
+    prHeadSha: state.pr?.headSha || null,
+    runnerRunId: state.run?.runId || null,
+    supervisorRunId: state.run?.supervisorRunId || null,
+    originalSupervisorSpecDigest: outageState?.correlation?.originalSupervisorSpecDigest || null,
+    markerKey: outageState?.mutationMarker?.key || null,
+    outageFingerprint: outageState?.outage?.outageFingerprint || null,
+    attemptNumber: outageState?.mutationMarker?.attemptNumber || null,
+  };
 }
 
 function reconcileExactChild(children, source, outageState) {

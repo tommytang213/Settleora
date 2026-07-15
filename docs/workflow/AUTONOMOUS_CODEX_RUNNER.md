@@ -158,9 +158,12 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
   arbitrary commands, config paths, secrets, tokens, source snippets, or full
   diffs.
   Outage child specs also persist the task key, current head SHA, and paired
-  PR number/head SHA required by later reconciliation; incomplete historical
-  child specs remain fail-closed operator evidence and are not repaired with
-  mutable source values.
+  PR number/head SHA plus an exact recovery-only target required by later
+  reconciliation; incomplete historical child specs remain fail-closed
+  operator evidence and are not repaired with mutable source values. Canonical
+  corrupt, schema-invalid, symlinked, group/world-writable, or otherwise
+  untrusted outage-state files are counted as operator-action inventory and
+  make health fail closed instead of disappearing from status.
 
 Bounded outage resubmission is eligible only for recognized prolonged
 transient infrastructure/provider failures: trusted GitHub API/Actions

@@ -96,7 +96,12 @@ markers are reconciled against existing local supervisor state before source
 recovery continuation or any new child planning can run. Child specs persist
 the task key, current head SHA, and paired PR number/head SHA needed for later
 disk-only reconciliation, and reject malformed, unpaired, or unknown outage
-metadata. Attempt and wall-clock exhaustion persist a terminal `exhausted`
+metadata. Outage children are explicitly recovery-only: the immutable spec
+must include an exact target derived from validated recovery/source evidence,
+the worker launches fixed scalar recovery-only arguments, and the runner exits
+fail-closed instead of polling eligible issues when the exact target is
+missing, mismatched, completed, unsafe, ambiguous, stale, or capability
+disabled. Attempt and wall-clock exhaustion persist a terminal `exhausted`
 marker when operator controls allow evaluation, so status and health stop
 reporting an active source run and repeated controller passes become stable
 terminal no-ops. A profile config digest mismatch blocks child planning before
@@ -196,10 +201,15 @@ node tools/auto-runner/settleora-auto-runner.mjs --extend --max-runtime +12h
 
 Status and health readouts include a sanitized outage-recovery summary:
 enabled/default-off posture, active source run, attempt budget, next eligible
-time, deadline, circuit state, last reason, child run ID, and terminal outcome.
-They never expose raw provider bodies, prompts, arbitrary config paths, shell
-commands, secrets, issue bodies, or full diffs, and they do not trigger
-resubmission.
+time, deadline, circuit state, last reason, child run ID, terminal outcome,
+inventory read status, total record count, valid record count, invalid record
+count, and whether operator action is required. Canonical corrupt,
+schema-invalid, symlinked, group/world-writable, or otherwise untrusted outage
+state is never reported as zero records; health returns fail-closed HTTP 503
+with bounded `malformed_state` or `untrusted_state` reason evidence. They
+never expose raw provider bodies, raw JSON, parse text, prompts, arbitrary
+config paths, shell commands, secrets, issue bodies, or full diffs, and they do
+not trigger resubmission or repair state.
 
 Detached supervisor foundation:
 

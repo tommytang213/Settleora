@@ -67,6 +67,10 @@ export function evaluateAutoRunnerHealth({
   const selection = selectCurrentSupervisorRun(logsRoot);
   if (selection.problem) problems.push(selection.problem);
   if (selection.activeCount > 1) problems.push(problem("multiple_active_supervisors"));
+  const outageResubmission = buildHealthOutageSection(logsRoot, runnerStatus);
+  if (outageResubmission?.operatorActionRequired) {
+    problems.push(problem(outageResubmission.reasonCode === "untrusted_state" ? "untrusted_state" : "malformed_state"));
+  }
 
   if (!selection.run) {
     const response = buildResponse({
@@ -78,7 +82,7 @@ export function evaluateAutoRunnerHealth({
       heartbeat: baseHeartbeatSection(),
       reportResolution: null,
       summary: null,
-      outageResubmission: buildHealthOutageSection(logsRoot, runnerStatus),
+      outageResubmission,
     });
     return { httpStatus: response.status === "healthy" ? 200 : 503, body: response };
   }
@@ -131,7 +135,7 @@ export function evaluateAutoRunnerHealth({
     heartbeat: buildHeartbeatSection(heartbeatValue, now),
     reportResolution,
     summary: buildSummarySection(summary.value),
-    outageResubmission: buildHealthOutageSection(logsRoot, activeRunner),
+    outageResubmission,
   });
   return { httpStatus: status === "healthy" ? 200 : 503, body: response };
 }

@@ -11,6 +11,7 @@ import {
 } from "../lib/recovery-state.mjs";
 import {
   discoverStartupRecovery,
+  discoverTargetedStartupRecovery,
   executeStartupContinuation,
   evaluateCompletionHygieneResume,
   evaluateControlAtRecoveryBoundary,
@@ -44,6 +45,24 @@ function state(overrides = {}) {
   });
 }
 
+function targetFor(recoveryState) {
+  return {
+    taskKey: recoveryState.taskKey,
+    issueNumber: recoveryState.issue.number,
+    branchName: recoveryState.branch.name,
+    baseSha: recoveryState.branch.baseSha,
+    currentHeadSha: recoveryState.branch.currentHeadSha,
+    prNumber: recoveryState.pr.number,
+    prHeadSha: recoveryState.pr.headSha,
+    runnerRunId: recoveryState.run.runId,
+    supervisorRunId: recoveryState.run.supervisorRunId,
+    originalSupervisorSpecDigest: "d".repeat(64),
+    markerKey: "e".repeat(64),
+    outageFingerprint: "f".repeat(64),
+    attemptNumber: 1,
+  };
+}
+
 async function runStartupContinuation(config, recoveryState, handlers) {
   writeRecoveryState(config, recoveryState);
   const discovery = discoverStartupRecovery(config);
@@ -60,6 +79,62 @@ test("startup resumes recoverable work before polling a new issue", () => {
     assert.equal(discovery.allowed, true);
     assert.equal(discovery.action, "resume_recoverable_work");
     assert.equal(discovery.state.issueNumber, 893);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("targeted outage recovery resumes only the exact matching recovery state", () => {
+  const recovery = state({
+    pr: { number: 917, url: "u", headSha: "c".repeat(40), headRefName: "tools/auto-runner-recovery-continuation-893-20260713-1927", baseRefName: "main", state: "OPEN" },
+  });
+  const config = tempConfig({
+    allowExistingPrRecovery: true,
+    outageRecoveryOnly: true,
+    outageRecoveryTarget: targetFor(recovery),
+  });
+  try {
+    writeRecoveryState(config, recovery);
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.found, true);
+    assert.equal(discovery.allowed, true);
+    assert.equal(discovery.action, "resume_recoverable_work");
+    assert.equal(discovery.state.issueNumber, 893);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("targeted outage recovery blocks zero mismatched or ambiguous states", () => {
+  const recovery = state({
+    pr: { number: 917, url: "u", headSha: "c".repeat(40), headRefName: "tools/auto-runner-recovery-continuation-893-20260713-1927", baseRefName: "main", state: "OPEN" },
+  });
+  const target = targetFor(recovery);
+  let config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    assert.equal(discoverTargetedStartupRecovery(config).reasonCode, "outage_recovery_target_missing");
+  } finally {
+    config.cleanup();
+  }
+
+  config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: { ...target, issueNumber: 914 } });
+  try {
+    writeRecoveryState(config, recovery);
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "outage_recovery_target_mismatch");
+    assert.equal(discovery.field, "issueNumber");
+  } finally {
+    config.cleanup();
+  }
+
+  config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    writeRecoveryState(config, recovery);
+    writeRecoveryState(config, state({ issue: { number: 891, title: "B", url: "u" }, branchName: "feature/auto-891-b" }));
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "outage_recovery_target_ambiguous");
   } finally {
     config.cleanup();
   }

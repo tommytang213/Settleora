@@ -242,7 +242,8 @@ submitted or uncertain outage child is part of recovering the same source run:
 4. reconcile uncertain, submitted, confirmed-running, and planned-with-child
    outage markers against exact existing child supervisor runs;
 5. preserve terminal outage markers;
-6. resume safe source recovery when no pending outage child requires action;
+6. validate that exactly one safe recoverable source state matches the outage
+   target;
 7. only then consider a new bounded child resubmission.
 
 Source-run eligibility requires terminal or proven inactive source state,
@@ -251,15 +252,19 @@ correlation, a recognized prolonged transient outage, no stale head-bound
 evidence, no manual/authority/destructive gate, no active child, available
 attempt/wall-clock budget, closed or eligible half-open circuit, and explicit
 capability enablement. A new child spec carries bounded parent/source/outage
-metadata and continues the existing recovery boundary. The outage child spec
-persists the immutable task key, current head SHA, and paired PR number/head
-SHA when a PR exists, and creation fails if the live profile config digest no
-longer matches the source run's recorded digest. Later reconciliation uses the
-persisted child spec and state only; incomplete historical child artifacts
-remain fail-closed operator-reconciliation evidence and are not backfilled from
-mutable source state. Dry-run/fixture mode plans the child spec and exposes
-mutation-call counters while making zero systemd, GitHub, or live supervisor
-submission calls. Attempt or wall-clock exhaustion transitions the outage marker
+metadata plus a recovery-only target derived from validated recovery/source
+evidence. Missing, mismatched, completed, unsafe, ambiguous, stale, or
+capability-disabled targets block before child spec write, supervisor-state
+write, or systemd start. The outage child spec persists the immutable task key,
+current head SHA, and paired PR number/head SHA when a PR exists, and creation
+fails if the live profile config digest no longer matches the source run's
+recorded digest. Later reconciliation uses the persisted child spec and state
+only; incomplete historical child artifacts remain fail-closed operator-
+reconciliation evidence and are not backfilled from mutable source state.
+Recovery-only child launch uses fixed scalar runner arguments and never polls
+unrelated eligible issues. Dry-run/fixture mode plans the child spec and
+exposes mutation-call counters while making zero systemd, GitHub, or live
+supervisor submission calls. Attempt or wall-clock exhaustion transitions the outage marker
 to terminal `exhausted`, reports no active source run in status/health, and is
 idempotent on later controller passes. Operator pause/stop remains higher
 priority and defers terminalization until a later allowed pass.

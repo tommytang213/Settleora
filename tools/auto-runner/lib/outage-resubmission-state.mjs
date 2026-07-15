@@ -109,19 +109,75 @@ export function loadOutageResubmissionState(config, keyOrState) {
     if (!validation.ok) return failed("outage_resubmission_state_schema_invalid", { statePath, reason: validation.reason });
     return { ok: true, state: parsed, statePath };
   } catch (error) {
+    if (/unsafe outage resubmission state file/.test(String(error.message || ""))) {
+      return failed("outage_resubmission_state_untrusted", { statePath });
+    }
     return failed("outage_resubmission_state_corrupt", { statePath, reason: bounded(error.message, 240) });
   }
 }
 
-export function listOutageResubmissionStates(config) {
+export function readOutageResubmissionInventory(config) {
   const root = path.join(config.logsRoot, outageResubmissionRootName);
-  if (!existsSync(root)) return [];
-  rejectUnsafeDirectory(root);
-  return readdirSync(root)
-    .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
-    .map((name) => loadOutageResubmissionState(config, name.slice(0, -5)))
-    .filter((result) => result.ok)
-    .map((result) => result.state)
+  const empty = {
+    ok: true,
+    readStatus: "trusted",
+    reasonCode: null,
+    operatorActionRequired: false,
+    totalRecordCount: 0,
+    validCount: 0,
+    invalidCount: 0,
+    records: [],
+    validStates: [],
+    invalidRecords: [],
+  };
+  if (!existsSync(root)) return empty;
+  try {
+    rejectUnsafeDirectory(root);
+  } catch {
+    return {
+      ...empty,
+      ok: false,
+      readStatus: "untrusted",
+      reasonCode: "untrusted_state",
+      operatorActionRequired: true,
+    };
+  }
+  const records = [];
+  for (const name of readdirSync(root).filter((entry) => /^[a-f0-9]{64}\.json$/.test(entry)).sort()) {
+    const key = name.slice(0, -5);
+    const loaded = loadOutageResubmissionState(config, key);
+    if (loaded.ok) {
+      records.push({ ok: true, key, status: "valid", state: loaded.state });
+    } else {
+      records.push({
+        ok: false,
+        key,
+        status: reasonStatus(loaded.reasonCode),
+        reasonCode: inventoryReasonCode(loaded.reasonCode),
+      });
+    }
+  }
+  const invalidRecords = records.filter((record) => !record.ok);
+  const validStates = records.filter((record) => record.ok).map((record) => record.state);
+  const reasonCode = invalidRecords.find((record) => record.reasonCode === "untrusted_state") ? "untrusted_state" : invalidRecords.length ? "malformed_state" : null;
+  return {
+    ok: invalidRecords.length === 0,
+    readStatus: invalidRecords.length === 0 ? "trusted" : reasonCode,
+    reasonCode,
+    operatorActionRequired: invalidRecords.length > 0,
+    totalRecordCount: records.length,
+    validCount: validStates.length,
+    invalidCount: invalidRecords.length,
+    records,
+    validStates,
+    invalidRecords,
+  };
+}
+
+export function listOutageResubmissionStates(config) {
+  const inventory = readOutageResubmissionInventory(config);
+  if (!inventory.ok) return [];
+  return inventory.validStates
     .sort((a, b) => String(a.timestamps?.updatedAt || "").localeCompare(String(b.timestamps?.updatedAt || "")));
 }
 
@@ -618,4 +674,13 @@ function invalid(reason) {
 
 function failed(reasonCode, extra = {}) {
   return { ok: false, reasonCode, ...extra };
+}
+
+function inventoryReasonCode(reasonCode) {
+  if (/untrusted|unsafe/.test(String(reasonCode || ""))) return "untrusted_state";
+  return "malformed_state";
+}
+
+function reasonStatus(reasonCode) {
+  return inventoryReasonCode(reasonCode) === "untrusted_state" ? "untrusted" : "invalid";
 }

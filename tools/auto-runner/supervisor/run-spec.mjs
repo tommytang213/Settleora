@@ -43,6 +43,7 @@ export const allowedSpecFields = new Set([
   "sourceIssueNumber",
   "sourceBranchName",
   "outageResubmission",
+  "recoveryOnlyTarget",
 ]);
 
 export function generateRunId(date = new Date()) {
@@ -158,6 +159,7 @@ export function buildRunSpec({
   sourceIssueNumber = null,
   sourceBranchName = null,
   outageResubmission = null,
+  recoveryOnlyTarget = null,
   allowMissingConfig = false,
   logsRoot = defaultLogsRoot,
 } = {}) {
@@ -187,6 +189,7 @@ export function buildRunSpec({
     sourceIssueNumber: normalizeOptionalIssueNumber(sourceIssueNumber),
     sourceBranchName: normalizeOptionalBranchName(sourceBranchName),
     outageResubmission: normalizeOptionalOutageResubmission(outageResubmission),
+    recoveryOnlyTarget: normalizeOptionalRecoveryOnlyTarget(recoveryOnlyTarget),
   };
   validateRunSpecShape(spec);
   return { spec, config };
@@ -215,6 +218,8 @@ export function validateRunSpecShape(spec) {
   normalizeOptionalIssueNumber(spec.sourceIssueNumber);
   normalizeOptionalBranchName(spec.sourceBranchName);
   normalizeOptionalOutageResubmission(spec.outageResubmission);
+  normalizeOptionalRecoveryOnlyTarget(spec.recoveryOnlyTarget);
+  validateRecoveryOnlyContract(spec);
   return spec;
 }
 
@@ -336,4 +341,102 @@ function normalizeOptionalOutageResubmission(value) {
     prNumber,
     prHeadSha,
   };
+}
+
+function normalizeOptionalRecoveryOnlyTarget(value) {
+  if (value === null || value === undefined) return null;
+  const allowedKeys = new Set([
+    "taskKey",
+    "issueNumber",
+    "branchName",
+    "baseSha",
+    "currentHeadSha",
+    "prNumber",
+    "prHeadSha",
+    "runnerRunId",
+    "supervisorRunId",
+    "originalSupervisorSpecDigest",
+    "markerKey",
+    "outageFingerprint",
+    "attemptNumber",
+  ]);
+  for (const key of Object.keys(value || {})) {
+    if (!allowedKeys.has(key)) throw new Error(`Unknown recoveryOnlyTarget field: ${key}`);
+  }
+  const taskKey = String(value.taskKey || "").trim();
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(taskKey) || taskKey.includes("..")) {
+    throw new Error("recoveryOnlyTarget.taskKey is invalid");
+  }
+  const issueNumber = normalizeOptionalIssueNumber(value.issueNumber);
+  if (issueNumber === null) throw new Error("recoveryOnlyTarget.issueNumber is invalid");
+  const branchName = normalizeOptionalBranchName(value.branchName);
+  if (branchName === null) throw new Error("recoveryOnlyTarget.branchName is invalid");
+  const baseSha = String(value.baseSha || "").trim();
+  if (!/^[a-f0-9]{40}$/.test(baseSha)) throw new Error("recoveryOnlyTarget.baseSha is invalid");
+  const currentHeadSha = String(value.currentHeadSha || "").trim();
+  if (!/^[a-f0-9]{40}$/.test(currentHeadSha)) throw new Error("recoveryOnlyTarget.currentHeadSha is invalid");
+  const prNumber = value.prNumber === null || value.prNumber === undefined ? null : value.prNumber;
+  const prHeadSha = value.prHeadSha === null || value.prHeadSha === undefined ? null : String(value.prHeadSha || "").trim();
+  if (prNumber !== null && (!Number.isSafeInteger(prNumber) || prNumber < 1 || prNumber > 9999999)) {
+    throw new Error("recoveryOnlyTarget.prNumber is invalid");
+  }
+  if (prHeadSha !== null && !/^[a-f0-9]{40}$/.test(prHeadSha)) throw new Error("recoveryOnlyTarget.prHeadSha is invalid");
+  if ((prNumber === null) !== (prHeadSha === null)) {
+    throw new Error("recoveryOnlyTarget.prNumber and prHeadSha must be paired");
+  }
+  const runnerRunId = normalizeOptionalRunnerRunId(value.runnerRunId);
+  if (runnerRunId === null) throw new Error("recoveryOnlyTarget.runnerRunId is invalid");
+  const supervisorRunId = normalizeOptionalSupervisorRunId(value.supervisorRunId);
+  if (supervisorRunId === null) throw new Error("recoveryOnlyTarget.supervisorRunId is invalid");
+  if (!Number.isSafeInteger(value.attemptNumber) || value.attemptNumber < 1 || value.attemptNumber > 20) {
+    throw new Error("recoveryOnlyTarget.attemptNumber is invalid");
+  }
+  for (const key of ["markerKey", "outageFingerprint", "originalSupervisorSpecDigest"]) {
+    if (!/^[a-f0-9]{64}$/.test(String(value[key] || ""))) throw new Error(`recoveryOnlyTarget.${key} is invalid`);
+  }
+  return {
+    taskKey,
+    issueNumber,
+    branchName,
+    baseSha,
+    currentHeadSha,
+    prNumber,
+    prHeadSha,
+    runnerRunId,
+    supervisorRunId,
+    originalSupervisorSpecDigest: value.originalSupervisorSpecDigest,
+    markerKey: value.markerKey,
+    outageFingerprint: value.outageFingerprint,
+    attemptNumber: value.attemptNumber,
+  };
+}
+
+function validateRecoveryOnlyContract(spec) {
+  const hasOutage = spec.outageResubmission !== null && spec.outageResubmission !== undefined;
+  const hasTarget = spec.recoveryOnlyTarget !== null && spec.recoveryOnlyTarget !== undefined;
+  if (hasOutage !== hasTarget) {
+    throw new Error("outage resubmission specs require paired recoveryOnlyTarget");
+  }
+  if (!hasTarget) return;
+  const target = spec.recoveryOnlyTarget;
+  const outage = spec.outageResubmission;
+  const duplicateChecks = [
+    ["parentSupervisorRunId", spec.parentSupervisorRunId, target.supervisorRunId],
+    ["parentRunnerRunId", spec.parentRunnerRunId, target.runnerRunId],
+    ["sourceIssueNumber", spec.sourceIssueNumber, target.issueNumber],
+    ["sourceBranchName", spec.sourceBranchName, target.branchName],
+    ["baseSha", spec.initialOriginMainSha, target.baseSha],
+    ["taskKey", outage.taskKey, target.taskKey],
+    ["currentHeadSha", outage.currentHeadSha, target.currentHeadSha],
+    ["prNumber", outage.prNumber, target.prNumber],
+    ["prHeadSha", outage.prHeadSha, target.prHeadSha],
+    ["originalSupervisorSpecDigest", outage.originalSupervisorSpecDigest, target.originalSupervisorSpecDigest],
+    ["markerKey", outage.markerKey, target.markerKey],
+    ["outageFingerprint", outage.outageFingerprint, target.outageFingerprint],
+    ["attemptNumber", outage.attemptNumber, target.attemptNumber],
+  ];
+  for (const [field, actual, expected] of duplicateChecks) {
+    if (actual !== expected) throw new Error(`recovery-only target identity mismatch: ${field}`);
+  }
+  if (spec.mode === "canary") throw new Error("recovery-only outage child cannot use canary mode");
 }

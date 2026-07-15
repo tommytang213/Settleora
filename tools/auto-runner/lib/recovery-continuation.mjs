@@ -83,6 +83,82 @@ export function discoverStartupRecovery(config) {
   };
 }
 
+export function discoverTargetedStartupRecovery(config) {
+  const target = config.outageRecoveryTarget || null;
+  if (!config.outageRecoveryOnly || !target) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_missing",
+      states: [],
+    };
+  }
+  const states = listRecoverableRecoveryStates(config);
+  if (states.length === 0) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_missing",
+      states: [],
+    };
+  }
+  if (states.length > 1) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_ambiguous",
+      states: states.map(summarizeRecoverableState),
+    };
+  }
+  if (!config.allowExistingPrRecovery) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "recoverable_state_requires_explicit_recovery_capability",
+      state: summarizeRecoverableState(states[0]),
+      states: states.map(summarizeRecoverableState),
+    };
+  }
+  const state = states[0];
+  const comparison = compareRecoveryStateToTarget(state, target);
+  if (!comparison.ok) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: comparison.reasonCode,
+      field: comparison.field,
+      state: summarizeRecoverableState(state),
+      states: states.map(summarizeRecoverableState),
+    };
+  }
+  const boundary = firstIncompleteContinuationAction(state);
+  if (!boundary.ok) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_not_safe",
+      state: summarizeRecoverableState(state),
+      states: states.map(summarizeRecoverableState),
+    };
+  }
+  return {
+    found: true,
+    allowed: true,
+    action: "resume_recoverable_work",
+    reasonCode: "outage_recovery_target_discovered",
+    outcome: classifyRecoveryOutcome("pending", { reasonCode: "outage_recovery_target_discovered" }),
+    state: summarizeRecoverableState(state),
+    states: states.map(summarizeRecoverableState),
+    target,
+  };
+}
+
 export async function executeStartupContinuation(config, recovery, handlers = {}) {
   if (!recovery?.allowed || !recovery.state) {
     return {
@@ -246,4 +322,21 @@ function summarizeRecoverableState(state) {
     runId: state.run?.runId || null,
     supervisorRunId: state.run?.supervisorRunId || null,
   };
+}
+
+function compareRecoveryStateToTarget(state, target) {
+  const checks = [
+    ["taskKey", state.taskKey || null, target.taskKey],
+    ["issueNumber", state.issue?.number || null, target.issueNumber],
+    ["branchName", state.branch?.name || null, target.branchName],
+    ["baseSha", state.branch?.baseSha || null, target.baseSha],
+    ["currentHeadSha", state.branch?.currentHeadSha || null, target.currentHeadSha],
+    ["prNumber", state.pr?.number || null, target.prNumber],
+    ["prHeadSha", state.pr?.headSha || null, target.prHeadSha],
+    ["runnerRunId", state.run?.runId || null, target.runnerRunId],
+    ["supervisorRunId", state.run?.supervisorRunId || null, target.supervisorRunId],
+  ];
+  const mismatch = checks.find(([, actual, expected]) => actual !== expected);
+  if (mismatch) return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
+  return { ok: true };
 }

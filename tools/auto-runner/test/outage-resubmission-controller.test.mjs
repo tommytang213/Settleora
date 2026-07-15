@@ -112,9 +112,11 @@ test("controller checks recovery before planning a new child", () => {
   try {
     const recoveryState = incompleteRecoveryState();
     const result = runOutageResubmissionController({ config, source: source(), recoveryState, dryRun: true, now });
-    assert.equal(result.outcome, "resume_recovery");
-    assert.equal(result.reasonCode, "existing_recoverable_state_first");
-    assert.equal(result.events.map((item) => item.event).includes("recoverable_state_wins"), true);
+    assert.equal(result.outcome, "planned");
+    assert.equal(result.reasonCode, "dry_run_no_mutation");
+    assert.equal(result.child.spec.recoveryOnlyTarget.taskKey, source().taskKey);
+    assert.equal(result.child.spec.recoveryOnlyTarget.issueNumber, source().issueNumber);
+    assert.equal(result.child.spec.recoveryOnlyTarget.currentHeadSha, source().currentHeadSha);
     assert.equal(result.counts.realMutationCalls, 0);
   } finally {
     config.cleanup();
@@ -252,21 +254,21 @@ test("terminal outage children classify before incomplete source recovery", () =
   }
 });
 
-test("incomplete recovery resumes only after no pending outage child requires action", () => {
+test("incomplete recovery target plans only after no pending outage child requires action", () => {
   const config = tempConfig();
   try {
     const recoveryState = incompleteRecoveryState();
     let result = runOutageResubmissionController({ config, source: source(), recoveryState, dryRun: true, now });
-    assert.equal(result.outcome, "resume_recovery");
-    assert.equal(result.reasonCode, "existing_recoverable_state_first");
-    assert.ok(result.events.findIndex((item) => item.event === "outage_marker_reconciled") < result.events.findIndex((item) => item.event === "recoverable_state_wins"));
+    assert.equal(result.outcome, "planned");
+    assert.equal(result.reasonCode, "dry_run_no_mutation");
+    assert.ok(result.events.findIndex((item) => item.event === "outage_marker_reconciled") < result.events.findIndex((item) => item.event === "resubmission_planned"));
 
     result = runOutageResubmissionController({ config, source: source(), recoveryState, outageState: fixtureOutageState(), existingChildren: [], dryRun: true, now });
-    assert.equal(result.outcome, "resume_recovery");
-    assert.equal(result.reasonCode, "existing_recoverable_state_first");
-    assert.equal(result.events.some((item) => item.event === "source_eligibility_checked"), false);
-    assert.equal(result.events.some((item) => item.event === "circuit_checked"), false);
-    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.outcome, "planned");
+    assert.equal(result.reasonCode, "dry_run_no_mutation");
+    assert.equal(result.events.some((item) => item.event === "source_eligibility_checked"), true);
+    assert.equal(result.events.some((item) => item.event === "circuit_checked"), true);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), true);
     assert.equal(result.counts.githubMutationCalls, 0);
     assert.equal(result.counts.systemdCalls, 0);
     assert.equal(result.counts.realMutationCalls, 0);
@@ -281,6 +283,7 @@ test("controller plans one exact correlated child in dry-run with zero live muta
     const result = runOutageResubmissionController({
       config,
       source: source(),
+      recoveryState: incompleteRecoveryState(),
       currentIdentity: { branchName: source().branchName, baseSha: shaA, currentHeadSha: shaB, prNumber: 917 },
       dryRun: true,
       now,
@@ -314,6 +317,7 @@ test("complete child spec identity survives canonical write read and reconciles 
     const planned = runOutageResubmissionController({
       config,
       source: sourceInput,
+      recoveryState: incompleteRecoveryState(),
       dryRun: true,
       now,
       childRunId: "supervised-20260715T010000Z-000000000120",
@@ -369,7 +373,7 @@ test("complete child spec identity survives canonical write read and reconciles 
 test("child spec digest changes when persisted source identity changes", () => {
   const config = tempConfig();
   try {
-    const first = runOutageResubmissionController({ config, source: source(), dryRun: true, now, childRunId: "supervised-20260715T010000Z-000000000121" });
+    const first = runOutageResubmissionController({ config, source: source(), recoveryState: incompleteRecoveryState(), dryRun: true, now, childRunId: "supervised-20260715T010000Z-000000000121" });
     const changedTask = {
       ...first.child.spec,
       outageResubmission: {
@@ -398,6 +402,7 @@ test("child planning blocks when source runner config digest no longer matches t
     const result = runOutageResubmissionController({
       config,
       source: source({ runnerConfigDigest: digestA }),
+      recoveryState: incompleteRecoveryState(),
       dryRun: true,
       now,
       childRunId: "supervised-20260715T010000Z-000000000123",
@@ -462,6 +467,7 @@ test("disk-reloaded incomplete historical child specs fail closed without mutabl
     const planned = runOutageResubmissionController({
       config,
       source: sourceInput,
+      recoveryState: incompleteRecoveryState(),
       dryRun: true,
       now,
       childRunId: "supervised-20260715T010000Z-000000000122",
@@ -998,10 +1004,11 @@ test("controller blocks stale identity, active/stale locks, pause, stop, and cir
     assert.equal(runOutageResubmissionController({ config, source: source(), lock: { active: true }, dryRun: true, now }).reasonCode, "active_lock");
     assert.equal(runOutageResubmissionController({ config, source: source(), lock: { stale: true, safeToClear: false }, dryRun: true, now }).reasonCode, "stale_lock_requires_existing_policy");
     assert.equal(runOutageResubmissionController({ config, source: source(), operatorControl: { pause: true }, dryRun: true, now }).reasonCode, "operator_pause");
-    assert.equal(runOutageResubmissionController({ config, source: source(), operatorControlBeforeSubmit: { stopAfterCurrent: true }, dryRun: true, now }).reasonCode, "operator_stop");
+    assert.equal(runOutageResubmissionController({ config, source: source(), recoveryState: incompleteRecoveryState(), operatorControlBeforeSubmit: { stopAfterCurrent: true }, dryRun: true, now }).reasonCode, "operator_stop");
     assert.equal(runOutageResubmissionController({
       config,
       source: source(),
+      recoveryState: incompleteRecoveryState(),
       circuitRecords: [
         { at: "2026-07-15T00:55:00.000Z", providerDomain: "github_api", outageFingerprint: digestA, supervisorRunId: "supervised-20260715T005500Z-000000000001" },
         { at: "2026-07-15T00:56:00.000Z", providerDomain: "github_api", outageFingerprint: digestB, supervisorRunId: "supervised-20260715T005600Z-000000000002" },
@@ -1404,6 +1411,7 @@ test("status and health expose sanitized default-off outage state without mutati
     const planned = runOutageResubmissionController({
       config,
       source: source(),
+      recoveryState: incompleteRecoveryState(),
       dryRun: true,
       now,
       childRunId: "supervised-20260715T010000Z-000000000123",
@@ -1502,6 +1510,7 @@ function incompleteRecoveryState() {
     branchName: source().branchName,
     baseSha: shaA,
     currentHeadSha: shaB,
+    pr: { number: source().prNumber, url: "u", headSha: source().prHeadSha, headRefName: source().branchName, baseRefName: "main", state: "OPEN" },
     phase: "ci_wait",
     firstIncompleteAction: "wait_for_checks",
   });

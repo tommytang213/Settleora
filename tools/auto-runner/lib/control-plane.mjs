@@ -266,7 +266,7 @@ export function renderStatusText(status) {
     `Last event: ${status.lastEventAt || "unknown"}`,
     `Paths: summary=${status.paths.summary || "unknown"} log=${status.paths.log || "unknown"} control=${status.paths.control}`,
     `Control: ${controlText(status.control)}`,
-    `Outage recovery: enabled=${status.outageResubmission?.enabled ? "yes" : "no"} active=${status.outageResubmission?.activeSourceRun ? "yes" : "no"} attempts=${status.outageResubmission?.attemptCount ?? 0}/${status.outageResubmission?.maxAttempts ?? "unknown"} circuit=${status.outageResubmission?.circuitState || "unknown"} next=${status.outageResubmission?.nextEligibleAt || "none"} deadline=${status.outageResubmission?.deadlineAt || "none"}`,
+    `Outage recovery: enabled=${status.outageResubmission?.enabled ? "yes" : "no"} active=${status.outageResubmission?.activeSourceRun ? "yes" : "no"} attempts=${status.outageResubmission?.attemptCount ?? 0}/${status.outageResubmission?.maxAttempts ?? "unknown"} circuit=${status.outageResubmission?.circuitState || "unknown"} next=${status.outageResubmission?.nextEligibleAt || "none"} deadline=${status.outageResubmission?.deadlineAt || "none"} records=${status.outageResubmission?.recordCount ?? 0} valid=${status.outageResubmission?.validRecordCount ?? 0} invalid=${status.outageResubmission?.invalidRecordCount ?? 0} operatorAction=${status.outageResubmission?.operatorActionRequired ? "yes" : "no"}`,
   ];
   return `${lines.join("\n")}\n`;
 }
