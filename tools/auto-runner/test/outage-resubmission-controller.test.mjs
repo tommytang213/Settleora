@@ -15,6 +15,7 @@ import {
 import { outageFingerprint } from "../lib/outage-resubmission-policy.mjs";
 import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
 import { canonicalJson, readAndVerifyRunSpec, resolveProfile, sha256Text, writeImmutableRunSpec } from "../supervisor/run-spec.mjs";
+import { readSupervisorState } from "../supervisor/supervisor-state.mjs";
 import { getRunnerStatus } from "../lib/control-plane.mjs";
 import { evaluateAutoRunnerHealth } from "../lib/health-service.mjs";
 import { monitoringEvents, recordMonitoringEvent } from "../supervisor/monitoring-outbox.mjs";
@@ -513,6 +514,47 @@ test("controller plans one exact correlated child in dry-run with zero live muta
     assert.equal(result.child.spec.outageResubmission.prHeadSha, source().prHeadSha);
     assert.equal(JSON.parse(readFileSync(resolveProfile(result.child.spec.profile, config.logsRoot).runnerConfigPath, "utf8")).allowExistingPrRecovery, true);
     assert.match(result.child.specSha256, /^[a-f0-9]{64}$/);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("failed outage child submission terminalizes child supervisor state", () => {
+  const config = tempConfig();
+  try {
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState: incompleteRecoveryState(),
+      dryRun: false,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000998",
+      startUserUnit: (runId) => ({
+        ok: false,
+        unitName: `settleora-auto-runner@${runId}.service`,
+        state: "submission_failed",
+        status: 1,
+        stderr: "synthetic systemd failure with local path /tmp/should-not-persist",
+      }),
+    });
+
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "child_submission_failed");
+    assert.equal(result.outageState.status, "blocked");
+    assert.equal(result.outageState.mutationMarker.status, "blocked");
+    assert.equal(result.outageState.childSupervisorRunId, result.child.spec.runId);
+    assert.equal(result.counts.systemdCalls, 1);
+    assert.equal(result.counts.realMutationCalls, 1);
+
+    const childState = readSupervisorState(result.child.spec.runId, config.logsRoot);
+    assert.equal(childState.found, true);
+    assert.equal(childState.state.state, "submission_failed");
+    assert.equal(childState.state.parentSupervisorRunId, source().supervisorRunId);
+    assert.equal(childState.state.terminalReason, "child_submission_failed");
+    assert.equal(childState.state.systemdStatus, 1);
+    assert.equal(childState.state.systemdUnitName, `settleora-auto-runner@${result.child.spec.runId}.service`);
+    assert.equal("stderr" in childState.state, false);
   } finally {
     config.cleanup();
   }

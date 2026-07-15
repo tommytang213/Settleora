@@ -73,6 +73,7 @@ export function runOutageResubmissionController(input = {}) {
   const policy = normalizeOutageResubmissionConfig(config.outageResubmission || input.outageResubmission || {});
   const now = input.now || new Date();
   const dryRun = input.dryRun !== false;
+  const startUnit = input.startUserUnit || startUserUnit;
   const counts = { githubMutationCalls: 0, systemdCalls: 0, realMutationCalls: 0 };
   const event = (eventName, payload = {}) => {
     events.push({ event: eventName, ...sanitizeEvent(payload) });
@@ -379,8 +380,16 @@ export function runOutageResubmissionController(input = {}) {
   writeSupervisorState(child.spec.runId, { state: "submitted", parentSupervisorRunId: source.supervisorRunId }, config.logsRoot);
   counts.systemdCalls += 1;
   counts.realMutationCalls += 1;
-  const submitted = startUserUnit(child.spec.runId);
+  const submitted = startUnit(child.spec.runId);
   if (!submitted.ok) {
+    writeSupervisorState(child.spec.runId, {
+      state: submitted.state || "submission_failed",
+      parentSupervisorRunId: source.supervisorRunId,
+      terminalReason: "child_submission_failed",
+      systemdStatus: submitted.status ?? null,
+      systemdUnitName: submitted.unitName || null,
+      finishedAt: now.toISOString(),
+    }, config.logsRoot);
     const blocked = transitionOutageMarker(uncertain, { status: "blocked", childSupervisorRunId: child.spec.runId, reasonCode: "child_submission_failed" });
     writeOutageResubmissionState(config, blocked);
     return result("blocked", "child_submission_failed", { events, counts, outageState: blocked, child, submitted });
