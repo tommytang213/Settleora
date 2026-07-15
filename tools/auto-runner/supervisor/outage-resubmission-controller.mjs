@@ -236,9 +236,6 @@ export function runOutageResubmissionController(input = {}) {
   if (input.currentIdentity?.branchName && input.currentIdentity.branchName !== source.branchName) {
     return result("blocked", "branch_identity_mismatch", { events, counts });
   }
-  if (input.currentIdentity?.prNumber && source.prNumber && input.currentIdentity.prNumber !== source.prNumber) {
-    return result("blocked", "pr_identity_mismatch", { events, counts });
-  }
   if (input.currentIdentity?.baseSha && input.currentIdentity.baseSha !== source.baseSha) {
     return result("blocked", "base_identity_mismatch", { events, counts });
   }
@@ -252,6 +249,16 @@ export function runOutageResubmissionController(input = {}) {
       : null;
     event("stale_head_evidence_invalidated", { currentHeadSha: input.currentIdentity.currentHeadSha });
     return result("blocked", "stale_head_evidence_regeneration_required", { events, counts, recoveryState: invalidatedRecoveryState });
+  }
+  if (input.currentIdentity?.prNumber !== undefined || input.currentIdentity?.prHeadSha !== undefined) {
+    const currentPrMismatches = optionalPrIdentityMismatches({
+      actualPrNumber: input.currentIdentity?.prNumber,
+      actualPrHeadSha: input.currentIdentity?.prHeadSha,
+      expectedPrNumber: source.prNumber,
+      expectedPrHeadSha: source.prHeadSha,
+    });
+    if (currentPrMismatches.includes("prNumber")) return result("blocked", "pr_identity_mismatch", { events, counts });
+    if (currentPrMismatches.includes("prHeadSha")) return result("blocked", "pr_head_identity_mismatch", { events, counts });
   }
 
   event("circuit_checked");
@@ -577,8 +584,8 @@ function buildChildRunPlan({ config, source, state, recoveryTarget, now, childRu
       originalSupervisorSpecDigest: source.originalSupervisorSpecDigest,
       taskKey: source.taskKey,
       currentHeadSha: source.currentHeadSha,
-      prNumber: source.prNumber || null,
-      prHeadSha: source.prHeadSha || null,
+      prNumber: source.prNumber ?? null,
+      prHeadSha: source.prHeadSha ?? null,
     },
     recoveryOnlyTarget: recoveryTarget,
     allowMissingConfig: true,
@@ -605,8 +612,8 @@ function validateOutageRecoveryTargetForSource({ source, recovery, recoveryState
     ["branchName", target.branchName, source.branchName],
     ["baseSha", target.baseSha, source.baseSha],
     ["currentHeadSha", target.currentHeadSha, source.currentHeadSha],
-    ["prNumber", target.prNumber, source.prNumber || null],
-    ["prHeadSha", target.prHeadSha, source.prHeadSha || null],
+    ["prNumber", target.prNumber, source.prNumber ?? null],
+    ["prHeadSha", target.prHeadSha, source.prHeadSha ?? null],
     ["runnerRunId", target.runnerRunId, source.runnerRunId],
     ["supervisorRunId", target.supervisorRunId, source.supervisorRunId],
     ["originalSupervisorSpecDigest", target.originalSupervisorSpecDigest, source.originalSupervisorSpecDigest],
@@ -730,12 +737,15 @@ function canonicalizeChildRepresentations(children) {
 
 function classifyChildCorrelation(child, source, outageState) {
   const sourceFields = sourceCorrelationChecks(child, source, outageState);
-  if (sourceFields.every((check) => check.expected === null || check.expected === undefined || check.actual === check.expected)) return { kind: "exact" };
+  if (sourceFields.every((check) => correlationFieldMatches(check))) return { kind: "exact" };
 
   const markerIdentityFields = new Set(["attemptNumber", "outageFingerprint", "markerKey"]);
   const childArtifactFields = new Set(["childLogicalId", "childSpecDigest"]);
   const sourceCore = sourceFields.filter((check) => !markerIdentityFields.has(check.field) && !childArtifactFields.has(check.field));
-  const hasCoreConflict = sourceCore.some((check) => check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected);
+  const hasCoreConflict = sourceCore.some((check) => {
+    if (strictOptionalExactFields.has(check.field)) return false;
+    return check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected;
+  });
   if (hasCoreConflict) return { kind: "unrelated" };
 
   const strongCoreFields = new Set(["parentSupervisorRunId", "parentRunnerRunId", "taskKey", "sourceIssueNumber", "sourceBranchName", "baseSha", "currentHeadSha", "runnerProfile", "runnerConfigDigest", "originalSupervisorSpecDigest"]);
@@ -747,6 +757,12 @@ function classifyChildCorrelation(child, source, outageState) {
   const markerIdentity = sourceFields.filter((check) => markerIdentityFields.has(check.field));
   const markerConflict = markerIdentity.some((check) => check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected);
   if (markerConflict) return { kind: "unrelated" };
+
+  const strictOptionalMismatches = sourceCore
+    .filter((check) => strictOptionalExactFields.has(check.field))
+    .filter((check) => correlationFieldMismatches(check))
+    .map((check) => check.field);
+  if (strictOptionalMismatches.length > 0) return { kind: "identity_mismatch", mismatches: strictOptionalMismatches };
 
   const missingCoreOrMarker = [...sourceCore, ...markerIdentity]
     .filter((check) => check.expected !== null && check.expected !== undefined && (check.actual === null || check.actual === undefined))
@@ -772,7 +788,7 @@ function classifyChildCorrelation(child, source, outageState) {
 
 function exactChildMismatches(child, source, outageState) {
   return sourceCorrelationChecks(child, source, outageState)
-    .filter((check) => check.expected !== null && check.expected !== undefined && check.actual !== check.expected)
+    .filter((check) => correlationFieldMismatches(check))
     .map((check) => check.field);
 }
 
@@ -785,13 +801,13 @@ function sourceCorrelationChecks(child, source, outageState) {
     ["taskKey", child.taskKey || child.sourceTaskKey || outage.taskKey, source.taskKey],
     ["sourceIssueNumber", child.sourceIssueNumber, source.issueNumber],
     ["sourceBranchName", child.sourceBranchName, source.branchName],
-    ["baseSha", child.baseSha || child.initialOriginMainSha || outage.baseSha, source.baseSha],
-    ["currentHeadSha", child.currentHeadSha || child.headSha || outage.currentHeadSha, source.currentHeadSha],
-    ["prNumber", child.prNumber || outage.prNumber || null, source.prNumber || null],
-    ["prHeadSha", child.prHeadSha || outage.prHeadSha || null, source.prHeadSha || null],
-    ["runnerProfile", child.runnerProfile || child.profile || outage.runnerProfile, source.runnerProfile],
-    ["runnerConfigDigest", child.runnerConfigDigest || child.runnerConfigSha256 || outage.runnerConfigDigest, source.runnerConfigDigest],
-    ["originalSupervisorSpecDigest", child.originalSupervisorSpecDigest || outage.originalSupervisorSpecDigest, source.originalSupervisorSpecDigest],
+    ["baseSha", firstDefined(child.baseSha, child.initialOriginMainSha, outage.baseSha), source.baseSha],
+    ["currentHeadSha", firstDefined(child.currentHeadSha, child.headSha, outage.currentHeadSha), source.currentHeadSha],
+    ["prNumber", firstDefined(child.prNumber, outage.prNumber, null), source.prNumber ?? null],
+    ["prHeadSha", firstDefined(child.prHeadSha, outage.prHeadSha, null), source.prHeadSha ?? null],
+    ["runnerProfile", firstDefined(child.runnerProfile, child.profile, outage.runnerProfile), source.runnerProfile],
+    ["runnerConfigDigest", firstDefined(child.runnerConfigDigest, child.runnerConfigSha256, outage.runnerConfigDigest), source.runnerConfigDigest],
+    ["originalSupervisorSpecDigest", firstDefined(child.originalSupervisorSpecDigest, outage.originalSupervisorSpecDigest), source.originalSupervisorSpecDigest],
     ["attemptNumber", outage.attemptNumber, marker.attemptNumber],
     ["outageFingerprint", outage.outageFingerprint, outageState?.outage?.outageFingerprint || source.outageFingerprint],
     ["markerKey", outage.markerKey, marker.key],
@@ -802,18 +818,18 @@ function sourceCorrelationChecks(child, source, outageState) {
 
 function conflictingChildIdentityFields(left, right) {
   const fields = sourceCorrelationChecks(right, {
-    taskKey: left.taskKey || left.sourceTaskKey || left.outageResubmission?.taskKey,
+    taskKey: firstDefined(left.taskKey, left.sourceTaskKey, left.outageResubmission?.taskKey),
     supervisorRunId: left.parentSupervisorRunId,
     runnerRunId: left.parentRunnerRunId,
     issueNumber: left.sourceIssueNumber,
     branchName: left.sourceBranchName,
-    baseSha: left.baseSha || left.initialOriginMainSha || left.outageResubmission?.baseSha,
-    currentHeadSha: left.currentHeadSha || left.headSha || left.outageResubmission?.currentHeadSha,
-    prNumber: left.prNumber || left.outageResubmission?.prNumber || null,
-    prHeadSha: left.prHeadSha || left.outageResubmission?.prHeadSha || null,
-    runnerProfile: left.runnerProfile || left.profile || left.outageResubmission?.runnerProfile,
-    runnerConfigDigest: left.runnerConfigDigest || left.runnerConfigSha256 || left.outageResubmission?.runnerConfigDigest,
-    originalSupervisorSpecDigest: left.originalSupervisorSpecDigest || left.outageResubmission?.originalSupervisorSpecDigest,
+    baseSha: firstDefined(left.baseSha, left.initialOriginMainSha, left.outageResubmission?.baseSha),
+    currentHeadSha: firstDefined(left.currentHeadSha, left.headSha, left.outageResubmission?.currentHeadSha),
+    prNumber: firstDefined(left.prNumber, left.outageResubmission?.prNumber, null),
+    prHeadSha: firstDefined(left.prHeadSha, left.outageResubmission?.prHeadSha, null),
+    runnerProfile: firstDefined(left.runnerProfile, left.profile, left.outageResubmission?.runnerProfile),
+    runnerConfigDigest: firstDefined(left.runnerConfigDigest, left.runnerConfigSha256, left.outageResubmission?.runnerConfigDigest),
+    originalSupervisorSpecDigest: firstDefined(left.originalSupervisorSpecDigest, left.outageResubmission?.originalSupervisorSpecDigest),
   }, {
     mutationMarker: {
       attemptNumber: left.outageResubmission?.attemptNumber,
@@ -826,7 +842,38 @@ function conflictingChildIdentityFields(left, right) {
   });
   return fields
     .filter((check) => !["childLogicalId"].includes(check.field))
-    .filter((check) => check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected)
+    .filter((check) => correlationFieldMismatches(check))
+    .map((check) => check.field);
+}
+
+const strictOptionalExactFields = new Set(["prNumber", "prHeadSha"]);
+
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined);
+}
+
+function normalizeStrictOptional(value) {
+  return value === undefined ? null : value;
+}
+
+function correlationFieldMatches(check) {
+  if (strictOptionalExactFields.has(check.field)) {
+    return normalizeStrictOptional(check.actual) === normalizeStrictOptional(check.expected);
+  }
+  return check.expected === null || check.expected === undefined || check.actual === check.expected;
+}
+
+function correlationFieldMismatches(check) {
+  return !correlationFieldMatches(check);
+}
+
+function optionalPrIdentityMismatches({ actualPrNumber, actualPrHeadSha, expectedPrNumber, expectedPrHeadSha }) {
+  const checks = [
+    { field: "prNumber", actual: actualPrNumber, expected: expectedPrNumber ?? null },
+    { field: "prHeadSha", actual: actualPrHeadSha, expected: expectedPrHeadSha ?? null },
+  ];
+  return checks
+    .filter((check) => normalizeStrictOptional(check.actual) !== normalizeStrictOptional(check.expected))
     .map((check) => check.field);
 }
 

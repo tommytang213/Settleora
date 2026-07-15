@@ -492,7 +492,7 @@ test("controller plans one exact correlated child in dry-run with zero live muta
       config,
       source: source(),
       recoveryState: incompleteRecoveryState(),
-      currentIdentity: { branchName: source().branchName, baseSha: shaA, currentHeadSha: shaB, prNumber: 917 },
+      currentIdentity: { branchName: source().branchName, baseSha: shaA, currentHeadSha: shaB, prNumber: 917, prHeadSha: shaB },
       dryRun: true,
       now,
       rng: () => 0.5,
@@ -880,6 +880,210 @@ test("submitted and confirmed markers reconcile exact children without duplicate
     assert.equal(result.outcome, "recovered");
     assert.equal(result.reasonCode, "confirmed_child_recovered");
     assert.equal(result.outageState.mutationMarker.status, "recovered");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("optional PR identity matrix requires exact absent or present pairs", () => {
+  const config = tempConfig();
+  try {
+    const sourceCases = [
+      ["pre-pr source", source({ prNumber: null, prHeadSha: null })],
+      ["post-pr source", source()],
+    ];
+    const childCases = [
+      ["absent pair", { prNumber: null, prHeadSha: null }],
+      ["identical present", { prNumber: 917, prHeadSha: shaB }],
+      ["different number same head", { prNumber: 918, prHeadSha: shaB }],
+      ["same number different head", { prNumber: 917, prHeadSha: shaA }],
+      ["different pair", { prNumber: 918, prHeadSha: shaA }],
+      ["number only", { prNumber: 917, prHeadSha: null }],
+      ["head only", { prNumber: null, prHeadSha: shaB }],
+    ];
+
+    for (const [sourceLabel, sourceInput] of sourceCases) {
+      const state = fixtureOutageStateForSource(sourceInput);
+      for (const [childLabel, prIdentity] of childCases) {
+        const child = exactChildForSource(state, sourceInput, prIdentity);
+        const result = runOutageResubmissionController({
+          config,
+          source: sourceInput,
+          outageState: state,
+          existingChildren: [child],
+          dryRun: true,
+          now,
+        });
+        const shouldMatch = sourceInput.prNumber === prIdentity.prNumber && sourceInput.prHeadSha === prIdentity.prHeadSha;
+        const label = `${sourceLabel} / ${childLabel}`;
+        if (shouldMatch) {
+          assert.equal(result.outcome, "confirmed_existing_child", label);
+          assert.equal(result.reasonCode, "planned_child_reconciled", label);
+          assert.equal(result.counts.realMutationCalls, 0, label);
+        } else {
+          assert.equal(result.outcome, "blocked", label);
+          assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation", label);
+          assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+          assert.equal(result.counts.githubMutationCalls, 0, label);
+          assert.equal(result.counts.systemdCalls, 0, label);
+          assert.equal(result.counts.realMutationCalls, 0, label);
+          assert.equal(
+            result.childReconciliation.mismatches.some((field) => field === "prNumber" || field === "prHeadSha"),
+            true,
+            label,
+          );
+        }
+      }
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("unexpected child PR identity blocks every reconciliation status without planning replacement", () => {
+  const config = tempConfig();
+  try {
+    const sourceInput = source({ prNumber: null, prHeadSha: null });
+    const baseState = fixtureOutageStateForSource(sourceInput);
+    const unexpectedPr = { prNumber: 917, prHeadSha: shaB };
+    const statusCases = [
+      ["no existing marker", null, exactChildForSource(baseState, sourceInput, unexpectedPr)],
+      ["planned marker", baseState, exactChildForSource(baseState, sourceInput, unexpectedPr)],
+      ["submission_uncertain", transitionOutageMarker(baseState, {
+        status: "submission_uncertain",
+        childSupervisorRunId: "supervised-20260715T010000Z-000000000611",
+        specDigest: digestB,
+      }), null],
+      ["submitted", transitionOutageMarker(baseState, {
+        status: "submitted",
+        childSupervisorRunId: "supervised-20260715T010000Z-000000000612",
+        specDigest: digestB,
+      }), null],
+      ["confirmed_running", transitionOutageMarker(baseState, {
+        status: "confirmed_running",
+        childSupervisorRunId: "supervised-20260715T010000Z-000000000613",
+        specDigest: digestB,
+      }), null],
+      ["terminal completed child", transitionOutageMarker(baseState, {
+        status: "confirmed_running",
+        childSupervisorRunId: "supervised-20260715T010000Z-000000000614",
+        specDigest: digestB,
+      }), null, { state: "completed", terminalOutcome: "completed" }],
+      ["terminal failed child", transitionOutageMarker(baseState, {
+        status: "confirmed_running",
+        childSupervisorRunId: "supervised-20260715T010000Z-000000000615",
+        specDigest: digestB,
+      }), null, { state: "failed", terminalOutcome: "failed" }],
+      ["terminal blocked child", transitionOutageMarker(baseState, {
+        status: "confirmed_running",
+        childSupervisorRunId: "supervised-20260715T010000Z-000000000616",
+        specDigest: digestB,
+      }), null, { state: "blocked", terminalOutcome: "blocked" }],
+    ];
+
+    for (const [label, state, explicitChild, childOverrides = {}] of statusCases) {
+      const runId = state?.childSupervisorRunId || state?.mutationMarker?.childSupervisorRunId || "supervised-20260715T010000Z-000000000610";
+      const child = explicitChild || exactChildForSource(state, sourceInput, {
+        ...unexpectedPr,
+        runId,
+        ...childOverrides,
+      });
+      const result = runOutageResubmissionController({
+        config,
+        source: sourceInput,
+        outageState: state,
+        recoveryState: recoveryStateForSource(sourceInput),
+        existingChildren: [child],
+        dryRun: true,
+        now,
+        rng: () => 0.5,
+        childRunId: "supervised-20260715T010000Z-000000000699",
+      });
+      assert.equal(result.outcome, "blocked", label);
+      assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation", label);
+      assert.equal(result.reasonCode === "existing_child_resubmission_present", false, label);
+      assert.equal(result.reasonCode === "confirmed_child_recovered", false, label);
+      assert.equal(result.reasonCode === "planned_child_reconciled", false, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.events.some((item) => item.event === "child_submission_confirmed"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+      assert.deepEqual(Object.keys(result.childReconciliation.candidateIds[0]).sort(), ["runId", "specDigest"], label);
+      assert.equal(
+        result.childReconciliation.mismatches.some((field) => field === "prNumber" || field === "prHeadSha"),
+        true,
+        label,
+      );
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("optional PR identity mismatches block intended, duplicate, and canonical representation reconciliation", () => {
+  const config = tempConfig();
+  try {
+    const sourceInput = source({ prNumber: null, prHeadSha: null });
+    const submitted = transitionOutageMarker(fixtureOutageStateForSource(sourceInput), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000711",
+      specDigest: digestB,
+    });
+    const intended = exactChildForSource(submitted, sourceInput, {
+      runId: submitted.childSupervisorRunId,
+      prNumber: 917,
+      prHeadSha: shaB,
+    });
+
+    let result = runOutageResubmissionController({
+      config,
+      source: sourceInput,
+      outageState: submitted,
+      existingChildren: [intended],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("prNumber"), true);
+    assert.equal(result.events.some((item) => item.event === "submitted_child_reconciled"), false);
+
+    result = runOutageResubmissionController({
+      config,
+      source: sourceInput,
+      outageState: submitted,
+      existingChildren: [
+        exactChildForSource(submitted, sourceInput, { runId: submitted.childSupervisorRunId }),
+        exactChildForSource(submitted, sourceInput, {
+          runId: "supervised-20260715T010000Z-000000000712",
+          prNumber: 917,
+          prHeadSha: shaB,
+        }),
+      ],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.events.some((item) => item.event === "submitted_child_reconciled"), false);
+
+    result = runOutageResubmissionController({
+      config,
+      source: sourceInput,
+      outageState: submitted,
+      existingChildren: [
+        exactChildForSource(submitted, sourceInput, { runId: submitted.childSupervisorRunId }),
+        exactChildForSource(submitted, sourceInput, {
+          runId: submitted.childSupervisorRunId,
+          prNumber: 917,
+          prHeadSha: shaB,
+        }),
+      ],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("prNumber"), true);
+    assert.equal(result.counts.realMutationCalls, 0);
   } finally {
     config.cleanup();
   }
@@ -1964,6 +2168,31 @@ function fixtureOutageState() {
   });
 }
 
+function fixtureOutageStateForSource(sourceInput) {
+  return createOutageResubmissionState({
+    correlation: {
+      ...sourceInput,
+      outageProviderDomain: "github_api",
+      outageFingerprint: githubApi503Fingerprint,
+    },
+    outage: {
+      providerDomain: "github_api",
+      outageClass: "github_api_5xx",
+      outageFingerprint: githubApi503Fingerprint,
+      firstFailureAt: sourceInput.firstFailureAt,
+      lastFailureAt: sourceInput.lastFailureAt,
+      reasonCode: "github_api_5xx",
+    },
+    schedule: {
+      attemptNumber: sourceInput.attemptNumber || 1,
+      nextEligibleAt: "2026-07-15T00:35:00.000Z",
+      deadlineAt: "2026-07-16T00:00:00.000Z",
+      maxAttempts: 3,
+      maxWallClockMs: 24 * 60 * 60 * 1000,
+    },
+  });
+}
+
 function incompleteRecoveryState() {
   return createInitialRecoveryState({
     taskKey: "20260715-0013",
@@ -1974,6 +2203,23 @@ function incompleteRecoveryState() {
     baseSha: shaA,
     currentHeadSha: shaB,
     pr: { number: source().prNumber, url: "u", headSha: source().prHeadSha, headRefName: source().branchName, baseRefName: "main", state: "OPEN" },
+    phase: "ci_wait",
+    firstIncompleteAction: "wait_for_checks",
+  });
+}
+
+function recoveryStateForSource(sourceInput) {
+  return createInitialRecoveryState({
+    taskKey: sourceInput.taskKey,
+    issue: { number: sourceInput.issueNumber, title: "Outage", url: "u" },
+    runId: sourceInput.runnerRunId,
+    supervisorRunId: sourceInput.supervisorRunId,
+    branchName: sourceInput.branchName,
+    baseSha: sourceInput.baseSha,
+    currentHeadSha: sourceInput.currentHeadSha,
+    pr: sourceInput.prNumber === null && sourceInput.prHeadSha === null
+      ? null
+      : { number: sourceInput.prNumber, url: "u", headSha: sourceInput.prHeadSha, headRefName: sourceInput.branchName, baseRefName: "main", state: "OPEN" },
     phase: "ci_wait",
     firstIncompleteAction: "wait_for_checks",
   });
@@ -2006,6 +2252,39 @@ function exactChild(state = fixtureOutageState(), overrides = {}) {
       childSpecDigest: state.mutationMarker.specDigest || digestB,
     },
     ...overrides,
+  };
+}
+
+function exactChildForSource(state = fixtureOutageState(), sourceInput = source(), overrides = {}) {
+  const runId = overrides.runId || state?.childSupervisorRunId || "supervised-20260715T010000Z-000000000602";
+  const prNumber = Object.hasOwn(overrides, "prNumber") ? overrides.prNumber : sourceInput.prNumber;
+  const prHeadSha = Object.hasOwn(overrides, "prHeadSha") ? overrides.prHeadSha : sourceInput.prHeadSha;
+  const { prNumber: _prNumber, prHeadSha: _prHeadSha, ...rest } = overrides;
+  return {
+    runId,
+    parentSupervisorRunId: sourceInput.supervisorRunId,
+    parentRunnerRunId: sourceInput.runnerRunId,
+    taskKey: sourceInput.taskKey,
+    sourceIssueNumber: sourceInput.issueNumber,
+    sourceBranchName: sourceInput.branchName,
+    baseSha: sourceInput.baseSha,
+    currentHeadSha: sourceInput.currentHeadSha,
+    prNumber,
+    prHeadSha,
+    runnerProfile: sourceInput.runnerProfile,
+    runnerConfigDigest: sourceInput.runnerConfigDigest,
+    originalSupervisorSpecDigest: sourceInput.originalSupervisorSpecDigest,
+    specSha256: state?.mutationMarker?.specDigest || digestB,
+    state: "running",
+    outageResubmission: {
+      taskKey: sourceInput.taskKey,
+      markerKey: state?.mutationMarker?.key,
+      attemptNumber: state?.mutationMarker?.attemptNumber,
+      outageFingerprint: state?.outage?.outageFingerprint || sourceInput.outageFingerprint,
+      originalSupervisorSpecDigest: sourceInput.originalSupervisorSpecDigest,
+      childSpecDigest: state?.mutationMarker?.specDigest || digestB,
+    },
+    ...rest,
   };
 }
 
