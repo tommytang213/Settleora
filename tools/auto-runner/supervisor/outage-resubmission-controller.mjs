@@ -7,6 +7,7 @@ import {
 } from "../lib/outage-resubmission-policy.mjs";
 import {
   createOutageResubmissionState,
+  outageResubmissionStorageKey,
   readOutageResubmissionInventory,
   listOutageResubmissionStates,
   loadOutageResubmissionState,
@@ -101,25 +102,29 @@ export function runOutageResubmissionController(input = {}) {
   const source = input.source || {};
   const stateKey = input.outageStateKey || source.outageStateKey || null;
   let existingOutageState = input.outageState || null;
-  if (!existingOutageState && stateKey) {
-    const loaded = loadOutageResubmissionState(config, stateKey);
-    if (loaded.ok) {
-      existingOutageState = loaded.state;
-    } else {
-      event("outage_state_load_blocked", { reasonCode: loaded.reasonCode });
-      return result("blocked", "outage_resubmission_state_untrusted", { events, counts, outageStateLoad: loaded });
-    }
-  }
-
   let eligibility = null;
   let correlation = null;
+  const canonical = resolveCanonicalOutageState({ config, source, failure: input.failure, stateKey });
+  if (!canonical.ok) {
+    event("outage_source_identity_blocked", { reasonCode: canonical.reasonCode, field: canonical.field, classification: canonical.classification });
+    return result("blocked", canonical.reasonCode, { events, counts, classification: canonical.classification, invalidField: canonical.field });
+  }
+  if (canonical.explicitConflict) {
+    event("outage_state_key_conflict_blocked", { reasonCode: canonical.reasonCode });
+    return result("blocked", canonical.reasonCode, { events, counts, canonicalStateKey: canonical.stateKey });
+  }
+  eligibility = canonical.eligibility;
+  correlation = canonical.correlation;
+  if (!existingOutageState && canonical.loaded?.ok) {
+    existingOutageState = canonical.loaded.state;
+    event("canonical_outage_state_loaded", { stateKey: canonical.stateKey, status: existingOutageState.status });
+  }
+  if (!existingOutageState && canonical.loaded && !canonical.loaded.ok && canonical.loaded.reasonCode !== "outage_resubmission_state_missing") {
+    event("outage_state_load_blocked", { reasonCode: canonical.loaded.reasonCode });
+    return result("blocked", "outage_resubmission_state_untrusted", { events, counts, outageStateLoad: canonical.loaded });
+  }
+
   if (existingOutageState) {
-    const sourceIdentity = validateExistingSourceIdentityForOutageState({ source, failure: input.failure });
-    if (!sourceIdentity.ok) {
-      event("outage_source_identity_blocked", { reasonCode: sourceIdentity.reasonCode, field: sourceIdentity.field, classification: sourceIdentity.classification });
-      return result("blocked", sourceIdentity.reasonCode, { events, counts, classification: sourceIdentity.classification, invalidField: sourceIdentity.field });
-    }
-    correlation = buildCorrelation(source, sourceIdentity.classification);
     const drift = verifyOutageCorrelation(existingOutageState, correlation);
     if (!drift.ok) {
       event("outage_identity_drift_blocked", { reasonCode: drift.reasonCode, field: drift.field });
@@ -155,6 +160,12 @@ export function runOutageResubmissionController(input = {}) {
   }
   if (existingOutageState?.mutationMarker?.status === "submission_uncertain") {
     if (existingChild) {
+      const terminal = terminalChildResult(existingOutageState, existingChild);
+      if (terminal) {
+        if (!dryRun) writeOutageResubmissionState(config, terminal.outageState);
+        event("uncertain_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminal.terminalStatus });
+        return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId });
+      }
       const confirmed = transitionOutageMarker(existingOutageState, {
         status: "confirmed_running",
         childSupervisorRunId: existingChild.runId,
@@ -172,6 +183,12 @@ export function runOutageResubmissionController(input = {}) {
       event("submitted_child_missing_requires_reconciliation", { childSupervisorRunId: existingOutageState.childSupervisorRunId || null });
       return result("blocked", "submitted_child_missing_requires_reconciliation", { events, counts, outageState: existingOutageState });
     }
+    const terminal = terminalChildResult(existingOutageState, existingChild);
+    if (terminal) {
+      if (!dryRun) writeOutageResubmissionState(config, terminal.outageState);
+      event("submitted_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminal.terminalStatus });
+      return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId });
+    }
     const confirmed = transitionOutageMarker(existingOutageState, {
       status: "confirmed_running",
       childSupervisorRunId: existingChild.runId,
@@ -187,22 +204,11 @@ export function runOutageResubmissionController(input = {}) {
       event("confirmed_child_missing_requires_reconciliation", { childSupervisorRunId: existingOutageState.childSupervisorRunId || null });
       return result("blocked", "confirmed_child_missing_requires_reconciliation", { events, counts, outageState: existingOutageState });
     }
-    if (isTerminalChild(existingChild)) {
-      const terminalStatus = existingChild.terminalOutcome === "completed" || existingChild.state === "completed" ? "recovered" : "blocked";
-      const classified = transitionOutageMarker(existingOutageState, {
-        status: terminalStatus,
-        childSupervisorRunId: existingChild.runId,
-        specDigest: existingOutageState.mutationMarker?.specDigest || childDigest(existingChild),
-        reasonCode: terminalStatus === "recovered" ? "confirmed_child_recovered" : "confirmed_child_terminal_blocked",
-      });
-      if (!dryRun) writeOutageResubmissionState(config, classified);
-      event("confirmed_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminalStatus });
-      return result(terminalStatus, terminalStatus === "recovered" ? "confirmed_child_recovered" : "confirmed_child_terminal_blocked", {
-        events,
-        counts,
-        outageState: classified,
-        childRunId: existingChild.runId,
-      });
+    const terminal = terminalChildResult(existingOutageState, existingChild);
+    if (terminal) {
+      if (!dryRun) writeOutageResubmissionState(config, terminal.outageState);
+      event("confirmed_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminal.terminalStatus });
+      return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId });
     }
     event("confirmed_running_child_observed", { childSupervisorRunId: existingChild.runId });
     return result("observed", "confirmed_running_child_observed", { events, counts, outageState: existingOutageState, childRunId: existingChild.runId });
@@ -256,7 +262,7 @@ export function runOutageResubmissionController(input = {}) {
     event("stale_head_evidence_invalidated", { currentHeadSha: input.currentIdentity.currentHeadSha });
     return result("blocked", "stale_head_evidence_regeneration_required", { events, counts, recoveryState: invalidatedRecoveryState });
   }
-  if (input.currentIdentity?.prNumber !== undefined || input.currentIdentity?.prHeadSha !== undefined) {
+  if (input.currentIdentity) {
     const currentPrMismatches = optionalPrIdentityMismatches({
       actualPrNumber: input.currentIdentity?.prNumber,
       actualPrHeadSha: input.currentIdentity?.prHeadSha,
@@ -390,7 +396,7 @@ export function runOutageResubmissionController(input = {}) {
   });
   writeOutageResubmissionState(config, uncertain);
   writeImmutableRunSpec(child.spec, config.logsRoot);
-  writeSupervisorState(child.spec.runId, { state: "submitted", parentSupervisorRunId: source.supervisorRunId }, config.logsRoot);
+  writeSupervisorState(child.spec.runId, { state: "submitted", parentSupervisorRunId: source.supervisorRunId, specSha256: child.specSha256 }, config.logsRoot);
   counts.systemdCalls += 1;
   counts.realMutationCalls += 1;
   const submitted = startUnit(child.spec.runId);
@@ -632,6 +638,34 @@ function validateOutageRecoveryTargetForSource({ source, recovery, recoveryState
   return { ok: true, target, boundary };
 }
 
+function resolveCanonicalOutageState({ config, source, failure, stateKey }) {
+  const validation = validateExistingSourceIdentityForOutageState({ source, failure });
+  if (!validation.ok) return validation;
+  const correlation = buildCorrelation(source, validation.classification);
+  const canonicalKey = outageResubmissionStorageKey(correlation);
+  const explicitKey = typeof stateKey === "string" ? stateKey : stateKey ? outageResubmissionStorageKey(stateKey) : null;
+  if (explicitKey && explicitKey !== canonicalKey) {
+    return {
+      ok: true,
+      explicitConflict: true,
+      reasonCode: "outage_resubmission_state_key_conflict",
+      stateKey: canonicalKey,
+      eligibility: null,
+      correlation,
+    };
+  }
+  const loaded = loadOutageResubmissionState(config, canonicalKey);
+  return {
+    ok: true,
+    explicitConflict: false,
+    reasonCode: loaded.ok ? "canonical_outage_state_loaded" : loaded.reasonCode,
+    stateKey: canonicalKey,
+    loaded,
+    eligibility: null,
+    correlation,
+  };
+}
+
 function recoveryOnlyTargetFromState(state, outageState) {
   return {
     taskKey: state.taskKey || null,
@@ -743,6 +777,11 @@ function canonicalizeChildRepresentations(children) {
 
 function classifyChildCorrelation(child, source, outageState) {
   const sourceFields = sourceCorrelationChecks(child, source, outageState);
+  const missingExpectedMarker = sourceFields
+    .filter((check) => ["attemptNumber", "outageFingerprint", "markerKey", "childSpecDigest"].includes(check.field))
+    .filter((check) => check.expected === null || check.expected === undefined)
+    .map((check) => check.field);
+  if (missingExpectedMarker.length > 0) return { kind: "indeterminate", missing: missingExpectedMarker };
   if (sourceFields.every((check) => correlationFieldMatches(check))) return { kind: "exact" };
 
   const markerIdentityFields = new Set(["attemptNumber", "outageFingerprint", "markerKey"]);
@@ -762,7 +801,12 @@ function classifyChildCorrelation(child, source, outageState) {
 
   const markerIdentity = sourceFields.filter((check) => markerIdentityFields.has(check.field));
   const markerConflict = markerIdentity.some((check) => check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected);
-  if (markerConflict) return { kind: "unrelated" };
+  if (markerConflict) {
+    return {
+      kind: "identity_mismatch",
+      mismatches: markerIdentity.filter((check) => correlationFieldMismatches(check)).map((check) => check.field),
+    };
+  }
 
   const strictOptionalMismatches = sourceCore
     .filter((check) => strictOptionalExactFields.has(check.field))
@@ -909,6 +953,22 @@ function isTerminalChild(child) {
 
 function isTerminalOutageStatus(status) {
   return ["recovered", "exhausted", "blocked"].includes(status);
+}
+
+function terminalChildResult(outageState, child) {
+  if (!isTerminalChild(child)) return null;
+  const terminalStatus = child.terminalOutcome === "completed" || child.state === "completed" ? "recovered" : "blocked";
+  const reasonCode = terminalStatus === "recovered" ? "confirmed_child_recovered" : "confirmed_child_terminal_blocked";
+  return {
+    terminalStatus,
+    reasonCode,
+    outageState: transitionOutageMarker(outageState, {
+      status: terminalStatus,
+      childSupervisorRunId: child.runId,
+      specDigest: outageState.mutationMarker?.specDigest || childDigest(child),
+      reasonCode,
+    }),
+  };
 }
 
 function selectCurrentOutageState(states = []) {

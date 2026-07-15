@@ -7176,6 +7176,7 @@ function cliRecoveryState(overrides = {}) {
       baseRefName: "main",
       state: "OPEN",
     },
+    outageResubmission: cliOutageBinding(),
     ...overrides,
   });
 }
@@ -7191,10 +7192,20 @@ function targetForCliRecovery(recoveryState) {
     prHeadSha: recoveryState.pr.headSha,
     runnerRunId: recoveryState.run.runId,
     supervisorRunId: recoveryState.run.supervisorRunId,
+    originalSupervisorSpecDigest: recoveryState.outageResubmission?.originalSupervisorSpecDigest,
+    markerKey: recoveryState.outageResubmission?.markerKey,
+    outageFingerprint: recoveryState.outageResubmission?.outageFingerprint,
+    attemptNumber: recoveryState.outageResubmission?.attemptNumber,
+  };
+}
+
+function cliOutageBinding(overrides = {}) {
+  return {
     originalSupervisorSpecDigest: "d".repeat(64),
     markerKey: "e".repeat(64),
     outageFingerprint: "f".repeat(64),
     attemptNumber: 1,
+    ...overrides,
   };
 }
 

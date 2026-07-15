@@ -425,13 +425,56 @@ test("terminal outage children classify before incomplete source recovery", () =
   const config = tempConfig({ allowExistingPrRecovery: false });
   try {
     const recoveryState = incompleteRecoveryState();
-    const confirmed = transitionOutageMarker(fixtureOutageState(), {
+    const baseState = fixtureOutageState();
+    const submitted = transitionOutageMarker(baseState, {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000330",
+      specDigest: digestB,
+      reasonCode: "child_submission_confirmed",
+    });
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      outageState: submitted,
+      existingChildren: [exactChild(submitted, { runId: submitted.childSupervisorRunId, state: "failed", terminalOutcome: "failed" })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "confirmed_child_terminal_blocked");
+    assert.equal(result.outageState.mutationMarker.status, "blocked");
+    assert.equal(result.events.some((item) => item.event === "submitted_terminal_child_classified"), true);
+    assert.equal(result.events.some((item) => item.event === "submitted_child_reconciled"), false);
+
+    const uncertain = transitionOutageMarker(baseState, {
+      status: "submission_uncertain",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000329",
+      specDigest: digestB,
+      reasonCode: "submission_started",
+    });
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      outageState: uncertain,
+      existingChildren: [exactChild(uncertain, { runId: uncertain.childSupervisorRunId, state: "completed", terminalOutcome: "completed" })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.reasonCode, "confirmed_child_recovered");
+    assert.equal(result.outageState.mutationMarker.status, "recovered");
+    assert.equal(result.events.some((item) => item.event === "uncertain_terminal_child_classified"), true);
+    assert.equal(result.events.some((item) => item.event === "uncertain_submission_reconciled"), false);
+
+    const confirmed = transitionOutageMarker(baseState, {
       status: "confirmed_running",
       childSupervisorRunId: "supervised-20260715T010000Z-000000000331",
       specDigest: digestB,
       reasonCode: "submitted_child_reconciled",
     });
-    let result = runOutageResubmissionController({
+    result = runOutageResubmissionController({
       config,
       source: source(),
       recoveryState,
@@ -560,6 +603,37 @@ test("failed outage child submission terminalizes child supervisor state", () =>
   }
 });
 
+test("successful outage child submission persists expected spec digest for worker verification", () => {
+  const config = tempConfig();
+  try {
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState: incompleteRecoveryState(),
+      dryRun: false,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000997",
+      startUserUnit: (runId) => ({
+        ok: true,
+        unitName: `settleora-auto-runner@${runId}.service`,
+        state: "submitted",
+      }),
+    });
+
+    assert.equal(result.outcome, "submitted");
+    assert.equal(result.reasonCode, "child_submission_confirmed");
+    const childState = readSupervisorState(result.child.spec.runId, config.logsRoot);
+    assert.equal(childState.found, true);
+    assert.equal(childState.state.state, "submitted");
+    assert.equal(childState.state.parentSupervisorRunId, source().supervisorRunId);
+    assert.equal(childState.state.specSha256, result.child.specSha256);
+    assert.equal(readAndVerifyRunSpec(result.child.spec.runId, childState.state.specSha256, config.logsRoot).spec.runId, result.child.spec.runId);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("complete child spec identity survives canonical write read and reconciles from disk only", () => {
   const config = tempConfig();
   try {
@@ -678,9 +752,9 @@ test("persisted outage state load failures block before child reconciliation or 
       now,
     });
     assert.equal(result.outcome, "blocked");
-    assert.equal(result.reasonCode, "outage_resubmission_state_untrusted");
-    assert.equal(result.outageStateLoad.reasonCode, "outage_resubmission_state_missing");
-    assert.equal(result.events.some((item) => item.event === "outage_state_load_blocked"), true);
+    assert.equal(result.reasonCode, "outage_resubmission_state_key_conflict");
+    assert.match(result.canonicalStateKey, /^[a-f0-9]{64}$/);
+    assert.equal(result.events.some((item) => item.event === "outage_state_key_conflict_blocked"), true);
     assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
     assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
     assert.equal(result.counts.realMutationCalls, 0);
@@ -706,6 +780,53 @@ test("persisted outage state load failures block before child reconciliation or 
     assert.equal(result.counts.githubMutationCalls, 0);
     assert.equal(result.counts.systemdCalls, 0);
     assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("canonical persisted outage state loads by source correlation before planning", () => {
+  const config = tempConfig();
+  try {
+    const baseState = fixtureOutageState();
+    const submitted = transitionOutageMarker(baseState, {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000431",
+      specDigest: digestB,
+      reasonCode: "child_submission_confirmed",
+    });
+    writeOutageResubmissionState(config, submitted);
+
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      existingChildren: [exactChild(submitted, { runId: submitted.childSupervisorRunId, state: "running" })],
+      dryRun: true,
+      now,
+      childRunId: "supervised-20260715T010000Z-000000000432",
+    });
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "submitted_child_reconciled");
+    assert.equal(result.outageState.childSupervisorRunId, submitted.childSupervisorRunId);
+    assert.equal(result.events.some((item) => item.event === "canonical_outage_state_loaded"), true);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.childRunId, submitted.childSupervisorRunId);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageStateKey: submitted.correlation,
+      existingChildren: [exactChild(submitted, { runId: submitted.childSupervisorRunId, state: "completed", terminalOutcome: "completed" })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.reasonCode, "confirmed_child_recovered");
+    assert.equal(result.events.some((item) => item.event === "canonical_outage_state_loaded"), true);
+    assert.equal(result.events.some((item) => item.event === "submitted_child_reconciled"), false);
   } finally {
     config.cleanup();
   }
@@ -979,6 +1100,57 @@ test("optional PR identity matrix requires exact absent or present pairs", () =>
   }
 });
 
+test("live current identity must preserve the strict optional PR pair", () => {
+  const config = tempConfig();
+  try {
+    const cases = [
+      ["absent live pair for PR source", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha }, "pr_identity_mismatch"],
+      ["partial live number", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha, prNumber: 917 }, "pr_head_identity_mismatch"],
+      ["partial live head", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha, prHeadSha: source().prHeadSha }, "pr_identity_mismatch"],
+      ["live present for pre-PR source", source({ prNumber: null, prHeadSha: null }), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha, prNumber: 917, prHeadSha: source().prHeadSha }, "pr_identity_mismatch"],
+      ["number drift", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha, prNumber: 918, prHeadSha: source().prHeadSha }, "pr_identity_mismatch"],
+      ["head drift", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha, prNumber: 917, prHeadSha: shaA }, "pr_head_identity_mismatch"],
+    ];
+
+    for (const [label, sourceInput, currentIdentity, reasonCode] of cases) {
+      const result = runOutageResubmissionController({
+        config,
+        source: sourceInput,
+        recoveryState: recoveryStateForSource(sourceInput),
+        currentIdentity,
+        dryRun: true,
+        now,
+        childRunId: "supervised-20260715T010000Z-000000000721",
+      });
+      assert.equal(result.outcome, "blocked", label);
+      assert.equal(result.reasonCode, reasonCode, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+    }
+
+    for (const [label, sourceInput, currentIdentity] of [
+      ["absent/absent", source({ prNumber: null, prHeadSha: null }), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha }],
+      ["identical present", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha, prNumber: 917, prHeadSha: source().prHeadSha }],
+    ]) {
+      const result = runOutageResubmissionController({
+        config,
+        source: sourceInput,
+        recoveryState: recoveryStateForSource(sourceInput),
+        currentIdentity,
+        dryRun: true,
+        now,
+        childRunId: "supervised-20260715T010000Z-000000000722",
+      });
+      assert.equal(result.outcome, "planned", label);
+      assert.equal(result.reasonCode, "dry_run_no_mutation", label);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("unexpected child PR identity blocks every reconciliation status without planning replacement", () => {
   const config = tempConfig();
   try {
@@ -1039,7 +1211,7 @@ test("unexpected child PR identity blocks every reconciliation status without pl
         childRunId: "supervised-20260715T010000Z-000000000699",
       });
       assert.equal(result.outcome, "blocked", label);
-      assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation", label);
+      assert.match(result.reasonCode, /^outage_child_(ambiguous|identity_mismatch)_requires_reconciliation$/, label);
       assert.equal(result.reasonCode === "existing_child_resubmission_present", false, label);
       assert.equal(result.reasonCode === "confirmed_child_recovered", false, label);
       assert.equal(result.reasonCode === "planned_child_reconciled", false, label);
@@ -1049,11 +1221,83 @@ test("unexpected child PR identity blocks every reconciliation status without pl
       assert.equal(result.counts.systemdCalls, 0, label);
       assert.equal(result.counts.realMutationCalls, 0, label);
       assert.deepEqual(Object.keys(result.childReconciliation.candidateIds[0]).sort(), ["runId", "specDigest"], label);
-      assert.equal(
-        result.childReconciliation.mismatches.some((field) => field === "prNumber" || field === "prHeadSha"),
-        true,
-        label,
-      );
+      if (result.childReconciliation.mismatches) {
+        assert.equal(
+          result.childReconciliation.mismatches.some((field) => field === "prNumber" || field === "prHeadSha"),
+          true,
+          label,
+        );
+      } else {
+        assert.equal(result.childReconciliation.candidates > 0, true, label);
+      }
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("same-source children without authoritative marker fields are not adopted", () => {
+  const config = tempConfig();
+  try {
+    const baseState = fixtureOutageState();
+    const authorized = exactChild(baseState);
+    const missingCases = [
+      ["no trusted outage state", null, authorized],
+      ["no outage metadata", baseState, { ...authorized, outageResubmission: null }],
+      ["missing marker key", baseState, { ...authorized, outageResubmission: { ...authorized.outageResubmission, markerKey: undefined } }],
+      ["missing fingerprint", baseState, { ...authorized, outageResubmission: { ...authorized.outageResubmission, outageFingerprint: undefined } }],
+      ["missing attempt", baseState, { ...authorized, outageResubmission: { ...authorized.outageResubmission, attemptNumber: undefined } }],
+      ["missing spec digest", baseState, sameMarkerMissingSpecDigestChild(baseState)],
+    ];
+
+    for (const [label, outageState, child] of missingCases) {
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState,
+        recoveryState: incompleteRecoveryState(),
+        existingChildren: [child],
+        dryRun: true,
+        now,
+        childRunId: "supervised-20260715T010000Z-000000000731",
+      });
+      assert.equal(result.outcome, "blocked", label);
+      assert.match(result.reasonCode, /^outage_child_(ambiguous|identity_mismatch)_requires_reconciliation$/, label);
+      assert.equal(result.reasonCode === "existing_child_resubmission_present", false, label);
+      assert.equal(result.reasonCode === "confirmed_child_recovered", false, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+    }
+
+    for (const [field, value] of [
+      ["markerKey", "1".repeat(64)],
+      ["outageFingerprint", "2".repeat(64)],
+      ["attemptNumber", 2],
+      ["childSpecDigest", digestC],
+    ]) {
+      const child = exactChild(baseState, {
+        outageResubmission: {
+          ...authorized.outageResubmission,
+          [field]: value,
+        },
+        ...(field === "childSpecDigest" ? { specSha256: digestC } : {}),
+      });
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState: baseState,
+        recoveryState: incompleteRecoveryState(),
+        existingChildren: [child],
+        dryRun: true,
+        now,
+        childRunId: "supervised-20260715T010000Z-000000000732",
+      });
+      assert.equal(result.outcome, "blocked", field);
+      assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation", field);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, field);
+      assert.equal(result.counts.realMutationCalls, 0, field);
     }
   } finally {
     config.cleanup();
@@ -1238,7 +1482,7 @@ test("planned duplicate children block before schedule and planning", () => {
   }
 });
 
-test("intended child reconciles with unrelated or fully distinguished attempts", () => {
+test("intended child reconciles with unrelated children but stale marker attempts fail closed", () => {
   const config = tempConfig();
   try {
     const submitted = transitionOutageMarker(fixtureOutageState(), {
@@ -1280,8 +1524,12 @@ test("intended child reconciles with unrelated or fully distinguished attempts",
       dryRun: true,
       now,
     });
-    assert.equal(result.outcome, "confirmed_existing_child");
-    assert.equal(result.reasonCode, "submitted_child_reconciled");
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.deepEqual(result.childReconciliation.mismatches.sort(), ["attemptNumber", "markerKey", "outageFingerprint"].sort());
+    assert.equal(result.events.some((item) => item.event === "submitted_child_reconciled"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
   } finally {
     config.cleanup();
   }

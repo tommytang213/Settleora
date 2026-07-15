@@ -159,6 +159,7 @@ export function createInitialRecoveryState({
   firstIncompleteAction = "claim_issue",
   featureBundle = null,
   generatedWork = null,
+  outageResubmission = null,
 }) {
   const now = new Date().toISOString();
   const state = {
@@ -187,6 +188,7 @@ export function createInitialRecoveryState({
     evidence: emptyEvidenceBindings(currentHeadSha || baseSha || null),
     featureBundle,
     generatedWork,
+    outageResubmission: normalizeOutageResubmissionBinding(outageResubmission),
     mutationMarkers: {},
     stopReason: null,
     nextSafeAction: firstIncompleteAction,
@@ -445,7 +447,25 @@ function validateRecoveryStateShape(state) {
     }
   }
   if (!state.evidence || typeof state.evidence !== "object" || Array.isArray(state.evidence)) return invalid("invalid evidence");
+  if (state.outageResubmission !== undefined && state.outageResubmission !== null) {
+    const binding = state.outageResubmission;
+    if (!binding || typeof binding !== "object" || Array.isArray(binding)) return invalid("invalid outage resubmission binding");
+    if (!isDigest(binding.originalSupervisorSpecDigest)) return invalid("invalid outage resubmission spec digest");
+    if (!isDigest(binding.markerKey)) return invalid("invalid outage resubmission marker key");
+    if (!isDigest(binding.outageFingerprint)) return invalid("invalid outage resubmission fingerprint");
+    if (!Number.isSafeInteger(binding.attemptNumber) || binding.attemptNumber < 1 || binding.attemptNumber > 20) return invalid("invalid outage resubmission attempt");
+  }
   return { ok: true };
+}
+
+function normalizeOutageResubmissionBinding(value) {
+  if (!value) return null;
+  return {
+    originalSupervisorSpecDigest: isDigest(value.originalSupervisorSpecDigest) ? value.originalSupervisorSpecDigest : null,
+    markerKey: isDigest(value.markerKey) ? value.markerKey : null,
+    outageFingerprint: isDigest(value.outageFingerprint) ? value.outageFingerprint : null,
+    attemptNumber: Number.isSafeInteger(value.attemptNumber) ? value.attemptNumber : null,
+  };
 }
 
 function emptyEvidenceBindings(headSha) {
@@ -477,6 +497,10 @@ function digestStringArray(values) {
 
 function isShaOrNull(value) {
   return value === null || /^[a-f0-9]{40}$/.test(String(value || ""));
+}
+
+function isDigest(value) {
+  return /^[a-f0-9]{64}$/.test(String(value || ""));
 }
 
 function bounded(value, max) {

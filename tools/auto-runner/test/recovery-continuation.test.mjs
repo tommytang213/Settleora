@@ -55,6 +55,7 @@ function recoveryWithPr(overrides = {}) {
       baseRefName: "main",
       state: "OPEN",
     },
+    outageResubmission: outageBinding(),
     ...overrides,
   });
 }
@@ -91,10 +92,20 @@ function targetFor(recoveryState) {
     prHeadSha: recoveryState.pr.headSha,
     runnerRunId: recoveryState.run.runId,
     supervisorRunId: recoveryState.run.supervisorRunId,
+    originalSupervisorSpecDigest: recoveryState.outageResubmission?.originalSupervisorSpecDigest,
+    markerKey: recoveryState.outageResubmission?.markerKey,
+    outageFingerprint: recoveryState.outageResubmission?.outageFingerprint,
+    attemptNumber: recoveryState.outageResubmission?.attemptNumber,
+  };
+}
+
+function outageBinding(overrides = {}) {
+  return {
     originalSupervisorSpecDigest: "d".repeat(64),
     markerKey: "e".repeat(64),
     outageFingerprint: "f".repeat(64),
     attemptNumber: 1,
+    ...overrides,
   };
 }
 
@@ -198,6 +209,11 @@ test("targeted outage recovery handles exact and near-match partitions without o
         supervisorRunId: "supervised-20260713T113001Z-abcdefabcdef",
       }),
     ],
+    ["originalSupervisorSpecDigest", recoveryWithPr({ runId: "run-2026-07-13T113106Z", outageResubmission: outageBinding({ originalSupervisorSpecDigest: "1".repeat(64) }) })],
+    ["markerKey", recoveryWithPr({ runId: "run-2026-07-13T113107Z", outageResubmission: outageBinding({ markerKey: "2".repeat(64) }) })],
+    ["outageFingerprint", recoveryWithPr({ runId: "run-2026-07-13T113108Z", outageResubmission: outageBinding({ outageFingerprint: "3".repeat(64) }) })],
+    ["attemptNumber", recoveryWithPr({ runId: "run-2026-07-13T113109Z", outageResubmission: outageBinding({ attemptNumber: 2 }) })],
+    ["missingMarkerBinding", recoveryWithPr({ runId: "run-2026-07-13T113110Z", outageResubmission: null })],
     ["missingTargetField", recoveryWithPr({ runId: "run-2026-07-13T113104Z", pr: { ...exact.pr, headSha: null } })],
   ];
 

@@ -359,6 +359,10 @@ function compareRecoveryStateToTarget(state, target) {
     ["prHeadSha", state.pr?.headSha || null, target.prHeadSha],
     ["runnerRunId", state.run?.runId || null, target.runnerRunId],
     ["supervisorRunId", state.run?.supervisorRunId || null, target.supervisorRunId],
+    ["originalSupervisorSpecDigest", state.outageResubmission?.originalSupervisorSpecDigest || null, target.originalSupervisorSpecDigest],
+    ["markerKey", state.outageResubmission?.markerKey || null, target.markerKey],
+    ["outageFingerprint", state.outageResubmission?.outageFingerprint || null, target.outageFingerprint],
+    ["attemptNumber", state.outageResubmission?.attemptNumber || null, target.attemptNumber],
   ];
   const mismatch = checks.find(([, actual, expected]) => actual !== expected);
   if (mismatch) return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
