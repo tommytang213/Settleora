@@ -47,19 +47,21 @@ export function buildOutageResubmissionStatus(config = {}) {
   } catch {
     states = [];
   }
-  const active = states.find((state) => !["recovered", "exhausted", "blocked"].includes(state.status)) || null;
+  const active = states.find((state) => !isTerminalOutageStatus(state.status)) || null;
+  const terminal = active ? null : [...states].reverse().find((state) => isTerminalOutageStatus(state.status)) || null;
+  const statusSource = active || terminal || null;
   return {
     enabled: policy.allowBoundedOutageResubmission,
     defaultOff: policy.allowBoundedOutageResubmission !== true,
     activeSourceRun: active ? summarizeOutageState(active) : null,
-    attemptCount: active?.mutationMarker?.attemptNumber || 0,
+    attemptCount: statusSource?.mutationMarker?.attemptNumber || 0,
     maxAttempts: policy.maxAttempts,
     nextEligibleAt: active?.schedule?.nextEligibleAt || null,
-    deadlineAt: active?.schedule?.deadlineAt || null,
-    circuitState: active?.circuit?.state || "closed",
-    lastSanitizedReason: active?.outage?.reasonCode || active?.mutationMarker?.reasonCode || null,
-    childRunId: active?.childSupervisorRunId || null,
-    terminalOutcome: active && ["recovered", "exhausted", "blocked"].includes(active.status) ? active.status : null,
+    deadlineAt: statusSource?.schedule?.deadlineAt || null,
+    circuitState: statusSource?.circuit?.state || "closed",
+    lastSanitizedReason: statusSource?.mutationMarker?.reasonCode || statusSource?.outage?.reasonCode || null,
+    childRunId: statusSource?.childSupervisorRunId || null,
+    terminalOutcome: terminal?.status || null,
     recordCount: states.length,
   };
 }
@@ -86,15 +88,7 @@ export function runOutageResubmissionController(input = {}) {
   if (input.lock?.active) return result("blocked", "active_lock", { events, counts });
   if (input.lock?.stale && input.lock?.safeToClear !== true) return result("blocked", "stale_lock_requires_existing_policy", { events, counts });
 
-  event("recovery_state_inspected");
   const recovery = input.recoveryState || null;
-  if (recovery && !["completed", "stopped"].includes(recovery.phase)) {
-    const boundary = firstIncompleteContinuationAction(recovery);
-    if (boundary.ok) {
-      event("recoverable_state_wins", { phase: recovery.phase, nextSafeAction: recovery.nextSafeAction });
-      return result("resume_recovery", "existing_recoverable_state_first", { events, counts, recoveryBoundary: boundary });
-    }
-  }
 
   const source = input.source || {};
   const stateKey = input.outageStateKey || source.outageStateKey || null;
@@ -116,7 +110,7 @@ export function runOutageResubmissionController(input = {}) {
     return result("blocked", childReconciliation.reasonCode, { events, counts, outageState: existingOutageState, childReconciliation });
   }
   const existingChild = childReconciliation.child;
-  if (existingOutageState && ["recovered", "exhausted", "blocked"].includes(existingOutageState.mutationMarker?.status || existingOutageState.status)) {
+  if (existingOutageState && isTerminalOutageStatus(existingOutageState.mutationMarker?.status || existingOutageState.status)) {
     event("terminal_outage_marker_preserved", { status: existingOutageState.status });
     return result("noop", "terminal_outage_marker_preserved", { events, counts, outageState: existingOutageState });
   }
@@ -190,6 +184,15 @@ export function runOutageResubmissionController(input = {}) {
     return result("noop", "existing_child_resubmission_present", { events, counts, childRunId: existingChild.runId });
   }
 
+  event("recovery_state_inspected");
+  if (recovery && !["completed", "stopped"].includes(recovery.phase)) {
+    const boundary = firstIncompleteContinuationAction(recovery);
+    if (boundary.ok) {
+      event("recoverable_state_wins", { phase: recovery.phase, nextSafeAction: recovery.nextSafeAction });
+      return result("resume_recovery", "existing_recoverable_state_first", { events, counts, outageState: existingOutageState, recoveryBoundary: boundary });
+    }
+  }
+
   event("source_eligibility_checked");
   const eligibility = evaluateSourceRunEligibility({ config, source, failure: input.failure });
   if (!eligibility.eligible) {
@@ -253,6 +256,24 @@ export function runOutageResubmissionController(input = {}) {
     classification: eligibility.classification,
   });
   if (!finalGate.allowed) {
+    if (isExhaustionReason(finalGate.reasonCode)) {
+      return terminalizeOutageExhaustion({
+        config,
+        source,
+        existingOutageState,
+        correlation,
+        classification: eligibility.classification,
+        schedule,
+        circuit,
+        finalGate,
+        policy,
+        dryRun,
+        events,
+        counts,
+        event,
+        writeState: input.writeOutageState || writeOutageResubmissionState,
+      });
+    }
     event(finalGate.reasonCode === "operator_pause" || finalGate.reasonCode === "operator_stop" ? "operator_pause_stop" : "resubmission_deferred", finalGate);
     return result("deferred", finalGate.reasonCode, { events, counts, circuit, schedule, classification: eligibility.classification });
   }
@@ -323,6 +344,87 @@ export function runOutageResubmissionController(input = {}) {
   writeOutageResubmissionState(config, confirmed);
   event("child_submission_confirmed", { childSupervisorRunId: child.spec.runId });
   return result("submitted", "child_submission_confirmed", { events, counts, outageState: confirmed, child, submitted });
+}
+
+function terminalizeOutageExhaustion({
+  config,
+  source,
+  existingOutageState,
+  correlation,
+  classification,
+  schedule,
+  circuit,
+  finalGate,
+  policy,
+  dryRun,
+  events,
+  counts,
+  event,
+  writeState,
+}) {
+  const reasonCode = finalGate.reasonCode;
+  const terminalEvent = reasonCode === "outage_resubmission_attempts_exhausted" ? "outage_attempts_exhausted" : "outage_wall_clock_exhausted";
+  const exhaustedState = existingOutageState
+    ? transitionOutageMarker(existingOutageState, { status: "exhausted", reasonCode })
+    : createOutageResubmissionState({
+        correlation,
+        outage: {
+          providerDomain: classification.providerDomain,
+          outageClass: classification.outageClass,
+          outageFingerprint: classification.fingerprint,
+          firstFailureAt: source.firstFailureAt,
+          lastFailureAt: source.lastFailureAt,
+          reasonCode: classification.reasonCode,
+        },
+        schedule: {
+          attemptNumber: source.attemptNumber || policy.maxAttempts,
+          nextEligibleAt: schedule.nextEligibleAt || schedule.deadlineAt,
+          deadlineAt: schedule.deadlineAt,
+          maxAttempts: policy.maxAttempts,
+          maxWallClockMs: policy.maxWallClockMs,
+        },
+        circuit,
+        status: "exhausted",
+        reasonCode,
+      });
+
+  event(terminalEvent, { reasonCode, attemptNumber: exhaustedState.mutationMarker.attemptNumber });
+  event("outage_terminal_exhaustion_intent", {
+    reasonCode,
+    dedupeKey: `${exhaustedState.mutationMarker.key}:exhausted:${reasonCode}`,
+  });
+
+  if (!dryRun) {
+    try {
+      writeState(config, exhaustedState);
+    } catch (error) {
+      event("outage_exhaustion_persistence_failed", { reasonCode, detail: error.message });
+      return result("blocked", "outage_exhaustion_persistence_failed", {
+        events,
+        counts,
+        circuit,
+        schedule,
+        classification,
+        outageState: existingOutageState || null,
+      });
+    }
+  }
+
+  return result("exhausted", reasonCode, {
+    events,
+    counts,
+    circuit,
+    schedule,
+    classification,
+    outageState: exhaustedState,
+    notificationIntent: {
+      kind: "outage_terminal_exhaustion",
+      event: terminalEvent,
+      dedupeKey: `${exhaustedState.mutationMarker.key}:exhausted:${reasonCode}`,
+      reasonCode,
+    },
+    durable: dryRun ? false : true,
+  });
 }
 
 function buildChildRunPlan({ config, source, state, now, childRunId }) {
@@ -531,6 +633,14 @@ function childDigest(child) {
 
 function isTerminalChild(child) {
   return child?.terminal === true || ["completed", "failed", "blocked", "cancelled", "partial"].includes(child?.state) || Boolean(child?.terminalOutcome);
+}
+
+function isTerminalOutageStatus(status) {
+  return ["recovered", "exhausted", "blocked"].includes(status);
+}
+
+function isExhaustionReason(reasonCode) {
+  return ["outage_resubmission_attempts_exhausted", "outage_resubmission_wall_clock_exhausted"].includes(reasonCode);
 }
 
 function summarizeOutageState(state) {

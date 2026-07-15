@@ -44,8 +44,16 @@ export function createOutageResubmissionState({
   circuit = null,
   parentResubmissionId = null,
   marker = null,
+  status = marker?.status || "planned",
+  childSupervisorRunId = marker?.childSupervisorRunId || null,
+  reasonCode = marker?.reasonCode || null,
 }) {
   const now = new Date().toISOString();
+  const mutationMarker = marker || buildOutageResubmissionMarker({
+    correlation,
+    attemptNumber: schedule?.attemptNumber || outage?.attemptNumber || 1,
+    specDigest: correlation?.originalSupervisorSpecDigest,
+  });
   const state = sanitizeState({
     stateVersion: outageResubmissionStateVersion,
     correlation: canonicalCorrelation(correlation),
@@ -53,14 +61,15 @@ export function createOutageResubmissionState({
     schedule: canonicalSchedule(schedule),
     circuit: circuit ? canonicalCircuit(circuit) : null,
     parentResubmissionId: bounded(parentResubmissionId, 120) || null,
-    childSupervisorRunId: null,
-    mutationMarker: marker || buildOutageResubmissionMarker({
-      correlation,
-      attemptNumber: schedule?.attemptNumber || outage?.attemptNumber || 1,
-      specDigest: correlation?.originalSupervisorSpecDigest,
-    }),
+    childSupervisorRunId: bounded(childSupervisorRunId, 80) || null,
+    mutationMarker: {
+      ...mutationMarker,
+      status,
+      childSupervisorRunId: bounded(childSupervisorRunId, 80) || null,
+      reasonCode: bounded(reasonCode, 120) || null,
+    },
     attemptHistory: [],
-    status: "planned",
+    status,
     timestamps: {
       createdAt: now,
       updatedAt: now,
@@ -231,6 +240,7 @@ export function validateOutageResubmissionState(state) {
   if (!marker.ok) return marker;
   if (state.mutationMarker.status !== state.status) return invalid("mutation marker status mismatch");
   if (state.mutationMarker.attemptNumber !== state.schedule.attemptNumber) return invalid("mutation marker attempt mismatch");
+  if (state.schedule.attemptNumber > state.schedule.maxAttempts && state.status !== "exhausted") return invalid("attemptNumber exceeds maxAttempts");
   if ((state.correlation.outageProviderDomain || null) !== state.outage.providerDomain) return invalid("outage provider mismatch");
   if (state.correlation.outageFingerprint !== state.outage.outageFingerprint) return invalid("outage fingerprint mismatch");
   if (state.mutationMarker.childSupervisorRunId !== null && state.childSupervisorRunId !== state.mutationMarker.childSupervisorRunId) {
@@ -330,7 +340,6 @@ function validateSchedule(schedule) {
   if (!Number.isSafeInteger(schedule.maxWallClockMs) || schedule.maxWallClockMs < 60 * 1000 || schedule.maxWallClockMs > 30 * 24 * 60 * 60 * 1000) {
     return invalid("invalid maxWallClockMs");
   }
-  if (schedule.attemptNumber > schedule.maxAttempts) return invalid("attemptNumber exceeds maxAttempts");
   return { ok: true };
 }
 

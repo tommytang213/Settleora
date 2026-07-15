@@ -91,13 +91,17 @@ root in sanitized owner-only JSON written by temp file plus rename. Dedicated
 `outage_resubmission` markers move through `planned`,
 `submission_uncertain`, `submitted`, `confirmed_running`, `recovered`,
 `exhausted`, or `blocked` and are keyed from exact correlation, attempt, and
-spec digest. Uncertain submissions are reconciled against existing local
-supervisor state before any new child can be planned. Child specs persist the
-task key, current head SHA, and paired PR number/head SHA needed for later
+spec digest. Uncertain, submitted, confirmed-running, and planned-with-child
+markers are reconciled against existing local supervisor state before source
+recovery continuation or any new child planning can run. Child specs persist
+the task key, current head SHA, and paired PR number/head SHA needed for later
 disk-only reconciliation, and reject malformed, unpaired, or unknown outage
-metadata. A profile config digest mismatch blocks child planning before any
-submission. Head/base/PR drift invalidates old exact-head evidence instead of
-reusing it. Pause/stop and manual gates always win. The dry-run fixture path
+metadata. Attempt and wall-clock exhaustion persist a terminal `exhausted`
+marker when operator controls allow evaluation, so status and health stop
+reporting an active source run and repeated controller passes become stable
+terminal no-ops. A profile config digest mismatch blocks child planning before
+any submission. Head/base/PR drift invalidates old exact-head evidence instead
+of reusing it. Pause/stop and manual gates always win. The dry-run fixture path
 reports intended child specs and mutation-call counters only; production
 activation remains a separate manual #912 task.
 

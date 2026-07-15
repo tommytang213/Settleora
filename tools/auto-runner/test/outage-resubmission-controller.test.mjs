@@ -4,7 +4,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runOutageResubmissionController, evaluateSourceRunEligibility } from "../supervisor/outage-resubmission-controller.mjs";
-import { createOutageResubmissionState, outageResubmissionStatePath, transitionOutageMarker } from "../lib/outage-resubmission-state.mjs";
+import {
+  createOutageResubmissionState,
+  loadOutageResubmissionState,
+  outageResubmissionStatePath,
+  transitionOutageMarker,
+  writeOutageResubmissionState,
+} from "../lib/outage-resubmission-state.mjs";
 import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
 import { canonicalJson, readAndVerifyRunSpec, resolveProfile, sha256Text, writeImmutableRunSpec } from "../supervisor/run-spec.mjs";
 import { getRunnerStatus } from "../lib/control-plane.mjs";
@@ -36,21 +42,165 @@ test("source eligibility is not inferred from age or stopped state alone", () =>
 test("controller checks recovery before planning a new child", () => {
   const config = tempConfig();
   try {
-    const recoveryState = createInitialRecoveryState({
-      taskKey: "20260715-0013",
-      issue: { number: 913, title: "Outage", url: "u" },
-      runId: "run-2026-07-15T000000Z",
-      supervisorRunId: "supervised-20260715T000000Z-000000000001",
-      branchName: source().branchName,
-      baseSha: shaA,
-      currentHeadSha: shaB,
-      phase: "ci_wait",
-      firstIncompleteAction: "wait_for_checks",
-    });
+    const recoveryState = incompleteRecoveryState();
     const result = runOutageResubmissionController({ config, source: source(), recoveryState, dryRun: true, now });
     assert.equal(result.outcome, "resume_recovery");
     assert.equal(result.reasonCode, "existing_recoverable_state_first");
     assert.equal(result.events.map((item) => item.event).includes("recoverable_state_wins"), true);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("pending outage children reconcile before incomplete source recovery", () => {
+  const config = tempConfig();
+  try {
+    const recoveryState = incompleteRecoveryState();
+    const baseState = fixtureOutageState();
+    const uncertain = transitionOutageMarker(baseState, {
+      status: "submission_uncertain",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000311",
+      specDigest: digestB,
+      reasonCode: "submission_started",
+    });
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      outageState: uncertain,
+      existingChildren: [exactChild(uncertain, { runId: uncertain.childSupervisorRunId })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "uncertain_submission_reconciled");
+    assert.equal(result.events.some((item) => item.event === "recoverable_state_wins"), false);
+    assert(result.events.findIndex((item) => item.event === "outage_marker_reconciled") < result.events.findIndex((item) => item.event === "uncertain_submission_reconciled"));
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    result = runOutageResubmissionController({ config, source: source(), recoveryState, outageState: uncertain, existingChildren: [], dryRun: true, now });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "uncertain_submission_requires_reconciliation");
+    assert.equal(result.events.some((item) => item.event === "recoverable_state_wins"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("submitted and confirmed outage children win before incomplete source recovery", () => {
+  const config = tempConfig();
+  try {
+    const recoveryState = incompleteRecoveryState();
+    const baseState = fixtureOutageState();
+    const submitted = transitionOutageMarker(baseState, {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000321",
+      specDigest: digestB,
+      reasonCode: "child_submission_confirmed",
+    });
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      outageState: submitted,
+      existingChildren: [exactChild(submitted, { runId: submitted.childSupervisorRunId })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "confirmed_existing_child");
+    assert.equal(result.reasonCode, "submitted_child_reconciled");
+    assert.equal(result.events.some((item) => item.event === "recoverable_state_wins"), false);
+
+    result = runOutageResubmissionController({ config, source: source(), recoveryState, outageState: submitted, existingChildren: [], dryRun: true, now });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "submitted_child_missing_requires_reconciliation");
+
+    const confirmed = transitionOutageMarker(baseState, {
+      status: "confirmed_running",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000322",
+      specDigest: digestB,
+      reasonCode: "submitted_child_reconciled",
+    });
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      outageState: confirmed,
+      existingChildren: [exactChild(confirmed, { runId: confirmed.childSupervisorRunId, state: "running" })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "observed");
+    assert.equal(result.reasonCode, "confirmed_running_child_observed");
+    assert.equal(result.events.some((item) => item.event === "recoverable_state_wins"), false);
+    assert.equal(result.events.some((item) => item.event === "circuit_checked"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("terminal outage children classify before incomplete source recovery", () => {
+  const config = tempConfig();
+  try {
+    const recoveryState = incompleteRecoveryState();
+    const confirmed = transitionOutageMarker(fixtureOutageState(), {
+      status: "confirmed_running",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000331",
+      specDigest: digestB,
+      reasonCode: "submitted_child_reconciled",
+    });
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      outageState: confirmed,
+      existingChildren: [exactChild(confirmed, { runId: confirmed.childSupervisorRunId, state: "completed", terminalOutcome: "completed" })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.reasonCode, "confirmed_child_recovered");
+    assert.equal(result.events.some((item) => item.event === "recoverable_state_wins"), false);
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      outageState: confirmed,
+      existingChildren: [exactChild(confirmed, { runId: confirmed.childSupervisorRunId, state: "failed", terminalOutcome: "failed" })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "confirmed_child_terminal_blocked");
+    assert.equal(result.events.some((item) => item.event === "recoverable_state_wins"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("incomplete recovery resumes only after no pending outage child requires action", () => {
+  const config = tempConfig();
+  try {
+    const recoveryState = incompleteRecoveryState();
+    let result = runOutageResubmissionController({ config, source: source(), recoveryState, dryRun: true, now });
+    assert.equal(result.outcome, "resume_recovery");
+    assert.equal(result.reasonCode, "existing_recoverable_state_first");
+    assert.ok(result.events.findIndex((item) => item.event === "outage_marker_reconciled") < result.events.findIndex((item) => item.event === "recoverable_state_wins"));
+
+    result = runOutageResubmissionController({ config, source: source(), recoveryState, outageState: fixtureOutageState(), existingChildren: [], dryRun: true, now });
+    assert.equal(result.outcome, "resume_recovery");
+    assert.equal(result.reasonCode, "existing_recoverable_state_first");
+    assert.equal(result.events.some((item) => item.event === "source_eligibility_checked"), false);
+    assert.equal(result.events.some((item) => item.event === "circuit_checked"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
     assert.equal(result.counts.realMutationCalls, 0);
   } finally {
     config.cleanup();
@@ -751,13 +901,124 @@ test("controller invalidates stale head evidence and treats merged or closed sou
 test("controller enforces attempt and wall-clock exhaustion without child creation", () => {
   const config = tempConfig();
   try {
-    assert.equal(runOutageResubmissionController({ config, source: { ...source(), attemptNumber: 4 }, dryRun: true, now }).reasonCode, "outage_resubmission_attempts_exhausted");
-    assert.equal(runOutageResubmissionController({
+    let result = runOutageResubmissionController({ config, source: { ...source(), attemptNumber: 4 }, dryRun: true, now });
+    assert.equal(result.outcome, "exhausted");
+    assert.equal(result.reasonCode, "outage_resubmission_attempts_exhausted");
+    assert.equal(result.outageState.status, "exhausted");
+    assert.equal(result.outageState.mutationMarker.reasonCode, "outage_resubmission_attempts_exhausted");
+    assert.equal(result.outageState.mutationMarker.attemptNumber, 4);
+    assert.equal(result.notificationIntent.kind, "outage_terminal_exhaustion");
+    assert.equal(result.durable, false);
+    assert.equal(result.events.filter((item) => item.event === "outage_terminal_exhaustion_intent").length, 1);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    result = runOutageResubmissionController({
       config,
       source: { ...source(), firstFailureAt: "2026-07-13T00:00:00.000Z", lastFailureAt: "2026-07-13T01:00:00.000Z" },
       dryRun: true,
       now,
-    }).reasonCode, "outage_resubmission_wall_clock_exhausted");
+    });
+    assert.equal(result.outcome, "exhausted");
+    assert.equal(result.reasonCode, "outage_resubmission_wall_clock_exhausted");
+    assert.equal(result.outageState.status, "exhausted");
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("terminal exhaustion persists existing state and reports inactive status", () => {
+  const config = tempConfig();
+  try {
+    const existing = fixtureOutageState();
+    writeOutageResubmissionState(config, existing);
+    const result = runOutageResubmissionController({
+      config,
+      source: { ...source(), firstFailureAt: "2026-07-13T00:00:00.000Z", lastFailureAt: "2026-07-13T01:00:00.000Z" },
+      outageState: existing,
+      dryRun: false,
+      now,
+    });
+    assert.equal(result.outcome, "exhausted");
+    assert.equal(result.reasonCode, "outage_resubmission_wall_clock_exhausted");
+    assert.equal(result.durable, true);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    const loaded = loadOutageResubmissionState(config, existing.correlation);
+    assert.equal(loaded.ok, true);
+    assert.equal(loaded.state.status, "exhausted");
+    assert.equal(loaded.state.mutationMarker.reasonCode, "outage_resubmission_wall_clock_exhausted");
+
+    const status = getRunnerStatus(config);
+    assert.equal(status.outageResubmission.activeSourceRun, null);
+    assert.equal(status.outageResubmission.terminalOutcome, "exhausted");
+    assert.equal(status.outageResubmission.lastSanitizedReason, "outage_resubmission_wall_clock_exhausted");
+    const health = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now, runnerStatus: status });
+    assert.equal(health.body.outageResubmission.activeSourceRun, null);
+    assert.equal(health.body.outageResubmission.terminalOutcome, "exhausted");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("repeated exhausted invocation is terminal no-op without duplicate notification", () => {
+  const config = tempConfig();
+  try {
+    const exhausted = runOutageResubmissionController({ config, source: { ...source(), attemptNumber: 4 }, dryRun: true, now }).outageState;
+    const repeated = runOutageResubmissionController({ config, source: { ...source(), attemptNumber: 4 }, outageState: exhausted, dryRun: true, now });
+    assert.equal(repeated.outcome, "noop");
+    assert.equal(repeated.reasonCode, "terminal_outage_marker_preserved");
+    assert.equal(repeated.notificationIntent, undefined);
+    assert.equal(repeated.events.some((item) => item.event === "outage_terminal_exhaustion_intent"), false);
+    assert.equal(repeated.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(repeated.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("operator pause defers terminal exhaustion write until next unpaused pass", () => {
+  const config = tempConfig();
+  try {
+    let result = runOutageResubmissionController({ config, source: { ...source(), attemptNumber: 4 }, operatorControl: { pause: true }, dryRun: false, now });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "operator_pause");
+    assert.equal(getRunnerStatus(config).outageResubmission.recordCount, 0);
+
+    result = runOutageResubmissionController({ config, source: { ...source(), attemptNumber: 4 }, dryRun: false, now });
+    assert.equal(result.outcome, "exhausted");
+    assert.equal(loadOutageResubmissionState(config, result.outageState.correlation).state.status, "exhausted");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("exhaustion persistence failure preserves prior state and does not claim durable terminal outcome", () => {
+  const config = tempConfig();
+  try {
+    const existing = fixtureOutageState();
+    const result = runOutageResubmissionController({
+      config,
+      source: { ...source(), attemptNumber: 4 },
+      outageState: existing,
+      dryRun: false,
+      now,
+      writeOutageState: () => {
+        throw new Error("synthetic_write_failure");
+      },
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_exhaustion_persistence_failed");
+    assert.equal(result.outageState, existing);
+    assert.equal(result.durable, undefined);
+    assert.equal(result.notificationIntent, undefined);
+    assert.equal(result.counts.realMutationCalls, 0);
+    assert.equal(result.events.some((item) => item.event === "outage_exhaustion_persistence_failed"), true);
   } finally {
     config.cleanup();
   }
@@ -857,6 +1118,20 @@ function fixtureOutageState() {
       maxAttempts: 3,
       maxWallClockMs: 24 * 60 * 60 * 1000,
     },
+  });
+}
+
+function incompleteRecoveryState() {
+  return createInitialRecoveryState({
+    taskKey: "20260715-0013",
+    issue: { number: 913, title: "Outage", url: "u" },
+    runId: "run-2026-07-15T000000Z",
+    supervisorRunId: "supervised-20260715T000000Z-000000000001",
+    branchName: source().branchName,
+    baseSha: shaA,
+    currentHeadSha: shaB,
+    phase: "ci_wait",
+    firstIncompleteAction: "wait_for_checks",
   });
 }
 

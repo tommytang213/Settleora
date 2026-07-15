@@ -233,14 +233,16 @@ example config. It does not restart itself forever, poll unrelated issues
 first, call GitHub issue/PR/branch/merge mutations, bypass recovery state, or
 execute shell commands from persisted/provider input.
 
-Each controller iteration is recovery-first:
+Each controller iteration is recovery-first, where reconciling an already
+submitted or uncertain outage child is part of recovering the same source run:
 
 1. read operator pause/stop control;
 2. verify locks and active state through existing lock policy;
-3. inspect recoverable recovery state;
-4. reconcile uncertain/pending outage markers;
-5. reconcile exact existing child supervisor runs;
-6. resume safe recovery when present;
+3. load and strictly validate persisted outage state;
+4. reconcile uncertain, submitted, confirmed-running, and planned-with-child
+   outage markers against exact existing child supervisor runs;
+5. preserve terminal outage markers;
+6. resume safe source recovery when no pending outage child requires action;
 7. only then consider a new bounded child resubmission.
 
 Source-run eligibility requires terminal or proven inactive source state,
@@ -257,7 +259,10 @@ persisted child spec and state only; incomplete historical child artifacts
 remain fail-closed operator-reconciliation evidence and are not backfilled from
 mutable source state. Dry-run/fixture mode plans the child spec and exposes
 mutation-call counters while making zero systemd, GitHub, or live supervisor
-submission calls.
+submission calls. Attempt or wall-clock exhaustion transitions the outage marker
+to terminal `exhausted`, reports no active source run in status/health, and is
+idempotent on later controller passes. Operator pause/stop remains higher
+priority and defers terminalization until a later allowed pass.
 
 Rollback is disabling `outageResubmission.allowBoundedOutageResubmission` in
 the external profile. Existing sanitized state is preserved for operator

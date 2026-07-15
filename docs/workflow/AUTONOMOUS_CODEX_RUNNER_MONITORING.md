@@ -258,9 +258,11 @@ webhook URLs, tokens, secrets, and full diffs are not stored.
 The health endpoint remains read-only. It exposes only a bounded
 `outageResubmission` summary: enabled/default-off posture, active source run,
 attempt count/budget, next eligible time, deadline, circuit state, last
-sanitized reason, child run ID, terminal outcome, and record count. Reading
-health never plans, submits, retries, pauses, resumes, relabels, comments,
-branches, merges, deletes locks, or writes notifier dedupe state.
+sanitized reason, child run ID, terminal outcome, and record count. Terminal
+`recovered`, `exhausted`, and `blocked` outage markers are not reported as
+active source runs. Reading health never plans, submits, retries, pauses,
+resumes, relabels, comments, branches, merges, deletes locks, or writes
+notifier dedupe state.
 
 The terminal notifier remains a separate one-shot activity notifier. Outage
 notifications are local sanitized intent until an existing notifier path later
