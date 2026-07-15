@@ -135,9 +135,13 @@ export function classifyOutageFailure(input = {}) {
   const domain = normalizeToken(input.domain || input.provider || "unknown");
   const reasonCode = normalizeToken(input.reasonCode || input.code || "");
   const trustedRateLimit = hasTrustedRateLimitEvidence(input);
-  const nonretryable = statusToNonretryable(status) || nonretryableReasonCodes.get(reasonCode);
-  if (nonretryable && !(status === 403 && trustedRateLimit)) {
-    return classification(false, nonretryable, domain, reasonCode || `http_${status}`, input);
+  const explicitNonretryable = nonretryableReasonCodes.get(reasonCode);
+  if (explicitNonretryable) {
+    return classification(false, explicitNonretryable, domain, reasonCode, input);
+  }
+  const statusNonretryable = statusToNonretryable(status);
+  if (statusNonretryable && !(status === 403 && trustedRateLimit)) {
+    return classification(false, statusNonretryable, domain, reasonCode || `http_${status}`, input);
   }
   const retryableClass = retryableClassFor({ status, domain, reasonCode, trustedRateLimit });
   if (retryableClass) return classification(true, retryableClass, domain, reasonCode || `http_${status}`, input);

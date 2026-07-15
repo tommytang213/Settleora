@@ -41,6 +41,29 @@ const githubApiTransportReasonCodes = Object.freeze([
   "network_unreachable",
   "routing_failure",
 ]);
+const nonretryableReasonAliases = Object.freeze([
+  ["missing_secret", "missing_or_invalid_secret_config"],
+  ["invalid_secret", "missing_or_invalid_secret_config"],
+  ["missing_config", "missing_or_invalid_secret_config"],
+  ["invalid_config", "missing_or_invalid_secret_config"],
+  ["dirty_worktree", "dirty_worktree"],
+  ["corrupt_state", "corrupt_state"],
+  ["stale_recovery_evidence", "stale_recovery_evidence"],
+  ["changed_base_head_pr_identity", "identity_drift"],
+  ["identity_drift", "identity_drift"],
+  ["merge_conflict", "merge_conflict"],
+  ["failed_tests", "failed_tests"],
+  ["failed_validation", "failed_validation"],
+  ["code_defect", "code_defect"],
+  ["review_finding", "review_finding"],
+  ["scanner_finding", "scanner_finding"],
+  ["policy_disagreement", "policy_disagreement"],
+  ["manual_gate", "manual_authority_destructive_decision"],
+  ["manual_decision", "manual_authority_destructive_decision"],
+  ["destructive_action", "manual_authority_destructive_decision"],
+  ["unsupported_source", "unsupported_source"],
+  ["terminal_application_failure", "terminal_application_failure"],
+]);
 
 test("strict classifier accepts only trusted retryable outage classes", () => {
   const cases = [
@@ -102,6 +125,66 @@ test("github api normalized reasons preserve precedence and fail closed outside 
   }
 });
 
+test("explicit terminal outage reasons take precedence over retryable outage evidence", () => {
+  const trustedHeaders = { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1784073900" };
+  const explicit403Cases = [
+    ["missing_secret", "missing_or_invalid_secret_config"],
+    ["dirty_worktree", "dirty_worktree"],
+    ["manual_gate", "manual_authority_destructive_decision"],
+    ["review_finding", "review_finding"],
+  ];
+  for (const [reasonCode, expected] of explicit403Cases) {
+    for (const evidence of [
+      { domain: "github_api", status: 403, trustedHeaders },
+      { domain: "github_api", status: 403, trustedRateLimit: true },
+    ]) {
+      const result = classifyOutageFailure({ ...evidence, reasonCode });
+      assert.equal(result.retryable, false, reasonCode);
+      assert.equal(result.outageClass, expected, reasonCode);
+      assert.equal(result.reasonCode, reasonCode, reasonCode);
+      assert.equal(result.rawBodyAccepted, false);
+    }
+  }
+
+  const retryableEvidence = [
+    [{ domain: "github_api", status: 429, reasonCode: "missing_secret" }, "missing_or_invalid_secret_config"],
+    [{ domain: "github_api", status: 503, reasonCode: "dirty_worktree" }, "dirty_worktree"],
+    [{ domain: "github_api", reasonCode: "manual_gate", code: "api_5xx" }, "manual_authority_destructive_decision"],
+    [{ domain: "codex_provider", status: 429, reasonCode: "review_finding" }, "review_finding"],
+    [{ domain: "reviewer_provider", status: 503, reasonCode: "manual_gate" }, "manual_authority_destructive_decision"],
+    [{ domain: "scanner_service", status: 429, reasonCode: "scanner_finding" }, "scanner_finding"],
+    [{ domain: "scanner_service", status: 503, reasonCode: "failed_validation" }, "failed_validation"],
+    [{ domain: "devbox_network", reasonCode: "terminal_application_failure", code: "tls_failure" }, "terminal_application_failure"],
+    [{ domain: "github_api", status: 401, reasonCode: "manual_gate" }, "manual_authority_destructive_decision"],
+    [{ domain: "github_api", status: 404, reasonCode: "review_finding" }, "review_finding"],
+  ];
+  for (const [input, expected] of retryableEvidence) {
+    const result = classifyOutageFailure(input);
+    assert.equal(result.retryable, false, expected);
+    assert.equal(result.outageClass, expected);
+    assert.match(result.fingerprint, /^[a-f0-9]{64}$/);
+    assert.equal(result.rawBodyAccepted, false);
+  }
+});
+
+test("bare status-derived and retryable outage classifications remain unchanged without explicit terminal reasons", () => {
+  const trustedHeaders = { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1784073900" };
+  const cases = [
+    [{ domain: "github_api", status: 403, trustedHeaders }, true, "github_api_rate_limit"],
+    [{ domain: "github_api", status: 403, trustedRateLimit: true }, true, "github_api_rate_limit"],
+    [{ domain: "github_api", status: 403 }, false, "forbidden_403"],
+    [{ domain: "github_api", status: 401 }, false, "auth_401"],
+    [{ domain: "github_api", status: 404 }, false, "not_found_404"],
+    [{ domain: "github_api", status: 503 }, true, "github_api_5xx"],
+    [{ domain: "github_api", reasonCode: "api_5xx" }, true, "github_api_5xx"],
+  ];
+  for (const [input, retryable, expected] of cases) {
+    const result = classifyOutageFailure(input);
+    assert.equal(result.retryable, retryable, expected);
+    assert.equal(result.outageClass, expected);
+  }
+});
+
 test("github actions and github api both accept normalized api_5xx without sharing unrelated domain codes", () => {
   assert.equal(classifyOutageFailure({ domain: "github_api", reasonCode: "api_5xx" }).outageClass, "github_api_5xx");
   assert.equal(classifyOutageFailure({ domain: "github_actions", reasonCode: "api_5xx" }).outageClass, "github_actions_api_outage");
@@ -115,22 +198,7 @@ test("strict classifier blocks nonretryable and hostile untrusted evidence", () 
     [{ domain: "github_api", status: 401, body: "retry me 503" }, "auth_401"],
     [{ domain: "github_api", status: 403, body: "rate limit maybe" }, "forbidden_403"],
     [{ domain: "github_api", status: 404 }, "not_found_404"],
-    [{ reasonCode: "missing_secret" }, "missing_or_invalid_secret_config"],
-    [{ reasonCode: "invalid_config" }, "missing_or_invalid_secret_config"],
-    [{ reasonCode: "dirty_worktree" }, "dirty_worktree"],
-    [{ reasonCode: "corrupt_state" }, "corrupt_state"],
-    [{ reasonCode: "stale_recovery_evidence" }, "stale_recovery_evidence"],
-    [{ reasonCode: "identity_drift" }, "identity_drift"],
-    [{ reasonCode: "merge_conflict" }, "merge_conflict"],
-    [{ reasonCode: "failed_tests" }, "failed_tests"],
-    [{ reasonCode: "failed_validation" }, "failed_validation"],
-    [{ reasonCode: "code_defect" }, "code_defect"],
-    [{ reasonCode: "review_finding" }, "review_finding"],
-    [{ reasonCode: "scanner_finding" }, "scanner_finding"],
-    [{ reasonCode: "policy_disagreement" }, "policy_disagreement"],
-    [{ reasonCode: "manual_gate" }, "manual_authority_destructive_decision"],
-    [{ reasonCode: "unsupported_source" }, "unsupported_source"],
-    [{ reasonCode: "terminal_application_failure" }, "terminal_application_failure"],
+    ...nonretryableReasonAliases.map(([reasonCode, expected]) => [{ reasonCode }, expected]),
     [{ domain: "__proto__", body: "status 429 timeout dns_failure" }, "unknown_ambiguous_failure"],
   ];
   for (const [input, expected] of cases) {

@@ -103,6 +103,62 @@ test("source eligibility accepts normalized github api outage evidence without l
   }
 });
 
+test("source eligibility blocks explicit terminal reasons even with trusted retryable evidence", () => {
+  const config = tempConfig();
+  try {
+    const terminal = source({
+      failure: {
+        domain: "github_api",
+        status: 403,
+        reasonCode: "missing_secret",
+        trustedHeaders: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1784073900" },
+      },
+    });
+    const ineligible = evaluateSourceRunEligibility({ config, source: terminal });
+    assert.equal(ineligible.eligible, false);
+    assert.equal(ineligible.reasonCode, "source_failure_nonretryable");
+    assert.equal(ineligible.classification.outageClass, "missing_or_invalid_secret_config");
+
+    const blocked = runOutageResubmissionController({
+      config,
+      source: terminal,
+      recoveryState: incompleteRecoveryState(),
+      dryRun: true,
+      now,
+      childRunId: "supervised-20260715T010000Z-000000000992",
+    });
+    assert.equal(blocked.outcome, "blocked");
+    assert.equal(blocked.reasonCode, "source_failure_nonretryable");
+    assert.equal(blocked.classification.outageClass, "missing_or_invalid_secret_config");
+    assert.equal(blocked.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(blocked.events.some((item) => item.event === "dry_run_child_spec_planned"), false);
+    assert.equal(blocked.counts.githubMutationCalls, 0);
+    assert.equal(blocked.counts.systemdCalls, 0);
+    assert.equal(blocked.counts.realMutationCalls, 0);
+
+    for (const failure of [
+      { domain: "github_api", status: 403, trustedRateLimit: true },
+      { domain: "github_api", reasonCode: "api_5xx" },
+    ]) {
+      const planned = runOutageResubmissionController({
+        config,
+        source: source({ failure }),
+        recoveryState: incompleteRecoveryState(),
+        dryRun: true,
+        now,
+        childRunId: "supervised-20260715T010000Z-000000000993",
+      });
+      assert.equal(planned.outcome, "planned");
+      assert.equal(planned.reasonCode, "dry_run_no_mutation");
+      assert.equal(planned.counts.githubMutationCalls, 0);
+      assert.equal(planned.counts.systemdCalls, 0);
+      assert.equal(planned.counts.realMutationCalls, 0);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("source eligibility requires complete bounded source identity before planning", () => {
   const config = tempConfig();
   try {
