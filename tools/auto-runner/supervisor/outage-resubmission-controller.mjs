@@ -17,7 +17,7 @@ import {
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
 import { firstIncompleteContinuationAction } from "../lib/recovery-continuation.mjs";
-import { invalidateEvidenceForHeadChange } from "../lib/recovery-state.mjs";
+import { bindOutageResubmissionToRecoveryState, invalidateEvidenceForHeadChange, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { buildRunSpec, generateRunId, sha256Text, canonicalJson, writeImmutableRunSpec } from "./run-spec.mjs";
 import { writeSupervisorState } from "./supervisor-state.mjs";
 import { startUserUnit } from "./systemd-client.mjs";
@@ -147,6 +147,25 @@ export function runOutageResubmissionController(input = {}) {
   }
   if (!currentCompletion.ok) return result("blocked", currentCompletion.reasonCode, { events, counts, outageState: existingOutageState });
 
+  if (input.currentIdentity?.branchName && input.currentIdentity.branchName !== source.branchName) {
+    return result("blocked", "branch_identity_mismatch", { events, counts, outageState: existingOutageState });
+  }
+  if (input.currentIdentity?.baseSha && input.currentIdentity.baseSha !== source.baseSha) {
+    return result("blocked", "base_identity_mismatch", { events, counts, outageState: existingOutageState });
+  }
+  if (input.currentIdentity?.currentHeadSha && input.currentIdentity.currentHeadSha !== source.currentHeadSha) {
+    const invalidatedRecoveryState = recovery
+      ? invalidateEvidenceForHeadChange(recovery, {
+          newHeadSha: input.currentIdentity.currentHeadSha,
+          reasonCode: "outage_resubmission_head_changed",
+        })
+      : null;
+    event("stale_head_evidence_invalidated", { currentHeadSha: input.currentIdentity.currentHeadSha });
+    return result("blocked", "stale_head_evidence_regeneration_required", { events, counts, recoveryState: invalidatedRecoveryState });
+  }
+  const currentPrIdentityForAdoption = validateCurrentPrIdentityForSource(source, input.currentIdentity);
+  if (!currentPrIdentityForAdoption.ok) return result("blocked", currentPrIdentityForAdoption.reasonCode, { events, counts, outageState: existingOutageState });
+
   event("outage_marker_reconciled");
   const childReconciliation = reconcileExactChild(input.existingChildren || [], source, existingOutageState);
   if (!childReconciliation.ok) {
@@ -215,6 +234,12 @@ export function runOutageResubmissionController(input = {}) {
   }
   if (existingChild) {
     if (existingOutageState?.mutationMarker?.status === "planned") {
+      const terminal = terminalChildResult(existingOutageState, existingChild);
+      if (terminal) {
+        if (!dryRun) writeOutageResubmissionState(config, terminal.outageState);
+        event("planned_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminal.terminalStatus });
+        return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId });
+      }
       const reconciled = transitionOutageMarker(existingOutageState, {
         status: "confirmed_running",
         childSupervisorRunId: existingChild.runId,
@@ -262,17 +287,6 @@ export function runOutageResubmissionController(input = {}) {
     event("stale_head_evidence_invalidated", { currentHeadSha: input.currentIdentity.currentHeadSha });
     return result("blocked", "stale_head_evidence_regeneration_required", { events, counts, recoveryState: invalidatedRecoveryState });
   }
-  if (input.currentIdentity) {
-    const currentPrMismatches = optionalPrIdentityMismatches({
-      actualPrNumber: input.currentIdentity?.prNumber,
-      actualPrHeadSha: input.currentIdentity?.prHeadSha,
-      expectedPrNumber: source.prNumber,
-      expectedPrHeadSha: source.prHeadSha,
-    });
-    if (currentPrMismatches.includes("prNumber")) return result("blocked", "pr_identity_mismatch", { events, counts });
-    if (currentPrMismatches.includes("prHeadSha")) return result("blocked", "pr_head_identity_mismatch", { events, counts });
-  }
-
   event("circuit_checked");
   let circuit;
   let schedule;
@@ -332,6 +346,9 @@ export function runOutageResubmissionController(input = {}) {
     return result("blocked", reasonCode, { events, counts, circuit, schedule, classification: eligibility.classification });
   }
 
+  const currentPrIdentity = validateCurrentPrIdentityForSource(source, input.currentIdentity);
+  if (!currentPrIdentity.ok) return result("blocked", currentPrIdentity.reasonCode, { events, counts });
+
   event("resubmission_planned");
   const plannedState = existingOutageState || createOutageResubmissionState({
     correlation,
@@ -364,6 +381,23 @@ export function runOutageResubmissionController(input = {}) {
     return result("blocked", recoveryTarget.reasonCode, { events, counts, outageState: plannedState, recoveryTarget });
   }
 
+  let boundRecoveryState = recoveryTarget.state;
+  if (!dryRun) {
+    const binding = bindOutageResubmissionToRecoveryState(recoveryTarget.state, recoveryTarget.target);
+    if (!binding.ok) {
+      event("outage_recovery_binding_blocked", { reasonCode: binding.reasonCode });
+      return result("blocked", binding.reasonCode, { events, counts, outageState: plannedState, recoveryTarget });
+    }
+    boundRecoveryState = binding.state;
+    try {
+      if (binding.changed) (input.writeRecoveryState || writeRecoveryState)(config, boundRecoveryState);
+    } catch (error) {
+      event("outage_recovery_binding_persistence_failed", { reasonCode: "recovery_outage_binding_persistence_failed" });
+      return result("blocked", "recovery_outage_binding_persistence_failed", { events, counts, outageState: plannedState, recoveryTarget });
+    }
+    event(binding.changed ? "outage_recovery_binding_persisted" : "outage_recovery_binding_preserved", { markerKey: binding.binding.markerKey });
+  }
+
   let child;
   try {
     child = buildChildRunPlan({ config, source, state: plannedState, recoveryTarget: recoveryTarget.target, now, childRunId: input.childRunId });
@@ -385,7 +419,7 @@ export function runOutageResubmissionController(input = {}) {
       reasonCode: "dry_run_planned",
     });
     event("dry_run_child_spec_planned", { childSupervisorRunId: child.spec.runId, specSha256: child.specSha256 });
-    return result("planned", "dry_run_no_mutation", { events, counts, outageState: dryState, child });
+    return result("planned", "dry_run_no_mutation", { events, counts, outageState: dryState, child, recoveryState: recoveryTarget.state });
   }
 
   const uncertain = transitionOutageMarker(plannedState, {
@@ -416,7 +450,7 @@ export function runOutageResubmissionController(input = {}) {
   const confirmed = transitionOutageMarker(uncertain, { status: "submitted", childSupervisorRunId: child.spec.runId, specDigest: child.specSha256, reasonCode: "child_submission_confirmed" });
   writeOutageResubmissionState(config, confirmed);
   event("child_submission_confirmed", { childSupervisorRunId: child.spec.runId });
-  return result("submitted", "child_submission_confirmed", { events, counts, outageState: confirmed, child, submitted });
+  return result("submitted", "child_submission_confirmed", { events, counts, outageState: confirmed, child, submitted, recoveryState: boundRecoveryState });
 }
 
 function terminalizeSourceCompletion({
@@ -635,7 +669,7 @@ function validateOutageRecoveryTargetForSource({ source, recovery, recoveryState
   ];
   const mismatch = checks.find(([, actual, expected]) => actual !== expected);
   if (mismatch) return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
-  return { ok: true, target, boundary };
+  return { ok: true, target, boundary, state };
 }
 
 function resolveCanonicalOutageState({ config, source, failure, stateKey }) {
@@ -1048,6 +1082,18 @@ function validateCurrentCompletionIdentity(source, currentIdentity = null) {
     complete: true,
     reasonCode: currentIdentity.merged ? "source_current_pr_merged" : "source_current_issue_closed",
   };
+}
+
+function validateCurrentPrIdentityForSource(source, currentIdentity = null) {
+  const prMismatches = optionalPrIdentityMismatches({
+    actualPrNumber: currentIdentity?.prNumber,
+    actualPrHeadSha: currentIdentity?.prHeadSha,
+    expectedPrNumber: source.prNumber,
+    expectedPrHeadSha: source.prHeadSha,
+  });
+  if (prMismatches.includes("prNumber")) return { ok: false, reasonCode: "pr_identity_mismatch" };
+  if (prMismatches.includes("prHeadSha")) return { ok: false, reasonCode: "pr_head_identity_mismatch" };
+  return { ok: true };
 }
 
 function summarizeOutageInventory(inventory) {

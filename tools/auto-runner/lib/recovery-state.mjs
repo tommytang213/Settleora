@@ -217,6 +217,38 @@ export function writeRecoveryState(config, state) {
   return { statePath, state: sanitized };
 }
 
+export function bindOutageResubmissionToRecoveryState(state, binding) {
+  const normalized = normalizeOutageResubmissionBinding({
+    taskKey: state.taskKey || null,
+    issueNumber: state.issue?.number || null,
+    branchName: state.branch?.name || null,
+    baseSha: state.branch?.baseSha || null,
+    currentHeadSha: state.branch?.currentHeadSha || null,
+    prNumber: state.pr?.number ?? null,
+    prHeadSha: state.pr?.headSha ?? null,
+    runnerRunId: state.run?.runId || null,
+    supervisorRunId: state.run?.supervisorRunId || null,
+    ...binding,
+  });
+  const normalizedCandidate = sanitizeRecoveryState({
+    ...state,
+    outageResubmission: normalized,
+  });
+  const validation = validateRecoveryStateShape(normalizedCandidate);
+  if (!validation.ok) return failed("recovery_outage_binding_invalid", validation.reason);
+
+  const existing = state.outageResubmission || null;
+  if (existing) {
+    const normalizedExisting = normalizeOutageResubmissionBinding(existing);
+    if (JSON.stringify(normalizedExisting) !== JSON.stringify(normalized)) {
+      return failed("recovery_outage_binding_conflict", "Recovery state already has a different outage resubmission binding.");
+    }
+    return { ok: true, state: normalizedCandidate, changed: false, binding: normalized };
+  }
+
+  return { ok: true, state: normalizedCandidate, changed: true, binding: normalized };
+}
+
 export function loadRecoveryState(config, keyOrState) {
   const statePath = recoveryStatePath(config, keyOrState);
   if (!existsSync(statePath)) return failed("recovery_state_missing", `Recovery state missing: ${statePath}`, { statePath });
@@ -454,6 +486,14 @@ function validateRecoveryStateShape(state) {
     if (!isDigest(binding.markerKey)) return invalid("invalid outage resubmission marker key");
     if (!isDigest(binding.outageFingerprint)) return invalid("invalid outage resubmission fingerprint");
     if (!Number.isSafeInteger(binding.attemptNumber) || binding.attemptNumber < 1 || binding.attemptNumber > 20) return invalid("invalid outage resubmission attempt");
+    if (binding.taskKey !== null && typeof binding.taskKey !== "string") return invalid("invalid outage resubmission task key");
+    if (binding.issueNumber !== null && !Number.isSafeInteger(binding.issueNumber)) return invalid("invalid outage resubmission issue number");
+    if (binding.branchName !== null && typeof binding.branchName !== "string") return invalid("invalid outage resubmission branch name");
+    if (!isShaOrNull(binding.baseSha) || !isShaOrNull(binding.currentHeadSha)) return invalid("invalid outage resubmission branch sha");
+    if (binding.prNumber !== null && !Number.isSafeInteger(binding.prNumber)) return invalid("invalid outage resubmission pr number");
+    if (!isShaOrNull(binding.prHeadSha)) return invalid("invalid outage resubmission pr head");
+    if (binding.runnerRunId !== null && typeof binding.runnerRunId !== "string") return invalid("invalid outage resubmission runner run id");
+    if (binding.supervisorRunId !== null && typeof binding.supervisorRunId !== "string") return invalid("invalid outage resubmission supervisor run id");
   }
   return { ok: true };
 }
@@ -461,6 +501,15 @@ function validateRecoveryStateShape(state) {
 function normalizeOutageResubmissionBinding(value) {
   if (!value) return null;
   return {
+    taskKey: value.taskKey ? bounded(value.taskKey, 80) : null,
+    issueNumber: Number.isSafeInteger(value.issueNumber) ? value.issueNumber : null,
+    branchName: value.branchName ? bounded(value.branchName, 240) : null,
+    baseSha: isShaOrNull(value.baseSha) ? value.baseSha : null,
+    currentHeadSha: isShaOrNull(value.currentHeadSha) ? value.currentHeadSha : null,
+    prNumber: Number.isSafeInteger(value.prNumber) ? value.prNumber : null,
+    prHeadSha: isShaOrNull(value.prHeadSha) ? value.prHeadSha : null,
+    runnerRunId: value.runnerRunId ? bounded(value.runnerRunId, 120) : null,
+    supervisorRunId: value.supervisorRunId ? bounded(value.supervisorRunId, 120) : null,
     originalSupervisorSpecDigest: isDigest(value.originalSupervisorSpecDigest) ? value.originalSupervisorSpecDigest : null,
     markerKey: isDigest(value.markerKey) ? value.markerKey : null,
     outageFingerprint: isDigest(value.outageFingerprint) ? value.outageFingerprint : null,

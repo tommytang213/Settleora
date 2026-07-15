@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   advanceRecoveryPhase,
+  bindOutageResubmissionToRecoveryState,
   bindRecoveryEvidence,
   classifyRecoveryOutcome,
   createInitialRecoveryState,
@@ -212,6 +213,63 @@ test("idempotent mutation markers prevent duplicate component mutations", () => 
   });
   assert.equal(recoveryHasMutationMarker(state, "pr_create", "issue-893-pr"), true);
   assert.equal(recoveryHasMutationMarker(state, "merge", "issue-893-pr"), false);
+});
+
+test("outage resubmission binding is idempotent and conflict-safe", () => {
+  const binding = {
+    originalSupervisorSpecDigest: "a".repeat(64),
+    markerKey: "b".repeat(64),
+    outageFingerprint: "c".repeat(64),
+    attemptNumber: 2,
+  };
+  const state = initial();
+  const bound = bindOutageResubmissionToRecoveryState(state, binding);
+  assert.equal(bound.ok, true);
+  assert.equal(bound.changed, true);
+  assert.equal(bound.state.outageResubmission.taskKey, state.taskKey);
+  assert.equal(bound.state.outageResubmission.issueNumber, state.issue.number);
+  assert.equal(bound.state.outageResubmission.runnerRunId, state.run.runId);
+  assert.equal(bound.state.outageResubmission.supervisorRunId, state.run.supervisorRunId);
+  assert.equal(bound.state.outageResubmission.originalSupervisorSpecDigest, binding.originalSupervisorSpecDigest);
+  assert.equal(bound.state.outageResubmission.markerKey, binding.markerKey);
+  assert.equal(bound.state.outageResubmission.outageFingerprint, binding.outageFingerprint);
+  assert.equal(bound.state.outageResubmission.attemptNumber, binding.attemptNumber);
+
+  const repeated = bindOutageResubmissionToRecoveryState(bound.state, binding);
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.changed, false);
+  assert.deepEqual(repeated.state.outageResubmission, bound.state.outageResubmission);
+
+  const conflict = bindOutageResubmissionToRecoveryState(bound.state, { ...binding, markerKey: "d".repeat(64) });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.reasonCode, "recovery_outage_binding_conflict");
+
+  const invalid = bindOutageResubmissionToRecoveryState(state, { ...binding, attemptNumber: 0 });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.reasonCode, "recovery_outage_binding_invalid");
+});
+
+test("outage resubmission binding persists sanitized bytes", () => {
+  const config = tempConfig();
+  try {
+    const state = initial();
+    const bound = bindOutageResubmissionToRecoveryState(state, {
+      originalSupervisorSpecDigest: "a".repeat(64),
+      markerKey: "b".repeat(64),
+      outageFingerprint: "c".repeat(64),
+      attemptNumber: 1,
+      rawBody: "secret raw payload",
+      token: "secret-token",
+    });
+    const written = writeRecoveryState(config, bound.state);
+    const text = readFileSync(written.statePath, "utf8");
+    assert.equal(text.includes("rawBody"), false);
+    assert.equal(text.includes("secret raw payload"), false);
+    assert.equal(text.includes("secret-token"), false);
+    assert.equal(loadRecoveryState(config, state).state.outageResubmission.markerKey, "b".repeat(64));
+  } finally {
+    config.cleanup();
+  }
 });
 
 test("startup listing returns non-terminal recoverable states only", () => {

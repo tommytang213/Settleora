@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runOutageResubmissionController, evaluateSourceRunEligibility } from "../supervisor/outage-resubmission-controller.mjs";
+import { runOutageResubmissionController as runController, evaluateSourceRunEligibility } from "../supervisor/outage-resubmission-controller.mjs";
 import {
   createOutageResubmissionState,
   loadOutageResubmissionState,
@@ -13,7 +13,7 @@ import {
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
 import { outageFingerprint } from "../lib/outage-resubmission-policy.mjs";
-import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
+import { createInitialRecoveryState, loadRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { canonicalJson, readAndVerifyRunSpec, resolveProfile, sha256Text, writeImmutableRunSpec } from "../supervisor/run-spec.mjs";
 import { readSupervisorState } from "../supervisor/supervisor-state.mjs";
 import { getRunnerStatus } from "../lib/control-plane.mjs";
@@ -40,6 +40,18 @@ const githubApi502Fingerprint = outageFingerprint({
 const profileConfig = '{"trustedRealRunApproved":true,"allowExistingPrRecovery":true}\n';
 const profileConfigDigest = "1e0f2e46bf002c58a643e4fc8e902fc70094d72f8f7a3c3136ac1bfe20d67b63";
 const now = new Date("2026-07-15T01:00:00.000Z");
+
+function runOutageResubmissionController(input = {}) {
+  if (input.omitCurrentIdentityForTest === true || input.currentIdentity !== undefined) {
+    const { omitCurrentIdentityForTest, ...rest } = input;
+    return runController(rest);
+  }
+  const sourceInput = input.source || source();
+  const currentIdentity = sourceInput.prNumber === null && sourceInput.prHeadSha === null
+    ? { branchName: sourceInput.branchName, baseSha: sourceInput.baseSha, currentHeadSha: sourceInput.currentHeadSha }
+    : liveIdentityForSource(sourceInput);
+  return runController({ ...input, currentIdentity });
+}
 
 test("source eligibility is not inferred from age or stopped state alone", () => {
   const config = tempConfig();
@@ -634,6 +646,131 @@ test("successful outage child submission persists expected spec digest for worke
   }
 });
 
+test("child submission persists outage binding into recovery state before child artifacts", () => {
+  const config = tempConfig();
+  try {
+    const recoveryState = incompleteRecoveryState();
+    assert.equal(recoveryState.outageResubmission, null);
+    writeRecoveryState(config, recoveryState);
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      dryRun: false,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000996",
+      startUserUnit: (runId) => ({ ok: true, unitName: `settleora-auto-runner@${runId}.service`, state: "submitted" }),
+    });
+
+    assert.equal(result.outcome, "submitted");
+    assert.equal(result.events.some((item) => item.event === "outage_recovery_binding_persisted"), true);
+    const loadedRecovery = loadRecoveryState(config, recoveryState);
+    assert.equal(loadedRecovery.ok, true);
+    assert.deepEqual(result.child.spec.recoveryOnlyTarget, {
+      taskKey: loadedRecovery.state.outageResubmission.taskKey,
+      issueNumber: loadedRecovery.state.outageResubmission.issueNumber,
+      branchName: loadedRecovery.state.outageResubmission.branchName,
+      baseSha: loadedRecovery.state.outageResubmission.baseSha,
+      currentHeadSha: loadedRecovery.state.outageResubmission.currentHeadSha,
+      prNumber: loadedRecovery.state.outageResubmission.prNumber,
+      prHeadSha: loadedRecovery.state.outageResubmission.prHeadSha,
+      runnerRunId: loadedRecovery.state.outageResubmission.runnerRunId,
+      supervisorRunId: loadedRecovery.state.outageResubmission.supervisorRunId,
+      originalSupervisorSpecDigest: loadedRecovery.state.outageResubmission.originalSupervisorSpecDigest,
+      markerKey: loadedRecovery.state.outageResubmission.markerKey,
+      outageFingerprint: loadedRecovery.state.outageResubmission.outageFingerprint,
+      attemptNumber: loadedRecovery.state.outageResubmission.attemptNumber,
+    });
+    assert.equal(readSupervisorState(result.child.spec.runId, config.logsRoot).found, true);
+    assert.equal(JSON.stringify(loadedRecovery.state).includes("raw"), false);
+    assert.equal(JSON.stringify(loadedRecovery.state).includes("secret"), false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("recovery binding persistence failure blocks before child mutation", () => {
+  const config = tempConfig();
+  try {
+    const beforeFiles = listRelativeFiles(config.logsRoot);
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState: incompleteRecoveryState(),
+      dryRun: false,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000995",
+      writeRecoveryState: () => {
+        throw new Error("synthetic binding write failure with /tmp/path and raw body");
+      },
+      startUserUnit: () => {
+        throw new Error("must_not_start");
+      },
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "recovery_outage_binding_persistence_failed");
+    assert.equal(result.child, undefined);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+    assert.deepEqual(listRelativeFiles(config.logsRoot), beforeFiles);
+    assert.equal(JSON.stringify(result.events).includes("/tmp/path"), false);
+    assert.equal(JSON.stringify(result.events).includes("raw body"), false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("identical recovery binding is idempotent and conflicting binding blocks child submission", () => {
+  const config = tempConfig();
+  const conflictConfig = tempConfig();
+  try {
+    const dry = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState: incompleteRecoveryState(),
+      dryRun: true,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000994",
+    });
+    let recoveryState = incompleteRecoveryState({ outageResubmission: dry.child.spec.recoveryOnlyTarget });
+    writeRecoveryState(config, recoveryState);
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      dryRun: false,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000993",
+      startUserUnit: (runId) => ({ ok: true, unitName: `settleora-auto-runner@${runId}.service`, state: "submitted" }),
+    });
+    assert.equal(result.outcome, "submitted");
+    assert.equal(result.events.some((item) => item.event === "outage_recovery_binding_preserved"), true);
+
+    recoveryState = incompleteRecoveryState({ outageResubmission: { ...dry.child.spec.recoveryOnlyTarget, markerKey: "f".repeat(64) } });
+    result = runOutageResubmissionController({
+      config: conflictConfig,
+      source: source(),
+      recoveryState,
+      dryRun: false,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000992",
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "recovery_outage_binding_conflict");
+    assert.equal(result.events.some((item) => item.event === "outage_recovery_binding_blocked"), true);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+    conflictConfig.cleanup();
+  }
+});
+
 test("complete child spec identity survives canonical write read and reconciles from disk only", () => {
   const config = tempConfig();
   try {
@@ -952,6 +1089,64 @@ test("controller reuses existing child and reconciles uncertain submission", () 
   }
 });
 
+test("planned markers terminalize exact terminal children without confirmed_running intermediate", () => {
+  const config = tempConfig();
+  try {
+    const terminalCases = [
+      ["completed", { state: "completed", terminalOutcome: "completed" }, "recovered", "confirmed_child_recovered"],
+      ["failed", { state: "failed", terminalOutcome: "failed" }, "blocked", "confirmed_child_terminal_blocked"],
+      ["blocked", { state: "blocked", terminalOutcome: "blocked" }, "blocked", "confirmed_child_terminal_blocked"],
+      ["partial", { state: "partial", terminalOutcome: "partial" }, "blocked", "confirmed_child_terminal_blocked"],
+      ["cancelled", { state: "cancelled", terminalOutcome: "cancelled" }, "blocked", "confirmed_child_terminal_blocked"],
+      ["terminal boolean", { terminal: true, terminalOutcome: "failed" }, "blocked", "confirmed_child_terminal_blocked"],
+    ];
+
+    for (const [label, childStatus, outcome, reasonCode] of terminalCases) {
+      const planned = fixtureOutageState();
+      const child = exactChild(planned, { runId: "supervised-20260715T010000Z-000000000341", ...childStatus });
+      let result = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState: planned,
+        recoveryState: incompleteRecoveryState(),
+        existingChildren: [child],
+        dryRun: false,
+        now,
+        childRunId: "supervised-20260715T010000Z-000000000342",
+        startUserUnit: () => {
+          throw new Error("must_not_start");
+        },
+      });
+      assert.equal(result.outcome, outcome, label);
+      assert.equal(result.reasonCode, reasonCode, label);
+      assert.equal(result.outageState.mutationMarker.status, outcome, label);
+      assert.notEqual(result.outageState.mutationMarker.reasonCode, "planned_child_reconciled", label);
+      assert.equal(result.events.some((item) => item.event === "planned_terminal_child_classified"), true, label);
+      assert.equal(result.events.some((item) => item.event === "planned_child_reconciled"), false, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+
+      const repeated = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState: result.outageState,
+        recoveryState: incompleteRecoveryState(),
+        existingChildren: [child],
+        dryRun: false,
+        now,
+      });
+      assert.equal(repeated.outcome, "noop", label);
+      assert.equal(repeated.reasonCode, "terminal_outage_marker_preserved", label);
+      assert.equal(repeated.events.some((item) => item.event === "planned_child_reconciled"), false, label);
+      assert.equal(repeated.counts.realMutationCalls, 0, label);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("submitted and confirmed markers with missing children block reconciliation before planning", () => {
   const config = tempConfig();
   try {
@@ -1103,6 +1298,29 @@ test("optional PR identity matrix requires exact absent or present pairs", () =>
 test("live current identity must preserve the strict optional PR pair", () => {
   const config = tempConfig();
   try {
+    for (const [label, currentIdentity] of [
+      ["no current identity object", undefined],
+      ["empty current identity object", {}],
+    ]) {
+      const input = {
+        config,
+        source: source(),
+        recoveryState: recoveryStateForSource(source()),
+        dryRun: true,
+        now,
+        childRunId: "supervised-20260715T010000Z-000000000720",
+      };
+      if (currentIdentity === undefined) input.omitCurrentIdentityForTest = true;
+      else input.currentIdentity = currentIdentity;
+      const result = runOutageResubmissionController(input);
+      assert.equal(result.outcome, "blocked", label);
+      assert.equal(result.reasonCode, "pr_identity_mismatch", label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+    }
+
     const cases = [
       ["absent live pair for PR source", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha }, "pr_identity_mismatch"],
       ["partial live number", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha, prNumber: 917 }, "pr_head_identity_mismatch"],
@@ -2512,7 +2730,7 @@ function fixtureOutageStateForSource(sourceInput) {
   });
 }
 
-function incompleteRecoveryState() {
+function incompleteRecoveryState(overrides = {}) {
   return createInitialRecoveryState({
     taskKey: "20260715-0013",
     issue: { number: 913, title: "Outage", url: "u" },
@@ -2524,6 +2742,7 @@ function incompleteRecoveryState() {
     pr: { number: source().prNumber, url: "u", headSha: source().prHeadSha, headRefName: source().branchName, baseRefName: "main", state: "OPEN" },
     phase: "ci_wait",
     firstIncompleteAction: "wait_for_checks",
+    ...overrides,
   });
 }
 
@@ -2642,6 +2861,17 @@ function currentCompletion(overrides = {}) {
     currentHeadSha: source().currentHeadSha,
     prNumber: source().prNumber,
     prHeadSha: source().prHeadSha,
+    ...overrides,
+  };
+}
+
+function liveIdentityForSource(sourceInput = source(), overrides = {}) {
+  return {
+    branchName: sourceInput.branchName,
+    baseSha: sourceInput.baseSha,
+    currentHeadSha: sourceInput.currentHeadSha,
+    prNumber: sourceInput.prNumber,
+    prHeadSha: sourceInput.prHeadSha,
     ...overrides,
   };
 }
