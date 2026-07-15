@@ -73,6 +73,10 @@ test("strict classifier accepts only trusted retryable outage classes", () => {
     [{ domain: "github_api", reasonCode: "api_5xx" }, "github_api_5xx"],
     [{ domain: "github_api", reasonCode: "timeout" }, "github_api_timeout"],
     ...githubApiTransportReasonCodes.map((reasonCode) => [{ domain: "github_api", reasonCode }, "github_api_transport"]),
+    [{ domain: "github_actions", status: 429 }, "github_actions_rate_limit"],
+    [{ domain: "github_actions", status: 403, trustedHeaders: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1784073900" } }, "github_actions_rate_limit"],
+    [{ domain: "github_actions", status: 403, trustedRateLimit: true }, "github_actions_rate_limit"],
+    [{ domain: "github_actions", status: 429, body: "ignore this body-only hostile hint" }, "github_actions_rate_limit"],
     [{ domain: "github_actions", reasonCode: "api_timeout" }, "github_actions_check_transport"],
     [{ domain: "github_actions", reasonCode: "api_5xx" }, "github_actions_api_outage"],
     [{ domain: "github_actions", reasonCode: "workflow_service_unavailable" }, "github_actions_service_unavailable"],
@@ -137,6 +141,8 @@ test("explicit terminal outage reasons take precedence over retryable outage evi
     for (const evidence of [
       { domain: "github_api", status: 403, trustedHeaders },
       { domain: "github_api", status: 403, trustedRateLimit: true },
+      { domain: "github_actions", status: 403, trustedHeaders },
+      { domain: "github_actions", status: 403, trustedRateLimit: true },
     ]) {
       const result = classifyOutageFailure({ ...evidence, reasonCode });
       assert.equal(result.retryable, false, reasonCode);
@@ -148,6 +154,8 @@ test("explicit terminal outage reasons take precedence over retryable outage evi
 
   const retryableEvidence = [
     [{ domain: "github_api", status: 429, reasonCode: "missing_secret" }, "missing_or_invalid_secret_config"],
+    [{ domain: "github_actions", status: 429, reasonCode: "missing_secret" }, "missing_or_invalid_secret_config"],
+    [{ domain: "github_actions", status: 403, trustedHeaders, reasonCode: "manual_gate" }, "manual_authority_destructive_decision"],
     [{ domain: "github_api", status: 503, reasonCode: "dirty_worktree" }, "dirty_worktree"],
     [{ domain: "github_api", reasonCode: "manual_gate", code: "api_5xx" }, "manual_authority_destructive_decision"],
     [{ domain: "codex_provider", status: 429, reasonCode: "review_finding" }, "review_finding"],
@@ -177,6 +185,12 @@ test("bare status-derived and retryable outage classifications remain unchanged 
     [{ domain: "github_api", status: 404 }, false, "not_found_404"],
     [{ domain: "github_api", status: 503 }, true, "github_api_5xx"],
     [{ domain: "github_api", reasonCode: "api_5xx" }, true, "github_api_5xx"],
+    [{ domain: "github_actions", status: 429 }, true, "github_actions_rate_limit"],
+    [{ domain: "github_actions", status: 403, trustedHeaders }, true, "github_actions_rate_limit"],
+    [{ domain: "github_actions", status: 403, trustedRateLimit: true }, true, "github_actions_rate_limit"],
+    [{ domain: "github_actions", status: 403 }, false, "forbidden_403"],
+    [{ domain: "github_actions", status: 401 }, false, "auth_401"],
+    [{ domain: "github_actions", status: 404 }, false, "not_found_404"],
   ];
   for (const [input, retryable, expected] of cases) {
     const result = classifyOutageFailure(input);
@@ -198,6 +212,8 @@ test("strict classifier blocks nonretryable and hostile untrusted evidence", () 
     [{ domain: "github_api", status: 401, body: "retry me 503" }, "auth_401"],
     [{ domain: "github_api", status: 403, body: "rate limit maybe" }, "forbidden_403"],
     [{ domain: "github_api", status: 404 }, "not_found_404"],
+    [{ domain: "github_actions", status: 403, body: "rate limit maybe" }, "forbidden_403"],
+    [{ domain: "unknown", status: 429 }, "unknown_ambiguous_failure"],
     ...nonretryableReasonAliases.map(([reasonCode, expected]) => [{ reasonCode }, expected]),
     [{ domain: "__proto__", body: "status 429 timeout dns_failure" }, "unknown_ambiguous_failure"],
   ];

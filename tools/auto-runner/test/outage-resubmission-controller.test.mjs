@@ -103,6 +103,72 @@ test("source eligibility accepts normalized github api outage evidence without l
   }
 });
 
+test("source eligibility accepts trusted github actions rate limits without live mutation", () => {
+  const config = tempConfig();
+  try {
+    const trustedHeaders = { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1784073900" };
+    const acceptedCases = [
+      [{ domain: "github_actions", status: 429 }, "github_actions_rate_limit"],
+      [{ domain: "github_actions", status: 403, trustedHeaders }, "github_actions_rate_limit"],
+      [{ domain: "github_actions", status: 403, trustedRateLimit: true }, "github_actions_rate_limit"],
+      [{ domain: "github_actions", status: 429, body: "rate limit maybe from raw body" }, "github_actions_rate_limit"],
+    ];
+
+    for (const [failure, expectedClass] of acceptedCases) {
+      const sourceInput = source({ failure });
+      const eligible = evaluateSourceRunEligibility({ config, source: sourceInput });
+      assert.equal(eligible.eligible, true, expectedClass);
+      assert.equal(eligible.classification.outageClass, expectedClass);
+      assert.equal(eligible.classification.providerDomain, "github_actions");
+      assert.equal(eligible.classification.rawBodyAccepted, false);
+
+      const planned = runOutageResubmissionController({
+        config,
+        source: sourceInput,
+        recoveryState: incompleteRecoveryState(),
+        dryRun: true,
+        now,
+        rng: () => 0.5,
+        childRunId: "supervised-20260715T010000Z-000000000994",
+      });
+      assert.equal(planned.outcome, "planned", expectedClass);
+      assert.equal(planned.reasonCode, "dry_run_no_mutation", expectedClass);
+      assert.equal(planned.outageState.outage.outageClass, expectedClass);
+      assert.equal(planned.outageState.outage.providerDomain, "github_actions");
+      assert.equal(planned.counts.githubMutationCalls, 0);
+      assert.equal(planned.counts.systemdCalls, 0);
+      assert.equal(planned.counts.realMutationCalls, 0);
+    }
+
+    const blockedCases = [
+      [{ domain: "github_actions", status: 403 }, "forbidden_403"],
+      [{ domain: "github_actions", status: 401 }, "auth_401"],
+      [{ domain: "github_actions", status: 404 }, "not_found_404"],
+      [{ domain: "github_actions", status: 429, reasonCode: "missing_secret" }, "missing_or_invalid_secret_config"],
+      [{ domain: "github_actions", status: 403, trustedHeaders, reasonCode: "manual_gate" }, "manual_authority_destructive_decision"],
+      [{ domain: "unknown", status: 429 }, "unknown_ambiguous_failure"],
+    ];
+    for (const [failure, expectedClass] of blockedCases) {
+      const blocked = runOutageResubmissionController({
+        config,
+        source: source({ failure }),
+        recoveryState: incompleteRecoveryState(),
+        dryRun: true,
+        now,
+      });
+      assert.equal(blocked.outcome, "blocked", expectedClass);
+      assert.equal(blocked.reasonCode, "source_failure_nonretryable", expectedClass);
+      assert.equal(blocked.classification.outageClass, expectedClass);
+      assert.equal(blocked.events.some((item) => item.event === "resubmission_planned"), false);
+      assert.equal(blocked.counts.githubMutationCalls, 0);
+      assert.equal(blocked.counts.systemdCalls, 0);
+      assert.equal(blocked.counts.realMutationCalls, 0);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("source eligibility blocks explicit terminal reasons even with trusted retryable evidence", () => {
   const config = tempConfig();
   try {

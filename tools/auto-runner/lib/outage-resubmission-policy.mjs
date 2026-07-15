@@ -7,6 +7,7 @@ export const retryableOutageClasses = Object.freeze([
   "github_api_5xx",
   "github_api_timeout",
   "github_api_transport",
+  "github_actions_rate_limit",
   "github_actions_api_outage",
   "github_actions_check_transport",
   "github_actions_service_unavailable",
@@ -290,6 +291,7 @@ function retryableClassFor({ status, domain, reasonCode, trustedRateLimit }) {
     if (githubApiTransportReasonCodes.has(reasonCode)) return "github_api_transport";
   }
   if (domain === "github_actions") {
+    if (status === 429 || (status === 403 && trustedRateLimit)) return "github_actions_rate_limit";
     if (status >= 500 && status <= 599 || reasonCode === "api_5xx") return "github_actions_api_outage";
     if (["timeout", "api_timeout", "check_status_transport_failure", "transport_failure"].includes(reasonCode)) return "github_actions_check_transport";
     if (reasonCode === "workflow_service_unavailable" || reasonCode === "service_unavailable") return "github_actions_service_unavailable";
