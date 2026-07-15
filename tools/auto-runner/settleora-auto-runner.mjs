@@ -262,7 +262,7 @@ async function main() {
     logger.info(`Settleora auto-runner finished: ${paths.markdownPath}`);
   }
   if (isFatalRunStopReason(summary.stopReason)) {
-    process.exitCode = 1;
+    process.exitCode = 2;
   }
 }
 

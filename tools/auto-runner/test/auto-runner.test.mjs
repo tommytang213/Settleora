@@ -213,7 +213,7 @@ test("outage recovery-only blocked targets exit nonzero after writing summaries 
 
       const result = spawnOutageRecoveryOnly(configPath, repoRoot, item.target(recovery));
 
-      assert.notEqual(result.status, 0, item.name);
+      assert.equal(result.status, 2, item.name);
       assert.equal(result.signal, null, item.name);
       const summary = readOnlyRunSummary(logsRoot);
       assert.equal(summary.stopReason, `recoverable-work-blocked:${item.reasonCode}`, item.name);
