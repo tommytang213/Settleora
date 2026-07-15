@@ -9,6 +9,7 @@ import {
   createOutageResubmissionState,
   listOutageResubmissionStates,
   loadOutageResubmissionState,
+  rebuildExhaustedOutageState,
   transitionOutageMarker,
   verifyOutageCorrelation,
   writeOutageResubmissionState,
@@ -103,6 +104,22 @@ export function runOutageResubmissionController(input = {}) {
     }
   }
 
+  let eligibility = null;
+  let correlation = null;
+  if (existingOutageState) {
+    eligibility = evaluateSourceRunEligibility({ config, source, failure: input.failure });
+    if (!eligibility.eligible) {
+      event("terminal_nonretryable_block", { reasonCode: eligibility.reasonCode, classification: eligibility.classification });
+      return result("blocked", eligibility.reasonCode, { events, counts, classification: eligibility.classification });
+    }
+    correlation = buildCorrelation(source, eligibility.classification);
+    const drift = verifyOutageCorrelation(existingOutageState, correlation);
+    if (!drift.ok) {
+      event("outage_identity_drift_blocked", { reasonCode: drift.reasonCode, field: drift.field });
+      return result("blocked", drift.reasonCode, { events, counts, drift, outageState: existingOutageState });
+    }
+  }
+
   event("outage_marker_reconciled");
   const childReconciliation = reconcileExactChild(input.existingChildren || [], source, existingOutageState);
   if (!childReconciliation.ok) {
@@ -194,13 +211,13 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   event("source_eligibility_checked");
-  const eligibility = evaluateSourceRunEligibility({ config, source, failure: input.failure });
+  eligibility = eligibility || evaluateSourceRunEligibility({ config, source, failure: input.failure });
   if (!eligibility.eligible) {
     event("terminal_nonretryable_block", { reasonCode: eligibility.reasonCode, classification: eligibility.classification });
     return result("blocked", eligibility.reasonCode, { events, counts, classification: eligibility.classification });
   }
 
-  const correlation = buildCorrelation(source, eligibility.classification);
+  correlation = correlation || buildCorrelation(source, eligibility.classification);
   if (existingOutageState) {
     const drift = verifyOutageCorrelation(existingOutageState, correlation);
     if (!drift.ok) return result("blocked", drift.reasonCode, { events, counts, drift });
@@ -365,7 +382,28 @@ function terminalizeOutageExhaustion({
   const reasonCode = finalGate.reasonCode;
   const terminalEvent = reasonCode === "outage_resubmission_attempts_exhausted" ? "outage_attempts_exhausted" : "outage_wall_clock_exhausted";
   const exhaustedState = existingOutageState
-    ? transitionOutageMarker(existingOutageState, { status: "exhausted", reasonCode })
+    ? rebuildExhaustedOutageState(existingOutageState, {
+        correlation,
+        outage: {
+          providerDomain: classification.providerDomain,
+          outageClass: classification.outageClass,
+          outageFingerprint: classification.fingerprint,
+          firstFailureAt: source.firstFailureAt,
+          lastFailureAt: source.lastFailureAt,
+          reasonCode: classification.reasonCode,
+        },
+        schedule: {
+          attemptNumber: source.attemptNumber || policy.maxAttempts,
+          nextEligibleAt: schedule.nextEligibleAt || schedule.deadlineAt,
+          deadlineAt: schedule.deadlineAt,
+          maxAttempts: policy.maxAttempts,
+          maxWallClockMs: policy.maxWallClockMs,
+        },
+        circuit,
+        attemptNumber: source.attemptNumber || policy.maxAttempts,
+        reasonCode,
+        specDigest: correlation.originalSupervisorSpecDigest,
+      })
     : createOutageResubmissionState({
         correlation,
         outage: {
@@ -674,8 +712,9 @@ function buildCorrelation(source, classification) {
     runnerProfile: source.runnerProfile,
     runnerConfigDigest: source.runnerConfigDigest,
     originalSupervisorSpecDigest: source.originalSupervisorSpecDigest,
-    providerDomain: classification.providerDomain,
+    outageProviderDomain: classification.providerDomain,
     outageFingerprint: classification.fingerprint,
+    outageClass: classification.outageClass,
   };
 }
 

@@ -171,6 +171,50 @@ export function transitionOutageMarker(state, {
   return next;
 }
 
+export function rebuildExhaustedOutageState(state, {
+  correlation,
+  outage,
+  schedule,
+  circuit = state.circuit || null,
+  attemptNumber,
+  reasonCode,
+  specDigest = correlation?.originalSupervisorSpecDigest,
+} = {}) {
+  const canonicalNextCorrelation = canonicalCorrelation(correlation || state.correlation);
+  const canonicalNextOutage = canonicalOutage(outage || state.outage);
+  const canonicalNextSchedule = canonicalSchedule(schedule || state.schedule);
+  const attempt = Number.isSafeInteger(attemptNumber) ? attemptNumber : canonicalNextSchedule.attemptNumber;
+  const marker = buildOutageResubmissionMarker({
+    correlation: canonicalNextCorrelation,
+    attemptNumber: attempt,
+    specDigest,
+  });
+  const next = sanitizeState({
+    ...state,
+    correlation: canonicalNextCorrelation,
+    outage: canonicalNextOutage,
+    schedule: {
+      ...canonicalNextSchedule,
+      attemptNumber: attempt,
+    },
+    circuit: circuit ? canonicalCircuit(circuit) : null,
+    childSupervisorRunId: null,
+    mutationMarker: {
+      ...marker,
+      status: "exhausted",
+      reasonCode: bounded(reasonCode, 120) || null,
+    },
+    status: "exhausted",
+    timestamps: {
+      ...(state.timestamps || {}),
+      updatedAt: new Date().toISOString(),
+    },
+  });
+  const validation = validateOutageResubmissionState(next);
+  if (!validation.ok) throw new Error(`Invalid outage resubmission state: ${validation.reason}`);
+  return next;
+}
+
 export function recordOutageAttempt(state, attempt = {}) {
   const entry = sanitizeState({
     at: attempt.at || new Date().toISOString(),
@@ -187,6 +231,9 @@ export function recordOutageAttempt(state, attempt = {}) {
 
 export function verifyOutageCorrelation(state, expected = {}) {
   const actual = state?.correlation || {};
+  if ("providerDomain" in expected && !("outageProviderDomain" in expected)) {
+    return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "outageProviderDomain" };
+  }
   for (const field of [
     "taskKey",
     "runnerRunId",
@@ -200,10 +247,21 @@ export function verifyOutageCorrelation(state, expected = {}) {
     "runnerProfile",
     "runnerConfigDigest",
     "originalSupervisorSpecDigest",
+    "outageProviderDomain",
+    "outageFingerprint",
   ]) {
     if (field in expected && expected[field] !== actual[field]) {
       return { ok: false, reasonCode: "outage_resubmission_identity_drift", field };
     }
+  }
+  if ("outageProviderDomain" in expected && expected.outageProviderDomain !== state?.outage?.providerDomain) {
+    return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "outageProviderDomain" };
+  }
+  if ("outageFingerprint" in expected && expected.outageFingerprint !== state?.outage?.outageFingerprint) {
+    return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "outageFingerprint" };
+  }
+  if ("outageClass" in expected && expected.outageClass !== state?.outage?.outageClass) {
+    return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "outageClass" };
   }
   return { ok: true, reasonCode: "outage_resubmission_identity_match" };
 }

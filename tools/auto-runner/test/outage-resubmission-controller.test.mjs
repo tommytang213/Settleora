@@ -9,8 +9,10 @@ import {
   loadOutageResubmissionState,
   outageResubmissionStatePath,
   transitionOutageMarker,
+  verifyOutageCorrelation,
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
+import { outageFingerprint } from "../lib/outage-resubmission-policy.mjs";
 import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
 import { canonicalJson, readAndVerifyRunSpec, resolveProfile, sha256Text, writeImmutableRunSpec } from "../supervisor/run-spec.mjs";
 import { getRunnerStatus } from "../lib/control-plane.mjs";
@@ -21,6 +23,18 @@ const shaA = "a".repeat(40);
 const shaB = "b".repeat(40);
 const digestA = "a".repeat(64);
 const digestB = "b".repeat(64);
+const githubApi503Fingerprint = outageFingerprint({
+  domain: "github_api",
+  outageClass: "github_api_5xx",
+  status: 503,
+  reasonCode: "unknown",
+});
+const githubApi502Fingerprint = outageFingerprint({
+  domain: "github_api",
+  outageClass: "github_api_5xx",
+  status: 502,
+  reasonCode: "unknown",
+});
 const profileConfig = '{"trustedRealRunApproved":true}\n';
 const profileConfigDigest = "2642cfcf41be23ff01aa228eb94455d0e67aa12945ca2d335bed7e9bc99774a4";
 const now = new Date("2026-07-15T01:00:00.000Z");
@@ -647,7 +661,7 @@ test("correlated duplicate children are detected before intended child narrowing
   }
 });
 
-test("planned duplicate children block before eligibility and planning", () => {
+test("planned duplicate children block before schedule and planning", () => {
   const config = tempConfig();
   try {
     const planned = fixtureOutageState();
@@ -655,7 +669,7 @@ test("planned duplicate children block before eligibility and planning", () => {
     const childB = exactChild(planned, { runId: "supervised-20260715T010000Z-000000000222" });
     const result = runOutageResubmissionController({
       config,
-      source: source({ terminal: false, provenInactive: false }),
+      source: source(),
       outageState: planned,
       existingChildren: [childA, childB],
       dryRun: true,
@@ -930,37 +944,74 @@ test("controller enforces attempt and wall-clock exhaustion without child creati
   }
 });
 
-test("terminal exhaustion persists existing state and reports inactive status", () => {
+test("terminal exhaustion rebuilds stale existing marker with current attempt identity", () => {
   const config = tempConfig();
   try {
     const existing = fixtureOutageState();
     writeOutageResubmissionState(config, existing);
     const result = runOutageResubmissionController({
       config,
-      source: { ...source(), firstFailureAt: "2026-07-13T00:00:00.000Z", lastFailureAt: "2026-07-13T01:00:00.000Z" },
+      source: { ...source(), attemptNumber: 4 },
       outageState: existing,
       dryRun: false,
       now,
     });
     assert.equal(result.outcome, "exhausted");
-    assert.equal(result.reasonCode, "outage_resubmission_wall_clock_exhausted");
+    assert.equal(result.reasonCode, "outage_resubmission_attempts_exhausted");
     assert.equal(result.durable, true);
     assert.equal(result.counts.githubMutationCalls, 0);
     assert.equal(result.counts.systemdCalls, 0);
     assert.equal(result.counts.realMutationCalls, 0);
+    assert.equal(result.outageState.schedule.attemptNumber, 4);
+    assert.equal(result.outageState.schedule.maxAttempts, 3);
+    assert.equal(result.outageState.mutationMarker.attemptNumber, 4);
+    assert.equal(result.outageState.mutationMarker.specDigest, source().originalSupervisorSpecDigest);
+    assert.notEqual(result.outageState.mutationMarker.key, existing.mutationMarker.key);
+    assert.equal(result.outageState.childSupervisorRunId, null);
+    assert.equal(result.notificationIntent.dedupeKey, `${result.outageState.mutationMarker.key}:exhausted:outage_resubmission_attempts_exhausted`);
+    assert.equal(result.events.find((item) => item.event === "outage_attempts_exhausted").attemptNumber, 4);
 
     const loaded = loadOutageResubmissionState(config, existing.correlation);
     assert.equal(loaded.ok, true);
     assert.equal(loaded.state.status, "exhausted");
-    assert.equal(loaded.state.mutationMarker.reasonCode, "outage_resubmission_wall_clock_exhausted");
+    assert.equal(loaded.state.schedule.attemptNumber, 4);
+    assert.equal(loaded.state.mutationMarker.attemptNumber, 4);
+    assert.equal(loaded.state.mutationMarker.key, result.outageState.mutationMarker.key);
+    assert.equal(loaded.state.mutationMarker.reasonCode, "outage_resubmission_attempts_exhausted");
 
     const status = getRunnerStatus(config);
     assert.equal(status.outageResubmission.activeSourceRun, null);
+    assert.equal(status.outageResubmission.attemptCount, 4);
+    assert.equal(status.outageResubmission.maxAttempts, 3);
     assert.equal(status.outageResubmission.terminalOutcome, "exhausted");
-    assert.equal(status.outageResubmission.lastSanitizedReason, "outage_resubmission_wall_clock_exhausted");
+    assert.equal(status.outageResubmission.lastSanitizedReason, "outage_resubmission_attempts_exhausted");
     const health = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now, runnerStatus: status });
     assert.equal(health.body.outageResubmission.activeSourceRun, null);
+    assert.equal(health.body.outageResubmission.attemptCount, 4);
     assert.equal(health.body.outageResubmission.terminalOutcome, "exhausted");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("wall-clock exhaustion rebuilds existing marker with current attempt identity", () => {
+  const config = tempConfig();
+  try {
+    const existing = fixtureOutageState();
+    const result = runOutageResubmissionController({
+      config,
+      source: { ...source(), attemptNumber: 2, firstFailureAt: "2026-07-13T00:00:00.000Z", lastFailureAt: "2026-07-13T01:00:00.000Z" },
+      outageState: existing,
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "exhausted");
+    assert.equal(result.reasonCode, "outage_resubmission_wall_clock_exhausted");
+    assert.equal(result.outageState.schedule.attemptNumber, 2);
+    assert.equal(result.outageState.mutationMarker.attemptNumber, 2);
+    assert.notEqual(result.outageState.mutationMarker.key, existing.mutationMarker.key);
+    assert.equal(result.events.find((item) => item.event === "outage_wall_clock_exhausted").attemptNumber, 2);
+    assert.equal(result.counts.realMutationCalls, 0);
   } finally {
     config.cleanup();
   }
@@ -1022,6 +1073,55 @@ test("exhaustion persistence failure preserves prior state and does not claim du
   } finally {
     config.cleanup();
   }
+});
+
+test("existing outage identity drift fails closed before planning or child adoption", () => {
+  const config = tempConfig();
+  try {
+    for (const [label, sourceOverride, expectedField] of [
+      ["provider", { failure: { domain: "scanner_service", status: 503 } }, "outageProviderDomain"],
+      ["fingerprint", { failure: { domain: "github_api", status: 502 } }, "outageFingerprint"],
+      ["class", { failure: { domain: "github_api", reasonCode: "timeout" } }, "outageFingerprint"],
+    ]) {
+      const result = runOutageResubmissionController({
+        config,
+        source: source(sourceOverride),
+        outageState: fixtureOutageState(),
+        existingChildren: [exactChild(fixtureOutageState())],
+        dryRun: true,
+        now,
+      });
+      assert.equal(result.outcome, "blocked", label);
+      assert.equal(result.reasonCode, "outage_resubmission_identity_drift", label);
+      assert.equal(result.drift.field, expectedField, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.events.some((item) => item.event === "circuit_checked"), false, label);
+      assert.equal(result.events.some((item) => item.event === "existing_child_reused"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("outage correlation verifier requires canonical outage identity keys", () => {
+  const state = fixtureOutageState();
+  assert.equal(verifyOutageCorrelation(state, {
+    issueNumber: 913,
+    outageProviderDomain: "github_api",
+    outageFingerprint: githubApi503Fingerprint,
+    outageClass: "github_api_5xx",
+  }).ok, true);
+  assert.deepEqual(verifyOutageCorrelation(state, { issueNumber: 913, providerDomain: "github_api" }), {
+    ok: false,
+    reasonCode: "outage_resubmission_identity_drift",
+    field: "outageProviderDomain",
+  });
+  assert.equal(verifyOutageCorrelation(state, { outageProviderDomain: "scanner_service" }).field, "outageProviderDomain");
+  assert.equal(verifyOutageCorrelation(state, { outageFingerprint: githubApi502Fingerprint }).field, "outageFingerprint");
+  assert.equal(verifyOutageCorrelation(state, { outageClass: "github_api_timeout" }).field, "outageClass");
 });
 
 test("status and health expose sanitized default-off outage state without mutation authority", () => {
@@ -1100,13 +1200,13 @@ function fixtureOutageState() {
   return createOutageResubmissionState({
     correlation: {
       ...source(),
-      providerDomain: "github_api",
-      outageFingerprint: digestA,
+      outageProviderDomain: "github_api",
+      outageFingerprint: githubApi503Fingerprint,
     },
     outage: {
       providerDomain: "github_api",
       outageClass: "github_api_5xx",
-      outageFingerprint: digestA,
+      outageFingerprint: githubApi503Fingerprint,
       firstFailureAt: "2026-07-15T00:00:00.000Z",
       lastFailureAt: "2026-07-15T00:30:00.000Z",
       reasonCode: "github_api_5xx",
