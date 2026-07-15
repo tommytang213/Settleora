@@ -258,11 +258,11 @@ test("outage resubmission state validates identity, atomic writes, markers, corr
     mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
     writeFileSync(path.join(unsafe.logsRoot, "target.json"), "{}\n", { mode: 0o600 });
     symlinkSync(path.join(unsafe.logsRoot, "target.json"), statePath);
-    assert.equal(loadOutageResubmissionState(unsafe, state).reasonCode, "outage_resubmission_state_corrupt");
+    assert.equal(loadOutageResubmissionState(unsafe, state).reasonCode, "outage_resubmission_state_untrusted");
     rmSync(statePath, { force: true });
     writeFileSync(statePath, `${JSON.stringify(state)}\n`, { mode: 0o666 });
     chmodSync(statePath, 0o666);
-    assert.equal(loadOutageResubmissionState(unsafe, state).reasonCode, "outage_resubmission_state_corrupt");
+    assert.equal(loadOutageResubmissionState(unsafe, state).reasonCode, "outage_resubmission_state_untrusted");
   } finally {
     unsafe.cleanup();
   }
