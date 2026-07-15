@@ -23,6 +23,7 @@ const shaA = "a".repeat(40);
 const shaB = "b".repeat(40);
 const digestA = "a".repeat(64);
 const digestB = "b".repeat(64);
+const digestC = "c".repeat(64);
 const githubApi503Fingerprint = outageFingerprint({
   domain: "github_api",
   outageClass: "github_api_5xx",
@@ -875,6 +876,91 @@ test("canonical child representations dedupe only when immutable identity is con
   }
 });
 
+test("same-marker child spec digest drift blocks before adoption or planning", () => {
+  const config = tempConfig();
+  try {
+    const baseState = fixtureOutageState();
+    for (const [label, state] of [
+      ["planned", baseState],
+      ["submitted", transitionOutageMarker(baseState, {
+        status: "submitted",
+        childSupervisorRunId: "supervised-20260715T010000Z-000000000111",
+        specDigest: digestB,
+      })],
+      ["confirmed_running", transitionOutageMarker(baseState, {
+        status: "confirmed_running",
+        childSupervisorRunId: "supervised-20260715T010000Z-000000000222",
+        specDigest: digestB,
+      })],
+    ]) {
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState: state,
+        existingChildren: [sameMarkerSpecDriftChild(state, { runId: state.childSupervisorRunId || "supervised-20260715T010000Z-000000000333" })],
+        dryRun: true,
+        now,
+      });
+      assert.equal(result.outcome, "blocked", label);
+      assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation", label);
+      assert.equal(result.childReconciliation.mismatches.includes("childSpecDigest"), true, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+    }
+
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: baseState,
+      existingChildren: [sameMarkerSpecDriftChild(baseState, { runId: "supervised-20260715T010000Z-000000000444" })],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("childSpecDigest"), true);
+
+    const submitted = transitionOutageMarker(baseState, {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000555",
+      specDigest: digestB,
+    });
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [
+        exactChild(submitted, { runId: submitted.childSupervisorRunId }),
+        sameMarkerSpecDriftChild(submitted, { runId: "supervised-20260715T010000Z-000000000666" }),
+      ],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("childSpecDigest"), true);
+    assert.equal(result.events.some((item) => item.event === "submitted_child_reconciled"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: submitted,
+      existingChildren: [sameMarkerMissingSpecDigestChild(submitted)],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_child_identity_mismatch_requires_reconciliation");
+    assert.equal(result.childReconciliation.mismatches.includes("childSpecDigest"), true);
+    assert.equal(result.counts.realMutationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("children with different issue branch or parent identity are unrelated", () => {
   const config = tempConfig();
   try {
@@ -969,11 +1055,11 @@ test("controller invalidates stale head evidence and treats merged or closed sou
 test("exact current completion persists nonterminal outage state as recovered", () => {
   const config = tempConfig();
   try {
-    for (const [status, identity, reasonCode] of [
-      ["planned", currentCompletion({ merged: true }), "source_current_pr_merged"],
-      ["planned", currentCompletion({ issueClosed: true, merged: false }), "source_current_issue_closed"],
-      ["submitted", currentCompletion({ merged: true }), "source_current_pr_merged"],
-      ["confirmed_running", currentCompletion({ issueClosed: true, merged: false }), "source_current_issue_closed"],
+    for (const [status, sourceFlags, identity, reasonCode] of [
+      ["planned", { merged: true, completed: true }, currentCompletion({ merged: true }), "source_current_pr_merged"],
+      ["planned", { issueClosed: true, completed: true }, currentCompletion({ issueClosed: true, merged: false }), "source_current_issue_closed"],
+      ["submitted", { merged: true, completed: true }, currentCompletion({ merged: true }), "source_current_pr_merged"],
+      ["confirmed_running", { issueClosed: true, completed: true }, currentCompletion({ issueClosed: true, merged: false }), "source_current_issue_closed"],
     ]) {
       const baseState = fixtureOutageState();
       const state = status === "planned"
@@ -985,11 +1071,12 @@ test("exact current completion persists nonterminal outage state as recovered", 
             reasonCode: status === "submitted" ? "child_submission_confirmed" : "submitted_child_reconciled",
           });
       writeOutageResubmissionState(config, state);
+      assert.equal(evaluateSourceRunEligibility({ config, source: source(sourceFlags) }).reasonCode, "source_work_already_complete", status);
       const result = runOutageResubmissionController({
         config,
-        source: source(),
+        source: source(sourceFlags),
         outageState: state,
-        existingChildren: [],
+        existingChildren: [sameMarkerSpecDriftChild(state)],
         recoveryState: incompleteRecoveryState(),
         currentIdentity: identity,
         dryRun: false,
@@ -1002,6 +1089,7 @@ test("exact current completion persists nonterminal outage state as recovered", 
       assert.equal(result.outageState.mutationMarker.reasonCode, reasonCode, status);
       assert.equal(result.notificationIntent.kind, "outage_source_recovered", status);
       assert.equal(result.events.some((item) => item.event === "recoverable_state_wins"), false, status);
+      assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false, status);
       assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, status);
       assert.equal(result.counts.githubMutationCalls, 0, status);
       assert.equal(result.counts.systemdCalls, 0, status);
@@ -1031,7 +1119,7 @@ test("source completion dry-run, repeated terminal, mismatch, and persistence fa
     writeOutageResubmissionState(config, planned);
     let result = runOutageResubmissionController({
       config,
-      source: source(),
+      source: source({ merged: true, completed: true }),
       outageState: planned,
       currentIdentity: currentCompletion({ merged: true }),
       dryRun: true,
@@ -1048,7 +1136,7 @@ test("source completion dry-run, repeated terminal, mismatch, and persistence fa
     });
     result = runOutageResubmissionController({
       config,
-      source: source(),
+      source: source({ merged: true, completed: true }),
       outageState: recovered,
       currentIdentity: currentCompletion({ merged: true }),
       dryRun: false,
@@ -1062,7 +1150,7 @@ test("source completion dry-run, repeated terminal, mismatch, and persistence fa
 
     result = runOutageResubmissionController({
       config,
-      source: source(),
+      source: source({ merged: true, completed: true }),
       outageState: planned,
       currentIdentity: currentCompletion({ merged: true, prHeadSha: "c".repeat(40) }),
       dryRun: false,
@@ -1076,7 +1164,7 @@ test("source completion dry-run, repeated terminal, mismatch, and persistence fa
 
     result = runOutageResubmissionController({
       config,
-      source: source(),
+      source: source({ issueClosed: true, completed: true }),
       outageState: planned,
       currentIdentity: currentCompletion({ issueClosed: true, merged: false }),
       dryRun: false,
@@ -1446,6 +1534,31 @@ function exactChild(state = fixtureOutageState(), overrides = {}) {
       childSpecDigest: state.mutationMarker.specDigest || digestB,
     },
     ...overrides,
+  };
+}
+
+function sameMarkerSpecDriftChild(state = fixtureOutageState(), overrides = {}) {
+  return exactChild(state, {
+    runId: "supervised-20260715T010000Z-000000000777",
+    specSha256: digestC,
+    outageResubmission: {
+      ...exactChild(state).outageResubmission,
+      childSpecDigest: digestC,
+    },
+    ...overrides,
+  });
+}
+
+function sameMarkerMissingSpecDigestChild(state = fixtureOutageState(), overrides = {}) {
+  const child = exactChild(state, {
+    runId: "supervised-20260715T010000Z-000000000778",
+    ...overrides,
+  });
+  const { childSpecDigest, specDigest, ...outageResubmission } = child.outageResubmission;
+  const { specSha256, specDigest: topLevelSpecDigest, ...withoutDigest } = child;
+  return {
+    ...withoutDigest,
+    outageResubmission,
   };
 }
 

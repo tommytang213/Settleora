@@ -103,12 +103,12 @@ export function runOutageResubmissionController(input = {}) {
   let eligibility = null;
   let correlation = null;
   if (existingOutageState) {
-    eligibility = evaluateSourceRunEligibility({ config, source, failure: input.failure });
-    if (!eligibility.eligible) {
-      event("terminal_nonretryable_block", { reasonCode: eligibility.reasonCode, classification: eligibility.classification });
-      return result("blocked", eligibility.reasonCode, { events, counts, classification: eligibility.classification });
+    const sourceIdentity = validateExistingSourceIdentityForOutageState({ source, failure: input.failure });
+    if (!sourceIdentity.ok) {
+      event("outage_source_identity_blocked", { reasonCode: sourceIdentity.reasonCode, field: sourceIdentity.field, classification: sourceIdentity.classification });
+      return result("blocked", sourceIdentity.reasonCode, { events, counts, classification: sourceIdentity.classification, invalidField: sourceIdentity.field });
     }
-    correlation = buildCorrelation(source, eligibility.classification);
+    correlation = buildCorrelation(source, sourceIdentity.classification);
     const drift = verifyOutageCorrelation(existingOutageState, correlation);
     if (!drift.ok) {
       event("outage_identity_drift_blocked", { reasonCode: drift.reasonCode, field: drift.field });
@@ -574,10 +574,22 @@ function reconcileExactChild(children, source, outageState) {
 
   const exact = [];
   const indeterminate = [];
+  const identityMismatches = [];
   for (const child of canonical.children) {
     const correlation = classifyChildCorrelation(child, source, outageState);
     if (correlation.kind === "exact") exact.push(child);
     if (correlation.kind === "indeterminate") indeterminate.push({ child, missing: correlation.missing });
+    if (correlation.kind === "identity_mismatch") identityMismatches.push({ child, mismatches: correlation.mismatches });
+  }
+
+  if (identityMismatches.length > 0) {
+    return {
+      ok: false,
+      reasonCode: "outage_child_identity_mismatch_requires_reconciliation",
+      mismatches: [...new Set(identityMismatches.flatMap((item) => item.mismatches))],
+      candidates: identityMismatches.length,
+      candidateIds: identityMismatches.map((item) => ({ runId: item.child.runId || null, specDigest: childDigest(item.child) })).slice(0, 10),
+    };
   }
 
   if (exact.length > 1 || indeterminate.length > 0) {
@@ -649,7 +661,9 @@ function classifyChildCorrelation(child, source, outageState) {
   const sourceFields = sourceCorrelationChecks(child, source, outageState);
   if (sourceFields.every((check) => check.expected === null || check.expected === undefined || check.actual === check.expected)) return { kind: "exact" };
 
-  const sourceCore = sourceFields.filter((check) => !["attemptNumber", "outageFingerprint", "markerKey"].includes(check.field));
+  const markerIdentityFields = new Set(["attemptNumber", "outageFingerprint", "markerKey"]);
+  const childArtifactFields = new Set(["childLogicalId", "childSpecDigest"]);
+  const sourceCore = sourceFields.filter((check) => !markerIdentityFields.has(check.field) && !childArtifactFields.has(check.field));
   const hasCoreConflict = sourceCore.some((check) => check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected);
   if (hasCoreConflict) return { kind: "unrelated" };
 
@@ -658,6 +672,24 @@ function classifyChildCorrelation(child, source, outageState) {
     .filter((check) => strongCoreFields.has(check.field))
     .some((check) => check.expected !== null && check.expected !== undefined && check.actual === check.expected);
   if (!hasStrongCoreMatch) return { kind: "unrelated" };
+
+  const markerIdentity = sourceFields.filter((check) => markerIdentityFields.has(check.field));
+  const markerConflict = markerIdentity.some((check) => check.expected !== null && check.expected !== undefined && check.actual !== null && check.actual !== undefined && check.actual !== check.expected);
+  if (markerConflict) return { kind: "unrelated" };
+
+  const missingCoreOrMarker = [...sourceCore, ...markerIdentity]
+    .filter((check) => check.expected !== null && check.expected !== undefined && (check.actual === null || check.actual === undefined))
+    .map((check) => check.field);
+  if (missingCoreOrMarker.length > 0) return { kind: "indeterminate", missing: missingCoreOrMarker };
+
+  const sameMarker = markerIdentity.every((check) => check.expected !== null && check.expected !== undefined && check.actual === check.expected);
+  if (sameMarker) {
+    const artifactMismatches = sourceFields
+      .filter((check) => check.field === "childSpecDigest")
+      .filter((check) => check.expected !== null && check.expected !== undefined && check.actual !== check.expected)
+      .map((check) => check.field);
+    if (artifactMismatches.length > 0) return { kind: "identity_mismatch", mismatches: artifactMismatches };
+  }
 
   const missing = sourceFields
     .filter((check) => check.expected !== null && check.expected !== undefined && (check.actual === null || check.actual === undefined))
@@ -735,6 +767,16 @@ function mergeChildRepresentations(left, right) {
 
 function childDigest(child) {
   return child?.specSha256 || child?.specDigest || child?.outageResubmission?.childSpecDigest || child?.outageResubmission?.specDigest || null;
+}
+
+function validateExistingSourceIdentityForOutageState({ source, failure }) {
+  const validation = validateSourceEvidence(source);
+  if (!validation.ok) return { ok: false, reasonCode: validation.reasonCode, field: validation.field };
+  if (source.manualGate || source.authorityGate || source.destructiveGate) return { ok: false, reasonCode: "source_manual_or_authority_gate" };
+  if (source.staleEvidence) return { ok: false, reasonCode: "source_stale_evidence" };
+  const classification = classifyOutageFailure(failure || source.failure || {});
+  if (!classification.retryable) return { ok: false, reasonCode: "source_failure_nonretryable", classification };
+  return { ok: true, classification };
 }
 
 function isTerminalChild(child) {
