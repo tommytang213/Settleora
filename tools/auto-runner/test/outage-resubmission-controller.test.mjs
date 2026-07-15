@@ -54,6 +54,55 @@ test("source eligibility is not inferred from age or stopped state alone", () =>
   }
 });
 
+test("source eligibility accepts normalized github api outage evidence without live mutation", () => {
+  const config = tempConfig();
+  try {
+    const normalized = source({ failure: { domain: "github_api", reasonCode: "api_5xx" } });
+    const eligible = evaluateSourceRunEligibility({ config, source: normalized });
+    assert.equal(eligible.eligible, true);
+    assert.equal(eligible.classification.outageClass, "github_api_5xx");
+    assert.equal(eligible.classification.rawBodyAccepted, false);
+    assert.match(eligible.classification.fingerprint, /^[a-f0-9]{64}$/);
+
+    const planned = runOutageResubmissionController({
+      config,
+      source: normalized,
+      recoveryState: incompleteRecoveryState(),
+      dryRun: true,
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000991",
+    });
+    assert.equal(planned.outcome, "planned");
+    assert.equal(planned.reasonCode, "dry_run_no_mutation");
+    assert.equal(planned.outageState.outage.outageClass, "github_api_5xx");
+    assert.equal(planned.outageState.outage.providerDomain, "github_api");
+    assert.equal(planned.counts.githubMutationCalls, 0);
+    assert.equal(planned.counts.systemdCalls, 0);
+    assert.equal(planned.counts.realMutationCalls, 0);
+
+    const unknown = evaluateSourceRunEligibility({ config, source: source({ failure: { domain: "github_api", reasonCode: "not_a_real_reason" } }) });
+    assert.equal(unknown.eligible, false);
+    assert.equal(unknown.reasonCode, "source_failure_nonretryable");
+    assert.equal(unknown.classification.outageClass, "unknown_ambiguous_failure");
+
+    for (const failure of [
+      { domain: "github_api", status: 401, reasonCode: "api_5xx" },
+      { domain: "github_api", status: 403, reasonCode: "api_5xx" },
+      { domain: "github_api", status: 404, reasonCode: "api_5xx" },
+    ]) {
+      const blocked = runOutageResubmissionController({ config, source: source({ failure }), recoveryState: incompleteRecoveryState(), dryRun: true, now });
+      assert.equal(blocked.outcome, "blocked");
+      assert.equal(blocked.reasonCode, "source_failure_nonretryable");
+      assert.equal(blocked.counts.githubMutationCalls, 0);
+      assert.equal(blocked.counts.systemdCalls, 0);
+      assert.equal(blocked.counts.realMutationCalls, 0);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("source eligibility requires complete bounded source identity before planning", () => {
   const config = tempConfig();
   try {

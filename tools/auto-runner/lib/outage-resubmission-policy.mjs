@@ -65,6 +65,16 @@ const retryableReasonCodes = new Set([
   "provider_5xx",
 ]);
 
+const githubApiTransportReasonCodes = new Set([
+  "transport_disconnect",
+  "transport_failure",
+  "connection_reset",
+  "dns_failure",
+  "tls_failure",
+  "network_unreachable",
+  "routing_failure",
+]);
+
 const nonretryableReasonCodes = new Map([
   ["missing_secret", "missing_or_invalid_secret_config"],
   ["invalid_secret", "missing_or_invalid_secret_config"],
@@ -271,8 +281,9 @@ function retryableClassFor({ status, domain, reasonCode, trustedRateLimit }) {
   if (domain === "github_api") {
     if (status === 429 || (status === 403 && trustedRateLimit)) return "github_api_rate_limit";
     if (status >= 500 && status <= 599) return "github_api_5xx";
+    if (reasonCode === "api_5xx") return "github_api_5xx";
     if (reasonCode === "timeout" || reasonCode === "api_timeout") return "github_api_timeout";
-    if (["connection_reset", "dns_failure", "tls_failure", "transport_failure"].includes(reasonCode)) return "github_api_transport";
+    if (githubApiTransportReasonCodes.has(reasonCode)) return "github_api_transport";
   }
   if (domain === "github_actions") {
     if (status >= 500 && status <= 599 || reasonCode === "api_5xx") return "github_actions_api_outage";

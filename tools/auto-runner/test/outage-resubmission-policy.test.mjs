@@ -32,15 +32,26 @@ const shaB = "b".repeat(40);
 const digestA = "a".repeat(64);
 const digestB = "b".repeat(64);
 const now = new Date("2026-07-15T00:00:00.000Z");
+const githubApiTransportReasonCodes = Object.freeze([
+  "transport_disconnect",
+  "transport_failure",
+  "connection_reset",
+  "dns_failure",
+  "tls_failure",
+  "network_unreachable",
+  "routing_failure",
+]);
 
 test("strict classifier accepts only trusted retryable outage classes", () => {
   const cases = [
     [{ domain: "github_api", status: 429 }, "github_api_rate_limit"],
     [{ domain: "github_api", status: 403, trustedHeaders: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1784073900" } }, "github_api_rate_limit"],
     [{ domain: "github_api", status: 503 }, "github_api_5xx"],
+    [{ domain: "github_api", reasonCode: "api_5xx" }, "github_api_5xx"],
     [{ domain: "github_api", reasonCode: "timeout" }, "github_api_timeout"],
-    [{ domain: "github_api", reasonCode: "dns_failure" }, "github_api_transport"],
+    ...githubApiTransportReasonCodes.map((reasonCode) => [{ domain: "github_api", reasonCode }, "github_api_transport"]),
     [{ domain: "github_actions", reasonCode: "api_timeout" }, "github_actions_check_transport"],
+    [{ domain: "github_actions", reasonCode: "api_5xx" }, "github_actions_api_outage"],
     [{ domain: "github_actions", reasonCode: "workflow_service_unavailable" }, "github_actions_service_unavailable"],
     [{ domain: "codex_provider", status: 429 }, "codex_provider_rate_limit"],
     [{ domain: "codex_provider", status: 500 }, "codex_provider_5xx"],
@@ -56,7 +67,8 @@ test("strict classifier accepts only trusted retryable outage classes", () => {
     [{ domain: "scanner_service", reasonCode: "transport_failure" }, "scanner_service_transport"],
     [{ domain: "devbox_network", reasonCode: "tls_failure" }, "devbox_network_transport"],
   ];
-  assert.equal(cases.length, retryableOutageClasses.length);
+  const representedClasses = new Set(cases.map(([, expected]) => expected));
+  assert.deepEqual([...representedClasses].sort(), [...retryableOutageClasses].sort());
   for (const [input, expected] of cases) {
     const result = classifyOutageFailure(input);
     assert.equal(result.retryable, true, expected);
@@ -64,6 +76,38 @@ test("strict classifier accepts only trusted retryable outage classes", () => {
     assert.match(result.fingerprint, /^[a-f0-9]{64}$/);
     assert.equal(result.rawBodyAccepted, false);
   }
+});
+
+test("github api normalized reasons preserve precedence and fail closed outside trusted domain vocabulary", () => {
+  const cases = [
+    [{ domain: "github_api", status: 401, reasonCode: "api_5xx" }, "auth_401"],
+    [{ domain: "github_api", status: 403, reasonCode: "api_5xx" }, "forbidden_403"],
+    [{ domain: "github_api", status: 404, reasonCode: "api_5xx" }, "not_found_404"],
+    [
+      { domain: "github_api", status: 403, reasonCode: "api_5xx", trustedHeaders: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1784073900" } },
+      "github_api_rate_limit",
+    ],
+    [{ domain: "unknown", reasonCode: "api_5xx" }, "unknown_ambiguous_failure"],
+    [{ domain: "__proto__", reasonCode: "api_5xx" }, "unknown_ambiguous_failure"],
+    [{ domain: "github_api", reasonCode: "not_a_real_reason" }, "unknown_ambiguous_failure"],
+    [{ domain: "github_api", body: "503 api_5xx timeout transport_failure" }, "unknown_ambiguous_failure"],
+    [{ domain: "github_api" }, "unknown_ambiguous_failure"],
+  ];
+  for (const [input, expected] of cases) {
+    const result = classifyOutageFailure(input);
+    assert.equal(result.outageClass, expected);
+    assert.equal(result.retryable, retryableOutageClasses.includes(expected), expected);
+    assert.match(result.fingerprint, /^[a-f0-9]{64}$/);
+    assert.equal(result.rawBodyAccepted, false);
+  }
+});
+
+test("github actions and github api both accept normalized api_5xx without sharing unrelated domain codes", () => {
+  assert.equal(classifyOutageFailure({ domain: "github_api", reasonCode: "api_5xx" }).outageClass, "github_api_5xx");
+  assert.equal(classifyOutageFailure({ domain: "github_actions", reasonCode: "api_5xx" }).outageClass, "github_actions_api_outage");
+  assert.equal(classifyOutageFailure({ domain: "github_api", reasonCode: "workflow_service_unavailable" }).outageClass, "unknown_ambiguous_failure");
+  assert.equal(classifyOutageFailure({ domain: "github_actions", reasonCode: "network_unreachable" }).outageClass, "unknown_ambiguous_failure");
+  assert.equal(classifyOutageFailure({ domain: "codex_provider", reasonCode: "api_5xx" }).outageClass, "unknown_ambiguous_failure");
 });
 
 test("strict classifier blocks nonretryable and hostile untrusted evidence", () => {
