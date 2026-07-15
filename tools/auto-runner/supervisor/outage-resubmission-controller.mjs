@@ -25,12 +25,8 @@ export function evaluateSourceRunEligibility(input = {}) {
   const source = input.source || {};
   const block = (reasonCode, extra = {}) => ({ eligible: false, reasonCode, ...extra });
   if (!policy.allowBoundedOutageResubmission) return block("outage_resubmission_disabled");
-  if (!source.taskKey || !source.runnerRunId || !source.supervisorRunId || !Number.isSafeInteger(source.issueNumber)) {
-    return block("source_correlation_incomplete");
-  }
-  if (!source.runnerProfile || !isDigest(source.runnerConfigDigest) || !isDigest(source.originalSupervisorSpecDigest)) {
-    return block("source_immutable_digest_missing");
-  }
+  const validation = validateSourceEvidence(source);
+  if (!validation.ok) return block(validation.reasonCode, { invalidField: validation.field });
   if (!source.terminal && !source.provenInactive) return block("source_run_not_terminal_or_inactive");
   if (source.manualGate || source.authorityGate || source.destructiveGate) return block("source_manual_or_authority_gate");
   if (source.completed || source.merged || source.issueClosed) return block("source_work_already_complete");
@@ -119,6 +115,21 @@ export function runOutageResubmissionController(input = {}) {
       return result("blocked", drift.reasonCode, { events, counts, drift, outageState: existingOutageState });
     }
   }
+
+  const currentCompletion = validateCurrentCompletionIdentity(source, input.currentIdentity);
+  if (currentCompletion.complete) {
+    return terminalizeSourceCompletion({
+      config,
+      existingOutageState,
+      dryRun,
+      events,
+      counts,
+      event,
+      writeState: input.writeOutageState || writeOutageResubmissionState,
+      reasonCode: currentCompletion.reasonCode,
+    });
+  }
+  if (!currentCompletion.ok) return result("blocked", currentCompletion.reasonCode, { events, counts, outageState: existingOutageState });
 
   event("outage_marker_reconciled");
   const childReconciliation = reconcileExactChild(input.existingChildren || [], source, existingOutageState);
@@ -224,10 +235,6 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   event("head_bound_evidence_checked");
-  if (input.currentIdentity?.merged || input.currentIdentity?.issueClosed) {
-    event("source_already_recovered");
-    return result("recovered", "source_already_complete", { events, counts });
-  }
   if (input.currentIdentity?.branchName && input.currentIdentity.branchName !== source.branchName) {
     return result("blocked", "branch_identity_mismatch", { events, counts });
   }
@@ -250,22 +257,29 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   event("circuit_checked");
-  const circuit = evaluateOutageCircuit({
-    config: policy,
-    records: input.circuitRecords || [],
-    now,
-    providerDomain: eligibility.classification.providerDomain,
-    outageFingerprint: eligibility.classification.fingerprint,
-    existing: input.circuitState || null,
-  });
-  const schedule = planOutageResubmissionSchedule({
-    config: policy,
-    firstFailureAt: source.firstFailureAt,
-    lastFailureAt: source.lastFailureAt,
-    attemptNumber: source.attemptNumber || 1,
-    now,
-    rng: input.rng || Math.random,
-  });
+  let circuit;
+  let schedule;
+  try {
+    circuit = evaluateOutageCircuit({
+      config: policy,
+      records: input.circuitRecords || [],
+      now,
+      providerDomain: eligibility.classification.providerDomain,
+      outageFingerprint: eligibility.classification.fingerprint,
+      existing: input.circuitState || null,
+    });
+    schedule = planOutageResubmissionSchedule({
+      config: policy,
+      firstFailureAt: source.firstFailureAt,
+      lastFailureAt: source.lastFailureAt,
+      attemptNumber: source.attemptNumber || 1,
+      now,
+      rng: input.rng || Math.random,
+    });
+  } catch (error) {
+    event("source_schedule_identity_blocked", { reasonCode: error.message });
+    return result("blocked", "source_schedule_evidence_invalid", { events, counts, classification: eligibility.classification });
+  }
   const finalGate = applyOutageOperatorGate({
     operatorControl: input.operatorControl || {},
     circuit,
@@ -361,6 +375,60 @@ export function runOutageResubmissionController(input = {}) {
   writeOutageResubmissionState(config, confirmed);
   event("child_submission_confirmed", { childSupervisorRunId: child.spec.runId });
   return result("submitted", "child_submission_confirmed", { events, counts, outageState: confirmed, child, submitted });
+}
+
+function terminalizeSourceCompletion({
+  config,
+  existingOutageState,
+  dryRun,
+  events,
+  counts,
+  event,
+  writeState,
+  reasonCode,
+}) {
+  event("head_bound_evidence_checked");
+  event("source_already_recovered", { reasonCode });
+  if (!existingOutageState) {
+    return result("recovered", reasonCode, { events, counts, durable: false });
+  }
+  if (isTerminalOutageStatus(existingOutageState.mutationMarker?.status || existingOutageState.status)) {
+    event("terminal_outage_marker_preserved", { status: existingOutageState.status });
+    return result("noop", "terminal_outage_marker_preserved", { events, counts, outageState: existingOutageState });
+  }
+  const recoveredState = transitionOutageMarker(existingOutageState, {
+    status: "recovered",
+    childSupervisorRunId: existingOutageState.childSupervisorRunId || null,
+    specDigest: existingOutageState.mutationMarker?.specDigest || existingOutageState.correlation?.originalSupervisorSpecDigest,
+    reasonCode,
+  });
+  event("outage_source_completion_recovered", {
+    reasonCode,
+    dedupeKey: `${recoveredState.mutationMarker.key}:recovered:${reasonCode}`,
+  });
+  if (!dryRun) {
+    try {
+      writeState(config, recoveredState);
+    } catch (error) {
+      event("outage_source_recovery_persistence_failed", { reasonCode, detail: error.message });
+      return result("blocked", "outage_source_recovery_persistence_failed", {
+        events,
+        counts,
+        outageState: existingOutageState,
+      });
+    }
+  }
+  return result("recovered", reasonCode, {
+    events,
+    counts,
+    outageState: recoveredState,
+    notificationIntent: {
+      kind: "outage_source_recovered",
+      dedupeKey: `${recoveredState.mutationMarker.key}:recovered:${reasonCode}`,
+      reasonCode,
+    },
+    durable: dryRun ? false : true,
+  });
 }
 
 function terminalizeOutageExhaustion({
@@ -681,6 +749,49 @@ function isExhaustionReason(reasonCode) {
   return ["outage_resubmission_attempts_exhausted", "outage_resubmission_wall_clock_exhausted"].includes(reasonCode);
 }
 
+function validateSourceEvidence(source = {}) {
+  const invalid = (field, reasonCode = "source_identity_invalid") => ({ ok: false, field, reasonCode });
+  if (!isTaskKey(source.taskKey)) return invalid("taskKey", "source_correlation_incomplete");
+  if (!isRunnerRunId(source.runnerRunId)) return invalid("runnerRunId", "source_correlation_incomplete");
+  if (!isSupervisorRunId(source.supervisorRunId)) return invalid("supervisorRunId", "source_correlation_incomplete");
+  if (!Number.isSafeInteger(source.issueNumber) || source.issueNumber < 1 || source.issueNumber > 9999999) return invalid("issueNumber", "source_issue_identity_invalid");
+  if (!isBranchName(source.branchName)) return invalid("branchName", "source_branch_identity_invalid");
+  if (!isSha(source.baseSha)) return invalid("baseSha", "source_base_identity_invalid");
+  if (!isSha(source.currentHeadSha)) return invalid("currentHeadSha", "source_head_identity_invalid");
+  if (!isProfileName(source.runnerProfile)) return invalid("runnerProfile", "source_profile_identity_invalid");
+  if (!isDigest(source.runnerConfigDigest)) return invalid("runnerConfigDigest", "source_immutable_digest_missing");
+  if (!isDigest(source.originalSupervisorSpecDigest)) return invalid("originalSupervisorSpecDigest", "source_immutable_digest_missing");
+  if (!isIsoTimestamp(source.firstFailureAt)) return invalid("firstFailureAt", "source_failure_timestamp_invalid");
+  if (!isIsoTimestamp(source.lastFailureAt)) return invalid("lastFailureAt", "source_failure_timestamp_invalid");
+  if (Date.parse(source.lastFailureAt) < Date.parse(source.firstFailureAt)) return invalid("lastFailureAt", "source_failure_timestamp_order_invalid");
+  if (source.attemptNumber !== undefined && source.attemptNumber !== null && (!Number.isSafeInteger(source.attemptNumber) || source.attemptNumber < 1 || source.attemptNumber > 20)) {
+    return invalid("attemptNumber", "source_attempt_identity_invalid");
+  }
+  const hasPrNumber = source.prNumber !== undefined && source.prNumber !== null;
+  const hasPrHeadSha = source.prHeadSha !== undefined && source.prHeadSha !== null;
+  if (hasPrNumber !== hasPrHeadSha) return invalid(hasPrNumber ? "prHeadSha" : "prNumber", "source_pr_identity_unpaired");
+  if (hasPrNumber && (!Number.isSafeInteger(source.prNumber) || source.prNumber < 1 || source.prNumber > 9999999)) return invalid("prNumber", "source_pr_identity_invalid");
+  if (hasPrHeadSha && !isSha(source.prHeadSha)) return invalid("prHeadSha", "source_pr_identity_invalid");
+  return { ok: true };
+}
+
+function validateCurrentCompletionIdentity(source, currentIdentity = null) {
+  if (!currentIdentity?.merged && !currentIdentity?.issueClosed) return { ok: true, complete: false };
+  if (currentIdentity.branchName !== source.branchName) return { ok: false, reasonCode: "branch_identity_mismatch" };
+  if (currentIdentity.baseSha !== source.baseSha) return { ok: false, reasonCode: "base_identity_mismatch" };
+  if (currentIdentity.currentHeadSha !== source.currentHeadSha) return { ok: false, reasonCode: "current_head_identity_mismatch" };
+  if (source.prNumber || source.prHeadSha) {
+    if (currentIdentity.prNumber !== source.prNumber) return { ok: false, reasonCode: "pr_identity_mismatch" };
+    if (currentIdentity.prHeadSha !== source.prHeadSha) return { ok: false, reasonCode: "pr_head_identity_mismatch" };
+  }
+  if (currentIdentity.issueNumber !== undefined && currentIdentity.issueNumber !== source.issueNumber) return { ok: false, reasonCode: "issue_identity_mismatch" };
+  return {
+    ok: true,
+    complete: true,
+    reasonCode: currentIdentity.merged ? "source_current_pr_merged" : "source_current_issue_closed",
+  };
+}
+
 function summarizeOutageState(state) {
   return {
     taskKey: state.correlation?.taskKey || null,
@@ -732,4 +843,35 @@ function sanitizeEvent(value) {
 
 function isDigest(value) {
   return /^[a-f0-9]{64}$/.test(String(value || ""));
+}
+
+function isSha(value) {
+  return /^[a-f0-9]{40}$/.test(String(value || ""));
+}
+
+function isIsoTimestamp(value) {
+  if (typeof value !== "string" || value.length > 40) return false;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && new Date(ms).toISOString() === value;
+}
+
+function isTaskKey(value) {
+  return /^[A-Za-z0-9._-]{1,80}$/.test(String(value || "")) && !String(value || "").includes("..");
+}
+
+function isRunnerRunId(value) {
+  return /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(String(value || ""));
+}
+
+function isSupervisorRunId(value) {
+  return /^supervised-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/.test(String(value || ""));
+}
+
+function isBranchName(value) {
+  const branch = String(value || "");
+  return /^(feature|focused|feature-bundle|tools)\/[A-Za-z0-9._/-]{1,180}$/.test(branch) && !branch.includes("..");
+}
+
+function isProfileName(value) {
+  return /^[A-Za-z0-9._-]{1,80}$/.test(String(value || "")) && !String(value || "").includes("..");
 }

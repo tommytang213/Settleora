@@ -53,6 +53,59 @@ test("source eligibility is not inferred from age or stopped state alone", () =>
   }
 });
 
+test("source eligibility requires complete bounded source identity before planning", () => {
+  const config = tempConfig();
+  try {
+    const cases = [
+      ["branchName", undefined, "source_branch_identity_invalid"],
+      ["branchName", "../main", "source_branch_identity_invalid"],
+      ["baseSha", undefined, "source_base_identity_invalid"],
+      ["baseSha", "A".repeat(40), "source_base_identity_invalid"],
+      ["currentHeadSha", undefined, "source_head_identity_invalid"],
+      ["currentHeadSha", "not-a-sha", "source_head_identity_invalid"],
+      ["firstFailureAt", undefined, "source_failure_timestamp_invalid"],
+      ["firstFailureAt", "2026-07-15 00:00:00", "source_failure_timestamp_invalid"],
+      ["lastFailureAt", undefined, "source_failure_timestamp_invalid"],
+      ["lastFailureAt", "2026-07-15T00:00:00.000Z", "source_failure_timestamp_order_invalid", { firstFailureAt: "2026-07-15T00:30:00.000Z" }],
+      ["attemptNumber", 0, "source_attempt_identity_invalid"],
+      ["attemptNumber", 1.5, "source_attempt_identity_invalid"],
+      ["attemptNumber", 21, "source_attempt_identity_invalid"],
+      ["prHeadSha", null, "source_pr_identity_unpaired", { prNumber: 917 }],
+      ["prNumber", null, "source_pr_identity_unpaired", { prHeadSha: shaB }],
+      ["prHeadSha", "c".repeat(39), "source_pr_identity_invalid"],
+      ["issueNumber", 0, "source_issue_identity_invalid"],
+      ["runnerProfile", "../default", "source_profile_identity_invalid"],
+      ["runnerConfigDigest", "a".repeat(63), "source_immutable_digest_missing"],
+      ["originalSupervisorSpecDigest", "b".repeat(63), "source_immutable_digest_missing"],
+    ];
+    for (const [field, value, reasonCode, extra = {}] of cases) {
+      const sourceInput = { ...source(), ...extra, [field]: value };
+      const result = evaluateSourceRunEligibility({ config, source: sourceInput });
+      assert.equal(result.eligible, false, field);
+      assert.equal(result.reasonCode, reasonCode, field);
+      assert.equal(result.invalidField, field, field);
+
+      const controller = runOutageResubmissionController({ config, source: sourceInput, dryRun: true, now });
+      assert.equal(controller.outcome, "blocked", field);
+      assert.equal(controller.reasonCode, reasonCode, field);
+      assert.equal(controller.counts.githubMutationCalls, 0, field);
+      assert.equal(controller.counts.systemdCalls, 0, field);
+      assert.equal(controller.counts.realMutationCalls, 0, field);
+      assert.equal(controller.events.some((item) => item.event === "resubmission_planned"), false, field);
+    }
+
+    assert.equal(evaluateSourceRunEligibility({ config, source: { ...source(), prNumber: null, prHeadSha: null } }).eligible, true);
+    assert.equal(evaluateSourceRunEligibility({ config, source: source() }).eligible, true);
+
+    const exhausted = runOutageResubmissionController({ config, source: { ...source(), attemptNumber: 4 }, dryRun: true, now });
+    assert.equal(exhausted.outcome, "exhausted");
+    assert.equal(exhausted.reasonCode, "outage_resubmission_attempts_exhausted");
+    assert.equal(exhausted.outageState.mutationMarker.attemptNumber, 4);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("controller checks recovery before planning a new child", () => {
   const config = tempConfig();
   try {
@@ -902,11 +955,142 @@ test("controller invalidates stale head evidence and treats merged or closed sou
     result = runOutageResubmissionController({
       config,
       source: source(),
-      currentIdentity: { merged: true },
+      currentIdentity: currentCompletion({ merged: true }),
       dryRun: true,
       now,
     });
     assert.equal(result.outcome, "recovered");
+    assert.equal(result.reasonCode, "source_current_pr_merged");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("exact current completion persists nonterminal outage state as recovered", () => {
+  const config = tempConfig();
+  try {
+    for (const [status, identity, reasonCode] of [
+      ["planned", currentCompletion({ merged: true }), "source_current_pr_merged"],
+      ["planned", currentCompletion({ issueClosed: true, merged: false }), "source_current_issue_closed"],
+      ["submitted", currentCompletion({ merged: true }), "source_current_pr_merged"],
+      ["confirmed_running", currentCompletion({ issueClosed: true, merged: false }), "source_current_issue_closed"],
+    ]) {
+      const baseState = fixtureOutageState();
+      const state = status === "planned"
+        ? baseState
+        : transitionOutageMarker(baseState, {
+            status,
+            childSupervisorRunId: status === "submitted" ? "supervised-20260715T010000Z-000000000401" : "supervised-20260715T010000Z-000000000402",
+            specDigest: digestB,
+            reasonCode: status === "submitted" ? "child_submission_confirmed" : "submitted_child_reconciled",
+          });
+      writeOutageResubmissionState(config, state);
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState: state,
+        existingChildren: [],
+        recoveryState: incompleteRecoveryState(),
+        currentIdentity: identity,
+        dryRun: false,
+        now,
+      });
+      assert.equal(result.outcome, "recovered", status);
+      assert.equal(result.reasonCode, reasonCode, status);
+      assert.equal(result.durable, true, status);
+      assert.equal(result.outageState.status, "recovered", status);
+      assert.equal(result.outageState.mutationMarker.reasonCode, reasonCode, status);
+      assert.equal(result.notificationIntent.kind, "outage_source_recovered", status);
+      assert.equal(result.events.some((item) => item.event === "recoverable_state_wins"), false, status);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, status);
+      assert.equal(result.counts.githubMutationCalls, 0, status);
+      assert.equal(result.counts.systemdCalls, 0, status);
+      assert.equal(result.counts.realMutationCalls, 0, status);
+
+      const loaded = loadOutageResubmissionState(config, state.correlation);
+      assert.equal(loaded.ok, true, status);
+      assert.equal(loaded.state.status, "recovered", status);
+      assert.equal(loaded.state.mutationMarker.reasonCode, reasonCode, status);
+    }
+
+    const status = getRunnerStatus(config);
+    assert.equal(status.outageResubmission.activeSourceRun, null);
+    assert.equal(status.outageResubmission.terminalOutcome, "recovered");
+    const health = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now, runnerStatus: status });
+    assert.equal(health.body.outageResubmission.activeSourceRun, null);
+    assert.equal(health.body.outageResubmission.terminalOutcome, "recovered");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("source completion dry-run, repeated terminal, mismatch, and persistence failure are bounded", () => {
+  const config = tempConfig();
+  try {
+    const planned = fixtureOutageState();
+    writeOutageResubmissionState(config, planned);
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: planned,
+      currentIdentity: currentCompletion({ merged: true }),
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.durable, false);
+    assert.equal(loadOutageResubmissionState(config, planned.correlation).state.status, "planned");
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    const recovered = transitionOutageMarker(planned, {
+      status: "recovered",
+      reasonCode: "source_current_pr_merged",
+    });
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: recovered,
+      currentIdentity: currentCompletion({ merged: true }),
+      dryRun: false,
+      now,
+    });
+    assert.equal(result.outcome, "noop");
+    assert.equal(result.reasonCode, "terminal_outage_marker_preserved");
+    assert.equal(result.notificationIntent, undefined);
+    assert.equal(result.events.some((item) => item.event === "outage_source_completion_recovered"), false);
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: planned,
+      currentIdentity: currentCompletion({ merged: true, prHeadSha: "c".repeat(40) }),
+      dryRun: false,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "pr_head_identity_mismatch");
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: planned,
+      currentIdentity: currentCompletion({ issueClosed: true, merged: false }),
+      dryRun: false,
+      now,
+      writeOutageState: () => {
+        throw new Error("synthetic_recovered_write_failure");
+      },
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "outage_source_recovery_persistence_failed");
+    assert.equal(result.outageState, planned);
+    assert.equal(result.notificationIntent, undefined);
+    assert.equal(loadOutageResubmissionState(config, planned.correlation).state.status, "planned");
+    assert.equal(result.counts.realMutationCalls, 0);
   } finally {
     config.cleanup();
   }
@@ -1261,6 +1445,20 @@ function exactChild(state = fixtureOutageState(), overrides = {}) {
       originalSupervisorSpecDigest: source().originalSupervisorSpecDigest,
       childSpecDigest: state.mutationMarker.specDigest || digestB,
     },
+    ...overrides,
+  };
+}
+
+function currentCompletion(overrides = {}) {
+  return {
+    merged: false,
+    issueClosed: false,
+    issueNumber: source().issueNumber,
+    branchName: source().branchName,
+    baseSha: source().baseSha,
+    currentHeadSha: source().currentHeadSha,
+    prNumber: source().prNumber,
+    prHeadSha: source().prHeadSha,
     ...overrides,
   };
 }
