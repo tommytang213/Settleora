@@ -40,9 +40,9 @@ export function evaluateSourceRunEligibility(input = {}) {
 export function buildOutageResubmissionStatus(config = {}) {
   const policy = normalizeOutageResubmissionConfig(config.outageResubmission || {});
   const inventory = readOutageResubmissionInventory(config);
-  const states = inventory.ok ? inventory.validStates.slice(-20) : [];
-  const active = states.find((state) => !isTerminalOutageStatus(state.status)) || null;
-  const terminal = active ? null : [...states].reverse().find((state) => isTerminalOutageStatus(state.status)) || null;
+  const states = inventory.ok ? inventory.validStates : [];
+  const active = selectCurrentOutageState(states.filter((state) => !isTerminalOutageStatus(state.status)));
+  const terminal = active ? null : selectCurrentOutageState(states.filter((state) => isTerminalOutageStatus(state.status)));
   const statusSource = active || terminal || null;
   const status = {
     enabled: policy.allowBoundedOutageResubmission,
@@ -841,6 +841,34 @@ function isTerminalChild(child) {
 
 function isTerminalOutageStatus(status) {
   return ["recovered", "exhausted", "blocked"].includes(status);
+}
+
+function selectCurrentOutageState(states = []) {
+  return states.reduce((selected, candidate) => {
+    if (!selected) return candidate;
+    return compareOutageStateRecency(candidate, selected) > 0 ? candidate : selected;
+  }, null);
+}
+
+function compareOutageStateRecency(left, right) {
+  const leftUpdatedAt = Date.parse(left?.timestamps?.updatedAt || "");
+  const rightUpdatedAt = Date.parse(right?.timestamps?.updatedAt || "");
+  if (leftUpdatedAt !== rightUpdatedAt) return leftUpdatedAt - rightUpdatedAt;
+  return outageStateTieBreaker(left).localeCompare(outageStateTieBreaker(right));
+}
+
+function outageStateTieBreaker(state) {
+  return [
+    state?.mutationMarker?.key || "",
+    state?.correlation?.taskKey || "",
+    state?.correlation?.runnerRunId || "",
+    state?.correlation?.supervisorRunId || "",
+    String(state?.correlation?.issueNumber || ""),
+    state?.correlation?.branchName || "",
+    state?.correlation?.currentHeadSha || "",
+    state?.correlation?.prHeadSha || "",
+    state?.correlation?.outageFingerprint || "",
+  ].join(":");
 }
 
 function isExhaustionReason(reasonCode) {

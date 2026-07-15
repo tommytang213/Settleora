@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runOutageResubmissionController, evaluateSourceRunEligibility } from "../supervisor/outage-resubmission-controller.mjs";
@@ -1403,6 +1403,219 @@ test("outage correlation verifier requires canonical outage identity keys", () =
   assert.equal(verifyOutageCorrelation(state, { outageClass: "github_api_timeout" }).field, "outageClass");
 });
 
+test("status and health select active outage state from complete trusted inventory beyond display bounds", () => {
+  const config = tempConfig();
+  try {
+    const candidates = Array.from({ length: 25 }, (_, index) => fixtureOutageStateForIndex(index));
+    const activeIndex = storageKeyOrder(config, candidates)[0].index;
+    for (const [index, baseState] of candidates.entries()) {
+      const updatedAt = isoAtMinutes(index + 1);
+      const state = index === activeIndex
+        ? withStateUpdatedAt(transitionOutageMarker(baseState, {
+          status: "confirmed_running",
+          childSupervisorRunId: "supervised-20260715T010000Z-000000000abc",
+          specDigest: digestC,
+          reasonCode: "submitted_child_reconciled",
+        }), "2026-07-15T00:05:00.000Z", {
+          schedule: {
+            ...baseState.schedule,
+            attemptNumber: 2,
+            nextEligibleAt: "2026-07-15T01:45:00.000Z",
+            deadlineAt: "2026-07-16T01:45:00.000Z",
+          },
+          circuit: {
+            state: "half_open",
+            reasonCode: "github_api_5xx",
+            openedAt: "2026-07-15T01:00:00.000Z",
+            nextProbeAt: "2026-07-15T01:45:00.000Z",
+          },
+          mutationMarker: {
+            ...baseState.mutationMarker,
+            status: "confirmed_running",
+            attemptNumber: 2,
+            specDigest: digestC,
+            childSupervisorRunId: "supervised-20260715T010000Z-000000000abc",
+            reasonCode: "active_beyond_old_bound",
+          },
+          childSupervisorRunId: "supervised-20260715T010000Z-000000000abc",
+          status: "confirmed_running",
+        })
+        : withStateUpdatedAt(transitionOutageMarker(baseState, {
+          status: "recovered",
+          reasonCode: "terminal_fixture",
+        }), updatedAt);
+      writeOutageFixtureState(config, state);
+    }
+    const ordered = storageKeyOrderFromDisk(config);
+    assert.equal(ordered.findIndex((entry) => entry.key === storageKeyForState(config, candidates[activeIndex])) < ordered.length - 20, true);
+
+    const beforeBytes = readOutageFixtureBytes(config);
+    const status = getRunnerStatus(config).outageResubmission;
+    const health = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now }).body.outageResubmission;
+    assert.equal(status.recordCount, 25);
+    assert.equal(status.totalRecordCount, 25);
+    assert.equal(status.validRecordCount, 25);
+    assert.equal(status.invalidRecordCount, 0);
+    assert.equal(status.activeSourceRun.taskKey, candidates[activeIndex].correlation.taskKey);
+    assert.equal(status.activeSourceRun.status, "confirmed_running");
+    assert.equal(status.attemptCount, 2);
+    assert.equal(status.nextEligibleAt, "2026-07-15T01:45:00.000Z");
+    assert.equal(status.deadlineAt, "2026-07-16T01:45:00.000Z");
+    assert.equal(status.circuitState, "half_open");
+    assert.equal(status.lastSanitizedReason, "active_beyond_old_bound");
+    assert.equal(status.childRunId, "supervised-20260715T010000Z-000000000abc");
+    assert.equal(status.terminalOutcome, null);
+    assert.deepEqual(health.activeSourceRun, status.activeSourceRun);
+    assert.equal(health.terminalOutcome, null);
+    assert.deepEqual(readOutageFixtureBytes(config), beforeBytes);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("active outage state outranks newer terminal records across complete inventory", () => {
+  const config = tempConfig();
+  try {
+    const active = withStateUpdatedAt(transitionOutageMarker(fixtureOutageStateForIndex(40), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000def",
+      specDigest: digestC,
+      reasonCode: "child_submission_confirmed",
+    }), "2026-07-15T00:01:00.000Z");
+    writeOutageFixtureState(config, active);
+    for (let index = 0; index < 24; index += 1) {
+      writeOutageFixtureState(config, withStateUpdatedAt(transitionOutageMarker(fixtureOutageStateForIndex(index), {
+        status: "recovered",
+        reasonCode: "newer_terminal_fixture",
+      }), isoAtMinutes(10 + index)));
+    }
+
+    const status = getRunnerStatus(config).outageResubmission;
+    const health = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now }).body.outageResubmission;
+    assert.equal(status.recordCount, 25);
+    assert.equal(status.activeSourceRun.taskKey, active.correlation.taskKey);
+    assert.equal(status.terminalOutcome, null);
+    assert.equal(health.activeSourceRun.taskKey, active.correlation.taskKey);
+    assert.equal(health.terminalOutcome, null);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("active outage selection is deterministic by updatedAt and stable tie breaker", () => {
+  const config = tempConfig();
+  try {
+    const older = withStateUpdatedAt(transitionOutageMarker(fixtureOutageStateForIndex(60), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000060",
+      specDigest: digestC,
+      reasonCode: "older_active",
+    }), "2026-07-15T00:10:00.000Z");
+    const newer = withStateUpdatedAt(transitionOutageMarker(fixtureOutageStateForIndex(61), {
+      status: "confirmed_running",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000061",
+      specDigest: digestC,
+      reasonCode: "newest_active",
+    }), "2026-07-15T00:30:00.000Z");
+    const tiedA = withStateUpdatedAt(transitionOutageMarker(fixtureOutageStateForIndex(62), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000062",
+      specDigest: digestC,
+      reasonCode: "tie_a",
+    }), "2026-07-15T00:20:00.000Z");
+    const tiedB = withStateUpdatedAt(transitionOutageMarker(fixtureOutageStateForIndex(63), {
+      status: "submitted",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000063",
+      specDigest: digestC,
+      reasonCode: "tie_b",
+    }), "2026-07-15T00:20:00.000Z");
+    for (const state of [tiedA, older, newer, tiedB]) writeOutageFixtureState(config, state);
+    assert.equal(getRunnerStatus(config).outageResubmission.activeSourceRun.taskKey, newer.correlation.taskKey);
+
+    const reverseConfig = tempConfig();
+    try {
+      for (const state of [newer, tiedB, older, tiedA].reverse()) writeOutageFixtureState(reverseConfig, state);
+      assert.equal(getRunnerStatus(reverseConfig).outageResubmission.activeSourceRun.taskKey, newer.correlation.taskKey);
+    } finally {
+      reverseConfig.cleanup();
+    }
+
+    const tieConfigA = tempConfig();
+    const tieConfigB = tempConfig();
+    try {
+      for (const state of [tiedA, tiedB]) writeOutageFixtureState(tieConfigA, state);
+      for (const state of [tiedB, tiedA]) writeOutageFixtureState(tieConfigB, state);
+      const expectedTieWinner = [tiedA, tiedB].sort((left, right) => stableOutageTieKey(right).localeCompare(stableOutageTieKey(left)))[0];
+      assert.equal(getRunnerStatus(tieConfigA).outageResubmission.activeSourceRun.taskKey, expectedTieWinner.correlation.taskKey);
+      assert.equal(getRunnerStatus(tieConfigB).outageResubmission.activeSourceRun.taskKey, expectedTieWinner.correlation.taskKey);
+    } finally {
+      tieConfigA.cleanup();
+      tieConfigB.cleanup();
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("terminal outage fallback selects most recently updated terminal from complete inventory", () => {
+  const config = tempConfig();
+  try {
+    const terminals = Array.from({ length: 25 }, (_, index) => withStateUpdatedAt(transitionOutageMarker(fixtureOutageStateForIndex(90 + index), {
+      status: index === 7 ? "blocked" : "recovered",
+      reasonCode: index === 7 ? "selected_terminal_fixture" : "terminal_fixture",
+    }), index === 7 ? "2026-07-15T02:00:00.000Z" : isoAtMinutes(index + 1)));
+    for (const state of terminals.slice().reverse()) writeOutageFixtureState(config, state);
+
+    const status = getRunnerStatus(config).outageResubmission;
+    const health = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now }).body.outageResubmission;
+    assert.equal(status.recordCount, 25);
+    assert.equal(status.activeSourceRun, null);
+    assert.equal(status.terminalOutcome, "blocked");
+    assert.equal(status.lastSanitizedReason, "selected_terminal_fixture");
+    assert.equal(status.attemptCount, terminals[7].mutationMarker.attemptNumber);
+    assert.equal(health.activeSourceRun, null);
+    assert.equal(health.terminalOutcome, "blocked");
+    assert.equal(health.lastSanitizedReason, "selected_terminal_fixture");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("invalid outage inventory suppresses active and terminal details while preserving full counts", () => {
+  const config = tempConfig();
+  try {
+    const active = transitionOutageMarker(fixtureOutageStateForIndex(130), {
+      status: "confirmed_running",
+      childSupervisorRunId: "supervised-20260715T010000Z-000000000130",
+      specDigest: digestC,
+      reasonCode: "valid_active",
+    });
+    writeOutageFixtureState(config, active);
+    const root = path.dirname(outageResubmissionStatePath(config, active));
+    writeFileSync(path.join(root, `${"f".repeat(64)}.json`), "{not-json", { mode: 0o600 });
+
+    const status = getRunnerStatus(config).outageResubmission;
+    const healthResult = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now });
+    assert.equal(status.operatorActionRequired, true);
+    assert.equal(status.reasonCode, "malformed_state");
+    assert.equal(status.recordCount, 2);
+    assert.equal(status.totalRecordCount, 2);
+    assert.equal(status.validRecordCount, 1);
+    assert.equal(status.invalidRecordCount, 1);
+    assert.equal(status.activeSourceRun, null);
+    assert.equal(status.childRunId, null);
+    assert.equal(status.terminalOutcome, null);
+    assert.equal(healthResult.httpStatus, 503);
+    assert.equal(healthResult.body.outageResubmission.operatorActionRequired, true);
+    assert.equal(healthResult.body.outageResubmission.validRecordCount, 1);
+    assert.equal(healthResult.body.outageResubmission.invalidRecordCount, 1);
+    assert.equal(healthResult.body.outageResubmission.activeSourceRun, null);
+    assert.equal(JSON.stringify(healthResult.body).includes("{not-json"), false);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("status and health expose sanitized default-off outage state without mutation authority", () => {
   const config = tempConfig({ enabled: false });
   try {
@@ -1583,6 +1796,102 @@ function currentCompletion(overrides = {}) {
     prHeadSha: source().prHeadSha,
     ...overrides,
   };
+}
+
+function fixtureOutageStateForIndex(index, overrides = {}) {
+  const suffix = String(index).padStart(6, "0");
+  const hexSuffix = index.toString(16).padStart(12, "0").slice(-12);
+  return createOutageResubmissionState({
+    correlation: {
+      ...source({
+        taskKey: `20260715-0013-${suffix}`,
+        runnerRunId: `run-2026-07-15T00${String(index % 60).padStart(2, "0")}00Z`,
+        supervisorRunId: `supervised-20260715T00${String(index % 60).padStart(2, "0")}00Z-${hexSuffix}`,
+        attemptNumber: overrides.schedule?.attemptNumber || overrides.attemptNumber || 1,
+      }),
+      outageProviderDomain: "github_api",
+      outageFingerprint: githubApi503Fingerprint,
+    },
+    outage: {
+      providerDomain: "github_api",
+      outageClass: "github_api_5xx",
+      outageFingerprint: githubApi503Fingerprint,
+      firstFailureAt: "2026-07-15T00:00:00.000Z",
+      lastFailureAt: "2026-07-15T00:30:00.000Z",
+      reasonCode: "github_api_5xx",
+    },
+    schedule: {
+      attemptNumber: overrides.schedule?.attemptNumber || overrides.attemptNumber || 1,
+      nextEligibleAt: overrides.schedule?.nextEligibleAt || "2026-07-15T00:35:00.000Z",
+      deadlineAt: overrides.schedule?.deadlineAt || "2026-07-16T00:00:00.000Z",
+      maxAttempts: 3,
+      maxWallClockMs: 24 * 60 * 60 * 1000,
+    },
+    circuit: overrides.circuit || null,
+  });
+}
+
+function withStateUpdatedAt(state, updatedAt, overrides = {}) {
+  return {
+    ...state,
+    ...overrides,
+    timestamps: {
+      createdAt: "2026-07-15T00:00:00.000Z",
+      updatedAt,
+    },
+    mutationMarker: {
+      ...state.mutationMarker,
+      ...(overrides.mutationMarker || {}),
+      updatedAt,
+    },
+  };
+}
+
+function writeOutageFixtureState(config, state) {
+  const statePath = outageResubmissionStatePath(config, state);
+  mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
+function storageKeyForState(config, state) {
+  return path.basename(outageResubmissionStatePath(config, state), ".json");
+}
+
+function storageKeyOrder(config, states) {
+  return states
+    .map((state, index) => ({ index, key: storageKeyForState(config, state) }))
+    .sort((left, right) => left.key.localeCompare(right.key));
+}
+
+function storageKeyOrderFromDisk(config) {
+  const root = path.dirname(outageResubmissionStatePath(config, fixtureOutageState()));
+  return readdirSync(root)
+    .filter((name) => /^[a-f0-9]{64}\.json$/.test(name))
+    .sort()
+    .map((name) => ({ key: name.slice(0, -5) }));
+}
+
+function readOutageFixtureBytes(config) {
+  const root = path.dirname(outageResubmissionStatePath(config, fixtureOutageState()));
+  return Object.fromEntries(readdirSync(root).sort().map((name) => [name, readFileSync(path.join(root, name), "utf8")]));
+}
+
+function stableOutageTieKey(state) {
+  return [
+    state?.mutationMarker?.key || "",
+    state?.correlation?.taskKey || "",
+    state?.correlation?.runnerRunId || "",
+    state?.correlation?.supervisorRunId || "",
+    String(state?.correlation?.issueNumber || ""),
+    state?.correlation?.branchName || "",
+    state?.correlation?.currentHeadSha || "",
+    state?.correlation?.prHeadSha || "",
+    state?.correlation?.outageFingerprint || "",
+  ].join(":");
+}
+
+function isoAtMinutes(minutes) {
+  return new Date(Date.parse("2026-07-15T00:00:00.000Z") + minutes * 60 * 1000).toISOString();
 }
 
 function tempConfig({ enabled = true } = {}) {
