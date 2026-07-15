@@ -360,7 +360,13 @@ export function invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode 
           ...existing,
           stale: true,
           invalidatedBy: reasonCode,
-          invalidatedAt: new Date().toISOString(),
+          invalidatedAt:
+            existing.stale === true &&
+            existing.invalidatedBy === reasonCode &&
+            existing.invalidatedOldHeadSha === oldHeadSha &&
+            existing.invalidatedNewHeadSha === (newHeadSha || null)
+              ? existing.invalidatedAt
+              : new Date().toISOString(),
           invalidatedOldHeadSha: oldHeadSha,
           invalidatedNewHeadSha: newHeadSha || null,
         }
@@ -372,6 +378,18 @@ export function invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode 
     evidence,
     nextSafeAction: "regenerate_exact_head_evidence",
   });
+}
+
+export function recoveryRequiresExactHeadEvidenceRegeneration(state) {
+  if (!state) return { required: false, reasonCode: null, staleEvidenceKinds: [] };
+  const staleEvidence = staleEvidenceKinds(state, state.branch?.currentHeadSha || null);
+  const nextActionRequiresRegeneration = state.nextSafeAction === "regenerate_exact_head_evidence";
+  return {
+    required: nextActionRequiresRegeneration || staleEvidence.length > 0,
+    reasonCode: "recovery_exact_head_evidence_regeneration_required",
+    staleEvidenceKinds: staleEvidence,
+    nextSafeAction: state.nextSafeAction || null,
+  };
 }
 
 export function recordRecoveryAttempt(state, { outcomeClass, fingerprint, reasonCode, phase = state.phase }) {

@@ -3,6 +3,7 @@ import {
   classifyRecoveryOutcome,
   loadRecoveryState,
   listRecoverableRecoveryStates,
+  recoveryRequiresExactHeadEvidenceRegeneration,
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
@@ -144,6 +145,18 @@ export function discoverTargetedStartupRecovery(config) {
       allowed: false,
       action: "stop_fail_closed",
       reasonCode: "outage_recovery_target_not_safe",
+      state: summarizeRecoverableState(state),
+      states: partition.exactMatches.map(summarizeRecoverableState),
+      stateCounts: partition.counts,
+    };
+  }
+  const regeneration = recoveryRequiresExactHeadEvidenceRegeneration(state);
+  if (regeneration.required) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: regeneration.reasonCode,
       state: summarizeRecoverableState(state),
       states: partition.exactMatches.map(summarizeRecoverableState),
       stateCounts: partition.counts,

@@ -13,7 +13,7 @@ import {
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
 import { outageFingerprint } from "../lib/outage-resubmission-policy.mjs";
-import { createInitialRecoveryState, loadRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
+import { bindRecoveryEvidence, createInitialRecoveryState, loadRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { canonicalJson, readAndVerifyRunSpec, resolveProfile, sha256Text, writeImmutableRunSpec } from "../supervisor/run-spec.mjs";
 import { readSupervisorState } from "../supervisor/supervisor-state.mjs";
 import { getRunnerStatus } from "../lib/control-plane.mjs";
@@ -1980,31 +1980,179 @@ test("controller blocks stale identity, active/stale locks, pause, stop, and cir
   }
 });
 
-test("controller invalidates stale head evidence and treats merged or closed source as recovered", () => {
+test("controller persists stale head invalidation before returning without later mutations", () => {
   const config = tempConfig();
   try {
-    const recoveryState = createInitialRecoveryState({
-      taskKey: "20260715-0013",
-      issue: { number: 913, title: "Outage", url: "u" },
-      runId: source().runnerRunId,
-      supervisorRunId: source().supervisorRunId,
-      branchName: source().branchName,
-      baseSha: shaA,
-      currentHeadSha: shaB,
+    let recoveryState = incompleteRecoveryState();
+    for (const kind of ["localValidation", "codexReview", "ciChecks"]) {
+      recoveryState = bindRecoveryEvidence(recoveryState, kind, { status: "passed", headSha: shaB, baseSha: shaA });
+    }
+    writeRecoveryState(config, recoveryState);
+    const beforeFiles = listRelativeFiles(config.logsRoot);
+    const writes = [];
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      currentIdentity: liveIdentityForSource(source(), { currentHeadSha: "c".repeat(40), prHeadSha: "c".repeat(40) }),
+      dryRun: false,
+      writeRecoveryState: (writerConfig, state) => {
+        writes.push({ kind: "recovery", head: state.branch.currentHeadSha, nextSafeAction: state.nextSafeAction });
+        return writeRecoveryState(writerConfig, state);
+      },
+      writeOutageState: () => {
+        writes.push({ kind: "outage" });
+        throw new Error("must_not_write_outage");
+      },
+      startUserUnit: () => {
+        writes.push({ kind: "systemd" });
+        throw new Error("must_not_start");
+      },
+      now,
     });
+    assert.equal(result.reasonCode, "stale_head_evidence_regeneration_required");
+    assert.deepEqual(writes, [{ kind: "recovery", head: "c".repeat(40), nextSafeAction: "regenerate_exact_head_evidence" }]);
+    assert.equal(result.recoveryState.branch.currentHeadSha, "c".repeat(40));
+    assert.equal(result.recoveryState.nextSafeAction, "regenerate_exact_head_evidence");
+    assert.equal(result.events.some((item) => item.event === "stale_head_evidence_invalidated" && item.persisted === true), true);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+    assert.deepEqual(listRelativeFiles(config.logsRoot), beforeFiles);
+    const loaded = loadRecoveryState(config, recoveryState);
+    assert.equal(loaded.ok, true);
+    assert.equal(loaded.state.branch.currentHeadSha, "c".repeat(40));
+    assert.equal(loaded.state.nextSafeAction, "regenerate_exact_head_evidence");
+    for (const kind of ["localValidation", "codexReview", "ciChecks"]) {
+      assert.equal(loaded.state.evidence[kind].stale, true, kind);
+      assert.equal(loaded.state.evidence[kind].invalidatedOldHeadSha, shaB, kind);
+      assert.equal(loaded.state.evidence[kind].invalidatedNewHeadSha, "c".repeat(40), kind);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("controller stale head invalidation dry-run writer-failure no-state and idempotent boundaries", () => {
+  const config = tempConfig();
+  try {
+    const recoveryState = bindRecoveryEvidence(incompleteRecoveryState(), "ciChecks", { status: "passed", headSha: shaB, baseSha: shaA });
+    const written = writeRecoveryState(config, recoveryState);
+    const before = readFileSync(written.statePath, "utf8");
+
+    let writes = 0;
     let result = runOutageResubmissionController({
       config,
       source: source(),
-      recoveryState: { ...recoveryState, phase: "completed" },
-      currentIdentity: { branchName: source().branchName, baseSha: shaA, currentHeadSha: "c".repeat(40) },
+      recoveryState,
+      currentIdentity: liveIdentityForSource(source(), { currentHeadSha: "c".repeat(40), prHeadSha: "c".repeat(40) }),
       dryRun: true,
+      writeRecoveryState: () => {
+        writes += 1;
+        throw new Error("dry run must not persist");
+      },
       now,
     });
     assert.equal(result.reasonCode, "stale_head_evidence_regeneration_required");
     assert.equal(result.recoveryState.branch.currentHeadSha, "c".repeat(40));
-    assert.equal(result.recoveryState.nextSafeAction, "regenerate_exact_head_evidence");
+    assert.equal(result.recoveryState.evidence.ciChecks.stale, true);
+    assert.equal(writes, 0);
+    assert.equal(readFileSync(written.statePath, "utf8"), before);
+    assert.equal(result.events.some((item) => item.event === "stale_head_evidence_invalidated" && item.persisted === false), true);
 
+    const afterDryRun = readFileSync(written.statePath, "utf8");
     result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      currentIdentity: liveIdentityForSource(source(), { currentHeadSha: "c".repeat(40), prHeadSha: "c".repeat(40) }),
+      dryRun: false,
+      writeRecoveryState: () => {
+        throw new Error("synthetic stale-head write failure with /tmp/raw-secret");
+      },
+      startUserUnit: () => {
+        throw new Error("must_not_start");
+      },
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "recovery_stale_head_invalidation_persistence_failed");
+    assert.equal(result.recoveryState.branch.currentHeadSha, shaB);
+    assert.equal(readFileSync(written.statePath, "utf8"), afterDryRun);
+    assert.equal(JSON.stringify(result.events).includes("/tmp/raw-secret"), false);
+    assert.equal(result.events.some((item) => item.event === "stale_head_evidence_invalidated"), false);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.systemdCalls, 0);
+    assert.equal(result.counts.realMutationCalls, 0);
+
+    writes = 0;
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState: null,
+      currentIdentity: liveIdentityForSource(source(), { currentHeadSha: "c".repeat(40), prHeadSha: "c".repeat(40) }),
+      dryRun: false,
+      writeRecoveryState: () => {
+        writes += 1;
+        throw new Error("must_not_fabricate_recovery_state");
+      },
+      now,
+    });
+    assert.equal(result.reasonCode, "stale_head_evidence_regeneration_required");
+    assert.equal(result.recoveryState, null);
+    assert.equal(writes, 0);
+
+    let persisted = writeRecoveryState(config, recoveryState).state;
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState: persisted,
+      currentIdentity: liveIdentityForSource(source(), { currentHeadSha: "c".repeat(40), prHeadSha: "c".repeat(40) }),
+      dryRun: false,
+      now,
+    });
+    assert.equal(result.reasonCode, "stale_head_evidence_regeneration_required");
+    persisted = loadRecoveryState(config, recoveryState).state;
+    const firstInvalidatedAt = persisted.evidence.ciChecks.invalidatedAt;
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState: persisted,
+      currentIdentity: liveIdentityForSource(source(), { currentHeadSha: "c".repeat(40), prHeadSha: "c".repeat(40) }),
+      dryRun: false,
+      now,
+    });
+    assert.equal(result.reasonCode, "stale_head_evidence_regeneration_required");
+    assert.equal(loadRecoveryState(config, recoveryState).state.evidence.ciChecks.invalidatedAt, firstInvalidatedAt);
+
+    writes = 0;
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      recoveryState,
+      currentIdentity: liveIdentityForSource(source()),
+      dryRun: true,
+      writeRecoveryState: () => {
+        writes += 1;
+        throw new Error("must_not_write_on_equal_head");
+      },
+      now,
+      rng: () => 0.5,
+      childRunId: "supervised-20260715T010000Z-000000000991",
+    });
+    assert.equal(result.reasonCode, "dry_run_no_mutation");
+    assert.equal(writes, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("controller treats merged or closed source as recovered", () => {
+  const config = tempConfig();
+  try {
+    const result = runOutageResubmissionController({
       config,
       source: source(),
       currentIdentity: currentCompletion({ merged: true }),

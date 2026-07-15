@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   advanceRecoveryPhase,
+  bindRecoveryEvidence,
   createInitialRecoveryState,
+  invalidateEvidenceForHeadChange,
   recordIdempotentMutation,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
@@ -313,6 +315,108 @@ test("targeted outage recovery applies capability and terminal exact-state block
     assert.equal(discovery.stateCounts.totalRecoverableCount, 1);
     assert.equal(discovery.stateCounts.exactMatchingCount, 0);
     assert.equal(discovery.stateCounts.ignoredNonmatchingCount, 1);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("targeted outage recovery blocks exact stale or regeneration-required targets without mutation", async () => {
+  const base = recoveryWithPr();
+  const cases = [
+    ["next-action", advanceRecoveryPhase(base, { phase: "ci_wait", firstIncompleteAction: "wait_for_checks", nextSafeAction: "regenerate_exact_head_evidence" })],
+    ["stale-marker", { ...base, evidence: { ...base.evidence, ciChecks: { status: "passed", headSha: base.branch.currentHeadSha, stale: true } } }],
+    ["both", invalidateEvidenceForHeadChange(bindRecoveryEvidence(base, "ciChecks", { status: "passed", headSha: base.branch.currentHeadSha }), { newHeadSha: base.branch.currentHeadSha, reasonCode: "test_stale" })],
+    ["allowed-phase", { ...advanceRecoveryPhase(base, { phase: "merge", firstIncompleteAction: "merge_pr" }), nextSafeAction: "regenerate_exact_head_evidence" }],
+  ];
+  for (const [name, stale] of cases) {
+    const config = tempConfig({
+      allowExistingPrRecovery: true,
+      outageRecoveryOnly: true,
+      outageRecoveryTarget: targetFor(stale),
+    });
+    try {
+      const written = writeRecoveryState(config, stale);
+      const before = readFileSync(written.statePath, "utf8");
+      const discovery = discoverTargetedStartupRecovery(config);
+      assert.equal(discovery.allowed, false, name);
+      assert.equal(discovery.action, "stop_fail_closed", name);
+      assert.equal(discovery.reasonCode, "recovery_exact_head_evidence_regeneration_required", name);
+      assert.equal(discovery.state.issueNumber, stale.issue.number, name);
+      assert.equal(readFileSync(written.statePath, "utf8"), before, name);
+
+      let executed = false;
+      const continuation = await executeStartupContinuation(config, discovery, {
+        default: async () => {
+          executed = true;
+          throw new Error("stale target must not execute");
+        },
+      });
+      assert.equal(executed, false, name);
+      assert.equal(continuation.ok, false, name);
+      assert.equal(continuation.reasonCode, "recovery_exact_head_evidence_regeneration_required", name);
+      assert.equal(readFileSync(written.statePath, "utf8"), before, name);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
+test("targeted outage recovery stale target precedence is exact then ambiguity before stale rejection", () => {
+  const exact = recoveryWithPr();
+  const staleExact = { ...exact, nextSafeAction: "regenerate_exact_head_evidence" };
+  const unrelatedClean = unrelatedRecovery();
+  const unrelatedStale = { ...unrelatedRecovery({ issue: { number: 892, title: "Stale other", url: "https://example.invalid/892" }, branchName: "feature/auto-892-other" }), nextSafeAction: "regenerate_exact_head_evidence" };
+  const target = targetFor(exact);
+
+  let config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    writeRecoveryState(config, staleExact);
+    writeRecoveryState(config, unrelatedClean);
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "recovery_exact_head_evidence_regeneration_required");
+    assert.equal(discovery.state.issueNumber, 893);
+    assert.equal(discovery.stateCounts.exactMatchingCount, 1);
+    assert.equal(discovery.stateCounts.ignoredNonmatchingCount, 1);
+  } finally {
+    config.cleanup();
+  }
+
+  config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    writeRecoveryState(config, exact);
+    writeRecoveryState(config, unrelatedStale);
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, true);
+    assert.equal(discovery.reasonCode, "outage_recovery_target_discovered");
+    assert.equal(discovery.state.issueNumber, 893);
+  } finally {
+    config.cleanup();
+  }
+
+  config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    writeRecoveryState(config, unrelatedStale);
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "outage_recovery_target_mismatch");
+    assert.equal(discovery.stateCounts.exactMatchingCount, 0);
+  } finally {
+    config.cleanup();
+  }
+
+  config = tempConfig({ allowExistingPrRecovery: true, outageRecoveryOnly: true, outageRecoveryTarget: target });
+  try {
+    const written = writeRecoveryState(config, exact);
+    copyFileSync(written.statePath, path.join(path.dirname(written.statePath), "duplicate-stale-exact.json"));
+    const duplicatePath = path.join(path.dirname(written.statePath), "duplicate-stale-exact.json");
+    const duplicate = JSON.parse(readFileSync(duplicatePath, "utf8"));
+    duplicate.nextSafeAction = "regenerate_exact_head_evidence";
+    writeFileSync(duplicatePath, `${JSON.stringify(duplicate, null, 2)}\n`);
+    const discovery = discoverTargetedStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "outage_recovery_target_ambiguous");
+    assert.equal(discovery.stateCounts.exactMatchingCount, 2);
   } finally {
     config.cleanup();
   }

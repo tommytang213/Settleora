@@ -160,7 +160,19 @@ export function runOutageResubmissionController(input = {}) {
           reasonCode: "outage_resubmission_head_changed",
         })
       : null;
-    event("stale_head_evidence_invalidated", { currentHeadSha: input.currentIdentity.currentHeadSha });
+    if (invalidatedRecoveryState && !dryRun) {
+      try {
+        (input.writeRecoveryState || writeRecoveryState)(config, invalidatedRecoveryState);
+      } catch {
+        event("stale_head_evidence_invalidation_persistence_failed", { reasonCode: "recovery_stale_head_invalidation_persistence_failed" });
+        return result("blocked", "recovery_stale_head_invalidation_persistence_failed", { events, counts, recoveryState: recovery });
+      }
+    }
+    event("stale_head_evidence_invalidated", {
+      currentHeadSha: input.currentIdentity.currentHeadSha,
+      persisted: Boolean(invalidatedRecoveryState && !dryRun),
+      durable: Boolean(invalidatedRecoveryState && !dryRun),
+    });
     return result("blocked", "stale_head_evidence_regeneration_required", { events, counts, recoveryState: invalidatedRecoveryState });
   }
   const currentPrIdentityForAdoption = validateCurrentPrIdentityForSource(source, input.currentIdentity);
@@ -284,7 +296,19 @@ export function runOutageResubmissionController(input = {}) {
           reasonCode: "outage_resubmission_head_changed",
         })
       : null;
-    event("stale_head_evidence_invalidated", { currentHeadSha: input.currentIdentity.currentHeadSha });
+    if (invalidatedRecoveryState && !dryRun) {
+      try {
+        (input.writeRecoveryState || writeRecoveryState)(config, invalidatedRecoveryState);
+      } catch {
+        event("stale_head_evidence_invalidation_persistence_failed", { reasonCode: "recovery_stale_head_invalidation_persistence_failed" });
+        return result("blocked", "recovery_stale_head_invalidation_persistence_failed", { events, counts, recoveryState: recovery });
+      }
+    }
+    event("stale_head_evidence_invalidated", {
+      currentHeadSha: input.currentIdentity.currentHeadSha,
+      persisted: Boolean(invalidatedRecoveryState && !dryRun),
+      durable: Boolean(invalidatedRecoveryState && !dryRun),
+    });
     return result("blocked", "stale_head_evidence_regeneration_required", { events, counts, recoveryState: invalidatedRecoveryState });
   }
   event("circuit_checked");
