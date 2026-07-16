@@ -1,9 +1,24 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { safeTimestamp, slugify } from "./logger.mjs";
-import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
+import { filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
 
-export const reviewFixMutationLanes = Object.freeze(["workflow-docs-tooling", "docs-planning"]);
+export const reviewFixMutationLanes = Object.freeze(
+  Object.entries(laneManifest)
+    .filter(([_id, lane]) => lane?.implementationAllowed === true && lane?.decisionType === "runnable")
+    .map(([id]) => id),
+);
+export const reviewFixSensitiveLanes = Object.freeze([
+  "auth-session-security",
+  "storage-file-privacy-authz",
+  "money-settlement-payment",
+  "schema-migrations",
+  "openapi-generated-clients",
+  "sync-import-export-restore",
+  "docker-compose-ci-deployment",
+  "web-admin-ui",
+  "mobile-build-config",
+]);
 export const reviewFixStopLabels = Object.freeze([
   "needs-tommy",
   "manual-gate",
@@ -14,26 +29,14 @@ export const reviewFixStopLabels = Object.freeze([
   "auto-pr-opened",
 ]);
 
-const maxReviewFixAttempts = 1;
-const broadAllowedPathGlobs = new Set(["**", "./**", "docs/**", "tools/**", "tools/auto-runner", "docs"]);
-const lowRiskPathPatternsByLane = Object.freeze({
-  "workflow-docs-tooling": Object.freeze([/^tools\/auto-runner(?:\/|$)/, /^docs\/workflow(?:\/|$)/]),
-  "docs-planning": Object.freeze([/^docs\/planning(?:\/|$)/, /^docs\/qa(?:\/|$)/]),
-});
-const dangerousPathPatterns = Object.freeze([
+export const defaultReviewFixSourceCycles = 50;
+export const hardMaxReviewFixSourceCycles = 50;
+export const defaultNoProgressSourceCycles = 3;
+const broadAllowedPathGlobs = new Set(["**", "./**"]);
+const manualActionPathPatterns = Object.freeze([
   /^\.env(?:\.|$)/i,
-  /^infra(?:\/|$)/,
-  /^services(?:\/|$)/,
-  /^packages\/contracts\/openapi(?:\/|$)/,
-  /^packages\/client-(web|dart)(?:\/|$)/,
-  /^apps(?:\/|$)/,
-  /^\.github(?:\/|$)/,
-  /^scripts\/ai(?:\/|$)/,
-  /(^|\/)(auth|authentication|authorization|session|security|credential|token|secret|secrets|ssh)(\/|$)/i,
-  /(^|\/)(storage|privacy|vault|permission|authz|file)(\/|$)/i,
-  /(^|\/)(money|settlement|payment|bill|rounding|currency|balance)(\/|$)/i,
-  /(^|\/)(schema|migration|migrations|database|ef|openapi|generated)(\/|$)/i,
-  /(^|\/)(docker|compose|deployment|deploy|public|admin|mobile|ocr|sync|import|export|backup|restore)(\/|$)/i,
+  /(^|\/)(secret|secrets|credential|credentials|ssh)(\/|$)/i,
+  /(^|\/)(production|public|admin-exposure|store-release|testflight|app-store|play-store)(\/|$)/i,
 ]);
 const secretLikePatterns = Object.freeze([
   /(GEMINI_API_KEY|authorization|x-goog-api-key|bearer\s+[A-Za-z0-9._~+/-]+|api[_-]?key|secret|token)/gi,
@@ -42,16 +45,28 @@ const secretLikePatterns = Object.freeze([
 
 export function normalizeReviewFixMutationConfig(config = {}) {
   const externalApproval = Boolean(config.configPath && config.allowReviewFixMutation);
-  const requested = Number(config.maxReviewFixCycles);
-  const normalizedAttempts =
-    externalApproval && Number.isFinite(requested) ? Math.min(Math.max(Math.trunc(requested), 0), maxReviewFixAttempts) : 0;
+  const requestedRaw = Object.hasOwn(config, "maxReviewFixCycles")
+    ? config.maxReviewFixCycles
+    : defaultReviewFixSourceCycles;
+  const requested = Number(requestedRaw);
+  const malformed = !Number.isFinite(requested) || requested < 0;
+  const normalizedAttempts = externalApproval && !malformed
+    ? Math.min(Math.trunc(requested), hardMaxReviewFixSourceCycles)
+    : 0;
   return {
     enabled: externalApproval && normalizedAttempts > 0,
     maxAttempts: normalizedAttempts,
-    requestedMaxAttempts: Number.isFinite(requested) ? requested : 0,
-    maxAllowedAttempts: maxReviewFixAttempts,
+    maxSourceChangingCycles: normalizedAttempts,
+    requestedMaxAttempts: Number.isFinite(requested) ? requested : requestedRaw,
+    requestedMaxSourceChangingCycles: Number.isFinite(requested) ? requested : requestedRaw,
+    maxAllowedAttempts: hardMaxReviewFixSourceCycles,
+    hardMaxSourceChangingCycles: hardMaxReviewFixSourceCycles,
+    defaultMaxSourceChangingCycles: defaultReviewFixSourceCycles,
+    malformed,
+    overHardMaxPolicy: "clamp_to_hard_max",
     configPathUsed: config.configPath || null,
     allowedLanes: [...reviewFixMutationLanes],
+    sensitiveLanes: [...reviewFixSensitiveLanes],
     requiresExternalConfig: true,
   };
 }
@@ -59,7 +74,15 @@ export function normalizeReviewFixMutationConfig(config = {}) {
 export function evaluateReviewFixMutationDecision(input) {
   const config = input.config || {};
   const normalized = config.reviewFixMutation || normalizeReviewFixMutationConfig(config);
-  const laneDecision = input.laneDecision || {};
+  const laneDecision = input.laneDecision?.lane && !input.laneDecision.laneManifest
+    ? {
+        ...input.laneDecision,
+        laneManifest: laneManifest[input.laneDecision.lane],
+        laneManifestAllowedPaths: laneManifest[input.laneDecision.lane]?.allowedPaths || [],
+        implementationSensitivity: laneManifest[input.laneDecision.lane]?.sensitivity || input.laneDecision.implementationSensitivity || "low",
+        reviewerTier: input.laneDecision.reviewerTier || laneManifest[input.laneDecision.lane]?.reviewerTier,
+      }
+    : input.laneDecision || {};
   const issue = input.issue || {};
   const changedFiles = input.changedFiles || [];
   const attemptCount = Number(input.attemptCount || 0);
@@ -78,13 +101,13 @@ export function evaluateReviewFixMutationDecision(input) {
   };
   const block = (reason) => ({ ...result, reason });
 
+  if (normalized.malformed) return block("review_fix_budget_malformed");
   if (!config.allowReviewFixMutation || !normalized.enabled) return block("review_fix_mutation_disabled_by_config");
   if (!config.configPath) return block("review_fix_requires_external_config");
   if (attemptCount >= normalized.maxAttempts) return block("review_fix_attempt_limit_reached");
   if (config.allowStaleClaimSteal) return block("review_fix_refuses_stale_claim_stealing");
   if (config.allowFollowupIssueCreation) return block("review_fix_refuses_followup_issue_creation");
   if (config.allowSystemdEnablement) return block("review_fix_refuses_systemd_enablement");
-  if (config.trustedRealRunApproved) return block("review_fix_refuses_broad_trusted_real_run");
   if (trigger.source === "review_fix_canary_fixture" && !config.reviewFixCanaryFixture?.enabled) {
     return block("review_fix_fixture_trigger_without_fixture_mode");
   }
@@ -103,11 +126,64 @@ export function evaluateReviewFixMutationDecision(input) {
   if (unsafeContractPath) return block(`unsafe_contract_allowed_path:${unsafeContractPath}`);
   if (forbiddenChangedFiles.length > 0) return block(`forbidden_changed_files:${forbiddenChangedFiles.join(",")}`);
   if (changedFiles.length === 0) return block("no_changed_files");
-  if (!changedFiles.every((file) => isLowRiskPathForLane(file, laneDecision.lane))) return block("changed_file_not_low_risk_path");
+  const contractPathDecision = evaluateReviewFixContractPaths({ laneDecision, changedFiles });
+  if (!contractPathDecision.ok) return block(contractPathDecision.reason);
+  const strongGateDecision = evaluateReviewFixStrongGates({ laneDecision, validation: input.validation, review: input.review, externalReview: input.externalReview, mergePolicy: input.mergePolicy });
+  if (!strongGateDecision.ok) return block(strongGateDecision.reason);
   if (input.validation?.passed !== true) return block("local_validation_not_passed_before_review_fix");
   if (!trigger.actionable) return block(trigger.reason || "review_finding_not_actionable");
 
-  return { ...result, allowed: true, reason: "review_fix_mutation_gates_passed" };
+  return {
+    ...result,
+    allowed: true,
+    reason: "review_fix_mutation_gates_passed",
+    laneSensitivity: laneDecision.laneManifest?.sensitivity || laneManifest[laneDecision.lane]?.sensitivity || "unknown",
+    requiredReviewerTier: requiredReviewFixReviewerTier(laneDecision),
+    cycleBudget: {
+      requested: normalized.requestedMaxSourceChangingCycles,
+      normalized: normalized.maxSourceChangingCycles,
+      hardMaximum: normalized.hardMaxSourceChangingCycles,
+      policy: normalized.overHardMaxPolicy,
+    },
+  };
+}
+
+export function evaluateReviewFixContractPaths({ laneDecision = {}, changedFiles = [] } = {}) {
+  const allowedPaths = laneDecision.allowedPaths || [];
+  if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) {
+    return { ok: false, reason: "missing_contract_allowed_paths" };
+  }
+  const unsafe = allowedPaths.find((glob) => isUnsafeAllowedPathGlob(glob, laneDecision.lane));
+  if (unsafe) return { ok: false, reason: `unsafe_contract_allowed_path:${unsafe}` };
+  const outOfContract = changedFiles.map((file) => normalizePath(file)).find((file) => !matchesAnyAllowedPath(file, allowedPaths));
+  if (outOfContract) return { ok: false, reason: `changed_file_outside_contract:${outOfContract}` };
+  const manualActionPath = changedFiles.map((file) => normalizePath(file)).find((file) => manualActionPathPatterns.some((pattern) => pattern.test(file)));
+  if (manualActionPath) return { ok: false, reason: `manual_action_path:${manualActionPath}` };
+  if (laneDecision.lane === "openapi-generated-clients") {
+    const generatedOnly = changedFiles
+      .map((file) => normalizePath(file))
+      .some((file) => /^packages\/client-(web|dart)\/.*\/generated(?:\/|$)/.test(file));
+    const hasContractOrGenerator = changedFiles
+      .map((file) => normalizePath(file))
+      .some((file) => /^packages\/contracts\/openapi(?:\/|$)/.test(file) || /^tools\/(?:generate|validate)-clients\.mjs$/.test(file));
+    if (generatedOnly && !hasContractOrGenerator) return { ok: false, reason: "generated_clients_require_authoritative_generator_or_contract_change" };
+  }
+  return { ok: true, reason: "contract_paths_ok" };
+}
+
+export function evaluateReviewFixStrongGates({ laneDecision = {}, validation = {}, review = {}, externalReview = {}, mergePolicy = {} } = {}) {
+  if (!reviewFixSensitiveLanes.includes(laneDecision.lane)) return { ok: true, reason: "standard_lane_gates_ok" };
+  const tier = externalReview?.tier || laneDecision.reviewerTier || laneDecision.laneManifest?.reviewerTier || null;
+  if (validation?.passed !== true || validation.profile === "docs-only") return { ok: false, reason: "sensitive_lane_requires_strong_validation" };
+  if (!["strong_independent", "tie_breaker"].includes(tier)) return { ok: false, reason: "sensitive_lane_requires_strong_independent_review" };
+  if (review?.verdict?.verdict && !["approved", "pass"].includes(review.verdict.verdict)) return { ok: false, reason: "sensitive_lane_codex_review_not_approved" };
+  if (mergePolicy?.exactHeadRequired === false) return { ok: false, reason: "sensitive_lane_requires_exact_head_merge_policy" };
+  return { ok: true, reason: "sensitive_lane_strong_gates_ok" };
+}
+
+export function requiredReviewFixReviewerTier(laneDecision = {}) {
+  if (reviewFixSensitiveLanes.includes(laneDecision.lane)) return "strong_independent";
+  return laneDecision.reviewerTier || laneDecision.laneManifest?.reviewerTier || "cheap_independent";
 }
 
 export function extractReviewFixTrigger(input = {}) {
@@ -304,16 +380,23 @@ function isUnsafeAllowedPathGlob(glob, lane) {
     return true;
   }
   if (/\/\*\*\/|^\*$/.test(normalized)) return true;
-  if (dangerousPathPatterns.some((pattern) => pattern.test(normalized))) return true;
-  const lanePatterns = lowRiskPathPatternsByLane[lane] || [];
-  return !lanePatterns.some((pattern) => pattern.test(normalized.replace(/\/\*\*$/, "/")));
+  if (manualActionPathPatterns.some((pattern) => pattern.test(normalized))) return true;
+  const manifest = laneManifest[lane];
+  if (!manifest?.allowedPaths) return true;
+  return !matchesAnyAllowedPath(normalized.replace(/\/\*\*$/, "/"), manifest.allowedPaths);
 }
 
-function isLowRiskPathForLane(filePath, lane) {
+function matchesAnyAllowedPath(filePath, allowedPaths) {
   const normalized = normalizePath(filePath);
-  if (dangerousPathPatterns.some((pattern) => pattern.test(normalized))) return false;
-  const lanePatterns = lowRiskPathPatternsByLane[lane] || [];
-  return lanePatterns.some((pattern) => pattern.test(normalized));
+  return (allowedPaths || []).some((glob) => {
+    const allowed = normalizePath(glob);
+    if (allowed.endsWith("/**")) return normalized === allowed.slice(0, -3) || normalized.startsWith(allowed.slice(0, -2));
+    if (allowed.includes("*")) {
+      const escaped = allowed.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");
+      return new RegExp(`^${escaped}$`).test(normalized);
+    }
+    return normalized === allowed || normalized.startsWith(`${allowed}/`);
+  });
 }
 
 function sanitizeFindings(findings) {
