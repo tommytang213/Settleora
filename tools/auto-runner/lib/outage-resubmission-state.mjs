@@ -83,10 +83,10 @@ export function createOutageResubmissionState({
 export function writeOutageResubmissionState(config, state) {
   const validation = validateOutageResubmissionState(state);
   if (!validation.ok) throw new Error(`Invalid outage resubmission state: ${validation.reason}`);
-  const statePath = outageResubmissionStatePath(config, state);
-  const root = path.dirname(statePath);
-  mkdirSync(root, { recursive: true, mode: 0o700 });
-  rejectUnsafeDirectory(root);
+  const context = trustedOutageStatePathContext(config, { create: true });
+  const statePath = trustedOutageStateFilePath(context, state);
+  rejectUnsafeFinalStateFileIfPresent(context, statePath);
+  const root = context.outageRootRealPath;
   const sanitized = sanitizeState({
     ...state,
     timestamps: { ...(state.timestamps || {}), updatedAt: new Date().toISOString() },
@@ -94,30 +94,41 @@ export function writeOutageResubmissionState(config, state) {
   const sanitizedValidation = validateOutageResubmissionState(sanitized);
   if (!sanitizedValidation.ok) throw new Error(`Invalid outage resubmission state: ${sanitizedValidation.reason}`);
   const tmp = path.join(root, `.${path.basename(statePath)}.${process.pid}.${Date.now()}.tmp`);
-  writeFileSync(tmp, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 });
+  assertContainedPath(root, tmp);
+  writeFileSync(tmp, `${JSON.stringify(sanitized, null, 2)}\n`, { flag: "wx", mode: 0o600 });
   renameSync(tmp, statePath);
   return { statePath, state: sanitized };
 }
 
 export function loadOutageResubmissionState(config, keyOrState) {
-  const statePath = outageResubmissionStatePath(config, keyOrState);
+  let context;
+  let statePath;
+  try {
+    context = trustedOutageStatePathContext(config, { create: false });
+    if (!context.outageRootExists) {
+      statePath = outageResubmissionStatePath({ logsRoot: context.logsRootRealPath }, keyOrState);
+      return failed("outage_resubmission_state_missing", { statePath });
+    }
+    statePath = trustedOutageStateFilePath(context, keyOrState);
+  } catch {
+    return failed("outage_resubmission_state_untrusted", { statePath: null });
+  }
   if (!existsSync(statePath)) return failed("outage_resubmission_state_missing", { statePath });
   try {
-    rejectUnsafeRegularFile(statePath);
+    rejectUnsafeRegularFile(statePath, context.outageRootRealPath);
     const parsed = JSON.parse(readFileSync(statePath, "utf8"));
     const validation = validateOutageResubmissionState(parsed);
     if (!validation.ok) return failed("outage_resubmission_state_schema_invalid", { statePath, reason: validation.reason });
     return { ok: true, state: parsed, statePath };
   } catch (error) {
     if (/unsafe outage resubmission state file/.test(String(error.message || ""))) {
-      return failed("outage_resubmission_state_untrusted", { statePath });
+      return failed("outage_resubmission_state_untrusted", { statePath: null });
     }
     return failed("outage_resubmission_state_corrupt", { statePath, reason: bounded(error.message, 240) });
   }
 }
 
 export function readOutageResubmissionInventory(config) {
-  const root = path.join(config.logsRoot, outageResubmissionRootName);
   const empty = {
     ok: true,
     readStatus: "trusted",
@@ -130,9 +141,9 @@ export function readOutageResubmissionInventory(config) {
     validStates: [],
     invalidRecords: [],
   };
-  if (!existsSync(root)) return empty;
+  let context;
   try {
-    rejectUnsafeDirectory(root);
+    context = trustedOutageStatePathContext(config, { create: false });
   } catch {
     return {
       ...empty,
@@ -142,6 +153,8 @@ export function readOutageResubmissionInventory(config) {
       operatorActionRequired: true,
     };
   }
+  if (!context.outageRootExists) return empty;
+  const root = context.outageRootRealPath;
   const records = [];
   for (const name of readdirSync(root).filter((entry) => /^[a-f0-9]{64}\.json$/.test(entry)).sort()) {
     const key = name.slice(0, -5);
@@ -575,6 +588,65 @@ function canonicalCircuit(input = {}) {
   };
 }
 
+function trustedOutageStatePathContext(config, { create = false } = {}) {
+  const logsRoot = path.resolve(String(config?.logsRoot || ""));
+  rejectUnsafeDirectory(logsRoot);
+  const logsRootRealPath = realpathSync(logsRoot);
+  const recoveryPath = path.join(logsRootRealPath, "recovery");
+  const recovery = ensureContainedPrivateDirectory(logsRootRealPath, recoveryPath, { create });
+  if (!recovery.exists) {
+    return {
+      logsRootRealPath,
+      recoveryRealPath: null,
+      outageRootRealPath: null,
+      outageRootExists: false,
+    };
+  }
+  const outageRootPath = path.join(recovery.realPath, "outage-resubmission");
+  const outageRoot = ensureContainedPrivateDirectory(recovery.realPath, outageRootPath, { create });
+  if (!outageRoot.exists) {
+    return {
+      logsRootRealPath,
+      recoveryRealPath: recovery.realPath,
+      outageRootRealPath: null,
+      outageRootExists: false,
+    };
+  }
+  assertContainedPath(logsRootRealPath, recovery.realPath);
+  assertContainedPath(logsRootRealPath, outageRoot.realPath);
+  return {
+    logsRootRealPath,
+    recoveryRealPath: recovery.realPath,
+    outageRootRealPath: outageRoot.realPath,
+    outageRootExists: true,
+  };
+}
+
+function ensureContainedPrivateDirectory(rootRealPath, dirPath, { create }) {
+  const resolved = path.resolve(dirPath);
+  assertContainedPath(rootRealPath, resolved);
+  if (!existsSync(resolved)) {
+    if (!create) return { exists: false, realPath: null };
+    mkdirSync(resolved, { mode: 0o700 });
+  }
+  rejectUnsafeDirectory(resolved);
+  const realPath = realpathSync(resolved);
+  assertContainedPath(rootRealPath, realPath);
+  return { exists: true, realPath };
+}
+
+function trustedOutageStateFilePath(context, keyOrState) {
+  const statePath = outageResubmissionStatePath({ logsRoot: context.logsRootRealPath }, keyOrState);
+  const resolved = path.resolve(statePath);
+  assertContainedPath(context.outageRootRealPath, resolved);
+  return resolved;
+}
+
+function rejectUnsafeFinalStateFileIfPresent(context, statePath) {
+  if (!existsSync(statePath)) return;
+  rejectUnsafeRegularFile(statePath, context.outageRootRealPath);
+}
+
 function rejectUnsafeDirectory(dirPath) {
   const stat = lstatSync(dirPath);
   if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o022) !== 0) {
@@ -583,12 +655,23 @@ function rejectUnsafeDirectory(dirPath) {
   realpathSync(dirPath);
 }
 
-function rejectUnsafeRegularFile(filePath) {
+function rejectUnsafeRegularFile(filePath, trustedRootRealPath) {
   const stat = lstatSync(filePath);
   if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o022) !== 0) {
     throw new Error("unsafe outage resubmission state file");
   }
-  realpathSync(filePath);
+  const realPath = realpathSync(filePath);
+  assertContainedPath(trustedRootRealPath, realPath);
+}
+
+function assertContainedPath(rootRealPath, targetPath) {
+  if (!rootRealPath) throw new Error("unsafe outage resubmission state directory");
+  const root = path.resolve(rootRealPath);
+  const target = path.resolve(targetPath);
+  const relative = path.relative(root, target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("unsafe outage resubmission state path");
+  }
 }
 
 function sanitizeState(value) {
