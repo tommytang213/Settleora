@@ -141,11 +141,11 @@ test("run-spec validates complete outage resubmission source identity", () => {
     assert.equal(spec.recoveryOnlyTarget.issueNumber, 913);
     assert.equal(spec.recoveryOnlyTarget.runnerRunId, "run-2026-07-15T030800Z");
     assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission, allowMissingConfig: true, logsRoot: tempRoot }), /paired recoveryOnlyTarget/);
-    assert.doesNotThrow(() => validateRunSpecShape({
+    assert.throws(() => validateRunSpecShape({
       ...spec,
       outageResubmission: { ...outageResubmission, prNumber: null, prHeadSha: null },
       recoveryOnlyTarget: { ...recoveryOnlyTarget, prNumber: null, prHeadSha: null },
-    }));
+    }), /requires PR number\/head SHA/);
     const base = { profile: "default", initialOriginMainSha: fakeSha, mode: "trusted", parentSupervisorRunId: recoveryOnlyTarget.supervisorRunId, parentRunnerRunId: recoveryOnlyTarget.runnerRunId, sourceIssueNumber: recoveryOnlyTarget.issueNumber, sourceBranchName: recoveryOnlyTarget.branchName, recoveryOnlyTarget, allowMissingConfig: true, logsRoot: tempRoot };
     assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, taskKey: "bad/key" } }), /taskKey/);
     assert.throws(() => buildRunSpec({ ...base, outageResubmission: { ...outageResubmission, currentHeadSha: "D".repeat(40) } }), /currentHeadSha/);
@@ -266,9 +266,14 @@ test("outage recovery-only run-spec maps to fixed target argv", () => {
   assert.equal(argv[argv.indexOf("--max-iterations") + 1], "1");
   assert.equal(argv[argv.indexOf("--outage-target-issue") + 1], "913");
   assert.equal(argv[argv.indexOf("--outage-target-pr") + 1], "917");
+  assert.equal(argv[argv.indexOf("--outage-target-pr-head-sha") + 1], "d".repeat(40));
   assert.equal(argv[argv.indexOf("--outage-target-marker-key") + 1], recoveryOnlyTarget.markerKey);
   assert.equal(argv.includes("{"), false);
   assert.equal(argv.some((part) => String(part).includes("/tmp/evil")), false);
+  assert.throws(
+    () => runnerArgvForSpec({ ...spec, recoveryOnlyTarget: { ...recoveryOnlyTarget, prNumber: null, prHeadSha: null } }),
+    /requires PR number\/head SHA/,
+  );
 });
 
 test("trusted summary resolver maps exactly one correlated JSON and Markdown pair", () => {

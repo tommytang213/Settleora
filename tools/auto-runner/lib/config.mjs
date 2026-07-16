@@ -419,6 +419,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
   if (config.outageRecoveryOnly) {
+    config.outageRecoveryTarget = normalizeOutageRecoveryCliTarget(config.outageRecoveryTarget || {});
     config.maxIterations = 1;
     config.requestedMaxIterations = 1;
   }
@@ -462,7 +463,7 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
     baseSha: String(value.baseSha || "").trim(),
     currentHeadSha: String(value.currentHeadSha || "").trim(),
     prNumber: value.prNumber ?? null,
-    prHeadSha: value.prHeadSha === undefined ? null : String(value.prHeadSha || "").trim(),
+    prHeadSha: value.prHeadSha === null || value.prHeadSha === undefined ? null : String(value.prHeadSha || "").trim(),
     runnerRunId: String(value.runnerRunId || "").trim(),
     supervisorRunId: String(value.supervisorRunId || "").trim(),
     originalSupervisorSpecDigest: String(value.originalSupervisorSpecDigest || "").trim(),
@@ -476,6 +477,7 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
   if (!/^[a-f0-9]{40}$/.test(target.baseSha)) throw new Error("Invalid outage target base SHA");
   if (!/^[a-f0-9]{40}$/.test(target.currentHeadSha)) throw new Error("Invalid outage target head SHA");
   if ((target.prNumber === null) !== (target.prHeadSha === null)) throw new Error("Outage target PR number/head SHA must be paired");
+  if (target.prNumber === null || target.prHeadSha === null) throw new Error("Outage recovery-only target requires PR number/head SHA");
   if (target.prNumber !== null && (!Number.isSafeInteger(target.prNumber) || target.prNumber < 1 || target.prNumber > 9999999)) throw new Error("Invalid outage target PR number");
   if (target.prHeadSha !== null && !/^[a-f0-9]{40}$/.test(target.prHeadSha)) throw new Error("Invalid outage target PR head SHA");
   if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(target.runnerRunId)) throw new Error("Invalid outage target runner run ID");
@@ -489,6 +491,23 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
   }
   if (!Number.isSafeInteger(target.attemptNumber) || target.attemptNumber < 1 || target.attemptNumber > 20) throw new Error("Invalid outage target attempt");
   return target;
+}
+
+export function validateRecoveryOnlyExistingPrTarget(config = {}, recoveryConfig = {}) {
+  if (!config.outageRecoveryOnly) return { ok: true };
+  const target = config.outageRecoveryTarget || null;
+  if (!target?.prNumber || !target?.prHeadSha) {
+    return { ok: false, reason: "outage_recovery_existing_pr_target_missing" };
+  }
+  const configuredPrNumber = recoveryConfig.prNumber;
+  const configuredHeadSha = recoveryConfig.expectedHeadSha || recoveryConfig.exactHeadEvidence?.headSha || null;
+  if (!Number.isSafeInteger(configuredPrNumber) || configuredPrNumber !== target.prNumber) {
+    return { ok: false, reason: "outage_recovery_existing_pr_target_mismatch" };
+  }
+  if (configuredHeadSha !== target.prHeadSha) {
+    return { ok: false, reason: "outage_recovery_existing_pr_target_mismatch" };
+  }
+  return { ok: true };
 }
 
 export function normalizeAutoMergePolicy(policy = {}) {

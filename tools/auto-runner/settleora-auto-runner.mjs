@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { parseCliArgs, loadConfig, defaultLogsRoot } from "./lib/config.mjs";
+import { parseCliArgs, loadConfig, defaultLogsRoot, validateRecoveryOnlyExistingPrTarget } from "./lib/config.mjs";
 import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
@@ -1166,6 +1166,10 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
   if (!recoveryConfig) return null;
+  const targetCheck = validateRecoveryOnlyExistingPrTarget(config, recoveryConfig);
+  if (!targetCheck.ok) {
+    return { reason: targetCheck.reason, autoMerge: { result: "blocked", reason: targetCheck.reason } };
+  }
   logger.info(`Issue #${issue.number}: evaluating configured existing-PR recovery for PR ${recoveryConfig.prNumber || recoveryConfig.prUrl}.`);
   if (!config.allowAutoMerge) {
     return { reason: "existing_pr_recovery_requires_allow_auto_merge", autoMerge: { result: "blocked", reason: "auto_merge_disabled_by_config" } };
