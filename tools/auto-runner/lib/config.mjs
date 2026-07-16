@@ -155,17 +155,6 @@ export function parseDurationExtension(value) {
   return durationMs;
 }
 
-function parseOutageTargetPositiveInteger(raw, optionName) {
-  if (!/^[1-9][0-9]*$/.test(String(raw))) {
-    throw new Error(`Invalid positive integer for ${optionName}`);
-  }
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value)) {
-    throw new Error(`Invalid positive integer for ${optionName}`);
-  }
-  return value;
-}
-
 export function parseCliArgs(argv) {
   const args = {
     dryRun: false,
@@ -194,8 +183,6 @@ export function parseCliArgs(argv) {
     configPath: null,
     fixtureIssuesPath: null,
     supervisorRunId: null,
-    outageRecoveryOnly: false,
-    outageRecoveryTarget: null,
     securityFindingsDryRun: false,
     securityFindingsDispositionDryRun: false,
   };
@@ -233,20 +220,6 @@ export function parseCliArgs(argv) {
     else if (arg === "--config") args.configPath = readValue(argv, ++index, arg);
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
-    else if (arg === "--outage-recovery-only") args.outageRecoveryOnly = true;
-    else if (arg === "--outage-target-task-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), taskKey: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-issue") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), issueNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
-    else if (arg === "--outage-target-branch") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), branchName: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-base-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), baseSha: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-head-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), currentHeadSha: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-pr") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
-    else if (arg === "--outage-target-pr-head-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prHeadSha: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-runner-run-id") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), runnerRunId: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-supervisor-run-id") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), supervisorRunId: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-original-spec-digest") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), originalSupervisorSpecDigest: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-marker-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), markerKey: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-fingerprint") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), outageFingerprint: readValue(argv, ++index, arg) };
-    else if (arg === "--outage-target-attempt") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), attemptNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
     else if (arg === "--security-findings-dry-run") args.securityFindingsDryRun = true;
     else if (arg === "--security-findings-disposition-dry-run") {
       args.securityFindingsDryRun = true;
@@ -295,16 +268,6 @@ export function parseCliArgs(argv) {
   }
   if (args.supervisorRunId && (!args.run || args.dryRun || specialMode)) {
     throw new Error("--supervisor-run-id is only valid with a normal real --run");
-  }
-  if (args.outageRecoveryOnly && (!args.run || args.dryRun || specialMode || args.canary || !args.supervisorRunId)) {
-    throw new Error("--outage-recovery-only is only valid for supervised non-canary real --run");
-  }
-  if (!args.outageRecoveryOnly && args.outageRecoveryTarget) {
-    throw new Error("--outage-target-* arguments require --outage-recovery-only");
-  }
-  if (args.outageRecoveryOnly) {
-    args.outageRecoveryTarget = normalizeOutageRecoveryCliTarget(args.outageRecoveryTarget || {});
-    args.maxIterations = 1;
   }
   if (args.securityFindingsDryRun && (args.dryRun || args.run || args.preflight || args.canary || args.reviewerSmokeTest || args.writeSummary || args.reviewPackage || controlMode)) {
     throw new Error("--security-findings-dry-run runs as its own non-mutating mode");
@@ -374,8 +337,6 @@ export function loadConfig(cliArgs) {
     maxRuntimeMs: cliArgs.maxRuntimeMs ?? fileConfig.maxRuntimeMs ?? defaultConfig.maxRuntimeMs,
     requirePrePrReview: cliArgs.requirePrePrReview,
     supervisorRunId: cliArgs.supervisorRunId || null,
-    outageRecoveryOnly: Boolean(cliArgs.outageRecoveryOnly),
-    outageRecoveryTarget: cliArgs.outageRecoveryTarget || null,
   };
   if (cliArgs.preflight) {
     config.mode = cliArgs.readiness ? "readiness" : "preflight";
@@ -418,10 +379,6 @@ export function loadConfig(cliArgs) {
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
-  if (config.outageRecoveryOnly) {
-    config.maxIterations = 1;
-    config.requestedMaxIterations = 1;
-  }
 
   for (const dir of [
     config.logsRoot,
@@ -446,43 +403,6 @@ export function loadConfig(cliArgs) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
-}
-
-function normalizeOutageRecoveryCliTarget(value = {}) {
-  const target = {
-    taskKey: String(value.taskKey || "").trim(),
-    issueNumber: value.issueNumber,
-    branchName: String(value.branchName || "").trim(),
-    baseSha: String(value.baseSha || "").trim(),
-    currentHeadSha: String(value.currentHeadSha || "").trim(),
-    prNumber: value.prNumber ?? null,
-    prHeadSha: value.prHeadSha === undefined ? null : String(value.prHeadSha || "").trim(),
-    runnerRunId: String(value.runnerRunId || "").trim(),
-    supervisorRunId: String(value.supervisorRunId || "").trim(),
-    originalSupervisorSpecDigest: String(value.originalSupervisorSpecDigest || "").trim(),
-    markerKey: String(value.markerKey || "").trim(),
-    outageFingerprint: String(value.outageFingerprint || "").trim(),
-    attemptNumber: value.attemptNumber,
-  };
-  if (!/^[A-Za-z0-9._-]{1,80}$/.test(target.taskKey) || target.taskKey.includes("..")) throw new Error("Invalid outage target task key");
-  if (!Number.isSafeInteger(target.issueNumber) || target.issueNumber < 1 || target.issueNumber > 9999999) throw new Error("Invalid outage target issue");
-  if (!/^(feature|focused|feature-bundle|tools)\/[A-Za-z0-9._/-]{1,180}$/.test(target.branchName) || target.branchName.includes("..")) throw new Error("Invalid outage target branch");
-  if (!/^[a-f0-9]{40}$/.test(target.baseSha)) throw new Error("Invalid outage target base SHA");
-  if (!/^[a-f0-9]{40}$/.test(target.currentHeadSha)) throw new Error("Invalid outage target head SHA");
-  if ((target.prNumber === null) !== (target.prHeadSha === null)) throw new Error("Outage target PR number/head SHA must be paired");
-  if (target.prNumber !== null && (!Number.isSafeInteger(target.prNumber) || target.prNumber < 1 || target.prNumber > 9999999)) throw new Error("Invalid outage target PR number");
-  if (target.prHeadSha !== null && !/^[a-f0-9]{40}$/.test(target.prHeadSha)) throw new Error("Invalid outage target PR head SHA");
-  if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(target.runnerRunId)) throw new Error("Invalid outage target runner run ID");
-  validateSupervisorRunId(target.supervisorRunId);
-  for (const [label, digest] of [
-    ["original spec digest", target.originalSupervisorSpecDigest],
-    ["marker key", target.markerKey],
-    ["fingerprint", target.outageFingerprint],
-  ]) {
-    if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`Invalid outage target ${label}`);
-  }
-  if (!Number.isSafeInteger(target.attemptNumber) || target.attemptNumber < 1 || target.attemptNumber > 20) throw new Error("Invalid outage target attempt");
-  return target;
 }
 
 export function normalizeAutoMergePolicy(policy = {}) {
