@@ -143,6 +143,31 @@ test("durable state key is stable across canonical identity, stored id, restart,
   }
 });
 
+test("durable state key treats GitHub PR-shaped branch identity as canonical", () => {
+  const c = config();
+  try {
+    const fromPrShape = state({
+      stackId: "stack-1",
+      repository: "tommytang213/Settleora",
+      issue: { number: 921, title: "Convergence" },
+      pr: { number: 919, headRefName: "feature/parent", baseRefName: "main", headRefOid: "a".repeat(40) },
+    });
+    const canonical = {
+      stackId: "stack-1",
+      repository: "tommytang213/Settleora",
+      issueNumber: 921,
+      prNumber: 919,
+      branchName: "feature/parent",
+      baseRef: "main",
+    };
+    assert.equal(fromPrShape.convergenceId, reviewConvergenceStorageKey(canonical));
+    writeReviewConvergenceState(c, fromPrShape);
+    assert.equal(loadReviewConvergenceState(c, canonical).ok, true);
+  } finally {
+    c.cleanup();
+  }
+});
+
 test("exact-head review request dedupe allows one request per PR head purpose", () => {
   const first = planExactHeadReviewRequest(state(), { purpose: "codex", reviewerTier: "cheap_independent" });
   assert.equal(first.duplicate, false);
@@ -311,7 +336,9 @@ test("stack controller sequences parent merge, child retarget, delta proof, chil
   assert.deepEqual(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true } }), { action: "merge_pr", prNumber: 919, expectedHead: "9".repeat(40) });
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true } }).action, "retarget_pr");
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true } }).action, "prove_own_delta");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: { ok: false } } }).action, "prove_own_delta");
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "converge_pr");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: { ok: true } } }).action, "converge_pr");
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "complete_gates");
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "merge_pr");
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true, 920: true } }).action, "hygiene");
@@ -323,6 +350,8 @@ test("semantic own-delta proof uses stable patch and normalized identities", () 
   const delta = { fileSet: ["b", "a"], diffstat: { files: 2 }, numstat: { add: 3, del: 1 }, stablePatchId: "patch", normalizedPatch: "x", forwardPatchApplies: true, reversePatchApplies: true };
   assert.equal(proveSemanticOwnDelta(delta, { ...delta, fileSet: ["a", "b"] }).ok, true);
   assert.equal(proveSemanticOwnDelta(delta, { ...delta, stablePatchId: "other" }).ok, false);
+  assert.equal(proveSemanticOwnDelta({ ...delta, stablePatchId: null }, delta).ok, false);
+  assert.equal(proveSemanticOwnDelta(delta, { ...delta, reversePatchApplies: null }).ok, false);
 });
 
 test("live #919 -> #920 fixture plan is read-only and protects manual issues/canaries", () => {

@@ -52,7 +52,7 @@ export function nextStackAction(plan, evidence = {}) {
   const next = plan.orderedPrs.find((pr) => !evidence.merged?.[pr.number]);
   if (!next) return { action: "hygiene", reason: "all_prs_merged" };
   if (next.baseRefName !== "main" && !evidence.retargeted?.[next.number]) return { action: "retarget_pr", prNumber: next.number, newBase: "main" };
-  if (!evidence.ownDeltaPreserved?.[next.number]) return { action: "prove_own_delta", prNumber: next.number };
+  if (!ownDeltaProofPassed(evidence.ownDeltaPreserved?.[next.number])) return { action: "prove_own_delta", prNumber: next.number };
   return actionForPr(next, evidence) || { action: "hygiene", reason: "all_prs_merged" };
 }
 
@@ -60,13 +60,17 @@ export function proveSemanticOwnDelta(before = {}, after = {}) {
   const normalizedBefore = normalizeOwnDelta(before);
   const normalizedAfter = normalizeOwnDelta(after);
   const mismatches = [];
+  const missing = [];
   for (const key of ["fileSetDigest", "diffstatDigest", "numstatDigest", "stablePatchId", "normalizedPatchDigest"]) {
+    if (!normalizedBefore[key] || !normalizedAfter[key]) missing.push(key);
     if (normalizedBefore[key] && normalizedAfter[key] && normalizedBefore[key] !== normalizedAfter[key]) mismatches.push(key);
   }
+  if (before.forwardPatchApplies !== true || after.reversePatchApplies !== true) missing.push("patch_to_tree_proof");
   if (before.forwardPatchApplies === false || after.reversePatchApplies === false) mismatches.push("patch_to_tree_proof");
+  const failures = [...new Set([...missing, ...mismatches])];
   return {
-    ok: mismatches.length === 0,
-    reason: mismatches.length === 0 ? "semantic_own_delta_preserved" : `semantic_own_delta_mismatch:${mismatches.join(",")}`,
+    ok: failures.length === 0,
+    reason: failures.length === 0 ? "semantic_own_delta_preserved" : `semantic_own_delta_mismatch:${failures.join(",")}`,
     before: normalizedBefore,
     after: normalizedAfter,
   };
@@ -141,6 +145,11 @@ function actionForPr(pr, evidence) {
   if (!evidence.gatesPassed?.[pr.number]) return { action: "complete_gates", prNumber: pr.number };
   if (!evidence.merged?.[pr.number]) return { action: "merge_pr", prNumber: pr.number, expectedHead: pr.headRefOid };
   return null;
+}
+
+function ownDeltaProofPassed(value) {
+  if (value === true) return true;
+  return Boolean(value && typeof value === "object" && value.ok === true);
 }
 
 function digestJson(value) {

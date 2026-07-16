@@ -32,8 +32,8 @@ export function reviewConvergenceStorageKey(input = {}) {
       repository: input.repository || null,
       issueNumber: input.issue?.number ?? input.issueNumber ?? null,
       prNumber: input.pr?.number ?? input.prNumber ?? null,
-      branchName: input.branch?.name ?? input.branchName ?? null,
-      baseRef: input.branch?.baseRef ?? input.baseRef ?? null,
+      branchName: input.pr?.headRefName ?? input.branch?.name ?? input.branchName ?? null,
+      baseRef: input.pr?.baseRefName ?? input.branch?.baseRef ?? input.baseRef ?? null,
     }))
     .digest("hex");
 }
