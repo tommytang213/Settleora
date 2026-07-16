@@ -357,7 +357,7 @@ function readValue(argv, index, name) {
   return value;
 }
 
-export function loadConfig(cliArgs) {
+export function loadConfig(cliArgs, trustedCapabilities = {}) {
   let fileConfig = {};
   if (cliArgs.configPath) {
     fileConfig = JSON.parse(readFileSync(cliArgs.configPath, "utf8"));
@@ -421,6 +421,12 @@ export function loadConfig(cliArgs) {
   if (config.outageRecoveryOnly) {
     config.maxIterations = 1;
     config.requestedMaxIterations = 1;
+  }
+  if (
+    config.outageResubmission.allowBoundedOutageResubmission === true &&
+    trustedCapabilities?.outageResubmissionControllerAvailable !== true
+  ) {
+    throw new Error("Bounded outage resubmission requires trusted controller capability.");
   }
 
   for (const dir of [

@@ -45,6 +45,30 @@ function initial(overrides = {}) {
   });
 }
 
+function outageBinding(overrides = {}) {
+  return {
+    originalSupervisorSpecDigest: "a".repeat(64),
+    markerKey: "b".repeat(64),
+    outageFingerprint: "c".repeat(64),
+    attemptNumber: 2,
+    ...overrides,
+  };
+}
+
+function outageIdentityFor(state) {
+  return {
+    taskKey: state.taskKey,
+    issueNumber: state.issue.number,
+    branchName: state.branch.name,
+    baseSha: state.branch.baseSha,
+    currentHeadSha: state.branch.currentHeadSha,
+    prNumber: state.pr.number,
+    prHeadSha: state.pr.headSha,
+    runnerRunId: state.run.runId,
+    supervisorRunId: state.run.supervisorRunId,
+  };
+}
+
 test("each recovery outcome class has stable reason code and next action", () => {
   for (const outcomeClass of recoveryOutcomeClasses) {
     const classified = classifyRecoveryOutcome(outcomeClass);
@@ -237,18 +261,18 @@ test("idempotent mutation markers prevent duplicate component mutations", () => 
 });
 
 test("outage resubmission binding is idempotent and conflict-safe", () => {
-  const binding = {
-    originalSupervisorSpecDigest: "a".repeat(64),
-    markerKey: "b".repeat(64),
-    outageFingerprint: "c".repeat(64),
-    attemptNumber: 2,
-  };
-  const state = initial();
+  const binding = outageBinding();
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
   const bound = bindOutageResubmissionToRecoveryState(state, binding);
   assert.equal(bound.ok, true);
   assert.equal(bound.changed, true);
   assert.equal(bound.state.outageResubmission.taskKey, state.taskKey);
   assert.equal(bound.state.outageResubmission.issueNumber, state.issue.number);
+  assert.equal(bound.state.outageResubmission.branchName, state.branch.name);
+  assert.equal(bound.state.outageResubmission.baseSha, state.branch.baseSha);
+  assert.equal(bound.state.outageResubmission.currentHeadSha, state.branch.currentHeadSha);
+  assert.equal(bound.state.outageResubmission.prNumber, state.pr.number);
+  assert.equal(bound.state.outageResubmission.prHeadSha, state.pr.headSha);
   assert.equal(bound.state.outageResubmission.runnerRunId, state.run.runId);
   assert.equal(bound.state.outageResubmission.supervisorRunId, state.run.supervisorRunId);
   assert.equal(bound.state.outageResubmission.originalSupervisorSpecDigest, binding.originalSupervisorSpecDigest);
@@ -268,6 +292,82 @@ test("outage resubmission binding is idempotent and conflict-safe", () => {
   const invalid = bindOutageResubmissionToRecoveryState(state, { ...binding, attemptNumber: 0 });
   assert.equal(invalid.ok, false);
   assert.equal(invalid.reasonCode, "recovery_outage_binding_invalid");
+});
+
+test("outage resubmission binding accepts exact caller identity and fills omitted identity from state", () => {
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+  const omitted = bindOutageResubmissionToRecoveryState(state, outageBinding());
+  assert.equal(omitted.ok, true);
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(outageIdentityFor(state)).map(([key]) => [key, omitted.binding[key]])),
+    outageIdentityFor(state),
+  );
+
+  const exact = bindOutageResubmissionToRecoveryState(state, {
+    ...outageBinding(),
+    ...outageIdentityFor(state),
+  });
+  assert.equal(exact.ok, true);
+  assert.deepEqual(exact.binding, omitted.binding);
+});
+
+test("outage resubmission binding rejects each mismatched caller identity field before mutation", () => {
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+  const wrongValues = {
+    taskKey: "20260713-9999",
+    issueNumber: 894,
+    branchName: "other-branch",
+    baseSha: "e".repeat(40),
+    currentHeadSha: "f".repeat(40),
+    prNumber: 919,
+    prHeadSha: "e".repeat(40),
+    runnerRunId: "run-2026-07-13T112701Z",
+    supervisorRunId: "supervised-20260713T112701Z-abcdefabcdef",
+  };
+  for (const [field, value] of Object.entries(wrongValues)) {
+    const binding = { ...outageBinding(), [field]: value };
+    if (field === "prNumber") binding.prHeadSha = state.pr.headSha;
+    if (field === "prHeadSha") binding.prNumber = state.pr.number;
+    const result = bindOutageResubmissionToRecoveryState(state, binding);
+    assert.equal(result.ok, false, field);
+    assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch", field);
+    assert.equal(state.outageResubmission, null, field);
+    assert.equal(JSON.stringify(result).includes(String(value)), false, field);
+  }
+});
+
+test("outage resubmission binding rejects null malformed and partial PR identity", () => {
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+  for (const binding of [
+    { ...outageBinding(), taskKey: null },
+    { ...outageBinding(), issueNumber: "893" },
+    { ...outageBinding(), branchName: "" },
+    { ...outageBinding(), baseSha: "not-a-sha" },
+    { ...outageBinding(), currentHeadSha: "D".repeat(40) },
+    { ...outageBinding(), prNumber: state.pr.number },
+    { ...outageBinding(), prHeadSha: state.pr.headSha },
+    { ...outageBinding(), prNumber: null, prHeadSha: state.pr.headSha },
+    { ...outageBinding(), prNumber: state.pr.number, prHeadSha: null },
+    { ...outageBinding(), runnerRunId: null },
+    { ...outageBinding(), supervisorRunId: "" },
+  ]) {
+    const result = bindOutageResubmissionToRecoveryState(state, binding);
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch");
+    assert.equal(state.outageResubmission, null);
+  }
+});
+
+test("outage resubmission binding rejects present null PR identity even when recovery state has no PR", () => {
+  const state = initial();
+  const result = bindOutageResubmissionToRecoveryState(state, {
+    ...outageBinding(),
+    prNumber: null,
+    prHeadSha: null,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch");
+  assert.equal(state.outageResubmission, null);
 });
 
 test("outage resubmission binding persists sanitized bytes", () => {
