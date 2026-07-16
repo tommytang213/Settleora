@@ -3,6 +3,7 @@ import {
   classifyRecoveryOutcome,
   loadRecoveryState,
   listRecoverableRecoveryStates,
+  recoveryRequiresExactHeadEvidenceRegeneration,
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
@@ -80,6 +81,97 @@ export function discoverStartupRecovery(config) {
     outcome: classifyRecoveryOutcome("pending", { reasonCode: "recoverable_state_discovered" }),
     state: summarizeRecoverableState(active),
     states: states.map(summarizeRecoverableState),
+  };
+}
+
+export function discoverTargetedStartupRecovery(config) {
+  const target = config.outageRecoveryTarget || null;
+  if (!config.outageRecoveryOnly || !target) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_missing",
+      states: [],
+    };
+  }
+  const states = listRecoverableRecoveryStates(config);
+  if (states.length === 0) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_missing",
+      states: [],
+    };
+  }
+  const partition = partitionRecoveryStatesByTarget(states, target);
+  if (partition.exactMatches.length === 0) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_mismatch",
+      states: [],
+      stateCounts: partition.counts,
+    };
+  }
+  if (partition.exactMatches.length > 1) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_ambiguous",
+      states: partition.exactMatches.map(summarizeRecoverableState),
+      stateCounts: partition.counts,
+    };
+  }
+  const state = partition.exactMatches[0];
+  if (!config.allowExistingPrRecovery) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "recoverable_state_requires_explicit_recovery_capability",
+      state: summarizeRecoverableState(state),
+      states: partition.exactMatches.map(summarizeRecoverableState),
+      stateCounts: partition.counts,
+    };
+  }
+  const boundary = firstIncompleteContinuationAction(state);
+  if (!boundary.ok) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: "outage_recovery_target_not_safe",
+      state: summarizeRecoverableState(state),
+      states: partition.exactMatches.map(summarizeRecoverableState),
+      stateCounts: partition.counts,
+    };
+  }
+  const regeneration = recoveryRequiresExactHeadEvidenceRegeneration(state);
+  if (regeneration.required) {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: regeneration.reasonCode,
+      state: summarizeRecoverableState(state),
+      states: partition.exactMatches.map(summarizeRecoverableState),
+      stateCounts: partition.counts,
+    };
+  }
+  return {
+    found: true,
+    allowed: true,
+    action: "resume_recoverable_work",
+    reasonCode: "outage_recovery_target_discovered",
+    outcome: classifyRecoveryOutcome("pending", { reasonCode: "outage_recovery_target_discovered" }),
+    state: summarizeRecoverableState(state),
+    states: partition.exactMatches.map(summarizeRecoverableState),
+    stateCounts: partition.counts,
+    target,
   };
 }
 
@@ -246,4 +338,46 @@ function summarizeRecoverableState(state) {
     runId: state.run?.runId || null,
     supervisorRunId: state.run?.supervisorRunId || null,
   };
+}
+
+function partitionRecoveryStatesByTarget(states, target) {
+  const exactMatches = [];
+  let nonMatchCount = 0;
+  for (const state of states) {
+    const comparison = compareRecoveryStateToTarget(state, target);
+    if (comparison.ok) {
+      exactMatches.push(state);
+    } else {
+      nonMatchCount += 1;
+    }
+  }
+  return {
+    exactMatches,
+    counts: {
+      totalRecoverableCount: states.length,
+      exactMatchingCount: exactMatches.length,
+      ignoredNonmatchingCount: nonMatchCount,
+    },
+  };
+}
+
+function compareRecoveryStateToTarget(state, target) {
+  const checks = [
+    ["taskKey", state.taskKey || null, target.taskKey],
+    ["issueNumber", state.issue?.number || null, target.issueNumber],
+    ["branchName", state.branch?.name || null, target.branchName],
+    ["baseSha", state.branch?.baseSha || null, target.baseSha],
+    ["currentHeadSha", state.branch?.currentHeadSha || null, target.currentHeadSha],
+    ["prNumber", state.pr?.number || null, target.prNumber],
+    ["prHeadSha", state.pr?.headSha || null, target.prHeadSha],
+    ["runnerRunId", state.run?.runId || null, target.runnerRunId],
+    ["supervisorRunId", state.run?.supervisorRunId || null, target.supervisorRunId],
+    ["originalSupervisorSpecDigest", state.outageResubmission?.originalSupervisorSpecDigest || null, target.originalSupervisorSpecDigest],
+    ["markerKey", state.outageResubmission?.markerKey || null, target.markerKey],
+    ["outageFingerprint", state.outageResubmission?.outageFingerprint || null, target.outageFingerprint],
+    ["attemptNumber", state.outageResubmission?.attemptNumber || null, target.attemptNumber],
+  ];
+  const mismatch = checks.find(([, actual, expected]) => actual !== expected);
+  if (mismatch) return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
+  return { ok: true };
 }

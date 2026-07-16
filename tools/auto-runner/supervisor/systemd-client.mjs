@@ -42,10 +42,45 @@ export function runnerArgvForSpec(spec) {
     "--config",
     configPath,
     "--max-iterations",
-    String(spec.maxTasks),
+    spec.recoveryOnlyTarget ? "1" : String(spec.maxTasks),
     "--max-runtime",
     spec.maxRuntime,
   ];
+  if (spec.recoveryOnlyTarget) {
+    argv.push(
+      "--outage-recovery-only",
+      "--outage-target-task-key",
+      spec.recoveryOnlyTarget.taskKey,
+      "--outage-target-issue",
+      String(spec.recoveryOnlyTarget.issueNumber),
+      "--outage-target-branch",
+      spec.recoveryOnlyTarget.branchName,
+      "--outage-target-base-sha",
+      spec.recoveryOnlyTarget.baseSha,
+      "--outage-target-head-sha",
+      spec.recoveryOnlyTarget.currentHeadSha,
+      "--outage-target-runner-run-id",
+      spec.recoveryOnlyTarget.runnerRunId,
+      "--outage-target-supervisor-run-id",
+      spec.recoveryOnlyTarget.supervisorRunId,
+      "--outage-target-original-spec-digest",
+      spec.recoveryOnlyTarget.originalSupervisorSpecDigest,
+      "--outage-target-marker-key",
+      spec.recoveryOnlyTarget.markerKey,
+      "--outage-target-fingerprint",
+      spec.recoveryOnlyTarget.outageFingerprint,
+      "--outage-target-attempt",
+      String(spec.recoveryOnlyTarget.attemptNumber),
+    );
+    if (spec.recoveryOnlyTarget.prNumber !== null) {
+      argv.push(
+        "--outage-target-pr",
+        String(spec.recoveryOnlyTarget.prNumber),
+        "--outage-target-pr-head-sha",
+        spec.recoveryOnlyTarget.prHeadSha,
+      );
+    }
+  }
   if (spec.mode === "canary") argv.splice(3, 0, "--canary");
   return argv;
 }

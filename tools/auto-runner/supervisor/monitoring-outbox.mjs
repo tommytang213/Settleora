@@ -2,7 +2,28 @@ import { appendFileSync } from "node:fs";
 import { defaultLogsRoot } from "../lib/config.mjs";
 import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
 
-export const monitoringEvents = new Set(["submitted", "started", "heartbeat", "completed", "partial", "blocked", "failed", "cancelled"]);
+export const monitoringEvents = new Set([
+  "submitted",
+  "started",
+  "heartbeat",
+  "completed",
+  "partial",
+  "blocked",
+  "failed",
+  "cancelled",
+  "prolonged_outage_detected",
+  "outage_resubmission_planned",
+  "outage_resubmission_deferred",
+  "outage_circuit_opened",
+  "outage_half_open_probe",
+  "outage_child_submission_confirmed",
+  "outage_recovery_succeeded",
+  "outage_attempts_exhausted",
+  "outage_wall_clock_exhausted",
+  "outage_terminal_nonretryable",
+  "outage_operator_pause_stop",
+  "outage_uncertain_submission",
+]);
 
 export function recordMonitoringEvent(eventName, payload, { logsRoot = defaultLogsRoot } = {}) {
   if (!monitoringEvents.has(eventName)) throw new Error(`Unsupported monitoring event: ${eventName}`);
