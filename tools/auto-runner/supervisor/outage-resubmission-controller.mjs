@@ -7,28 +7,35 @@ export function buildOutageResubmissionStatus(config = {}) {
   const policy = normalizeOutageResubmissionConfig(config.outageResubmission || {});
   const inventory = readOutageResubmissionInventory(config);
   const states = inventory.ok ? inventory.validStates : [];
-  const active = selectCurrentOutageState(states.filter((state) => !isTerminalOutageStatus(state.status)));
-  const terminal = active ? null : selectCurrentOutageState(states.filter((state) => isTerminalOutageStatus(state.status)));
+  const activeStates = states.filter((state) => !isTerminalOutageStatus(state.status));
+  const activeAmbiguity = activeStates.length > 1 ? summarizeActiveAmbiguity(activeStates) : null;
+  const operatorActionRequired = inventory.operatorActionRequired || Boolean(activeAmbiguity);
+  const active = activeStates.length === 1 ? activeStates[0] : null;
+  const terminal = active || activeAmbiguity ? null : selectCurrentOutageState(states.filter((state) => isTerminalOutageStatus(state.status)));
   const statusSource = active || terminal || null;
+  const reasonCode = inventory.reasonCode || activeAmbiguity?.reasonCode || null;
   return {
     enabled: policy.allowBoundedOutageResubmission,
     defaultOff: policy.allowBoundedOutageResubmission !== true,
-    activeSourceRun: inventory.operatorActionRequired ? null : active ? summarizeOutageState(active) : null,
+    activeSourceRun: operatorActionRequired ? null : active ? summarizeOutageState(active) : null,
     attemptCount: statusSource?.mutationMarker?.attemptNumber || 0,
     maxAttempts: policy.maxAttempts,
-    nextEligibleAt: inventory.operatorActionRequired ? null : active?.schedule?.nextEligibleAt || null,
+    nextEligibleAt: operatorActionRequired ? null : active?.schedule?.nextEligibleAt || null,
     deadlineAt: statusSource?.schedule?.deadlineAt || null,
     circuitState: statusSource?.circuit?.state || "closed",
-    lastSanitizedReason: inventory.reasonCode || statusSource?.mutationMarker?.reasonCode || statusSource?.outage?.reasonCode || null,
-    childRunId: inventory.operatorActionRequired ? null : statusSource?.childSupervisorRunId || null,
-    terminalOutcome: inventory.operatorActionRequired ? null : terminal?.status || null,
+    lastSanitizedReason: reasonCode || statusSource?.mutationMarker?.reasonCode || statusSource?.outage?.reasonCode || null,
+    childRunId: operatorActionRequired ? null : statusSource?.childSupervisorRunId || null,
+    terminalOutcome: operatorActionRequired ? null : terminal?.status || null,
     recordCount: inventory.totalRecordCount,
     stateReadStatus: inventory.readStatus,
-    reasonCode: inventory.reasonCode,
-    operatorActionRequired: inventory.operatorActionRequired,
+    reasonCode,
+    operatorActionRequired,
     totalRecordCount: inventory.totalRecordCount,
     validRecordCount: inventory.validCount,
     invalidRecordCount: inventory.invalidCount,
+    activeRecordCount: activeStates.length,
+    ambiguousActiveRecordCount: activeAmbiguity?.count || 0,
+    ambiguousActiveRecords: activeAmbiguity?.records || [],
   };
 }
 
@@ -58,6 +65,25 @@ function outageStateTieBreaker(state) {
     state?.correlation?.prHeadSha || "",
     state?.correlation?.outageFingerprint || "",
   ].join(":");
+}
+
+function summarizeActiveAmbiguity(states = []) {
+  return {
+    reasonCode: "multiple_active_outage_states",
+    count: states.length,
+    records: states
+      .slice()
+      .sort((left, right) => outageStateTieBreaker(left).localeCompare(outageStateTieBreaker(right)))
+      .slice(0, 10)
+      .map((state) => ({
+        taskKey: state?.correlation?.taskKey || null,
+        runnerRunId: state?.correlation?.runnerRunId || null,
+        supervisorRunId: state?.correlation?.supervisorRunId || null,
+        issueNumber: state?.correlation?.issueNumber || null,
+        markerKey: state?.mutationMarker?.key || null,
+        status: state?.status || null,
+      })),
+  };
 }
 
 function isTerminalOutageStatus(status) {

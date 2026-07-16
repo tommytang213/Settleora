@@ -469,6 +469,62 @@ test("outage resubmission state validates identity, atomic writes, markers, corr
   }
 });
 
+test("outage correlation verification requires PR number and head as an exact pair", () => {
+  const state = fixtureState();
+  const noPrState = createOutageResubmissionState({
+    correlation: { ...state.correlation, prNumber: null, prHeadSha: null },
+    outage: state.outage,
+    schedule: state.schedule,
+  });
+  const cases = [
+    ["both omitted", state, { issueNumber: 913 }, true, null],
+    ["both exact", state, { prNumber: 917, prHeadSha: shaB }, true, null],
+    ["number only", state, { prNumber: 917 }, false, "prHeadSha"],
+    ["head only", state, { prHeadSha: shaB }, false, "prNumber"],
+    ["wrong number", state, { prNumber: 918, prHeadSha: shaB }, false, "prNumber"],
+    ["wrong head", state, { prNumber: 917, prHeadSha: shaA }, false, "prHeadSha"],
+    ["stored no PR with omitted pair", noPrState, { issueNumber: 913 }, true, null],
+    ["stored no PR with supplied PR", noPrState, { prNumber: 917, prHeadSha: shaB }, false, "prNumber"],
+    ["stored PR with explicit null pair", state, { prNumber: null, prHeadSha: null }, false, "prNumber"],
+    ["stored PR with null number", state, { prNumber: null, prHeadSha: shaB }, false, "prNumber"],
+    ["stored PR with null head", state, { prNumber: 917, prHeadSha: null }, false, "prHeadSha"],
+    ["malformed number", state, { prNumber: 0, prHeadSha: shaB }, false, "prNumber"],
+    ["malformed head", state, { prNumber: 917, prHeadSha: "B".repeat(40) }, false, "prHeadSha"],
+  ];
+  for (const [label, stored, expected, ok, field] of cases) {
+    const result = verifyOutageCorrelation(stored, expected);
+    assert.equal(result.ok, ok, label);
+    if (!ok) {
+      assert.equal(result.reasonCode, "outage_resubmission_identity_drift", label);
+      assert.equal(result.field, field, label);
+      assert.equal(JSON.stringify(result).includes(shaA), false, label);
+      assert.equal(JSON.stringify(result).includes(shaB), false, label);
+    }
+  }
+});
+
+test("outage state creation rejects partial or malformed PR identity before canonical null erasure", () => {
+  const cases = [
+    ["number only", { prNumber: 917 }],
+    ["head only", { prHeadSha: shaB }],
+    ["malformed number", { prNumber: "917", prHeadSha: shaB }],
+    ["malformed head", { prNumber: 917, prHeadSha: "B".repeat(40) }],
+  ];
+  for (const [label, prIdentity] of cases) {
+    const state = fixtureState();
+    const { prNumber, prHeadSha, ...baseCorrelation } = state.correlation;
+    assert.throws(
+      () => createOutageResubmissionState({
+        correlation: { ...baseCorrelation, ...prIdentity },
+        outage: state.outage,
+        schedule: state.schedule,
+      }),
+      /Invalid outage resubmission state/,
+      label,
+    );
+  }
+});
+
 test("outage resubmission state rejects intermediate symlink escapes and unsafe root modes", () => {
   const recoverySymlink = tempConfig();
   try {

@@ -303,6 +303,10 @@ export function verifyOutageCorrelation(state, expected = {}) {
   if ("providerDomain" in expected && !("outageProviderDomain" in expected)) {
     return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "outageProviderDomain" };
   }
+  const requestPrPair = validateExpectedPrIdentity(expected);
+  if (!requestPrPair.ok) {
+    return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: requestPrPair.field };
+  }
   for (const field of [
     "taskKey",
     "runnerRunId",
@@ -311,8 +315,6 @@ export function verifyOutageCorrelation(state, expected = {}) {
     "branchName",
     "baseSha",
     "currentHeadSha",
-    "prNumber",
-    "prHeadSha",
     "runnerProfile",
     "runnerConfigDigest",
     "originalSupervisorSpecDigest",
@@ -321,6 +323,14 @@ export function verifyOutageCorrelation(state, expected = {}) {
   ]) {
     if (field in expected && expected[field] !== actual[field]) {
       return { ok: false, reasonCode: "outage_resubmission_identity_drift", field };
+    }
+  }
+  if (requestPrPair.supplied) {
+    if (expected.prNumber !== actual.prNumber) {
+      return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "prNumber" };
+    }
+    if (expected.prHeadSha !== actual.prHeadSha) {
+      return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "prHeadSha" };
     }
   }
   if ("outageProviderDomain" in expected && expected.outageProviderDomain !== state?.outage?.providerDomain) {
@@ -540,6 +550,7 @@ function rejectUnknownFields(value, label, allowed) {
 }
 
 function canonicalCorrelation(input = {}) {
+  const prIdentity = normalizeAtomicPrIdentity(input);
   return {
     taskKey: bounded(input.taskKey, 80),
     runnerRunId: bounded(input.runnerRunId || input.runId, 80),
@@ -548,8 +559,8 @@ function canonicalCorrelation(input = {}) {
     branchName: bounded(input.branchName, 180),
     baseSha: shaOrNull(input.baseSha),
     currentHeadSha: shaOrNull(input.currentHeadSha || input.headSha),
-    prNumber: Number.isSafeInteger(input.prNumber) ? input.prNumber : null,
-    prHeadSha: shaOrNull(input.prHeadSha),
+    prNumber: prIdentity.prNumber,
+    prHeadSha: prIdentity.prHeadSha,
     runnerProfile: bounded(input.runnerProfile || input.profile, 80),
     runnerConfigDigest: digestOrNull(input.runnerConfigDigest || input.runnerConfigSha256),
     originalSupervisorSpecDigest: digestOrNull(input.originalSupervisorSpecDigest || input.specDigest),
@@ -691,6 +702,31 @@ function stripOutageRawKeys(value) {
 
 function shaOrNull(value) {
   return isSha(value) ? String(value) : null;
+}
+
+function normalizeAtomicPrIdentity(value = {}) {
+  const hasPrNumber = Object.hasOwn(value, "prNumber");
+  const hasPrHeadSha = Object.hasOwn(value, "prHeadSha");
+  if (!hasPrNumber && !hasPrHeadSha) return { prNumber: null, prHeadSha: null };
+  if (hasPrNumber !== hasPrHeadSha) return { prNumber: "__invalid_pr_pair__", prHeadSha: "__invalid_pr_pair__" };
+  if (value.prNumber === null && value.prHeadSha === null) return { prNumber: null, prHeadSha: null };
+  if (Number.isSafeInteger(value.prNumber) && value.prNumber >= 1 && value.prNumber <= 9999999 && isSha(value.prHeadSha)) {
+    return { prNumber: value.prNumber, prHeadSha: value.prHeadSha };
+  }
+  return { prNumber: "__invalid_pr_pair__", prHeadSha: "__invalid_pr_pair__" };
+}
+
+function validateExpectedPrIdentity(expected = {}) {
+  const hasPrNumber = Object.hasOwn(expected, "prNumber");
+  const hasPrHeadSha = Object.hasOwn(expected, "prHeadSha");
+  if (!hasPrNumber && !hasPrHeadSha) return { ok: true, supplied: false };
+  if (hasPrNumber !== hasPrHeadSha) return { ok: false, field: hasPrNumber ? "prHeadSha" : "prNumber" };
+  if (expected.prNumber === null || expected.prHeadSha === null) return { ok: false, field: expected.prNumber === null ? "prNumber" : "prHeadSha" };
+  if (!Number.isSafeInteger(expected.prNumber) || expected.prNumber < 1 || expected.prNumber > 9999999) {
+    return { ok: false, field: "prNumber" };
+  }
+  if (!isSha(expected.prHeadSha)) return { ok: false, field: "prHeadSha" };
+  return { ok: true, supplied: true };
 }
 
 function digestOrNull(value) {

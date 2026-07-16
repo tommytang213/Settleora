@@ -393,6 +393,60 @@ test("outage resubmission binding persists sanitized bytes", () => {
   }
 });
 
+test("persisted recovery outage binding enforces atomic PR identity on load", () => {
+  const validCases = [
+    ["both null", null, { prNumber: null, prHeadSha: null }],
+    ["both valid", { number: 918, headSha: "d".repeat(40) }, { prNumber: 918, prHeadSha: "d".repeat(40) }],
+  ];
+  for (const [label, pr, prIdentity] of validCases) {
+    const config = tempConfig();
+    try {
+      const state = initial({ pr });
+      const bound = bindOutageResubmissionToRecoveryState(state, outageBinding());
+      assert.equal(bound.ok, true, label);
+      assert.equal(bound.state.outageResubmission.prNumber, prIdentity.prNumber, label);
+      assert.equal(bound.state.outageResubmission.prHeadSha, prIdentity.prHeadSha, label);
+      const written = writeRecoveryState(config, bound.state);
+      const loaded = loadRecoveryState(config, bound.state);
+      assert.equal(loaded.ok, true, label);
+      assert.equal(loaded.state.outageResubmission.prNumber, prIdentity.prNumber, label);
+      assert.equal(loaded.state.outageResubmission.prHeadSha, prIdentity.prHeadSha, label);
+      assert.equal(readFileSync(written.statePath, "utf8").includes("secret"), false, label);
+    } finally {
+      config.cleanup();
+    }
+  }
+
+  const invalidCases = [
+    ["number only", { prNumber: 918, prHeadSha: null }],
+    ["head only", { prNumber: null, prHeadSha: "d".repeat(40) }],
+    ["malformed number", { prNumber: 0, prHeadSha: "d".repeat(40) }],
+    ["malformed head", { prNumber: 918, prHeadSha: "D".repeat(40) }],
+  ];
+  for (const [label, prIdentity] of invalidCases) {
+    const config = tempConfig();
+    try {
+      const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+      const bound = bindOutageResubmissionToRecoveryState(state, outageBinding());
+      const written = writeRecoveryState(config, bound.state);
+      const tampered = {
+        ...bound.state,
+        outageResubmission: {
+          ...bound.state.outageResubmission,
+          ...prIdentity,
+        },
+      };
+      writeFileSync(written.statePath, `${JSON.stringify(tampered, null, 2)}\n`, { mode: 0o600 });
+      const loaded = loadRecoveryState(config, bound.state);
+      assert.equal(loaded.ok, false, label);
+      assert.equal(loaded.reasonCode, "recovery_state_schema_invalid", label);
+      assert.equal(JSON.stringify(loaded).includes(String(prIdentity.prHeadSha)), false, label);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
 test("startup listing returns non-terminal recoverable states only", () => {
   const config = tempConfig();
   try {
