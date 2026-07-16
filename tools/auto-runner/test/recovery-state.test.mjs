@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   advanceRecoveryPhase,
+  bindOutageResubmissionToRecoveryState,
   bindRecoveryEvidence,
   classifyRecoveryOutcome,
   createInitialRecoveryState,
@@ -134,6 +135,27 @@ test("head change invalidates validation review CI scanner and merge evidence", 
   assert.equal(state.nextSafeAction, "regenerate_exact_head_evidence");
 });
 
+test("repeated identical head change preserves first stale-head invalidation evidence", () => {
+  let state = initial();
+  for (const kind of headBoundEvidenceKinds) {
+    state = bindRecoveryEvidence(state, kind, {
+      status: "passed",
+      headSha: "b".repeat(40),
+      baseSha: "a".repeat(40),
+      changedFiles: ["tools/auto-runner/lib/recovery-state.mjs"],
+    });
+  }
+  const invalidated = invalidateEvidenceForHeadChange(state, { newHeadSha: "c".repeat(40), reasonCode: "review_fix_committed" });
+  const repeated = invalidateEvidenceForHeadChange(invalidated, { newHeadSha: "c".repeat(40), reasonCode: "review_fix_committed" });
+  for (const kind of headBoundEvidenceKinds) {
+    assert.equal(repeated.evidence[kind].invalidatedAt, invalidated.evidence[kind].invalidatedAt, kind);
+    assert.equal(repeated.evidence[kind].invalidatedOldHeadSha, "b".repeat(40), kind);
+    assert.equal(repeated.evidence[kind].invalidatedNewHeadSha, "c".repeat(40), kind);
+  }
+  assert.equal(repeated.branch.currentHeadSha, "c".repeat(40));
+  assert.equal(repeated.nextSafeAction, "regenerate_exact_head_evidence");
+});
+
 test("base or branch drift fails closed", () => {
   const config = tempConfig();
   try {
@@ -212,6 +234,63 @@ test("idempotent mutation markers prevent duplicate component mutations", () => 
   });
   assert.equal(recoveryHasMutationMarker(state, "pr_create", "issue-893-pr"), true);
   assert.equal(recoveryHasMutationMarker(state, "merge", "issue-893-pr"), false);
+});
+
+test("outage resubmission binding is idempotent and conflict-safe", () => {
+  const binding = {
+    originalSupervisorSpecDigest: "a".repeat(64),
+    markerKey: "b".repeat(64),
+    outageFingerprint: "c".repeat(64),
+    attemptNumber: 2,
+  };
+  const state = initial();
+  const bound = bindOutageResubmissionToRecoveryState(state, binding);
+  assert.equal(bound.ok, true);
+  assert.equal(bound.changed, true);
+  assert.equal(bound.state.outageResubmission.taskKey, state.taskKey);
+  assert.equal(bound.state.outageResubmission.issueNumber, state.issue.number);
+  assert.equal(bound.state.outageResubmission.runnerRunId, state.run.runId);
+  assert.equal(bound.state.outageResubmission.supervisorRunId, state.run.supervisorRunId);
+  assert.equal(bound.state.outageResubmission.originalSupervisorSpecDigest, binding.originalSupervisorSpecDigest);
+  assert.equal(bound.state.outageResubmission.markerKey, binding.markerKey);
+  assert.equal(bound.state.outageResubmission.outageFingerprint, binding.outageFingerprint);
+  assert.equal(bound.state.outageResubmission.attemptNumber, binding.attemptNumber);
+
+  const repeated = bindOutageResubmissionToRecoveryState(bound.state, binding);
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.changed, false);
+  assert.deepEqual(repeated.state.outageResubmission, bound.state.outageResubmission);
+
+  const conflict = bindOutageResubmissionToRecoveryState(bound.state, { ...binding, markerKey: "d".repeat(64) });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.reasonCode, "recovery_outage_binding_conflict");
+
+  const invalid = bindOutageResubmissionToRecoveryState(state, { ...binding, attemptNumber: 0 });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.reasonCode, "recovery_outage_binding_invalid");
+});
+
+test("outage resubmission binding persists sanitized bytes", () => {
+  const config = tempConfig();
+  try {
+    const state = initial();
+    const bound = bindOutageResubmissionToRecoveryState(state, {
+      originalSupervisorSpecDigest: "a".repeat(64),
+      markerKey: "b".repeat(64),
+      outageFingerprint: "c".repeat(64),
+      attemptNumber: 1,
+      rawBody: "secret raw payload",
+      token: "secret-token",
+    });
+    const written = writeRecoveryState(config, bound.state);
+    const text = readFileSync(written.statePath, "utf8");
+    assert.equal(text.includes("rawBody"), false);
+    assert.equal(text.includes("secret raw payload"), false);
+    assert.equal(text.includes("secret-token"), false);
+    assert.equal(loadRecoveryState(config, state).state.outageResubmission.markerKey, "b".repeat(64));
+  } finally {
+    config.cleanup();
+  }
 });
 
 test("startup listing returns non-terminal recoverable states only", () => {

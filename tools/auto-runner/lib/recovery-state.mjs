@@ -159,6 +159,7 @@ export function createInitialRecoveryState({
   firstIncompleteAction = "claim_issue",
   featureBundle = null,
   generatedWork = null,
+  outageResubmission = null,
 }) {
   const now = new Date().toISOString();
   const state = {
@@ -187,6 +188,7 @@ export function createInitialRecoveryState({
     evidence: emptyEvidenceBindings(currentHeadSha || baseSha || null),
     featureBundle,
     generatedWork,
+    outageResubmission: normalizeOutageResubmissionBinding(outageResubmission),
     mutationMarkers: {},
     stopReason: null,
     nextSafeAction: firstIncompleteAction,
@@ -213,6 +215,38 @@ export function writeRecoveryState(config, state) {
   writeFileSync(tmpPath, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmpPath, statePath);
   return { statePath, state: sanitized };
+}
+
+export function bindOutageResubmissionToRecoveryState(state, binding) {
+  const normalized = normalizeOutageResubmissionBinding({
+    taskKey: state.taskKey || null,
+    issueNumber: state.issue?.number || null,
+    branchName: state.branch?.name || null,
+    baseSha: state.branch?.baseSha || null,
+    currentHeadSha: state.branch?.currentHeadSha || null,
+    prNumber: state.pr?.number ?? null,
+    prHeadSha: state.pr?.headSha ?? null,
+    runnerRunId: state.run?.runId || null,
+    supervisorRunId: state.run?.supervisorRunId || null,
+    ...binding,
+  });
+  const normalizedCandidate = sanitizeRecoveryState({
+    ...state,
+    outageResubmission: normalized,
+  });
+  const validation = validateRecoveryStateShape(normalizedCandidate);
+  if (!validation.ok) return failed("recovery_outage_binding_invalid", validation.reason);
+
+  const existing = state.outageResubmission || null;
+  if (existing) {
+    const normalizedExisting = normalizeOutageResubmissionBinding(existing);
+    if (JSON.stringify(normalizedExisting) !== JSON.stringify(normalized)) {
+      return failed("recovery_outage_binding_conflict", "Recovery state already has a different outage resubmission binding.");
+    }
+    return { ok: true, state: normalizedCandidate, changed: false, binding: normalized };
+  }
+
+  return { ok: true, state: normalizedCandidate, changed: true, binding: normalized };
 }
 
 export function loadRecoveryState(config, keyOrState) {
@@ -318,17 +352,23 @@ export function bindRecoveryEvidence(state, kind, evidence) {
 
 export function invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode = "head_changed" }) {
   const oldHeadSha = state.branch.currentHeadSha || null;
+  const requestedNewHeadSha = newHeadSha || null;
   const evidence = {};
   for (const kind of headBoundEvidenceKinds) {
     const existing = state.evidence?.[kind] || null;
+    const equivalentInvalidation =
+      existing?.stale === true &&
+      existing.invalidatedBy === reasonCode &&
+      existing.invalidatedNewHeadSha === requestedNewHeadSha &&
+      (existing.invalidatedOldHeadSha === oldHeadSha || oldHeadSha === requestedNewHeadSha);
     evidence[kind] = existing
       ? {
           ...existing,
           stale: true,
           invalidatedBy: reasonCode,
-          invalidatedAt: new Date().toISOString(),
-          invalidatedOldHeadSha: oldHeadSha,
-          invalidatedNewHeadSha: newHeadSha || null,
+          invalidatedAt: equivalentInvalidation ? existing.invalidatedAt : new Date().toISOString(),
+          invalidatedOldHeadSha: equivalentInvalidation ? existing.invalidatedOldHeadSha : oldHeadSha,
+          invalidatedNewHeadSha: requestedNewHeadSha,
         }
       : null;
   }
@@ -338,6 +378,18 @@ export function invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode 
     evidence,
     nextSafeAction: "regenerate_exact_head_evidence",
   });
+}
+
+export function recoveryRequiresExactHeadEvidenceRegeneration(state) {
+  if (!state) return { required: false, reasonCode: null, staleEvidenceKinds: [] };
+  const staleEvidence = staleEvidenceKinds(state, state.branch?.currentHeadSha || null);
+  const nextActionRequiresRegeneration = state.nextSafeAction === "regenerate_exact_head_evidence";
+  return {
+    required: nextActionRequiresRegeneration || staleEvidence.length > 0,
+    reasonCode: "recovery_exact_head_evidence_regeneration_required",
+    staleEvidenceKinds: staleEvidence,
+    nextSafeAction: state.nextSafeAction || null,
+  };
 }
 
 export function recordRecoveryAttempt(state, { outcomeClass, fingerprint, reasonCode, phase = state.phase }) {
@@ -445,7 +497,42 @@ function validateRecoveryStateShape(state) {
     }
   }
   if (!state.evidence || typeof state.evidence !== "object" || Array.isArray(state.evidence)) return invalid("invalid evidence");
+  if (state.outageResubmission !== undefined && state.outageResubmission !== null) {
+    const binding = state.outageResubmission;
+    if (!binding || typeof binding !== "object" || Array.isArray(binding)) return invalid("invalid outage resubmission binding");
+    if (!isDigest(binding.originalSupervisorSpecDigest)) return invalid("invalid outage resubmission spec digest");
+    if (!isDigest(binding.markerKey)) return invalid("invalid outage resubmission marker key");
+    if (!isDigest(binding.outageFingerprint)) return invalid("invalid outage resubmission fingerprint");
+    if (!Number.isSafeInteger(binding.attemptNumber) || binding.attemptNumber < 1 || binding.attemptNumber > 20) return invalid("invalid outage resubmission attempt");
+    if (binding.taskKey !== null && typeof binding.taskKey !== "string") return invalid("invalid outage resubmission task key");
+    if (binding.issueNumber !== null && !Number.isSafeInteger(binding.issueNumber)) return invalid("invalid outage resubmission issue number");
+    if (binding.branchName !== null && typeof binding.branchName !== "string") return invalid("invalid outage resubmission branch name");
+    if (!isShaOrNull(binding.baseSha) || !isShaOrNull(binding.currentHeadSha)) return invalid("invalid outage resubmission branch sha");
+    if (binding.prNumber !== null && !Number.isSafeInteger(binding.prNumber)) return invalid("invalid outage resubmission pr number");
+    if (!isShaOrNull(binding.prHeadSha)) return invalid("invalid outage resubmission pr head");
+    if (binding.runnerRunId !== null && typeof binding.runnerRunId !== "string") return invalid("invalid outage resubmission runner run id");
+    if (binding.supervisorRunId !== null && typeof binding.supervisorRunId !== "string") return invalid("invalid outage resubmission supervisor run id");
+  }
   return { ok: true };
+}
+
+function normalizeOutageResubmissionBinding(value) {
+  if (!value) return null;
+  return {
+    taskKey: value.taskKey ? bounded(value.taskKey, 80) : null,
+    issueNumber: Number.isSafeInteger(value.issueNumber) ? value.issueNumber : null,
+    branchName: value.branchName ? bounded(value.branchName, 240) : null,
+    baseSha: isShaOrNull(value.baseSha) ? value.baseSha : null,
+    currentHeadSha: isShaOrNull(value.currentHeadSha) ? value.currentHeadSha : null,
+    prNumber: Number.isSafeInteger(value.prNumber) ? value.prNumber : null,
+    prHeadSha: isShaOrNull(value.prHeadSha) ? value.prHeadSha : null,
+    runnerRunId: value.runnerRunId ? bounded(value.runnerRunId, 120) : null,
+    supervisorRunId: value.supervisorRunId ? bounded(value.supervisorRunId, 120) : null,
+    originalSupervisorSpecDigest: isDigest(value.originalSupervisorSpecDigest) ? value.originalSupervisorSpecDigest : null,
+    markerKey: isDigest(value.markerKey) ? value.markerKey : null,
+    outageFingerprint: isDigest(value.outageFingerprint) ? value.outageFingerprint : null,
+    attemptNumber: Number.isSafeInteger(value.attemptNumber) ? value.attemptNumber : null,
+  };
 }
 
 function emptyEvidenceBindings(headSha) {
@@ -477,6 +564,10 @@ function digestStringArray(values) {
 
 function isShaOrNull(value) {
   return value === null || /^[a-f0-9]{40}$/.test(String(value || ""));
+}
+
+function isDigest(value) {
+  return /^[a-f0-9]{64}$/.test(String(value || ""));
 }
 
 function bounded(value, max) {

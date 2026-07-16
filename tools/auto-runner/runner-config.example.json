@@ -36,6 +36,19 @@
     "allowedNeutralChecks": []
   },
   "allowExistingPrRecovery": false,
+  "outageResubmission": {
+    "allowBoundedOutageResubmission": false,
+    "minimumOutageAgeMs": 900000,
+    "baseBackoffMs": 300000,
+    "maxBackoffMs": 3600000,
+    "jitterRatio": 0.2,
+    "maxAttempts": 3,
+    "maxWallClockMs": 86400000,
+    "circuitWindowMs": 3600000,
+    "circuitFailureThreshold": 3,
+    "circuitDistinctRunThreshold": 2,
+    "circuitCooldownMs": 1800000
+  },
   "autoMergeWait": {
     "maxAttempts": 60,
     "delayMs": 30000
