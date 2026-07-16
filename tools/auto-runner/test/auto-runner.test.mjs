@@ -5301,6 +5301,18 @@ test("existing PR recovery blocks stale head, broad files, review/code scanning 
   }
 });
 
+test("recovery-only exact-head evidence validation precedes generation branch", () => {
+  const source = readFileSync(path.join(process.cwd(), "tools/auto-runner/settleora-auto-runner.mjs"), "utf8");
+  const validator = source.indexOf("validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig");
+  const generation = source.indexOf("shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)");
+  assert.ok(validator > 0);
+  assert.ok(generation > validator);
+  const blockedBranch = source.slice(validator, generation);
+  assert.match(blockedBranch, /autoMerge: \{ result: "blocked"/);
+  assert.doesNotMatch(blockedBranch, /writeAutoMergeEvidence/);
+  assert.doesNotMatch(blockedBranch, /generateExistingPrRecoveryEvidence/);
+});
+
 test("existing client-ui-low-risk PR recovery requires independent Gemini and Codex evidence on exact head and files", () => {
   const laneDecision = autoMergeLane({
     lane: "client-ui-low-risk",
