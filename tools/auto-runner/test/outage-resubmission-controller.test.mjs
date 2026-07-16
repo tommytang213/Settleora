@@ -1615,11 +1615,11 @@ test("optional PR identity matrix requires exact absent or present pairs", () =>
   const config = tempConfig();
   try {
     const sourceCases = [
-      ["pre-pr source", source({ prNumber: null, prHeadSha: null })],
+      ["pre-pr source", sourceWithoutPr()],
       ["post-pr source", source()],
     ];
     const childCases = [
-      ["absent pair", { prNumber: null, prHeadSha: null }],
+      ["absent pair", { prNumber: undefined, prHeadSha: undefined }],
       ["identical present", { prNumber: 917, prHeadSha: shaB }],
       ["different number same head", { prNumber: 918, prHeadSha: shaB }],
       ["same number different head", { prNumber: 917, prHeadSha: shaA }],
@@ -1743,7 +1743,7 @@ test("live current identity must preserve the strict optional PR pair", () => {
 test("unexpected child PR identity blocks every reconciliation status without planning replacement", () => {
   const config = tempConfig();
   try {
-    const sourceInput = source({ prNumber: null, prHeadSha: null });
+    const sourceInput = sourceWithoutPr();
     const baseState = fixtureOutageStateForSource(sourceInput);
     const unexpectedPr = { prNumber: 917, prHeadSha: shaB };
     const statusCases = [
@@ -1896,7 +1896,7 @@ test("same-source children without authoritative marker fields are not adopted",
 test("optional PR identity mismatches block intended, duplicate, and canonical representation reconciliation", () => {
   const config = tempConfig();
   try {
-    const sourceInput = source({ prNumber: null, prHeadSha: null });
+    const sourceInput = sourceWithoutPr();
     const submitted = transitionOutageMarker(fixtureOutageStateForSource(sourceInput), {
       status: "submitted",
       childSupervisorRunId: "supervised-20260715T010000Z-000000000711",
@@ -2755,36 +2755,41 @@ test("source completion dry-run, repeated terminal, mismatch, and persistence fa
     assert.equal(result.counts.systemdCalls, 0);
     assert.equal(result.counts.realMutationCalls, 0);
 
-    const prePrSource = source({ prNumber: null, prHeadSha: null, merged: true, completed: true });
-    const prePrPlanned = fixtureOutageStateForSource(prePrSource);
-    writeOutageResubmissionState(config, prePrPlanned);
-    for (const [identity, reasonCode] of [
-      [{ merged: true, prNumber: 917, prHeadSha: shaB }, "pr_identity_mismatch"],
-      [{ issueClosed: true, merged: false, prHeadSha: shaB }, "pr_head_identity_mismatch"],
-    ]) {
-      result = runOutageResubmissionController({
-        config,
-        source: prePrSource,
-        outageState: prePrPlanned,
-        currentIdentity: {
-          issueNumber: prePrSource.issueNumber,
-          branchName: prePrSource.branchName,
-          baseSha: prePrSource.baseSha,
-          currentHeadSha: prePrSource.currentHeadSha,
-          ...identity,
-        },
-        dryRun: false,
-        now,
-      });
-      assert.equal(result.outcome, "blocked");
-      assert.equal(result.reasonCode, reasonCode);
-      assert.equal(loadOutageResubmissionState(config, prePrPlanned.correlation).state.status, "planned");
-      assert.equal(result.events.some((item) => item.event === "outage_source_completion_recovered"), false);
-      assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
-      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
-      assert.equal(result.counts.githubMutationCalls, 0);
-      assert.equal(result.counts.systemdCalls, 0);
-      assert.equal(result.counts.realMutationCalls, 0);
+    const prePrConfig = tempConfig();
+    try {
+      const prePrSource = sourceWithoutPr({ merged: true, completed: true });
+      const prePrPlanned = fixtureOutageStateForSource(prePrSource);
+      writeOutageResubmissionState(prePrConfig, prePrPlanned);
+      for (const [identity, reasonCode] of [
+        [{ merged: true, prNumber: 917, prHeadSha: shaB }, "pr_identity_mismatch"],
+        [{ issueClosed: true, merged: false, prHeadSha: shaB }, "pr_head_identity_mismatch"],
+      ]) {
+        result = runOutageResubmissionController({
+          config: prePrConfig,
+          source: prePrSource,
+          outageState: prePrPlanned,
+          currentIdentity: {
+            issueNumber: prePrSource.issueNumber,
+            branchName: prePrSource.branchName,
+            baseSha: prePrSource.baseSha,
+            currentHeadSha: prePrSource.currentHeadSha,
+            ...identity,
+          },
+          dryRun: false,
+          now,
+        });
+        assert.equal(result.outcome, "blocked");
+        assert.equal(result.reasonCode, reasonCode);
+        assert.equal(loadOutageResubmissionState(prePrConfig, prePrPlanned.correlation).state.status, "planned");
+        assert.equal(result.events.some((item) => item.event === "outage_source_completion_recovered"), false);
+        assert.equal(result.events.some((item) => item.event === "outage_marker_reconciled"), false);
+        assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+        assert.equal(result.counts.githubMutationCalls, 0);
+        assert.equal(result.counts.systemdCalls, 0);
+        assert.equal(result.counts.realMutationCalls, 0);
+      }
+    } finally {
+      prePrConfig.cleanup();
     }
 
     result = runOutageResubmissionController({
@@ -3120,7 +3125,7 @@ test("active outage state outranks newer terminal records across complete invent
   }
 });
 
-test("active outage selection is deterministic by updatedAt and stable tie breaker", () => {
+test("multiple active outage states require operator action instead of newest-wins selection", () => {
   const config = tempConfig();
   try {
     const older = withStateUpdatedAt(transitionOutageMarker(fixtureOutageStateForIndex(60), {
@@ -3148,12 +3153,31 @@ test("active outage selection is deterministic by updatedAt and stable tie break
       reasonCode: "tie_b",
     }), "2026-07-15T00:20:00.000Z");
     for (const state of [tiedA, older, newer, tiedB]) writeOutageFixtureState(config, state);
-    assert.equal(getRunnerStatus(config).outageResubmission.activeSourceRun.taskKey, newer.correlation.taskKey);
+    const status = getRunnerStatus(config).outageResubmission;
+    const health = evaluateAutoRunnerHealth({ logsRoot: config.logsRoot, now }).body.outageResubmission;
+    assert.equal(status.activeSourceRun, null);
+    assert.equal(status.operatorActionRequired, true);
+    assert.equal(status.reasonCode, "multiple_active_outage_states");
+    assert.equal(status.activeRecordCount, 4);
+    assert.equal(status.ambiguousActiveRecordCount, 4);
+    assert.deepEqual(
+      status.ambiguousActiveRecords.map((record) => record.taskKey),
+      [tiedA, tiedB, older, newer]
+        .sort((left, right) => stableOutageTieKey(left).localeCompare(stableOutageTieKey(right)))
+        .map((state) => state.correlation.taskKey),
+    );
+    assert.equal(health.activeSourceRun, null);
+    assert.equal(health.operatorActionRequired, true);
+    assert.equal(health.reasonCode, "multiple_active_outage_states");
 
     const reverseConfig = tempConfig();
     try {
       for (const state of [newer, tiedB, older, tiedA].reverse()) writeOutageFixtureState(reverseConfig, state);
-      assert.equal(getRunnerStatus(reverseConfig).outageResubmission.activeSourceRun.taskKey, newer.correlation.taskKey);
+      const reverseStatus = getRunnerStatus(reverseConfig).outageResubmission;
+      assert.equal(reverseStatus.activeSourceRun, null);
+      assert.equal(reverseStatus.operatorActionRequired, true);
+      assert.equal(reverseStatus.reasonCode, "multiple_active_outage_states");
+      assert.deepEqual(reverseStatus.ambiguousActiveRecords, status.ambiguousActiveRecords);
     } finally {
       reverseConfig.cleanup();
     }
@@ -3163,9 +3187,17 @@ test("active outage selection is deterministic by updatedAt and stable tie break
     try {
       for (const state of [tiedA, tiedB]) writeOutageFixtureState(tieConfigA, state);
       for (const state of [tiedB, tiedA]) writeOutageFixtureState(tieConfigB, state);
-      const expectedTieWinner = [tiedA, tiedB].sort((left, right) => stableOutageTieKey(right).localeCompare(stableOutageTieKey(left)))[0];
-      assert.equal(getRunnerStatus(tieConfigA).outageResubmission.activeSourceRun.taskKey, expectedTieWinner.correlation.taskKey);
-      assert.equal(getRunnerStatus(tieConfigB).outageResubmission.activeSourceRun.taskKey, expectedTieWinner.correlation.taskKey);
+      const tieStatusA = getRunnerStatus(tieConfigA).outageResubmission;
+      const tieStatusB = getRunnerStatus(tieConfigB).outageResubmission;
+      const expectedTieRecords = [tiedA, tiedB]
+        .sort((left, right) => stableOutageTieKey(left).localeCompare(stableOutageTieKey(right)))
+        .map((state) => state.correlation.taskKey);
+      assert.equal(tieStatusA.activeSourceRun, null);
+      assert.equal(tieStatusB.activeSourceRun, null);
+      assert.equal(tieStatusA.reasonCode, "multiple_active_outage_states");
+      assert.equal(tieStatusB.reasonCode, "multiple_active_outage_states");
+      assert.deepEqual(tieStatusA.ambiguousActiveRecords.map((record) => record.taskKey), expectedTieRecords);
+      assert.deepEqual(tieStatusB.ambiguousActiveRecords.map((record) => record.taskKey), expectedTieRecords);
     } finally {
       tieConfigA.cleanup();
       tieConfigB.cleanup();
@@ -3305,6 +3337,11 @@ function source(overrides = {}) {
     mode: "trusted",
     ...overrides,
   };
+}
+
+function sourceWithoutPr(overrides = {}) {
+  const { prNumber: _prNumber, prHeadSha: _prHeadSha, ...sourceInput } = source(overrides);
+  return sourceInput;
 }
 
 function fixtureOutageState() {

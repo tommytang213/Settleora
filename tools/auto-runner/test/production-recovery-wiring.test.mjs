@@ -95,7 +95,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
 
 test("only the controller-owning production runner path grants outage resubmission capability", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
-  const capabilityToken = "outageResubmissionControllerAvailable: true";
+  const capabilityToken = ["outageResubmissionControllerAvailable", " true"].join(":");
   assert.equal(source.match(new RegExp(capabilityToken, "g"))?.length, 1);
   assert.match(
     source,

@@ -299,8 +299,8 @@ test("route remains blocked for unsupported aggregate size instead of rewriting 
 });
 
 test("current aggregate #893 diff passes boundary analysis without real credential blockers", () => {
-  const diff = spawnSync("git", ["diff", "--binary", "origin/main...HEAD"], { encoding: "utf8" });
-  const files = spawnSync("git", ["diff", "--name-only", "origin/main...HEAD"], { encoding: "utf8" });
+  const diff = spawnSync("git", ["diff", "--binary", "origin/main"], { encoding: "utf8" });
+  const files = spawnSync("git", ["diff", "--name-only", "origin/main"], { encoding: "utf8" });
   assert.equal(diff.status, 0);
   assert.equal(files.status, 0);
   const changedFiles = files.stdout.trim().split(/\r?\n/).filter(Boolean);

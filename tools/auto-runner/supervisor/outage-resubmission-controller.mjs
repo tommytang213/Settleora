@@ -49,28 +49,35 @@ export function buildOutageResubmissionStatus(config = {}) {
   const policy = normalizeOutageResubmissionConfig(config.outageResubmission || {});
   const inventory = readOutageResubmissionInventory(config);
   const states = inventory.ok ? inventory.validStates : [];
-  const active = selectCurrentOutageState(states.filter((state) => !isTerminalOutageStatus(state.status)));
-  const terminal = active ? null : selectCurrentOutageState(states.filter((state) => isTerminalOutageStatus(state.status)));
+  const activeStates = states.filter((state) => !isTerminalOutageStatus(state.status));
+  const activeAmbiguity = activeStates.length > 1 ? summarizeActiveAmbiguity(activeStates) : null;
+  const operatorActionRequired = inventory.operatorActionRequired || Boolean(activeAmbiguity);
+  const active = activeStates.length === 1 ? activeStates[0] : null;
+  const terminal = active || activeAmbiguity ? null : selectCurrentOutageState(states.filter((state) => isTerminalOutageStatus(state.status)));
   const statusSource = active || terminal || null;
+  const reasonCode = inventory.reasonCode || activeAmbiguity?.reasonCode || null;
   const status = {
     enabled: policy.allowBoundedOutageResubmission,
     defaultOff: policy.allowBoundedOutageResubmission !== true,
-    activeSourceRun: inventory.operatorActionRequired ? null : active ? summarizeOutageState(active) : null,
+    activeSourceRun: operatorActionRequired ? null : active ? summarizeOutageState(active) : null,
     attemptCount: statusSource?.mutationMarker?.attemptNumber || 0,
     maxAttempts: policy.maxAttempts,
-    nextEligibleAt: inventory.operatorActionRequired ? null : active?.schedule?.nextEligibleAt || null,
+    nextEligibleAt: operatorActionRequired ? null : active?.schedule?.nextEligibleAt || null,
     deadlineAt: statusSource?.schedule?.deadlineAt || null,
     circuitState: statusSource?.circuit?.state || "closed",
-    lastSanitizedReason: inventory.reasonCode || statusSource?.mutationMarker?.reasonCode || statusSource?.outage?.reasonCode || null,
-    childRunId: inventory.operatorActionRequired ? null : statusSource?.childSupervisorRunId || null,
-    terminalOutcome: inventory.operatorActionRequired ? null : terminal?.status || null,
+    lastSanitizedReason: reasonCode || statusSource?.mutationMarker?.reasonCode || statusSource?.outage?.reasonCode || null,
+    childRunId: operatorActionRequired ? null : statusSource?.childSupervisorRunId || null,
+    terminalOutcome: operatorActionRequired ? null : terminal?.status || null,
     recordCount: inventory.totalRecordCount,
     stateReadStatus: inventory.readStatus,
-    reasonCode: inventory.reasonCode,
-    operatorActionRequired: inventory.operatorActionRequired,
+    reasonCode,
+    operatorActionRequired,
     totalRecordCount: inventory.totalRecordCount,
     validRecordCount: inventory.validCount,
     invalidRecordCount: inventory.invalidCount,
+    activeRecordCount: activeStates.length,
+    ambiguousActiveRecordCount: activeAmbiguity?.count || 0,
+    ambiguousActiveRecords: activeAmbiguity?.records || [],
   };
   return status;
 }
@@ -102,6 +109,20 @@ export function runOutageResubmissionController(input = {}) {
   if (!inventory.ok) {
     event("outage_state_inventory_blocked", { reasonCode: inventory.reasonCode, invalidRecordCount: inventory.invalidCount });
     return result("blocked", "outage_resubmission_state_untrusted", { events, counts, outageStateInventory: summarizeOutageInventory(inventory) });
+  }
+  const activeOutageStates = inventory.validStates.filter((state) => !isTerminalOutageStatus(state.status));
+  if (activeOutageStates.length > 1) {
+    const activeAmbiguity = summarizeActiveAmbiguity(activeOutageStates);
+    event("outage_state_inventory_blocked", { reasonCode: activeAmbiguity.reasonCode, activeRecordCount: activeAmbiguity.count });
+    return result("blocked", activeAmbiguity.reasonCode, {
+      events,
+      counts,
+      outageStateInventory: {
+        ...summarizeOutageInventory(inventory),
+        activeRecordCount: activeAmbiguity.count,
+        ambiguousActiveRecords: activeAmbiguity.records,
+      },
+    });
   }
 
   const recovery = input.recoveryState || null;
@@ -1376,6 +1397,25 @@ function summarizeOutageInventory(inventory) {
   };
 }
 
+function summarizeActiveAmbiguity(states = []) {
+  return {
+    reasonCode: "multiple_active_outage_states",
+    count: states.length,
+    records: states
+      .slice()
+      .sort((left, right) => outageStateTieBreaker(left).localeCompare(outageStateTieBreaker(right)))
+      .slice(0, 10)
+      .map((state) => ({
+        taskKey: state?.correlation?.taskKey || null,
+        runnerRunId: state?.correlation?.runnerRunId || null,
+        supervisorRunId: state?.correlation?.supervisorRunId || null,
+        issueNumber: state?.correlation?.issueNumber || null,
+        markerKey: state?.mutationMarker?.key || null,
+        status: state?.status || null,
+      })),
+  };
+}
+
 function summarizeOutageState(state) {
   return {
     taskKey: state.correlation?.taskKey || null,
@@ -1394,7 +1434,7 @@ function summarizeOutageState(state) {
 }
 
 function buildCorrelation(source, classification) {
-  return {
+  const correlation = {
     taskKey: source.taskKey,
     runnerRunId: source.runnerRunId,
     supervisorRunId: source.supervisorRunId,
@@ -1402,8 +1442,6 @@ function buildCorrelation(source, classification) {
     branchName: source.branchName,
     baseSha: source.baseSha,
     currentHeadSha: source.currentHeadSha,
-    prNumber: source.prNumber || null,
-    prHeadSha: source.prHeadSha || null,
     runnerProfile: source.runnerProfile,
     runnerConfigDigest: source.runnerConfigDigest,
     originalSupervisorSpecDigest: source.originalSupervisorSpecDigest,
@@ -1411,6 +1449,9 @@ function buildCorrelation(source, classification) {
     outageFingerprint: classification.fingerprint,
     outageClass: classification.outageClass,
   };
+  if (Object.hasOwn(source, "prNumber")) correlation.prNumber = source.prNumber;
+  if (Object.hasOwn(source, "prHeadSha")) correlation.prHeadSha = source.prHeadSha;
+  return correlation;
 }
 
 function result(outcome, reasonCode, extra = {}) {

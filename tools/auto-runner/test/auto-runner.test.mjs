@@ -7325,6 +7325,15 @@ function outageRecoveryCliArgs(target) {
 
 function cliOutageBinding(overrides = {}) {
   return {
+    taskKey: "20260715-1957",
+    issueNumber: 913,
+    branchName: "feature/auto-913-bounded-outage-resubmission-20260715-0013",
+    baseSha: "b".repeat(40),
+    currentHeadSha: "c".repeat(40),
+    prNumber: 917,
+    prHeadSha: "c".repeat(40),
+    runnerRunId: "run-2026-07-15T120000Z",
+    supervisorRunId: "supervised-20260715T120000Z-abcdefabcdef",
     originalSupervisorSpecDigest: "d".repeat(64),
     markerKey: "e".repeat(64),
     outageFingerprint: "f".repeat(64),

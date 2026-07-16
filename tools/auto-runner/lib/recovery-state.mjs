@@ -548,10 +548,24 @@ function validateRecoveryStateShape(state) {
     if (binding.issueNumber !== null && !Number.isSafeInteger(binding.issueNumber)) return invalid("invalid outage resubmission issue number");
     if (binding.branchName !== null && typeof binding.branchName !== "string") return invalid("invalid outage resubmission branch name");
     if (!isShaOrNull(binding.baseSha) || !isShaOrNull(binding.currentHeadSha)) return invalid("invalid outage resubmission branch sha");
-    if (binding.prNumber !== null && !Number.isSafeInteger(binding.prNumber)) return invalid("invalid outage resubmission pr number");
-    if (!isShaOrNull(binding.prHeadSha)) return invalid("invalid outage resubmission pr head");
+    const prPair = validateAtomicPrIdentity(binding.prNumber, binding.prHeadSha);
+    if (!prPair.ok) return invalid(prPair.reason);
     if (binding.runnerRunId !== null && typeof binding.runnerRunId !== "string") return invalid("invalid outage resubmission runner run id");
     if (binding.supervisorRunId !== null && typeof binding.supervisorRunId !== "string") return invalid("invalid outage resubmission supervisor run id");
+    const identity = normalizeOutageBindingAuthoritativeIdentity(state);
+    for (const field of [
+      "taskKey",
+      "issueNumber",
+      "branchName",
+      "baseSha",
+      "currentHeadSha",
+      "prNumber",
+      "prHeadSha",
+      "runnerRunId",
+      "supervisorRunId",
+    ]) {
+      if (binding[field] !== identity[field]) return invalid("outage resubmission identity mismatch");
+    }
   }
   return { ok: true };
 }
@@ -564,8 +578,7 @@ function normalizeOutageResubmissionBinding(value) {
     branchName: value.branchName ? bounded(value.branchName, 240) : null,
     baseSha: isShaOrNull(value.baseSha) ? value.baseSha : null,
     currentHeadSha: isShaOrNull(value.currentHeadSha) ? value.currentHeadSha : null,
-    prNumber: Number.isSafeInteger(value.prNumber) ? value.prNumber : null,
-    prHeadSha: isShaOrNull(value.prHeadSha) ? value.prHeadSha : null,
+    ...normalizeAtomicPrIdentity(value),
     runnerRunId: value.runnerRunId ? bounded(value.runnerRunId, 120) : null,
     supervisorRunId: value.supervisorRunId ? bounded(value.supervisorRunId, 120) : null,
     originalSupervisorSpecDigest: isDigest(value.originalSupervisorSpecDigest) ? value.originalSupervisorSpecDigest : null,
@@ -604,6 +617,30 @@ function digestStringArray(values) {
 
 function isShaOrNull(value) {
   return value === null || /^[a-f0-9]{40}$/.test(String(value || ""));
+}
+
+function normalizeAtomicPrIdentity(value = {}) {
+  const hasPrNumber = Object.hasOwn(value, "prNumber");
+  const hasPrHeadSha = Object.hasOwn(value, "prHeadSha");
+  if (!hasPrNumber && !hasPrHeadSha) return { prNumber: null, prHeadSha: null };
+  if (hasPrNumber !== hasPrHeadSha) return { prNumber: "__invalid_pr_pair__", prHeadSha: "__invalid_pr_pair__" };
+  if (value.prNumber === null && value.prHeadSha === null) return { prNumber: null, prHeadSha: null };
+  if (Number.isSafeInteger(value.prNumber) && value.prNumber >= 1 && value.prNumber <= 9999999 && isSha(value.prHeadSha)) {
+    return { prNumber: value.prNumber, prHeadSha: value.prHeadSha };
+  }
+  return { prNumber: "__invalid_pr_pair__", prHeadSha: "__invalid_pr_pair__" };
+}
+
+function validateAtomicPrIdentity(prNumber, prHeadSha) {
+  if ((prNumber === null) !== (prHeadSha === null)) return invalid("outage resubmission pr identity must be paired");
+  if (prNumber === null && prHeadSha === null) return { ok: true };
+  if (!Number.isSafeInteger(prNumber) || prNumber < 1 || prNumber > 9999999) return invalid("invalid outage resubmission pr number");
+  if (!isSha(prHeadSha)) return invalid("invalid outage resubmission pr head");
+  return { ok: true };
+}
+
+function isSha(value) {
+  return /^[a-f0-9]{40}$/.test(String(value || ""));
 }
 
 function isDigest(value) {
