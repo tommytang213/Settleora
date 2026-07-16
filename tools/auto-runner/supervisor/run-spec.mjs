@@ -173,11 +173,15 @@ export function buildRunSpec({
   if (!/^[a-f0-9]{40}$/.test(String(initialOriginMainSha || ""))) {
     throw new Error("initialOriginMainSha must be a 40-character git SHA");
   }
+  const normalizedRecoveryOnlyTarget = normalizeOptionalRecoveryOnlyTarget(recoveryOnlyTarget);
+  const normalizedOutageResubmission = normalizeOptionalOutageResubmission(outageResubmission);
+  const requestedMaxTasks = normalizeMaxTasks(maxTasks);
+  const effectiveMaxTasks = normalizedRecoveryOnlyTarget ? 1 : requestedMaxTasks;
   const spec = {
     specVersion,
     runId,
     createdAt,
-    maxTasks: normalizeMaxTasks(maxTasks),
+    maxTasks: effectiveMaxTasks,
     maxRuntime: normalizeMaxRuntime(maxRuntime),
     mode: normalizeMode(mode),
     profile: resolvedProfile.profile,
@@ -188,8 +192,8 @@ export function buildRunSpec({
     parentRunnerRunId: normalizeOptionalRunnerRunId(parentRunnerRunId),
     sourceIssueNumber: normalizeOptionalIssueNumber(sourceIssueNumber),
     sourceBranchName: normalizeOptionalBranchName(sourceBranchName),
-    outageResubmission: normalizeOptionalOutageResubmission(outageResubmission),
-    recoveryOnlyTarget: normalizeOptionalRecoveryOnlyTarget(recoveryOnlyTarget),
+    outageResubmission: normalizedOutageResubmission,
+    recoveryOnlyTarget: normalizedRecoveryOnlyTarget,
   };
   validateRunSpecShape(spec);
   return { spec, config };
@@ -422,6 +426,9 @@ function validateRecoveryOnlyContract(spec) {
   const outage = spec.outageResubmission;
   if (target.prNumber === null || target.prHeadSha === null || outage.prNumber === null || outage.prHeadSha === null) {
     throw new Error("recovery-only target requires PR number/head SHA");
+  }
+  if (spec.maxTasks !== 1) {
+    throw new Error("recovery-only run specs must store maxTasks 1");
   }
   const duplicateChecks = [
     ["parentSupervisorRunId", spec.parentSupervisorRunId, target.supervisorRunId],

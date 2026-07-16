@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loadConfig, parseCliArgs, validateRecoveryOnlyExistingPrTarget } from "../lib/config.mjs";
+import { loadConfig, parseCliArgs, validateRecoveryOnlyExistingPrTarget, validateRecoveryOnlyExactHeadEvidence } from "../lib/config.mjs";
 
 function withProfile(profile, fn) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-config-foundation-"));
@@ -172,3 +173,77 @@ test("recovery-only existing PR config must match authoritative target pair", ()
   assert.equal(validateRecoveryOnlyExistingPrTarget({ outageRecoveryOnly: true, outageRecoveryTarget: { ...target, prNumber: null, prHeadSha: null } }, { prNumber: 919, expectedHeadSha: "b".repeat(40) }).reason, "outage_recovery_existing_pr_target_missing");
   assert.deepEqual(validateRecoveryOnlyExistingPrTarget({ outageRecoveryOnly: false }, { prUrl: "https://example.invalid/pull/919" }), { ok: true });
 });
+
+test("recovery-only exact-head evidence must be complete and bound before generation", () => {
+  const target = {
+    taskKey: "20260716-2158",
+    issueNumber: 913,
+    branchName: "feature/auto-913-targeted-recovery-child-supervisor-20260716-1213",
+    baseSha: "a".repeat(40),
+    currentHeadSha: "b".repeat(40),
+    prNumber: 919,
+    prHeadSha: "b".repeat(40),
+    runnerRunId: "run-2026-07-16T120000Z",
+    supervisorRunId: "supervised-20260716T120000Z-abcdefabcdef",
+    originalSupervisorSpecDigest: "c".repeat(64),
+    markerKey: "d".repeat(64),
+    outageFingerprint: "e".repeat(64),
+    attemptNumber: 1,
+  };
+  const changedFiles = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  const digest = sha256Strings(changedFiles);
+  const exactHeadEvidence = {
+    headSha: target.prHeadSha,
+    prNumber: target.prNumber,
+    taskKey: target.taskKey,
+    runnerRunId: target.runnerRunId,
+    supervisorRunId: target.supervisorRunId,
+    validationPassed: true,
+    validationResults: [{ command: "node --test tools/auto-runner/test/auto-runner.test.mjs", status: 0 }],
+    validationCompletedAt: "2026-07-16T12:00:00.000Z",
+    changedFilesDigest: digest,
+    geminiPass: true,
+    geminiHeadSha: target.prHeadSha,
+    geminiChangedFiles: changedFiles,
+    geminiChangedFilesDigest: digest,
+    geminiProvider: "gemini",
+    geminiTier: "cheap_independent",
+    geminiCompletedAt: "2026-07-16T12:01:00.000Z",
+    codexMechanicsApproved: true,
+    codexMechanicsHeadSha: target.prHeadSha,
+    codexMechanicsChangedFiles: changedFiles,
+    codexMechanicsChangedFilesDigest: digest,
+    codexMechanicsCompletedAt: "2026-07-16T12:02:00.000Z",
+  };
+  const config = { outageRecoveryOnly: true, outageRecoveryTarget: target };
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence(config, { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence }, { expectedHeadSha: target.prHeadSha, changedFiles }),
+    { ok: true },
+  );
+  for (const [name, evidence] of [
+    ["omitted", undefined],
+    ["explicit null", null],
+    ["malformed", "not-object"],
+    ["missing validation", { ...exactHeadEvidence, validationPassed: false }],
+    ["missing gemini files", { ...exactHeadEvidence, geminiChangedFiles: undefined }],
+    ["missing codex approval", { ...exactHeadEvidence, codexMechanicsApproved: false }],
+    ["wrong head", { ...exactHeadEvidence, headSha: "f".repeat(40) }],
+    ["wrong PR", { ...exactHeadEvidence, prNumber: 920 }],
+    ["wrong task", { ...exactHeadEvidence, taskKey: "other-task" }],
+    ["stale digest", { ...exactHeadEvidence, changedFilesDigest: "f".repeat(64) }],
+    ["foreign run", { ...exactHeadEvidence, runnerRunId: "run-2026-07-16T130000Z" }],
+  ]) {
+    const result = validateRecoveryOnlyExactHeadEvidence(
+      config,
+      { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence: evidence },
+      { expectedHeadSha: target.prHeadSha, changedFiles },
+    );
+    assert.equal(result.ok, false, name);
+    assert.match(result.reason, /^outage_recovery_exact_head_evidence_/);
+  }
+  assert.deepEqual(validateRecoveryOnlyExactHeadEvidence({ outageRecoveryOnly: false }, { exactHeadEvidence: null }), { ok: true });
+});
+
+function sha256Strings(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+}

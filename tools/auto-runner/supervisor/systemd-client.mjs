@@ -42,7 +42,7 @@ export function runnerArgvForSpec(spec) {
     "--config",
     configPath,
     "--max-iterations",
-    spec.recoveryOnlyTarget ? "1" : String(spec.maxTasks),
+    String(spec.maxTasks),
     "--max-runtime",
     spec.maxRuntime,
   ];

@@ -94,6 +94,9 @@ test("run-spec canonical serialization, exclusive create, digest, tamper, symlin
 
 test("run-spec validates complete outage resubmission source identity", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-supervisor-outage-"));
+  const configPath = resolveProfile("default", tempRoot).runnerConfigPath;
+  mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 });
+  writeFileSync(configPath, '{"trustedRealRunCanaryApproved":false}\n', { mode: 0o600 });
   const outageResubmission = {
     attemptNumber: 1,
     markerKey: "a".repeat(64),
@@ -129,6 +132,7 @@ test("run-spec validates complete outage resubmission source identity", () => {
       parentRunnerRunId: recoveryOnlyTarget.runnerRunId,
       sourceIssueNumber: recoveryOnlyTarget.issueNumber,
       sourceBranchName: recoveryOnlyTarget.branchName,
+      maxTasks: 8,
       outageResubmission,
       recoveryOnlyTarget,
       allowMissingConfig: true,
@@ -140,6 +144,11 @@ test("run-spec validates complete outage resubmission source identity", () => {
     assert.equal(spec.outageResubmission.prHeadSha, "d".repeat(40));
     assert.equal(spec.recoveryOnlyTarget.issueNumber, 913);
     assert.equal(spec.recoveryOnlyTarget.runnerRunId, "run-2026-07-15T030800Z");
+    assert.equal(spec.maxTasks, 1);
+    assert.throws(() => validateRunSpecShape({ ...spec, maxTasks: 2 }), /recovery-only run specs must store maxTasks 1/);
+    const written = writeImmutableRunSpec(spec, tempRoot);
+    writeFileSync(written.specPath, canonicalJson({ ...spec, maxTasks: 2 }), { mode: 0o600 });
+    assert.throws(() => readAndVerifyRunSpec(spec.runId, null, tempRoot), /recovery-only run specs must store maxTasks 1/);
     assert.throws(() => buildRunSpec({ profile: "default", initialOriginMainSha: fakeSha, outageResubmission, allowMissingConfig: true, logsRoot: tempRoot }), /paired recoveryOnlyTarget/);
     assert.throws(() => validateRunSpecShape({
       ...spec,
@@ -205,6 +214,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
   const argv = runnerArgvForSpec(spec);
+  assert.equal(argv[argv.indexOf("--max-iterations") + 1], "8");
   assert.equal(argv.includes("client-ui-low-risk"), false);
   assert.equal(argv.includes("auto-canary-ready"), false);
   assert.equal(argv.includes("--allow-auto-merge"), false);
@@ -237,7 +247,7 @@ test("outage recovery-only run-spec maps to fixed target argv", () => {
     specVersion: 1,
     runId,
     createdAt: new Date().toISOString(),
-    maxTasks: 8,
+    maxTasks: 1,
     maxRuntime: "8h",
     mode: "trusted",
     profile: "default",
@@ -261,6 +271,7 @@ test("outage recovery-only run-spec maps to fixed target argv", () => {
     recoveryOnlyTarget,
   };
   validateRunSpecShape(spec);
+  assert.throws(() => validateRunSpecShape({ ...spec, maxTasks: 8 }), /recovery-only run specs must store maxTasks 1/);
   const argv = runnerArgvForSpec(spec);
   assert.equal(argv.includes("--outage-recovery-only"), true);
   assert.equal(argv[argv.indexOf("--max-iterations") + 1], "1");

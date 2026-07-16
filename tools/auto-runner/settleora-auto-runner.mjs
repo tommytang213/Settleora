@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { parseCliArgs, loadConfig, defaultLogsRoot, validateRecoveryOnlyExistingPrTarget } from "./lib/config.mjs";
+import { parseCliArgs, loadConfig, defaultLogsRoot, validateRecoveryOnlyExistingPrTarget, validateRecoveryOnlyExactHeadEvidence } from "./lib/config.mjs";
 import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
@@ -1189,6 +1189,21 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     body: recoveryConfig.prBody ?? githubState.pr?.body,
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
+  const exactEvidenceCheck = validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, { expectedHeadSha, changedFiles });
+  if (!exactEvidenceCheck.ok) {
+    return {
+      reason: exactEvidenceCheck.reason,
+      pr: prMetadata,
+      changedFiles,
+      validation: { passed: false, recovered: true, reason: exactEvidenceCheck.reason },
+      review: null,
+      externalReview: { status: "blocked", reason: exactEvidenceCheck.reason },
+      generatedRecoveryEvidence: null,
+      baseOriginMainSha,
+      expectedHeadSha,
+      autoMerge: { result: "blocked", reason: exactEvidenceCheck.reason, recovery: true },
+    };
+  }
   let generatedRecoveryEvidence = null;
   if (shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)) {
     generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {

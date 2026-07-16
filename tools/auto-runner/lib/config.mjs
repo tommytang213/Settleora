@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
@@ -508,6 +509,84 @@ export function validateRecoveryOnlyExistingPrTarget(config = {}, recoveryConfig
     return { ok: false, reason: "outage_recovery_existing_pr_target_mismatch" };
   }
   return { ok: true };
+}
+
+export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfig = {}, { expectedHeadSha = null, changedFiles = null } = {}) {
+  if (!config.outageRecoveryOnly) return { ok: true };
+  const target = config.outageRecoveryTarget || null;
+  const evidence = recoveryConfig?.exactHeadEvidence;
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
+  }
+  const headSha = expectedHeadSha || recoveryConfig.expectedHeadSha || evidence.headSha || null;
+  if (!target?.prNumber || !target?.prHeadSha || headSha !== target.prHeadSha || evidence.headSha !== target.prHeadSha) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  const changedFilesDigest = Array.isArray(changedFiles) ? sha256Strings(changedFiles) : null;
+  const requiredChecks = [
+    evidence.validationPassed === true,
+    Array.isArray(evidence.validationResults),
+    isNonEmptyString(evidence.validationCompletedAt || evidence.completedAt),
+    evidence.geminiPass === true,
+    evidence.geminiHeadSha === target.prHeadSha,
+    Array.isArray(evidence.geminiChangedFiles),
+    isNonEmptyString(evidence.geminiChangedFilesDigest || evidence.changedFilesDigest),
+    isNonEmptyString(evidence.geminiProvider),
+    isNonEmptyString(evidence.geminiTier),
+    isNonEmptyString(evidence.geminiCompletedAt || evidence.completedAt),
+    evidence.codexMechanicsApproved === true,
+    evidence.codexMechanicsHeadSha === target.prHeadSha,
+    Array.isArray(evidence.codexMechanicsChangedFiles),
+    isNonEmptyString(evidence.codexMechanicsChangedFilesDigest || evidence.changedFilesDigest),
+    isNonEmptyString(evidence.codexMechanicsCompletedAt || evidence.completedAt),
+  ];
+  if (requiredChecks.some((ok) => !ok)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
+  }
+  if (!sameStringSet(evidence.geminiChangedFiles, changedFiles || evidence.codexMechanicsChangedFiles)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  if (!sameStringSet(evidence.codexMechanicsChangedFiles, changedFiles || evidence.geminiChangedFiles)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  if (changedFilesDigest) {
+    for (const digest of [
+      evidence.changedFilesDigest,
+      evidence.geminiChangedFilesDigest,
+      evidence.codexMechanicsChangedFilesDigest,
+    ].filter(Boolean)) {
+      if (digest !== changedFilesDigest) return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+    }
+  }
+  if (evidence.prNumber !== undefined && evidence.prNumber !== target.prNumber) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  if (evidence.taskKey !== undefined && evidence.taskKey !== target.taskKey) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  if (evidence.runnerRunId !== undefined && evidence.runnerRunId !== target.runnerRunId) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  if (evidence.supervisorRunId !== undefined && evidence.supervisorRunId !== target.supervisorRunId) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  return { ok: true };
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function sameStringSet(left = [], right = []) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  const normalize = (values) => values.map((value) => String(value || "").trim()).filter(Boolean).sort();
+  const a = normalize(left);
+  const b = normalize(right);
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function sha256Strings(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
 }
 
 export function normalizeAutoMergePolicy(policy = {}) {
