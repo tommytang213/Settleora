@@ -476,7 +476,7 @@ test("terminal outage children classify before incomplete source recovery", () =
       source: source(),
       recoveryState,
       outageState: uncertain,
-      existingChildren: [exactChild(uncertain, { runId: uncertain.childSupervisorRunId, state: "completed", terminalOutcome: "completed" })],
+      existingChildren: [exactMergedChild(config, uncertain, { runId: uncertain.childSupervisorRunId })],
       dryRun: true,
       now,
     });
@@ -497,7 +497,7 @@ test("terminal outage children classify before incomplete source recovery", () =
       source: source(),
       recoveryState,
       outageState: confirmed,
-      existingChildren: [exactChild(confirmed, { runId: confirmed.childSupervisorRunId, state: "completed", terminalOutcome: "completed" })],
+      existingChildren: [exactMergedChild(config, confirmed, { runId: confirmed.childSupervisorRunId })],
       dryRun: true,
       now,
     });
@@ -962,7 +962,7 @@ test("canonical persisted outage state loads by source correlation before planni
       config,
       source: source(),
       outageStateKey: submitted.correlation,
-      existingChildren: [exactChild(submitted, { runId: submitted.childSupervisorRunId, state: "completed", terminalOutcome: "completed" })],
+      existingChildren: [exactMergedChild(config, submitted, { runId: submitted.childSupervisorRunId })],
       dryRun: true,
       now,
     });
@@ -1109,7 +1109,10 @@ test("planned markers terminalize exact terminal children without confirmed_runn
 
     for (const [label, childStatus, outcome, reasonCode] of terminalCases) {
       const planned = fixtureOutageState();
-      const child = exactChild(planned, { runId: "supervised-20260715T010000Z-000000000341", ...childStatus });
+      let child = exactChild(planned, { runId: "supervised-20260715T010000Z-000000000341", ...childStatus });
+      if (label === "completed") {
+        child = exactMergedChild(config, planned, { runId: "supervised-20260715T010000Z-000000000341" });
+      }
       let result = runOutageResubmissionController({
         config,
         source: source(),
@@ -1148,6 +1151,162 @@ test("planned markers terminalize exact terminal children without confirmed_runn
       assert.equal(repeated.events.some((item) => item.event === "planned_child_reconciled"), false, label);
       assert.equal(repeated.counts.realMutationCalls, 0, label);
     }
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("completed terminal child requires exact trusted merge proof", () => {
+  const cases = [
+    ["no summary", null],
+    ["wrong child run", { summaryOverrides: { supervisorRunId: "supervised-20260715T010000Z-000000000999" } }],
+    ["wrong supervisor run", { childOverrides: { runnerRunId: "run-2026-07-15T010100Z" }, summaryOverrides: { supervisorRunId: "supervised-20260715T010000Z-000000000998" } }],
+    ["no matching source iteration", { iterations: [mergedSummaryIteration(source({ issueNumber: 914 }))] }],
+    ["multiple matching iterations", { iterations: [mergedSummaryIteration(), mergedSummaryIteration(source(), { index: 2 })] }],
+    ["wrong issue", { iterations: [mergedSummaryIteration(source({ issueNumber: 914 }))] }],
+    ["wrong pr", { iterations: [mergedSummaryIteration(source({ prNumber: 918 }))] }],
+    ["wrong branch", { iterationOverrides: { branchName: "feature/auto-913-other-branch" } }],
+    ["wrong pr head", { iterationOverrides: { runnerCreatedCommitSha: shaA, pr: { number: 917, headRefName: source().branchName, headRefOid: shaA } } }],
+    ["auto merge not attempted", { iterationOverrides: { autoMerge: { attempted: false, result: "merged", prNumber: 917, prHeadSha: shaB, mergeSha: "c".repeat(40) } } }],
+    ["merge failed", { iterationOverrides: { outcome: "auto_failed", autoMerge: { attempted: true, result: "merge_failed", reason: "merge_failed", prNumber: 917, prHeadSha: shaB, mergeSha: null } } }],
+    ["canonical non-merged result", { iterationOverrides: { outcome: "recovery_existing_pr_continued", autoMerge: { attempted: true, result: "blocked", reason: "manual_gate", prNumber: 917, prHeadSha: shaB, mergeSha: null } } }],
+    ["max iterations without merge", { stopReason: "max-iterations-reached", iterationOverrides: { outcome: "recovery_existing_pr_continued", autoMerge: { attempted: true, result: "merge_failed", reason: "merge_failed", prNumber: 917, prHeadSha: shaB, mergeSha: null } } }],
+    ["claimed merge without sha", { iterationOverrides: { autoMerge: { attempted: true, result: "merged", prNumber: 917, prHeadSha: shaB, mergeSha: null } } }],
+    ["invalid merge sha", { iterationOverrides: { autoMerge: { attempted: true, result: "merged", prNumber: 917, prHeadSha: shaB, mergeSha: "not-a-sha" } } }],
+    ["merge sha with non-merged result", { iterationOverrides: { outcome: "auto_failed", autoMerge: { attempted: true, result: "merge_failed", reason: "merge_failed", prNumber: 917, prHeadSha: shaB, mergeSha: "c".repeat(40) } } }],
+    ["contradictory merged reason", { iterationOverrides: { autoMerge: { attempted: true, result: "merged", reason: "manual_gate_blocked", prNumber: 917, prHeadSha: shaB, mergeSha: "c".repeat(40) } } }],
+  ];
+
+  for (const [label, proofOptions] of cases) {
+    const config = tempConfig();
+    try {
+      const planned = fixtureOutageState();
+      const child = exactChild(planned, {
+        runId: "supervised-20260715T010000Z-000000000351",
+        state: "completed",
+        terminalOutcome: "completed",
+        runnerRunId: "run-2026-07-15T010000Z",
+      });
+      if (proofOptions) {
+        writeTrustedChildSummary(config, child, proofOptions);
+      }
+      if (label === "wrong child run" || label === "wrong supervisor run") {
+        const summaryPath = path.join(config.logsRoot, "summaries", `${child.runnerRunId}.json`);
+        const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
+        writeFileSync(summaryPath, `${JSON.stringify({ ...summary, supervisorRunId: proofOptions.summaryOverrides.supervisorRunId }, null, 2)}\n`, { mode: 0o600 });
+      }
+
+      const result = runOutageResubmissionController({
+        config,
+        source: source(),
+        outageState: planned,
+        recoveryState: incompleteRecoveryState(),
+        existingChildren: [child],
+        dryRun: false,
+        now,
+        startUserUnit: () => {
+          throw new Error("must_not_start");
+        },
+      });
+      assert.equal(result.outcome, "blocked", label);
+      assert.equal(result.reasonCode, "child_completed_without_exact_recovery_proof", label);
+      assert.equal(result.outageState.mutationMarker.status, "blocked", label);
+      assert.equal(result.events.some((item) => item.event === "planned_terminal_child_classified"), true, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.events.some((item) => item.reasonCode === "confirmed_child_recovered"), false, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
+      assert.equal(JSON.stringify(result).includes("not-a-sha"), false, label);
+    } finally {
+      config.cleanup();
+    }
+  }
+});
+
+test("malformed and ambiguous trusted child summaries fail closed without raw reflection", () => {
+  const config = tempConfig();
+  try {
+    const planned = fixtureOutageState();
+    const child = exactChild(planned, {
+      runId: "supervised-20260715T010000Z-000000000352",
+      state: "completed",
+      terminalOutcome: "completed",
+      runnerRunId: "run-2026-07-15T010000Z",
+    });
+    const summariesRoot = path.join(config.logsRoot, "summaries");
+    mkdirSync(summariesRoot, { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(summariesRoot, `${child.runnerRunId}.json`), `{ "${child.runId}": `, { mode: 0o600 });
+    writeFileSync(path.join(summariesRoot, `${child.runnerRunId}.md`), "# summary\n", { mode: 0o600 });
+
+    let result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: planned,
+      recoveryState: incompleteRecoveryState(),
+      existingChildren: [child],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "child_completed_without_exact_recovery_proof");
+    assert.equal(JSON.stringify(result).includes(child.runId), true);
+    assert.equal(JSON.stringify(result).includes("{ \""), false);
+
+    const otherRunner = "run-2026-07-15T010100Z";
+    writeTrustedChildSummary(config, { ...child, runnerRunId: otherRunner }, { runnerRunId: otherRunner });
+    writeTrustedChildSummary(config, child);
+    result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: planned,
+      recoveryState: incompleteRecoveryState(),
+      existingChildren: [child],
+      dryRun: true,
+      now,
+    });
+    assert.equal(result.outcome, "blocked");
+    assert.equal(result.reasonCode, "child_completed_without_exact_recovery_proof");
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("exact child merge proof recovers from disk and is idempotent", () => {
+  const config = tempConfig();
+  try {
+    const planned = fixtureOutageState();
+    writeOutageResubmissionState(config, planned);
+    const child = exactMergedChild(config, planned, { runId: planned.childSupervisorRunId || "supervised-20260715T010000Z-000000000353" }, { runnerRunId: "run-2026-07-15T010200Z" });
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageStateKey: planned.correlation,
+      recoveryState: incompleteRecoveryState(),
+      existingChildren: [child],
+      dryRun: false,
+      now,
+    });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.reasonCode, "confirmed_child_recovered");
+    assert.equal(result.childRecoveryProof.mergeSha, "c".repeat(40));
+    const loaded = loadOutageResubmissionState(config, planned.correlation);
+    assert.equal(loaded.ok, true);
+    assert.equal(loaded.state.status, "recovered");
+
+    const repeated = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: loaded.state,
+      recoveryState: incompleteRecoveryState(),
+      existingChildren: [child],
+      dryRun: false,
+      now,
+    });
+    assert.equal(repeated.outcome, "noop");
+    assert.equal(repeated.reasonCode, "terminal_outage_marker_preserved");
+    assert.equal(repeated.events.some((item) => item.reasonCode === "confirmed_child_recovered"), false);
   } finally {
     config.cleanup();
   }
@@ -1236,7 +1395,7 @@ test("submitted and confirmed markers reconcile exact children without duplicate
     assert.equal(result.outcome, "observed");
     assert.equal(result.reasonCode, "confirmed_running_child_observed");
 
-    const terminalChild = exactChild(confirmed, { runId: confirmed.childSupervisorRunId, state: "completed", terminalOutcome: "completed" });
+    const terminalChild = exactMergedChild(config, confirmed, { runId: confirmed.childSupervisorRunId });
     result = runOutageResubmissionController({ config, source: source(), outageState: confirmed, existingChildren: [terminalChild], dryRun: true, now });
     assert.equal(result.outcome, "recovered");
     assert.equal(result.reasonCode, "confirmed_child_recovered");
@@ -3050,6 +3209,69 @@ function exactChild(state = fixtureOutageState(), overrides = {}) {
       outageFingerprint: state.outage.outageFingerprint,
       originalSupervisorSpecDigest: source().originalSupervisorSpecDigest,
       childSpecDigest: state.mutationMarker.specDigest || digestB,
+    },
+    ...overrides,
+  };
+}
+
+function exactMergedChild(config, state = fixtureOutageState(), overrides = {}, summaryOptions = {}) {
+  const child = exactChild(state, {
+    state: "completed",
+    terminalOutcome: "completed",
+    runnerRunId: summaryOptions.runnerRunId || `run-2026-07-15T01${String(summaryOptions.minute || 0).padStart(2, "0")}00Z`,
+    ...overrides,
+  });
+  writeTrustedChildSummary(config, child, summaryOptions);
+  return child;
+}
+
+function writeTrustedChildSummary(config, child, options = {}) {
+  const sourceInput = options.sourceInput || source();
+  const runnerRunId = options.runnerRunId || child.runnerRunId;
+  const summary = {
+    runId: runnerRunId,
+    supervisorRunId: child.runId,
+    mode: "run",
+    startedAt: options.startedAt || "2026-07-15T01:00:00.000Z",
+    finishedAt: options.finishedAt || "2026-07-15T01:05:00.000Z",
+    baseOriginMainSha: options.baseOriginMainSha || sourceInput.baseSha,
+    stopReason: Object.hasOwn(options, "stopReason") ? options.stopReason : "max-iterations-reached",
+    iterations: options.iterations || [mergedSummaryIteration(sourceInput, options.iterationOverrides || {})],
+    ...(options.summaryOverrides || {}),
+  };
+  const summariesRoot = path.join(config.logsRoot, "summaries");
+  mkdirSync(summariesRoot, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(summariesRoot, `${runnerRunId}.json`), `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(path.join(summariesRoot, `${runnerRunId}.md`), "# summary\n", { mode: 0o600 });
+  return summary;
+}
+
+function mergedSummaryIteration(sourceInput = source(), overrides = {}) {
+  return {
+    runId: overrides.runId || "run-2026-07-15T010000Z",
+    index: overrides.index || 1,
+    startedAt: overrides.startedAt || "2026-07-15T01:00:00.000Z",
+    finishedAt: overrides.finishedAt || "2026-07-15T01:04:00.000Z",
+    issue: { number: sourceInput.issueNumber, title: "Outage" },
+    branchName: sourceInput.branchName,
+    baseOriginMainSha: sourceInput.baseSha,
+    runnerCreatedCommitSha: sourceInput.currentHeadSha,
+    pr: {
+      number: sourceInput.prNumber,
+      headRefName: sourceInput.branchName,
+      headRefOid: sourceInput.currentHeadSha,
+      baseRefName: "main",
+      state: "MERGED",
+    },
+    outcome: "auto_merged",
+    autoMerge: {
+      attempted: true,
+      eligible: true,
+      result: "merged",
+      reason: "merged",
+      prNumber: sourceInput.prNumber,
+      prHeadSha: sourceInput.prHeadSha,
+      mergeSha: "c".repeat(40),
     },
     ...overrides,
   };

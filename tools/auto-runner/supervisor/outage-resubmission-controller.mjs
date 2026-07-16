@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   applyOutageOperatorGate,
   classifyOutageFailure,
@@ -24,6 +25,7 @@ import {
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
 import { buildRunSpec, generateRunId, sha256Text, canonicalJson, writeImmutableRunSpec } from "./run-spec.mjs";
+import { resolveRunnerSummaryForSupervisor, resolverStatuses } from "./runner-summary-resolver.mjs";
 import { writeSupervisorState } from "./supervisor-state.mjs";
 import { startUserUnit } from "./systemd-client.mjs";
 
@@ -196,11 +198,11 @@ export function runOutageResubmissionController(input = {}) {
   }
   if (existingOutageState?.mutationMarker?.status === "submission_uncertain") {
     if (existingChild) {
-      const terminal = terminalChildResult(existingOutageState, existingChild);
+      const terminal = terminalChildResult(existingOutageState, existingChild, { config, source });
       if (terminal) {
         if (!dryRun) writeOutageResubmissionState(config, terminal.outageState);
         event("uncertain_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminal.terminalStatus });
-        return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId });
+        return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId, childRecoveryProof: terminal.childRecoveryProof });
       }
       const confirmed = transitionOutageMarker(existingOutageState, {
         status: "confirmed_running",
@@ -219,11 +221,11 @@ export function runOutageResubmissionController(input = {}) {
       event("submitted_child_missing_requires_reconciliation", { childSupervisorRunId: existingOutageState.childSupervisorRunId || null });
       return result("blocked", "submitted_child_missing_requires_reconciliation", { events, counts, outageState: existingOutageState });
     }
-    const terminal = terminalChildResult(existingOutageState, existingChild);
+    const terminal = terminalChildResult(existingOutageState, existingChild, { config, source });
     if (terminal) {
       if (!dryRun) writeOutageResubmissionState(config, terminal.outageState);
       event("submitted_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminal.terminalStatus });
-      return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId });
+      return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId, childRecoveryProof: terminal.childRecoveryProof });
     }
     const confirmed = transitionOutageMarker(existingOutageState, {
       status: "confirmed_running",
@@ -240,22 +242,22 @@ export function runOutageResubmissionController(input = {}) {
       event("confirmed_child_missing_requires_reconciliation", { childSupervisorRunId: existingOutageState.childSupervisorRunId || null });
       return result("blocked", "confirmed_child_missing_requires_reconciliation", { events, counts, outageState: existingOutageState });
     }
-    const terminal = terminalChildResult(existingOutageState, existingChild);
+    const terminal = terminalChildResult(existingOutageState, existingChild, { config, source });
     if (terminal) {
       if (!dryRun) writeOutageResubmissionState(config, terminal.outageState);
       event("confirmed_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminal.terminalStatus });
-      return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId });
+      return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId, childRecoveryProof: terminal.childRecoveryProof });
     }
     event("confirmed_running_child_observed", { childSupervisorRunId: existingChild.runId });
     return result("observed", "confirmed_running_child_observed", { events, counts, outageState: existingOutageState, childRunId: existingChild.runId });
   }
   if (existingChild) {
     if (existingOutageState?.mutationMarker?.status === "planned") {
-      const terminal = terminalChildResult(existingOutageState, existingChild);
+      const terminal = terminalChildResult(existingOutageState, existingChild, { config, source });
       if (terminal) {
         if (!dryRun) writeOutageResubmissionState(config, terminal.outageState);
         event("planned_terminal_child_classified", { childSupervisorRunId: existingChild.runId, status: terminal.terminalStatus });
-        return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId });
+        return result(terminal.terminalStatus, terminal.reasonCode, { events, counts, outageState: terminal.outageState, childRunId: existingChild.runId, childRecoveryProof: terminal.childRecoveryProof });
       }
       const reconciled = transitionOutageMarker(existingOutageState, {
         status: "confirmed_running",
@@ -1027,13 +1029,17 @@ function isTerminalOutageStatus(status) {
   return ["recovered", "exhausted", "blocked"].includes(status);
 }
 
-function terminalChildResult(outageState, child) {
+function terminalChildResult(outageState, child, context = {}) {
   if (!isTerminalChild(child)) return null;
-  const terminalStatus = child.terminalOutcome === "completed" || child.state === "completed" ? "recovered" : "blocked";
-  const reasonCode = terminalStatus === "recovered" ? "confirmed_child_recovered" : "confirmed_child_terminal_blocked";
+  const proof = classifyExactChildRecoveryProof({ outageState, child, config: context.config, source: context.source });
+  const terminalStatus = proof.recovered ? "recovered" : "blocked";
+  const reasonCode = proof.recovered
+    ? "confirmed_child_recovered"
+    : proof.reasonCode || "confirmed_child_terminal_blocked";
   return {
     terminalStatus,
     reasonCode,
+    childRecoveryProof: proof,
     outageState: transitionOutageMarker(outageState, {
       status: terminalStatus,
       childSupervisorRunId: child.runId,
@@ -1041,6 +1047,100 @@ function terminalChildResult(outageState, child) {
       reasonCode,
     }),
   };
+}
+
+function classifyExactChildRecoveryProof({ outageState, child, config = {}, source = {} }) {
+  if (child?.terminalOutcome !== "completed" && child?.state !== "completed") {
+    return { recovered: false, reasonCode: "confirmed_child_terminal_blocked" };
+  }
+  if (!config?.logsRoot) return { recovered: false, reasonCode: "child_completed_without_exact_recovery_proof", detail: "logs_root_missing" };
+  const resolution = resolveRunnerSummaryForSupervisor({
+    logsRoot: config.logsRoot,
+    supervisorRunId: child.runId,
+    initialOriginMainSha: firstDefined(child.initialOriginMainSha, child.baseSha, source.baseSha),
+    mode: firstDefined(child.mode, source.mode, "trusted"),
+  });
+  if (resolution.status !== resolverStatuses.matched || !resolution.runnerSummaryJsonPath) {
+    return { recovered: false, reasonCode: "child_completed_without_exact_recovery_proof", detail: "trusted_summary_not_matched", resolutionStatus: resolution.status || "unknown" };
+  }
+  let summary;
+  try {
+    summary = JSON.parse(readFileSync(resolution.runnerSummaryJsonPath, "utf8"));
+  } catch {
+    return { recovered: false, reasonCode: "child_completed_without_exact_recovery_proof", detail: "trusted_summary_unreadable" };
+  }
+  const base = validateTrustedChildSummary(summary, { child, source, resolution });
+  if (!base.ok) return { recovered: false, reasonCode: "child_completed_without_exact_recovery_proof", detail: base.reason };
+  const matches = (Array.isArray(summary.iterations) ? summary.iterations : [])
+    .map((iteration, index) => ({ iteration, index }))
+    .filter(({ iteration }) => iterationMatchesSource(iteration, source));
+  if (matches.length !== 1) {
+    return {
+      recovered: false,
+      reasonCode: "child_completed_without_exact_recovery_proof",
+      detail: matches.length === 0 ? "source_iteration_missing" : "source_iteration_ambiguous",
+    };
+  }
+  const proof = validateMergedIteration(matches[0].iteration, source);
+  if (!proof.ok) return { recovered: false, reasonCode: "child_completed_without_exact_recovery_proof", detail: proof.reason };
+  return {
+    recovered: true,
+    reasonCode: "confirmed_child_recovered",
+    runnerRunId: summary.runId,
+    mergeSha: proof.mergeSha,
+    iterationIndex: matches[0].index,
+  };
+}
+
+function validateTrustedChildSummary(summary, { child, source, resolution }) {
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) return { ok: false, reason: "summary_not_object" };
+  if (summary.runId !== resolution.runnerRunId) return { ok: false, reason: "summary_runner_run_id_mismatch" };
+  if (child.runnerRunId && summary.runId !== child.runnerRunId) return { ok: false, reason: "child_runner_run_id_mismatch" };
+  if (summary.supervisorRunId !== child.runId) return { ok: false, reason: "summary_supervisor_run_id_mismatch" };
+  if (summary.baseOriginMainSha !== source.baseSha) return { ok: false, reason: "summary_base_mismatch" };
+  if (!isIsoTimestamp(summary.startedAt) || !isIsoTimestamp(summary.finishedAt)) return { ok: false, reason: "summary_terminal_timestamps_invalid" };
+  if (!Array.isArray(summary.iterations) || summary.iterations.length === 0) return { ok: false, reason: "summary_iterations_missing" };
+  if (["no-eligible-work", "max-iterations-reached", "max-runtime-reached"].includes(summary.stopReason)) {
+    const hasMergedIteration = summary.iterations.some((iteration) => iterationMatchesSource(iteration, source) && iteration?.outcome === "auto_merged");
+    if (!hasMergedIteration) return { ok: false, reason: "summary_stop_reason_not_recovery_proof" };
+  }
+  return { ok: true };
+}
+
+function iterationMatchesSource(iteration = {}, source = {}) {
+  if (!iteration || typeof iteration !== "object") return false;
+  if (iteration.issue?.number !== source.issueNumber) return false;
+  const pr = iteration.pr || {};
+  const autoMerge = iteration.autoMerge || {};
+  if (source.prNumber !== null && source.prNumber !== undefined) {
+    const prNumber = firstDefined(pr.number, autoMerge.prNumber);
+    if (prNumber !== source.prNumber) return false;
+  }
+  const branchName = firstDefined(iteration.branchName, pr.headRefName, autoMerge.headRefName, autoMerge.branchName, iteration.recovery?.state?.branchName);
+  if (branchName && branchName !== source.branchName) return false;
+  const baseSha = firstDefined(iteration.baseOriginMainSha, autoMerge.baseSha, autoMerge.baseOriginMainSha);
+  if (baseSha && baseSha !== source.baseSha) return false;
+  const headSha = firstDefined(iteration.runnerCreatedCommitSha, iteration.expectedHeadSha, pr.headRefOid, pr.headSha, autoMerge.prHeadSha, autoMerge.headSha);
+  if (headSha && headSha !== source.currentHeadSha) return false;
+  if (source.prHeadSha !== null && source.prHeadSha !== undefined) {
+    const prHeadSha = firstDefined(autoMerge.prHeadSha, pr.headRefOid, pr.headSha, iteration.runnerCreatedCommitSha);
+    if (prHeadSha !== source.prHeadSha) return false;
+  }
+  return true;
+}
+
+function validateMergedIteration(iteration = {}, source = {}) {
+  if (iteration.outcome !== "auto_merged") return { ok: false, reason: "iteration_outcome_not_auto_merged" };
+  const autoMerge = iteration.autoMerge || {};
+  if (autoMerge.attempted !== true) return { ok: false, reason: "auto_merge_not_attempted" };
+  if (autoMerge.result !== "merged") return { ok: false, reason: "auto_merge_result_not_merged" };
+  if (autoMerge.reason && /blocked|failed|manual|partial|not[-_]?attempted|max[-_]?iterations/i.test(autoMerge.reason)) {
+    return { ok: false, reason: "auto_merge_contradictory_reason" };
+  }
+  if (autoMerge.prNumber !== undefined && autoMerge.prNumber !== null && autoMerge.prNumber !== source.prNumber) return { ok: false, reason: "auto_merge_pr_mismatch" };
+  if (autoMerge.prHeadSha !== undefined && autoMerge.prHeadSha !== null && autoMerge.prHeadSha !== source.prHeadSha) return { ok: false, reason: "auto_merge_pr_head_mismatch" };
+  if (!isSha(autoMerge.mergeSha)) return { ok: false, reason: "auto_merge_merge_sha_invalid" };
+  return { ok: true, mergeSha: autoMerge.mergeSha };
 }
 
 function selectCurrentOutageState(states = []) {
