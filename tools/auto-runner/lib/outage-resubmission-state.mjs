@@ -305,7 +305,14 @@ export function verifyOutageCorrelation(state, expected = {}) {
   }
   const requestPrPair = validateExpectedPrIdentity(expected);
   if (!requestPrPair.ok) {
-    return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: requestPrPair.field };
+    return { ok: false, reasonCode: requestPrPair.reasonCode, field: requestPrPair.field };
+  }
+  const actualPrPairPresent = actual.prNumber !== null && actual.prHeadSha !== null;
+  if (actualPrPairPresent && !requestPrPair.supplied) {
+    return { ok: false, reasonCode: "outage_resubmission_pr_identity_required", field: "prNumber" };
+  }
+  if (!actualPrPairPresent && requestPrPair.supplied) {
+    return { ok: false, reasonCode: "outage_resubmission_pr_identity_presence_mismatch", field: "prNumber" };
   }
   for (const field of [
     "taskKey",
@@ -327,10 +334,10 @@ export function verifyOutageCorrelation(state, expected = {}) {
   }
   if (requestPrPair.supplied) {
     if (expected.prNumber !== actual.prNumber) {
-      return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "prNumber" };
+      return { ok: false, reasonCode: "outage_resubmission_pr_identity_mismatch", field: "prNumber" };
     }
     if (expected.prHeadSha !== actual.prHeadSha) {
-      return { ok: false, reasonCode: "outage_resubmission_identity_drift", field: "prHeadSha" };
+      return { ok: false, reasonCode: "outage_resubmission_pr_identity_mismatch", field: "prHeadSha" };
     }
   }
   if ("outageProviderDomain" in expected && expected.outageProviderDomain !== state?.outage?.providerDomain) {
@@ -720,12 +727,23 @@ function validateExpectedPrIdentity(expected = {}) {
   const hasPrNumber = Object.hasOwn(expected, "prNumber");
   const hasPrHeadSha = Object.hasOwn(expected, "prHeadSha");
   if (!hasPrNumber && !hasPrHeadSha) return { ok: true, supplied: false };
-  if (hasPrNumber !== hasPrHeadSha) return { ok: false, field: hasPrNumber ? "prHeadSha" : "prNumber" };
-  if (expected.prNumber === null || expected.prHeadSha === null) return { ok: false, field: expected.prNumber === null ? "prNumber" : "prHeadSha" };
-  if (!Number.isSafeInteger(expected.prNumber) || expected.prNumber < 1 || expected.prNumber > 9999999) {
-    return { ok: false, field: "prNumber" };
+  if (hasPrNumber !== hasPrHeadSha) {
+    return { ok: false, reasonCode: "outage_resubmission_pr_identity_partial", field: hasPrNumber ? "prHeadSha" : "prNumber" };
   }
-  if (!isSha(expected.prHeadSha)) return { ok: false, field: "prHeadSha" };
+  if (expected.prNumber === null && expected.prHeadSha === null) {
+    return { ok: false, reasonCode: "outage_resubmission_pr_identity_presence_mismatch", field: "prNumber" };
+  }
+  if (expected.prNumber === null || expected.prHeadSha === null) {
+    return {
+      ok: false,
+      reasonCode: "outage_resubmission_pr_identity_partial",
+      field: expected.prNumber === null ? "prNumber" : "prHeadSha",
+    };
+  }
+  if (!Number.isSafeInteger(expected.prNumber) || expected.prNumber < 1 || expected.prNumber > 9999999) {
+    return { ok: false, reasonCode: "outage_resubmission_pr_identity_mismatch", field: "prNumber" };
+  }
+  if (!isSha(expected.prHeadSha)) return { ok: false, reasonCode: "outage_resubmission_pr_identity_mismatch", field: "prHeadSha" };
   return { ok: true, supplied: true };
 }
 
