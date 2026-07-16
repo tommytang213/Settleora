@@ -176,9 +176,12 @@ export function evaluateReviewFixContractPaths({ laneDecision = {}, changedFiles
 
 export function evaluateReviewFixStrongGates({ laneDecision = {}, validation = {}, review = {}, externalReview = {}, mergePolicy = {}, trigger = null } = {}) {
   if (!reviewFixSensitiveLanes.includes(laneDecision.lane)) return { ok: true, reason: "standard_lane_gates_ok" };
-  const tier = externalReview?.tier || laneDecision.reviewerTier || laneDecision.laneManifest?.reviewerTier || null;
   if (validation?.passed !== true || validation.profile === "docs-only") return { ok: false, reason: "sensitive_lane_requires_strong_validation" };
+  const tier = externalReview?.tier || null;
   if (!["strong_independent", "tie_breaker"].includes(tier)) return { ok: false, reason: "sensitive_lane_requires_strong_independent_review" };
+  if (externalReview?.status !== "pass" || !["pass", "approved"].includes(externalReview?.verdict || externalReview?.sanitizedResponseSummary?.verdict || "pass")) {
+    return { ok: false, reason: "sensitive_lane_requires_passed_strong_independent_review" };
+  }
   const verdict = review?.verdict?.verdict || null;
   const actionablePreFixCodexTrigger =
     verdict === "changes_requested" &&

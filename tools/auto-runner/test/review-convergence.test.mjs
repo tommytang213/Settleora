@@ -84,6 +84,15 @@ test("transient retries do not consume source cycles; pushed new heads do and in
   assert.equal(changed.state.pr.exactHead, "b".repeat(40));
 });
 
+test("head-bound evidence from an older head is immediately stale", () => {
+  const current = state();
+  const stale = bindReviewConvergenceEvidence(current, "review", { status: "passed", exactHead: "b".repeat(40) });
+  assert.equal(stale.evidence.review.exactHead, "b".repeat(40));
+  assert.equal(stale.evidence.review.stale, true);
+  assert.equal(stale.evidence.review.currentHead, "a".repeat(40));
+  assert.equal(stale.evidence.review.staleReason, "evidence_head_mismatch");
+});
+
 test("durable state writes atomically, reloads, fails closed on corruption, and dedupes mutations", () => {
   const c = config();
   try {
@@ -242,7 +251,8 @@ test("contract-approved lanes allow docs/runtime/sensitive fixes only under the 
     allowedPaths: ["services/api/**"],
     contract: { autoMergeEligible: true, manualMergeRequired: false },
   };
-  assert.equal(evaluateReviewFixStrongGates({ laneDecision: sensitiveLane, validation: { passed: true, profile: "api-money" }, externalReview: { tier: "strong_independent" }, mergePolicy: { exactHeadRequired: true } }).ok, true);
+  assert.equal(evaluateReviewFixStrongGates({ laneDecision: sensitiveLane, validation: { passed: true, profile: "api-money" }, externalReview: { status: "pass", tier: "strong_independent", verdict: "pass" }, mergePolicy: { exactHeadRequired: true } }).ok, true);
+  assert.equal(evaluateReviewFixStrongGates({ laneDecision: sensitiveLane, validation: { passed: true, profile: "api-money" }, externalReview: { status: "skipped", tier: "strong_independent" }, mergePolicy: { exactHeadRequired: true } }).reason, "sensitive_lane_requires_passed_strong_independent_review");
   assert.equal(evaluateReviewFixStrongGates({ laneDecision: sensitiveLane, validation: { passed: true, profile: "docs-only" }, externalReview: { tier: "cheap_independent" } }).ok, false);
   const generated = { ...sensitiveLane, lane: "openapi-generated-clients", allowedPaths: ["packages/client-dart/lib/generated/**"] };
   assert.equal(evaluateReviewFixContractPaths({ laneDecision: generated, changedFiles: ["packages/client-dart/lib/generated/a.dart"] }).reason, "generated_clients_require_authoritative_generator_or_contract_change");
@@ -278,7 +288,7 @@ test("review-fix mutation decision permits approved sensitive fix and blocks mal
     laneDecision,
     changedFiles: ["services/api/Auth/Fix.cs"],
     validation: { passed: true, profile: "api-security" },
-    externalReview: { tier: "strong_independent" },
+    externalReview: { status: "pass", tier: "strong_independent", verdict: "pass" },
     mergePolicy: { exactHeadRequired: true },
     trigger: { actionable: true, findings: ["fix"], source: "codex_mechanics" },
   });
@@ -316,14 +326,14 @@ test("sensitive Codex changes-requested safe-fix trigger can enter mutation but 
     changedFiles: ["services/api/Auth/Fix.cs"],
     validation: { passed: true, profile: "api-security" },
     review,
-    externalReview: { tier: "strong_independent" },
+    externalReview: { status: "pass", tier: "strong_independent", verdict: "pass" },
     mergePolicy: { exactHeadRequired: true },
   });
   assert.equal(trigger.actionable, true);
   assert.equal(allowed.allowed, true);
   assert.equal(evaluateReviewFixStrongGates({ laneDecision, validation: { passed: true, profile: "api-security" }, review, externalReview: { tier: "cheap_independent" }, trigger }).ok, false);
-  assert.equal(evaluateReviewFixStrongGates({ laneDecision, validation: { passed: true, profile: "api-security" }, review, externalReview: { tier: "strong_independent" } }).ok, false);
-  assert.equal(evaluateReviewFixStrongGates({ laneDecision, validation: { passed: true, profile: "api-security" }, review: { verdict: { verdict: "approved" } }, externalReview: { tier: "strong_independent" } }).ok, true);
+  assert.equal(evaluateReviewFixStrongGates({ laneDecision, validation: { passed: true, profile: "api-security" }, review, externalReview: { status: "pass", tier: "strong_independent", verdict: "pass" } }).ok, false);
+  assert.equal(evaluateReviewFixStrongGates({ laneDecision, validation: { passed: true, profile: "api-security" }, review: { verdict: { verdict: "approved" } }, externalReview: { status: "pass", tier: "strong_independent", verdict: "pass" } }).ok, true);
   assert.equal(extractReviewFixTrigger({ review: { verdict: { verdict: "changes_requested", recommended_next_action: "manual_review", blocking_findings: ["manual"] } } }).actionable, false);
 });
 

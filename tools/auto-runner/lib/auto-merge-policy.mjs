@@ -8,6 +8,7 @@ import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
+import { evaluateCycleBudget } from "./review-convergence-controller.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -499,14 +500,54 @@ export function evaluatePrePushReviewGate(input = {}) {
     };
   }
   if (requiresIndependentAiReview(laneDecision) && externalReview?.status !== "pass") {
+    const convergence = evaluatePrePushReviewConvergence(input, externalReview);
+    if (convergence.ok) {
+      return {
+        ok: false,
+        outcome: "review_convergence_required",
+        reason: `exact_head_independent_review_not_passed_convergence_required:${externalReview?.reason || externalReview?.status || "missing"}`,
+        message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"}; bounded review convergence remains available`,
+        convergence,
+      };
+    }
+    if (convergence.reason === "review_convergence_requires_explicit_review_fix_config") {
+      return {
+        ok: false,
+        outcome: "review_changes_requested_retry_exhausted",
+        reason: `exact_head_independent_review_not_passed:${externalReview?.reason || externalReview?.status || "missing"}`,
+        message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"}`,
+      };
+    }
     return {
       ok: false,
       outcome: "review_changes_requested_retry_exhausted",
-      reason: `exact_head_independent_review_not_passed:${externalReview?.reason || externalReview?.status || "missing"}`,
-      message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"}`,
+      reason: `exact_head_independent_review_not_passed:${convergence.reason || externalReview?.reason || externalReview?.status || "missing"}`,
+      message: `exact-head independent review returned ${externalReview?.reason || externalReview?.status || "missing"} and bounded review convergence is unavailable: ${convergence.reason}`,
     };
   }
   return { ok: true, reason: "pre_push_review_gates_passed" };
+}
+
+function evaluatePrePushReviewConvergence(input = {}, externalReview = {}) {
+  const config = input.config || {};
+  if (!config.allowReviewFixMutation || !config.configPath) {
+    return { ok: false, reason: "review_convergence_requires_explicit_review_fix_config" };
+  }
+  const state = input.reviewConvergenceState || {
+    sourceChangingCycle: Number(input.reviewFixSourceCycle || input.reviewFixAttemptCount || 0),
+    pr: { exactHead: input.expectedHeadSha || input.actualHeadSha || null },
+  };
+  const history = input.reviewConvergenceHistory || [];
+  const decision = evaluateCycleBudget(state, config, history);
+  if (!decision.ok) return { ok: false, reason: decision.reason || decision.terminalReason || "review_convergence_budget_unavailable", budget: decision.budget };
+  return {
+    ok: true,
+    reason: "bounded_review_convergence_available",
+    budget: decision.budget,
+    diagnosticEpoch: decision.diagnosticEpoch === true,
+    reviewStatus: externalReview?.status || "missing",
+    reviewReason: externalReview?.reason || null,
+  };
 }
 
 export function shouldGenerateExistingPrRecoveryEvidence(laneDecision = {}, exactHeadEvidence = {}) {

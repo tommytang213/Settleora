@@ -4594,6 +4594,40 @@ test("pre-push review gate blocks mutation and required independent-review failu
   );
   assert.deepEqual(
     evaluatePrePushReviewGate({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      laneDecision: clientUiLane,
+      externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
+      reviewMutationGuard: { mutationDetected: false },
+      reviewConvergenceState: { sourceChangingCycle: 2, pr: { exactHead: "head123" } },
+      reviewConvergenceHistory: [
+        { findingFingerprints: ["a"], patchId: "p1" },
+        { findingFingerprints: ["b"], patchId: "p2" },
+      ],
+    }),
+    {
+      ok: false,
+      outcome: "review_convergence_required",
+      reason: "exact_head_independent_review_not_passed_convergence_required:skipped_external_reviewer_tier_disabled",
+      message: "exact-head independent review returned skipped_external_reviewer_tier_disabled; bounded review convergence remains available",
+      convergence: {
+        ok: true,
+        reason: "bounded_review_convergence_available",
+        budget: {
+          requested: 50,
+          normalized: 50,
+          hardMaximum: 50,
+          enabled: true,
+          malformed: false,
+          policy: "clamp_to_hard_max",
+        },
+        diagnosticEpoch: false,
+        reviewStatus: "skipped",
+        reviewReason: "skipped_external_reviewer_tier_disabled",
+      },
+    },
+  );
+  assert.deepEqual(
+    evaluatePrePushReviewGate({
       laneDecision: clientUiLane,
       externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
       reviewMutationGuard: { mutationDetected: false },

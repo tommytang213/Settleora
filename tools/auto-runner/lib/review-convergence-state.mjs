@@ -113,16 +113,20 @@ export function loadReviewConvergenceState(config, keyOrState) {
 
 export function bindReviewConvergenceEvidence(state, kind, evidence = {}) {
   if (!headBoundConvergenceEvidenceKinds.includes(kind)) throw new Error(`Unknown convergence evidence kind: ${kind}`);
+  const currentHead = state.pr?.exactHead || null;
+  const evidenceHead = evidence.exactHead || currentHead;
+  const stale = Boolean(currentHead && evidenceHead && evidenceHead !== currentHead);
   return sanitizeState({
     ...state,
     evidence: {
       ...(state.evidence || {}),
       [kind]: {
         status: evidence.status || "recorded",
-        exactHead: evidence.exactHead || state.pr?.exactHead || null,
+        exactHead: evidenceHead,
         digest: evidence.digest || digestJson(evidence),
         recordedAt: evidence.recordedAt || new Date().toISOString(),
-        stale: false,
+        stale,
+        ...(stale ? { staleReason: "evidence_head_mismatch", currentHead } : {}),
       },
     },
   });
