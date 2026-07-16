@@ -6,6 +6,7 @@ import { normalizeLargeBundleReviewApprovalConfig } from "./reviewer-policy.mjs"
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
 import { validateSupervisorRunId } from "./run-correlation.mjs";
+import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -48,6 +49,7 @@ export const defaultConfig = Object.freeze({
     allowedNeutralChecks: [],
   },
   allowExistingPrRecovery: false,
+  outageResubmission: defaultOutageResubmissionConfig,
   autoMergeWait: {
     maxAttempts: 60,
     delayMs: 30000,
@@ -318,7 +320,7 @@ function readValue(argv, index, name) {
   return value;
 }
 
-export function loadConfig(cliArgs) {
+export function loadConfig(cliArgs, trustedCapabilities = {}) {
   let fileConfig = {};
   if (cliArgs.configPath) {
     fileConfig = JSON.parse(readFileSync(cliArgs.configPath, "utf8"));
@@ -376,6 +378,13 @@ export function loadConfig(cliArgs) {
   config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
+  config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
+  if (
+    config.outageResubmission.allowBoundedOutageResubmission === true &&
+    trustedCapabilities?.outageResubmissionControllerAvailable !== true
+  ) {
+    throw new Error("Bounded outage resubmission requires trusted controller capability.");
+  }
 
   for (const dir of [
     config.logsRoot,

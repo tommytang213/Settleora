@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   advanceRecoveryPhase,
+  bindOutageResubmissionToRecoveryState,
   bindRecoveryEvidence,
   classifyRecoveryOutcome,
   createInitialRecoveryState,
@@ -42,6 +43,30 @@ function initial(overrides = {}) {
     currentHeadSha: "b".repeat(40),
     ...overrides,
   });
+}
+
+function outageBinding(overrides = {}) {
+  return {
+    originalSupervisorSpecDigest: "a".repeat(64),
+    markerKey: "b".repeat(64),
+    outageFingerprint: "c".repeat(64),
+    attemptNumber: 2,
+    ...overrides,
+  };
+}
+
+function outageIdentityFor(state) {
+  return {
+    taskKey: state.taskKey,
+    issueNumber: state.issue.number,
+    branchName: state.branch.name,
+    baseSha: state.branch.baseSha,
+    currentHeadSha: state.branch.currentHeadSha,
+    prNumber: state.pr.number,
+    prHeadSha: state.pr.headSha,
+    runnerRunId: state.run.runId,
+    supervisorRunId: state.run.supervisorRunId,
+  };
 }
 
 test("each recovery outcome class has stable reason code and next action", () => {
@@ -134,6 +159,27 @@ test("head change invalidates validation review CI scanner and merge evidence", 
   assert.equal(state.nextSafeAction, "regenerate_exact_head_evidence");
 });
 
+test("repeated identical head change preserves first stale-head invalidation evidence", () => {
+  let state = initial();
+  for (const kind of headBoundEvidenceKinds) {
+    state = bindRecoveryEvidence(state, kind, {
+      status: "passed",
+      headSha: "b".repeat(40),
+      baseSha: "a".repeat(40),
+      changedFiles: ["tools/auto-runner/lib/recovery-state.mjs"],
+    });
+  }
+  const invalidated = invalidateEvidenceForHeadChange(state, { newHeadSha: "c".repeat(40), reasonCode: "review_fix_committed" });
+  const repeated = invalidateEvidenceForHeadChange(invalidated, { newHeadSha: "c".repeat(40), reasonCode: "review_fix_committed" });
+  for (const kind of headBoundEvidenceKinds) {
+    assert.equal(repeated.evidence[kind].invalidatedAt, invalidated.evidence[kind].invalidatedAt, kind);
+    assert.equal(repeated.evidence[kind].invalidatedOldHeadSha, "b".repeat(40), kind);
+    assert.equal(repeated.evidence[kind].invalidatedNewHeadSha, "c".repeat(40), kind);
+  }
+  assert.equal(repeated.branch.currentHeadSha, "c".repeat(40));
+  assert.equal(repeated.nextSafeAction, "regenerate_exact_head_evidence");
+});
+
 test("base or branch drift fails closed", () => {
   const config = tempConfig();
   try {
@@ -160,6 +206,10 @@ test("corrupt partial missing and newer-version recovery state fails closed", ()
     writeFileSync(statePath, `${JSON.stringify({ ...state, stateVersion: 999 }, null, 2)}\n`);
     assert.equal(loadRecoveryState(config, state).reasonCode, "recovery_state_schema_invalid");
     writeFileSync(statePath, `${JSON.stringify({ ...state, branch: undefined }, null, 2)}\n`);
+    assert.equal(loadRecoveryState(config, state).reasonCode, "recovery_state_schema_invalid");
+    writeFileSync(statePath, `${JSON.stringify({ ...state, pr: { ...state.pr, number: 918, headSha: null } }, null, 2)}\n`);
+    assert.equal(loadRecoveryState(config, state).reasonCode, "recovery_state_schema_invalid");
+    writeFileSync(statePath, `${JSON.stringify({ ...state, pr: { ...state.pr, number: 918, headSha: "D".repeat(40) } }, null, 2)}\n`);
     assert.equal(loadRecoveryState(config, state).reasonCode, "recovery_state_schema_invalid");
   } finally {
     config.cleanup();
@@ -212,6 +262,275 @@ test("idempotent mutation markers prevent duplicate component mutations", () => 
   });
   assert.equal(recoveryHasMutationMarker(state, "pr_create", "issue-893-pr"), true);
   assert.equal(recoveryHasMutationMarker(state, "merge", "issue-893-pr"), false);
+});
+
+test("outage resubmission binding is idempotent and conflict-safe", () => {
+  const binding = outageBinding();
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+  const proof = { prNumber: state.pr.number, prHeadSha: state.pr.headSha };
+  const bound = bindOutageResubmissionToRecoveryState(state, { ...binding, ...proof });
+  assert.equal(bound.ok, true);
+  assert.equal(bound.changed, true);
+  assert.equal(bound.state.outageResubmission.taskKey, state.taskKey);
+  assert.equal(bound.state.outageResubmission.issueNumber, state.issue.number);
+  assert.equal(bound.state.outageResubmission.branchName, state.branch.name);
+  assert.equal(bound.state.outageResubmission.baseSha, state.branch.baseSha);
+  assert.equal(bound.state.outageResubmission.currentHeadSha, state.branch.currentHeadSha);
+  assert.equal(bound.state.outageResubmission.prNumber, state.pr.number);
+  assert.equal(bound.state.outageResubmission.prHeadSha, state.pr.headSha);
+  assert.equal(bound.state.outageResubmission.runnerRunId, state.run.runId);
+  assert.equal(bound.state.outageResubmission.supervisorRunId, state.run.supervisorRunId);
+  assert.equal(bound.state.outageResubmission.originalSupervisorSpecDigest, binding.originalSupervisorSpecDigest);
+  assert.equal(bound.state.outageResubmission.markerKey, binding.markerKey);
+  assert.equal(bound.state.outageResubmission.outageFingerprint, binding.outageFingerprint);
+  assert.equal(bound.state.outageResubmission.attemptNumber, binding.attemptNumber);
+
+  const repeated = bindOutageResubmissionToRecoveryState(bound.state, { ...binding, ...proof });
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.changed, false);
+  assert.deepEqual(repeated.state.outageResubmission, bound.state.outageResubmission);
+
+  const conflict = bindOutageResubmissionToRecoveryState(bound.state, { ...binding, ...proof, markerKey: "d".repeat(64) });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.reasonCode, "recovery_outage_binding_conflict");
+
+  const invalid = bindOutageResubmissionToRecoveryState(state, { ...binding, ...proof, attemptNumber: 0 });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.reasonCode, "recovery_outage_binding_invalid");
+});
+
+test("outage resubmission binding requires PR proof and fills non-PR identity from state", () => {
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+  const exact = bindOutageResubmissionToRecoveryState(state, {
+    ...outageBinding(),
+    prNumber: state.pr.number,
+    prHeadSha: state.pr.headSha,
+  });
+  assert.equal(exact.ok, true);
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(outageIdentityFor(state)).map(([key]) => [key, exact.binding[key]])),
+    outageIdentityFor(state),
+  );
+
+  const exactWithAllIdentity = bindOutageResubmissionToRecoveryState(state, {
+    ...outageBinding(),
+    ...outageIdentityFor(state),
+  });
+  assert.equal(exactWithAllIdentity.ok, true);
+  assert.deepEqual(exactWithAllIdentity.binding, exact.binding);
+});
+
+test("outage resubmission binding enforces PR-bound caller proof matrix", () => {
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+  const exactProof = { prNumber: state.pr.number, prHeadSha: state.pr.headSha };
+  const cases = [
+    ["exact caller pair", exactProof, true],
+    ["both omitted", {}, false],
+    ["number only", { prNumber: state.pr.number }, false],
+    ["head only", { prHeadSha: state.pr.headSha }, false],
+    ["explicit null pair", { prNumber: null, prHeadSha: null }, false],
+    ["number plus null head", { prNumber: state.pr.number, prHeadSha: null }, false],
+    ["null number plus head", { prNumber: null, prHeadSha: state.pr.headSha }, false],
+    ["malformed number", { prNumber: "918", prHeadSha: state.pr.headSha }, false],
+    ["malformed head", { prNumber: state.pr.number, prHeadSha: "D".repeat(40) }, false],
+    ["wrong number", { prNumber: 919, prHeadSha: state.pr.headSha }, false],
+    ["wrong head", { prNumber: state.pr.number, prHeadSha: "e".repeat(40) }, false],
+  ];
+  for (const [label, proof, shouldPass] of cases) {
+    const result = bindOutageResubmissionToRecoveryState(state, { ...outageBinding(), ...proof });
+    assert.equal(result.ok, shouldPass, label);
+    if (shouldPass) {
+      assert.equal(result.changed, true, label);
+      assert.equal(result.binding.prNumber, state.pr.number, label);
+      assert.equal(result.binding.prHeadSha, state.pr.headSha, label);
+    } else {
+      assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch", label);
+      assert.equal(state.outageResubmission, null, label);
+      assert.equal(JSON.stringify(result).includes(state.pr.headSha), false, label);
+    }
+  }
+
+  const bound = bindOutageResubmissionToRecoveryState(state, { ...outageBinding(), ...exactProof });
+  assert.equal(bound.ok, true);
+  const repeatedExact = bindOutageResubmissionToRecoveryState(bound.state, { ...outageBinding(), ...exactProof });
+  assert.equal(repeatedExact.ok, true);
+  assert.equal(repeatedExact.changed, false);
+  for (const [label, proof] of cases.filter(([, , shouldPass]) => !shouldPass)) {
+    const result = bindOutageResubmissionToRecoveryState(bound.state, { ...outageBinding(), ...proof });
+    assert.equal(result.ok, false, `existing binding ${label}`);
+    assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch", `existing binding ${label}`);
+  }
+});
+
+test("outage resubmission binding enforces no-PR caller proof matrix", () => {
+  const state = initial();
+  const cases = [
+    ["both omitted", {}, true],
+    ["supplied valid pair", { prNumber: 918, prHeadSha: "d".repeat(40) }, false],
+    ["number only", { prNumber: 918 }, false],
+    ["head only", { prHeadSha: "d".repeat(40) }, false],
+    ["explicit null pair", { prNumber: null, prHeadSha: null }, false],
+    ["malformed pair", { prNumber: 918, prHeadSha: "D".repeat(40) }, false],
+  ];
+  for (const [label, proof, shouldPass] of cases) {
+    const result = bindOutageResubmissionToRecoveryState(state, { ...outageBinding(), ...proof });
+    assert.equal(result.ok, shouldPass, label);
+    if (shouldPass) {
+      assert.equal(result.changed, true, label);
+      assert.equal(result.binding.prNumber, null, label);
+      assert.equal(result.binding.prHeadSha, null, label);
+    } else {
+      assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch", label);
+      assert.equal(state.outageResubmission, null, label);
+    }
+  }
+
+  const bound = bindOutageResubmissionToRecoveryState(state, outageBinding());
+  assert.equal(bound.ok, true);
+  const repeated = bindOutageResubmissionToRecoveryState(bound.state, outageBinding());
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.changed, false);
+});
+
+test("outage resubmission binding rejects each mismatched caller identity field before mutation", () => {
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+  const wrongValues = {
+    taskKey: "20260713-9999",
+    issueNumber: 894,
+    branchName: "other-branch",
+    baseSha: "e".repeat(40),
+    currentHeadSha: "f".repeat(40),
+    prNumber: 919,
+    prHeadSha: "e".repeat(40),
+    runnerRunId: "run-2026-07-13T112701Z",
+    supervisorRunId: "supervised-20260713T112701Z-abcdefabcdef",
+  };
+  for (const [field, value] of Object.entries(wrongValues)) {
+    const binding = { ...outageBinding(), [field]: value };
+    if (field === "prNumber") binding.prHeadSha = state.pr.headSha;
+    if (field === "prHeadSha") binding.prNumber = state.pr.number;
+    const result = bindOutageResubmissionToRecoveryState(state, binding);
+    assert.equal(result.ok, false, field);
+    assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch", field);
+    assert.equal(state.outageResubmission, null, field);
+    assert.equal(JSON.stringify(result).includes(String(value)), false, field);
+  }
+});
+
+test("outage resubmission binding rejects null malformed and partial PR identity", () => {
+  const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+  for (const binding of [
+    { ...outageBinding(), taskKey: null },
+    { ...outageBinding(), issueNumber: "893" },
+    { ...outageBinding(), branchName: "" },
+    { ...outageBinding(), baseSha: "not-a-sha" },
+    { ...outageBinding(), currentHeadSha: "D".repeat(40) },
+    { ...outageBinding(), prNumber: state.pr.number },
+    { ...outageBinding(), prHeadSha: state.pr.headSha },
+    { ...outageBinding(), prNumber: null, prHeadSha: state.pr.headSha },
+    { ...outageBinding(), prNumber: state.pr.number, prHeadSha: null },
+    { ...outageBinding(), runnerRunId: null },
+    { ...outageBinding(), supervisorRunId: "" },
+  ]) {
+    const result = bindOutageResubmissionToRecoveryState(state, binding);
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch");
+    assert.equal(state.outageResubmission, null);
+  }
+});
+
+test("outage resubmission binding rejects present null PR identity even when recovery state has no PR", () => {
+  const state = initial();
+  const result = bindOutageResubmissionToRecoveryState(state, {
+    ...outageBinding(),
+    prNumber: null,
+    prHeadSha: null,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "recovery_outage_binding_identity_mismatch");
+  assert.equal(state.outageResubmission, null);
+});
+
+test("outage resubmission binding persists sanitized bytes", () => {
+  const config = tempConfig();
+  try {
+    const state = initial();
+    const bound = bindOutageResubmissionToRecoveryState(state, {
+      originalSupervisorSpecDigest: "a".repeat(64),
+      markerKey: "b".repeat(64),
+      outageFingerprint: "c".repeat(64),
+      attemptNumber: 1,
+      rawBody: "secret raw payload",
+      token: "secret-token",
+    });
+    const written = writeRecoveryState(config, bound.state);
+    const text = readFileSync(written.statePath, "utf8");
+    assert.equal(text.includes("rawBody"), false);
+    assert.equal(text.includes("secret raw payload"), false);
+    assert.equal(text.includes("secret-token"), false);
+    assert.equal(loadRecoveryState(config, state).state.outageResubmission.markerKey, "b".repeat(64));
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("persisted recovery outage binding enforces atomic PR identity on load", () => {
+  const validCases = [
+    ["both null", null, { prNumber: null, prHeadSha: null }],
+    ["both valid", { number: 918, headSha: "d".repeat(40) }, { prNumber: 918, prHeadSha: "d".repeat(40) }],
+  ];
+  for (const [label, pr, prIdentity] of validCases) {
+    const config = tempConfig();
+    try {
+      const state = initial({ pr });
+      const proof = pr ? { prNumber: pr.number, prHeadSha: pr.headSha } : {};
+      const bound = bindOutageResubmissionToRecoveryState(state, { ...outageBinding(), ...proof });
+      assert.equal(bound.ok, true, label);
+      assert.equal(bound.state.outageResubmission.prNumber, prIdentity.prNumber, label);
+      assert.equal(bound.state.outageResubmission.prHeadSha, prIdentity.prHeadSha, label);
+      const written = writeRecoveryState(config, bound.state);
+      const loaded = loadRecoveryState(config, bound.state);
+      assert.equal(loaded.ok, true, label);
+      assert.equal(loaded.state.outageResubmission.prNumber, prIdentity.prNumber, label);
+      assert.equal(loaded.state.outageResubmission.prHeadSha, prIdentity.prHeadSha, label);
+      assert.equal(readFileSync(written.statePath, "utf8").includes("secret"), false, label);
+    } finally {
+      config.cleanup();
+    }
+  }
+
+  const invalidCases = [
+    ["number only", { prNumber: 918, prHeadSha: null }],
+    ["head only", { prNumber: null, prHeadSha: "d".repeat(40) }],
+    ["malformed number", { prNumber: 0, prHeadSha: "d".repeat(40) }],
+    ["malformed head", { prNumber: 918, prHeadSha: "D".repeat(40) }],
+  ];
+  for (const [label, prIdentity] of invalidCases) {
+    const config = tempConfig();
+    try {
+      const state = initial({ pr: { number: 918, headSha: "d".repeat(40) } });
+      const bound = bindOutageResubmissionToRecoveryState(state, {
+        ...outageBinding(),
+        prNumber: state.pr.number,
+        prHeadSha: state.pr.headSha,
+      });
+      const written = writeRecoveryState(config, bound.state);
+      const tampered = {
+        ...bound.state,
+        outageResubmission: {
+          ...bound.state.outageResubmission,
+          ...prIdentity,
+        },
+      };
+      writeFileSync(written.statePath, `${JSON.stringify(tampered, null, 2)}\n`, { mode: 0o600 });
+      const loaded = loadRecoveryState(config, bound.state);
+      assert.equal(loaded.ok, false, label);
+      assert.equal(loaded.reasonCode, "recovery_state_schema_invalid", label);
+      assert.equal(JSON.stringify(loaded).includes(String(prIdentity.prHeadSha)), false, label);
+    } finally {
+      config.cleanup();
+    }
+  }
 });
 
 test("startup listing returns non-terminal recoverable states only", () => {

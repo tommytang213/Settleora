@@ -7,6 +7,7 @@ import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.
 import { defaultHeartbeatIntervalSeconds, defaultHeartbeatLeaseSeconds, isHeartbeatStale } from "../supervisor/heartbeat.mjs";
 import { classifySupervisorLifecycleState, terminalStates } from "../supervisor/supervisor-state.mjs";
 import { storageKeyForLogicalId, storageKeyPattern } from "../supervisor/supervisor-paths.mjs";
+import { buildOutageResubmissionStatus } from "../supervisor/outage-resubmission-controller.mjs";
 
 export const healthSchemaVersion = 1;
 export const defaultHealthHost = "127.0.0.1";
@@ -66,6 +67,10 @@ export function evaluateAutoRunnerHealth({
   const selection = selectCurrentSupervisorRun(logsRoot);
   if (selection.problem) problems.push(selection.problem);
   if (selection.activeCount > 1) problems.push(problem("multiple_active_supervisors"));
+  const outageResubmission = buildHealthOutageSection(logsRoot, runnerStatus);
+  if (outageResubmission?.operatorActionRequired) {
+    problems.push(problem(outageResubmission.reasonCode === "untrusted_state" ? "untrusted_state" : "malformed_state"));
+  }
 
   if (!selection.run) {
     const response = buildResponse({
@@ -77,6 +82,7 @@ export function evaluateAutoRunnerHealth({
       heartbeat: baseHeartbeatSection(),
       reportResolution: null,
       summary: null,
+      outageResubmission,
     });
     return { httpStatus: response.status === "healthy" ? 200 : 503, body: response };
   }
@@ -129,6 +135,7 @@ export function evaluateAutoRunnerHealth({
     heartbeat: buildHeartbeatSection(heartbeatValue, now),
     reportResolution,
     summary: buildSummarySection(summary.value),
+    outageResubmission,
   });
   return { httpStatus: status === "healthy" ? 200 : 503, body: response };
 }
@@ -338,7 +345,7 @@ function sanitizeReportResolution(value) {
   };
 }
 
-function buildResponse({ status, mode, reasonCode, supervisor, runner, heartbeat, reportResolution, summary }) {
+function buildResponse({ status, mode, reasonCode, supervisor, runner, heartbeat, reportResolution, summary, outageResubmission }) {
   return boundObject({
     schemaVersion: healthSchemaVersion,
     status,
@@ -349,7 +356,15 @@ function buildResponse({ status, mode, reasonCode, supervisor, runner, heartbeat
     heartbeat,
     reportResolution,
     summary,
+    outageResubmission,
   });
+}
+
+function buildHealthOutageSection(logsRoot, runnerStatus = null) {
+  if (runnerStatus?.outageResubmission && typeof runnerStatus.outageResubmission === "object") {
+    return boundObject(runnerStatus.outageResubmission);
+  }
+  return buildOutageResubmissionStatus({ logsRoot, outageResubmission: { allowBoundedOutageResubmission: false } });
 }
 
 function buildSupervisorSection(state) {
