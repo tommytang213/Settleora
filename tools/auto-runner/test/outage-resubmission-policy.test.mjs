@@ -428,8 +428,8 @@ test("outage resubmission state validates identity, atomic writes, markers, corr
     const written = writeOutageResubmissionState(config, state);
     assert.equal(existsSync(written.statePath), true);
     assert.equal(loadOutageResubmissionState(config, state).ok, true);
-    assert.equal(verifyOutageCorrelation(state, { issueNumber: 913, currentHeadSha: shaB }).ok, true);
-    assert.equal(verifyOutageCorrelation(state, { currentHeadSha: shaA }).reasonCode, "outage_resubmission_identity_drift");
+    assert.equal(verifyOutageCorrelation(state, { issueNumber: 913, currentHeadSha: shaB, prNumber: 917, prHeadSha: shaB }).ok, true);
+    assert.equal(verifyOutageCorrelation(state, { currentHeadSha: shaA, prNumber: 917, prHeadSha: shaB }).reasonCode, "outage_resubmission_identity_drift");
 
     const submitted = transitionOutageMarker(state, {
       status: "submitted",
@@ -477,29 +477,61 @@ test("outage correlation verification requires PR number and head as an exact pa
     schedule: state.schedule,
   });
   const cases = [
-    ["both omitted", state, { issueNumber: 913 }, true, null],
-    ["both exact", state, { prNumber: 917, prHeadSha: shaB }, true, null],
-    ["number only", state, { prNumber: 917 }, false, "prHeadSha"],
-    ["head only", state, { prHeadSha: shaB }, false, "prNumber"],
-    ["wrong number", state, { prNumber: 918, prHeadSha: shaB }, false, "prNumber"],
-    ["wrong head", state, { prNumber: 917, prHeadSha: shaA }, false, "prHeadSha"],
-    ["stored no PR with omitted pair", noPrState, { issueNumber: 913 }, true, null],
-    ["stored no PR with supplied PR", noPrState, { prNumber: 917, prHeadSha: shaB }, false, "prNumber"],
-    ["stored PR with explicit null pair", state, { prNumber: null, prHeadSha: null }, false, "prNumber"],
-    ["stored PR with null number", state, { prNumber: null, prHeadSha: shaB }, false, "prNumber"],
-    ["stored PR with null head", state, { prNumber: 917, prHeadSha: null }, false, "prHeadSha"],
-    ["malformed number", state, { prNumber: 0, prHeadSha: shaB }, false, "prNumber"],
-    ["malformed head", state, { prNumber: 917, prHeadSha: "B".repeat(40) }, false, "prHeadSha"],
+    ["stored PR exact pair", state, { prNumber: 917, prHeadSha: shaB }, true, null, null],
+    ["stored PR both omitted", state, { issueNumber: 913 }, false, "prNumber", "outage_resubmission_pr_identity_required"],
+    ["stored PR number only", state, { prNumber: 917 }, false, "prHeadSha", "outage_resubmission_pr_identity_partial"],
+    ["stored PR head only", state, { prHeadSha: shaB }, false, "prNumber", "outage_resubmission_pr_identity_partial"],
+    ["stored PR explicit null pair", state, { prNumber: null, prHeadSha: null }, false, "prNumber", "outage_resubmission_pr_identity_presence_mismatch"],
+    ["stored PR null number plus head", state, { prNumber: null, prHeadSha: shaB }, false, "prNumber", "outage_resubmission_pr_identity_partial"],
+    ["stored PR number plus null head", state, { prNumber: 917, prHeadSha: null }, false, "prHeadSha", "outage_resubmission_pr_identity_partial"],
+    ["stored PR wrong number", state, { prNumber: 918, prHeadSha: shaB }, false, "prNumber", "outage_resubmission_pr_identity_mismatch"],
+    ["stored PR wrong head", state, { prNumber: 917, prHeadSha: shaA }, false, "prHeadSha", "outage_resubmission_pr_identity_mismatch"],
+    ["stored PR malformed number", state, { prNumber: 0, prHeadSha: shaB }, false, "prNumber", "outage_resubmission_pr_identity_mismatch"],
+    ["stored PR malformed head", state, { prNumber: 917, prHeadSha: "B".repeat(40) }, false, "prHeadSha", "outage_resubmission_pr_identity_mismatch"],
+    ["stored no PR both omitted", noPrState, { issueNumber: 913 }, true, null, null],
+    ["stored no PR supplied pair", noPrState, { prNumber: 917, prHeadSha: shaB }, false, "prNumber", "outage_resubmission_pr_identity_presence_mismatch"],
+    ["stored no PR number only", noPrState, { prNumber: 917 }, false, "prHeadSha", "outage_resubmission_pr_identity_partial"],
+    ["stored no PR head only", noPrState, { prHeadSha: shaB }, false, "prNumber", "outage_resubmission_pr_identity_partial"],
+    ["stored no PR explicit null pair", noPrState, { prNumber: null, prHeadSha: null }, false, "prNumber", "outage_resubmission_pr_identity_presence_mismatch"],
+    ["stored no PR malformed pair", noPrState, { prNumber: 917, prHeadSha: "B".repeat(40) }, false, "prHeadSha", "outage_resubmission_pr_identity_mismatch"],
   ];
-  for (const [label, stored, expected, ok, field] of cases) {
+  for (const [label, stored, expected, ok, field, reasonCode] of cases) {
     const result = verifyOutageCorrelation(stored, expected);
     assert.equal(result.ok, ok, label);
     if (!ok) {
-      assert.equal(result.reasonCode, "outage_resubmission_identity_drift", label);
+      assert.equal(result.reasonCode, reasonCode, label);
       assert.equal(result.field, field, label);
       assert.equal(JSON.stringify(result).includes(shaA), false, label);
       assert.equal(JSON.stringify(result).includes(shaB), false, label);
     }
+  }
+});
+
+test("outage correlation verification checks mandatory stored fields when supplied", () => {
+  const state = fixtureState();
+  const exactPr = { prNumber: 917, prHeadSha: shaB };
+  const mandatoryFields = [
+    ["taskKey", "20260715-0013"],
+    ["runnerRunId", "run-2026-07-15T000000Z"],
+    ["supervisorRunId", "supervised-20260715T000000Z-000000000001"],
+    ["issueNumber", 913],
+    ["branchName", "feature/auto-913-bounded-outage-resubmission-20260715-0013"],
+    ["baseSha", shaA],
+    ["currentHeadSha", shaB],
+    ["runnerProfile", "default"],
+    ["runnerConfigDigest", digestA],
+    ["originalSupervisorSpecDigest", digestB],
+    ["outageProviderDomain", "github_api"],
+    ["outageFingerprint", digestA],
+  ];
+  for (const [field, value] of mandatoryFields) {
+    assert.equal(verifyOutageCorrelation(state, { ...exactPr, [field]: value }).ok, true, field);
+    const wrongValue = typeof value === "number" ? value + 1 : `${value}-wrong`;
+    const result = verifyOutageCorrelation(state, { ...exactPr, [field]: wrongValue });
+    assert.equal(result.ok, false, field);
+    assert.equal(result.reasonCode, "outage_resubmission_identity_drift", field);
+    assert.equal(result.field, field, field);
+    assert.equal(JSON.stringify(result).includes(String(wrongValue)), false, field);
   }
 });
 
