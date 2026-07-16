@@ -1161,12 +1161,47 @@ test("completed terminal child requires exact trusted merge proof", () => {
     ["no summary", null],
     ["wrong child run", { summaryOverrides: { supervisorRunId: "supervised-20260715T010000Z-000000000999" } }],
     ["wrong supervisor run", { childOverrides: { runnerRunId: "run-2026-07-15T010100Z" }, summaryOverrides: { supervisorRunId: "supervised-20260715T010000Z-000000000998" } }],
+    ["missing issue", { iterationMutator: (iteration) => { delete iteration.issue; } }],
+    ["null issue", { iterationOverrides: { issue: null } }],
+    ["malformed issue", { iterationOverrides: { issue: { number: "913" } } }],
     ["no matching source iteration", { iterations: [mergedSummaryIteration(source({ issueNumber: 914 }))] }],
     ["multiple matching iterations", { iterations: [mergedSummaryIteration(), mergedSummaryIteration(source(), { index: 2 })] }],
     ["wrong issue", { iterations: [mergedSummaryIteration(source({ issueNumber: 914 }))] }],
+    ["missing pr", { iterationOverrides: { pr: {}, autoMerge: { attempted: true, result: "merged", prHeadSha: shaB, mergeSha: "c".repeat(40) } } }],
+    ["null pr", { iterationOverrides: { pr: null, autoMerge: { attempted: true, result: "merged", prHeadSha: shaB, mergeSha: "c".repeat(40) } } }],
+    ["malformed pr", { iterationOverrides: { pr: { number: "917", headRefName: source().branchName, headRefOid: shaB }, autoMerge: { attempted: true, result: "merged", prHeadSha: shaB, mergeSha: "c".repeat(40) } } }],
     ["wrong pr", { iterations: [mergedSummaryIteration(source({ prNumber: 918 }))] }],
+    ["missing branch", { iterationMutator: (iteration) => { delete iteration.branchName; delete iteration.pr.headRefName; } }],
+    ["null branch", { iterationOverrides: { branchName: null, pr: { number: 917, headRefName: null, headRefOid: shaB, baseRefName: "main", state: "MERGED" } } }],
+    ["empty branch", { iterationOverrides: { branchName: " " } }],
     ["wrong branch", { iterationOverrides: { branchName: "feature/auto-913-other-branch" } }],
+    ["missing base", { iterationMutator: (iteration) => { delete iteration.baseOriginMainSha; } }],
+    ["null base", { iterationOverrides: { baseOriginMainSha: null } }],
+    ["malformed base", { iterationOverrides: { baseOriginMainSha: "not-a-sha" } }],
+    ["wrong base", { iterationOverrides: { baseOriginMainSha: "d".repeat(40) } }],
+    ["missing current head", { iterationMutator: (iteration) => { delete iteration.runnerCreatedCommitSha; delete iteration.expectedHeadSha; delete iteration.pr.headRefOid; delete iteration.pr.headSha; delete iteration.autoMerge.prHeadSha; delete iteration.autoMerge.headSha; } }],
+    ["null current head", { iterationOverrides: { runnerCreatedCommitSha: null, pr: { number: 917, headRefName: source().branchName, headRefOid: null, baseRefName: "main", state: "MERGED" }, autoMerge: { attempted: true, result: "merged", prNumber: 917, prHeadSha: null, mergeSha: "c".repeat(40) } } }],
+    ["malformed current head", { iterationOverrides: { runnerCreatedCommitSha: "not-a-sha", pr: { number: 917, headRefName: source().branchName, headRefOid: "not-a-sha", baseRefName: "main", state: "MERGED" }, autoMerge: { attempted: true, result: "merged", prNumber: 917, prHeadSha: "not-a-sha", mergeSha: "c".repeat(40) } } }],
     ["wrong pr head", { iterationOverrides: { runnerCreatedCommitSha: shaA, pr: { number: 917, headRefName: source().branchName, headRefOid: shaA } } }],
+    ["stale head", { iterationOverrides: { runnerCreatedCommitSha: shaA, pr: { number: 917, headRefName: source().branchName, headRefOid: shaA, baseRefName: "main", state: "MERGED" }, autoMerge: { attempted: true, result: "merged", prNumber: 917, prHeadSha: shaA, mergeSha: "c".repeat(40) } } }],
+    ["malformed pr head", { iterationOverrides: { autoMerge: { attempted: true, result: "merged", prNumber: 917, prHeadSha: "not-a-sha", mergeSha: "c".repeat(40) } } }],
+    ["partial pr pair", { iterationOverrides: { autoMerge: { attempted: true, result: "merged", prNumber: 917, mergeSha: "c".repeat(40) } }, iterationMutator: (iteration) => { delete iteration.runnerCreatedCommitSha; delete iteration.pr.headRefOid; } }],
+    ["missing stop reason", { summaryMutator: (summary) => { delete summary.stopReason; } }],
+    ["null stop reason", { stopReason: null }],
+    ["unknown stop reason", { stopReason: "child-said-ok" }],
+    ["no eligible work", { stopReason: "no-eligible-work" }],
+    ["max runtime", { stopReason: "max-runtime-reached" }],
+    ["recovery blocked summary", { stopReason: "recoverable-work-blocked:recovery_exact_head_evidence_regeneration_required" }],
+    ["manual summary", { stopReason: "recoverable-work-stopped:manual-gate" }],
+    ["authority gate summary", { stopReason: "authority-gate" }],
+    ["danger gate summary", { stopReason: "danger-gate" }],
+    ["partial summary", { stopReason: "partial" }],
+    ["cancelled summary", { stopReason: "cancelled" }],
+    ["failed summary", { stopReason: "failed" }],
+    ["blocked summary", { stopReason: "blocked" }],
+    ["contradictory summary outcome", { summaryOverrides: { outcome: "failed" } }],
+    ["contradictory summary status", { summaryOverrides: { status: "blocked" } }],
+    ["malicious stop reason sanitized", { stopReason: "recoverable-work-blocked:token=super-secret-token" }],
     ["auto merge not attempted", { iterationOverrides: { autoMerge: { attempted: false, result: "merged", prNumber: 917, prHeadSha: shaB, mergeSha: "c".repeat(40) } } }],
     ["merge failed", { iterationOverrides: { outcome: "auto_failed", autoMerge: { attempted: true, result: "merge_failed", reason: "merge_failed", prNumber: 917, prHeadSha: shaB, mergeSha: null } } }],
     ["canonical non-merged result", { iterationOverrides: { outcome: "recovery_existing_pr_continued", autoMerge: { attempted: true, result: "blocked", reason: "manual_gate", prNumber: 917, prHeadSha: shaB, mergeSha: null } } }],
@@ -1218,9 +1253,47 @@ test("completed terminal child requires exact trusted merge proof", () => {
       assert.equal(result.counts.systemdCalls, 0, label);
       assert.equal(result.counts.realMutationCalls, 0, label);
       assert.equal(JSON.stringify(result).includes("not-a-sha"), false, label);
+      assert.equal(JSON.stringify(result).includes("super-secret-token"), false, label);
     } finally {
       config.cleanup();
     }
+  }
+});
+
+test("exact Route B identity selects one exact iteration among unrelated near matches", () => {
+  const config = tempConfig();
+  try {
+    const planned = fixtureOutageState();
+    const child = exactChild(planned, {
+      runId: "supervised-20260715T010000Z-000000000354",
+      state: "completed",
+      terminalOutcome: "completed",
+      runnerRunId: "run-2026-07-15T010300Z",
+    });
+    writeTrustedChildSummary(config, child, {
+      iterations: [
+        mergedSummaryIteration(source({ issueNumber: 914 })),
+        mergedSummaryIteration(source(), { index: 2 }),
+        mergedSummaryIteration(source({ prNumber: 918 }), { index: 3 }),
+      ],
+    });
+    const result = runOutageResubmissionController({
+      config,
+      source: source(),
+      outageState: planned,
+      recoveryState: incompleteRecoveryState(),
+      existingChildren: [child],
+      dryRun: false,
+      now,
+    });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.reasonCode, "confirmed_child_recovered");
+    assert.equal(result.childRecoveryProof.iterationIndex, 1);
+    assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false);
+    assert.equal(result.counts.githubMutationCalls, 0);
+    assert.equal(result.counts.systemdCalls, 0);
+  } finally {
+    config.cleanup();
   }
 });
 
@@ -3228,6 +3301,10 @@ function exactMergedChild(config, state = fixtureOutageState(), overrides = {}, 
 function writeTrustedChildSummary(config, child, options = {}) {
   const sourceInput = options.sourceInput || source();
   const runnerRunId = options.runnerRunId || child.runnerRunId;
+  const iteration = options.iterationOverrides
+    ? mergedSummaryIteration(sourceInput, options.iterationOverrides)
+    : mergedSummaryIteration(sourceInput);
+  if (typeof options.iterationMutator === "function") options.iterationMutator(iteration);
   const summary = {
     runId: runnerRunId,
     supervisorRunId: child.runId,
@@ -3236,9 +3313,10 @@ function writeTrustedChildSummary(config, child, options = {}) {
     finishedAt: options.finishedAt || "2026-07-15T01:05:00.000Z",
     baseOriginMainSha: options.baseOriginMainSha || sourceInput.baseSha,
     stopReason: Object.hasOwn(options, "stopReason") ? options.stopReason : "max-iterations-reached",
-    iterations: options.iterations || [mergedSummaryIteration(sourceInput, options.iterationOverrides || {})],
+    iterations: options.iterations || [iteration],
     ...(options.summaryOverrides || {}),
   };
+  if (typeof options.summaryMutator === "function") options.summaryMutator(summary);
   const summariesRoot = path.join(config.logsRoot, "summaries");
   mkdirSync(summariesRoot, { recursive: true, mode: 0o700 });
   writeFileSync(path.join(summariesRoot, `${runnerRunId}.json`), `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });

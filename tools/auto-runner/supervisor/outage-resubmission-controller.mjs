@@ -1100,33 +1100,121 @@ function validateTrustedChildSummary(summary, { child, source, resolution }) {
   if (summary.baseOriginMainSha !== source.baseSha) return { ok: false, reason: "summary_base_mismatch" };
   if (!isIsoTimestamp(summary.startedAt) || !isIsoTimestamp(summary.finishedAt)) return { ok: false, reason: "summary_terminal_timestamps_invalid" };
   if (!Array.isArray(summary.iterations) || summary.iterations.length === 0) return { ok: false, reason: "summary_iterations_missing" };
-  if (["no-eligible-work", "max-iterations-reached", "max-runtime-reached"].includes(summary.stopReason)) {
-    const hasMergedIteration = summary.iterations.some((iteration) => iterationMatchesSource(iteration, source) && iteration?.outcome === "auto_merged");
-    if (!hasMergedIteration) return { ok: false, reason: "summary_stop_reason_not_recovery_proof" };
-  }
+  const terminal = validateRouteBTerminalSummary(summary);
+  if (!terminal.ok) return terminal;
   return { ok: true };
 }
 
 function iterationMatchesSource(iteration = {}, source = {}) {
-  if (!iteration || typeof iteration !== "object") return false;
-  if (iteration.issue?.number !== source.issueNumber) return false;
+  return validateExactRouteBIterationIdentity(iteration, source).ok;
+}
+
+function validateExactRouteBIterationIdentity(iteration = {}, source = {}) {
+  if (!iteration || typeof iteration !== "object" || Array.isArray(iteration)) return { ok: false, reason: "iteration_identity_not_object" };
+  const sourceValidation = validateRouteBSourceIdentity(source);
+  if (!sourceValidation.ok) return sourceValidation;
+  const issue = validatePositiveIntegerField(iteration.issue?.number, source.issueNumber, "issue_number");
+  if (!issue.ok) return issue;
   const pr = iteration.pr || {};
   const autoMerge = iteration.autoMerge || {};
-  if (source.prNumber !== null && source.prNumber !== undefined) {
-    const prNumber = firstDefined(pr.number, autoMerge.prNumber);
-    if (prNumber !== source.prNumber) return false;
-  }
+  const prNumber = validatePositiveIntegerField(firstDefined(pr.number, autoMerge.prNumber), source.prNumber, "pr_number");
+  if (!prNumber.ok) return prNumber;
   const branchName = firstDefined(iteration.branchName, pr.headRefName, autoMerge.headRefName, autoMerge.branchName, iteration.recovery?.state?.branchName);
-  if (branchName && branchName !== source.branchName) return false;
+  const branch = validateStringField(branchName, source.branchName, "branch_name");
+  if (!branch.ok) return branch;
   const baseSha = firstDefined(iteration.baseOriginMainSha, autoMerge.baseSha, autoMerge.baseOriginMainSha);
-  if (baseSha && baseSha !== source.baseSha) return false;
+  const base = validateShaField(baseSha, source.baseSha, "base_sha");
+  if (!base.ok) return base;
   const headSha = firstDefined(iteration.runnerCreatedCommitSha, iteration.expectedHeadSha, pr.headRefOid, pr.headSha, autoMerge.prHeadSha, autoMerge.headSha);
-  if (headSha && headSha !== source.currentHeadSha) return false;
-  if (source.prHeadSha !== null && source.prHeadSha !== undefined) {
-    const prHeadSha = firstDefined(autoMerge.prHeadSha, pr.headRefOid, pr.headSha, iteration.runnerCreatedCommitSha);
-    if (prHeadSha !== source.prHeadSha) return false;
+  const head = validateShaField(headSha, source.currentHeadSha, "head_sha");
+  if (!head.ok) return head;
+  const prHeadSha = firstDefined(autoMerge.prHeadSha, pr.headRefOid, pr.headSha, iteration.runnerCreatedCommitSha);
+  const prHead = validateShaField(prHeadSha, source.prHeadSha, "pr_head_sha");
+  if (!prHead.ok) return prHead;
+  return { ok: true };
+}
+
+function validateRouteBSourceIdentity(source = {}) {
+  for (const [field, value] of [
+    ["source_issue_number", source.issueNumber],
+    ["source_pr_number", source.prNumber],
+  ]) {
+    if (!Number.isInteger(value) || value <= 0) return { ok: false, reason: `iteration_identity_${field}_invalid` };
   }
-  return true;
+  for (const [field, value] of [
+    ["source_branch_name", source.branchName],
+  ]) {
+    if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) return { ok: false, reason: `iteration_identity_${field}_invalid` };
+  }
+  for (const [field, value] of [
+    ["source_base_sha", source.baseSha],
+    ["source_head_sha", source.currentHeadSha],
+    ["source_pr_head_sha", source.prHeadSha],
+  ]) {
+    if (!isSha(value)) return { ok: false, reason: `iteration_identity_${field}_invalid` };
+  }
+  return { ok: true };
+}
+
+function validatePositiveIntegerField(actual, expected, field) {
+  if (actual === undefined || actual === null) return { ok: false, reason: `iteration_identity_${field}_missing` };
+  if (!Number.isInteger(actual) || actual <= 0) return { ok: false, reason: `iteration_identity_${field}_invalid` };
+  if (actual !== expected) return { ok: false, reason: `iteration_identity_${field}_mismatch` };
+  return { ok: true };
+}
+
+function validateStringField(actual, expected, field) {
+  if (actual === undefined || actual === null) return { ok: false, reason: `iteration_identity_${field}_missing` };
+  if (typeof actual !== "string" || actual.trim() === "" || actual !== actual.trim()) {
+    return { ok: false, reason: `iteration_identity_${field}_invalid` };
+  }
+  if (actual !== expected) return { ok: false, reason: `iteration_identity_${field}_mismatch` };
+  return { ok: true };
+}
+
+function validateShaField(actual, expected, field) {
+  if (actual === undefined || actual === null) return { ok: false, reason: `iteration_identity_${field}_missing` };
+  if (typeof actual !== "string" || actual.trim() === "" || actual !== actual.trim() || !isSha(actual)) {
+    return { ok: false, reason: `iteration_identity_${field}_invalid` };
+  }
+  if (actual !== expected) return { ok: false, reason: `iteration_identity_${field}_mismatch` };
+  return { ok: true };
+}
+
+const routeBTerminalSuccessStopReasons = new Set(["max-iterations-reached"]);
+const routeBContradictoryTerminalPattern =
+  /(^|[-_:])(blocked|manual|authority|danger|partial|cancel(?:led|ed)?|fail(?:ed|ure)?|not[-_]?attempted|recovery[-_]?blocked|stopped)([-_:]|$)/i;
+
+function validateRouteBTerminalSummary(summary) {
+  if (typeof summary.stopReason !== "string" || summary.stopReason.trim() === "") {
+    return { ok: false, reason: "summary_stop_reason_missing" };
+  }
+  if (summary.stopReason !== summary.stopReason.trim()) return { ok: false, reason: "summary_stop_reason_invalid" };
+  if (routeBContradictoryTerminalPattern.test(summary.stopReason)) {
+    return { ok: false, reason: "summary_stop_reason_contradictory" };
+  }
+  if (!routeBTerminalSuccessStopReasons.has(summary.stopReason)) {
+    return { ok: false, reason: knownRouteBNonProofStopReason(summary.stopReason)
+      ? "summary_stop_reason_not_recovery_proof"
+      : "summary_stop_reason_unknown" };
+  }
+  for (const [field, value] of Object.entries({
+    outcome: summary.outcome,
+    result: summary.result,
+    status: summary.status,
+    terminalState: summary.terminalState,
+    terminalOutcome: summary.terminalOutcome,
+  })) {
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "string" || routeBContradictoryTerminalPattern.test(value)) {
+      return { ok: false, reason: `summary_${field}_contradictory` };
+    }
+  }
+  return { ok: true };
+}
+
+function knownRouteBNonProofStopReason(stopReason) {
+  return ["no-eligible-work", "max-runtime-reached"].includes(stopReason);
 }
 
 function validateMergedIteration(iteration = {}, source = {}) {
