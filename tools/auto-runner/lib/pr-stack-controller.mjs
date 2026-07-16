@@ -47,14 +47,13 @@ export function nextStackAction(plan, evidence = {}) {
   const active = plan.orderedPrs.find((pr) => pr.number === plan.activePrNumber) || plan.orderedPrs[0];
   if (!active) return { action: "complete", reason: "stack_empty" };
   if (evidence.recoverableActivePr) return { action: "recover_active_pr", prNumber: active.number, reason: "recovery_first" };
-  if (!evidence.reviewConverged?.[active.number]) return { action: "converge_pr", prNumber: active.number };
-  if (!evidence.gatesPassed?.[active.number]) return { action: "complete_gates", prNumber: active.number };
-  if (!evidence.merged?.[active.number]) return { action: "merge_pr", prNumber: active.number, expectedHead: active.headRefOid };
+  const activeAction = actionForPr(active, evidence);
+  if (activeAction) return activeAction;
   const next = plan.orderedPrs.find((pr) => !evidence.merged?.[pr.number]);
   if (!next) return { action: "hygiene", reason: "all_prs_merged" };
   if (next.baseRefName !== "main" && !evidence.retargeted?.[next.number]) return { action: "retarget_pr", prNumber: next.number, newBase: "main" };
   if (!evidence.ownDeltaPreserved?.[next.number]) return { action: "prove_own_delta", prNumber: next.number };
-  return { action: "converge_pr", prNumber: next.number };
+  return actionForPr(next, evidence) || { action: "hygiene", reason: "all_prs_merged" };
 }
 
 export function proveSemanticOwnDelta(before = {}, after = {}) {
@@ -135,6 +134,13 @@ function normalizeOwnDelta(delta = {}) {
     forwardPatchApplies: delta.forwardPatchApplies ?? null,
     reversePatchApplies: delta.reversePatchApplies ?? null,
   };
+}
+
+function actionForPr(pr, evidence) {
+  if (!evidence.reviewConverged?.[pr.number]) return { action: "converge_pr", prNumber: pr.number };
+  if (!evidence.gatesPassed?.[pr.number]) return { action: "complete_gates", prNumber: pr.number };
+  if (!evidence.merged?.[pr.number]) return { action: "merge_pr", prNumber: pr.number, expectedHead: pr.headRefOid };
+  return null;
 }
 
 function digestJson(value) {

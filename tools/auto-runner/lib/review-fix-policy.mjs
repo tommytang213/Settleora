@@ -32,6 +32,9 @@ export const reviewFixStopLabels = Object.freeze([
 export const defaultReviewFixSourceCycles = 50;
 export const hardMaxReviewFixSourceCycles = 50;
 export const defaultNoProgressSourceCycles = 3;
+const maxContractGlobLength = 240;
+const maxContractGlobSegments = 64;
+const maxContractGlobWildcards = 16;
 const broadAllowedPathGlobs = new Set(["**", "./**"]);
 const manualActionPathPatterns = Object.freeze([
   /^\.env(?:\.|$)/i,
@@ -128,7 +131,7 @@ export function evaluateReviewFixMutationDecision(input) {
   if (changedFiles.length === 0) return block("no_changed_files");
   const contractPathDecision = evaluateReviewFixContractPaths({ laneDecision, changedFiles });
   if (!contractPathDecision.ok) return block(contractPathDecision.reason);
-  const strongGateDecision = evaluateReviewFixStrongGates({ laneDecision, validation: input.validation, review: input.review, externalReview: input.externalReview, mergePolicy: input.mergePolicy });
+  const strongGateDecision = evaluateReviewFixStrongGates({ laneDecision, validation: input.validation, review: input.review, externalReview: input.externalReview, mergePolicy: input.mergePolicy, trigger });
   if (!strongGateDecision.ok) return block(strongGateDecision.reason);
   if (input.validation?.passed !== true) return block("local_validation_not_passed_before_review_fix");
   if (!trigger.actionable) return block(trigger.reason || "review_finding_not_actionable");
@@ -171,12 +174,18 @@ export function evaluateReviewFixContractPaths({ laneDecision = {}, changedFiles
   return { ok: true, reason: "contract_paths_ok" };
 }
 
-export function evaluateReviewFixStrongGates({ laneDecision = {}, validation = {}, review = {}, externalReview = {}, mergePolicy = {} } = {}) {
+export function evaluateReviewFixStrongGates({ laneDecision = {}, validation = {}, review = {}, externalReview = {}, mergePolicy = {}, trigger = null } = {}) {
   if (!reviewFixSensitiveLanes.includes(laneDecision.lane)) return { ok: true, reason: "standard_lane_gates_ok" };
   const tier = externalReview?.tier || laneDecision.reviewerTier || laneDecision.laneManifest?.reviewerTier || null;
   if (validation?.passed !== true || validation.profile === "docs-only") return { ok: false, reason: "sensitive_lane_requires_strong_validation" };
   if (!["strong_independent", "tie_breaker"].includes(tier)) return { ok: false, reason: "sensitive_lane_requires_strong_independent_review" };
-  if (review?.verdict?.verdict && !["approved", "pass"].includes(review.verdict.verdict)) return { ok: false, reason: "sensitive_lane_codex_review_not_approved" };
+  const verdict = review?.verdict?.verdict || null;
+  const actionablePreFixCodexTrigger =
+    verdict === "changes_requested" &&
+    trigger?.actionable === true &&
+    trigger.source === "codex_mechanics" &&
+    trigger.verdict === "changes_requested";
+  if (verdict && !["approved", "pass"].includes(verdict) && !actionablePreFixCodexTrigger) return { ok: false, reason: "sensitive_lane_codex_review_not_approved" };
   if (mergePolicy?.exactHeadRequired === false) return { ok: false, reason: "sensitive_lane_requires_exact_head_merge_policy" };
   return { ok: true, reason: "sensitive_lane_strong_gates_ok" };
 }
@@ -379,24 +388,80 @@ function isUnsafeAllowedPathGlob(glob, lane) {
   if (!normalized || normalized.startsWith("/") || normalized.includes("..") || normalized.includes("\\") || broadAllowedPathGlobs.has(normalized)) {
     return true;
   }
-  if (/\/\*\*\/|^\*$/.test(normalized)) return true;
+  if (!compileAllowedPathGlob(normalized).ok) return true;
   if (manualActionPathPatterns.some((pattern) => pattern.test(normalized))) return true;
   const manifest = laneManifest[lane];
   if (!manifest?.allowedPaths) return true;
-  return !matchesAnyAllowedPath(normalized.replace(/\/\*\*$/, "/"), manifest.allowedPaths);
+  const manifestProbe = normalized.endsWith("/**") ? normalized.slice(0, -3) : normalized;
+  return !matchesAnyAllowedPath(manifestProbe, manifest.allowedPaths);
 }
 
 function matchesAnyAllowedPath(filePath, allowedPaths) {
   const normalized = normalizePath(filePath);
   return (allowedPaths || []).some((glob) => {
     const allowed = normalizePath(glob);
-    if (allowed.endsWith("/**")) return normalized === allowed.slice(0, -3) || normalized.startsWith(allowed.slice(0, -2));
-    if (allowed.includes("*")) {
-      const escaped = allowed.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");
-      return new RegExp(`^${escaped}$`).test(normalized);
-    }
-    return normalized === allowed || normalized.startsWith(`${allowed}/`);
+    const compiled = compileAllowedPathGlob(allowed);
+    if (!compiled.ok) return false;
+    return matchCompiledAllowedPath(normalized, compiled);
   });
+}
+
+function compileAllowedPathGlob(glob) {
+  const normalized = normalizePath(glob);
+  if (!normalized || normalized.length > maxContractGlobLength || normalized.startsWith("/") || normalized.includes("\\") || normalized.includes("..")) {
+    return { ok: false, reason: "malformed_glob" };
+  }
+  const segments = normalized.split("/");
+  if (segments.length > maxContractGlobSegments || segments.some((segment) => segment.length === 0)) {
+    return { ok: false, reason: "malformed_glob_segments" };
+  }
+  let wildcardCount = 0;
+  for (const [index, segment] of segments.entries()) {
+    if (segment.includes("**") && segment !== "**") return { ok: false, reason: "malformed_double_star_segment" };
+    if (segment === "**" && index !== segments.length - 1) return { ok: false, reason: "malformed_double_star_position" };
+    wildcardCount += countChars(segment, "*");
+  }
+  if (wildcardCount > maxContractGlobWildcards) return { ok: false, reason: "glob_too_complex" };
+  return { ok: true, segments };
+}
+
+function matchCompiledAllowedPath(filePath, compiled) {
+  const pathSegments = normalizePath(filePath).split("/").filter(Boolean);
+  return matchSegments(pathSegments, 0, compiled.segments, 0);
+}
+
+function matchSegments(pathSegments, pathIndex, globSegments, globIndex) {
+  while (globIndex < globSegments.length) {
+    const globSegment = globSegments[globIndex];
+    if (globSegment === "**") {
+      return globIndex === globSegments.length - 1;
+    }
+    if (pathIndex >= pathSegments.length || !matchPathSegment(pathSegments[pathIndex], globSegment)) return false;
+    pathIndex += 1;
+    globIndex += 1;
+  }
+  return pathIndex === pathSegments.length;
+}
+
+function matchPathSegment(value, pattern) {
+  let valueIndex = 0;
+  const parts = pattern.split("*");
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (!part) continue;
+    const found = value.indexOf(part, valueIndex);
+    if (found === -1) return false;
+    if (index === 0 && found !== 0) return false;
+    valueIndex = found + part.length;
+  }
+  const lastPart = parts[parts.length - 1];
+  return pattern.endsWith("*") || value.endsWith(lastPart);
+}
+
+function countChars(value, char) {
+  let count = 0;
+  for (const current of String(value)) if (current === char) count += 1;
+  return count;
 }
 
 function sanitizeFindings(findings) {

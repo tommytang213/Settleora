@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,6 +19,7 @@ import {
   bindReviewConvergenceEvidence,
   createInitialReviewConvergenceState,
   loadReviewConvergenceState,
+  reviewConvergenceStorageKey,
   recordConvergenceMutationMarker,
   reviewConvergenceStatePath,
   writeReviewConvergenceState,
@@ -26,6 +28,7 @@ import {
   evaluateReviewFixContractPaths,
   evaluateReviewFixMutationDecision,
   evaluateReviewFixStrongGates,
+  extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
 import {
@@ -94,6 +97,47 @@ test("durable state writes atomically, reloads, fails closed on corruption, and 
     assert.equal(written.statePath, reviewConvergenceStatePath(c, current));
     current = { ...current, stateVersion: 999 };
     assert.throws(() => writeReviewConvergenceState(c, current), /Invalid review convergence state/);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("durable state key is stable across canonical identity, stored id, restart, and mismatch", () => {
+  const c = config();
+  try {
+    const canonical = {
+      stackId: "stack-1",
+      repository: "tommytang213/Settleora",
+      issueNumber: 921,
+      prNumber: 919,
+      branchName: "feature/parent",
+      baseRef: "main",
+    };
+    const current = state(canonical);
+    const expectedKey = reviewConvergenceStorageKey(canonical);
+    assert.equal(current.convergenceId, expectedKey);
+    const written = writeReviewConvergenceState(c, current);
+    assert.equal(written.statePath, reviewConvergenceStatePath(c, canonical));
+    assert.equal(written.statePath, reviewConvergenceStatePath(c, current.convergenceId));
+    assert.equal(loadReviewConvergenceState(c, canonical).ok, true);
+    assert.equal(loadReviewConvergenceState(c, current.convergenceId).ok, true);
+    const updated = bindReviewConvergenceEvidence(current, "validation", { status: "passed", exactHead: current.pr.exactHead });
+    assert.equal(writeReviewConvergenceState(c, updated).statePath, written.statePath);
+    assert.equal(loadReviewConvergenceState(c, { ...canonical, prNumber: 920 }).reasonCode, "review_convergence_state_missing");
+    assert.equal(loadReviewConvergenceState(c, { ...canonical, convergenceId: current.convergenceId, prNumber: 920 }).reasonCode, "review_convergence_state_identity_mismatch");
+    const legacyDoubleHashKey = createHash("sha256")
+      .update(JSON.stringify({
+        stackId: null,
+        convergenceId: current.convergenceId,
+        repository: null,
+        issueNumber: null,
+        prNumber: null,
+        branchName: null,
+        baseRef: null,
+      }))
+      .digest("hex");
+    assert.notEqual(reviewConvergenceStatePath(c, legacyDoubleHashKey), written.statePath);
+    assert.equal(loadReviewConvergenceState(c, legacyDoubleHashKey).reasonCode, "review_convergence_state_missing");
   } finally {
     c.cleanup();
   }
@@ -179,6 +223,22 @@ test("contract-approved lanes allow docs/runtime/sensitive fixes only under the 
   assert.equal(evaluateReviewFixContractPaths({ laneDecision: generated, changedFiles: ["packages/client-dart/lib/generated/a.dart"] }).reason, "generated_clients_require_authoritative_generator_or_contract_change");
 });
 
+test("contract glob matching is bounded, deterministic, segment-aware, and fail-closed", () => {
+  const lane = {
+    lane: "workflow-docs-tooling",
+    allowedPaths: ["docs/workflow/**", "tools/auto-runner/test/*.test.mjs", "tools/auto-runner/lib/review-*.mjs"],
+  };
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: lane, changedFiles: ["docs/workflow/a/b.md"] }).ok, true);
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: { ...lane, allowedPaths: ["tools/auto-runner/**"] }, changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"] }).ok, true);
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: lane, changedFiles: ["tools/auto-runner/test/review-convergence.test.mjs"] }).ok, true);
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: lane, changedFiles: ["tools/auto-runner/test/nested/review.test.mjs"] }).ok, false);
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: lane, changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"] }).ok, true);
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: { ...lane, allowedPaths: ["docs/**/bad.md"] }, changedFiles: ["docs/a/bad.md"] }).reason, "unsafe_contract_allowed_path:docs/**/bad.md");
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: { ...lane, allowedPaths: [`docs/workflow/${"*".repeat(17)}.md`] }, changedFiles: ["docs/workflow/a.md"] }).reason, `unsafe_contract_allowed_path:docs/workflow/${"*".repeat(17)}.md`);
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: { ...lane, allowedPaths: ["docs/workflow//bad.md"] }, changedFiles: ["docs/workflow/bad.md"] }).reason, "unsafe_contract_allowed_path:docs/workflow//bad.md");
+  assert.equal(evaluateReviewFixContractPaths({ laneDecision: lane, changedFiles: [`docs/workflow/${"a".repeat(5000)}.md`] }).ok, true);
+});
+
 test("review-fix mutation decision permits approved sensitive fix and blocks malformed contracts", () => {
   const laneDecision = {
     lane: "auth-session-security",
@@ -208,6 +268,40 @@ test("review-fix mutation decision permits approved sensitive fix and blocks mal
   assert.equal(malformed.reason, "review_fix_budget_malformed");
 });
 
+test("sensitive Codex changes-requested safe-fix trigger can enter mutation but still requires final approval", () => {
+  const laneDecision = {
+    lane: "auth-session-security",
+    allowedToImplement: true,
+    autoMergeEligible: true,
+    manualMergeRequired: false,
+    allowedPaths: ["services/api/**"],
+    contract: { autoMergeEligible: true, manualMergeRequired: false },
+  };
+  const review = {
+    verdict: {
+      verdict: "changes_requested",
+      recommended_next_action: "run_safe_fix_cycle",
+      blocking_findings: ["Fix bounded security issue"],
+    },
+  };
+  const trigger = extractReviewFixTrigger({ review });
+  const allowed = evaluateReviewFixMutationDecision({
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    laneDecision,
+    changedFiles: ["services/api/Auth/Fix.cs"],
+    validation: { passed: true, profile: "api-security" },
+    review,
+    externalReview: { tier: "strong_independent" },
+    mergePolicy: { exactHeadRequired: true },
+  });
+  assert.equal(trigger.actionable, true);
+  assert.equal(allowed.allowed, true);
+  assert.equal(evaluateReviewFixStrongGates({ laneDecision, validation: { passed: true, profile: "api-security" }, review, externalReview: { tier: "cheap_independent" }, trigger }).ok, false);
+  assert.equal(evaluateReviewFixStrongGates({ laneDecision, validation: { passed: true, profile: "api-security" }, review, externalReview: { tier: "strong_independent" } }).ok, false);
+  assert.equal(evaluateReviewFixStrongGates({ laneDecision, validation: { passed: true, profile: "api-security" }, review: { verdict: { verdict: "approved" } }, externalReview: { tier: "strong_independent" } }).ok, true);
+  assert.equal(extractReviewFixTrigger({ review: { verdict: { verdict: "changes_requested", recommended_next_action: "manual_review", blocking_findings: ["manual"] } } }).actionable, false);
+});
+
 test("stack controller sequences parent merge, child retarget, delta proof, child merge, and hygiene", () => {
   const pr919 = { number: 919, state: "OPEN", baseRefName: "main", headRefName: "feature/parent", headRefOid: "9".repeat(40) };
   const pr920 = { number: 920, state: "OPEN", baseRefName: "feature/parent", headRefName: "feature/child", headRefOid: "8".repeat(40) };
@@ -217,6 +311,9 @@ test("stack controller sequences parent merge, child retarget, delta proof, chil
   assert.deepEqual(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true } }), { action: "merge_pr", prNumber: 919, expectedHead: "9".repeat(40) });
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true } }).action, "retarget_pr");
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true } }).action, "prove_own_delta");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "converge_pr");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "complete_gates");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "merge_pr");
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true, 920: true } }).action, "hygiene");
   const marker = recordStackMutationMarker(plan, { kind: "merge", key: "919", prNumber: 919, exactHead: "9".repeat(40) });
   assert.equal(recordStackMutationMarker(marker.plan, { kind: "merge", key: "919", prNumber: 919, exactHead: "9".repeat(40) }).duplicate, true);

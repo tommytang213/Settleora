@@ -25,10 +25,10 @@ export const headBoundConvergenceEvidenceKinds = Object.freeze([
 ]);
 
 export function reviewConvergenceStorageKey(input = {}) {
+  if (typeof input.convergenceId === "string" && input.convergenceId) return input.convergenceId;
   return createHash("sha256")
     .update(JSON.stringify({
       stackId: input.stackId || null,
-      convergenceId: input.convergenceId || null,
       repository: input.repository || null,
       issueNumber: input.issue?.number ?? input.issueNumber ?? null,
       prNumber: input.pr?.number ?? input.prNumber ?? null,
@@ -105,6 +105,9 @@ export function loadReviewConvergenceState(config, keyOrState) {
   }
   const validation = validateReviewConvergenceState(parsed);
   if (!validation.ok) return { ok: false, reasonCode: "review_convergence_state_schema_invalid", reason: validation.reason, statePath };
+  const identity = expectedIdentity(keyOrState);
+  const mismatch = identityMismatch(parsed, identity);
+  if (mismatch) return { ok: false, reasonCode: "review_convergence_state_identity_mismatch", reason: mismatch, statePath };
   return { ok: true, state: sanitizeState(parsed), statePath };
 }
 
@@ -200,6 +203,32 @@ function sanitizeState(state) {
 
 function digestJson(value) {
   return createHash("sha256").update(JSON.stringify(value || {})).digest("hex");
+}
+
+function expectedIdentity(input) {
+  if (!input || typeof input !== "object") return null;
+  return {
+    repository: input.repository || null,
+    issueNumber: input.issue?.number ?? input.issueNumber ?? null,
+    prNumber: input.pr?.number ?? input.prNumber ?? null,
+    branchName: input.pr?.headRefName ?? input.branch?.name ?? input.branchName ?? null,
+    baseRef: input.pr?.baseRefName ?? input.branch?.baseRef ?? input.baseRef ?? null,
+  };
+}
+
+function identityMismatch(state, identity) {
+  if (!identity) return null;
+  const actual = {
+    repository: state.repository || null,
+    issueNumber: state.task?.issueNumber ?? null,
+    prNumber: state.pr?.number ?? null,
+    branchName: state.pr?.branch || null,
+    baseRef: state.pr?.base || null,
+  };
+  for (const [key, expected] of Object.entries(identity)) {
+    if (expected !== null && expected !== undefined && actual[key] !== expected) return key;
+  }
+  return null;
 }
 
 function bounded(value, max) {
