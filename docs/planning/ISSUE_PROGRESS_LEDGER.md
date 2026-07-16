@@ -20,6 +20,46 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #921 - Bounded review convergence and dependent PR stack loop
+
+- Task key: `20260717-0040`.
+- Parent tracker: #910.
+- Historical context:
+  #800, #893, and #894 remain closed valid foundation records, but current
+  live code before this task still had a one-cycle/two-lane review-fix
+  limitation and no durable dependent-PR stack convergence controller.
+- Focused issue:
+  #921, `Auto-runner bounded review convergence and dependent PR stack loop`,
+  open under #910.
+- Branch:
+  `feature/auto-921-review-convergence-stack-loop-20260717-0040`.
+- Planned PR scope:
+  workflow/tooling only under `tools/auto-runner/**`, the auto-runner workflow
+  docs, this ledger, and
+  `docs/planning/AUTO_RUNNER_REVIEW_CONVERGENCE_STACK_LOOP_921.md`.
+- Completed implementation slices in this branch:
+  durable review-convergence state, 50-cycle exact-head convergence controller,
+  contract-approved review-fix mutation lanes with stronger sensitive gates,
+  and durable dependent-PR stack planning/execution primitives.
+- First live acceptance stack after merge:
+  #919 -> #920. This implementation branch plans it read-only only; a later
+  activation task must perform the live run without production-profile
+  activation.
+- Manual gates preserved:
+  production deploy, store release, destructive operations, secrets/auth config
+  mutation, public/admin exposure, Day 1 scope cuts, architecture replacement,
+  force-like history, branch deletion, unresolved product/policy/security/
+  privacy/financial authority choices, and production profile activation.
+- Project fields:
+  `not_updated`; no tested mapping was exercised.
+- Close/keep-open recommendation:
+  keep #921 open until this implementation PR merges and the later task-scoped
+  live #919 -> #920 acceptance completes. Keep #910 open. Keep #912 open and
+  unactivated. Keep #913/#865/#866 unchanged unless a separate task authorizes
+  mutation.
+- Last verified repo SHA:
+  `0bf03f4e9a99567736bd59a904c6fe2ab6763884` at task branch creation.
+
 ### Auto-runner operational readiness plan - 20260714-1010
 
 - Task key: `20260714-1010`.

@@ -121,9 +121,21 @@ the Node worker entry point, validated `%i` run IDs, `UMask=0077`,
 dedicated worker log files, and an optional environment file only under
 `/workspace/logs/settleora-auto-runner/secrets/`.
 
-No instance is enabled by the template. No reboot resume is configured. Failed,
-killed, crashed, timed-out, or reboot-interrupted mutation runs require
-operator review and explicit recovery.
+No instance is enabled by the template. Failed, killed, crashed, timed-out, or
+reboot-interrupted mutation runs recover only through durable runner state and
+safe-boundary continuation. The bounded review-convergence and stack state
+roots live under `/workspace/logs/settleora-auto-runner/`, are owner-only,
+atomic-write, schema-validated, and fail closed when corrupt or partial. The
+supervisor must resume an active PR/stack before polling unrelated work, and
+must use mutation markers to avoid duplicate commits, pushes, comments, review
+requests, merges, retargets, issue closures, labels, ledger updates, or
+project updates after restart.
+
+Review-fix convergence does not notify the operator for each cycle, each fix,
+retriable provider/network/CI wait, or parent-to-child stack transition. It
+emits one bounded notification for genuine manual decisions, unsafe/destructive
+scope, unrecoverable infrastructure/auth failure, no-progress or oscillation
+terminal states, exhausted diagnostic fallback, or final stack completion.
 
 ## Windows-Origin Acceptance Checkpoint
 

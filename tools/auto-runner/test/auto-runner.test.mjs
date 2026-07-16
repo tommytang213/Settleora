@@ -250,7 +250,7 @@ test("canary real-run allows auto-merge only for explicit external max-2 low-ris
   assert.match(tooMany.reason, /maxIterations must be <= 2/);
 });
 
-test("review-fix mutation defaults off and clamps explicit low-risk approval to one attempt", () => {
+test("review-fix mutation defaults off and clamps explicit approval to fifty cycles", () => {
   const defaults = normalizeReviewFixMutationConfig({});
   assert.equal(defaults.enabled, false);
   assert.equal(defaults.maxAttempts, 0);
@@ -270,7 +270,8 @@ test("review-fix mutation defaults off and clamps explicit low-risk approval to 
   };
   const normalized = normalizeReviewFixMutationConfig(approved);
   assert.equal(normalized.enabled, true);
-  assert.equal(normalized.maxAttempts, 1);
+  assert.equal(normalized.maxAttempts, 50);
+  assert.equal(normalized.hardMaxSourceChangingCycles, 50);
   const approval = evaluateReviewFixMutationApproval(approved);
   assert.equal(approval.approved, true);
   assert.equal(approval.mode, "approved_clamped");
@@ -955,7 +956,7 @@ test("review-fix mutation decision requires actionable low-risk auto-merge contr
   assert.match(broad.reason, /unsafe_contract_allowed_path/);
 });
 
-test("review-fix mutation blocks stop labels, broad trusted run, and non-actionable reviewer output", () => {
+test("review-fix mutation blocks stop labels and non-actionable reviewer output while allowing trusted approved runs", () => {
   const config = {
     configPath: "/workspace/logs/settleora-auto-runner/local-review-fix.json",
     allowReviewFixMutation: true,
@@ -981,7 +982,7 @@ test("review-fix mutation blocks stop labels, broad trusted run, and non-actiona
     },
   };
   assert.match(evaluateReviewFixMutationDecision({ ...common, issue: { ...common.issue, labels: ["blocked"] } }).reason, /issue_stop_label/);
-  assert.equal(evaluateReviewFixMutationDecision({ ...common, config: { ...config, trustedRealRunApproved: true } }).reason, "review_fix_refuses_broad_trusted_real_run");
+  assert.equal(evaluateReviewFixMutationDecision({ ...common, config: { ...config, trustedRealRunApproved: true } }).allowed, true);
   assert.match(
     evaluateReviewFixMutationDecision({
       ...common,

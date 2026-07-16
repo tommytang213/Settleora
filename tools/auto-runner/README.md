@@ -932,20 +932,54 @@ The `client-ui-low-risk` validation profile is fixed in runner source as:
 `flutter test test/ui/settleora_component_guardrail_test.dart` from
 `apps/mobile`. Issue contracts cannot provide shell commands.
 
-Low-risk review-fix mutation foundation:
+Bounded review-fix convergence:
 
-Review-fix mutation can only be considered in the same bounded low-risk canary
-shape as auto-merge: `--run --canary`, external config,
-`trustedRealRunCanaryApproved: true`, `trustedRealRunApproved: false`,
-`lowRiskAutoMergeCanaryApproved: true`, `allowAutoMerge: true`,
-`allowReviewFixMutation: true`, and a positive `maxReviewFixCycles`. Values
-above one are clamped to one attempt. It cannot mix with stale-claim stealing,
-follow-up issue creation, systemd enablement, broad trusted real-run approval,
-dangerous lanes, stop labels, broad root paths, `**`, `docs/**`, traversal,
-generated clients, secrets/env files, product/runtime/API/auth/session/
-security/storage/privacy/money/settlement/schema/OpenAPI/Docker/deployment/
-public/admin/mobile/OCR/sync/import/export/backup/restore scope, or files
-outside the issue contract.
+Review-fix mutation is still disabled by default and still requires an
+external config with `allowReviewFixMutation: true`. When enabled, the default
+and hard maximum source-changing budget is 50 cycles per PR per convergence
+epoch. Lower explicit values are honored, zero disables mutation, malformed or
+negative values fail closed, and values above 50 are clamped to the hard
+maximum with the requested, normalized, and hard maximum values reported.
+Provider/network/review/CI polling retries, scanner retries, process restart,
+unchanged reruns, and waiting do not consume this budget. A cycle is consumed
+only after a fix produces a source-changing committed/pushed exact head.
+
+Mutation eligibility is contract-based instead of permanently low-risk-only.
+The issue contract, allowed paths, lane `allowedToImplement`,
+manual-decision classification, validation profile, reviewer tier, merge
+policy, danger/manual separation, exact head, and stack state decide whether a
+fix can run. Workflow/docs and normal runtime lanes may self-fix when the
+contract allows them. Auth/security, storage/privacy/authz, money/settlement,
+schema/migrations, OpenAPI/generated clients, Docker/CI/deployment, and other
+sensitive lanes may self-fix only with stronger validation, strong independent
+review, Codex mechanics/security review, and exact-head merge gates. A
+sensitive folder name alone is not an operator interrupt. Production deploys,
+store releases, destructive operations, secret/auth config mutation,
+public/admin exposure, Day 1 scope cuts, architecture replacement, force-like
+history changes, branch deletion, and unresolved product/policy choices remain
+manual. Generated clients are changed only through the authoritative contract
+or generator path.
+
+Every new exact head invalidates validation, review, CI, scanner, and merge
+evidence. Review requests are deduped by PR, exact head, reviewer purpose, and
+tier. Old-head no-finding results are never reused. Material findings are
+fingerprinted without secrets or raw provider payloads, frozen as a complete
+inventory, and fixed as one focused batch. Duplicate and non-material findings
+do not trigger mutation; manual findings stop with one bounded operator
+notification.
+
+The convergence controller detects repeated identical material finding sets,
+findings that return after a claimed fix, candidate tree or patch-id
+oscillation including A/B and short periodic loops, and lack of source
+progress despite provider wording changes. The no-progress threshold defaults
+to at least three source-changing cycles. Terminal reasons are:
+`REVIEW_CONVERGED`, `MANUAL_DECISION_REQUIRED`, `NO_PROGRESS`,
+`REVIEW_OSCILLATION`, `CYCLE_BUDGET_EXHAUSTED`, `VALIDATION_BLOCKED`,
+`REVIEW_PROVIDER_BLOCKED`, `CI_OR_SCANNER_BLOCKED`, and
+`UNSAFE_SCOPE_CHANGE`. At cycle 50 the runner starts one fresh diagnostic
+epoch with a fresh context and alternate implementation strategy, compares
+prior findings and patch/tree identities, and continues only when measurable
+progress exists.
 
 The trigger must be structured and actionable: integrated Gemini must return a
 bounded strict-JSON blocking finding, or Codex mechanics review must return
@@ -989,9 +1023,25 @@ source. It checks only the changed low-risk issue-contract files for the exact
 configured marker, writes sanitized evidence under
 `/workspace/logs/settleora-auto-runner/review-fix/`, returns a structured
 actionable finding when the marker is absent, and returns pass only after the
-marker is present. The fixture still refuses broad paths, dangerous paths,
-missing validation, non-auto-merge contracts, non-canary real-runs, broad
-trusted real-run approval, and disabled review-fix mutation.
+marker is present. The fixture still refuses broad paths, missing validation,
+non-auto-merge contracts, non-canary real-runs, and disabled review-fix
+mutation.
+
+Dependent PR stack execution:
+
+The stack controller stores an ordered stack ID, expected parent/base
+relationships, exact heads, merge policy, required checks, own-delta evidence,
+active PR, completed/remaining entries, and mutation markers under the
+external logs/state root. Startup recovery resumes the active PR before
+unrelated polling. The automatic sequence is: converge the parent, complete
+validation/review/CI/scanner gates, merge with expected-head protection, prove
+current `main`, retarget the dependent PR, prove its semantic own delta is
+preserved, converge and gate the child, merge the child, and perform issue,
+umbrella, ledger, and project hygiene exactly once. Own-delta proof uses file
+set, diffstat/numstat, stable patch ID, normalized patch comparison, and
+forward/reverse patch-to-tree proof; raw diff hashes are evidence but not the
+sole semantic identity. The first live acceptance stack after this
+implementation merges is #919 -> #920, planned read-only by this task.
 
 Summary mode:
 
