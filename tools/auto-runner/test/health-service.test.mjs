@@ -17,11 +17,26 @@ import {
   defaultNotifierStatePath,
   readNotifierState,
 } from "../lib/notifier-dedupe-state.mjs";
+import {
+  createOutageResubmissionState,
+  transitionOutageMarker,
+  writeOutageResubmissionState,
+} from "../lib/outage-resubmission-state.mjs";
+import { outageFingerprint } from "../lib/outage-resubmission-policy.mjs";
 import { buildHeartbeat } from "../supervisor/heartbeat.mjs";
 import { storageKeyForLogicalId } from "../supervisor/supervisor-paths.mjs";
 
 const baseSha = "a".repeat(40);
+const headSha = "b".repeat(40);
+const digestA = "a".repeat(64);
+const digestB = "b".repeat(64);
 const defaultNow = new Date("2026-07-12T06:00:00.000Z");
+const githubApiFingerprint = outageFingerprint({
+  domain: "github_api",
+  outageClass: "github_api_5xx",
+  status: 503,
+  reasonCode: "unknown",
+});
 
 test("auto-runner health initializes healthy with no history and no lock", () => {
   withLogs((logsRoot) => {
@@ -85,6 +100,58 @@ test("auto-runner health fails closed on intermediate outage state symlink witho
       rmSync(external, { recursive: true, force: true });
     }
   });
+});
+
+test("auto-runner health reports active outage state cardinality without choosing ambiguous winners", () => {
+  const activeState = (index, status = "submitted") => transitionOutageMarker(fixtureOutageState(index), {
+    status,
+    childSupervisorRunId: `supervised-20260712T0600${String(index).padStart(2, "0")}Z-${String(index).padStart(12, "0")}`,
+    specDigest: digestB,
+    reasonCode: status === "confirmed_running" ? "confirmed_running_child_observed" : "child_submission_confirmed",
+  });
+  const terminalState = (index) => transitionOutageMarker(fixtureOutageState(index), {
+    status: "recovered",
+    reasonCode: "terminal_fixture",
+  });
+  const cases = [
+    ["zero", [], 200, false, 0, null],
+    ["one", [activeState(1)], 200, false, 1, "20260712-0600-000001"],
+    ["two", [activeState(2), activeState(3, "confirmed_running")], 503, true, 2, null],
+    ["three", [activeState(4), activeState(5), activeState(6, "confirmed_running")], 503, true, 3, null],
+    ["active plus terminal", [terminalState(7), activeState(8)], 200, false, 1, "20260712-0600-000008"],
+  ];
+
+  for (const [label, states, httpStatus, operatorActionRequired, activeCount, selectedTaskKey] of cases) {
+    withLogs((logsRoot) => {
+      const config = { logsRoot };
+      for (const state of states.slice().reverse()) writeOutageResubmissionState(config, state);
+
+      const result = evaluateAutoRunnerHealth({ logsRoot, now: defaultNow });
+      const outage = result.body.outageResubmission;
+      assert.equal(result.httpStatus, httpStatus, label);
+      assert.equal(outage.operatorActionRequired, operatorActionRequired, label);
+      assert.equal(outage.activeRecordCount, activeCount, label);
+      if (operatorActionRequired) {
+        assert.equal(outage.reasonCode, "multiple_active_outage_states", label);
+        assert.equal(outage.activeSourceRun, null, label);
+        assert.equal(outage.childRunId, null, label);
+        assert.equal(outage.terminalOutcome, null, label);
+        assert.equal(outage.ambiguousActiveRecordCount, activeCount, label);
+        assert.deepEqual(
+          outage.ambiguousActiveRecords.map((record) => record.taskKey).sort(),
+          states.filter((state) => !["recovered", "exhausted", "blocked"].includes(state.status)).map((state) => state.correlation.taskKey).sort(),
+          label,
+        );
+      } else {
+        assert.equal(outage.reasonCode, null, label);
+        assert.equal(outage.ambiguousActiveRecordCount, 0, label);
+        assert.deepEqual(outage.ambiguousActiveRecords, [], label);
+        assert.equal(outage.activeSourceRun?.taskKey || null, selectedTaskKey, label);
+      }
+      assert.equal(JSON.stringify(result.body).includes(logsRoot), false, label);
+      assert.equal(JSON.stringify(result.body).includes("secret"), false, label);
+    });
+  }
 });
 
 test("auto-runner health surfaces sanitized outage status from runner status", () => {
@@ -585,6 +652,44 @@ function readdirSorted(dir) {
 function runHealthCli(...args) {
   return spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner-health-service.mjs", ...args], {
     encoding: "utf8",
+  });
+}
+
+function fixtureOutageState(index) {
+  const suffix = String(index).padStart(6, "0");
+  const hexSuffix = index.toString(16).padStart(12, "0").slice(-12);
+  return createOutageResubmissionState({
+    correlation: {
+      taskKey: `20260712-0600-${suffix}`,
+      runnerRunId: `run-2026-07-12T0600${String(index).padStart(2, "0")}Z`,
+      supervisorRunId: `supervised-20260712T0600${String(index).padStart(2, "0")}Z-${hexSuffix}`,
+      issueNumber: 913 + index,
+      branchName: `feature/auto-913-outage-health-${suffix}`,
+      baseSha,
+      currentHeadSha: headSha,
+      prNumber: 918 + index,
+      prHeadSha: headSha,
+      runnerProfile: "default",
+      runnerConfigDigest: digestA,
+      originalSupervisorSpecDigest: digestB,
+      outageProviderDomain: "github_api",
+      outageFingerprint: githubApiFingerprint,
+    },
+    outage: {
+      providerDomain: "github_api",
+      outageClass: "github_api_5xx",
+      outageFingerprint: githubApiFingerprint,
+      firstFailureAt: "2026-07-12T05:00:00.000Z",
+      lastFailureAt: "2026-07-12T05:30:00.000Z",
+      reasonCode: "github_api_5xx",
+    },
+    schedule: {
+      attemptNumber: 1,
+      nextEligibleAt: "2026-07-12T06:05:00.000Z",
+      deadlineAt: "2026-07-13T06:00:00.000Z",
+      maxAttempts: 3,
+      maxWallClockMs: 24 * 60 * 60 * 1000,
+    },
   });
 }
 
