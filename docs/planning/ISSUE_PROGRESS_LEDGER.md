@@ -33,7 +33,10 @@ remain the source of truth.
   open under #910.
 - Branch:
   `feature/auto-921-review-convergence-stack-loop-20260717-0040`.
-- Planned PR scope:
+- PR:
+  #922, `Add bounded review convergence and dependent PR stack loop`,
+  opened non-draft against `main`.
+- PR scope:
   workflow/tooling only under `tools/auto-runner/**`, the auto-runner workflow
   docs, this ledger, and
   `docs/planning/AUTO_RUNNER_REVIEW_CONVERGENCE_STACK_LOOP_921.md`.
@@ -41,6 +44,11 @@ remain the source of truth.
   durable review-convergence state, 50-cycle exact-head convergence controller,
   contract-approved review-fix mutation lanes with stronger sensitive gates,
   and durable dependent-PR stack planning/execution primitives.
+- Review/validation evidence:
+  exact-head implementation validation and compact/strong reviews passed on
+  implementation head `d615f0895fe5effa48242632c41e1400893684a5`; the later
+  ledger-only metadata commit records PR #922 without changing implementation
+  code.
 - First live acceptance stack after merge:
   #919 -> #920. This implementation branch plans it read-only only; a later
   activation task must perform the live run without production-profile
@@ -58,7 +66,8 @@ remain the source of truth.
   unactivated. Keep #913/#865/#866 unchanged unless a separate task authorizes
   mutation.
 - Last verified repo SHA:
-  `0bf03f4e9a99567736bd59a904c6fe2ab6763884` at task branch creation.
+  `0bf03f4e9a99567736bd59a904c6fe2ab6763884` at task branch creation; PR #922
+  source head after metadata update to be verified by the PR and task report.
 
 ### Auto-runner operational readiness plan - 20260714-1010
 
