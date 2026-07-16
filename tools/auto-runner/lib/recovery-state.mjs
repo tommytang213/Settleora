@@ -276,6 +276,10 @@ function validateOutageBindingCallerIdentity(authoritative, binding) {
   ];
   const hasPrNumber = Object.hasOwn(binding, "prNumber");
   const hasPrHeadSha = Object.hasOwn(binding, "prHeadSha");
+  const authoritativeHasPr = authoritative.prNumber !== null || authoritative.prHeadSha !== null;
+  if (authoritativeHasPr && (!hasPrNumber || !hasPrHeadSha)) {
+    return failed("recovery_outage_binding_identity_mismatch", "Outage resubmission binding identity does not match recovery state.");
+  }
   if (hasPrNumber !== hasPrHeadSha) {
     return failed("recovery_outage_binding_identity_mismatch", "Outage resubmission binding identity does not match recovery state.");
   }
@@ -520,6 +524,9 @@ function validateRecoveryStateShape(state) {
     if (!(field in state)) return invalid(`missing field ${field}`);
   }
   if (!Number.isInteger(state.issue?.number)) return invalid("invalid issue number");
+  if (!state.pr || typeof state.pr !== "object" || Array.isArray(state.pr)) return invalid("invalid recovery pr");
+  const prPair = validateRecoveryPrIdentity(state.pr.number, state.pr.headSha);
+  if (!prPair.ok) return invalid(prPair.reason);
   if (!state.branch || typeof state.branch !== "object") return invalid("invalid branch");
   if (!state.branch.name) return invalid("missing branch name");
   if (!isShaOrNull(state.branch.baseSha) || !isShaOrNull(state.branch.currentHeadSha)) return invalid("invalid branch sha");
@@ -636,6 +643,14 @@ function validateAtomicPrIdentity(prNumber, prHeadSha) {
   if (prNumber === null && prHeadSha === null) return { ok: true };
   if (!Number.isSafeInteger(prNumber) || prNumber < 1 || prNumber > 9999999) return invalid("invalid outage resubmission pr number");
   if (!isSha(prHeadSha)) return invalid("invalid outage resubmission pr head");
+  return { ok: true };
+}
+
+function validateRecoveryPrIdentity(prNumber, prHeadSha) {
+  if ((prNumber === null) !== (prHeadSha === null)) return invalid("recovery pr identity must be paired");
+  if (prNumber === null && prHeadSha === null) return { ok: true };
+  if (!Number.isSafeInteger(prNumber) || prNumber < 1 || prNumber > 9999999) return invalid("invalid recovery pr number");
+  if (!isSha(prHeadSha)) return invalid("invalid recovery pr head");
   return { ok: true };
 }
 
