@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loadConfig, parseCliArgs } from "../lib/config.mjs";
+import { loadConfig, parseCliArgs, validateRecoveryOnlyExistingPrTarget } from "../lib/config.mjs";
 
 function withProfile(profile, fn) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-config-foundation-"));
@@ -98,7 +98,7 @@ test("malformed outage resubmission profile remains rejected by policy normaliza
 });
 
 test("PR B config parser owns targeted recovery CLI without granting outage controller capability", () => {
-  const parsed = parseCliArgs([
+  const args = [
     "--run",
     "--supervisor-run-id",
     "supervised-20260716T120000Z-abcdefabcdef",
@@ -129,7 +129,8 @@ test("PR B config parser owns targeted recovery CLI without granting outage cont
     "c".repeat(64),
     "--outage-target-attempt",
     "1",
-  ]);
+  ];
+  const parsed = parseCliArgs(args);
   assert.equal(parsed.outageRecoveryOnly, true);
   assert.equal(parsed.maxIterations, 1);
 
@@ -138,4 +139,46 @@ test("PR B config parser owns targeted recovery CLI without granting outage cont
   assert.equal(config.requestedMaxIterations, 1);
   assert.equal(config.outageRecoveryTarget.issueNumber, 913);
   assert.equal(config.outageResubmission.allowBoundedOutageResubmission, false);
+
+  const without = (...options) => args.filter((value, index) => {
+    const previous = args[index - 1];
+    return !options.includes(value) && !options.includes(previous);
+  });
+  assert.throws(() => parseCliArgs(without("--outage-target-pr", "--outage-target-pr-head-sha")), /requires PR number\/head SHA/);
+  assert.throws(() => parseCliArgs(without("--outage-target-pr")), /must be paired/);
+  assert.throws(() => parseCliArgs(without("--outage-target-pr-head-sha")), /must be paired/);
+  assert.throws(
+    () => loadConfig({
+      ...parsed,
+      outageRecoveryTarget: { ...parsed.outageRecoveryTarget, prNumber: null, prHeadSha: null },
+      configPath: null,
+    }),
+    /requires PR number\/head SHA/,
+  );
+});
+
+test("recovery-only existing PR config must match authoritative target pair", () => {
+  const target = {
+    taskKey: "20260716-1428",
+    issueNumber: 913,
+    branchName: "feature/auto-913-targeted-recovery-child-supervisor-20260716-1213",
+    baseSha: "a".repeat(40),
+    currentHeadSha: "b".repeat(40),
+    prNumber: 919,
+    prHeadSha: "b".repeat(40),
+    runnerRunId: "run-2026-07-16T120000Z",
+    supervisorRunId: "supervised-20260716T120000Z-abcdefabcdef",
+    originalSupervisorSpecDigest: "c".repeat(64),
+    markerKey: "d".repeat(64),
+    outageFingerprint: "e".repeat(64),
+    attemptNumber: 1,
+  };
+  const config = { outageRecoveryOnly: true, outageRecoveryTarget: target };
+  assert.deepEqual(validateRecoveryOnlyExistingPrTarget(config, { prNumber: 919, expectedHeadSha: "b".repeat(40) }), { ok: true });
+  assert.deepEqual(validateRecoveryOnlyExistingPrTarget(config, { prNumber: 919, exactHeadEvidence: { headSha: "b".repeat(40) } }), { ok: true });
+  assert.equal(validateRecoveryOnlyExistingPrTarget(config, { prNumber: 920, expectedHeadSha: "b".repeat(40) }).reason, "outage_recovery_existing_pr_target_mismatch");
+  assert.equal(validateRecoveryOnlyExistingPrTarget(config, { prNumber: 919, expectedHeadSha: "f".repeat(40) }).reason, "outage_recovery_existing_pr_target_mismatch");
+  assert.equal(validateRecoveryOnlyExistingPrTarget(config, { prUrl: "https://example.invalid/pull/919", expectedHeadSha: "b".repeat(40) }).reason, "outage_recovery_existing_pr_target_mismatch");
+  assert.equal(validateRecoveryOnlyExistingPrTarget({ outageRecoveryOnly: true, outageRecoveryTarget: { ...target, prNumber: null, prHeadSha: null } }, { prNumber: 919, expectedHeadSha: "b".repeat(40) }).reason, "outage_recovery_existing_pr_target_missing");
+  assert.deepEqual(validateRecoveryOnlyExistingPrTarget({ outageRecoveryOnly: false }, { prUrl: "https://example.invalid/pull/919" }), { ok: true });
 });

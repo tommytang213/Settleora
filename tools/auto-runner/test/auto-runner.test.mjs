@@ -242,6 +242,30 @@ test("malformed outage recovery target numerics exit before runner side effects"
   }
 });
 
+test("recovery-only missing PR target pair exits before runner side effects", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-outage-recovery-missing-pr-"));
+  try {
+    const repoRoot = path.join(tempRoot, "repo");
+    const logsRoot = path.join(tempRoot, "logs");
+    setupCleanRunnerLaunchRepo(repoRoot);
+    const recovery = cliRecoveryState();
+    const target = targetForCliRecovery(recovery);
+    delete target.prNumber;
+    delete target.prHeadSha;
+    const configPath = path.join(tempRoot, "runner-config.json");
+    writeFileSync(configPath, `${JSON.stringify({ repoRoot, logsRoot, trustedRealRunApproved: true, allowExistingPrRecovery: true }, null, 2)}\n`);
+
+    const result = spawnOutageRecoveryOnly(configPath, repoRoot, target);
+
+    assert.equal(result.status, 1);
+    assert.equal(result.signal, null);
+    assert.match(result.stderr, /requires PR number\/head SHA/);
+    assert.equal(existsSync(logsRoot), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("outage recovery-only blocked targets exit nonzero after writing summaries and cleanup", () => {
   const cases = [
     {
@@ -7289,7 +7313,7 @@ function targetForCliRecovery(recoveryState) {
 }
 
 function outageRecoveryCliArgs(target) {
-  return [
+  const args = [
     "--run",
     "--supervisor-run-id",
     "supervised-20260715T120000Z-000000000917",
@@ -7304,10 +7328,6 @@ function outageRecoveryCliArgs(target) {
     target.baseSha,
     "--outage-target-head-sha",
     target.currentHeadSha,
-    "--outage-target-pr",
-    String(target.prNumber),
-    "--outage-target-pr-head-sha",
-    target.prHeadSha,
     "--outage-target-runner-run-id",
     target.runnerRunId,
     "--outage-target-supervisor-run-id",
@@ -7321,6 +7341,13 @@ function outageRecoveryCliArgs(target) {
     "--outage-target-attempt",
     String(target.attemptNumber),
   ];
+  if (Object.hasOwn(target, "prNumber")) {
+    args.splice(args.indexOf("--outage-target-runner-run-id"), 0, "--outage-target-pr", String(target.prNumber));
+  }
+  if (Object.hasOwn(target, "prHeadSha")) {
+    args.splice(args.indexOf("--outage-target-runner-run-id"), 0, "--outage-target-pr-head-sha", target.prHeadSha);
+  }
+  return args;
 }
 
 function cliOutageBinding(overrides = {}) {
@@ -7343,43 +7370,46 @@ function cliOutageBinding(overrides = {}) {
 }
 
 function spawnOutageRecoveryOnly(configPath, cwd, target) {
+  const args = [
+    path.join(process.cwd(), "tools/auto-runner/settleora-auto-runner.mjs"),
+    "--run",
+    "--config",
+    configPath,
+    "--supervisor-run-id",
+    "supervised-20260715T120000Z-000000000917",
+    "--outage-recovery-only",
+    "--outage-target-task-key",
+    target.taskKey,
+    "--outage-target-issue",
+    String(target.issueNumber),
+    "--outage-target-branch",
+    target.branchName,
+    "--outage-target-base-sha",
+    target.baseSha,
+    "--outage-target-head-sha",
+    target.currentHeadSha,
+    "--outage-target-runner-run-id",
+    target.runnerRunId,
+    "--outage-target-supervisor-run-id",
+    target.supervisorRunId,
+    "--outage-target-original-spec-digest",
+    target.originalSupervisorSpecDigest,
+    "--outage-target-marker-key",
+    target.markerKey,
+    "--outage-target-fingerprint",
+    target.outageFingerprint,
+    "--outage-target-attempt",
+    String(target.attemptNumber),
+  ];
+  if (Object.hasOwn(target, "prNumber")) {
+    args.splice(args.indexOf("--outage-target-runner-run-id"), 0, "--outage-target-pr", String(target.prNumber));
+  }
+  if (Object.hasOwn(target, "prHeadSha")) {
+    args.splice(args.indexOf("--outage-target-runner-run-id"), 0, "--outage-target-pr-head-sha", target.prHeadSha);
+  }
   return spawnSync(
     process.execPath,
-    [
-      path.join(process.cwd(), "tools/auto-runner/settleora-auto-runner.mjs"),
-      "--run",
-      "--config",
-      configPath,
-      "--supervisor-run-id",
-      "supervised-20260715T120000Z-000000000917",
-      "--outage-recovery-only",
-      "--outage-target-task-key",
-      target.taskKey,
-      "--outage-target-issue",
-      String(target.issueNumber),
-      "--outage-target-branch",
-      target.branchName,
-      "--outage-target-base-sha",
-      target.baseSha,
-      "--outage-target-head-sha",
-      target.currentHeadSha,
-      "--outage-target-pr",
-      String(target.prNumber),
-      "--outage-target-pr-head-sha",
-      target.prHeadSha,
-      "--outage-target-runner-run-id",
-      target.runnerRunId,
-      "--outage-target-supervisor-run-id",
-      target.supervisorRunId,
-      "--outage-target-original-spec-digest",
-      target.originalSupervisorSpecDigest,
-      "--outage-target-marker-key",
-      target.markerKey,
-      "--outage-target-fingerprint",
-      target.outageFingerprint,
-      "--outage-target-attempt",
-      String(target.attemptNumber),
-    ],
+    args,
     { cwd, encoding: "utf8" },
   );
 }

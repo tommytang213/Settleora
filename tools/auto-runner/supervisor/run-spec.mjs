@@ -420,6 +420,9 @@ function validateRecoveryOnlyContract(spec) {
   if (!hasTarget) return;
   const target = spec.recoveryOnlyTarget;
   const outage = spec.outageResubmission;
+  if (target.prNumber === null || target.prHeadSha === null || outage.prNumber === null || outage.prHeadSha === null) {
+    throw new Error("recovery-only target requires PR number/head SHA");
+  }
   const duplicateChecks = [
     ["parentSupervisorRunId", spec.parentSupervisorRunId, target.supervisorRunId],
     ["parentRunnerRunId", spec.parentRunnerRunId, target.runnerRunId],

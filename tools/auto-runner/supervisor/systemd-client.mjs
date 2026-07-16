@@ -47,6 +47,9 @@ export function runnerArgvForSpec(spec) {
     spec.maxRuntime,
   ];
   if (spec.recoveryOnlyTarget) {
+    if (spec.recoveryOnlyTarget.prNumber === null || spec.recoveryOnlyTarget.prHeadSha === null) {
+      throw new Error("recovery-only target requires PR number/head SHA");
+    }
     argv.push(
       "--outage-recovery-only",
       "--outage-target-task-key",
@@ -72,14 +75,12 @@ export function runnerArgvForSpec(spec) {
       "--outage-target-attempt",
       String(spec.recoveryOnlyTarget.attemptNumber),
     );
-    if (spec.recoveryOnlyTarget.prNumber !== null) {
-      argv.push(
-        "--outage-target-pr",
-        String(spec.recoveryOnlyTarget.prNumber),
-        "--outage-target-pr-head-sha",
-        spec.recoveryOnlyTarget.prHeadSha,
-      );
-    }
+    argv.push(
+      "--outage-target-pr",
+      String(spec.recoveryOnlyTarget.prNumber),
+      "--outage-target-pr-head-sha",
+      spec.recoveryOnlyTarget.prHeadSha,
+    );
   }
   if (spec.mode === "canary") argv.splice(3, 0, "--canary");
   return argv;

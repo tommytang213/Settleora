@@ -713,6 +713,8 @@ function validateOutageRecoveryTargetForSource({ source, recovery, recoveryState
     };
   }
   const target = recoveryOnlyTargetFromState(state, outageState);
+  const targetPrProof = validateRecoveryOnlyTargetPrProof(target);
+  if (!targetPrProof.ok) return targetPrProof;
   const checks = [
     ["taskKey", target.taskKey, source.taskKey],
     ["issueNumber", target.issueNumber, source.issueNumber],
@@ -731,6 +733,16 @@ function validateOutageRecoveryTargetForSource({ source, recovery, recoveryState
   const mismatch = checks.find(([, actual, expected]) => actual !== expected);
   if (mismatch) return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
   return { ok: true, target, boundary, state };
+}
+
+function validateRecoveryOnlyTargetPrProof(target) {
+  if (!Number.isSafeInteger(target.prNumber) || target.prNumber < 1 || target.prNumber > 9999999) {
+    return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: "prNumber" };
+  }
+  if (!isSha(target.prHeadSha)) {
+    return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: "prHeadSha" };
+  }
+  return { ok: true };
 }
 
 function resolveCanonicalOutageState({ config, source, failure, stateKey }) {

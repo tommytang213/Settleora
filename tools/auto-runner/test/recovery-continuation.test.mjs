@@ -243,6 +243,22 @@ test("targeted outage recovery selects one exact state and ignores unrelated sta
 test("targeted outage recovery handles exact and near-match partitions without order dependence", () => {
   const exact = recoveryWithPr();
   const target = targetFor(exact);
+  const noPrStoredBinding = state({
+    taskKey: exact.taskKey,
+    issue: exact.issue,
+    runId: "run-2026-07-13T113111Z",
+    supervisorRunId: exact.run.supervisorRunId,
+    branchName: exact.branch.name,
+    baseSha: exact.branch.baseSha,
+    currentHeadSha: exact.branch.currentHeadSha,
+    pr: null,
+    outageResubmission: outageBinding({
+      prNumber: null,
+      prHeadSha: null,
+      runnerRunId: "run-2026-07-13T113111Z",
+      supervisorRunId: exact.run.supervisorRunId,
+    }),
+  });
   const nearMatches = [
     ["taskKey", recoveryWithPr({ taskKey: "20260713-1928" })],
     ["issueNumber", recoveryWithPr({ issue: { number: 894, title: "Near issue", url: "https://example.invalid/894" } })],
@@ -264,6 +280,7 @@ test("targeted outage recovery handles exact and near-match partitions without o
     ["outageFingerprint", recoveryWithPr({ runId: "run-2026-07-13T113108Z", outageResubmission: outageBinding({ outageFingerprint: "3".repeat(64) }) })],
     ["attemptNumber", recoveryWithPr({ runId: "run-2026-07-13T113109Z", outageResubmission: outageBinding({ attemptNumber: 2 }) })],
     ["missingMarkerBinding", recoveryWithPr({ runId: "run-2026-07-13T113110Z", outageResubmission: null })],
+    ["noPrStoredBinding", noPrStoredBinding],
     ["missingTargetField", state({ runId: "run-2026-07-13T113104Z" })],
   ];
 

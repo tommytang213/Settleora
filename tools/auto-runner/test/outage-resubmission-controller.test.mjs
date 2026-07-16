@@ -1719,21 +1719,58 @@ test("live current identity must preserve the strict optional PR pair", () => {
       assert.equal(result.counts.realMutationCalls, 0, label);
     }
 
-    for (const [label, sourceInput, currentIdentity] of [
-      ["absent/absent", source({ prNumber: null, prHeadSha: null }), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha }],
-      ["identical present", source(), { branchName: source().branchName, baseSha: source().baseSha, currentHeadSha: source().currentHeadSha, prNumber: 917, prHeadSha: source().prHeadSha }],
-    ]) {
+    const exactSource = source();
+    const exact = runOutageResubmissionController({
+      config,
+      source: exactSource,
+      recoveryState: recoveryStateForSource(exactSource),
+      currentIdentity: liveIdentityForSource(exactSource),
+      dryRun: true,
+      now,
+      childRunId: "supervised-20260715T010000Z-000000000722",
+    });
+    assert.equal(exact.outcome, "planned");
+    assert.equal(exact.reasonCode, "dry_run_no_mutation");
+    assert.equal(exact.events.some((item) => item.event === "resubmission_planned"), true);
+    assert.equal(exact.child.spec.outageResubmission.prNumber, exactSource.prNumber);
+    assert.equal(exact.child.spec.outageResubmission.prHeadSha, exactSource.prHeadSha);
+    assert.equal(exact.child.spec.recoveryOnlyTarget.prNumber, exactSource.prNumber);
+    assert.equal(exact.child.spec.recoveryOnlyTarget.prHeadSha, exactSource.prHeadSha);
+
+    const noPrSource = source({ prNumber: null, prHeadSha: null });
+    const exactRecovery = recoveryStateForSource(exactSource);
+    const targetGateCases = [
+      ["absent/absent recovery-only target", noPrSource, liveIdentityForSource(noPrSource), recoveryStateForSource(noPrSource), "prNumber"],
+      ["no-PR stored target cannot be filled from existingPrRecovery", exactSource, liveIdentityForSource(exactSource), { ...exactRecovery, pr: null }, "prNumber"],
+      ["explicit null target number cannot be filled", exactSource, liveIdentityForSource(exactSource), { ...exactRecovery, pr: { ...exactRecovery.pr, number: null } }, "prNumber"],
+      ["explicit null target head cannot be filled", exactSource, liveIdentityForSource(exactSource), { ...exactRecovery, pr: { ...exactRecovery.pr, headSha: null } }, "prHeadSha"],
+      ["malformed target number blocks at target gate", exactSource, liveIdentityForSource(exactSource), { ...exactRecovery, pr: { ...exactRecovery.pr, number: "917" } }, "prNumber"],
+      ["malformed target head blocks at target gate", exactSource, liveIdentityForSource(exactSource), { ...exactRecovery, pr: { ...exactRecovery.pr, headSha: "not-a-sha" } }, "prHeadSha"],
+      ["wrong target number blocks at target gate", exactSource, liveIdentityForSource(exactSource), { ...exactRecovery, pr: { ...exactRecovery.pr, number: 918 } }, "prNumber"],
+      ["wrong target head blocks at target gate", exactSource, liveIdentityForSource(exactSource), { ...exactRecovery, pr: { ...exactRecovery.pr, headSha: shaA } }, "prHeadSha"],
+      ["existingPrRecovery cannot replace degraded target head", exactSource, liveIdentityForSource(exactSource), { ...exactRecovery, pr: { ...exactRecovery.pr, number: exactSource.prNumber, headSha: null } }, "prHeadSha"],
+    ];
+    for (const [label, sourceInput, currentIdentity, recoveryState, field] of targetGateCases) {
       const result = runOutageResubmissionController({
         config,
         source: sourceInput,
-        recoveryState: recoveryStateForSource(sourceInput),
+        recoveryState,
         currentIdentity,
         dryRun: true,
         now,
-        childRunId: "supervised-20260715T010000Z-000000000722",
+        childRunId: "supervised-20260715T010000Z-000000000723",
       });
-      assert.equal(result.outcome, "planned", label);
-      assert.equal(result.reasonCode, "dry_run_no_mutation", label);
+      assert.equal(result.outcome, "blocked", label);
+      assert.equal(result.reasonCode, "outage_recovery_target_mismatch", label);
+      assert.equal(result.recoveryTarget.field, field, label);
+      assert.equal(result.events.some((item) => item.event === "outage_recovery_target_blocked"), true, label);
+      assert.equal(result.events.some((item) => item.event === "resubmission_planned"), false, label);
+      assert.equal(result.events.some((item) => item.event === "child_spec_identity_blocked"), false, label);
+      assert.equal(result.events.some((item) => item.event === "dry_run_child_spec_planned"), false, label);
+      assert.equal(result.child, undefined, label);
+      assert.equal(result.counts.githubMutationCalls, 0, label);
+      assert.equal(result.counts.systemdCalls, 0, label);
+      assert.equal(result.counts.realMutationCalls, 0, label);
     }
   } finally {
     config.cleanup();
