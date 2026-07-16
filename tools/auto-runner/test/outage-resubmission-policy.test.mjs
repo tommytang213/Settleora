@@ -20,6 +20,7 @@ import {
   listOutageResubmissionStates,
   loadOutageResubmissionState,
   outageResubmissionStatePath,
+  readOutageResubmissionInventory,
   recordOutageAttempt,
   transitionOutageMarker,
   validateOutageResubmissionState,
@@ -325,21 +326,42 @@ test("circuit opens for matching fingerprints, distinct runs, and half-open cool
 
 test("operator pause and stop precede schedule and circuit decisions", () => {
   const retryable = classifyOutageFailure({ domain: "github_api", status: 503 });
-  assert.equal(applyOutageOperatorGate({ operatorControl: { pause: true }, classification: retryable }).reasonCode, "operator_pause");
-  assert.equal(applyOutageOperatorGate({ operatorControl: { stopAfterCurrent: true }, classification: retryable }).reasonCode, "operator_stop");
+  const eligibleSchedule = eligibleGateSchedule();
+  const closedCircuit = { state: "closed", reasonCode: "circuit_closed", allowProbe: false };
+  assert.equal(applyOutageOperatorGate({ operatorControl: { pause: true } }).reasonCode, "operator_pause");
+  assert.equal(applyOutageOperatorGate({ operatorControl: { stopAfterCurrent: true } }).reasonCode, "operator_stop");
+  assert.equal(
+    applyOutageOperatorGate({
+      operatorControl: { pause: true },
+      classification: retryable,
+      circuit: { state: "open", reasonCode: "circuit_open_distinct_runs" },
+      schedule: eligibleSchedule,
+    }).reasonCode,
+    "operator_pause",
+  );
+  assert.equal(
+    applyOutageOperatorGate({
+      operatorControl: { terminalStop: true },
+      classification: retryable,
+      circuit: closedCircuit,
+      schedule: eligibleSchedule,
+    }).reasonCode,
+    "operator_stop",
+  );
   assert.equal(
     applyOutageOperatorGate({
       operatorControl: {},
       classification: retryable,
       circuit: { state: "open", reasonCode: "circuit_open_distinct_runs" },
-      schedule: { allowed: true },
+      schedule: eligibleSchedule,
     }).reasonCode,
     "circuit_open_distinct_runs",
   );
   assert.equal(
     applyOutageOperatorGate({
       classification: classifyOutageFailure({ domain: "github_api", status: 403 }),
-      schedule: { allowed: true },
+      circuit: closedCircuit,
+      schedule: eligibleSchedule,
     }).reasonCode,
     "outage_nonretryable",
   );
@@ -347,10 +369,56 @@ test("operator pause and stop precede schedule and circuit decisions", () => {
     applyOutageOperatorGate({
       classification: retryable,
       schedule: { allowed: false, reasonCode: "outage_resubmission_deferred_by_backoff" },
+      circuit: closedCircuit,
     }).reasonCode,
     "outage_resubmission_deferred_by_backoff",
   );
-  assert.equal(applyOutageOperatorGate({ classification: retryable, schedule: { allowed: true } }).allowed, true);
+  assert.equal(applyOutageOperatorGate({ classification: retryable, circuit: closedCircuit, schedule: eligibleSchedule }).allowed, true);
+  assert.equal(
+    applyOutageOperatorGate({
+      classification: retryable,
+      circuit: { state: "half_open", reasonCode: "circuit_half_open_probe_allowed", nextProbeAt: "2026-07-15T00:10:00.000Z", allowProbe: true },
+      schedule: eligibleSchedule,
+    }).action,
+    "plan_resubmission",
+  );
+});
+
+test("operator gate fails closed unless every positive prerequisite is canonical", () => {
+  const retryable = classifyOutageFailure({ domain: "github_api", status: 503 });
+  const eligibleSchedule = eligibleGateSchedule();
+  const closedCircuit = { state: "closed", reasonCode: "circuit_closed", allowProbe: false };
+  const positive = { classification: retryable, circuit: closedCircuit, schedule: eligibleSchedule };
+  assert.equal(applyOutageOperatorGate(positive).action, "plan_resubmission");
+
+  const cases = [
+    ["missing classification", { circuit: closedCircuit, schedule: eligibleSchedule }, "outage_classification_missing"],
+    ["null classification", { classification: null, circuit: closedCircuit, schedule: eligibleSchedule }, "outage_classification_missing"],
+    ["empty classification", { classification: {}, circuit: closedCircuit, schedule: eligibleSchedule }, "outage_classification_invalid"],
+    ["malformed retryable classification", { classification: { ...retryable, terminal: true }, circuit: closedCircuit, schedule: eligibleSchedule }, "outage_classification_invalid"],
+    ["hostile classification field", { classification: { ...retryable, rawProviderBody: "Bearer secret" }, circuit: closedCircuit, schedule: eligibleSchedule }, "outage_classification_invalid"],
+    ["nonretryable classification", { classification: classifyOutageFailure({ domain: "github_api", status: 403 }), circuit: closedCircuit, schedule: eligibleSchedule }, "outage_nonretryable"],
+    ["missing schedule", { classification: retryable, circuit: closedCircuit }, "outage_schedule_evidence_missing"],
+    ["null schedule", { classification: retryable, circuit: closedCircuit, schedule: null }, "outage_schedule_evidence_missing"],
+    ["empty schedule", { classification: retryable, circuit: closedCircuit, schedule: {} }, "outage_schedule_evidence_invalid"],
+    ["schedule false", { classification: retryable, circuit: closedCircuit, schedule: { allowed: false, reasonCode: "outage_resubmission_deferred_by_backoff" } }, "outage_resubmission_deferred_by_backoff"],
+    ["malformed positive schedule", { classification: retryable, circuit: closedCircuit, schedule: { allowed: true } }, "outage_schedule_evidence_invalid"],
+    ["hostile schedule reason", { classification: retryable, circuit: closedCircuit, schedule: { allowed: false, reasonCode: "../../secret" } }, "outage_not_eligible"],
+    ["missing circuit", { classification: retryable, schedule: eligibleSchedule }, "outage_circuit_evidence_missing"],
+    ["null circuit", { classification: retryable, circuit: null, schedule: eligibleSchedule }, "outage_circuit_evidence_missing"],
+    ["empty circuit", { classification: retryable, circuit: {}, schedule: eligibleSchedule }, "outage_circuit_evidence_invalid"],
+    ["unknown circuit", { classification: retryable, circuit: { state: "unknown", reasonCode: "circuit_closed" }, schedule: eligibleSchedule }, "outage_circuit_evidence_invalid"],
+    ["hostile circuit field", { classification: retryable, circuit: { ...closedCircuit, rawPath: "/tmp/secret" }, schedule: eligibleSchedule }, "outage_circuit_evidence_invalid"],
+  ];
+
+  for (const [label, input, reasonCode] of cases) {
+    const result = applyOutageOperatorGate(input);
+    assert.equal(result.allowed, false, label);
+    assert.equal(result.reasonCode, reasonCode, label);
+    assert.notEqual(result.action, "plan_resubmission", label);
+    assert.equal(JSON.stringify(result).includes("Bearer secret"), false, label);
+    assert.equal(JSON.stringify(result).includes("/tmp/secret"), false, label);
+  }
 });
 
 test("outage resubmission state validates identity, atomic writes, markers, corruption, and unsafe paths", () => {
@@ -386,13 +454,133 @@ test("outage resubmission state validates identity, atomic writes, markers, corr
     mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
     writeFileSync(path.join(unsafe.logsRoot, "target.json"), "{}\n", { mode: 0o600 });
     symlinkSync(path.join(unsafe.logsRoot, "target.json"), statePath);
-    assert.equal(loadOutageResubmissionState(unsafe, state).reasonCode, "outage_resubmission_state_untrusted");
+    const loaded = loadOutageResubmissionState(unsafe, state);
+    assert.equal(loaded.reasonCode, "outage_resubmission_state_untrusted");
+    assert.equal(JSON.stringify(loaded).includes(unsafe.logsRoot), false);
+    assert.equal(JSON.stringify(loaded).includes("target.json"), false);
     rmSync(statePath, { force: true });
     writeFileSync(statePath, `${JSON.stringify(state)}\n`, { mode: 0o666 });
     chmodSync(statePath, 0o666);
-    assert.equal(loadOutageResubmissionState(unsafe, state).reasonCode, "outage_resubmission_state_untrusted");
+    const unsafeModeLoad = loadOutageResubmissionState(unsafe, state);
+    assert.equal(unsafeModeLoad.reasonCode, "outage_resubmission_state_untrusted");
+    assert.equal(JSON.stringify(unsafeModeLoad).includes(unsafe.logsRoot), false);
   } finally {
     unsafe.cleanup();
+  }
+});
+
+test("outage resubmission state rejects intermediate symlink escapes and unsafe root modes", () => {
+  const recoverySymlink = tempConfig();
+  try {
+    const state = fixtureState();
+    const external = mkdtempSync(path.join(tmpdir(), "settleora-outage-external-"));
+    symlinkSync(external, path.join(recoverySymlink.logsRoot, "recovery"));
+    assert.equal(readOutageResubmissionInventory(recoverySymlink).reasonCode, "untrusted_state");
+    assert.throws(() => writeOutageResubmissionState(recoverySymlink, state), /unsafe outage resubmission state/);
+    assert.deepEqual(readOutageResubmissionInventory(recoverySymlink).records, []);
+    rmSync(external, { recursive: true, force: true });
+  } finally {
+    recoverySymlink.cleanup();
+  }
+
+  const outageRootSymlink = tempConfig();
+  try {
+    const state = fixtureState();
+    const external = mkdtempSync(path.join(tmpdir(), "settleora-outage-external-"));
+    mkdirSync(path.join(outageRootSymlink.logsRoot, "recovery"), { mode: 0o700 });
+    symlinkSync(external, path.join(outageRootSymlink.logsRoot, "recovery", "outage-resubmission"));
+    assert.equal(loadOutageResubmissionState(outageRootSymlink, state).reasonCode, "outage_resubmission_state_untrusted");
+    assert.throws(() => writeOutageResubmissionState(outageRootSymlink, state), /unsafe outage resubmission state/);
+    assert.deepEqual(readOutageResubmissionInventory(outageRootSymlink).records, []);
+    rmSync(external, { recursive: true, force: true });
+  } finally {
+    outageRootSymlink.cleanup();
+  }
+
+  const rootSymlink = tempConfig();
+  try {
+    const external = mkdtempSync(path.join(tmpdir(), "settleora-outage-external-"));
+    const linkedLogsRoot = `${rootSymlink.logsRoot}-link`;
+    symlinkSync(external, linkedLogsRoot);
+    assert.equal(loadOutageResubmissionState({ logsRoot: linkedLogsRoot }, fixtureState()).reasonCode, "outage_resubmission_state_untrusted");
+    assert.throws(() => writeOutageResubmissionState({ logsRoot: linkedLogsRoot }, fixtureState()), /unsafe outage resubmission state/);
+    rmSync(linkedLogsRoot, { force: true });
+    rmSync(external, { recursive: true, force: true });
+  } finally {
+    rootSymlink.cleanup();
+  }
+
+  const unsafeMode = tempConfig();
+  try {
+    mkdirSync(path.join(unsafeMode.logsRoot, "recovery"), { mode: 0o700 });
+    chmodSync(path.join(unsafeMode.logsRoot, "recovery"), 0o777);
+    assert.equal(readOutageResubmissionInventory(unsafeMode).reasonCode, "untrusted_state");
+    assert.throws(() => writeOutageResubmissionState(unsafeMode, fixtureState()), /unsafe outage resubmission state/);
+  } finally {
+    chmodSync(path.join(unsafeMode.logsRoot, "recovery"), 0o700);
+    unsafeMode.cleanup();
+  }
+});
+
+test("outage resubmission state proves final realpath containment and safe first-time creation", () => {
+  const config = tempConfig();
+  try {
+    const state = fixtureState();
+    const external = mkdtempSync(path.join(tmpdir(), "settleora-outage-prefix-lookalike-"));
+    const statePath = outageResubmissionStatePath(config, state);
+    mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+    const externalTarget = path.join(external, "target.json");
+    writeFileSync(externalTarget, "unchanged\n", { mode: 0o600 });
+    symlinkSync(externalTarget, statePath);
+    assert.equal(loadOutageResubmissionState(config, state).reasonCode, "outage_resubmission_state_untrusted");
+    assert.throws(() => writeOutageResubmissionState(config, state), /unsafe outage resubmission state/);
+    assert.equal(readFileSync(externalTarget, "utf8"), "unchanged\n");
+    rmSync(statePath, { force: true });
+    rmSync(external, { recursive: true, force: true });
+  } finally {
+    config.cleanup();
+  }
+
+  const firstWrite = tempConfig();
+  try {
+    const state = fixtureState();
+    const written = writeOutageResubmissionState(firstWrite, state);
+    assert.equal(existsSync(path.join(firstWrite.logsRoot, "recovery", "outage-resubmission")), true);
+    assert.equal(path.dirname(written.statePath), path.join(firstWrite.logsRoot, "recovery", "outage-resubmission"));
+    assert.equal(loadOutageResubmissionState(firstWrite, state).ok, true);
+    assert.equal(readOutageResubmissionInventory(firstWrite).validCount, 1);
+    const repeated = writeOutageResubmissionState(firstWrite, loadOutageResubmissionState(firstWrite, state).state);
+    assert.equal(loadOutageResubmissionState(firstWrite, state).ok, true);
+    assert.equal(path.dirname(repeated.statePath), path.dirname(written.statePath));
+  } finally {
+    firstWrite.cleanup();
+  }
+});
+
+test("outage resubmission state temporary writes do not follow external symlink targets", () => {
+  const config = tempConfig();
+  const originalDateNow = Date.now;
+  try {
+    const state = fixtureState();
+    const statePath = outageResubmissionStatePath(config, state);
+    const root = path.dirname(statePath);
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+    const external = mkdtempSync(path.join(tmpdir(), "settleora-outage-temp-external-"));
+    const externalTarget = path.join(external, "external-target.json");
+    writeFileSync(externalTarget, "unchanged\n", { mode: 0o600 });
+    Date.now = () => 1234567890;
+    const tempName = `.${path.basename(statePath)}.${process.pid}.1234567890.tmp`;
+    const tempPath = path.join(root, tempName);
+    symlinkSync(externalTarget, tempPath);
+    assert.throws(() => writeOutageResubmissionState(config, state), /EEXIST|file already exists/);
+    assert.equal(readFileSync(externalTarget, "utf8"), "unchanged\n");
+    assert.equal(existsSync(statePath), false);
+    assert.equal(readOutageResubmissionInventory(config).totalRecordCount, 0);
+    rmSync(tempPath, { force: true });
+    rmSync(external, { recursive: true, force: true });
+  } finally {
+    Date.now = originalDateNow;
+    config.cleanup();
   }
 });
 
@@ -536,4 +724,24 @@ function tempConfig() {
     logsRoot,
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
   };
+}
+
+function eligibleGateSchedule() {
+  return planOutageResubmissionSchedule({
+    config: {
+      ...defaultOutageResubmissionConfig,
+      allowBoundedOutageResubmission: true,
+      minimumOutageAgeMs: 10 * 60 * 1000,
+      baseBackoffMs: 5 * 60 * 1000,
+      maxBackoffMs: 20 * 60 * 1000,
+      jitterRatio: 0,
+      maxAttempts: 3,
+      maxWallClockMs: 24 * 60 * 60 * 1000,
+    },
+    firstFailureAt: "2026-07-14T23:00:00.000Z",
+    lastFailureAt: "2026-07-14T23:30:00.000Z",
+    attemptNumber: 1,
+    now,
+    rng: () => 0.5,
+  });
 }
