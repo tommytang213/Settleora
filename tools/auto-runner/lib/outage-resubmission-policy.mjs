@@ -259,14 +259,23 @@ export function applyOutageOperatorGate({ operatorControl = {}, circuit = null, 
   if (operatorControl.stopAfterCurrent === true || operatorControl.terminalStop === true) {
     return { allowed: false, reasonCode: "operator_stop", action: "stop_before_outage_resubmission" };
   }
-  if (classification && classification.retryable !== true) {
+  const classificationCheck = validateRetryableClassification(classification);
+  if (!classificationCheck.ok) {
+    return { allowed: false, reasonCode: classificationCheck.reasonCode, action: "terminal_block" };
+  }
+  if (classification.retryable !== true) {
     return { allowed: false, reasonCode: "outage_nonretryable", action: "terminal_block" };
   }
-  if (circuit?.state === "open") {
-    return { allowed: false, reasonCode: circuit.reasonCode || "circuit_open", action: "defer_for_circuit" };
+  const circuitCheck = validateCircuitGateEvidence(circuit);
+  if (!circuitCheck.ok) {
+    return { allowed: false, reasonCode: circuitCheck.reasonCode, action: circuitCheck.action };
   }
-  if (schedule?.allowed === false) {
-    return { allowed: false, reasonCode: schedule.reasonCode || "outage_not_eligible", action: "defer_for_schedule" };
+  if (circuit?.state === "open") {
+    return { allowed: false, reasonCode: canonicalCircuitReason(circuit.reasonCode, "circuit_open"), action: "defer_for_circuit" };
+  }
+  const scheduleCheck = validateScheduleGateEvidence(schedule);
+  if (!scheduleCheck.ok) {
+    return { allowed: false, reasonCode: scheduleCheck.reasonCode, action: "defer_for_schedule" };
   }
   return { allowed: true, reasonCode: "outage_resubmission_gate_open", action: "plan_resubmission" };
 }
@@ -326,6 +335,73 @@ function hasTrustedRateLimitEvidence(input) {
   return String(remaining) === "0" && /^\d{10,}$/.test(String(reset || ""));
 }
 
+function validateRetryableClassification(classification) {
+  if (!isPlainObject(classification)) return { ok: false, reasonCode: "outage_classification_missing" };
+  const allowed = new Set(["retryable", "outageClass", "providerDomain", "reasonCode", "status", "terminal", "fingerprint", "rawBodyAccepted"]);
+  if (Object.keys(classification).some((key) => !allowed.has(key))) return { ok: false, reasonCode: "outage_classification_invalid" };
+  if (classification.retryable !== true && classification.retryable !== false) return { ok: false, reasonCode: "outage_classification_invalid" };
+  if (classification.retryable !== true) return { ok: true };
+  if (classification.terminal !== false) return { ok: false, reasonCode: "outage_classification_invalid" };
+  if (classification.rawBodyAccepted !== false) return { ok: false, reasonCode: "outage_classification_invalid" };
+  if (!retryableOutageClasses.includes(classification.outageClass)) return { ok: false, reasonCode: "outage_classification_invalid" };
+  if (!isSafeReasonToken(classification.providerDomain, 1, 80)) return { ok: false, reasonCode: "outage_classification_invalid" };
+  if (!isSafeReasonToken(classification.reasonCode, 1, 120)) return { ok: false, reasonCode: "outage_classification_invalid" };
+  if (classification.status !== null && !Number.isInteger(classification.status)) return { ok: false, reasonCode: "outage_classification_invalid" };
+  if (!/^[a-f0-9]{64}$/.test(String(classification.fingerprint || ""))) return { ok: false, reasonCode: "outage_classification_invalid" };
+  return { ok: true };
+}
+
+function validateCircuitGateEvidence(circuit) {
+  if (!isPlainObject(circuit)) return { ok: false, reasonCode: "outage_circuit_evidence_missing", action: "defer_for_circuit" };
+  const allowed = new Set(["state", "reasonCode", "openedAt", "nextProbeAt", "allowProbe"]);
+  if (Object.keys(circuit).some((key) => !allowed.has(key))) return { ok: false, reasonCode: "outage_circuit_evidence_invalid", action: "defer_for_circuit" };
+  if (circuit.state === "open") return { ok: true };
+  if (circuit.state === "closed") {
+    if (circuit.reasonCode !== "circuit_closed" || circuit.allowProbe !== false) {
+      return { ok: false, reasonCode: "outage_circuit_evidence_invalid", action: "defer_for_circuit" };
+    }
+    return { ok: true };
+  }
+  if (circuit.state === "half_open") {
+    if (circuit.reasonCode !== "circuit_half_open_probe_allowed" || circuit.allowProbe !== true || !isIsoTimestamp(circuit.nextProbeAt)) {
+      return { ok: false, reasonCode: "outage_circuit_evidence_invalid", action: "defer_for_circuit" };
+    }
+    return { ok: true };
+  }
+  return { ok: false, reasonCode: "outage_circuit_evidence_invalid", action: "defer_for_circuit" };
+}
+
+function validateScheduleGateEvidence(schedule) {
+  if (!isPlainObject(schedule)) return { ok: false, reasonCode: "outage_schedule_evidence_missing" };
+  const allowed = new Set(["allowed", "reasonCode", "nextEligibleAt", "deadlineAt", "backoffMs", "jitteredBackoffMs"]);
+  if (Object.keys(schedule).some((key) => !allowed.has(key))) return { ok: false, reasonCode: "outage_schedule_evidence_invalid" };
+  if (schedule.allowed === false) {
+    return { ok: false, reasonCode: canonicalScheduleReason(schedule.reasonCode) };
+  }
+  if (schedule.allowed !== true) return { ok: false, reasonCode: "outage_schedule_evidence_invalid" };
+  if (schedule.reasonCode !== "outage_resubmission_eligible") return { ok: false, reasonCode: "outage_schedule_evidence_invalid" };
+  if (!isIsoTimestamp(schedule.nextEligibleAt) || !isIsoTimestamp(schedule.deadlineAt)) return { ok: false, reasonCode: "outage_schedule_evidence_invalid" };
+  if (!Number.isSafeInteger(schedule.backoffMs) || schedule.backoffMs < 0) return { ok: false, reasonCode: "outage_schedule_evidence_invalid" };
+  if (!Number.isSafeInteger(schedule.jitteredBackoffMs) || schedule.jitteredBackoffMs < 0) return { ok: false, reasonCode: "outage_schedule_evidence_invalid" };
+  return { ok: true };
+}
+
+function canonicalCircuitReason(reasonCode, fallback) {
+  return isSafeReasonToken(reasonCode, 1, 120) ? reasonCode : fallback;
+}
+
+function canonicalScheduleReason(reasonCode) {
+  const allowed = new Set([
+    "outage_resubmission_disabled",
+    "outage_resubmission_attempts_exhausted",
+    "outage_resubmission_wall_clock_exhausted",
+    "outage_not_prolonged_yet",
+    "outage_resubmission_next_after_deadline",
+    "outage_resubmission_deferred_by_backoff",
+  ]);
+  return allowed.has(reasonCode) ? reasonCode : "outage_not_eligible";
+}
+
 function classification(retryable, outageClass, domain, reasonCode, input) {
   const sanitized = {
     retryable,
@@ -355,6 +431,21 @@ function circuitOpen(reasonCode, nowMs, policy) {
 function normalizeToken(value) {
   const normalized = String(value || "").toLowerCase().replace(/[^a-z0-9_:-]+/g, "_").slice(0, 80);
   return normalized || "unknown";
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype);
+}
+
+function isSafeReasonToken(value, min, max) {
+  const text = String(value || "");
+  return text.length >= min && text.length <= max && /^[A-Za-z0-9._:/@-]+$/.test(text) && !text.includes("..");
+}
+
+function isIsoTimestamp(value) {
+  if (typeof value !== "string" || value.length > 40) return false;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && new Date(ms).toISOString() === value;
 }
 
 function boundedInteger(value, field, min, max) {

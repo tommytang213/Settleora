@@ -69,6 +69,24 @@ test("auto-runner health fails closed on untrusted canonical outage state invent
   });
 });
 
+test("auto-runner health fails closed on intermediate outage state symlink without leaking paths", () => {
+  withLogs((logsRoot) => {
+    const external = mkdtempSync(path.join(tmpdir(), "settleora-health-outage-external-"));
+    try {
+      symlinkSync(external, path.join(logsRoot, "recovery"));
+      const result = evaluateAutoRunnerHealth({ logsRoot, now: defaultNow });
+      assert.equal(result.httpStatus, 503);
+      assert.equal(result.body.reasonCode, "untrusted_state");
+      assert.equal(result.body.outageResubmission.reasonCode, "untrusted_state");
+      assert.equal(result.body.outageResubmission.operatorActionRequired, true);
+      assert.equal(JSON.stringify(result.body).includes(external), false);
+      assert.equal(JSON.stringify(result.body).includes(logsRoot), false);
+    } finally {
+      rmSync(external, { recursive: true, force: true });
+    }
+  });
+});
+
 test("auto-runner health surfaces sanitized outage status from runner status", () => {
   withLogs((logsRoot) => {
     const result = evaluateAutoRunnerHealth({
