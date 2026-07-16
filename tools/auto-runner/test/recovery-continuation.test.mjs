@@ -48,17 +48,56 @@ function state(overrides = {}) {
 }
 
 function recoveryWithPr(overrides = {}) {
+  const issue = overrides.issue ?? { number: 893, title: "Recovery", url: "https://example.invalid/893" };
+  const runId = overrides.runId ?? "run-2026-07-13T112700Z";
+  const supervisorRunId = overrides.supervisorRunId ?? "supervised-20260713T112700Z-abcdefabcdef";
+  const branchName = overrides.branchName ?? "tools/auto-runner-recovery-continuation-893-20260713-1927";
+  const baseSha = overrides.baseSha ?? "b".repeat(40);
+  const currentHeadSha = overrides.currentHeadSha ?? "c".repeat(40);
+  const pr = overrides.pr ?? {
+    number: 917,
+    url: "https://example.invalid/pull/917",
+    headSha: "c".repeat(40),
+    headRefName: "tools/auto-runner-recovery-continuation-893-20260713-1927",
+    baseRefName: "main",
+    state: "OPEN",
+  };
+  const outageResubmission = Object.hasOwn(overrides, "outageResubmission")
+    ? overrides.outageResubmission === null
+      ? null
+      : outageBinding({
+          ...overrides.outageResubmission,
+          taskKey: overrides.taskKey ?? "20260713-1927",
+          issueNumber: issue.number,
+          branchName,
+          baseSha,
+          currentHeadSha,
+          prNumber: pr.number,
+          prHeadSha: pr.headSha,
+          runnerRunId: runId,
+          supervisorRunId,
+        })
+    : outageBinding({
+        taskKey: overrides.taskKey ?? "20260713-1927",
+        issueNumber: issue.number,
+        branchName,
+        baseSha,
+        currentHeadSha,
+        prNumber: pr.number,
+        prHeadSha: pr.headSha,
+        runnerRunId: runId,
+        supervisorRunId,
+      });
   return state({
-    pr: {
-      number: 917,
-      url: "https://example.invalid/pull/917",
-      headSha: "c".repeat(40),
-      headRefName: "tools/auto-runner-recovery-continuation-893-20260713-1927",
-      baseRefName: "main",
-      state: "OPEN",
-    },
-    outageResubmission: outageBinding(),
     ...overrides,
+    issue,
+    runId,
+    supervisorRunId,
+    branchName,
+    baseSha,
+    currentHeadSha,
+    pr,
+    outageResubmission,
   });
 }
 
@@ -103,6 +142,15 @@ function targetFor(recoveryState) {
 
 function outageBinding(overrides = {}) {
   return {
+    taskKey: "20260713-1927",
+    issueNumber: 893,
+    branchName: "tools/auto-runner-recovery-continuation-893-20260713-1927",
+    baseSha: "b".repeat(40),
+    currentHeadSha: "c".repeat(40),
+    prNumber: 917,
+    prHeadSha: "c".repeat(40),
+    runnerRunId: "run-2026-07-13T112700Z",
+    supervisorRunId: "supervised-20260713T112700Z-abcdefabcdef",
     originalSupervisorSpecDigest: "d".repeat(64),
     markerKey: "e".repeat(64),
     outageFingerprint: "f".repeat(64),
@@ -216,7 +264,7 @@ test("targeted outage recovery handles exact and near-match partitions without o
     ["outageFingerprint", recoveryWithPr({ runId: "run-2026-07-13T113108Z", outageResubmission: outageBinding({ outageFingerprint: "3".repeat(64) }) })],
     ["attemptNumber", recoveryWithPr({ runId: "run-2026-07-13T113109Z", outageResubmission: outageBinding({ attemptNumber: 2 }) })],
     ["missingMarkerBinding", recoveryWithPr({ runId: "run-2026-07-13T113110Z", outageResubmission: null })],
-    ["missingTargetField", recoveryWithPr({ runId: "run-2026-07-13T113104Z", pr: { ...exact.pr, headSha: null } })],
+    ["missingTargetField", state({ runId: "run-2026-07-13T113104Z" })],
   ];
 
   for (const [name, nearMatch] of nearMatches) {
