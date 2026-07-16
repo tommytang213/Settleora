@@ -218,17 +218,16 @@ export function writeRecoveryState(config, state) {
 }
 
 export function bindOutageResubmissionToRecoveryState(state, binding) {
+  const authoritativeIdentity = normalizeOutageBindingAuthoritativeIdentity(state);
+  const identityValidation = validateOutageBindingCallerIdentity(authoritativeIdentity, binding || {});
+  if (!identityValidation.ok) return identityValidation;
+
   const normalized = normalizeOutageResubmissionBinding({
-    taskKey: state.taskKey || null,
-    issueNumber: state.issue?.number || null,
-    branchName: state.branch?.name || null,
-    baseSha: state.branch?.baseSha || null,
-    currentHeadSha: state.branch?.currentHeadSha || null,
-    prNumber: state.pr?.number ?? null,
-    prHeadSha: state.pr?.headSha ?? null,
-    runnerRunId: state.run?.runId || null,
-    supervisorRunId: state.run?.supervisorRunId || null,
-    ...binding,
+    ...authoritativeIdentity,
+    originalSupervisorSpecDigest: binding?.originalSupervisorSpecDigest,
+    markerKey: binding?.markerKey,
+    outageFingerprint: binding?.outageFingerprint,
+    attemptNumber: binding?.attemptNumber,
   });
   const normalizedCandidate = sanitizeRecoveryState({
     ...state,
@@ -247,6 +246,47 @@ export function bindOutageResubmissionToRecoveryState(state, binding) {
   }
 
   return { ok: true, state: normalizedCandidate, changed: true, binding: normalized };
+}
+
+function normalizeOutageBindingAuthoritativeIdentity(state) {
+  return {
+    taskKey: state.taskKey || null,
+    issueNumber: state.issue?.number || null,
+    branchName: state.branch?.name || null,
+    baseSha: state.branch?.baseSha || null,
+    currentHeadSha: state.branch?.currentHeadSha || null,
+    prNumber: state.pr?.number ?? null,
+    prHeadSha: state.pr?.headSha ?? null,
+    runnerRunId: state.run?.runId || null,
+    supervisorRunId: state.run?.supervisorRunId || null,
+  };
+}
+
+function validateOutageBindingCallerIdentity(authoritative, binding) {
+  const identityFields = [
+    "taskKey",
+    "issueNumber",
+    "branchName",
+    "baseSha",
+    "currentHeadSha",
+    "prNumber",
+    "prHeadSha",
+    "runnerRunId",
+    "supervisorRunId",
+  ];
+  const hasPrNumber = Object.hasOwn(binding, "prNumber");
+  const hasPrHeadSha = Object.hasOwn(binding, "prHeadSha");
+  if (hasPrNumber !== hasPrHeadSha) {
+    return failed("recovery_outage_binding_identity_mismatch", "Outage resubmission binding identity does not match recovery state.");
+  }
+  for (const field of identityFields) {
+    if (Object.hasOwn(binding, field)) {
+      if (binding[field] === null || binding[field] !== authoritative[field]) {
+        return failed("recovery_outage_binding_identity_mismatch", "Outage resubmission binding identity does not match recovery state.");
+      }
+    }
+  }
+  return { ok: true };
 }
 
 export function loadRecoveryState(config, keyOrState) {
