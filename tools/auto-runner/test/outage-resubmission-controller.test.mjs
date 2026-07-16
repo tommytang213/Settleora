@@ -3010,20 +3010,22 @@ test("existing outage identity drift fails closed before planning or child adopt
 
 test("outage correlation verifier requires canonical outage identity keys", () => {
   const state = fixtureOutageState();
+  const requiredPrProof = { prNumber: 917, prHeadSha: shaB };
   assert.equal(verifyOutageCorrelation(state, {
     issueNumber: 913,
+    ...requiredPrProof,
     outageProviderDomain: "github_api",
     outageFingerprint: githubApi503Fingerprint,
     outageClass: "github_api_5xx",
   }).ok, true);
-  assert.deepEqual(verifyOutageCorrelation(state, { issueNumber: 913, providerDomain: "github_api" }), {
+  assert.deepEqual(verifyOutageCorrelation(state, { issueNumber: 913, ...requiredPrProof, providerDomain: "github_api" }), {
     ok: false,
     reasonCode: "outage_resubmission_identity_drift",
     field: "outageProviderDomain",
   });
-  assert.equal(verifyOutageCorrelation(state, { outageProviderDomain: "scanner_service" }).field, "outageProviderDomain");
-  assert.equal(verifyOutageCorrelation(state, { outageFingerprint: githubApi502Fingerprint }).field, "outageFingerprint");
-  assert.equal(verifyOutageCorrelation(state, { outageClass: "github_api_timeout" }).field, "outageClass");
+  assert.equal(verifyOutageCorrelation(state, { ...requiredPrProof, outageProviderDomain: "scanner_service" }).field, "outageProviderDomain");
+  assert.equal(verifyOutageCorrelation(state, { ...requiredPrProof, outageFingerprint: githubApi502Fingerprint }).field, "outageFingerprint");
+  assert.equal(verifyOutageCorrelation(state, { ...requiredPrProof, outageClass: "github_api_timeout" }).field, "outageClass");
 });
 
 test("status and health select active outage state from complete trusted inventory beyond display bounds", () => {
