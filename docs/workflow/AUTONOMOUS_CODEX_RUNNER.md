@@ -148,6 +148,24 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
   idempotent mutation markers, stop reason, next safe action, timestamps, and
   schema version. It never stores raw prompts, provider responses, full diffs,
   secrets, environment dumps, tokens, credentials, or unbounded logs.
+- `pr-stacks/` and task-scoped live-stack directories store sanitized durable
+  dependent-PR stack state. Stack execution is available only through the
+  explicit `--run-pr-stack --config <absolute-path> --stack-plan
+  <absolute-path>` entry. It is mutually exclusive with normal issue polling,
+  canary, security-finding, smoke, preflight, status/control, and
+  review-package modes. It consumes an immutable 2-4 PR plan, calls
+  `nextStackAction(...)`, persists before and after each external mutation,
+  records mutation markers for exact-once retarget/ready/merge/hygiene
+  behavior, and returns durable wait reasons for GitHub Codex, checks,
+  scanners, and merge-state refresh. Repository defaults keep this disabled;
+  task-scoped config must enable only existing-PR convergence, exact-head
+  review request, CI/scanner polling, exact-head merge, base retarget, ready
+  transition, semantic proof, and final hygiene capabilities. Production
+  profile activation, issue polling/claiming, generated issue creation,
+  supervisor/systemd/outage child launch, canary mutation, deploy/release,
+  secret/auth config mutation, public/admin/network exposure, branch deletion,
+  force-like history, direct `main` push, and product authority changes remain
+  refused.
 
 Stale locks are removed only when the recorded PID is no longer active. Active
 or unparsable locks stop the runner for human inspection.

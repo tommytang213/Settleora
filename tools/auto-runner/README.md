@@ -132,6 +132,52 @@ node tools/auto-runner/settleora-auto-runner.mjs --security-findings-dry-run --c
 node tools/auto-runner/settleora-auto-runner.mjs --security-findings-disposition-dry-run --config /workspace/logs/settleora-auto-runner/security-findings/<task-key>/config.json --json
 ```
 
+Dependent-PR stack execution is a separate default-off production entry. It is
+not normal issue polling and has no fallback to issue claiming, generated issue
+creation, canary mutation, supervisor/systemd launch, production deploy,
+branch deletion, force-like history, direct `main` push, or product authority
+changes.
+
+```bash
+node tools/auto-runner/settleora-auto-runner.mjs \
+  --run-pr-stack \
+  --config /workspace/logs/settleora-auto-runner/live-stack-acceptance/<task-key>/config.json \
+  --stack-plan /workspace/logs/settleora-auto-runner/live-stack-acceptance/<task-key>/plan.json
+```
+
+Both paths must be absolute, owner-only, and under the configured logs root.
+The config must set `prStackExecution.enabled=true`,
+`prStackExecution.allowRun=true`, keep
+`prStackExecution.productionProfileActive=false`, and explicitly enable only
+the stack capabilities for existing PR convergence, exact-head review
+requests, CI/scanner polling, exact-head merge, base retarget, ready
+transition, semantic proof, and final hygiene. Forbidden capabilities remain
+false. Plans are immutable stack identities with repository, stack ID, issue
+IDs, and 2-4 ordered PR entries including expected bases, branches, heads,
+parent relationship, and own-delta evidence. Read-only fixture plans,
+repository mismatches, duplicate PRs, invalid relationships, PR #917, missing
+evidence, stale heads, corrupt state, and production-profile activation fail
+closed before mutation.
+
+Durable stack state is written atomically under the same logs-root stack
+directory with owner-only permissions. It records schema version, immutable PR
+identity, active PR/action, source cycles per PR, exact heads/bases, findings,
+review request dedupe, mutation markers, merge/current-main/own-delta/ready/
+hygiene proof, timestamps, and bounded terminal or wait reasons. Restart reads
+that state instead of replaying mutations; duplicate converge, merge, retarget,
+ready, comment, closure, ledger, or hygiene actions are skipped by markers.
+External waits are resumable as `github_codex_result_wait`,
+`ci_check_completion_wait`, `scanner_result_wait`, and
+`merge_state_refresh_wait`; wait retries do not consume source-changing cycles.
+
+The action sequence is controlled by `nextStackAction(...)`: converge/gate the
+parent, merge with exact-head protection, prove current `main`, retarget the
+child to `main`, prove semantic own-delta preservation, ready draft children,
+converge/gate/merge the child, then run final hygiene only after every merge
+proof exists. The first live #919 -> #920 acceptance may resume its existing
+durable state only after the corrective PR adding this entry merges; this
+repository default does not activate that run.
+
 The package reviewer routes to `cheap_independent`, `strong_independent`, or
 `block_split_or_escalate` from lane metadata plus changed-file and size
 evidence. Lane-required strong review is never downgraded. Evidence records
