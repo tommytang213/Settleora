@@ -49,10 +49,14 @@ const maxSanitizedEvidenceObjectFields = 200;
 const maxRawSanitizedStringLength = 20_000;
 const maxSecretRedactionPasses = 1;
 const maxSecretRedactionReplacements = 1_000;
+const secretLexicalBoundarySource = "(^|[?&#=\\s,{[(;\\]])";
 const protectedSecretLogPathPattern = /\/workspace\/logs\/settleora-auto-runner\/secrets\/(?:\[REDACTED\]|[^\s"',;)}\]]*)/gi;
 const authorizationHeaderPattern = /\b(authorization)\s*:\s*(Bearer|Basic)\s+(?:\[REDACTED\]|[^\s,;&}\]\r\n]+)/gi;
 const standaloneAuthorizationPattern = /\b(Bearer|Basic)\s+(?:[A-Za-z0-9._~+/-]+=*|\[REDACTED\])/gi;
-const authorizationAssignmentPattern = /(^|[?&#\s,{[(;])(["']?)(authorization)\2\s*([:=])\s*(?!(?:Bearer|Basic)\s+)(?:"([^"\r\n]*)"|'([^'\r\n]*)'|(\[REDACTED\])|([^\s,;&?}\]\r\n]+))/gi;
+const authorizationAssignmentPattern = new RegExp(
+  `${secretLexicalBoundarySource}(["']?)(authorization)\\2\\s*([:=])\\s*(?!(?:Bearer|Basic)\\s+)(?:"([^"\\r\\n]*)"|'([^'\\r\\n]*)'|(\\[REDACTED\\])|([^"'\\s,;&?}\\]\\r\\n]+))`,
+  "gi",
+);
 const secretHeaderPattern = /(^|[\r\n])([ \t]*)([A-Za-z][A-Za-z0-9_-]{0,80})\s*:\s*([^\r\n]*)/g;
 const quotedSecretHeaderPattern = /(["'])([ \t]*)([A-Za-z][A-Za-z0-9_-]{0,80})\s*:\s*(?!["'])([^\r\n"']*)/g;
 const obviousCredentialPatterns = Object.freeze([
@@ -88,7 +92,7 @@ const canonicalSecretKeyNames = new Set([
 ]);
 const secretAssignmentPattern = new RegExp(
   [
-    "(^|[?&#\\s,{[(;])",
+    secretLexicalBoundarySource,
     "([\"']?)",
     "([A-Za-z][A-Za-z0-9_-]{0,80})",
     "\\2",
@@ -104,7 +108,7 @@ const secretAssignmentPattern = new RegExp(
 );
 const directSecretAssignmentPattern = new RegExp(
   [
-    "(^|[?&#=\\s,{[(;])",
+    secretLexicalBoundarySource,
     "([\"']?)",
     "((?=[A-Za-z0-9_-]*(?:auth|api|token|secret|password|passwd|credential|key|cookie|csrf|xsrf|jwt|session|bearer))[A-Za-z][A-Za-z0-9_-]{0,80})",
     "\\2",
@@ -113,7 +117,23 @@ const directSecretAssignmentPattern = new RegExp(
     "\"([^\"\\r\\n]*)\"",
     "|'([^'\\r\\n]*)'",
     "|(\\[REDACTED\\])",
-    "|([^\\s,;&?}\\]\\r\\n]+)",
+    "|([^\"'\\s,;&?}\\]\\r\\n]+)",
+    ")",
+  ].join(""),
+  "gi",
+);
+const markerAdjacentSecretAssignmentPattern = new RegExp(
+  [
+    "(\\[REDACTED\\])",
+    "([\"']?)",
+    "((?=[A-Za-z0-9_-]*(?:auth|api|token|secret|password|passwd|credential|key|cookie|csrf|xsrf|jwt|session|bearer))[A-Za-z][A-Za-z0-9_-]{0,80})",
+    "\\2",
+    "\\s*([:=])\\s*",
+    "(?:",
+    "\"([^\"\\r\\n]*)\"",
+    "|'([^'\\r\\n]*)'",
+    "|(\\[REDACTED\\])",
+    "|([^\"'\\s,;&?}\\]\\r\\n]+)",
     ")",
   ].join(""),
   "gi",
@@ -525,6 +545,7 @@ function redactSecretLikeTextPass(value, state, { includeWrappers }) {
     .replace(secretHeaderPattern, (...args) => replaceSecretHeader(state, ...args))
     .replace(quotedSecretHeaderPattern, (...args) => replaceSecretHeader(state, ...args))
     .replace(authorizationAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
+    .replace(markerAdjacentSecretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
     .replace(includeWrappers ? secretAssignmentPattern : directSecretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
     .replace(standaloneAuthorizationPattern, (match, scheme) => noteRedaction(state, match, `${scheme} ${secretRedactionMarker}`));
   for (const pattern of obviousCredentialPatterns) {

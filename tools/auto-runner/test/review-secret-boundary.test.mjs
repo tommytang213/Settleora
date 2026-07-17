@@ -399,6 +399,105 @@ test("review-fix redaction rescans wrappers with existing markers and remains id
   }
 });
 
+test("review-fix redaction treats completed markers as secret boundaries", () => {
+  const secret = runtimeCanary("marker-boundary");
+  const second = runtimeCanary("marker-boundary-second");
+  const cases = [
+    {
+      name: "marker adjacent api key",
+      input: `[REDACTED]x-api-key=${secret}`,
+      keep: /\[REDACTED\]x-api-key=\[REDACTED\]/,
+    },
+    {
+      name: "marker adjacent token",
+      input: `[REDACTED]token=${secret}`,
+      keep: /\[REDACTED\]token=\[REDACTED\]/,
+    },
+    {
+      name: "marker adjacent bearer authorization",
+      input: `[REDACTED]Authorization: Bearer ${secret}`,
+      keep: /\[REDACTED\]Authorization: Bearer \[REDACTED\]/,
+    },
+    {
+      name: "marker adjacent basic authorization",
+      input: `[REDACTED]Authorization: Basic ${secret}`,
+      keep: /\[REDACTED\]Authorization: Basic \[REDACTED\]/,
+    },
+    {
+      name: "quoted wrapper marker adjacent api key",
+      input: `headers="[REDACTED]x-api-key=${secret}"`,
+      keep: /headers="\[REDACTED\]x-api-key=\[REDACTED\]"/,
+    },
+    {
+      name: "unquoted wrapper marker adjacent token",
+      input: `prior=[REDACTED]token=${secret}`,
+      keep: /prior=\[REDACTED\]token=\[REDACTED\]/,
+    },
+    {
+      name: "marker adjacent camel case alias",
+      input: `[REDACTED]accessToken=${secret}`,
+      keep: /\[REDACTED\]accessToken=\[REDACTED\]/,
+    },
+    {
+      name: "marker adjacent quoted json key",
+      input: `headers={"prior":"[REDACTED]","next":[REDACTED]"x-api-key":"${secret}","safe":"visible"}`,
+      keep: /"safe":"visible"/,
+    },
+    {
+      name: "marker followed by safe text",
+      input: `[REDACTED]safe text remains meaningful and visible`,
+      exact: `[REDACTED]safe text remains meaningful and visible`,
+    },
+    {
+      name: "marker comma punctuation secret",
+      input: `[REDACTED],token=${secret};safe=visible`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "marker query punctuation secret",
+      input: `[REDACTED]&accessToken=${secret}&safe=visible`,
+      keep: /&safe=visible/,
+    },
+    {
+      name: "multiple markers before secret",
+      input: `[REDACTED][REDACTED]clientSecret=${secret}`,
+      keep: /\[REDACTED\]\[REDACTED\]clientSecret=\[REDACTED\]/,
+    },
+    {
+      name: "partial marker before later secret",
+      input: `[REDACTED token=${secret};safe=visible`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "suffix-only malformed marker before later secret",
+      input: `REDACTED]token=${secret};safe=visible`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "doubled malformed marker before later secret",
+      input: `[[REDACTED]]token=${secret};safe=visible`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "nested wrapper query preserves safe field",
+      input: `headers="outer={[REDACTED]token=${secret}&safe=visible; query=[REDACTED]accessToken=${second}&safe=visible}"`,
+      keep: /safe=visible/,
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+    assert.doesNotMatch(redacted, new RegExp(second), item.name);
+    if (item.exact) {
+      assert.equal(redacted, item.exact, item.name);
+    } else {
+      assert.match(redacted, item.keep, item.name);
+      assert.match(redacted, /\[REDACTED\]/, item.name);
+    }
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+});
+
 test("review-fix redaction is stack-safe and bounded for adversarial wrappers", () => {
   const secret = runtimeCanary("adversarial-wrapper");
   const started = process.hrtime.bigint();
