@@ -35,7 +35,13 @@ remain the source of truth.
   `feature/auto-921-review-convergence-stack-loop-20260717-0040`.
 - PR:
   #922, `Add bounded review convergence and dependent PR stack loop`,
-  opened non-draft against `main`.
+  merged to `main`.
+- Final source head:
+  `991c0fd35d1df9843c1463f7a580c39dd9c316b8`.
+- Merge SHA:
+  `cf1ee65aa209243525f3ccbddd4cf46fa698f666`.
+- Merged at:
+  `2026-07-17T15:20:51Z`.
 - PR scope:
   workflow/tooling only under `tools/auto-runner/**`, the auto-runner workflow
   docs, this ledger, and
@@ -44,30 +50,56 @@ remain the source of truth.
   durable review-convergence state, 50-cycle exact-head convergence controller,
   contract-approved review-fix mutation lanes with stronger sensitive gates,
   and durable dependent-PR stack planning/execution primitives.
-- Review/validation evidence:
-  exact-head implementation validation and compact/strong reviews passed on
-  implementation head `d615f0895fe5effa48242632c41e1400893684a5`; the later
-  ledger-only metadata commit records PR #922 without changing implementation
-  code.
+- Final PR #922 evidence:
+  - Source-changing cycle: `26`.
+  - Final patch digest:
+    `6587d2e2e11f394c7967d1efc47e00481e0e79b7dd462900b054903795ede8ee`.
+  - Final changed-path count: `18`.
+  - Full auto-runner suite: `579/579`.
+  - Task-scoped preflight: `24 pass / 4 warn / 0 fail`.
+  - Docs/scaffold validation: pass.
+  - Strong independent review: pass.
+  - Compact mechanics/security review: pass.
+  - Exact-head GitHub Codex result:
+    `Codex Review: Didn't find any major issues.`.
+  - Exact-head CI/scanners: Scaffold Validation, CodeQL, Semgrep CE/OSS, and
+    Trivy passed.
+  - Open code-scanning alerts: `0`.
+- Post-merge issue checkpoints:
+  - #910 checkpoint comment:
+    `https://github.com/tommytang213/Settleora/issues/910#issuecomment-5004765376`.
+  - #921 checkpoint comment:
+    `https://github.com/tommytang213/Settleora/issues/921#issuecomment-5004765360`.
+- Live issue state:
+  #910 remains open. #921 remains open by its close rule until the later
+  task-scoped live #919 -> #920 acceptance completes.
 - First live acceptance stack after merge:
-  #919 -> #920. This implementation branch plans it read-only only; a later
-  activation task must perform the live run without production-profile
-  activation.
+  #919 -> #920 remains the outstanding acceptance sequence. PR #919 is open
+  and non-draft against `main` at
+  `056638c2a5a798c7b8d78177761d0f218a65c295`; PR #920 is open and draft
+  against `feature/auto-913-targeted-recovery-child-supervisor-20260716-1213`
+  at `5e131211224d5ed8460287bd88321dce181e60e3`. This ledger hygiene task
+  does not claim, execute, retarget, ready, review, merge, or otherwise mutate
+  that stack.
 - Manual gates preserved:
   production deploy, store release, destructive operations, secrets/auth config
   mutation, public/admin exposure, Day 1 scope cuts, architecture replacement,
   force-like history, branch deletion, unresolved product/policy/security/
   privacy/financial authority choices, and production profile activation.
+- Protected issue state:
+  #912 remains inactive/manual-gated. #913 remains open and unchanged.
+  #923/#924 remain open, untouched, and unclaimed. #865/#866 remain unchanged.
+- Production profile:
+  not activated.
 - Project fields:
   `not_updated`; no tested mapping was exercised.
 - Close/keep-open recommendation:
-  keep #921 open until this implementation PR merges and the later task-scoped
-  live #919 -> #920 acceptance completes. Keep #910 open. Keep #912 open and
-  unactivated. Keep #913/#865/#866 unchanged unless a separate task authorizes
-  mutation.
+  keep #921 open until the task-scoped live #919 -> #920 acceptance completes.
+  Keep #910 open. Keep #912 open and unactivated. Keep #913/#923/#924/#865/#866
+  unchanged unless a separate task authorizes mutation.
 - Last verified repo SHA:
-  `0bf03f4e9a99567736bd59a904c6fe2ab6763884` at task branch creation; PR #922
-  source head after metadata update to be verified by the PR and task report.
+  `cf1ee65aa209243525f3ccbddd4cf46fa698f666` on current `main` after PR #922
+  merge.
 
 ### Auto-runner operational readiness plan - 20260714-1010
 
