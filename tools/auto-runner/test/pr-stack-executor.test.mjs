@@ -291,11 +291,11 @@ test("secrets and raw provider-looking payloads are redacted from stack state", 
   await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
     adapter: {
       inspectPr: async () => ({ ok: true, headRefOid: sha("a"), findings: [] }),
-      convergeExistingPr: async () => ({ ok: true, token: "ghp_abcdefghijklmnopqrstuvwxyz", stdout: "Bearer abc.def" }),
+      convergeExistingPr: async () => ({ ok: true, token: "not-a-real-api-key-for-stack-state-test", stdout: "Bearer abc.def" }),
     },
   });
   const text = readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8");
-  assert.doesNotMatch(text, /ghp_|Bearer abc/);
+  assert.doesNotMatch(text, /not-a-real-api-key|Bearer abc/);
   assert.match(text, /\[redacted\]/);
 });
 
