@@ -26,6 +26,12 @@ import {
   writeReviewConvergenceState,
 } from "../lib/review-convergence-state.mjs";
 import {
+  createInitialRecoveryState,
+  digestChangedFiles,
+  persistCompleteHeadEvidence,
+  validateCompleteHeadEvidence,
+} from "../lib/recovery-state.mjs";
+import {
   evaluateReviewFixContractPaths,
   evaluateReviewFixMutationDecision,
   evaluateReviewFixStrongGates,
@@ -53,6 +59,33 @@ function state(overrides = {}) {
     pr: { number: 919, headRefName: "feature/parent", baseRefName: "main", headRefOid: "a".repeat(40) },
     ...overrides,
   });
+}
+
+function recoveryState(overrides = {}) {
+  return createInitialRecoveryState({
+    taskKey: "20260717-1220",
+    issue: { number: 921, title: "Convergence" },
+    runId: "run-1",
+    branchName: "feature/convergence",
+    baseSha: "0".repeat(40),
+    currentHeadSha: "a".repeat(40),
+    pr: { number: 922, headRefName: "feature/convergence", baseRefName: "main", headSha: "a".repeat(40), state: "OPEN" },
+    phase: "review_fix",
+    firstIncompleteAction: "persist_exact_head_evidence",
+    ...overrides,
+  });
+}
+
+function completeEvidence({ headSha = "a".repeat(40), baseSha = "0".repeat(40), changedFiles = ["tools/auto-runner/a.mjs"] } = {}) {
+  const changedFilesDigest = digestChangedFiles(changedFiles);
+  return {
+    identity: { headSha, baseSha, changedFiles, changedFilesDigest, taskKey: "20260717-1220", issueNumber: 921, runId: "run-1", prNumber: 922, branchName: "feature/convergence" },
+    evidence: {
+      localValidation: { status: "passed", headSha, baseSha, changedFilesDigest },
+      externalReview: { status: "passed", headSha, baseSha, changedFilesDigest, evidencePath: "/tmp/review.json", provider: "gemini", tier: "strong_independent" },
+      codexReview: { status: "passed", headSha, baseSha, changedFilesDigest, evidencePath: "/tmp/codex.json", source: "codex_mechanics_security_review", provider: "codex" },
+    },
+  };
 }
 
 test("review-fix budget defaults to 50, clamps above hard max, allows zero, and fails malformed", () => {
@@ -92,6 +125,47 @@ test("head-bound evidence from an older head is immediately stale", () => {
   assert.equal(stale.evidence.review.stale, true);
   assert.equal(stale.evidence.review.currentHead, "a".repeat(40));
   assert.equal(stale.evidence.review.staleReason, "evidence_head_mismatch");
+});
+
+test("complete recovery evidence persists atomically and survives restart", () => {
+  const c = config();
+  try {
+    const current = recoveryState();
+    const { evidence, identity } = completeEvidence();
+    const persisted = persistCompleteHeadEvidence(c, current, evidence, identity);
+    assert.equal(persisted.ok, true);
+    assert.equal(persisted.state.evidence.localValidation.stale, false);
+    assert.equal(persisted.state.evidence.externalReview.changedFilesDigest, identity.changedFilesDigest);
+    assert.equal(persisted.state.evidence.externalReview.provider, "gemini");
+    assert.equal(persisted.state.evidence.externalReview.tier, "strong_independent");
+    assert.equal(persisted.state.evidence.codexReview.headSha, identity.headSha);
+    assert.equal(persisted.state.evidence.codexReview.source, "codex_mechanics_security_review");
+    const loaded = readFileSync(persisted.statePath, "utf8");
+    assert.match(loaded, /"localValidation"/);
+    assert.match(loaded, /"externalReview"/);
+    assert.match(loaded, /"codexReview"/);
+    assert.equal(validateCompleteHeadEvidence(persisted.state, {
+      localValidation: persisted.state.evidence.localValidation,
+      externalReview: persisted.state.evidence.externalReview,
+      codexReview: persisted.state.evidence.codexReview,
+    }, identity).ok, true);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("complete recovery evidence rejects missing, partial, replayed, wrong-head, wrong-digest, and wrong-identity evidence", () => {
+  const current = recoveryState();
+  const { evidence, identity } = completeEvidence();
+  assert.equal(validateCompleteHeadEvidence(current, { ...evidence, codexReview: null }, identity).reasonCode, "missing_codexReview_evidence");
+  assert.equal(validateCompleteHeadEvidence(current, { ...evidence, codexReview: { ...evidence.codexReview, status: "blocked" } }, identity).ok, true);
+  assert.equal(validateCompleteHeadEvidence(current, { ...evidence, localValidation: { ...evidence.localValidation, changedFilesDigest: null } }, identity).reasonCode, "localValidation_changed_files_digest_missing");
+  assert.equal(validateCompleteHeadEvidence(current, { ...evidence, localValidation: { ...evidence.localValidation, status: "unknown" } }, identity).reasonCode, "localValidation_status_invalid");
+  assert.equal(validateCompleteHeadEvidence(current, { ...evidence, externalReview: { ...evidence.externalReview, headSha: "b".repeat(40) } }, identity).reasonCode, "externalReview_head_mismatch");
+  assert.equal(validateCompleteHeadEvidence(current, { ...evidence, codexReview: { ...evidence.codexReview, changedFilesDigest: digestChangedFiles(["other.mjs"]) } }, identity).reasonCode, "codexReview_changed_files_digest_mismatch");
+  assert.equal(validateCompleteHeadEvidence(current, evidence, { ...identity, runId: "other-run" }).reasonCode, "evidence_run_mismatch");
+  assert.equal(validateCompleteHeadEvidence(current, evidence, { ...identity, prNumber: 920 }).reasonCode, "evidence_pr_mismatch");
+  assert.equal(validateCompleteHeadEvidence({ ...current, branch: { ...current.branch, currentHeadSha: "b".repeat(40) } }, evidence, identity).reasonCode, "evidence_state_head_mismatch");
 });
 
 test("durable state writes atomically, reloads, fails closed on corruption, and dedupes mutations", () => {
@@ -486,6 +560,9 @@ test("live callers continue bounded convergence instead of stopping at pre-push 
   assert.match(runnerGate, /commitReviewFixAndRerunExactHeadReviews\(config/);
   assert.match(runnerGate, /review_convergence_fix_commit/);
   assert.match(runnerGate, /codex_review_convergence_fix_commit/);
+  assert.match(runnerGate, /recordPostFixExactHeadEvidence\(recoveryRecorder/);
+  assert.match(runnerSource, /completeHeadEvidence\(evidenceByKind/);
+  assert.match(runnerSource, /persistCompleteHeadEvidence\(config, state, evidenceByKind, identity\)/);
   assert.match(runnerGate, /iteration\.validation = bindValidationEvidence\(postFix\.validation/);
   assert.doesNotMatch(
     runnerSource.slice(
@@ -504,4 +581,9 @@ test("live callers continue bounded convergence instead of stopping at pre-push 
   assert.match(bundleGate, /status: "required"/);
   assert.match(bundleGate, /run_bundle_review_convergence/);
   assert.match(bundleGate, /result\.outcome = "review_convergence_required"/);
+  assert.match(bundleSource, /run_bundle_codex_review_convergence/);
+  assert.match(bundleSource, /source: "codex_mechanics_security_review"/);
+  assert.match(bundleSource, /persistBundleExactHeadEvidence\(recovery/);
+  assert.match(bundleSource, /completeHeadEvidence\(evidenceByKind/);
+  assert.ok(bundleSource.indexOf("run_bundle_codex_review_convergence") < bundleSource.indexOf("bundle_review_failed"));
 });

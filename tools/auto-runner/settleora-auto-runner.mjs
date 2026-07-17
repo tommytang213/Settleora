@@ -80,6 +80,7 @@ import {
   bindRecoveryEvidence,
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
+  persistCompleteHeadEvidence,
   recordIdempotentMutation,
   recordRecoveryAttempt,
   writeRecoveryState,
@@ -766,6 +767,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+    recordPostFixExactHeadEvidence(recoveryRecorder, {
+      validation: iteration.validation,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      headSha: iteration.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+    });
   }
   if (!iteration.review) {
     recoveryRecorder?.advance("codex_mechanics_security_review", "run_codex_mechanics_review");
@@ -830,10 +839,23 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+      recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "codex_review_initial_fix_commit");
+      recoveryRecorder?.marker("checkpoint_commit", `codex-review-initial-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
+        target: branchName,
+        correlation: runId,
+      });
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+      recordPostFixExactHeadEvidence(recoveryRecorder, {
+        validation: iteration.validation,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        headSha: iteration.runnerCreatedCommitSha,
+        baseSha: iteration.baseOriginMainSha,
+        changedFiles,
+      });
     }
   }
 
@@ -916,6 +938,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+      recordPostFixExactHeadEvidence(recoveryRecorder, {
+        validation: iteration.validation,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        headSha: iteration.runnerCreatedCommitSha,
+        baseSha: iteration.baseOriginMainSha,
+        changedFiles,
+      });
       continue;
     }
     const reviewConvergence = buildLiveReviewConvergenceContext({
@@ -1005,6 +1035,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+    recordPostFixExactHeadEvidence(recoveryRecorder, {
+      validation: iteration.validation,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      headSha: iteration.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+    });
   }
 
   recoveryRecorder?.advance("push", "push_branch");
@@ -1137,6 +1175,14 @@ function createProductionRecoveryRecorder(config, input) {
     },
     evidence(kind, evidence) {
       return persist(bindRecoveryEvidence(state, kind, evidence));
+    },
+    completeHeadEvidence(evidenceByKind, identity = {}) {
+      const persisted = persistCompleteHeadEvidence(config, state, evidenceByKind, identity);
+      if (persisted.ok) {
+        state = persisted.state;
+        statePath = persisted.statePath;
+      }
+      return persisted;
     },
     headChanged(newHeadSha, reasonCode) {
       return persist(invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }));
@@ -1900,6 +1946,56 @@ function compareFingerprints(before, after) {
     before.head !== after.head ||
     before.changedFiles.join("\n") !== after.changedFiles.join("\n");
   return { mutationDetected, before, after };
+}
+
+function recordPostFixExactHeadEvidence(recoveryRecorder, { validation, externalReview, review, headSha, baseSha, changedFiles }) {
+  if (!recoveryRecorder) return null;
+  const changedFilesDigest = validation?.changedFilesDigest || externalReview?.changedFilesDigest || review?.changedFilesDigest || null;
+  const persisted = recoveryRecorder.completeHeadEvidence?.(
+    {
+      localValidation: {
+        status: validation?.passed ? "passed" : "failed",
+        headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest,
+        evidencePath: validation?.evidencePath || validation?.reportPath,
+        source: "local_validation",
+        profile: validation?.profile,
+        summary: "post-fix exact-head validation",
+      },
+      externalReview: {
+        status: externalReview?.status === "pass" ? "passed" : "blocked",
+        headSha: externalReview?.reviewedHead || headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest: externalReview?.changedFilesDigest,
+        evidencePath: externalReview?.reportPath || externalReview?.evidencePath,
+        source: externalReview?.source || "external_review",
+        provider: externalReview?.provider,
+        tier: externalReview?.tier,
+        resultId: externalReview?.resultId || externalReview?.reviewId,
+        summary: externalReview?.reason || externalReview?.status,
+      },
+      codexReview: {
+        status: review?.verdict?.verdict === "approve" ? "passed" : "blocked",
+        headSha: review?.reviewedHead || headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest: review?.changedFilesDigest,
+        evidencePath: review?.logPath || review?.promptPath,
+        source: review?.source || "codex_mechanics_security_review",
+        provider: review?.provider || "codex",
+        resultId: review?.resultId || review?.reviewId,
+        summary: review?.reviewFailureReason || review?.verdict?.verdict,
+      },
+    },
+    { headSha, baseSha, changedFiles, changedFilesDigest },
+  );
+  if (persisted && !persisted.ok) {
+    throw new Error(`Post-fix exact-head evidence persistence failed: ${persisted.reasonCode || "unknown"}`);
+  }
+  return persisted;
 }
 
 async function writeReviewPackage(config, payload) {

@@ -45,6 +45,7 @@ import {
   bindRecoveryEvidence,
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
+  persistCompleteHeadEvidence,
   recordIdempotentMutation,
   writeRecoveryState,
 } from "./recovery-state.mjs";
@@ -306,6 +307,18 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     evidencePath: result.review.logPath || result.review.promptPath,
     summary: result.review.reviewFailureReason || result.review.verdict?.verdict,
   });
+  const finalEvidence = persistBundleExactHeadEvidence(recovery, {
+    validation: finalValidation,
+    externalReview: result.externalReview,
+    review: result.review,
+    headSha: finalHead,
+    baseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
+  });
+  if (finalEvidence && !finalEvidence.ok) {
+    recovery?.stop("bundle_exact_head_evidence_incomplete", finalEvidence.reasonCode || "bundle_exact_head_evidence_incomplete", "regenerate_exact_head_evidence");
+    return stopBundle(result, "auto_failed", finalEvidence.reasonCode || "bundle_exact_head_evidence_incomplete", "Bundle exact-head evidence was incomplete or stale.");
+  }
   const reviewConvergence = buildLiveReviewConvergenceContext({
     config,
     issue,
@@ -346,6 +359,29 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     };
     if (!config.dryRun) writeBundleState(config, state);
     recovery?.advance("review_fix", "run_bundle_review_convergence");
+    result.outcome = "review_convergence_required";
+    result.bundle.state = summarizeBundleState(state);
+    result.recovery = recovery?.summary();
+    return result;
+  }
+  if (!config.dryRun && result.review.verdict?.verdict !== "approve") {
+    state = {
+      ...state,
+      reviewConvergenceState: {
+        ...state.reviewConvergenceState,
+        continuation: {
+          status: "required",
+          outcome: "review_convergence_required",
+          reason: result.review.reviewFailureReason || result.review.verdict?.verdict || "codex_review_failed",
+          message: "Exact-head Codex mechanics/security review requires bounded bundle convergence.",
+          exactHead: finalHead,
+          source: "codex_mechanics_security_review",
+          recordedAt: new Date().toISOString(),
+        },
+      },
+    };
+    if (!config.dryRun) writeBundleState(config, state);
+    recovery?.advance("review_fix", "run_bundle_codex_review_convergence");
     result.outcome = "review_convergence_required";
     result.bundle.state = summarizeBundleState(state);
     result.recovery = recovery?.summary();
@@ -587,6 +623,14 @@ function createBundleRecoveryRecorder(config, input) {
     evidence(kind, evidence) {
       return persist(bindRecoveryEvidence(state, kind, evidence));
     },
+    completeHeadEvidence(evidenceByKind, identity = {}) {
+      const persisted = persistCompleteHeadEvidence(config, state, evidenceByKind, identity);
+      if (persisted.ok) {
+        state = persisted.state;
+        statePath = persisted.statePath;
+      }
+      return persisted;
+    },
     headChanged(newHeadSha, reasonCode) {
       return persist(invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }));
     },
@@ -626,6 +670,51 @@ function createBundleRecoveryRecorder(config, input) {
       };
     },
   };
+}
+
+function persistBundleExactHeadEvidence(recovery, { validation, externalReview, review, headSha, baseSha, changedFiles }) {
+  if (!recovery) return null;
+  const changedFilesDigest = validation?.changedFilesDigest || externalReview?.changedFilesDigest || review?.changedFilesDigest || null;
+  return recovery.completeHeadEvidence?.(
+    {
+      localValidation: {
+        status: validation?.passed ? "passed" : "failed",
+        headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest,
+        source: "local_validation",
+        profile: validation?.profile,
+        summary: "bundle final exact-head validation",
+      },
+      externalReview: {
+        status: externalReview?.status === "pass" ? "passed" : "blocked",
+        headSha: externalReview?.reviewedHead || headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest: externalReview?.changedFilesDigest,
+        evidencePath: externalReview?.reportPath || externalReview?.evidencePath,
+        source: externalReview?.source || "external_review",
+        provider: externalReview?.provider,
+        tier: externalReview?.tier,
+        resultId: externalReview?.resultId || externalReview?.reviewId,
+        summary: externalReview?.reason || externalReview?.status,
+      },
+      codexReview: {
+        status: review?.verdict?.verdict === "approve" ? "passed" : "blocked",
+        headSha: review?.reviewedHead || headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest: review?.changedFilesDigest,
+        evidencePath: review?.logPath || review?.promptPath,
+        source: review?.source || "codex_mechanics_security_review",
+        provider: review?.provider || "codex",
+        resultId: review?.resultId || review?.reviewId,
+        summary: review?.reviewFailureReason || review?.verdict?.verdict,
+      },
+    },
+    { headSha, baseSha, changedFiles, changedFilesDigest },
+  );
 }
 
 function gitObjectExists(config, sha) {
