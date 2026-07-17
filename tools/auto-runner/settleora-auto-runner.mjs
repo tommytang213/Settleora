@@ -892,35 +892,89 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.finishedAt = new Date().toISOString();
       return iteration;
   }
-  const reviewConvergence = buildLiveReviewConvergenceContext({
-    config,
-    issue,
-    laneDecision,
-    branchName,
-    baseRef: "main",
-    exactHead: iteration.runnerCreatedCommitSha,
-    reviewFixAttempts: iteration.reviewFixAttempts || [],
-    reviewConvergenceState: iteration.reviewConvergenceState || null,
-    relationships: { parentPr: null, dependentPrs: [] },
-  });
-  iteration.reviewConvergence = reviewConvergence.context;
-  const prePushReviewGate = evaluatePrePushReviewGate({
-    ...reviewConvergence.gateInput,
-    laneDecision,
-    externalReview: iteration.externalReview,
-    reviewMutationGuard: iteration.reviewMutationGuard,
-  });
-  if (!prePushReviewGate.ok) {
-    iteration.outcome = prePushReviewGate.outcome;
-    iteration.issueComment = finishIssueOutcome(
+  while (true) {
+    const reviewConvergence = buildLiveReviewConvergenceContext({
       config,
       issue,
-      iteration.outcome,
-      `Auto-runner did not open a PR for #${issue.number} because ${prePushReviewGate.message}.`,
+      laneDecision,
+      branchName,
+      baseRef: "main",
+      exactHead: iteration.runnerCreatedCommitSha,
+      reviewFixAttempts: iteration.reviewFixAttempts || [],
+      relationships: { parentPr: null, dependentPrs: [] },
+    });
+    iteration.reviewConvergence = reviewConvergence.context;
+    iteration.reviewConvergenceState = reviewConvergence.gateInput.reviewConvergenceState;
+    const prePushReviewGate = evaluatePrePushReviewGate({
+      ...reviewConvergence.gateInput,
+      laneDecision,
+      externalReview: iteration.externalReview,
+      reviewMutationGuard: iteration.reviewMutationGuard,
+    });
+    iteration.prePushReviewGate = prePushReviewGate;
+    if (prePushReviewGate.ok) break;
+    if (prePushReviewGate.outcome !== "review_convergence_required") {
+      iteration.outcome = prePushReviewGate.outcome;
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner did not open a PR for #${issue.number} because ${prePushReviewGate.message}.`,
       );
       recoveryRecorder?.stop("pre_push_review_gate_failed", prePushReviewGate.reason || prePushReviewGate.message, "stop_fail_closed");
       iteration.finishedAt = new Date().toISOString();
       return iteration;
+    }
+    recoveryRecorder?.advance("review_fix", "run_bounded_review_convergence");
+    const fixAttempt = await runReviewFixCycle(config, {
+      issue,
+      laneDecision,
+      branchName,
+      promptInfo,
+      changedFiles,
+      forbiddenChangedFiles: forbidden,
+      validation: iteration.validation,
+      report: iteration.report,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      attemptCount: iteration.reviewFixAttempts?.length || 0,
+    });
+    iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (!fixAttempt.proceeded) {
+      iteration.outcome = "review_changes_requested_retry_exhausted";
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner did not open a PR for #${issue.number} because bounded review convergence could not safely continue: ${fixAttempt.reason}.`,
+      );
+      recoveryRecorder?.stop("review_convergence_fix_not_proceeded", fixAttempt.reason, "create_or_reuse_followup_or_escalate");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
+      issue,
+      laneDecision,
+      promptInfo,
+      report: iteration.report,
+      fixAttempt,
+    });
+    changedFiles = postFix.changedFiles;
+    forbidden = postFix.forbiddenChangedFiles;
+    iteration.changedFiles = changedFiles;
+    iteration.forbiddenChangedFiles = forbidden;
+    iteration.validation = postFix.validation;
+    iteration.commitAfterReviewFix = postFix.commit;
+    iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+    recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_convergence_fix_commit");
+    recoveryRecorder?.marker("checkpoint_commit", `review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
+      target: branchName,
+      correlation: runId,
+    });
+    iteration.reviewPackage = postFix.reviewPackage;
+    iteration.externalReview = postFix.externalReview;
+    iteration.review = postFix.review;
+    iteration.reviewMutationGuard = postFix.reviewMutationGuard;
   }
 
   recoveryRecorder?.advance("push", "push_branch");

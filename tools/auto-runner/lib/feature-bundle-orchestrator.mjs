@@ -329,6 +329,28 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     externalReview: result.externalReview,
     reviewMutationGuard: { mutationDetected: false },
   });
+  if (!prePushGate.ok && prePushGate.outcome === "review_convergence_required") {
+    state = {
+      ...state,
+      reviewConvergenceState: {
+        ...state.reviewConvergenceState,
+        continuation: {
+          status: "required",
+          outcome: prePushGate.outcome,
+          reason: prePushGate.reason,
+          message: prePushGate.message,
+          exactHead: finalHead,
+          recordedAt: new Date().toISOString(),
+        },
+      },
+    };
+    if (!config.dryRun) writeBundleState(config, state);
+    recovery?.advance("review_fix", "run_bundle_review_convergence");
+    result.outcome = "review_convergence_required";
+    result.bundle.state = summarizeBundleState(state);
+    result.recovery = recovery?.summary();
+    return result;
+  }
   if (!prePushGate.ok || (!config.dryRun && result.review.verdict?.verdict !== "approve")) {
     recovery?.stop("bundle_review_failed", prePushGate.reason || result.review.verdict?.verdict || "bundle_review_failed", "run_focused_fix_or_escalate");
     return stopBundle(result, prePushGate.outcome || "codex_review_failed", prePushGate.reason || "bundle_review_failed", prePushGate.message || "Bundle review failed.");

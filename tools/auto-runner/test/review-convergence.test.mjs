@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -471,4 +471,27 @@ test("live review gate context keeps zero and exhausted budgets terminal", () =>
     },
   });
   assert.equal(evaluateCycleBudget(exhausted.gateInput.reviewConvergenceState, exhausted.gateInput.config, []).terminalReason, "CYCLE_BUDGET_EXHAUSTED");
+});
+
+test("live callers continue bounded convergence instead of stopping at pre-push gate", () => {
+  const runnerSource = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const runnerGate = runnerSource.slice(
+    runnerSource.indexOf("while (true) {"),
+    runnerSource.indexOf("recoveryRecorder?.advance(\"push\"", runnerSource.indexOf("while (true) {")),
+  );
+  assert.match(runnerGate, /prePushReviewGate\.outcome !== "review_convergence_required"/);
+  assert.match(runnerGate, /run_bounded_review_convergence/);
+  assert.match(runnerGate, /runReviewFixCycle\(config/);
+  assert.match(runnerGate, /commitReviewFixAndRerunExactHeadReviews\(config/);
+  assert.match(runnerGate, /review_convergence_fix_commit/);
+
+  const bundleSource = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const bundleGate = bundleSource.slice(
+    bundleSource.indexOf("if (!prePushGate.ok && prePushGate.outcome === \"review_convergence_required\")"),
+    bundleSource.indexOf("if (!prePushGate.ok ||", bundleSource.indexOf("if (!prePushGate.ok && prePushGate.outcome === \"review_convergence_required\")")),
+  );
+  assert.match(bundleGate, /continuation:\s*\{/);
+  assert.match(bundleGate, /status: "required"/);
+  assert.match(bundleGate, /run_bundle_review_convergence/);
+  assert.match(bundleGate, /result\.outcome = "review_convergence_required"/);
 });
