@@ -219,17 +219,50 @@ test("review-fix secret redaction covers assignments, headers, query values, and
     "GEMINI_API_KEY",
     "api_key",
     "api-key",
+    "apiKey",
+    "ApiKey",
     "apikey",
+    "x-api-key",
+    "X-API-Key",
     "x-goog-api-key",
     "token",
     "access_token",
     "refresh_token",
     "id_token",
+    "access-token",
+    "refresh-token",
+    "id-token",
+    "accessToken",
+    "AccessToken",
+    "refreshToken",
+    "idToken",
     "secret",
     "client_secret",
+    "client-secret",
+    "clientSecret",
     "password",
     "passwd",
     "authorization",
+    "apiToken",
+    "authToken",
+    "bearerToken",
+    "sessionToken",
+    "personalAccessToken",
+    "github-token",
+    "private_key",
+    "clientCredential",
+    "auth",
+    "authHeader",
+    "authorizationHeader",
+    "jwt",
+    "bearer",
+    "session",
+    "cookie",
+    "set-cookie",
+    "csrf",
+    "xsrf",
+    "private-token",
+    "client-key",
   ];
   for (const key of keys) {
     const forms = [
@@ -260,10 +293,30 @@ test("review-fix secret redaction covers assignments, headers, query values, and
   assert.match(authorization, /Bearer \[REDACTED\]/);
   assert.match(authorization, /Basic \[REDACTED\]/);
   assert.equal(redactSecretLikeText(authorization), authorization);
+  const basicBase64 = redactSecretLikeText("Authorization: Basic dXNlcjpwYXNzd29yZA==");
+  assert.equal(basicBase64, "Authorization: Basic [REDACTED]");
+  assert.equal(redactSecretLikeText("authorization=Bearer"), "authorization=Bearer");
+  assert.equal(redactSecretLikeText(`authorization=Bearer ${secret}`), "authorization=Bearer [REDACTED]");
 
   const query = redactSecretLikeText(`https://example.invalid/path?token=${secret}&safe=visible`);
   assert.doesNotMatch(query, new RegExp(secret));
   assert.match(query, /\?token=\[REDACTED\]&safe=visible/);
+  const apiKeyHeader = redactSecretLikeText(`X-API-Key: ${secret}\nx-api-key=${secret}&safe=visible`);
+  assert.doesNotMatch(apiKeyHeader, new RegExp(secret));
+  assert.match(apiKeyHeader, /X-API-Key:\s*\[REDACTED\]/);
+  assert.match(apiKeyHeader, /x-api-key=\[REDACTED\]&safe=visible/);
+  const multiValueHeaders = redactSecretLikeText([
+    `X-API-Key: ${secret}; safe=visible`,
+    `Cookie: session=${secret}; safe=visible`,
+    `Set-Cookie: session=${secret}; Path=/; HttpOnly`,
+    `authHeader: Bearer ${secret}; safe=visible`,
+  ].join("\n"));
+  assert.doesNotMatch(multiValueHeaders, new RegExp(secret));
+  assert.match(multiValueHeaders, /X-API-Key: \[REDACTED\]/);
+  assert.match(multiValueHeaders, /Cookie: \[REDACTED\]/);
+  assert.match(multiValueHeaders, /Set-Cookie: \[REDACTED\]/);
+  assert.match(multiValueHeaders, /authHeader: \[REDACTED\]/);
+  assert.equal(redactSecretLikeText(multiValueHeaders), multiValueHeaders);
 
   const terminated = redactSecretLikeText([
     `token=${secret},safe`,
@@ -276,8 +329,8 @@ test("review-fix secret redaction covers assignments, headers, query values, and
   assert.doesNotMatch(terminated, new RegExp(secret));
   assert.match(terminated, /safe=visible/);
 
-  const harmless = redactSecretLikeText("token budget, secret boundary, and authorization policy remain meaningful");
-  assert.equal(harmless, "token budget, secret boundary, and authorization policy remain meaningful");
+  const harmless = redactSecretLikeText("access token budget, client secret policy, API key rotation design, and authorization policy remain meaningful");
+  assert.equal(harmless, "access token budget, client secret policy, API key rotation design, and authorization policy remain meaningful");
 
   const long = redactSecretLikeText(`${"x".repeat(10_000)} token=${secret} ${"y".repeat(10_000)}`);
   assert.doesNotMatch(long, new RegExp(secret));

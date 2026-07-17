@@ -1759,6 +1759,216 @@ test("structured Codex findings and strings are preserved with provider-distinct
   assert.notDeepEqual(codexClaimed, geminiClaimed);
 });
 
+test("current finding inventory, fingerprints, state, and batch context are redacted before persistence", () => {
+  const c = config();
+  try {
+    const secret = "fake-cycle16-canary-current-inventory-value";
+    const hexSecret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const storedFingerprint = "f".repeat(64);
+    const rawGeminiFinding = {
+      provider: "gemini",
+      source: "integrated_gemini",
+      severity: `high apiKey=${secret}`,
+      path: `/workspace/logs/settleora-auto-runner/secrets/${secret}`,
+      file: `tools/auto-runner/lib/review-fix-policy.mjs?safe=visible&accessToken=${secret}`,
+      line: 62,
+      range: {
+        startLine: 62,
+        endLine: 67,
+        label: `Authorization: Basic ${secret}`,
+        path: `tools/auto-runner/lib/review-fix-policy.mjs?x-api-key=${secret}&safe=visible`,
+      },
+      title: `Cover alias redaction X-API-Key: ${secret}`,
+      message: `clientSecret=${secret}`,
+      body: `refreshToken=${secret}; safe=visible`,
+      details: `idToken: ${secret}`,
+      rule: `apiKey=${secret}`,
+      ruleId: `x-api-key=${secret}`,
+      check: `GEMINI_API_KEY=${secret}`,
+      authorityInvariant: `authorization policy with Authorization: Bearer ${secret}`,
+      invariant: `client_secret=${secret}`,
+      hiddenReviewerPayload: { raw: secret },
+    };
+    const rawCodexFinding = {
+      ...rawGeminiFinding,
+      provider: "codex",
+      source: "codex_mechanics_security_review",
+      path: "tools/auto-runner/lib/review-convergence-controller.mjs",
+      title: `Apply persistence redaction api_key=${secret}`,
+    };
+    const duplicateGeminiFinding = { ...rawGeminiFinding };
+    const malformed = { provider: "gemini", nested: { raw: secret }, unknown: secret };
+
+    const inventory = freezeMaterialFindingInventory([
+      rawGeminiFinding,
+      duplicateGeminiFinding,
+      rawCodexFinding,
+      malformed,
+    ]);
+    assert.equal(inventory.length, 2);
+    const inventoryText = JSON.stringify(inventory);
+    assert.doesNotMatch(inventoryText, new RegExp(secret));
+    assert.doesNotMatch(inventoryText, /\/workspace\/logs\/settleora-auto-runner\/secrets/);
+    assert.doesNotMatch(inventoryText, /\[object Object\]/);
+    assert.match(inventoryText, /safe=visible/);
+    assert.equal(new Set(inventory.map((finding) => finding.fingerprint)).size, 2);
+
+    const geminiCurrent = reviewFindingFingerprintsFromSupportedContainers({
+      externalReview: {
+        provider: "gemini",
+        source: "integrated_gemini",
+        status: "blocked",
+        sanitizedResponseSummary: { verdict: "fail", findings: [rawGeminiFinding] },
+      },
+    });
+    const geminiClaimed = claimedReviewFindingFingerprints({
+      fixAttempt: {
+        decision: {
+          trigger: { source: "integrated_gemini" },
+          sanitizedFindings: [rawGeminiFinding],
+        },
+      },
+      externalReview: { provider: "gemini", source: "integrated_gemini" },
+    });
+    const codexCurrent = reviewFindingFingerprintsFromSupportedContainers({
+      review: {
+        provider: "codex",
+        source: "codex_mechanics_security_review",
+        verdict: { verdict: "changes_requested", blocking_findings: [rawCodexFinding] },
+      },
+    });
+    const codexClaimed = claimedReviewFindingFingerprints({
+      fixAttempt: {
+        decision: {
+          trigger: { source: "codex_mechanics" },
+          sanitizedFindings: [rawCodexFinding],
+        },
+      },
+      review: { provider: "codex", source: "codex_mechanics_security_review" },
+    });
+    assert.deepEqual(geminiCurrent, geminiClaimed);
+    assert.deepEqual(codexCurrent, codexClaimed);
+    assert.notDeepEqual(geminiCurrent, codexCurrent);
+    assert.doesNotMatch(JSON.stringify({ geminiCurrent, geminiClaimed, codexCurrent, codexClaimed }), new RegExp(secret));
+
+    const built = buildLiveReviewConvergenceContext({
+      config: { repositorySlug: "tommytang213/Settleora", logsRoot: c.logsRoot },
+      issue: { number: 921, title: "Convergence" },
+      pr: { number: 922, headRefName: "feature/convergence", baseRefName: "main", headRefOid: "a".repeat(40) },
+      branchName: "feature/convergence",
+      exactHead: "a".repeat(40),
+      currentFindings: [rawGeminiFinding, rawCodexFinding, malformed],
+      reviewConvergenceHistory: [{
+        findingFingerprints: [rawGeminiFinding, rawCodexFinding, `accessToken=${secret}`, storedFingerprint],
+        claimedFixedFingerprints: [rawGeminiFinding, { fingerprint: `refreshToken=${secret}` }],
+        stablePatchId: "patch-1",
+      }],
+    });
+    const stateText = JSON.stringify(built.context);
+    assert.doesNotMatch(stateText, new RegExp(secret));
+    assert.doesNotMatch(stateText, /\/workspace\/logs\/settleora-auto-runner\/secrets/);
+    assert.doesNotMatch(stateText, /\[object Object\]/);
+    assert.equal(built.context.findingInventory.length, 2);
+    assert.equal(built.context.history[0].findingFingerprints.length, 4);
+    assert.equal(built.context.history[0].claimedFixedFingerprints.length, 1);
+    assert.doesNotMatch(JSON.stringify(built.context.history), new RegExp(secret));
+    assert.match(JSON.stringify(built.context.history), new RegExp(storedFingerprint));
+    const restarted = buildLiveReviewConvergenceContext({
+      config: { repositorySlug: "tommytang213/Settleora", logsRoot: c.logsRoot },
+      reviewConvergenceState: {
+        ...built.context,
+        findingInventory: [
+          ...inventory,
+          { ...inventory[0], fingerprint: inventory[0].fingerprint.toUpperCase() },
+          { ...inventory[0], fingerprint: storedFingerprint },
+          { ...inventory[0], fingerprint: `apiKey=${secret}` },
+          { ...inventory[0], classification: "duplicate" },
+          { ...inventory[0], classification: "manual_decision" },
+        ],
+      },
+    });
+    assert.deepEqual(
+      restarted.context.findingInventory.map((finding) => finding.fingerprint),
+      inventory.map((finding) => finding.fingerprint).sort(),
+    );
+    assert.doesNotMatch(JSON.stringify(restarted.context.findingInventory), new RegExp(secret));
+    assert.doesNotMatch(JSON.stringify(restarted.context.findingInventory), new RegExp(storedFingerprint));
+    const { body: _legacyBody, ...legacyBodylessFinding } = inventory[0];
+    const legacyRestarted = buildLiveReviewConvergenceContext({
+      config: { repositorySlug: "tommytang213/Settleora", logsRoot: c.logsRoot },
+      reviewConvergenceState: {
+        ...built.context,
+        findingInventory: [{ ...legacyBodylessFinding, fingerprint: storedFingerprint }],
+      },
+    });
+    assert.deepEqual(legacyRestarted.context.findingInventory.map((finding) => finding.fingerprint), [storedFingerprint]);
+    assert.doesNotMatch(JSON.stringify(legacyRestarted.context.findingInventory), new RegExp(secret));
+
+    const written = writeReviewConvergenceState(c, {
+      ...state(),
+      pr: { number: 922, branch: "feature/convergence", base: "main", exactHead: "a".repeat(40) },
+      findingInventory: built.context.findingInventory,
+      history: built.context.history,
+    });
+    const durable = readFileSync(written.statePath, "utf8");
+    assert.doesNotMatch(durable, new RegExp(secret));
+    assert.doesNotMatch(durable, /\[object Object\]/);
+
+    const batch = buildBatchFixTask({
+      issue: { number: 921 },
+      branchName: "feature/convergence",
+      laneDecision: { allowedPaths: ["tools/auto-runner/**"] },
+      inventory: [rawGeminiFinding, rawCodexFinding],
+    });
+    const batchText = JSON.stringify(batch);
+    assert.doesNotMatch(batchText, new RegExp(secret));
+    assert.doesNotMatch(batchText, /\/workspace\/logs\/settleora-auto-runner\/secrets/);
+    assert.match(batchText, /\[REDACTED\]/);
+    const secretBatch = buildBatchFixTask({
+      issue: { number: 921 },
+      branchName: `feature?accessToken=${secret}`,
+      laneDecision: { allowedPaths: [`tools/auto-runner/**?x-api-key=${secret}`] },
+      inventory: [rawGeminiFinding],
+    });
+    assert.doesNotMatch(JSON.stringify(secretBatch), new RegExp(secret));
+    assert.match(secretBatch.branchName, /\[REDACTED\]/);
+    assert.match(secretBatch.allowedPaths[0], /\[REDACTED\]/);
+    const frozenBatch = buildBatchFixTask({
+      issue: { number: 921 },
+      branchName: "feature/convergence",
+      laneDecision: { allowedPaths: ["tools/auto-runner/**"] },
+      inventory,
+    });
+    assert.deepEqual(frozenBatch.findingFingerprints, inventory.map((finding) => finding.fingerprint).sort());
+    assert.doesNotMatch(JSON.stringify(frozenBatch), new RegExp(secret));
+    const forgedFingerprintBatch = buildBatchFixTask({
+      issue: { number: 921 },
+      branchName: "feature/convergence",
+      laneDecision: { allowedPaths: ["tools/auto-runner/**"] },
+      inventory: [{ ...inventory[0], fingerprint: storedFingerprint }],
+    });
+    assert.deepEqual(forgedFingerprintBatch.findingFingerprints, [inventory[0].fingerprint]);
+    assert.doesNotMatch(JSON.stringify(forgedFingerprintBatch), new RegExp(storedFingerprint));
+    const legacyFingerprintBatch = buildBatchFixTask({
+      issue: { number: 921 },
+      branchName: "feature/convergence",
+      laneDecision: { allowedPaths: ["tools/auto-runner/**"] },
+      inventory: [{ ...legacyBodylessFinding, fingerprint: storedFingerprint }],
+    });
+    assert.deepEqual(legacyFingerprintBatch.findingFingerprints, [storedFingerprint]);
+    const malformedFingerprintBatch = buildBatchFixTask({
+      issue: { number: 921 },
+      branchName: "feature/convergence",
+      laneDecision: { allowedPaths: ["tools/auto-runner/**"] },
+      inventory: [{ ...inventory[0], fingerprint: `refreshToken=${secret}` }],
+    });
+    assert.doesNotMatch(JSON.stringify(malformedFingerprintBatch), new RegExp(secret));
+    assert.match(malformedFingerprintBatch.findingFingerprints[0], /^[0-9a-f]{64}$/);
+  } finally {
+    c.cleanup();
+  }
+});
+
 test("legacy commit-shaped patch IDs are not trusted for oscillation, but tree and stable patch identities are", () => {
   const commitA = "a".repeat(40);
   const commitB = "b".repeat(40);

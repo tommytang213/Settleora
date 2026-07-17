@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { defaultNoProgressSourceCycles, hardMaxReviewFixSourceCycles, normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
+import {
+  defaultNoProgressSourceCycles,
+  hardMaxReviewFixSourceCycles,
+  normalizeReviewFixMutationConfig,
+  redactSecretLikeText,
+  sanitizeStructuredReviewFinding,
+  sanitizeStructuredReviewFindings,
+} from "./review-fix-policy.mjs";
 import {
   invalidateConvergenceEvidenceForHead,
   normalizeReviewConvergenceStateIdentity,
@@ -63,7 +70,7 @@ export function buildLiveReviewConvergenceContext(input = {}) {
   const findingInventory = Array.isArray(input.currentFindings)
     ? freezeMaterialFindingInventory(input.currentFindings)
     : Array.isArray(existing?.findingInventory)
-      ? existing.findingInventory
+      ? sanitizeFrozenFindingInventory(existing.findingInventory)
       : [];
   const context = {
     stateVersion: existing?.stateVersion || 1,
@@ -157,15 +164,16 @@ export function normalizeConvergenceBudget(config = {}) {
 }
 
 export function fingerprintReviewFinding(finding = {}) {
+  const sanitized = sanitizeStructuredReviewFinding(finding) || {};
   const normalized = {
-    provider: scrub(finding.provider || finding.source || "unknown"),
-    severity: normalizeSeverity(finding.severity),
-    path: normalizePath(finding.path || finding.file || ""),
-    location: stableLocation(finding),
-    title: normalizeText(finding.title || finding.message || ""),
-    body: normalizeText(finding.body || finding.details || ""),
-    ruleId: scrub(finding.ruleId || finding.rule || finding.check || ""),
-    authorityInvariant: scrub(finding.authorityInvariant || finding.invariant || ""),
+    provider: scrub(sanitized.provider || sanitized.source || "unknown"),
+    severity: normalizeSeverity(sanitized.severity),
+    path: normalizePath(sanitized.path || sanitized.file || ""),
+    location: stableLocation(sanitized) || normalizeText(sanitized.location || ""),
+    title: normalizeText(sanitized.title || sanitized.message || ""),
+    body: normalizeText(sanitized.body || sanitized.details || ""),
+    ruleId: scrub(sanitized.ruleId || sanitized.rule || sanitized.check || ""),
+    authorityInvariant: scrub(sanitized.authorityInvariant || sanitized.invariant || ""),
   };
   return {
     ...normalized,
@@ -188,10 +196,18 @@ export function markDiagnosticReviewFixTerminal(state, reason = "diagnostic_fix_
 }
 
 export function freezeMaterialFindingInventory(findings = []) {
+  const seen = new Set();
   return findings
-    .map((finding) => ({ raw: finding, classified: classifyFinding(finding), fingerprint: fingerprintReviewFinding(finding) }))
+    .map((finding) => sanitizeStructuredReviewFinding(finding))
+    .filter(Boolean)
+    .map((finding) => ({ classified: classifyFinding(finding), fingerprint: fingerprintReviewFinding(finding) }))
     .filter((entry) => entry.classified.material)
     .sort((a, b) => a.fingerprint.fingerprint.localeCompare(b.fingerprint.fingerprint))
+    .filter((entry) => {
+      if (seen.has(entry.fingerprint.fingerprint)) return false;
+      seen.add(entry.fingerprint.fingerprint);
+      return true;
+    })
     .map((entry) => ({
       classification: entry.classified.classification,
       fingerprint: entry.fingerprint.fingerprint,
@@ -200,6 +216,7 @@ export function freezeMaterialFindingInventory(findings = []) {
       path: entry.fingerprint.path,
       location: entry.fingerprint.location,
       title: entry.fingerprint.title,
+      body: entry.fingerprint.body,
       ruleId: entry.fingerprint.ruleId,
       authorityInvariant: entry.fingerprint.authorityInvariant,
     }));
@@ -356,19 +373,107 @@ export function evaluateCycleBudget(state, config = {}, history = []) {
 }
 
 export function buildBatchFixTask({ issue, branchName, laneDecision, inventory }) {
+  const safeInventory = sanitizeInventoryForBatch(inventory || []);
+  const safeBranchName = redactSecretLikeText(branchName || "unknown").slice(0, 240);
+  const safeAllowedPaths = (laneDecision?.allowedPaths || []).map((allowedPath) => redactSecretLikeText(allowedPath).slice(0, 240));
   return {
     title: `Batch review-fix for #${issue?.number || "unknown"}`,
-    branchName,
-    allowedPaths: laneDecision?.allowedPaths || [],
-    findingFingerprints: inventory.map((finding) => finding.fingerprint),
+    branchName: safeBranchName,
+    allowedPaths: safeAllowedPaths,
+    findingFingerprints: safeInventory.map((finding) => finding.fingerprint),
     prompt: [
       `Fix all current material review findings for #${issue?.number || "unknown"} in one focused batch.`,
-      `Branch: ${branchName || "unknown"}`,
-      `Allowed paths: ${(laneDecision?.allowedPaths || []).join(", ")}`,
+      `Branch: ${safeBranchName}`,
+      `Allowed paths: ${safeAllowedPaths.join(", ")}`,
       "Do not fix duplicate, non-material, stale-head, out-of-contract, or manual-decision findings.",
-      ...inventory.map((finding) => `- ${finding.severity} ${finding.path} ${finding.title} [${finding.fingerprint}]`),
+      ...safeInventory.map((finding) => `- ${batchPromptText(finding.severity, 40)} ${batchPromptText(finding.path, 512)} ${batchPromptText(finding.title, 800)} [${finding.fingerprint}]`),
     ].join("\n"),
   };
+}
+
+function batchPromptText(value, max) {
+  return redactSecretLikeText(value).slice(0, max);
+}
+
+function sanitizeInventoryForBatch(inventory = []) {
+  const seen = new Set();
+  const entries = [];
+  for (const finding of inventory) {
+    if (typeof finding?.fingerprint === "string") {
+      const safe = sanitizeStructuredReviewFinding(finding);
+      if (!safe) continue;
+      const classified = classifyFinding(safe);
+      if (!classified.material) continue;
+      const fingerprint = legacyFrozenFingerprint(finding, safe) || fingerprintReviewFinding(safe).fingerprint;
+      if (seen.has(fingerprint)) continue;
+      seen.add(fingerprint);
+      entries.push({
+        fingerprint,
+        provider: scrub(safe.provider || safe.source || "unknown"),
+        severity: normalizeSeverity(safe.severity),
+        path: normalizePath(safe.path || safe.file || ""),
+        title: normalizeText(safe.title || safe.message || ""),
+        body: normalizeText(safe.body || safe.details || ""),
+      });
+      continue;
+    }
+    for (const frozen of freezeMaterialFindingInventory([finding])) {
+      if (seen.has(frozen.fingerprint)) continue;
+      seen.add(frozen.fingerprint);
+      entries.push(frozen);
+    }
+  }
+  return entries.sort((a, b) => a.fingerprint.localeCompare(b.fingerprint));
+}
+
+function sanitizeFrozenFindingInventory(inventory = []) {
+  const seen = new Set();
+  const entries = [];
+  for (const finding of inventory) {
+    if (!finding || typeof finding !== "object" || Array.isArray(finding)) continue;
+    const safe = sanitizeStructuredReviewFinding(finding);
+    if (!safe) continue;
+    if (Object.hasOwn(finding, "fingerprint") && !validFindingFingerprint(finding.fingerprint)) continue;
+    const recomputed = fingerprintReviewFinding(safe);
+    const fingerprint = legacyFrozenFingerprint(finding, safe) || recomputed.fingerprint;
+    if (seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    const hasFrozenClassification = validFindingFingerprint(finding.fingerprint) && Object.hasOwn(finding, "classification");
+    const frozenClassification = hasFrozenClassification ? materialFrozenClassification(finding.classification) : null;
+    if (hasFrozenClassification && !frozenClassification) continue;
+    const classified = frozenClassification
+      ? { material: true, classification: frozenClassification }
+      : classifyFinding(safe);
+    if (!classified.material) continue;
+    entries.push({
+      classification: classified.classification,
+      fingerprint,
+      provider: recomputed.provider,
+      severity: recomputed.severity,
+      path: recomputed.path,
+      location: recomputed.location,
+      title: recomputed.title,
+      body: recomputed.body,
+      ruleId: recomputed.ruleId,
+      authorityInvariant: recomputed.authorityInvariant,
+    });
+  }
+  return entries.sort((a, b) => a.fingerprint.localeCompare(b.fingerprint));
+}
+
+function validFindingFingerprint(value) {
+  return /^[0-9a-f]{64}$/i.test(String(value || ""));
+}
+
+function legacyFrozenFingerprint(finding, safe) {
+  if (!validFindingFingerprint(finding?.fingerprint)) return null;
+  if (Object.hasOwn(safe || {}, "body")) return null;
+  return String(finding.fingerprint).toLowerCase();
+}
+
+function materialFrozenClassification(classification) {
+  const normalized = scrub(classification).toLowerCase().trim().slice(0, 80);
+  return normalized === "material_safely_fixable" ? normalized : null;
 }
 
 export function notificationDecisionForConvergence(event = {}) {
@@ -398,8 +503,8 @@ function normalizeHistoryEntry(item = {}) {
   return {
     ...item,
     exactHead: item.exactHead || item.headSha || item.commitSha || item.sourceIdentity?.exactHead || null,
-    findingFingerprints: normalizeFindingFingerprints(item.findingFingerprints || []),
-    claimedFixedFingerprints: normalizeFindingFingerprints(item.claimedFixedFingerprints || item.fixedFindingFingerprints || []),
+    findingFingerprints: normalizeFindingFingerprints(item.findingFingerprints || [], { preserveValidFingerprintStrings: true }),
+    claimedFixedFingerprints: normalizeFindingFingerprints(item.claimedFixedFingerprints || item.fixedFindingFingerprints || [], { preserveValidFingerprintStrings: true }),
     patchId,
     treeId: item.treeId || item.sourceIdentity?.treeId || null,
     patchIdReason: item.patchIdReason || item.sourceIdentity?.patchIdReason || (patchId ? null : item.patchIdReason || null),
@@ -478,29 +583,31 @@ function detectReturnedFinding(history) {
 
 function externalReviewFindingsFromSupportedContainers(externalReview = {}) {
   if (!externalReview || reviewVerdictIsPass(externalReview)) return [];
-  return collectSupportedFindingArrays(externalReview, [
-    ["sanitizedResponseSummary", "findings"],
-    ["findings"],
-    ["blockingFindings"],
-  ]).map((finding) => normalizeReviewFindingForFingerprint(finding, {
+  const defaults = {
     provider: externalReview.provider || "external_review",
     source: externalReview.source || "external_review",
     severity: externalReview.severity,
-  }));
+  };
+  return sanitizeStructuredReviewFindings(collectSupportedFindingArrays(externalReview, [
+    ["sanitizedResponseSummary", "findings"],
+    ["findings"],
+    ["blockingFindings"],
+  ]).map((finding) => normalizeReviewFindingForFingerprint(finding, defaults)), defaults);
 }
 
 function codexReviewFindingsFromSupportedContainers(review = {}) {
   if (!review || reviewVerdictIsPass(review)) return [];
-  return collectSupportedFindingArrays(review, [
+  const defaults = {
+    provider: review.provider || "codex",
+    source: review.source || "codex_mechanics_security_review",
+    severity: review.severity,
+  };
+  return sanitizeStructuredReviewFindings(collectSupportedFindingArrays(review, [
     ["verdict", "blocking_findings"],
     ["verdict", "findings"],
     ["blockingFindings"],
     ["findings"],
-  ]).map((finding) => normalizeReviewFindingForFingerprint(finding, {
-    provider: review.provider || "codex",
-    source: review.source || "codex_mechanics_security_review",
-    severity: review.severity,
-  }));
+  ]).map((finding) => normalizeReviewFindingForFingerprint(finding, defaults)), defaults);
 }
 
 function collectSupportedFindingArrays(source = {}, paths = []) {
@@ -514,21 +621,21 @@ function collectSupportedFindingArrays(source = {}, paths = []) {
 
 function normalizeReviewFindingForFingerprint(finding, defaults = {}) {
   if (finding && typeof finding === "object") {
-    return {
+    return sanitizeStructuredReviewFinding({
       ...finding,
       provider: defaults.provider || finding.provider,
       source: defaults.source || finding.source,
       severity: defaults.severity || finding.severity,
-    };
+    });
   }
   const text = String(finding || "");
-  return {
+  return sanitizeStructuredReviewFinding({
     provider: defaults.provider,
     source: defaults.source,
     severity: defaults.severity,
     title: text,
     body: text,
-  };
+  });
 }
 
 function canonicalClaimedFindingIdentity({ trigger = {}, source = null, externalReview = {}, review = {} } = {}) {
@@ -595,12 +702,15 @@ function normalizePr(pr = {}) {
   };
 }
 
-function normalizeFindingFingerprints(values = []) {
+function normalizeFindingFingerprints(values = [], options = {}) {
   return values
     .map((value) => {
-      if (typeof value === "string") return value;
-      if (value?.fingerprint) return value.fingerprint;
-      return fingerprintReviewFinding(value).fingerprint;
+      if (options.preserveValidFingerprintStrings && typeof value === "string" && validFindingFingerprint(value)) {
+        return value.toLowerCase();
+      }
+      const safe = sanitizeStructuredReviewFinding(value);
+      if (!safe || !classifyFinding(safe).material) return null;
+      return fingerprintReviewFinding(safe).fingerprint;
     })
     .filter(Boolean)
     .sort();
@@ -642,8 +752,5 @@ function normalizeText(value) {
 }
 
 function scrub(value) {
-  return String(value || "")
-    .replace(/bearer\s+[A-Za-z0-9._~+/-]+/gi, "[REDACTED]")
-    .replace(/(api[_-]?key|secret|token)\s*[:=]\s*\S+/gi, "$1=[REDACTED]")
-    .slice(0, 1000);
+  return redactSecretLikeText(value).slice(0, 1000);
 }

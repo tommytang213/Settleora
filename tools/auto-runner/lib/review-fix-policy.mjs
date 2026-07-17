@@ -51,15 +51,43 @@ const protectedSecretLogPathPattern = /\/workspace\/logs\/settleora-auto-runner\
 const authorizationHeaderPattern = /\b(authorization)\s*:\s*(Bearer|Basic)\s+(?:\[REDACTED\]|[^\s,;&}\]\r\n]+)/gi;
 const standaloneAuthorizationPattern = /\b(Bearer|Basic)\s+(?:[A-Za-z0-9._~+/-]+=*|\[REDACTED\])/gi;
 const authorizationAssignmentPattern = /(^|[?&#\s,{[(;])(["']?)(authorization)\2\s*([:=])\s*(?!(?:Bearer|Basic)\s+)(?:"([^"\r\n]*)"|'([^'\r\n]*)'|(\[REDACTED\])|([^\s,;&?}\]\r\n]+))/gi;
+const secretHeaderPattern = /(^|[\r\n])([ \t]*)([A-Za-z][A-Za-z0-9_-]{0,80})\s*:\s*([^\r\n]*)/g;
 const obviousCredentialPatterns = Object.freeze([
   /\bAIza[0-9A-Za-z_-]{20,}\b/g,
   /\bsk-[A-Za-z0-9_-]{20,}\b/g,
+]);
+const canonicalSecretKeyNames = new Set([
+  "auth",
+  "authheader",
+  "apikey",
+  "xapikey",
+  "xgoogapikey",
+  "geminiapikey",
+  "accesstoken",
+  "refreshtoken",
+  "idtoken",
+  "clientsecret",
+  "token",
+  "secret",
+  "password",
+  "passwd",
+  "authorization",
+  "authorizationheader",
+  "bearer",
+  "clientkey",
+  "cookie",
+  "csrf",
+  "jwt",
+  "privatetoken",
+  "session",
+  "setcookie",
+  "xsrf",
 ]);
 const secretAssignmentPattern = new RegExp(
   [
     "(^|[?&#\\s,{[(;])",
     "([\"']?)",
-    "(GEMINI_API_KEY|x-goog-api-key|api[_-]?key|apikey|access_token|refresh_token|id_token|client_secret|token|secret|password|passwd)",
+    "([A-Za-z][A-Za-z0-9_-]{0,80})",
     "\\2",
     "\\s*([:=])\\s*",
     "(?:",
@@ -77,6 +105,7 @@ const structuredStringBounds = Object.freeze({
   severity: 40,
   path: 512,
   file: 512,
+  location: 1000,
   title: 800,
   message: 800,
   body: 1600,
@@ -460,6 +489,7 @@ export function redactSecretLikeText(value) {
   let redacted = bounded
     .replace(protectedSecretLogPathPattern, secretRedactionMarker)
     .replace(authorizationHeaderPattern, (_match, key, scheme) => `${key}: ${scheme} ${secretRedactionMarker}`)
+    .replace(secretHeaderPattern, replaceSecretHeader)
     .replace(authorizationAssignmentPattern, replaceSecretAssignment)
     .replace(secretAssignmentPattern, replaceSecretAssignment)
     .replace(standaloneAuthorizationPattern, (_match, scheme) => `${scheme} ${secretRedactionMarker}`);
@@ -469,9 +499,38 @@ export function redactSecretLikeText(value) {
   return redacted;
 }
 
-function replaceSecretAssignment(_match, prefix, quote, key, separator, doubleQuoted, singleQuoted) {
+function replaceSecretHeader(_match, lineStart, indent, key, value) {
+  if (!isCanonicalSecretKey(key)) return _match;
+  const authorizationScheme = String(key).toLowerCase() === "authorization"
+    ? String(value || "").trim().match(/^(Bearer|Basic)(?:\s+.*)?$/i)
+    : null;
+  if (authorizationScheme) {
+    return `${lineStart}${indent}${key}: ${authorizationScheme[1]} ${secretRedactionMarker}`;
+  }
+  return `${lineStart}${indent}${key}: ${secretRedactionMarker}`;
+}
+
+function replaceSecretAssignment(_match, prefix, quote, key, separator, doubleQuoted, singleQuoted, alreadyRedacted, unquoted) {
+  if (!isCanonicalSecretKey(key)) return _match;
+  if (alreadyRedacted !== undefined) return _match;
+  // Preserve the auth scheme token; standaloneAuthorizationPattern redacts the credential value.
+  if (String(key).toLowerCase() === "authorization" && /^(?:Bearer|Basic)$/i.test(String(unquoted || ""))) {
+    return _match;
+  }
   const quoteChar = doubleQuoted !== undefined ? "\"" : singleQuoted !== undefined ? "'" : "";
   return `${prefix}${quote}${key}${quote}${separator}${quoteChar}${secretRedactionMarker}${quoteChar}`;
+}
+
+function isCanonicalSecretKey(key) {
+  const canonical = String(key || "").replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+  return canonicalSecretKeyNames.has(canonical) ||
+    canonical.endsWith("token") ||
+    canonical.endsWith("secret") ||
+    canonical.endsWith("password") ||
+    canonical.endsWith("passwd") ||
+    canonical.endsWith("apikey") ||
+    canonical.endsWith("credential") ||
+    canonical.endsWith("privatekey");
 }
 
 function isUnsafeAllowedPathGlob(glob, lane) {
@@ -566,6 +625,38 @@ function sanitizeFindings(findings) {
     seen.add(key);
     sanitized.push(safe);
     if (sanitized.length >= 20) break;
+  }
+  return sanitized;
+}
+
+export function sanitizeStructuredReviewFinding(finding, defaults = {}) {
+  const normalized = finding && typeof finding === "object" && !Array.isArray(finding)
+    ? {
+        ...finding,
+        provider: defaults.provider || finding.provider,
+        source: defaults.source || finding.source,
+        severity: defaults.severity || finding.severity,
+      }
+    : {
+        provider: defaults.provider,
+        source: defaults.source,
+        severity: defaults.severity,
+        title: String(finding || ""),
+        body: String(finding || ""),
+      };
+  return sanitizeFinding(normalized);
+}
+
+export function sanitizeStructuredReviewFindings(findings, defaults = {}) {
+  const seen = new Set();
+  const sanitized = [];
+  for (const finding of Array.isArray(findings) ? findings : []) {
+    const safe = sanitizeStructuredReviewFinding(finding, defaults);
+    if (!safe) continue;
+    const key = stableFindingKey(safe);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sanitized.push(safe);
   }
   return sanitized;
 }
