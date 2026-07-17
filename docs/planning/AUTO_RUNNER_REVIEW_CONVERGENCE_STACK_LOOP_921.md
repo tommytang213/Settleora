@@ -11,6 +11,24 @@ records. They do not prove the expanded 50-cycle bounded convergence and
 dependent-PR stack behavior that current live code still lacked before this
 task.
 
+## Implementation Checkpoint
+
+PR #922 merged to `main` at
+`cf1ee65aa209243525f3ccbddd4cf46fa698f666` from final exact head
+`991c0fd35d1df9843c1463f7a580c39dd9c316b8`. The final source-changing cycle
+was `26`; final validation passed with full auto-runner suite `579/579`,
+task-scoped preflight `24 pass / 4 warn / 0 fail`, docs/scaffold validation,
+strong independent review, compact mechanics/security review, exact-head
+GitHub Codex clean result, green CI/scanners, and open code-scanning alerts
+`0`.
+
+The review-convergence and dependent-stack infrastructure described below is
+now on `main`. The first live acceptance stack, #919 -> #920, is therefore
+eligible for a separate task-scoped run. This documentation hygiene task does
+not execute, retarget, ready, review, merge, or otherwise mutate #919 or #920.
+#921 remains open until that acceptance completes. #912 and the production
+profile remain inactive/manual-gated, and project fields remain `not_updated`.
+
 ## Policy
 
 - Default source-changing review-fix budget: 50 cycles per PR per convergence
