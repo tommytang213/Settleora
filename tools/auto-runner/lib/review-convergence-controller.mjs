@@ -5,6 +5,117 @@ import {
   recordReviewRequestDedupe,
 } from "./review-convergence-state.mjs";
 
+export function buildLiveReviewConvergenceContext(input = {}) {
+  const config = input.config || {};
+  const existing = input.reviewConvergenceState || input.convergenceState || null;
+  const issue = normalizeIssue(input.issue || existing?.task || {});
+  const pr = normalizePr({
+    ...(existing?.pr || {}),
+    ...(input.pr || {}),
+    number: input.pr?.number ?? input.prNumber ?? existing?.pr?.number ?? input.existingPrNumber ?? issue.number ?? null,
+    branch:
+      input.pr?.branch ||
+      input.pr?.headRefName ||
+      input.branchName ||
+      existing?.pr?.branch ||
+      input.branch?.name ||
+      "",
+    base:
+      input.pr?.base ||
+      input.pr?.baseRefName ||
+      input.baseRef ||
+      existing?.pr?.base ||
+      input.branch?.baseRef ||
+      "main",
+    exactHead:
+      input.exactHead ||
+      input.expectedHeadSha ||
+      input.actualHeadSha ||
+      input.runnerCreatedCommitSha ||
+      input.pr?.exactHead ||
+      input.pr?.headSha ||
+      input.pr?.headRefOid ||
+      existing?.pr?.exactHead ||
+      null,
+  });
+  const attempts = Array.isArray(input.reviewFixAttempts) ? input.reviewFixAttempts : [];
+  const sourceChangingCycle =
+    numberOrNull(existing?.sourceChangingCycle) ??
+    numberOrNull(input.sourceChangingCycle) ??
+    attempts.filter((attempt) => attempt?.proceeded).length;
+  const history = Array.isArray(input.reviewConvergenceHistory)
+    ? input.reviewConvergenceHistory
+    : attempts.map((attempt) => ({
+        findingFingerprints: normalizeFindingFingerprints(
+          attempt?.decision?.sanitizedFindings ||
+            attempt?.trigger?.findings ||
+            attempt?.evidence?.sanitizedFindings ||
+            [],
+        ),
+        claimedFixedFingerprints: normalizeFindingFingerprints(attempt?.claimedFixedFingerprints || attempt?.fixedFindingFingerprints || []),
+        patchId: attempt?.commit?.sha || attempt?.headShaAfter || attempt?.evidence?.digest || attempt?.reason || null,
+        treeId: attempt?.treeId || null,
+      }));
+  const findingInventory = Array.isArray(input.currentFindings)
+    ? freezeMaterialFindingInventory(input.currentFindings)
+    : Array.isArray(existing?.findingInventory)
+      ? existing.findingInventory
+      : [];
+  const context = {
+    stateVersion: existing?.stateVersion || 1,
+    repository: input.repository || existing?.repository || config.repositorySlug || "tommytang213/Settleora",
+    task: {
+      taskKey: input.taskKey || existing?.task?.taskKey || input.promptInfo?.timestampKey || null,
+      issueNumber: issue.number,
+      issueTitle: issue.title,
+    },
+    issue,
+    pr,
+    branch: {
+      name: pr.branch,
+      baseRef: pr.base,
+      exactHead: pr.exactHead,
+    },
+    epoch: numberOrNull(existing?.epoch) ?? numberOrNull(input.epoch) ?? 1,
+    sourceChangingCycle,
+    findingInventory,
+    evidence: staleEvidenceForHead(existing?.evidence || {}, pr.exactHead),
+    reviewRequests: existing?.reviewRequests || existing?.githubReviewRequests || input.reviewRequests || {},
+    mutationMarkers: existing?.mutationMarkers || input.mutationMarkers || {},
+    relationships: {
+      ...(existing?.relationships || {}),
+      ...(input.relationships || {}),
+    },
+    history,
+    exactHeadEvidence: input.exactHeadEvidence || existing?.exactHeadEvidence || {},
+    requestDedupeMarkers: existing?.reviewRequests || existing?.githubReviewRequests || input.requestDedupeMarkers || {},
+    mutationDedupeMarkers: existing?.mutationMarkers || input.mutationDedupeMarkers || {},
+  };
+  return {
+    context,
+    gateInput: {
+      config,
+      reviewConvergenceState: {
+        stateVersion: context.stateVersion,
+        repository: context.repository,
+        task: context.task,
+        pr: context.pr,
+        branch: context.branch,
+        epoch: context.epoch,
+        epochDiagnosticStarted: existing?.epochDiagnosticStarted === true || input.epochDiagnosticStarted === true,
+        sourceChangingCycle: context.sourceChangingCycle,
+        findingInventory: context.findingInventory,
+        evidence: context.evidence,
+        reviewRequests: context.reviewRequests,
+        mutationMarkers: context.mutationMarkers,
+        relationships: context.relationships,
+      },
+      reviewConvergenceHistory: history,
+      reviewConvergenceContext: context,
+    },
+  };
+}
+
 export function normalizeConvergenceBudget(config = {}) {
   const reviewFix = normalizeReviewFixMutationConfig({ ...config, allowReviewFixMutation: config.allowReviewFixMutation ?? true, configPath: config.configPath ?? "contract.json" });
   return {
@@ -181,6 +292,50 @@ function detectReturnedFinding(history) {
 
 function digestFindingSet(fingerprints = []) {
   return createHash("sha256").update([...fingerprints].sort().join("\n")).digest("hex");
+}
+
+function normalizeIssue(issue = {}) {
+  return {
+    number: Number.isInteger(issue.number) ? issue.number : Number.isInteger(issue.issueNumber) ? issue.issueNumber : null,
+    title: String(issue.title || issue.issueTitle || "").slice(0, 240),
+    url: issue.url || null,
+    labels: Array.isArray(issue.labels) ? issue.labels.slice(0, 40) : [],
+  };
+}
+
+function normalizePr(pr = {}) {
+  return {
+    number: Number.isInteger(pr.number) ? pr.number : null,
+    branch: String(pr.branch || pr.headRefName || "").slice(0, 240),
+    base: String(pr.base || pr.baseRefName || "main").slice(0, 240),
+    exactHead: pr.exactHead || pr.headSha || pr.headRefOid || null,
+  };
+}
+
+function normalizeFindingFingerprints(values = []) {
+  return values
+    .map((value) => {
+      if (typeof value === "string") return value;
+      if (value?.fingerprint) return value.fingerprint;
+      return fingerprintReviewFinding(value).fingerprint;
+    })
+    .filter(Boolean)
+    .sort();
+}
+
+function numberOrNull(value) {
+  return Number.isInteger(value) ? value : null;
+}
+
+function staleEvidenceForHead(evidence = {}, exactHead = null) {
+  return Object.fromEntries(
+    Object.entries(evidence).map(([kind, value]) => {
+      if (!value || typeof value !== "object") return [kind, value];
+      const evidenceHead = value.exactHead || null;
+      if (!exactHead || !evidenceHead || evidenceHead === exactHead || value.stale === true) return [kind, value];
+      return [kind, { ...value, stale: true, staleReason: "evidence_head_mismatch", currentHead: exactHead }];
+    }),
+  );
 }
 
 function normalizeSeverity(value) {

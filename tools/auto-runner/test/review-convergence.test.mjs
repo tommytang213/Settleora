@@ -8,6 +8,7 @@ import {
   accountConvergenceEvent,
   analyzeConvergenceProgress,
   buildBatchFixTask,
+  buildLiveReviewConvergenceContext,
   evaluateCycleBudget,
   fingerprintReviewFinding,
   freezeMaterialFindingInventory,
@@ -391,4 +392,83 @@ test("budget normalization reports requested normalized and hard maximum", () =>
     malformed: false,
     policy: "clamp_to_hard_max",
   });
+});
+
+test("live review gate context preserves durable runner identity and enters convergence", () => {
+  const exactHead = "c".repeat(40);
+  const previousHead = "b".repeat(40);
+  const durable = bindReviewConvergenceEvidence(
+    {
+      ...state({
+        repository: "tommytang213/Settleora",
+        issue: { number: 921, title: "Convergence" },
+        pr: { number: 922, headRefName: "feature/convergence", baseRefName: "main", headRefOid: exactHead },
+      }),
+      sourceChangingCycle: 3,
+      reviewRequests: { "old-request": { exactHead: previousHead } },
+      mutationMarkers: { "push:cycle-3": { exactHead: previousHead } },
+    },
+    "review",
+    { status: "passed", exactHead: previousHead },
+  );
+  const built = buildLiveReviewConvergenceContext({
+    config: { repositorySlug: "tommytang213/Settleora", configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    issue: { number: 921, title: "Convergence" },
+    laneDecision: { lane: "workflow-docs-tooling" },
+    branchName: "feature/convergence",
+    exactHead,
+    reviewConvergenceState: durable,
+    reviewFixAttempts: [{ proceeded: true, decision: { sanitizedFindings: [{ path: "tools/auto-runner/a.mjs", title: "A" }] }, commit: { sha: previousHead } }],
+    currentFindings: [{ provider: "codex", severity: "high", path: "tools/auto-runner/lib/auto-merge-policy.mjs", line: 533, title: "Wire gate" }],
+  });
+  assert.equal(built.context.repository, "tommytang213/Settleora");
+  assert.equal(built.context.issue.number, 921);
+  assert.equal(built.context.pr.number, 922);
+  assert.equal(built.context.pr.exactHead, exactHead);
+  assert.equal(built.context.sourceChangingCycle, 3);
+  assert.equal(built.context.evidence.review.stale, true);
+  assert.deepEqual(Object.keys(built.context.requestDedupeMarkers), ["old-request"]);
+  assert.deepEqual(Object.keys(built.context.mutationDedupeMarkers), ["push:cycle-3"]);
+  assert.equal(built.context.findingInventory.length, 1);
+  assert.equal(evaluateCycleBudget(built.gateInput.reviewConvergenceState, built.gateInput.config, built.gateInput.reviewConvergenceHistory).ok, true);
+});
+
+test("live review gate context binds feature-bundle identity without competing state", () => {
+  const built = buildLiveReviewConvergenceContext({
+    config: { repositorySlug: "tommytang213/Settleora", configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    issue: { number: 921, title: "Convergence" },
+    branchName: "feature/bundle",
+    exactHead: "d".repeat(40),
+    sourceChangingCycle: 0,
+    relationships: { bundleId: "bundle-921", sliceOrder: ["first", "second"] },
+  });
+  assert.equal(built.context.pr.number, 921);
+  assert.equal(built.context.pr.branch, "feature/bundle");
+  assert.equal(built.context.relationships.bundleId, "bundle-921");
+  assert.deepEqual(built.context.relationships.sliceOrder, ["first", "second"]);
+  assert.equal(evaluateCycleBudget(built.gateInput.reviewConvergenceState, built.gateInput.config, []).ok, true);
+});
+
+test("live review gate context keeps zero and exhausted budgets terminal", () => {
+  const built = buildLiveReviewConvergenceContext({
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 0 },
+    issue: { number: 921, title: "Convergence" },
+    branchName: "feature/convergence",
+    exactHead: "e".repeat(40),
+    sourceChangingCycle: 0,
+  });
+  assert.equal(evaluateCycleBudget(built.gateInput.reviewConvergenceState, built.gateInput.config, []).terminalReason, "MANUAL_DECISION_REQUIRED");
+  const exhausted = buildLiveReviewConvergenceContext({
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    issue: { number: 921, title: "Convergence" },
+    branchName: "feature/convergence",
+    exactHead: "f".repeat(40),
+    reviewConvergenceState: {
+      ...built.gateInput.reviewConvergenceState,
+      sourceChangingCycle: 50,
+      epochDiagnosticStarted: true,
+      pr: { ...built.gateInput.reviewConvergenceState.pr, exactHead: "f".repeat(40) },
+    },
+  });
+  assert.equal(evaluateCycleBudget(exhausted.gateInput.reviewConvergenceState, exhausted.gateInput.config, []).terminalReason, "CYCLE_BUDGET_EXHAUSTED");
 });

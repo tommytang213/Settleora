@@ -43,6 +43,7 @@ import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
+import { buildLiveReviewConvergenceContext } from "./lib/review-convergence-controller.mjs";
 import {
   buildPostReviewFixMechanicsContext,
   buildReviewFixPrompt,
@@ -891,7 +892,20 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.finishedAt = new Date().toISOString();
       return iteration;
   }
+  const reviewConvergence = buildLiveReviewConvergenceContext({
+    config,
+    issue,
+    laneDecision,
+    branchName,
+    baseRef: "main",
+    exactHead: iteration.runnerCreatedCommitSha,
+    reviewFixAttempts: iteration.reviewFixAttempts || [],
+    reviewConvergenceState: iteration.reviewConvergenceState || null,
+    relationships: { parentPr: null, dependentPrs: [] },
+  });
+  iteration.reviewConvergence = reviewConvergence.context;
   const prePushReviewGate = evaluatePrePushReviewGate({
+    ...reviewConvergence.gateInput,
     laneDecision,
     externalReview: iteration.externalReview,
     reviewMutationGuard: iteration.reviewMutationGuard,

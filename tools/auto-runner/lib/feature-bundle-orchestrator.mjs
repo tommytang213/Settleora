@@ -31,6 +31,7 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
+import { buildLiveReviewConvergenceContext } from "./review-convergence-controller.mjs";
 import {
   evaluateAutoMergeDecision,
   evaluatePrePushReviewGate,
@@ -305,7 +306,25 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     evidencePath: result.review.logPath || result.review.promptPath,
     summary: result.review.reviewFailureReason || result.review.verdict?.verdict,
   });
+  const reviewConvergence = buildLiveReviewConvergenceContext({
+    config,
+    issue,
+    laneDecision: planned.laneDecision,
+    branchName: bundleBranchName,
+    baseRef: "main",
+    exactHead: finalHead,
+    sourceChangingCycle: state.sourceChangingCycle,
+    reviewConvergenceState: state.reviewConvergenceState || null,
+    relationships: {
+      bundleId: plan.id,
+      sliceOrder: plan.slices.map((slice) => slice.id),
+    },
+  });
+  result.reviewConvergence = reviewConvergence.context;
+  state = { ...state, reviewConvergenceState: reviewConvergence.gateInput.reviewConvergenceState };
+  if (!config.dryRun) writeBundleState(config, state);
   const prePushGate = evaluatePrePushReviewGate({
+    ...reviewConvergence.gateInput,
     laneDecision: planned.laneDecision,
     externalReview: result.externalReview,
     reviewMutationGuard: { mutationDetected: false },
