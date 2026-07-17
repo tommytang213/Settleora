@@ -8,11 +8,21 @@ import {
   recordStackMutationMarker,
   validateStackRelationships,
 } from "./pr-stack-controller.mjs";
-import { executeAutoMerge, inspectAutoMergeGithubState } from "./auto-merge-policy.mjs";
+import {
+  executeAutoMerge,
+  inspectAutoMergeGithubState,
+  mandatoryAutoMergeCheckNames,
+  summarizeCheckStatus,
+} from "./auto-merge-policy.mjs";
 import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
-import { runExistingPrReviewConvergence } from "./review-convergence-controller.mjs";
+import {
+  runExistingPrBatchFix,
+  runExistingPrReviewConvergence,
+} from "./review-convergence-controller.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lane-policy.mjs";
+import { runCodexPrompt } from "./codex-runner.mjs";
+import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -48,6 +58,8 @@ const forbiddenStackCapabilities = Object.freeze([
   "directMainPush",
   "productAuthorityChanges",
 ]);
+
+const acceptedStrongReviewTiers = new Set(["strong_independent", "tie_breaker"]);
 
 export function normalizePrStackExecutionConfig(config = {}) {
   const raw = config.prStackExecution || {};
@@ -475,11 +487,13 @@ async function dispatchHygiene({ config, plan, state, adapter }) {
 
 export function createProductionPrStackAdapter(config = {}, options = {}) {
   const runner = options.runner;
+  const runBatchFix = options.runBatchFix || ((payload) => runExistingPrBatchFix(payload, createProductionBatchFixAdapters(config, options)));
   return {
     capabilities: {
       shellFreeArgv: true,
       usesExistingMergeAuthority: true,
       usesExistingHygieneAuthority: true,
+      usesExistingBatchFixAuthority: true,
     },
     async inspectPr({ config: cfg, prNumber }) {
       const state = inspectAutoMergeGithubState(cfg || config, { issue: {}, prUrlOrNumber: prNumber });
@@ -501,6 +515,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         pr,
         findings,
         laneDecision: { lane: "workflow-docs-tooling", allowedPaths: ["tools/auto-runner/**", "docs/**"] },
+        runBatchFix,
       });
       return result.ok
         ? { ...result, headRefOid: result.newHead || pr.headRefOid }
@@ -630,6 +645,82 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
   };
 }
 
+function createProductionBatchFixAdapters(config = {}, options = {}) {
+  const runner = options.runner || defaultRunner;
+  const cwd = config.repoRoot || process.cwd();
+  return {
+    async runCodexBatchFix({ fixTask, pr }) {
+      const promptPath = path.join(
+        config.logsRoot || "/workspace/logs/settleora-auto-runner",
+        "review-fix",
+        `${Date.now()}-pr-${pr?.number || "unknown"}-stack-batch-fix-prompt.md`,
+      );
+      mkdirSync(path.dirname(promptPath), { recursive: true, mode: 0o700 });
+      writeFileSync(promptPath, `${fixTask?.prompt || ""}\n`, { mode: 0o600 });
+      const codex = runCodexPrompt(
+        config,
+        {
+          branchName: pr?.headRefName || pr?.branch || "unknown",
+          prompt: fixTask?.prompt || "",
+          promptPath,
+        },
+        "existing-pr-stack-batch-fix",
+      );
+      if (!codex.skipped && (codex.error || codex.status !== 0)) {
+        return fail("existing_pr_batch_fix_codex_failed", codex.error || codex.tail || "Codex batch fix failed");
+      }
+      return { ok: true, codex, promptPath };
+    },
+    async listChangedFiles() {
+      const diff = runner("git", ["diff", "--name-only"], { cwd });
+      if (diff.status !== 0 || diff.error) throw new Error(`git diff failed: ${boundedText(diff.stderr || diff.error || diff.stdout)}`);
+      const staged = runner("git", ["diff", "--cached", "--name-only"], { cwd });
+      if (staged.status !== 0 || staged.error) throw new Error(`git diff --cached failed: ${boundedText(staged.stderr || staged.error || staged.stdout)}`);
+      return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}`.split(/\r?\n/));
+    },
+    async validateAndReview({ changedFiles, laneDecision, pr }) {
+      const head = runner("git", ["rev-parse", "HEAD"], { cwd });
+      const base = runner("git", ["rev-parse", "origin/main"], { cwd });
+      if (head.status !== 0 || head.error || base.status !== 0 || base.error) {
+        return fail("existing_pr_batch_fix_source_identity_unreadable", boundedText(head.stderr || base.stderr || head.error || base.error || ""));
+      }
+      const validationPlan = planValidation(changedFiles, laneDecision || { validationProfile: "runner-tests" });
+      const validation = bindValidationEvidence(runValidationPlan(config, validationPlan), {
+        headSha: String(head.stdout || "").trim(),
+        baseSha: String(base.stdout || "").trim(),
+        changedFiles,
+        profile: laneDecision?.validationProfile || validationPlan.profile,
+      });
+      if (!validation.passed) return fail("existing_pr_batch_fix_validation_failed", "batch fix validation failed", { validation });
+      if (typeof options.runStrongReview !== "function" || typeof options.runCodexReview !== "function") {
+        return fail("existing_pr_batch_fix_review_adapter_unconfigured", "strong and Codex review adapters are required before push");
+      }
+      const externalReview = await options.runStrongReview({ config, pr, changedFiles, validation, headSha: validation.headSha, baseSha: validation.baseSha });
+      if (externalReview?.status !== "pass") return fail("existing_pr_batch_fix_strong_review_failed", externalReview?.reason || "strong review did not pass", { externalReview });
+      const review = await options.runCodexReview({ config, pr, changedFiles, validation, externalReview, headSha: validation.headSha, baseSha: validation.baseSha });
+      const verdict = review?.verdict?.verdict || review?.verdict;
+      if (verdict !== "approve") return fail("existing_pr_batch_fix_codex_review_failed", review?.reviewFailureReason || "Codex review did not approve", { review });
+      return { ok: true, validation, externalReview, review, sourceIdentity: { headSha: validation.headSha, baseSha: validation.baseSha } };
+    },
+    async commitAndPush({ changedFiles, reviewed, pr }) {
+      for (const file of normalizeChangedFiles(changedFiles)) {
+        const add = runner("git", ["add", "--", file], { cwd });
+        if (add.status !== 0 || add.error) return fail("existing_pr_batch_fix_git_add_failed", boundedText(add.stderr || add.error || add.stdout));
+      }
+      const commit = runner("git", ["commit", "-m", "Auto-runner stack review-fix batch"], { cwd });
+      if (commit.status !== 0 || commit.error) return fail("existing_pr_batch_fix_commit_failed", boundedText(commit.stderr || commit.error || commit.stdout));
+      const head = runner("git", ["rev-parse", "HEAD"], { cwd });
+      const newHead = String(head.stdout || "").trim();
+      if (head.status !== 0 || head.error || !validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", boundedText(head.stderr || head.error || head.stdout));
+      const branch = pr?.headRefName || pr?.branch || "";
+      if (!safeBranch(branch)) return fail("existing_pr_batch_fix_branch_invalid", "PR head branch is invalid");
+      const push = runner("git", ["push", "origin", `HEAD:${branch}`], { cwd });
+      if (push.status !== 0 || push.error) return fail("existing_pr_batch_fix_push_failed", boundedText(push.stderr || push.error || push.stdout));
+      return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead }, pushedAt: new Date().toISOString() };
+    },
+  };
+}
+
 function transitionState(state, patch = {}) {
   const summaries = patch.summary ? [...(state.summaries || []), sanitizeState(patch.summary)].slice(-50) : state.summaries || [];
   return sanitizeState({
@@ -667,19 +758,35 @@ function rebindPlanToStateHeads(plan, state) {
 
 function rebindStateToNewHead(state, prNumber, newHead, sourceCycles, result) {
   const oldHead = state.exactHeads?.[prNumber] || state.orderedPrs?.find((pr) => pr.number === prNumber)?.headRefOid || null;
-  const evidence = putEvidence(invalidateHeadBoundEvidence(state.evidence, prNumber), "reviewConverged", prNumber, {
+  let evidence = putEvidence(invalidateHeadBoundEvidence(state.evidence, prNumber), "reviewConverged", prNumber, {
     ...result,
     ok: true,
     oldHead,
     newHead,
     reboundExactHead: true,
   });
+  if (result?.validation) evidence = putEvidence(evidence, "validation", prNumber, { ...result.validation, exactHead: newHead });
+  if (result?.externalReview) evidence = putEvidence(evidence, "strongReview", prNumber, result.externalReview);
+  if (result?.review) evidence = putEvidence(evidence, "codexReview", prNumber, result.review);
+  if (result?.durableMutationMarkers && typeof result.durableMutationMarkers === "object") {
+    evidence = putEvidence(evidence, "batchFix", prNumber, {
+      ok: true,
+      newHead,
+      mutationMarkers: result.durableMutationMarkers,
+      findingFingerprints: result.findingFingerprints || [],
+      fingerprintDigest: result.fingerprintDigest || null,
+    });
+  }
+  const mutationMarkers = {
+    ...pruneHeadBoundMutationMarkers(state.mutationMarkers, prNumber, oldHead),
+    ...(result?.durableMutationMarkers || {}),
+  };
   return {
     evidence,
     sourceCycles,
     exactHeads: { ...(state.exactHeads || {}), [prNumber]: newHead },
     orderedPrs: rebindOrderedPrToNewHead(state, prNumber, newHead),
-    mutationMarkers: pruneHeadBoundMutationMarkers(state.mutationMarkers, prNumber, oldHead),
+    mutationMarkers,
   };
 }
 
@@ -999,7 +1106,7 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
   if (!changed.ok) return changed;
   const laneProof = buildAllowedPathProof({ issue: inspection.issue, changedFiles: changed.ownDelta.fileSet, exactHead: currentHead });
   if (!laneProof.ok) return laneProof;
-  const status = finalExternalGateStatus(inspection);
+  const status = finalExternalGateStatus({ ...inspection, config });
   const base = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
   const currentOriginMainSha = base.status === 0 && !base.error ? String(base.stdout || "").trim() : null;
   if (!validSha(currentOriginMainSha)) return fail("final_gate_base_unreadable", "origin/main could not be read for final gate evidence");
@@ -1099,8 +1206,14 @@ function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase
   if (!sameStringSet(review.changedFiles, changedFiles)) return fail(`${name}_files_mismatch`, `${name} changed files do not match final gate files`);
   if (review.changedFilesDigest !== digestStringSet(changedFiles)) return fail(`${name}_file_digest_mismatch`, `${name} changed-file digest does not match final gate files`);
   if (!review.completedAt && !review.finishedAt) return fail(`${name}_timestamp_missing`, `${name} timestamp is required`);
-  if (requireIndependent && (review.status !== "pass" || review.verdict !== "pass" || review.independent !== true || review.provider === "codex")) {
-    return fail(`${name}_not_strong_independent_pass`, `${name} must be a strong independent pass`);
+  if (requireIndependent) {
+    if (!acceptedStrongReviewTiers.has(review.tier)) return fail(`${name}_tier_unapproved`, `${name} must be strong_independent or tie_breaker`);
+    if (!review.provider || review.provider === "codex" || review.provider === "chatgpt-codex-connector") return fail(`${name}_provider_not_independent`, `${name} provider must be independent and non-Codex`);
+    if (!review.providerProfile && !review.model && !review.evidencePath && !review.reportPath) return fail(`${name}_provider_identity_missing`, `${name} provider identity/evidence is incomplete`);
+    if (!review.evidencePath && !review.reportPath && !review.logPath) return fail(`${name}_evidence_path_missing`, `${name} supported evidence path is required`);
+    if (review.status !== "pass" || review.verdict !== "pass" || review.independent !== true || review.selfReview === true) {
+      return fail(`${name}_not_strong_independent_pass`, `${name} must be a strong independent pass`);
+    }
   }
   const verdict = review.verdict?.verdict || review.verdict;
   if (!requireIndependent && verdict !== "approve") return fail(`${name}_not_approved`, `${name} must be an approved Codex review`);
@@ -1193,11 +1306,24 @@ function allowedPathProofMatchesGate(gateEvidence = {}, changedFiles = [], expec
   return true;
 }
 
-function finalExternalGateStatus(inspection = {}) {
-  const pendingCheck = (inspection.requiredChecks || []).find((check) => String(check.status || "").toUpperCase() !== "COMPLETED");
-  if (pendingCheck) return { ok: false, waiting: true, reasonCode: "ci_check_completion_wait", reason: `required check pending: ${pendingCheck.name || "unknown"}` };
-  const failedCheck = (inspection.requiredChecks || []).find((check) => String(check.conclusion || "").toUpperCase() !== "SUCCESS");
-  if (failedCheck) return { ok: false, waiting: false, reasonCode: "required_check_failed", reason: `required check failed: ${failedCheck.name || "unknown"}` };
+export function finalExternalGateStatus(inspection = {}) {
+  const checks = inspection.requiredChecks || [];
+  const checkStatus = summarizeCheckStatus(checks, inspection.autoMergePolicy || inspection.config?.autoMergePolicy || {});
+  if (checkStatus.state === "missing") {
+    return {
+      ok: false,
+      waiting: true,
+      reasonCode: "ci_check_completion_wait",
+      reason: `mandatory check evidence missing: ${(checkStatus.missingRequired || mandatoryAutoMergeCheckNames()).join(",")}`,
+      checkStatus,
+    };
+  }
+  if (checkStatus.state === "pending") {
+    return { ok: false, waiting: true, reasonCode: "ci_check_completion_wait", reason: "mandatory checks are pending", checkStatus };
+  }
+  if (checkStatus.state !== "success") {
+    return { ok: false, waiting: false, reasonCode: "required_check_failed", reason: "mandatory checks failed", checkStatus };
+  }
   if ((inspection.reviewThreads || []).some((thread) => thread.isResolved === false)) {
     return { ok: false, waiting: true, reasonCode: "github_codex_result_wait", reason: "unresolved review threads remain" };
   }

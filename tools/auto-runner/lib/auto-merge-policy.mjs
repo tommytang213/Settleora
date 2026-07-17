@@ -50,7 +50,11 @@ const autoMergeWaitDelayBucketsMs = Object.freeze([0, 5000, 15000, 30000]);
 const independentReviewRequiredLanes = new Set(approvedDomainAutoMergeLanes);
 const strongIndependentTiers = new Set(["strong_independent", "tie_breaker"]);
 const umbrellaLabelPatterns = [/umbrella/i, /epic/i, /parent/i, /tracker/i];
-const mandatoryRequiredChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
+export const mandatoryRequiredChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
+
+export function mandatoryAutoMergeCheckNames(policy = {}) {
+  return uniqueStrings([...mandatoryRequiredChecks, ...(policy?.requiredChecks || [])]);
+}
 
 export function evaluateAutoMergeDecision(input) {
   const config = input.config || {};
@@ -259,7 +263,11 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
     return {
       pr: { state: "OPEN", isDraft: false, baseRefName: "main", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" },
       issue,
-      requiredChecks: [],
+      requiredChecks: mandatoryAutoMergeCheckNames(config.autoMergePolicy).map((name) => ({
+        name,
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+      })),
       reviewThreads: [],
       codeScanningAlerts: [],
       blockingMarkers: [],
@@ -825,8 +833,8 @@ function detectBlockingMarkers(comments, reviews) {
   return markers;
 }
 
-function summarizeCheckStatus(checks, policy = {}) {
-  const requiredNames = uniqueStrings([...mandatoryRequiredChecks, ...(policy?.requiredChecks || [])]);
+export function summarizeCheckStatus(checks, policy = {}) {
+  const requiredNames = mandatoryAutoMergeCheckNames(policy);
   const allowlistNames = uniqueStrings([
     ...(policy?.allowedSkippedChecks || []),
     ...(policy?.allowedNeutralChecks || []),

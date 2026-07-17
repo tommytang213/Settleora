@@ -9,6 +9,7 @@ import { buildReadOnlyLiveStackFixturePlan, createDependentPrStackPlan } from ".
 import {
   createInitialPrStackState,
   createProductionPrStackAdapter,
+  finalExternalGateStatus,
   loadExecutableStackPlan,
   runPrStackExecution,
   validateExecutableStackPlan,
@@ -114,6 +115,28 @@ test("parent material findings are passed to existing PR convergence and sanitiz
   assert.equal(result.ok, false);
   assert.equal(result.reasonCode, "existing_pr_convergence_required");
   assert.equal(received.length, 2);
+});
+
+test("production stack convergence invokes shared batch-fix callback with complete inventory once", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, allowReviewFixMutation: true, maxReviewFixCycles: 50 };
+  const findings = [
+    { provider: "codex", title: "A", path: "tools/auto-runner/lib/pr-stack-executor.mjs", body: "first" },
+    { provider: "codex", title: "B", path: "tools/auto-runner/lib/pr-stack-executor.mjs", body: "second" },
+  ];
+  const calls = [];
+  const adapter = createProductionPrStackAdapter(config, {
+    runBatchFix: async ({ fixTask, convergence }) => {
+      calls.push({ fixTask, convergence });
+      return { ok: true, newHead: sha("c") };
+    },
+  });
+  const result = await adapter.convergeExistingPr({ pr: fixture.plan.orderedPrs[0], findings });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(result.newHead, sha("c"));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].convergence.findingInventory.length, 2);
+  assert.equal(calls[0].fixTask.findingFingerprints.length, 2);
 });
 
 test("new source head consumes one parent cycle and waits do not consume cycles", async () => {
@@ -271,6 +294,8 @@ test("production merge adapter carries real gate changed-file evidence", async (
       changedFilesDigest: digest,
       independent: true,
       provider: "gemini",
+      providerProfile: "gemini-strong",
+      evidencePath: "/workspace/logs/settleora-auto-runner/reviews/strong.json",
       completedAt: new Date().toISOString(),
     },
     review: {
@@ -292,6 +317,8 @@ test("production merge adapter carries real gate changed-file evidence", async (
         changedFilesDigest: digest,
         independent: true,
         provider: "gemini",
+        providerProfile: "gemini-strong",
+        evidencePath: "/workspace/logs/settleora-auto-runner/reviews/strong.json",
         completedAt: new Date().toISOString(),
       },
       codex: {
@@ -602,7 +629,7 @@ test("merge consumes the exact-head allowed-path proof and invalidates stale hea
       allowedPaths: ["tools/auto-runner/**"],
     },
     validation: { passed: true, results: [{ command: "test", status: 0 }], completedAt: new Date().toISOString(), headSha: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, profile: "runner-tests" },
-    externalReview: { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, independent: true, provider: "gemini", completedAt: new Date().toISOString() },
+    externalReview: { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, independent: true, provider: "gemini", providerProfile: "gemini-strong", evidencePath: "/workspace/logs/settleora-auto-runner/reviews/strong.json", completedAt: new Date().toISOString() },
     review: { reviewedHead: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, verdict: { verdict: "approve" }, completedAt: new Date().toISOString() },
     codexMechanicsReviewApproved: true,
     baseSha: sha("e"),
@@ -648,6 +675,46 @@ test("head, base, digest mismatch, and partial final-gate review evidence block 
   delete partial.codexReview;
   state.evidence.gatesPassed["919"] = partial;
   assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "codex_review_missing");
+});
+
+test("strong final gate rejects cheap, stale, malformed, self, and Codex independent evidence", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
+  const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  const check = async (strongReview, reasonCode) => {
+    state.evidence.gatesPassed["919"] = gateEvidence({ strongReview });
+    const result = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
+    assert.equal(result.reasonCode, reasonCode);
+  };
+  await check({ tier: "cheap_independent" }, "strong_review_tier_unapproved");
+  await check({ provider: "codex" }, "strong_review_provider_not_independent");
+  await check({ selfReview: true }, "strong_review_not_strong_independent_pass");
+  await check({ status: "blocked" }, "strong_review_not_strong_independent_pass");
+  await check({ changedFiles: ["other.mjs"] }, "strong_review_files_mismatch");
+});
+
+test("mandatory check evidence waits on empty partial and pending rollups and blocks failures", () => {
+  assert.equal(finalExternalGateStatus({ requiredChecks: [] }).reasonCode, "ci_check_completion_wait");
+  assert.equal(finalExternalGateStatus({ requiredChecks: [check("Validate scaffold")] }).reasonCode, "ci_check_completion_wait");
+  assert.equal(finalExternalGateStatus({ requiredChecks: [
+    check("Validate scaffold"),
+    { ...check("CodeQL"), status: "IN_PROGRESS", conclusion: null },
+    check("Semgrep CE scan"),
+    check("Trivy repository scan"),
+  ] }).reasonCode, "ci_check_completion_wait");
+  assert.equal(finalExternalGateStatus({ requiredChecks: [
+    check("Validate scaffold"),
+    { ...check("CodeQL"), conclusion: "FAILURE" },
+    check("Semgrep CE scan"),
+    check("Trivy repository scan"),
+  ] }).reasonCode, "required_check_failed");
+  assert.equal(finalExternalGateStatus({ requiredChecks: [
+    check("Validate scaffold"),
+    check("CodeQL"),
+    check("Semgrep CE scan"),
+    check("Trivy repository scan"),
+  ] }).ok, true);
 });
 
 test("merge reads actual clean worktree state and dirty or unreadable status blocks", async () => {
@@ -1076,6 +1143,8 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
     changedFilesDigest: digest,
     independent: true,
     provider: "gemini",
+    providerProfile: "gemini-strong",
+    evidencePath: "/workspace/logs/settleora-auto-runner/reviews/strong.json",
     completedAt: "2026-07-17T00:00:00.000Z",
     ...strongReview,
   };
