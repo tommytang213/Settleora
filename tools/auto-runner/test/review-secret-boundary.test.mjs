@@ -399,6 +399,122 @@ test("review-fix redaction rescans wrappers with existing markers and remains id
   }
 });
 
+test("review-fix redaction gives nested direct secrets precedence over wrapper matches", () => {
+  const secret = runtimeCanary("nested-wrapper");
+  const second = runtimeCanary("nested-wrapper-second");
+  const third = runtimeCanary("nested-wrapper-third");
+  const cases = [
+    {
+      name: "reviewer headers wrapper exact form",
+      input: `headers={token: "${secret}",safe:visible}`,
+      keep: /headers=\{token:"\[REDACTED\]",safe:visible\}/,
+    },
+    {
+      name: "reviewer metadata wrapper exact form",
+      input: `metadata={clientSecret: '${secret}'}`,
+      keep: /metadata=\{clientSecret:'\[REDACTED\]'\}/,
+    },
+    {
+      name: "reviewer query wrapper exact form",
+      input: `query={ accessToken : "${secret}" , safe : visible }`,
+      keep: /query=\{ accessToken:"\[REDACTED\]" , safe : visible \}/,
+    },
+    {
+      name: "quoted json api key",
+      input: `headers={"x-api-key":"${secret}",safe:visible}`,
+      keep: /"x-api-key":"\[REDACTED\]",safe:visible/,
+    },
+    {
+      name: "unquoted api key",
+      input: `headers={x-api-key:${secret},safe:visible}`,
+      keep: /x-api-key:\[REDACTED\],safe:visible/,
+    },
+    {
+      name: "nested bearer authorization",
+      input: `headers={Authorization: Bearer ${secret};safe=visible}`,
+      keep: /Authorization: Bearer \[REDACTED\];safe=visible/,
+    },
+    {
+      name: "nested basic authorization",
+      input: `headers={Authorization: Basic ${secret};safe=visible}`,
+      keep: /Authorization: Basic \[REDACTED\];safe=visible/,
+    },
+    {
+      name: "camel case alias",
+      input: `metadata={clientSecret:${secret};safe=visible}`,
+      keep: /clientSecret:\[REDACTED\];safe=visible/,
+    },
+    {
+      name: "snake case alias",
+      input: `metadata={client_secret:${secret};safe=visible}`,
+      keep: /client_secret:\[REDACTED\];safe=visible/,
+    },
+    {
+      name: "hyphenated alias",
+      input: `metadata={client-secret:${secret};safe=visible}`,
+      keep: /client-secret:\[REDACTED\];safe=visible/,
+    },
+    {
+      name: "multiple sibling secrets",
+      input: `headers={token:${secret};clientSecret:'${second}';safe:visible}`,
+      keep: /token:\[REDACTED\];clientSecret:'\[REDACTED\]';safe:visible/,
+    },
+    {
+      name: "nested wrapper inside wrapper",
+      input: `outer={headers={token:"${secret}",safe:visible};safe=visible}`,
+      keep: /outer=\{headers=\{token:"\[REDACTED\]",safe:visible\};safe=visible\}/,
+    },
+    {
+      name: "several sibling wrappers",
+      input: `headers={token:"${secret}",safe:visible} metadata={clientSecret:'${second}',safe:visible} query={api_key=${third}&safe=visible}`,
+      keep: /metadata=\{clientSecret:'\[REDACTED\]',safe:visible\} query=\{api_key=\[REDACTED\]&safe=visible\}/,
+    },
+    {
+      name: "marker adjacent nested secret",
+      input: `[REDACTED]headers={token:${secret};safe=visible}`,
+      keep: /\[REDACTED\]headers=\{token:\[REDACTED\];safe=visible\}/,
+    },
+    {
+      name: "balanced plus malformed nested secret",
+      input: `headers={token:"${secret}",clientSecret:'${second};safe=visible}`,
+      keep: /token:"\[REDACTED\]",clientSecret:'\[REDACTED\]';safe=visible/,
+    },
+    {
+      name: "nested query preserves ampersand safe field",
+      input: `query={token=${secret}&safe=visible}`,
+      keep: /token=\[REDACTED\]&safe=visible/,
+    },
+    {
+      name: "json-like secret comma safe field",
+      input: `metadata={"token":"${secret}","safe":"visible"}`,
+      keep: /"token":"\[REDACTED\]","safe":"visible"/,
+    },
+    {
+      name: "safe wrapper remains meaningful",
+      input: "headers={safe:visible,mode:test}",
+      exact: "headers={safe:visible,mode:test}",
+    },
+    {
+      name: "harmless prose",
+      input: "Harmless prose says token, secret, and authorization policy without assignments.",
+      exact: "Harmless prose says token, secret, and authorization policy without assignments.",
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+    assert.doesNotMatch(redacted, new RegExp(second), item.name);
+    assert.doesNotMatch(redacted, new RegExp(third), item.name);
+    if (item.exact) {
+      assert.equal(redacted, item.exact, item.name);
+    } else {
+      assert.match(redacted, item.keep, item.name);
+      assert.match(redacted, /\[REDACTED\]/, item.name);
+    }
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+});
+
 test("review-fix redaction treats completed markers as secret boundaries", () => {
   const secret = runtimeCanary("marker-boundary");
   const second = runtimeCanary("marker-boundary-second");
@@ -621,6 +737,31 @@ test("review-fix redaction is stack-safe and bounded for adversarial wrappers", 
   assert.doesNotMatch(nearBoundRedacted, new RegExp(secret));
   assert.equal(nearBoundRedacted.length <= 20_000, true);
 
+  const prettyWrapper = [
+    "headers={",
+    ...Array.from({ length: 1_000 }, (_item, index) => `  safe${index}: visible,`),
+    `  token: "${secret}",`,
+    "  safeFinal: visible",
+    "}",
+  ].join("\n");
+  assert.equal(prettyWrapper.length > 18_000, true);
+  const prettyStarted = process.hrtime.bigint();
+  const prettyRedacted = redactSecretLikeText(prettyWrapper);
+  const prettyElapsedMs = Number(process.hrtime.bigint() - prettyStarted) / 1_000_000;
+  assert.equal(prettyElapsedMs < 1_000, true, `pretty elapsed ${prettyElapsedMs}ms`);
+  assert.doesNotMatch(prettyRedacted, new RegExp(secret));
+  assert.match(prettyRedacted, /safeFinal: visible/);
+  assert.equal(prettyRedacted.length <= 20_000, true);
+
+  const manySiblingWrappers = Array.from({ length: 1_000 }, (_item, index) => `headers${index}={safe:visible,token:${secret}}`).join(" ");
+  const siblingStarted = process.hrtime.bigint();
+  const manySiblingRedacted = redactSecretLikeText(manySiblingWrappers);
+  const siblingElapsedMs = Number(process.hrtime.bigint() - siblingStarted) / 1_000_000;
+  assert.equal(siblingElapsedMs < 1_000, true, `sibling elapsed ${siblingElapsedMs}ms`);
+  assert.doesNotMatch(manySiblingRedacted, new RegExp(secret));
+  assert.match(manySiblingRedacted, /safe:visible/);
+  assert.equal(manySiblingRedacted.length <= 20_000, true);
+
   const sibling = [
     `headers="safe=visible; x-api-key=${secret}"`,
     `query="token=${secret}&safe=visible"`,
@@ -636,7 +777,7 @@ test("review-fix redaction is stack-safe and bounded for adversarial wrappers", 
   assert.doesNotMatch(malformedRedacted, new RegExp(secret));
   assert.match(malformedRedacted, /safe=visible/);
 
-  const budgetSecret = ["s"].join("");
+  const budgetSecret = ["not", "real"].join("-");
   const manySecrets = Array.from({ length: 4_100 }, () => `token=${budgetSecret}`).join(";");
   const budgetRedacted = redactSecretLikeText(manySecrets);
   assert.equal(budgetRedacted, "[REDACTED]");
@@ -793,6 +934,88 @@ test("review-fix malformed quoted canaries never reach prompts or evidence", () 
       decision,
       findingInventory: [{ fingerprint: `[REDACTED]token="${secret}`, history: [`Authorization: Basic '${secret}`] }],
       durableStateFixture: { prompt: `[REDACTED]accessToken='${secret}`, safe: "visible" },
+    });
+    const evidence = readFileSync(written.evidencePath, "utf8");
+    for (const output of [JSON.stringify(decision), prompt, evidence]) {
+      assert.doesNotMatch(output, new RegExp(secret));
+      assert.match(output, /\[REDACTED\]/);
+    }
+    assert.match(prompt, /safe=visible/);
+    assert.match(evidence, /"safe": "visible"/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review-fix nested wrapper canaries never reach prompt evidence or durable fixtures", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fix-nested-canary-"));
+  try {
+    const secret = runtimeCanary("prompt-evidence-nested-wrapper");
+    const nestedWrapper = `headers={token: "${secret}",safe:visible}`;
+    const trigger = {
+      actionable: true,
+      source: "integrated_gemini",
+      verdict: "fail",
+      findings: [{
+        provider: "gemini",
+        severity: "high",
+        path: `tools/auto-runner/lib/review-fix-policy.mjs?${nestedWrapper}`,
+        file: `tools/auto-runner/lib/review-fix-policy.mjs#metadata={clientSecret:'${secret}'}`,
+        line: 606,
+        range: { startLine: 606, endLine: 607, label: `query={ accessToken : "${secret}" , safe : visible }` },
+        title: `nested wrapper token ${nestedWrapper}`,
+        message: `headers={"x-api-key":"${secret}",safe:visible}`,
+        body: `Authorization: Bearer ${secret}`,
+        details: `metadata={client_secret:${secret};safe=visible}`,
+        rule: `headers={client-secret:${secret};safe=visible}`,
+        ruleId: `query={token=${secret}&safe=visible}`,
+        check: `outer={headers={token:"${secret}",safe:visible};safe=visible}`,
+        invariant: "safe adjacent fields stay visible",
+        authorityInvariant: `history={headers={token:"${secret}",safe:visible}}`,
+      }],
+    };
+    const decision = evaluateReviewFixMutationDecision({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: 921, title: "Nested wrapper canary", labels: [] },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedToImplement: true,
+        autoMergeEligible: true,
+        manualMergeRequired: false,
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const prompt = buildReviewFixPrompt({
+      issue: { number: 921, title: "Nested wrapper canary" },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      branchName: "feature/review-fix",
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const written = writeReviewFixEvidence({ logsRoot: tempRoot }, {
+      issue: { number: 921, title: "Nested wrapper canary" },
+      trigger,
+      decision,
+      promptFixture: nestedWrapper,
+      structuredFindings: trigger.findings,
+      findingInventory: [{ fingerprint: `headers={token:"${secret}",safe:visible}`, history: [`metadata={clientSecret:'${secret}'}`] }],
+      durableStateFixture: {
+        prompt: `query={ accessToken : "${secret}" , safe : visible }`,
+        evidence: `headers={"x-api-key":"${secret}",safe:visible}`,
+        inventory: [`headers={client-secret:${secret};safe=visible}`],
+        fingerprints: [`query={token=${secret}&safe=visible}`],
+        history: [`outer={headers={token:"${secret}",safe:visible};safe=visible}`],
+        safe: "visible",
+      },
     });
     const evidence = readFileSync(written.evidencePath, "utf8");
     for (const output of [JSON.stringify(decision), prompt, evidence]) {

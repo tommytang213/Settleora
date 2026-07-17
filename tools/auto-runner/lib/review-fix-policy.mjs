@@ -603,8 +603,11 @@ function redactSecretLikeTextPass(value, state, { includeWrappers }) {
     .replace(markerAdjacentSecretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
     .replace(malformedDoubleQuotedDirectSecretAssignmentPattern, (...args) => replaceMalformedSecretAssignment(state, "\"", ...args))
     .replace(malformedSingleQuotedDirectSecretAssignmentPattern, (...args) => replaceMalformedSecretAssignment(state, "'", ...args))
-    .replace(includeWrappers ? secretAssignmentPattern : directSecretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
+    .replace(directSecretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
     .replace(standaloneAuthorizationPattern, (match, scheme) => noteRedaction(state, match, `${scheme} ${secretRedactionMarker}`));
+  if (includeWrappers) {
+    redacted = redacted.replace(secretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args));
+  }
   for (const pattern of obviousCredentialPatterns) {
     redacted = redacted.replace(pattern, (match) => noteRedaction(state, match, secretRedactionMarker));
   }
