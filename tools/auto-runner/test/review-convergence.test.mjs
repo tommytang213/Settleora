@@ -481,9 +481,19 @@ test("live callers continue bounded convergence instead of stopping at pre-push 
   );
   assert.match(runnerGate, /prePushReviewGate\.outcome !== "review_convergence_required"/);
   assert.match(runnerGate, /run_bounded_review_convergence/);
+  assert.match(runnerGate, /run_bounded_codex_review_convergence/);
   assert.match(runnerGate, /runReviewFixCycle\(config/);
   assert.match(runnerGate, /commitReviewFixAndRerunExactHeadReviews\(config/);
   assert.match(runnerGate, /review_convergence_fix_commit/);
+  assert.match(runnerGate, /codex_review_convergence_fix_commit/);
+  assert.match(runnerGate, /iteration\.validation = bindValidationEvidence\(postFix\.validation/);
+  assert.doesNotMatch(
+    runnerSource.slice(
+      runnerSource.indexOf("if (config.requirePrePrReview && config.dryRun"),
+      runnerSource.indexOf("while (true) {"),
+    ),
+    /!config\.dryRun && iteration\.review\.verdict\.verdict !== "approve"[\s\S]*review_changes_requested_retry_exhausted/,
+  );
 
   const bundleSource = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
   const bundleGate = bundleSource.slice(

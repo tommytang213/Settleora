@@ -749,7 +749,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     forbidden = postFix.forbiddenChangedFiles;
     iteration.changedFiles = changedFiles;
     iteration.forbiddenChangedFiles = forbidden;
-    iteration.validation = postFix.validation;
+    iteration.validation = bindValidationEvidence(postFix.validation, {
+      headSha: postFix.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+      profile: laneDecision.validationProfile,
+    });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
     recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_fix_commit");
@@ -817,7 +822,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       forbidden = postFix.forbiddenChangedFiles;
       iteration.changedFiles = changedFiles;
       iteration.forbiddenChangedFiles = forbidden;
-      iteration.validation = postFix.validation;
+      iteration.validation = bindValidationEvidence(postFix.validation, {
+        headSha: postFix.runnerCreatedCommitSha,
+        baseSha: iteration.baseOriginMainSha,
+        changedFiles,
+        profile: laneDecision.validationProfile,
+      });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
       iteration.reviewPackage = postFix.reviewPackage;
@@ -827,39 +837,57 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     }
   }
 
-  if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
+  if (config.requirePrePrReview && config.dryRun && iteration.review.verdict.verdict !== "approve") {
     iteration.outcome =
       iteration.review.verdict.verdict === "danger_gate"
         ? "danger_gate"
         : iteration.review.verdict.verdict === "needs_tommy"
           ? "blocked_needs_tommy"
-        : "review_changes_requested_retry_exhausted";
+          : "review_changes_requested_retry_exhausted";
     iteration.issueComment = finishIssueOutcome(
       config,
       issue,
       iteration.outcome,
       `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
-      );
-      recoveryRecorder?.stop("codex_review_not_approved", iteration.review.verdict.verdict, "run_focused_fix_or_escalate");
-      iteration.finishedAt = new Date().toISOString();
-      return iteration;
-    }
-  if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
-    const fixAttempt = await runReviewFixCycle(config, {
-      issue,
-      laneDecision,
-      branchName,
-      promptInfo,
-      changedFiles,
-      forbiddenChangedFiles: forbidden,
-      validation: iteration.validation,
-      report: iteration.report,
-      externalReview: iteration.externalReview,
-      review: iteration.review,
-      attemptCount: iteration.reviewFixAttempts?.length || 0,
-    });
-    iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-    if (fixAttempt.proceeded) {
+    );
+    recoveryRecorder?.stop("codex_review_not_approved", iteration.review.verdict.verdict, "run_focused_fix_or_escalate");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+  while (true) {
+    if (!config.dryRun && iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") {
+      recoveryRecorder?.advance("review_fix", "run_bounded_codex_review_convergence");
+      const fixAttempt = await runReviewFixCycle(config, {
+        issue,
+        laneDecision,
+        branchName,
+        promptInfo,
+        changedFiles,
+        forbiddenChangedFiles: forbidden,
+        validation: iteration.validation,
+        report: iteration.report,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        attemptCount: iteration.reviewFixAttempts?.length || 0,
+      });
+      iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+      if (!fixAttempt.proceeded) {
+        iteration.outcome =
+          iteration.review.verdict.verdict === "danger_gate"
+            ? "danger_gate"
+            : iteration.review.verdict.verdict === "needs_tommy"
+              ? "blocked_needs_tommy"
+              : "review_changes_requested_retry_exhausted";
+        iteration.issueComment = finishIssueOutcome(
+          config,
+          issue,
+          iteration.outcome,
+          `Auto-runner did not open a PR for #${issue.number} because bounded Codex review convergence could not safely continue: ${fixAttempt.reason}.`,
+        );
+        recoveryRecorder?.stop("codex_review_convergence_fix_not_proceeded", fixAttempt.reason, "create_or_reuse_followup_or_escalate");
+        iteration.finishedAt = new Date().toISOString();
+        return iteration;
+      }
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
         laneDecision,
@@ -871,28 +899,25 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       forbidden = postFix.forbiddenChangedFiles;
       iteration.changedFiles = changedFiles;
       iteration.forbiddenChangedFiles = forbidden;
-      iteration.validation = postFix.validation;
+      iteration.validation = bindValidationEvidence(postFix.validation, {
+        headSha: postFix.runnerCreatedCommitSha,
+        baseSha: iteration.baseOriginMainSha,
+        changedFiles,
+        profile: laneDecision.validationProfile,
+      });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+      recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "codex_review_convergence_fix_commit");
+      recoveryRecorder?.marker("checkpoint_commit", `codex-review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
+        target: branchName,
+        correlation: runId,
+      });
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+      continue;
     }
-  }
-  if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
-    iteration.outcome = "review_changes_requested_retry_exhausted";
-    iteration.issueComment = finishIssueOutcome(
-      config,
-      issue,
-      iteration.outcome,
-      `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
-      );
-      recoveryRecorder?.stop("codex_review_not_approved", iteration.review.verdict.verdict, "run_focused_fix_or_escalate");
-      iteration.finishedAt = new Date().toISOString();
-      return iteration;
-  }
-  while (true) {
     const reviewConvergence = buildLiveReviewConvergenceContext({
       config,
       issue,
@@ -963,7 +988,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     forbidden = postFix.forbiddenChangedFiles;
     iteration.changedFiles = changedFiles;
     iteration.forbiddenChangedFiles = forbidden;
-    iteration.validation = postFix.validation;
+    iteration.validation = bindValidationEvidence(postFix.validation, {
+      headSha: postFix.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+      profile: laneDecision.validationProfile,
+    });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
     recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_convergence_fix_commit");
