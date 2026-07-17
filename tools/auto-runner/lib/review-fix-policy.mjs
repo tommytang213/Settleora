@@ -150,6 +150,16 @@ const directSecretAssignmentSource = [
   ].join("");
 const directSecretAssignmentPattern = new RegExp(directSecretAssignmentSource, "gi");
 const directSecretAssignmentPatternWithIndices = new RegExp(directSecretAssignmentSource, "gid");
+const canonicalSecretAssignmentPrefixPatternWithIndices = new RegExp(
+  [
+    secretLexicalBoundarySource,
+    "([\"']?)",
+    directSecretKeySource,
+    "\\2",
+    "\\s*([:=])\\s*",
+  ].join(""),
+  "gid",
+);
 const malformedDoubleQuotedMarkerAdjacentSecretAssignmentPattern = new RegExp(
   [
     "(\\[REDACTED\\])",
@@ -191,6 +201,16 @@ const markerAdjacentSecretAssignmentPattern = new RegExp(
   "gi",
 );
 const markerAdjacentSecretAssignmentPatternWithIndices = new RegExp(markerAdjacentSecretAssignmentPattern.source, "gid");
+const canonicalMarkerAdjacentSecretAssignmentPrefixPatternWithIndices = new RegExp(
+  [
+    "(\\[REDACTED\\])",
+    "([\"']?)",
+    directSecretKeySource,
+    "\\2",
+    "\\s*([:=])\\s*",
+  ].join(""),
+  "gid",
+);
 const authorizationHeaderPatternWithIndices = new RegExp(authorizationHeaderPattern.source, "gid");
 const standaloneAuthorizationPatternWithIndices = new RegExp(standaloneAuthorizationPattern.source, "gid");
 const structuredStringBounds = Object.freeze({
@@ -602,6 +622,7 @@ function redactSecretLikeTextPass(value, state, { includeWrappers }) {
     .replace(secretHeaderPattern, (...args) => replaceSecretHeader(state, ...args))
     .replace(quotedSecretHeaderPattern, (...args) => replaceSecretHeader(state, ...args))
     .replace(authorizationAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args));
+  redacted = redactCanonicalSecretAssignments(redacted, state);
   redacted = redactEscapedSecretAssignments(redacted, state);
   if (state.limitHit) return secretRedactionMarker;
   redacted = redacted
@@ -656,6 +677,7 @@ function canonicalizeEscapedStructuralQuotes(value) {
   const normalized = [];
   const map = [];
   const overDepth = [];
+  const quoteDepth = [];
   let hasEscapedQuote = false;
   let hasOverDepthQuote = false;
   for (let index = 0; index < value.length;) {
@@ -669,6 +691,7 @@ function canonicalizeEscapedStructuralQuotes(value) {
         map.push([index, slashEnd + 1]);
         const tooDeep = depth > maxEscapedStructuralQuoteDepth;
         overDepth.push(tooDeep);
+        quoteDepth.push(depth);
         hasEscapedQuote = true;
         hasOverDepthQuote ||= tooDeep;
         index = slashEnd + 1;
@@ -678,9 +701,99 @@ function canonicalizeEscapedStructuralQuotes(value) {
     normalized.push(value[index]);
     map.push([index, index + 1]);
     overDepth.push(false);
+    quoteDepth.push(0);
     index += 1;
   }
-  return { normalized: normalized.join(""), map, overDepth, hasEscapedQuote, hasOverDepthQuote };
+  return { normalized: normalized.join(""), map, overDepth, quoteDepth, hasEscapedQuote, hasOverDepthQuote };
+}
+
+function redactCanonicalSecretAssignments(value, state) {
+  const bounded = String(value ?? "").slice(0, maxRawSanitizedStringLength);
+  const canonical = canonicalizeEscapedStructuralQuotes(bounded);
+  const replacements = [];
+  collectCanonicalSecretValueReplacements(canonical, replacements, canonicalSecretAssignmentPrefixPatternWithIndices, {
+    keyIndex: 3,
+  });
+  collectCanonicalSecretValueReplacements(canonical, replacements, canonicalMarkerAdjacentSecretAssignmentPrefixPatternWithIndices, {
+    keyIndex: 3,
+  });
+  return applyEscapedReplacements(bounded, state, replacements);
+}
+
+function collectCanonicalSecretValueReplacements(canonical, replacements, pattern, options) {
+  pattern.lastIndex = 0;
+  for (const match of canonical.normalized.matchAll(pattern)) {
+    if (!match.indices?.[0]) continue;
+    const key = match[options.keyIndex];
+    if (!isCanonicalSecretKey(key)) continue;
+    const valueStart = match.indices[0][1];
+    const span = scanCanonicalSecretValueSpan(canonical, valueStart, { key });
+    if (!span) continue;
+    replacements.push(originalReplacementRange(canonical, [span.start, span.end], span.replacement || secretRedactionMarker));
+  }
+}
+
+function scanCanonicalSecretValueSpan(canonical, valueStart, { key }) {
+  const value = canonical.normalized;
+  if (valueStart >= value.length) return null;
+  if (value.slice(valueStart, valueStart + secretRedactionMarker.length).toUpperCase() === secretRedactionMarker) return null;
+  const first = value[valueStart];
+  if (first === "\"" || first === "'") {
+    return scanCanonicalQuotedSecretValueSpan(canonical, valueStart, first);
+  }
+  return scanCanonicalUnquotedSecretValueSpan(canonical, valueStart, { key });
+}
+
+function scanCanonicalQuotedSecretValueSpan(canonical, quoteStart, quoteChar) {
+  const value = canonical.normalized;
+  if (canonical.overDepth[quoteStart]) return null;
+  const structuralDepth = canonical.quoteDepth[quoteStart] ?? 0;
+  const contentStart = quoteStart + 1;
+  let sawOverDepth = canonical.overDepth[quoteStart] === true;
+  for (let index = contentStart; index < value.length; index += 1) {
+    sawOverDepth ||= canonical.overDepth[index] === true;
+    if (value[index] === "\r" || value[index] === "\n") {
+      const boundary = findCanonicalValueBoundary(value, contentStart);
+      return safeCanonicalValueSpan(canonical, contentStart, boundary, `${secretRedactionMarker}${quoteChar}`);
+    }
+    if (";&?}])".includes(value[index])) {
+      return safeCanonicalValueSpan(canonical, contentStart, index, `${secretRedactionMarker}${quoteChar}`);
+    }
+    if (value[index] !== quoteChar) continue;
+    const depth = canonical.quoteDepth[index] ?? 0;
+    if (depth !== structuralDepth) continue;
+    if (sawOverDepth) {
+      const boundary = findCanonicalValueBoundary(value, contentStart);
+      return safeCanonicalValueSpan(canonical, contentStart, Math.max(boundary, index));
+    }
+    return safeCanonicalValueSpan(canonical, contentStart, index);
+  }
+  const boundary = findCanonicalValueBoundary(value, contentStart);
+  return safeCanonicalValueSpan(canonical, contentStart, boundary, `${secretRedactionMarker}${quoteChar}`);
+}
+
+function scanCanonicalUnquotedSecretValueSpan(canonical, valueStart, { key }) {
+  const value = canonical.normalized;
+  if (String(key).toLowerCase() === "authorization") {
+    const scheme = value.slice(valueStart).match(/^(Bearer|Basic)(?=$|[\s,;&?}\]\)\r\n])/i);
+    if (scheme) return null;
+  }
+  const boundary = findCanonicalValueBoundary(value, valueStart);
+  return safeCanonicalValueSpan(canonical, valueStart, boundary);
+}
+
+function findCanonicalValueBoundary(value, start) {
+  for (let index = start; index < value.length; index += 1) {
+    if ("\"',;&?}])\r\n".includes(value[index])) return index;
+  }
+  return value.length;
+}
+
+function safeCanonicalValueSpan(canonical, start, end, replacement = secretRedactionMarker) {
+  if (end <= start) return null;
+  const raw = canonical.normalized.slice(start, end);
+  if (raw.toUpperCase() === secretRedactionMarker || isPartialRedactionMarkerValue(raw)) return null;
+  return { start, end, replacement };
 }
 
 function collectEscapedAssignmentReplacements(canonical, replacements, pattern, options) {
@@ -810,7 +923,8 @@ function redactWrappedSecretAssignment(state, _match, prefix, quote, key, separa
 
 function isPartialRedactionMarkerValue(value) {
   const partial = secretRedactionMarker.slice(0, -1);
-  return value === partial || value === `"${partial}` || value === `'${partial}`;
+  const normalized = String(value ?? "").toUpperCase();
+  return normalized === partial || normalized === `"${partial}` || normalized === `'${partial}`;
 }
 
 function isCanonicalSecretKey(key) {

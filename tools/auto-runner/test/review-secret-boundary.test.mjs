@@ -685,6 +685,217 @@ test("review-fix redaction covers escaped nested secret assignments", () => {
   assert.doesNotMatch(budgetRedacted, new RegExp(budgetSecret));
 });
 
+test("review-fix redaction consumes complete backslash-containing unquoted secret values", () => {
+  const secret = runtimeCanary("backslash-unquoted");
+  const second = runtimeCanary("backslash-unquoted-second");
+  const backslash = "\\";
+  const cases = [
+    {
+      name: "reviewer example semicolon sibling",
+      input: `password=abc${backslash}def;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "doubled backslash query sibling",
+      input: `token=abc${backslash}${backslash}def&safe=visible`,
+      keep: /&safe=visible/,
+    },
+    {
+      name: "client secret to bounded end",
+      input: `clientSecret=abc${backslash}def`,
+      keep: /clientSecret=\[REDACTED\]$/,
+    },
+    {
+      name: "trailing backslash",
+      input: `token=abc${backslash}`,
+      keep: /token=\[REDACTED\]$/,
+    },
+    {
+      name: "several backslashes",
+      input: `password=ab${backslash}${backslash}cd${backslash}${backslash}${backslash}ef;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "backslash and spaces through deterministic delimiter",
+      input: `password=abc${backslash} def ghi;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "query value with adjacent safe parameter",
+      input: `https://example.invalid/path?token=${secret}${backslash}tail&safe=visible`,
+      keep: /&safe=visible/,
+    },
+    {
+      name: "json-like wrapper with safe sibling",
+      input: `headers={token:${secret}${backslash}tail,safe:visible}`,
+      keep: /,safe:visible/,
+    },
+    {
+      name: "multiple backslash assignments",
+      input: `token=${secret}${backslash}tail;clientSecret=${second}${backslash}tail;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "marker-adjacent unquoted backslash secret",
+      input: `[REDACTED]token=${secret}${backslash}tail;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "harmless windows prose without recognized assignment",
+      input: `Harmless path C:${backslash}Users${backslash}Public remains meaningful.`,
+      exact: `Harmless path C:${backslash}Users${backslash}Public remains meaningful.`,
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+    assert.doesNotMatch(redacted, new RegExp(second), item.name);
+    assert.doesNotMatch(redacted, /abc\\def|abc\\\\def|tail/, item.name);
+    if (item.exact) {
+      assert.equal(redacted, item.exact, item.name);
+    } else {
+      assert.match(redacted, item.keep, item.name);
+      assert.match(redacted, /\[REDACTED\]/, item.name);
+    }
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+});
+
+test("review-fix redaction treats escaped quotes inside quoted secrets as data", () => {
+  const secret = runtimeCanary("escaped-quote-value");
+  const second = runtimeCanary("escaped-quote-value-second");
+  const backslash = "\\";
+  const doubleQuote = "\"";
+  const singleQuote = "'";
+  const escapedQuote = (depth = 1, quote = doubleQuote) => `${backslash.repeat(depth)}${quote}`;
+  const escapedObject = (key, value, depth = 1, quote = doubleQuote) =>
+    `{${escapedQuote(depth, quote)}${key}${escapedQuote(depth, quote)}:${escapedQuote(depth, quote)}${value}${backslash.repeat(depth + 2)}${quote}tail${escapedQuote(depth, quote)},${escapedQuote(depth, quote)}safe${escapedQuote(depth, quote)}:${escapedQuote(depth, quote)}visible${escapedQuote(depth, quote)}}`;
+  const cases = [
+    {
+      name: "reviewer escaped double quoted example",
+      input: escapedObject("token", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped single quoted equivalent",
+      input: escapedObject("token", secret, 1, singleQuote),
+      keep: /\\'safe\\':\\'visible\\'/,
+    },
+    {
+      name: "two embedded escaped quotes",
+      input: `{${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${backslash}${backslash}${backslash}${doubleQuote}mid${backslash}${backslash}${backslash}${doubleQuote}tail${escapedQuote()},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped quote near beginning",
+      input: `{${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${backslash}${backslash}${backslash}${doubleQuote}${secret}tail${escapedQuote()},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped quote near closing boundary",
+      input: `{${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}tail${backslash}${backslash}${backslash}${doubleQuote}${escapedQuote()},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "clientSecret alias",
+      input: escapedObject("clientSecret", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "accessToken alias",
+      input: escapedObject("accessToken", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "api-key alias",
+      input: escapedObject("api-key", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped bearer authorization",
+      input: `Authorization: Bearer ${escapedQuote()}${secret}${backslash}${backslash}${backslash}${doubleQuote}tail${escapedQuote()}`,
+      keep: /Authorization: Bearer \[REDACTED\]/,
+    },
+    {
+      name: "escaped basic authorization",
+      input: `Authorization: Basic ${escapedQuote()}${secret}${backslash}${backslash}${backslash}${doubleQuote}tail${escapedQuote()}`,
+      keep: /Authorization: Basic \[REDACTED\]/,
+    },
+    {
+      name: "one additional escape layer with embedded escaped quote",
+      input: escapedObject("token", secret, 2),
+      keep: /\\\\"safe\\\\":\\\\"visible\\\\"/,
+    },
+    {
+      name: "malformed escaped quoted value fail closed",
+      input: `{${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${backslash}${backslash}${backslash}${doubleQuote}tail,${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "mixed ordinary and escaped nested assignments",
+      input: `headers={${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${backslash}${backslash}${backslash}${doubleQuote}tail${escapedQuote()},clientSecret:${second},safe:visible}`,
+      keep: /safe:visible/,
+    },
+    {
+      name: "multiple sibling escaped quoted secrets",
+      input: `{${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${backslash}${backslash}${backslash}${doubleQuote}tail${escapedQuote()},${escapedQuote()}clientSecret${escapedQuote()}:${escapedQuote()}${second}${backslash}${backslash}${backslash}${doubleQuote}tail${escapedQuote()},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "marker adjacent escaped quoted secret",
+      input: `[REDACTED]${escapedObject("token", secret)}`,
+      keep: /\[REDACTED\]/,
+    },
+    {
+      name: "adjacent escaped safe field visible",
+      input: escapedObject("token", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "harmless escaped quote prose",
+      input: `Harmless text says ${escapedQuote()}token${escapedQuote()} and value ${escapedQuote()}${secret}${escapedQuote()} without assignment.`,
+      exact: `Harmless text says ${escapedQuote()}token${escapedQuote()} and value ${escapedQuote()}${secret}${escapedQuote()} without assignment.`,
+      harmlessKeepsSecret: true,
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    if (item.harmlessKeepsSecret) {
+      assert.equal(redacted, item.exact, item.name);
+    } else {
+      assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+      assert.doesNotMatch(redacted, new RegExp(second), item.name);
+      assert.doesNotMatch(redacted, /tail/, item.name);
+      assert.match(redacted, item.keep, item.name);
+      assert.match(redacted, /\[REDACTED\]/, item.name);
+    }
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+
+  const nearBound = `${"headers=".repeat(900)}${escapedObject("token", secret)}${"x".repeat(2_000)}`.slice(0, 19_950);
+  const nearBoundStarted = process.hrtime.bigint();
+  const nearBoundRedacted = redactSecretLikeText(nearBound);
+  const nearBoundElapsedMs = Number(process.hrtime.bigint() - nearBoundStarted) / 1_000_000;
+  assert.equal(nearBoundElapsedMs < 1_000, true, `near-bound elapsed ${nearBoundElapsedMs}ms`);
+  assert.doesNotMatch(nearBoundRedacted, new RegExp(secret));
+  assert.equal(nearBoundRedacted.length <= 20_000, true);
+
+  const manySiblingFragments = Array.from({ length: 1_000 }, (_item, index) =>
+    `h${index}=${escapedObject("token", secret)}`).join(" ");
+  const manyStarted = process.hrtime.bigint();
+  const manyRedacted = redactSecretLikeText(manySiblingFragments);
+  const manyElapsedMs = Number(process.hrtime.bigint() - manyStarted) / 1_000_000;
+  assert.equal(manyElapsedMs < 1_000, true, `many elapsed ${manyElapsedMs}ms`);
+  assert.doesNotMatch(manyRedacted, new RegExp(secret));
+
+  const budgetSecret = ["r"].join("");
+  const manySecrets = Array.from({ length: 1_100 }, () =>
+    `${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${budgetSecret}${escapedQuote()}`).join(";");
+  const budgetRedacted = redactSecretLikeText(manySecrets);
+  assert.equal(budgetRedacted, "[REDACTED]");
+  assert.doesNotMatch(budgetRedacted, new RegExp(budgetSecret));
+});
+
 test("review-fix redaction treats completed markers as secret boundaries", () => {
   const secret = runtimeCanary("marker-boundary");
   const second = runtimeCanary("marker-boundary-second");
@@ -1274,6 +1485,99 @@ test("review-fix escaped nested canaries never reach prompt evidence or durable 
     const evidence = readFileSync(written.evidencePath, "utf8");
     for (const output of [JSON.stringify(decision.sanitizedFindings), JSON.stringify(decision), prompt, evidence]) {
       assert.doesNotMatch(output, new RegExp(secret));
+      assert.match(output, /\[REDACTED\]/);
+    }
+    assert.match(prompt, /safe/);
+    assert.match(evidence, /visible/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review-fix backslash and escaped-quote canaries never reach prompt evidence or durable fixtures", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fix-backslash-escaped-canary-"));
+  try {
+    const backslashSecret = runtimeCanary("prompt-evidence-backslash-value");
+    const escapedQuoteSecret = runtimeCanary("prompt-evidence-escaped-quote-value");
+    const backslash = "\\";
+    const escapedQuote = `${backslash}"`;
+    const embeddedEscapedQuote = `${backslash}${backslash}${backslash}"`;
+    const suffix = "rawsuffix";
+    const backslashAssignment = `password=${backslashSecret}${backslash}${suffix};safe=visible`;
+    const escapedQuoteAssignment = `{${escapedQuote}token${escapedQuote}:${escapedQuote}${escapedQuoteSecret}${embeddedEscapedQuote}${suffix}${escapedQuote},${escapedQuote}safe${escapedQuote}:${escapedQuote}visible${escapedQuote}}`;
+    const trigger = {
+      actionable: true,
+      source: "integrated_gemini",
+      verdict: "fail",
+      findings: [{
+        provider: "gemini",
+        severity: "high",
+        path: `tools/auto-runner/lib/review-fix-policy.mjs?${backslashAssignment}`,
+        file: `tools/auto-runner/lib/review-fix-policy.mjs#headers=${escapedQuoteAssignment}`,
+        line: 702,
+        range: { startLine: 148, endLine: 702, label: `inventory=${backslashAssignment}; history=${escapedQuoteAssignment}` },
+        title: `Backslash ${backslashAssignment}`,
+        message: `Escaped quote ${escapedQuoteAssignment}`,
+        body: `mixed ${backslashAssignment} ${escapedQuoteAssignment}`,
+        details: `fingerprint ${escapedQuoteAssignment}`,
+        rule: `report ${backslashAssignment}`,
+        ruleId: `sarif ${escapedQuoteAssignment}`,
+        check: `state ${backslashAssignment}`,
+        invariant: `prompt ${escapedQuoteAssignment}`,
+        authorityInvariant: `evidence ${backslashAssignment}`,
+      }],
+    };
+    const decision = evaluateReviewFixMutationDecision({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: 921, title: "Backslash escaped canary", labels: [] },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedToImplement: true,
+        autoMergeEligible: true,
+        manualMergeRequired: false,
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const prompt = buildReviewFixPrompt({
+      issue: { number: 921, title: "Backslash escaped canary" },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      branchName: "feature/review-fix",
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const written = writeReviewFixEvidence({ logsRoot: tempRoot }, {
+      issue: { number: 921, title: "Backslash escaped canary" },
+      trigger,
+      decision,
+      promptFixture: `${backslashAssignment} ${escapedQuoteAssignment}`,
+      structuredFindings: trigger.findings,
+      findingInventory: [{
+        fingerprint: `fp:${backslashAssignment}`,
+        history: [`history:${escapedQuoteAssignment}`],
+      }],
+      durableStateFixture: {
+        prompt: backslashAssignment,
+        evidence: escapedQuoteAssignment,
+        inventory: [backslashAssignment],
+        fingerprints: [escapedQuoteAssignment],
+        history: [`report:${backslashAssignment}`, `sarif:${escapedQuoteAssignment}`],
+        safe: "visible",
+      },
+    });
+    const evidence = readFileSync(written.evidencePath, "utf8");
+    for (const output of [JSON.stringify(decision.sanitizedFindings), JSON.stringify(decision), prompt, evidence]) {
+      assert.doesNotMatch(output, new RegExp(backslashSecret));
+      assert.doesNotMatch(output, new RegExp(escapedQuoteSecret));
+      assert.doesNotMatch(output, new RegExp(suffix));
       assert.match(output, /\[REDACTED\]/);
     }
     assert.match(prompt, /safe/);
