@@ -45,7 +45,7 @@ export function buildLiveReviewConvergenceContext(input = {}) {
     numberOrNull(input.sourceChangingCycle) ??
     attempts.filter((attempt) => attempt?.proceeded).length;
   const history = Array.isArray(input.reviewConvergenceHistory)
-    ? input.reviewConvergenceHistory
+    ? input.reviewConvergenceHistory.map(normalizeHistoryEntry)
     : attempts.map((attempt) => ({
         findingFingerprints: normalizeFindingFingerprints(
           attempt?.decision?.sanitizedFindings ||
@@ -54,9 +54,11 @@ export function buildLiveReviewConvergenceContext(input = {}) {
             [],
         ),
         claimedFixedFingerprints: normalizeFindingFingerprints(attempt?.claimedFixedFingerprints || attempt?.fixedFindingFingerprints || []),
-        patchId: attempt?.commit?.sha || attempt?.headShaAfter || attempt?.evidence?.digest || attempt?.reason || null,
+        exactHead: attempt?.exactHead || attempt?.commit?.sha || attempt?.headShaAfter || null,
+        patchId: trustedPatchIdFromAttempt(attempt),
         treeId: attempt?.treeId || null,
-      }));
+        patchIdReason: attempt?.patchIdReason || null,
+      })).map(normalizeHistoryEntry);
   const findingInventory = Array.isArray(input.currentFindings)
     ? freezeMaterialFindingInventory(input.currentFindings)
     : Array.isArray(existing?.findingInventory)
@@ -195,6 +197,15 @@ export function reviewFindingFingerprintsFromSupportedContainers({ externalRevie
   return [...new Set(fingerprints)].sort();
 }
 
+export function claimedReviewFindingFingerprints({ fixAttempt, externalReview, review, source } = {}) {
+  const findings = fixAttempt?.decision?.sanitizedFindings || fixAttempt?.trigger?.findings || [];
+  if (!Array.isArray(findings) || findings.length === 0) return [];
+  const trigger = fixAttempt?.decision?.trigger || fixAttempt?.trigger || { source };
+  const identity = canonicalClaimedFindingIdentity({ trigger, source, externalReview, review });
+  if (!identity.ok) return [];
+  return normalizeFindingFingerprints(findings.map((finding) => normalizeReviewFindingForFingerprint(finding, identity.defaults)));
+}
+
 export function reviewFindingsFromSupportedContainers({ externalReview, review } = {}) {
   return [
     ...externalReviewFindingsFromSupportedContainers(externalReview),
@@ -246,15 +257,16 @@ export function planExactHeadReviewRequest(state, request = {}) {
 
 export function analyzeConvergenceProgress(history = [], options = {}) {
   const threshold = Math.max(Number(options.noProgressThreshold || defaultNoProgressSourceCycles), 3);
-  const recent = history.slice(-threshold);
+  const normalizedHistory = history.map(normalizeHistoryEntry);
+  const recent = normalizedHistory.slice(-threshold);
   if (recent.length >= threshold && recent.every((item) => digestFindingSet(item.findingFingerprints) === digestFindingSet(recent[0].findingFingerprints))) {
     return { ok: false, terminalReason: "NO_PROGRESS", reason: "identical_material_finding_set_repeated", threshold };
   }
-  const treeOrPatch = history.map((item) => item.patchId || item.treeId).filter(Boolean);
+  const treeOrPatch = normalizedHistory.map(sourceIdentityForProgress).filter(Boolean);
   if (detectShortOscillation(treeOrPatch)) {
     return { ok: false, terminalReason: "REVIEW_OSCILLATION", reason: "patch_or_tree_identity_oscillation" };
   }
-  const returned = detectReturnedFinding(history);
+  const returned = detectReturnedFinding(normalizedHistory);
   if (returned) {
     return { ok: false, terminalReason: "NO_PROGRESS", reason: "finding_returned_after_claimed_fix", fingerprint: returned };
   }
@@ -333,10 +345,42 @@ function detectShortOscillation(values) {
   return last6.length === 6 && last6[0] === last6[3] && last6[1] === last6[4] && last6[2] === last6[5];
 }
 
+function normalizeHistoryEntry(item = {}) {
+  const explicitPatchId = item.stablePatchId || item.sourceIdentity?.patchId || item.patchId || null;
+  const patchId = trustedPatchIdFromHistory(item, explicitPatchId);
+  return {
+    ...item,
+    exactHead: item.exactHead || item.headSha || item.commitSha || item.sourceIdentity?.exactHead || null,
+    findingFingerprints: normalizeFindingFingerprints(item.findingFingerprints || []),
+    claimedFixedFingerprints: normalizeFindingFingerprints(item.claimedFixedFingerprints || item.fixedFindingFingerprints || []),
+    patchId,
+    treeId: item.treeId || item.sourceIdentity?.treeId || null,
+    patchIdReason: item.patchIdReason || item.sourceIdentity?.patchIdReason || (patchId ? null : item.patchIdReason || null),
+  };
+}
+
+function sourceIdentityForProgress(item = {}) {
+  const normalized = normalizeHistoryEntry(item);
+  return normalized.patchId || normalized.treeId || null;
+}
+
+function trustedPatchIdFromAttempt(attempt = {}) {
+  return attempt?.stablePatchId || attempt?.sourceIdentity?.patchId || null;
+}
+
+function trustedPatchIdFromHistory(item = {}, patchId = null) {
+  if (!patchId) return null;
+  if (item.stablePatchId || item.sourceIdentity?.patchId || item.patchIdKind === "stable_patch_id") return patchId;
+  if (/^[0-9a-f]{40}$/i.test(String(patchId))) return null;
+  return patchId;
+}
+
 function detectReturnedFinding(history) {
   const seen = new Map();
   for (const item of history) {
+    const claimed = new Set(item.claimedFixedFingerprints || []);
     for (const fingerprint of item.findingFingerprints || []) {
+      if (claimed.has(fingerprint)) return fingerprint;
       const previous = seen.get(fingerprint);
       if (previous === false) return fingerprint;
       seen.set(fingerprint, true);
@@ -387,10 +431,10 @@ function collectSupportedFindingArrays(source = {}, paths = []) {
 function normalizeReviewFindingForFingerprint(finding, defaults = {}) {
   if (finding && typeof finding === "object") {
     return {
-      provider: defaults.provider,
-      source: defaults.source,
-      severity: defaults.severity,
       ...finding,
+      provider: defaults.provider || finding.provider,
+      source: defaults.source || finding.source,
+      severity: defaults.severity || finding.severity,
     };
   }
   const text = String(finding || "");
@@ -401,6 +445,43 @@ function normalizeReviewFindingForFingerprint(finding, defaults = {}) {
     title: text,
     body: text,
   };
+}
+
+function canonicalClaimedFindingIdentity({ trigger = {}, source = null, externalReview = {}, review = {} } = {}) {
+  const triggerSource = trigger.source || source || null;
+  if (triggerSource === "integrated_gemini") {
+    const provider = externalReview?.provider || null;
+    if (!provider || provider === "external_review") return { ok: false, reason: "ambiguous_external_review_provider" };
+    return {
+      ok: true,
+      defaults: {
+        provider,
+        source: externalReview.source || triggerSource,
+        severity: externalReview.severity,
+      },
+    };
+  }
+  if (triggerSource === "review_fix_canary_fixture") {
+    return {
+      ok: true,
+      defaults: {
+        provider: externalReview?.provider === "review_fix_canary_fixture" ? "review_fix_canary_fixture" : "review_fix_canary_fixture",
+        source: "review_fix_canary_fixture",
+        severity: externalReview?.severity,
+      },
+    };
+  }
+  if (triggerSource === "codex_mechanics" || triggerSource === "codex_mechanics_security_review") {
+    return {
+      ok: true,
+      defaults: {
+        provider: review?.provider || "codex",
+        source: review?.source || "codex_mechanics_security_review",
+        severity: review?.severity,
+      },
+    };
+  }
+  return { ok: false, reason: "ambiguous_review_fix_trigger" };
 }
 
 function reviewVerdictIsPass(review = {}) {

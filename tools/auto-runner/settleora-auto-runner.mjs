@@ -32,6 +32,7 @@ import {
   getStatusShort,
   listChangedFiles,
   listWorkingTreeChangedFiles,
+  sourceStateIdentityForCommit,
   workingTreeDiffHash,
 } from "./lib/git-workspace.mjs";
 import { generateTaskPrompt } from "./lib/task-prompt.mjs";
@@ -46,6 +47,7 @@ import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
+  claimedReviewFindingFingerprints,
   evaluateCycleBudget,
   reviewFindingsFromSupportedContainers,
   reviewFindingFingerprintsFromSupportedContainers,
@@ -794,11 +796,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     if (iteration.reviewMutationGuard?.mutationDetected) {
       return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_fix_review_mutated_checkout");
     }
+    const sourceIdentity = normalSourceIdentityForCommit(iteration);
     appendNormalReviewConvergenceHistory(iteration, {
       externalReview: iteration.externalReview,
       review: iteration.review,
       fixAttempt,
-      patchId: iteration.runnerCreatedCommitSha,
+      sourceIdentity,
     });
     persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
     recordPostFixExactHeadEvidence(recoveryRecorder, {
@@ -899,11 +902,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       if (iteration.reviewMutationGuard?.mutationDetected) {
         return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_initial_fix_review_mutated_checkout");
       }
+      const sourceIdentity = normalSourceIdentityForCommit(iteration);
       appendNormalReviewConvergenceHistory(iteration, {
         externalReview: iteration.externalReview,
         review: iteration.review,
         fixAttempt,
-        patchId: iteration.runnerCreatedCommitSha,
+        sourceIdentity,
       });
       persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
       recordPostFixExactHeadEvidence(recoveryRecorder, {
@@ -1011,11 +1015,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       if (iteration.reviewMutationGuard?.mutationDetected) {
         return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_convergence_fix_review_mutated_checkout");
       }
+      const sourceIdentity = normalSourceIdentityForCommit(iteration);
       appendNormalReviewConvergenceHistory(iteration, {
         externalReview: iteration.externalReview,
         review: iteration.review,
         fixAttempt,
-        patchId: iteration.runnerCreatedCommitSha,
+        sourceIdentity,
       });
       persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
       recordPostFixExactHeadEvidence(recoveryRecorder, {
@@ -1132,11 +1137,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     if (iteration.reviewMutationGuard?.mutationDetected) {
       return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_convergence_fix_review_mutated_checkout");
     }
+    const sourceIdentity = normalSourceIdentityForCommit(iteration);
     appendNormalReviewConvergenceHistory(iteration, {
       externalReview: iteration.externalReview,
       review: iteration.review,
       fixAttempt,
-      patchId: iteration.runnerCreatedCommitSha,
+      sourceIdentity,
     });
     persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
     recordPostFixExactHeadEvidence(recoveryRecorder, {
@@ -2056,16 +2062,32 @@ function currentReviewFindingFingerprints({ externalReview, review } = {}) {
   return reviewFindingFingerprintsFromSupportedContainers({ externalReview, review });
 }
 
-function appendNormalReviewConvergenceHistory(iteration, { externalReview, review, fixAttempt, patchId, treeId }) {
+function normalSourceIdentityForCommit(iteration) {
+  if (!iteration.runnerCreatedCommitSha) {
+    return { exactHead: null, treeId: null, patchId: null, patchIdReason: "dry_run_or_missing_head" };
+  }
+  return sourceStateIdentityForCommit({
+    baseRef: iteration.baseOriginMainSha,
+    headRef: iteration.runnerCreatedCommitSha,
+  });
+}
+
+function appendNormalReviewConvergenceHistory(iteration, { externalReview, review, fixAttempt, sourceIdentity = {} }) {
   iteration.reviewConvergenceHistory = [
     ...(iteration.reviewConvergenceHistory || []),
     {
       findingFingerprints: currentReviewFindingFingerprints({ externalReview, review }),
-      claimedFixedFingerprints: currentReviewFindingFingerprints({
-        review: { findings: fixAttempt?.decision?.sanitizedFindings || fixAttempt?.trigger?.findings || [] },
+      claimedFixedFingerprints: claimedReviewFindingFingerprints({
+        fixAttempt,
+        externalReview,
+        review,
+        source: fixAttempt?.decision?.trigger?.source || fixAttempt?.trigger?.source,
       }),
-      patchId: patchId || null,
-      treeId: treeId || null,
+      exactHead: sourceIdentity.exactHead || null,
+      treeId: sourceIdentity.treeId || null,
+      patchId: sourceIdentity.patchId || null,
+      patchIdKind: sourceIdentity.patchId ? "stable_patch_id" : null,
+      patchIdReason: sourceIdentity.patchIdReason || null,
     },
   ];
 }

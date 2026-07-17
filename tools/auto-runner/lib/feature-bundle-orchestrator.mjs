@@ -22,6 +22,7 @@ import {
   listChangedFiles,
   listWorkingTreeChangedFiles,
   runGit,
+  sourceStateIdentityForCommit,
 } from "./git-workspace.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./codex-runner.mjs";
@@ -34,8 +35,8 @@ import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
 import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
+  claimedReviewFindingFingerprints,
   evaluateCycleBudget,
-  fingerprintReviewFinding,
   reviewFindingFingerprintsFromSupportedContainers,
 } from "./review-convergence-controller.mjs";
 import {
@@ -470,6 +471,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
     commitAndRerun: deps.commitAndRerun || commitBundleReviewFixAndRerunExactHeadReviews,
     evaluatePrePushGate: deps.evaluatePrePushGate || evaluatePrePushReviewGate,
     persistExactHeadEvidence: deps.persistExactHeadEvidence || persistBundleExactHeadEvidence,
+    sourceStateIdentity: deps.sourceStateIdentity || sourceStateIdentityForCommit,
   };
 
   while (true) {
@@ -602,6 +604,9 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
         summary: { reviewMutationGuard: currentResult.reviewMutationGuard },
       };
     }
+    const sourceIdentity = postFix.runnerCreatedCommitSha
+      ? dependencies.sourceStateIdentity({ baseRef: input.baseSha, headRef: postFix.runnerCreatedCommitSha })
+      : { exactHead: null, treeId: null, patchId: null, patchIdReason: "dry_run_or_missing_head" };
     const accounted = accountConvergenceEvent(state.reviewConvergenceState, {
       kind: "source_changed",
       newHead: postFix.runnerCreatedCommitSha,
@@ -619,11 +624,17 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
             externalReview: currentResult.externalReview,
             review: currentResult.review,
           }),
-          claimedFixedFingerprints: bundleReviewFindingFingerprints(fixAttempt.decision?.sanitizedFindings || [], {
-            provider: source === "codex_mechanics_security_review" ? "codex" : "external_review",
+          claimedFixedFingerprints: claimedReviewFindingFingerprints({
+            fixAttempt,
+            externalReview: currentResult.externalReview,
+            review: currentResult.review,
             source,
           }),
-          patchId: postFix.runnerCreatedCommitSha || null,
+          exactHead: sourceIdentity.exactHead,
+          treeId: sourceIdentity.treeId,
+          patchId: sourceIdentity.patchId,
+          patchIdKind: sourceIdentity.patchId ? "stable_patch_id" : null,
+          patchIdReason: sourceIdentity.patchIdReason,
         },
       ],
       finalization: {
@@ -1055,39 +1066,6 @@ function mergeBundleReviewMutationGuards(...guards) {
 
 function currentBundleReviewFindingFingerprints({ externalReview, review } = {}) {
   return reviewFindingFingerprintsFromSupportedContainers({ externalReview, review }).sort();
-}
-
-function bundleReviewFindingFingerprints(findings = [], defaults = {}) {
-  return findings
-    .map((finding) => normalizeBundleReviewFinding(finding, defaults))
-    .map((finding) => fingerprintReviewFinding(finding).fingerprint)
-    .filter(Boolean)
-    .sort();
-}
-
-function normalizeBundleReviewFinding(finding, defaults = {}) {
-  if (typeof finding === "string") {
-    const text = finding.trim();
-    return {
-      provider: defaults.provider || defaults.source || "unknown",
-      source: defaults.source || defaults.provider || "unknown",
-      severity: defaults.severity || "unknown",
-      title: text,
-      body: text,
-    };
-  }
-  return {
-    provider: finding?.provider || finding?.source || defaults.provider || defaults.source || "unknown",
-    source: finding?.source || finding?.provider || defaults.source || defaults.provider || "unknown",
-    severity: finding?.severity || defaults.severity || "unknown",
-    path: finding?.path || finding?.file || "",
-    line: finding?.line,
-    range: finding?.range,
-    title: finding?.title || finding?.message || "",
-    body: finding?.body || finding?.details || "",
-    ruleId: finding?.ruleId || finding?.rule || finding?.check || "",
-    authorityInvariant: finding?.authorityInvariant || finding?.invariant || "",
-  };
 }
 
 function createBundleRecoveryRecorder(config, input) {

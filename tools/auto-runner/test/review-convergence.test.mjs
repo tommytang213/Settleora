@@ -12,6 +12,7 @@ import {
   analyzeConvergenceProgress,
   buildBatchFixTask,
   buildLiveReviewConvergenceContext,
+  claimedReviewFindingFingerprints,
   evaluateCycleBudget,
   fingerprintReviewFinding,
   freezeMaterialFindingInventory,
@@ -162,6 +163,15 @@ function bundleConvergenceInput(overrides = {}) {
       marker(kind, key) { this.actions.push(["marker", kind, key]); },
     },
     ...overrides,
+  };
+}
+
+function fakeSourceIdentity(head = "b".repeat(40), overrides = {}) {
+  return {
+    exactHead: head,
+    treeId: overrides.treeId || "tree-b",
+    patchId: Object.hasOwn(overrides, "patchId") ? overrides.patchId : "patch-b",
+    patchIdReason: overrides.patchIdReason || null,
   };
 }
 
@@ -869,6 +879,9 @@ test("feature-bundle Codex non-approve invokes bounded executor and consumes one
       persisted.push(evidence);
       return { ok: true, changedFilesDigest: digestChangedFiles(evidence.changedFiles) };
     },
+    sourceStateIdentity() {
+      return fakeSourceIdentity(newHead);
+    },
   });
   assert.equal(result.ok, true);
   assert.equal(result.state.sourceChangingCycle, 8);
@@ -1190,6 +1203,7 @@ test("feature-bundle history fingerprints structured current findings separately
         externalReview: {
           status: "fail",
           verdict: "fail",
+          provider: "gemini",
           tier: "strong_independent",
           reviewedHead: "b".repeat(40),
           changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]),
@@ -1206,14 +1220,17 @@ test("feature-bundle history fingerprints structured current findings separately
     persistExactHeadEvidence() {
       return { ok: true };
     },
+    sourceStateIdentity() {
+      return fakeSourceIdentity("b".repeat(40));
+    },
   });
   const history = result.state.reviewConvergenceHistory;
   assert.equal(result.ok, true);
   assert.equal(history.length, 1);
   assert.deepEqual(history[0].findingFingerprints, [fingerprintReviewFinding(remaining).fingerprint]);
   assert.deepEqual(history[0].claimedFixedFingerprints, [
-    fingerprintReviewFinding(attemptedOne).fingerprint,
-    fingerprintReviewFinding(attemptedTwo).fingerprint,
+    fingerprintReviewFinding({ ...attemptedOne, provider: "codex", source: "codex_mechanics_security_review" }).fingerprint,
+    fingerprintReviewFinding({ ...attemptedTwo, provider: "codex", source: "codex_mechanics_security_review" }).fingerprint,
   ].sort());
   assert.equal(new Set(history[0].claimedFixedFingerprints).size, 2);
   assert.doesNotMatch(JSON.stringify(history), /\[object Object\]/);
@@ -1263,6 +1280,9 @@ test("feature-bundle history records clean post-fix reviews as empty current fin
     persistExactHeadEvidence() {
       return { ok: true };
     },
+    sourceStateIdentity() {
+      return fakeSourceIdentity("b".repeat(40));
+    },
   });
   const history = result.state.reviewConvergenceHistory;
   assert.equal(result.ok, true);
@@ -1270,6 +1290,86 @@ test("feature-bundle history records clean post-fix reviews as empty current fin
   assert.deepEqual(history[0].claimedFixedFingerprints, [
     fingerprintReviewFinding({ provider: "codex", source: "codex_mechanics_security_review", severity: "unknown", title: attempted, body: attempted }).fingerprint,
   ]);
+});
+
+test("feature-bundle Gemini claimed/current parity detects returned findings before next mutation", async () => {
+  const geminiFinding = {
+    severity: "high",
+    path: "tools/auto-runner/lib/feature-bundle-orchestrator.mjs",
+    line: 623,
+    title: "Preserve Gemini identity for claimed findings",
+    body: "same finding returned",
+  };
+  const input = bundleConvergenceInput({
+    result: {
+      externalReview: {
+        status: "blocked",
+        reason: "blocked_external_reviewer_non_pass",
+        provider: "gemini",
+        sanitizedResponseSummary: { verdict: "fail", findings: [geminiFinding] },
+      },
+      review: { verdict: { verdict: "approve" } },
+      reviewMutationGuard: { mutationDetected: false },
+    },
+    prePushGate: { ok: false, outcome: "review_convergence_required", reason: "external_review_failed", message: "Gemini failed" },
+    writeState(nextState) {
+      input.state = nextState;
+    },
+  });
+  const first = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+    async runFixCycle() {
+      return {
+        proceeded: true,
+        reason: "review_fix_passed_revalidation",
+        decision: { trigger: { source: "integrated_gemini" }, sanitizedFindings: [geminiFinding] },
+        changedFilesAfter: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFilesAfter: [],
+        validationAfter: { passed: true, profile: "runner-tests", changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+      };
+    },
+    async commitAndRerun() {
+      return {
+        runnerCreatedCommitSha: "b".repeat(40),
+        changedFiles: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFiles: [],
+        validation: { passed: true, profile: "runner-tests", changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        externalReview: {
+          status: "blocked",
+          reason: "blocked_external_reviewer_non_pass",
+          provider: "gemini",
+          sanitizedResponseSummary: { verdict: "fail", findings: [geminiFinding] },
+        },
+        review: { verdict: { verdict: "approve" }, reviewedHead: "b".repeat(40), changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        reviewPackage: { packagePath: "/tmp/package.json" },
+        reviewMutationGuard: { mutationDetected: false },
+      };
+    },
+    evaluatePrePushGate() {
+      return { ok: true, reason: "pre_push_review_gates_passed" };
+    },
+    persistExactHeadEvidence() {
+      return { ok: true };
+    },
+    sourceStateIdentity() {
+      return fakeSourceIdentity("b".repeat(40));
+    },
+  });
+  const history = first.state.reviewConvergenceHistory;
+  assert.equal(first.ok, true);
+  assert.deepEqual(history[0].findingFingerprints, history[0].claimedFixedFingerprints);
+
+  const restart = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, {
+    ...input,
+    state: first.state,
+    prePushGate: { ok: false, outcome: "review_convergence_required", reason: "external_review_failed", message: "Gemini failed again" },
+  }, {
+    async runFixCycle() {
+      throw new Error("returned Gemini finding must stop before another mutation");
+    },
+  });
+  assert.equal(restart.ok, false);
+  assert.equal(restart.reasonCode, "NO_PROGRESS");
+  assert.equal(restart.reason, "finding_returned_after_claimed_fix");
 });
 
 test("normal convergence fingerprints Gemini sanitized finding containers stably", () => {
@@ -1352,4 +1452,83 @@ test("normal convergence records clean Gemini pass as no material fingerprints",
     review: { verdict: { verdict: "approve", blocking_findings: [{ provider: "codex", title: "stale ignored" }] } },
   });
   assert.deepEqual(fingerprints, []);
+});
+
+test("claimed review fingerprints preserve Gemini, Codex, and fixture provider identity", () => {
+  const finding = {
+    severity: "high",
+    path: "tools/auto-runner/lib/feature-bundle-orchestrator.mjs",
+    line: 623,
+    title: "Preserve Gemini identity for claimed findings",
+    body: "returned unchanged",
+  };
+  const externalReview = {
+    status: "fail",
+    provider: "gemini",
+    source: "integrated_gemini",
+    sanitizedResponseSummary: { verdict: "fail", findings: [finding, { ...finding }] },
+  };
+  const geminiCurrent = reviewFindingFingerprintsFromSupportedContainers({ externalReview });
+  const geminiClaimed = claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger: { source: "integrated_gemini" }, sanitizedFindings: [finding] } },
+    externalReview,
+  });
+  assert.deepEqual(geminiCurrent, geminiClaimed);
+  assert.equal(evaluateCycleBudget(state(), { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, [
+    { findingFingerprints: geminiCurrent, claimedFixedFingerprints: geminiClaimed, patchId: "p1" },
+    { findingFingerprints: [], patchId: "p2" },
+    { findingFingerprints: geminiCurrent, patchId: "p3" },
+  ]).reason, "finding_returned_after_claimed_fix");
+
+  const codexCurrent = reviewFindingFingerprintsFromSupportedContainers({
+    review: { verdict: { verdict: "changes_requested", blocking_findings: [finding] } },
+  });
+  const codexClaimed = claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger: { source: "codex_mechanics" }, sanitizedFindings: [finding] } },
+    review: { provider: "codex", source: "codex_mechanics_security_review" },
+  });
+  assert.deepEqual(codexCurrent, codexClaimed);
+  assert.notDeepEqual(geminiCurrent, codexCurrent);
+
+  const fixtureClaimed = claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger: { source: "review_fix_canary_fixture" }, sanitizedFindings: [finding] } },
+    externalReview: { provider: "review_fix_canary_fixture" },
+  });
+  assert.deepEqual(fixtureClaimed, [fingerprintReviewFinding({ ...finding, provider: "review_fix_canary_fixture", source: "review_fix_canary_fixture" }).fingerprint]);
+  assert.deepEqual(claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger: { source: "unknown" }, sanitizedFindings: [finding] } },
+    externalReview: { provider: "gemini" },
+  }), []);
+  assert.deepEqual(claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger: { source: "integrated_gemini" }, sanitizedFindings: [finding] } },
+    externalReview: { provider: "external_review" },
+  }), []);
+});
+
+test("legacy commit-shaped patch IDs are not trusted for oscillation, but tree and stable patch identities are", () => {
+  const commitA = "a".repeat(40);
+  const commitB = "b".repeat(40);
+  assert.equal(analyzeConvergenceProgress([
+    { findingFingerprints: ["a"], patchId: commitA },
+    { findingFingerprints: ["b"], patchId: commitB },
+    { findingFingerprints: ["c"], patchId: commitA },
+    { findingFingerprints: ["d"], patchId: commitB },
+  ]).ok, true);
+  assert.equal(analyzeConvergenceProgress([
+    { findingFingerprints: ["a"], exactHead: commitA, treeId: "tree-a" },
+    { findingFingerprints: ["b"], exactHead: commitB, treeId: "tree-b" },
+    { findingFingerprints: ["c"], exactHead: "c".repeat(40), treeId: "tree-a" },
+    { findingFingerprints: ["d"], exactHead: "d".repeat(40), treeId: "tree-b" },
+  ]).terminalReason, "REVIEW_OSCILLATION");
+  assert.equal(analyzeConvergenceProgress([
+    { findingFingerprints: ["a"], exactHead: commitA, patchId: commitA, patchIdKind: "stable_patch_id", treeId: "tree-a" },
+    { findingFingerprints: ["b"], exactHead: commitB, patchId: commitB, patchIdKind: "stable_patch_id", treeId: "tree-b" },
+    { findingFingerprints: ["c"], exactHead: "c".repeat(40), patchId: commitA, patchIdKind: "stable_patch_id", treeId: "tree-c" },
+    { findingFingerprints: ["d"], exactHead: "d".repeat(40), patchId: commitB, patchIdKind: "stable_patch_id", treeId: "tree-d" },
+  ]).terminalReason, "REVIEW_OSCILLATION");
+  assert.equal(analyzeConvergenceProgress([
+    { findingFingerprints: ["a"], exactHead: commitA, treeId: "tree-a" },
+    { findingFingerprints: ["b"], exactHead: commitB, treeId: "tree-b" },
+    { findingFingerprints: ["c"], exactHead: "c".repeat(40), treeId: "tree-c" },
+  ]).ok, true);
 });
