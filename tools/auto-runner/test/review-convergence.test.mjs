@@ -495,16 +495,40 @@ test("stack controller sequences parent merge, child retarget, delta proof, chil
   assert.equal(validateStackRelationships(plan).ok, true);
   assert.equal(nextStackAction(plan, { recoverableActivePr: true }).action, "recover_active_pr");
   assert.deepEqual(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true } }), { action: "merge_pr", prNumber: 919, expectedHead: "9".repeat(40) });
-  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true } }).action, "retarget_pr");
-  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true } }).action, "prove_own_delta");
-  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: { ok: false } } }).action, "prove_own_delta");
-  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "converge_pr");
-  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: { ok: true } } }).action, "converge_pr");
-  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "complete_gates");
-  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "merge_pr");
+  assert.deepEqual(nextStackAction({ ...plan, activePrNumber: 920 }, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true } }), {
+    action: "recover_active_pr",
+    prNumber: 919,
+    reason: "parent_current_main_proof_required",
+  });
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, currentMainProven: { 919: true } }).action, "retarget_pr");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, currentMainProven: { 919: true }, retargeted: { 920: true } }).action, "prove_own_delta");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true }, currentMainProven: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: { ok: false } } }).action, "prove_own_delta");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, currentMainProven: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "converge_pr");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true }, gatesPassed: { 919: true }, merged: { 919: true }, currentMainProven: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: { ok: true } } }).action, "converge_pr");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true }, merged: { 919: true }, currentMainProven: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "complete_gates");
+  assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true }, currentMainProven: { 919: true }, retargeted: { 920: true }, ownDeltaPreserved: { 920: true } }).action, "merge_pr");
   assert.equal(nextStackAction(plan, { reviewConverged: { 919: true, 920: true }, gatesPassed: { 919: true, 920: true }, merged: { 919: true, 920: true } }).action, "hygiene");
   const marker = recordStackMutationMarker(plan, { kind: "merge", key: "919", prNumber: 919, exactHead: "9".repeat(40) });
   assert.equal(recordStackMutationMarker(marker.plan, { kind: "merge", key: "919", prNumber: 919, exactHead: "9".repeat(40) }).duplicate, true);
+});
+
+test("stack reconstruction blocks child activation until parent merge and current-main proof exist", () => {
+  const parent = { number: 919, state: "CLOSED", baseRefName: "main", headRefName: "feature/parent", headRefOid: "9".repeat(40) };
+  const child = { number: 920, state: "OPEN", baseRefName: "feature/parent", headRefName: "feature/child", headRefOid: "8".repeat(40) };
+  const plan = createDependentPrStackPlan({ issueNumber: 921, prs: [parent, child] });
+  assert.equal(plan.activePrNumber, 919);
+  assert.deepEqual(nextStackAction({ ...plan, activePrNumber: 920 }, {}), {
+    action: "recover_active_pr",
+    prNumber: 919,
+    reason: "parent_merge_proof_required",
+  });
+  assert.deepEqual(nextStackAction({ ...plan, activePrNumber: 920 }, { merged: { 919: true } }), {
+    action: "recover_active_pr",
+    prNumber: 919,
+    reason: "parent_current_main_proof_required",
+  });
+  assert.equal(nextStackAction({ ...plan, activePrNumber: 920 }, { merged: { 919: true }, currentMainProven: { 919: true } }).action, "retarget_pr");
+  assert.equal(nextStackAction({ ...plan, activePrNumber: 920 }, { merged: { 919: { ok: false, merged: false } }, currentMainProven: { 919: true } }).reason, "parent_merge_proof_required");
 });
 
 test("semantic own-delta proof uses stable patch and normalized identities", () => {

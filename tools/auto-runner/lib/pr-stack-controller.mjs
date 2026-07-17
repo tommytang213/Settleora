@@ -19,7 +19,7 @@ export function createDependentPrStackPlan({ repository = "tommytang213/Settleor
     repository,
     issueNumber,
     orderedPrs: ordered,
-    activePrNumber: ordered.find((pr) => pr.state === "OPEN")?.number ?? ordered[0]?.number ?? null,
+    activePrNumber: ordered[0]?.number ?? null,
     completedPrs: [],
     remainingPrs: ordered.map((pr) => pr.number),
     mergePolicy: {
@@ -47,12 +47,18 @@ export function nextStackAction(plan, evidence = {}) {
   const active = plan.orderedPrs.find((pr) => pr.number === plan.activePrNumber) || plan.orderedPrs[0];
   if (!active) return { action: "complete", reason: "stack_empty" };
   if (evidence.recoverableActivePr) return { action: "recover_active_pr", prNumber: active.number, reason: "recovery_first" };
+  const parentProof = firstIncompleteParentProof(plan, evidence);
+  if (parentProof) return parentProof;
+  const activePrerequisite = childPrerequisiteAction(active, evidence);
+  if (activePrerequisite) return activePrerequisite;
   const activeAction = actionForPr(active, evidence);
   if (activeAction) return activeAction;
-  const next = plan.orderedPrs.find((pr) => !evidence.merged?.[pr.number]);
+  const next = plan.orderedPrs.find((pr) => !mergeProofPassed(evidence.merged?.[pr.number]));
   if (!next) return { action: "hygiene", reason: "all_prs_merged" };
-  if (next.baseRefName !== "main" && !evidence.retargeted?.[next.number]) return { action: "retarget_pr", prNumber: next.number, newBase: "main" };
-  if (!ownDeltaProofPassed(evidence.ownDeltaPreserved?.[next.number])) return { action: "prove_own_delta", prNumber: next.number };
+  const nextParentProof = firstIncompleteParentProof(plan, evidence, next);
+  if (nextParentProof) return nextParentProof;
+  const nextPrerequisite = childPrerequisiteAction(next, evidence);
+  if (nextPrerequisite) return nextPrerequisite;
   return actionForPr(next, evidence) || { action: "hygiene", reason: "all_prs_merged" };
 }
 
@@ -109,6 +115,7 @@ export function buildReadOnlyLiveStackFixturePlan(pr919, pr920) {
       "converge_pr:919",
       "complete_gates:919",
       "merge_pr:919",
+      "recover_active_pr:919:parent_current_main_proof_required",
       "retarget_pr:920",
       "prove_own_delta:920",
       "converge_pr:920",
@@ -141,10 +148,50 @@ function normalizeOwnDelta(delta = {}) {
 }
 
 function actionForPr(pr, evidence) {
+  if ((pr.state === "CLOSED" || pr.state === "MERGED") && !mergeProofPassed(evidence.merged?.[pr.number])) {
+    return { action: "recover_active_pr", prNumber: pr.number, reason: "parent_merge_proof_required" };
+  }
   if (!evidence.reviewConverged?.[pr.number]) return { action: "converge_pr", prNumber: pr.number };
   if (!evidence.gatesPassed?.[pr.number]) return { action: "complete_gates", prNumber: pr.number };
-  if (!evidence.merged?.[pr.number]) return { action: "merge_pr", prNumber: pr.number, expectedHead: pr.headRefOid };
+  if (!mergeProofPassed(evidence.merged?.[pr.number])) return { action: "merge_pr", prNumber: pr.number, expectedHead: pr.headRefOid };
   return null;
+}
+
+function childPrerequisiteAction(pr, evidence) {
+  if (!pr?.expectedParentPr) return null;
+  if (pr.baseRefName !== "main" && !evidence.retargeted?.[pr.number]) return { action: "retarget_pr", prNumber: pr.number, newBase: "main" };
+  if (!ownDeltaProofPassed(evidence.ownDeltaPreserved?.[pr.number])) return { action: "prove_own_delta", prNumber: pr.number };
+  return null;
+}
+
+function firstIncompleteParentProof(plan, evidence, targetPr = null) {
+  const targetIndex = targetPr
+    ? plan.orderedPrs.findIndex((pr) => pr.number === targetPr.number)
+    : Math.max(0, plan.orderedPrs.findIndex((pr) => pr.number === plan.activePrNumber));
+  if (targetIndex <= 0) return null;
+  for (const parent of plan.orderedPrs.slice(0, targetIndex)) {
+    if (!mergeProofPassed(evidence.merged?.[parent.number])) {
+      return { action: "recover_active_pr", prNumber: parent.number, reason: "parent_merge_proof_required" };
+    }
+    if (!currentMainProofPassed(evidence, parent.number)) {
+      return { action: "recover_active_pr", prNumber: parent.number, reason: "parent_current_main_proof_required" };
+    }
+  }
+  return null;
+}
+
+function mergeProofPassed(value) {
+  if (value === true) return true;
+  return Boolean(value && typeof value === "object" && value.ok === true && value.merged === true);
+}
+
+function currentMainProofPassed(evidence, prNumber) {
+  const value =
+    evidence.currentMainProven?.[prNumber] ??
+    evidence.currentMainProof?.[prNumber] ??
+    evidence.mergedCurrentMain?.[prNumber];
+  if (value === true) return true;
+  return Boolean(value && typeof value === "object" && value.ok === true);
 }
 
 function ownDeltaProofPassed(value) {

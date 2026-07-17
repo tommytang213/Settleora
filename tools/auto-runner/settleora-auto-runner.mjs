@@ -43,7 +43,17 @@ import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
-import { buildLiveReviewConvergenceContext } from "./lib/review-convergence-controller.mjs";
+import {
+  accountConvergenceEvent,
+  analyzeConvergenceProgress,
+  buildLiveReviewConvergenceContext,
+  evaluateCycleBudget,
+  freezeMaterialFindingInventory,
+} from "./lib/review-convergence-controller.mjs";
+import {
+  loadReviewConvergenceState,
+  writeReviewConvergenceState,
+} from "./lib/review-convergence-state.mjs";
 import {
   buildPostReviewFixMechanicsContext,
   buildReviewFixPrompt,
@@ -707,6 +717,19 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   });
   if (iteration.externalReview.status === "blocked") {
     recoveryRecorder?.advance("review_fix", "run_external_review_fix");
+    if (!config.dryRun) {
+      const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
+        issue,
+        laneDecision,
+        branchName,
+        baseRef: "main",
+        exactHead: iteration.runnerCreatedCommitSha,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        relationships: { parentPr: null, dependentPrs: [] },
+      });
+      if (!budget.ok) return stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder);
+    }
     const fixAttempt = await runReviewFixCycle(config, {
       issue,
       laneDecision,
@@ -718,7 +741,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       report: iteration.report,
       externalReview: iteration.externalReview,
       review: null,
-      attemptCount: iteration.reviewFixAttempts?.length || 0,
+      attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (!fixAttempt.proceeded) {
@@ -763,10 +786,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       target: branchName,
       correlation: runId,
     });
+    accountNormalReviewFixCommit(iteration, iteration.runnerCreatedCommitSha, "review_fix_commit");
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+    if (iteration.reviewMutationGuard?.mutationDetected) {
+      return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_fix_review_mutated_checkout");
+    }
+    appendNormalReviewConvergenceHistory(iteration, {
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      fixAttempt,
+      patchId: iteration.runnerCreatedCommitSha,
+    });
+    persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
     recordPostFixExactHeadEvidence(recoveryRecorder, {
       validation: iteration.validation,
       externalReview: iteration.externalReview,
@@ -805,6 +839,19 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   });
 
   if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
+    if (!config.dryRun) {
+      const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
+        issue,
+        laneDecision,
+        branchName,
+        baseRef: "main",
+        exactHead: iteration.runnerCreatedCommitSha,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        relationships: { parentPr: null, dependentPrs: [] },
+      });
+      if (!budget.ok) return stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder);
+    }
     const fixAttempt = await runReviewFixCycle(config, {
       issue,
       laneDecision,
@@ -816,7 +863,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       report: iteration.report,
       externalReview: iteration.externalReview,
       review: iteration.review,
-      attemptCount: iteration.reviewFixAttempts?.length || 0,
+      attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (fixAttempt.proceeded) {
@@ -844,10 +891,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         target: branchName,
         correlation: runId,
       });
+      accountNormalReviewFixCommit(iteration, iteration.runnerCreatedCommitSha, "codex_review_initial_fix_commit");
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+      if (iteration.reviewMutationGuard?.mutationDetected) {
+        return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_initial_fix_review_mutated_checkout");
+      }
+      appendNormalReviewConvergenceHistory(iteration, {
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        fixAttempt,
+        patchId: iteration.runnerCreatedCommitSha,
+      });
+      persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
       recordPostFixExactHeadEvidence(recoveryRecorder, {
         validation: iteration.validation,
         externalReview: iteration.externalReview,
@@ -879,6 +937,17 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   while (true) {
     if (!config.dryRun && iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") {
       recoveryRecorder?.advance("review_fix", "run_bounded_codex_review_convergence");
+      const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
+        issue,
+        laneDecision,
+        branchName,
+        baseRef: "main",
+        exactHead: iteration.runnerCreatedCommitSha,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        relationships: { parentPr: null, dependentPrs: [] },
+      });
+      if (!budget.ok) return stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder);
       const fixAttempt = await runReviewFixCycle(config, {
         issue,
         laneDecision,
@@ -890,7 +959,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         report: iteration.report,
         externalReview: iteration.externalReview,
         review: iteration.review,
-        attemptCount: iteration.reviewFixAttempts?.length || 0,
+        attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
       });
       iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
       if (!fixAttempt.proceeded) {
@@ -934,10 +1003,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         target: branchName,
         correlation: runId,
       });
+      accountNormalReviewFixCommit(iteration, iteration.runnerCreatedCommitSha, "codex_review_convergence_fix_commit");
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+      if (iteration.reviewMutationGuard?.mutationDetected) {
+        return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_convergence_fix_review_mutated_checkout");
+      }
+      appendNormalReviewConvergenceHistory(iteration, {
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        fixAttempt,
+        patchId: iteration.runnerCreatedCommitSha,
+      });
+      persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
       recordPostFixExactHeadEvidence(recoveryRecorder, {
         validation: iteration.validation,
         externalReview: iteration.externalReview,
@@ -955,7 +1035,9 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       branchName,
       baseRef: "main",
       exactHead: iteration.runnerCreatedCommitSha,
-      reviewFixAttempts: iteration.reviewFixAttempts || [],
+      reviewConvergenceState: iteration.reviewConvergenceState,
+      reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
+      sourceChangingCycle: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
       relationships: { parentPr: null, dependentPrs: [] },
     });
     iteration.reviewConvergence = reviewConvergence.context;
@@ -981,6 +1063,17 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       return iteration;
     }
     recoveryRecorder?.advance("review_fix", "run_bounded_review_convergence");
+    const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
+      issue,
+      laneDecision,
+      branchName,
+      baseRef: "main",
+      exactHead: iteration.runnerCreatedCommitSha,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      relationships: { parentPr: null, dependentPrs: [] },
+    });
+    if (!budget.ok) return stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder);
     const fixAttempt = await runReviewFixCycle(config, {
       issue,
       laneDecision,
@@ -992,7 +1085,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       report: iteration.report,
       externalReview: iteration.externalReview,
       review: iteration.review,
-      attemptCount: iteration.reviewFixAttempts?.length || 0,
+      attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (!fixAttempt.proceeded) {
@@ -1031,10 +1124,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       target: branchName,
       correlation: runId,
     });
+    accountNormalReviewFixCommit(iteration, iteration.runnerCreatedCommitSha, "review_convergence_fix_commit");
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+    if (iteration.reviewMutationGuard?.mutationDetected) {
+      return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_convergence_fix_review_mutated_checkout");
+    }
+    appendNormalReviewConvergenceHistory(iteration, {
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      fixAttempt,
+      patchId: iteration.runnerCreatedCommitSha,
+    });
+    persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
     recordPostFixExactHeadEvidence(recoveryRecorder, {
       validation: iteration.validation,
       externalReview: iteration.externalReview,
@@ -1946,6 +2050,134 @@ function compareFingerprints(before, after) {
     before.head !== after.head ||
     before.changedFiles.join("\n") !== after.changedFiles.join("\n");
   return { mutationDetected, before, after };
+}
+
+function currentReviewFindingFingerprints({ externalReview, review } = {}) {
+  const findings = [];
+  for (const finding of externalReview?.findings || externalReview?.blockingFindings || []) {
+    findings.push(normalizeReviewFindingForFingerprint(finding, "external_review"));
+  }
+  for (const finding of review?.findings || review?.verdict?.blocking_findings || []) {
+    findings.push(normalizeReviewFindingForFingerprint(finding, "codex_mechanics_security_review"));
+  }
+  return freezeMaterialFindingInventory(findings).map((finding) => finding.fingerprint);
+}
+
+function normalizeReviewFindingForFingerprint(finding, provider) {
+  if (finding && typeof finding === "object") return { provider, ...finding };
+  return { provider, title: String(finding || ""), body: String(finding || "") };
+}
+
+function appendNormalReviewConvergenceHistory(iteration, { externalReview, review, fixAttempt, patchId, treeId }) {
+  iteration.reviewConvergenceHistory = [
+    ...(iteration.reviewConvergenceHistory || []),
+    {
+      findingFingerprints: currentReviewFindingFingerprints({ externalReview, review }),
+      claimedFixedFingerprints: currentReviewFindingFingerprints({
+        review: { findings: fixAttempt?.decision?.sanitizedFindings || fixAttempt?.trigger?.findings || [] },
+      }),
+      patchId: patchId || null,
+      treeId: treeId || null,
+    },
+  ];
+}
+
+function evaluateNormalReviewConvergenceBudget(config, iteration, context) {
+  const seed = buildLiveReviewConvergenceContext({
+    ...context,
+    config,
+    reviewConvergenceState: iteration.reviewConvergenceState,
+    reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
+    sourceChangingCycle: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+  });
+  if (!iteration.reviewConvergenceState) {
+    const loaded = loadReviewConvergenceState(config, seed.gateInput.reviewConvergenceState);
+    if (loaded.ok) {
+      iteration.reviewConvergenceState = loaded.state;
+      iteration.reviewConvergenceHistory = loaded.state.history || loaded.state.reviewConvergenceHistory || iteration.reviewConvergenceHistory || [];
+    }
+  }
+  const built = buildLiveReviewConvergenceContext({
+    ...context,
+    config,
+    reviewConvergenceState: iteration.reviewConvergenceState || seed.gateInput.reviewConvergenceState,
+    reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
+    sourceChangingCycle: iteration.reviewConvergenceState?.sourceChangingCycle ?? seed.gateInput.reviewConvergenceState.sourceChangingCycle,
+    currentFindings: [
+      ...(context.externalReview?.findings || context.externalReview?.blockingFindings || []),
+      ...(context.review?.findings || context.review?.verdict?.blocking_findings || []),
+    ],
+  });
+  iteration.reviewConvergence = built.context;
+  iteration.reviewConvergenceState = built.gateInput.reviewConvergenceState;
+  iteration.reviewConvergenceHistory = built.gateInput.reviewConvergenceHistory;
+  persistNormalReviewConvergenceState(config, iteration, "budget_evaluated");
+  const progress = analyzeConvergenceProgress(iteration.reviewConvergenceHistory);
+  if (!progress.ok) {
+    iteration.reviewConvergenceBudget = progress;
+    return progress;
+  }
+  const decision = evaluateCycleBudget(iteration.reviewConvergenceState, config, iteration.reviewConvergenceHistory);
+  iteration.reviewConvergenceBudget = decision;
+  return decision;
+}
+
+function accountNormalReviewFixCommit(iteration, newHead, reasonCode) {
+  const state = iteration.reviewConvergenceState || buildLiveReviewConvergenceContext({
+    sourceChangingCycle: 0,
+    exactHead: null,
+  }).gateInput.reviewConvergenceState;
+  const accounted = accountConvergenceEvent(state, { kind: "source_changed", newHead, reasonCode });
+  iteration.reviewConvergenceState = accounted.state;
+  return accounted;
+}
+
+function persistNormalReviewConvergenceState(config, iteration, phase) {
+  if (!iteration.reviewConvergenceState?.pr?.exactHead) return null;
+  const written = writeReviewConvergenceState(config, {
+    ...iteration.reviewConvergenceState,
+    history: iteration.reviewConvergenceHistory || [],
+    reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
+    phase,
+  });
+  iteration.reviewConvergenceState = written.state;
+  iteration.reviewConvergenceStatePath = written.statePath;
+  return written;
+}
+
+function stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder) {
+  iteration.outcome =
+    budget.terminalReason === "MANUAL_DECISION_REQUIRED"
+      ? "blocked_needs_tommy"
+      : budget.terminalReason === "UNSAFE_SCOPE_CHANGE"
+        ? "danger_gate"
+        : "review_changes_requested_retry_exhausted";
+  iteration.issueComment = finishIssueOutcome(
+    config,
+    issue,
+    iteration.outcome,
+    `Auto-runner did not open a PR for #${issue.number} because bounded review convergence stopped: ${budget.reason || budget.terminalReason}.`,
+  );
+  recoveryRecorder?.stop(
+    `normal_review_convergence_${budget.terminalReason || "blocked"}`,
+    budget.reason || budget.terminalReason,
+    "stop_fail_closed",
+  );
+  iteration.finishedAt = new Date().toISOString();
+  return iteration;
+}
+
+function stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, reasonCode) {
+  iteration.outcome = "auto_failed";
+  iteration.issueComment = finishIssueOutcome(
+    config,
+    issue,
+    iteration.outcome,
+    `Auto-runner blocked #${issue.number} because post-fix exact-head review mutated the checkout.`,
+  );
+  recoveryRecorder?.stop(reasonCode, iteration.reviewMutationGuard?.reason || "post-fix exact-head review mutated the checkout", "operator_recovery_required");
+  iteration.finishedAt = new Date().toISOString();
+  return iteration;
 }
 
 function recordPostFixExactHeadEvidence(recoveryRecorder, { validation, externalReview, review, headSha, baseSha, changedFiles }) {
