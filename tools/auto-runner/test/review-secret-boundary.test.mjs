@@ -6,7 +6,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { analyzeReviewSecretBoundary, providerBoundReviewDiffChars, providerBoundReviewDigest } from "../lib/review-secret-boundary.mjs";
 import { runGeminiIntegratedReview } from "../lib/gemini-reviewer.mjs";
-import { extractReviewFixTrigger, writeReviewFixEvidence } from "../lib/review-fix-policy.mjs";
+import {
+  buildReviewFixPrompt,
+  evaluateReviewFixMutationDecision,
+  extractReviewFixTrigger,
+  redactSecretLikeText,
+  writeReviewFixEvidence,
+} from "../lib/review-fix-policy.mjs";
 
 test("review secret boundary blocks real secret files and credential content", () => {
   const realKey = `AIza${"A".repeat(30)}`;
@@ -172,7 +178,7 @@ test("diagnostics are file and hunk associated, bounded, and sanitized", () => {
 test("structured review-fix finding evidence redacts retained fields", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fix-structured-evidence-"));
   try {
-    const secret = "super-secret-token";
+    const secret = "fake-cycle15-canary-secret-value";
     const externalReview = {
       status: "blocked",
       reason: "blocked_external_reviewer_non_pass",
@@ -199,9 +205,157 @@ test("structured review-fix finding evidence redacts retained fields", () => {
     });
     const evidence = readFileSync(written.evidencePath, "utf8");
     assert.doesNotMatch(evidence, new RegExp(secret));
-    assert.doesNotMatch(evidence, /GEMINI_API_KEY=|Authorization: Bearer|\/workspace\/logs\/settleora-auto-runner\/secrets/);
+    assert.doesNotMatch(evidence, /\/workspace\/logs\/settleora-auto-runner\/secrets/);
     assert.doesNotMatch(evidence, /\[object Object\]/);
     assert.match(evidence, /"line": 12/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review-fix secret redaction covers assignments, headers, query values, and harmless prose", () => {
+  const secret = "fake-cycle15-canary-redaction-value";
+  const keys = [
+    "GEMINI_API_KEY",
+    "api_key",
+    "api-key",
+    "apikey",
+    "x-goog-api-key",
+    "token",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "secret",
+    "client_secret",
+    "password",
+    "passwd",
+    "authorization",
+  ];
+  for (const key of keys) {
+    const forms = [
+      `${key}=${secret}`,
+      `${key} = ${secret}`,
+      `${key}:${secret}`,
+      `${key}: ${secret}`,
+      `"${key}": "${secret}"`,
+      `${key}='${secret}'`,
+      `${key}="${secret}"`,
+      `${key.toUpperCase()}=${secret}`,
+      `${key.toLowerCase()}:${secret}`,
+    ];
+    for (const form of forms) {
+      const redacted = redactSecretLikeText(`before ${form} after`);
+      assert.doesNotMatch(redacted, new RegExp(secret), form);
+      assert.match(redacted, /\[REDACTED\]/, form);
+      assert.equal(redactSecretLikeText(redacted), redacted, form);
+    }
+  }
+
+  const bearerScheme = "Bearer";
+  const basicScheme = "Basic";
+  const authorization = redactSecretLikeText(`Authorization: ${bearerScheme} ${secret}\nAuthorization: ${basicScheme} ${secret}\n${bearerScheme} ${secret}\n${basicScheme} ${secret}`);
+  assert.doesNotMatch(authorization, new RegExp(secret));
+  assert.match(authorization, /Authorization: Bearer \[REDACTED\]/);
+  assert.match(authorization, /Authorization: Basic \[REDACTED\]/);
+  assert.match(authorization, /Bearer \[REDACTED\]/);
+  assert.match(authorization, /Basic \[REDACTED\]/);
+  assert.equal(redactSecretLikeText(authorization), authorization);
+
+  const query = redactSecretLikeText(`https://example.invalid/path?token=${secret}&safe=visible`);
+  assert.doesNotMatch(query, new RegExp(secret));
+  assert.match(query, /\?token=\[REDACTED\]&safe=visible/);
+
+  const terminated = redactSecretLikeText([
+    `token=${secret},safe`,
+    `token=${secret};safe`,
+    `token=${secret}&safe=visible`,
+    `token=${secret}\nsafe`,
+    `{"token":"${secret}"}`,
+    `[token=${secret}]`,
+  ].join("\n"));
+  assert.doesNotMatch(terminated, new RegExp(secret));
+  assert.match(terminated, /safe=visible/);
+
+  const harmless = redactSecretLikeText("token budget, secret boundary, and authorization policy remain meaningful");
+  assert.equal(harmless, "token budget, secret boundary, and authorization policy remain meaningful");
+
+  const long = redactSecretLikeText(`${"x".repeat(10_000)} token=${secret} ${"y".repeat(10_000)}`);
+  assert.doesNotMatch(long, new RegExp(secret));
+});
+
+test("review-fix prompt and evidence never serialize fake canary values", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fix-canary-evidence-"));
+  try {
+    const secret = "fake-cycle15-canary-prompt-evidence-value";
+    const trigger = {
+      actionable: true,
+      source: "integrated_gemini",
+      verdict: "fail",
+      findings: [{
+        provider: "gemini",
+        severity: "high",
+        path: `tools/auto-runner/lib/review-fix-policy.mjs?token=${secret}&safe=visible`,
+        file: `tools/auto-runner/lib/review-fix-policy.mjs#access_token=${secret}`,
+        line: 46,
+        range: { startLine: 46, endLine: 48, label: `client_secret="${secret}"` },
+        title: `api_key=${secret}`,
+        message: `Authorization: Bearer ${secret}`,
+        body: `password: ${secret}`,
+        details: `refresh_token=${secret}; safe detail remains`,
+        rule: `id_token=${secret}`,
+        ruleId: `secret='${secret}'`,
+        check: `x-goog-api-key=${secret}`,
+        invariant: `passwd=${secret}`,
+        authorityInvariant: `authorization policy with authorization: Basic ${secret}`,
+      }],
+    };
+    const decision = evaluateReviewFixMutationDecision({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: 921, title: "Secret canary", labels: [] },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedToImplement: true,
+        autoMergeEligible: true,
+        manualMergeRequired: false,
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    assert.equal(decision.allowed, true);
+    assert.doesNotMatch(JSON.stringify(decision), new RegExp(secret));
+    assert.match(JSON.stringify(decision), /safe=visible/);
+
+    const prompt = buildReviewFixPrompt({
+      issue: { number: 921, title: "Secret canary" },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      branchName: "feature/review-fix",
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    assert.doesNotMatch(prompt, new RegExp(secret));
+    assert.match(prompt, /safe=visible/);
+
+    const written = writeReviewFixEvidence({ logsRoot: tempRoot }, {
+      issue: { number: 921, title: "Secret canary" },
+      trigger,
+      decision,
+      nested: {
+        safe: "visible",
+        child: [{ header: `Authorization: Basic ${secret}` }],
+      },
+    });
+    const evidence = readFileSync(written.evidencePath, "utf8");
+    assert.doesNotMatch(evidence, new RegExp(secret));
+    assert.match(evidence, /"safe": "visible"/);
+    assert.doesNotMatch(evidence, /\[object Object\]/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -337,13 +491,15 @@ test("route remains blocked for unsupported aggregate size instead of rewriting 
   }
 });
 
-test("current aggregate #893 diff passes boundary analysis without real credential blockers", () => {
-  const diff = spawnSync("git", ["diff", "--binary", "origin/main...HEAD"], { encoding: "utf8" });
-  const files = spawnSync("git", ["diff", "--name-only", "origin/main...HEAD"], { encoding: "utf8" });
-  assert.equal(diff.status, 0);
-  assert.equal(files.status, 0);
-  const changedFiles = files.stdout.trim().split(/\r?\n/).filter(Boolean);
-  const result = analyzeReviewSecretBoundary({ changedFiles, diff: diff.stdout });
+test("minimal synthetic aggregate diff passes boundary analysis without real credential blockers", () => {
+  const changedFiles = ["tools/auto-runner/test/review-secret-boundary.test.mjs"];
+  const result = analyzeReviewSecretBoundary({
+    changedFiles,
+    diff: diffFor("tools/auto-runner/test/review-secret-boundary.test.mjs", [
+      "+const safeFixture = \"not-a-real-api-key-for-boundary-test\";",
+      "+const policy = \"token budget, secret boundary, and authorization policy\";",
+    ]),
+  });
   assert.equal(result.ok, true);
   assert.equal(result.blocked, false);
 });

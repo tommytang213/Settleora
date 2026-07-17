@@ -1626,17 +1626,18 @@ test("claimed review fingerprints preserve Gemini, Codex, and fixture provider i
 });
 
 test("structured review-fix findings survive trigger extraction, decision, and claimed fingerprinting", () => {
+  const secret = "fake-cycle15-canary-fingerprint-value";
   const structured = {
     provider: "gemini",
     source: "integrated_gemini",
     severity: "high",
     path: "tools/auto-runner/lib/review-fix-policy.mjs",
     line: 471,
-    range: { startLine: 471, endLine: 474, label: "Authorization: Bearer should-redact" },
+    range: { startLine: 471, endLine: 474, label: `Authorization: Bearer ${secret}` },
     title: "Preserve structured findings before fingerprinting",
-    body: "Body with token=super-secret-token and /workspace/logs/settleora-auto-runner/secrets/value",
-    ruleId: "review-fix/structured",
-    authorityInvariant: "claimed and current fingerprints match",
+    body: `Body with token=${secret} and /workspace/logs/settleora-auto-runner/secrets/${secret}`,
+    ruleId: `review-fix/structured?api_key=${secret}&safe=visible`,
+    authorityInvariant: `claimed and current fingerprints match; authorization policy keeps prose but authorization: Basic ${secret}`,
     classification: "material",
     material: true,
     safelyFixable: true,
@@ -1657,7 +1658,9 @@ test("structured review-fix findings survive trigger extraction, decision, and c
   assert.equal(trigger.findings[0].line, 471);
   assert.deepEqual(trigger.findings[0].range.startLine, 471);
   assert.equal(trigger.findings[0].hiddenReviewerMetadata, undefined);
-  assert.doesNotMatch(JSON.stringify(trigger.findings), /super-secret-token|Bearer should-redact|\/workspace\/logs\/settleora-auto-runner\/secrets/);
+  assert.doesNotMatch(JSON.stringify(trigger.findings), new RegExp(secret));
+  assert.doesNotMatch(JSON.stringify(trigger.findings), /\/workspace\/logs\/settleora-auto-runner\/secrets\/fake-cycle15-canary-fingerprint-value/);
+  assert.match(JSON.stringify(trigger.findings), /safe=visible/);
   assert.doesNotMatch(JSON.stringify(trigger.findings), /\[object Object\]/);
   assert.equal(trigger.findings[1].classification, "malformed_finding");
   assert.equal(trigger.findings[1].material, false);
@@ -1697,7 +1700,7 @@ test("structured review-fix findings survive trigger extraction, decision, and c
   });
   assert.equal(rawTriggerDecision.allowed, true);
   assert.equal(rawTriggerDecision.sanitizedFindings[0].hiddenReviewerMetadata, undefined);
-  assert.doesNotMatch(JSON.stringify(rawTriggerDecision.sanitizedFindings), /super-secret-token|\/workspace\/logs\/settleora-auto-runner\/secrets/);
+  assert.doesNotMatch(JSON.stringify(rawTriggerDecision.sanitizedFindings), new RegExp(secret));
 
   const sanitizedExternalReview = {
     ...externalReview,
@@ -1709,6 +1712,7 @@ test("structured review-fix findings survive trigger extraction, decision, and c
     externalReview: sanitizedExternalReview,
   });
   assert.deepEqual(current, claimed);
+  assert.doesNotMatch(JSON.stringify({ current, claimed }), new RegExp(secret));
   assert.equal(evaluateCycleBudget(state(), { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, [
     { findingFingerprints: current, claimedFixedFingerprints: claimed, patchId: "p1" },
     { findingFingerprints: [], patchId: "p2" },

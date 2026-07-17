@@ -42,10 +42,35 @@ const manualActionPathPatterns = Object.freeze([
   /(^|\/)(secret|secrets|credential|credentials|ssh)(\/|$)/i,
   /(^|\/)(production|public|admin-exposure|store-release|testflight|app-store|play-store)(\/|$)/i,
 ]);
-const secretLikePatterns = Object.freeze([
-  /(GEMINI_API_KEY|authorization|x-goog-api-key|bearer\s+[A-Za-z0-9._~+/-]+|api[_-]?key|secret|token)/gi,
-  /\/workspace\/logs\/settleora-auto-runner\/secrets\//gi,
+const secretRedactionMarker = "[REDACTED]";
+const maxSanitizedEvidenceDepth = 8;
+const maxSanitizedEvidenceArrayItems = 200;
+const maxSanitizedEvidenceObjectFields = 200;
+const maxRawSanitizedStringLength = 20_000;
+const protectedSecretLogPathPattern = /\/workspace\/logs\/settleora-auto-runner\/secrets\/(?:\[REDACTED\]|[^\s"',;)}\]]*)/gi;
+const authorizationHeaderPattern = /\b(authorization)\s*:\s*(Bearer|Basic)\s+(?:\[REDACTED\]|[^\s,;&}\]\r\n]+)/gi;
+const standaloneAuthorizationPattern = /\b(Bearer|Basic)\s+(?:[A-Za-z0-9._~+/-]+=*|\[REDACTED\])/gi;
+const authorizationAssignmentPattern = /(^|[?&#\s,{[(;])(["']?)(authorization)\2\s*([:=])\s*(?!(?:Bearer|Basic)\s+)(?:"([^"\r\n]*)"|'([^'\r\n]*)'|(\[REDACTED\])|([^\s,;&?}\]\r\n]+))/gi;
+const obviousCredentialPatterns = Object.freeze([
+  /\bAIza[0-9A-Za-z_-]{20,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
 ]);
+const secretAssignmentPattern = new RegExp(
+  [
+    "(^|[?&#\\s,{[(;])",
+    "([\"']?)",
+    "(GEMINI_API_KEY|x-goog-api-key|api[_-]?key|apikey|access_token|refresh_token|id_token|client_secret|token|secret|password|passwd)",
+    "\\2",
+    "\\s*([:=])\\s*",
+    "(?:",
+    "\"([^\"\\r\\n]*)\"",
+    "|'([^'\\r\\n]*)'",
+    "|(\\[REDACTED\\])",
+    "|([^\\s,;&?}\\]\\r\\n]+)",
+    ")",
+  ].join(""),
+  "gi",
+);
 const structuredStringBounds = Object.freeze({
   provider: 80,
   source: 120,
@@ -282,16 +307,21 @@ export function extractReviewFixTrigger(input = {}) {
 
 export function buildReviewFixPrompt({ issue, laneDecision, branchName, changedFiles, trigger, validation }) {
   const contract = laneDecision.contract || {};
+  const safeIssueTitle = sanitizeText(issue.title || "", 240);
+  const safeBranchName = sanitizeText(branchName || "", 240);
+  const safeLane = sanitizeText(laneDecision.lane || "", 120);
+  const safeAllowedPaths = (laneDecision.allowedPaths || []).map((item) => sanitizeText(item, 240));
+  const safeChangedFiles = (changedFiles || []).map((item) => sanitizeText(item, 512));
   return [
     "# Settleora Review-Fix Mutation",
     "",
     "You are fixing only structured pre-PR review findings on the existing task branch.",
     "",
     "Authority:",
-    `- Issue: #${issue.number} ${issue.title}`,
-    `- Branch: ${branchName}`,
-    `- Lane: ${laneDecision.lane}`,
-    `- Allowed paths: ${(laneDecision.allowedPaths || []).join(", ")}`,
+    `- Issue: #${issue.number} ${safeIssueTitle}`,
+    `- Branch: ${safeBranchName}`,
+    `- Lane: ${safeLane}`,
+    `- Allowed paths: ${safeAllowedPaths.join(", ")}`,
     `- Contract autoMergeEligible: ${contract.autoMergeEligible === true}`,
     `- Contract manualMergeRequired: ${contract.manualMergeRequired === false ? "false" : String(contract.manualMergeRequired)}`,
     "",
@@ -305,7 +335,7 @@ export function buildReviewFixPrompt({ issue, laneDecision, branchName, changedF
     "- Preserve the no `git add .` rule. The runner stages explicit paths only after validation and review pass.",
     "",
     "Changed files before fix:",
-    ...changedFiles.map((file) => `- ${file}`),
+    ...safeChangedFiles.map((file) => `- ${file}`),
     "",
     "Validation before fix:",
     `- Passed: ${validation?.passed === true}`,
@@ -425,6 +455,25 @@ export function writeReviewFixEvidence(config, evidence) {
   return { evidencePath };
 }
 
+export function redactSecretLikeText(value) {
+  const bounded = String(value ?? "").slice(0, maxRawSanitizedStringLength);
+  let redacted = bounded
+    .replace(protectedSecretLogPathPattern, secretRedactionMarker)
+    .replace(authorizationHeaderPattern, (_match, key, scheme) => `${key}: ${scheme} ${secretRedactionMarker}`)
+    .replace(authorizationAssignmentPattern, replaceSecretAssignment)
+    .replace(secretAssignmentPattern, replaceSecretAssignment)
+    .replace(standaloneAuthorizationPattern, (_match, scheme) => `${scheme} ${secretRedactionMarker}`);
+  for (const pattern of obviousCredentialPatterns) {
+    redacted = redacted.replace(pattern, secretRedactionMarker);
+  }
+  return redacted;
+}
+
+function replaceSecretAssignment(_match, prefix, quote, key, separator, doubleQuoted, singleQuoted) {
+  const quoteChar = doubleQuoted !== undefined ? "\"" : singleQuoted !== undefined ? "'" : "";
+  return `${prefix}${quote}${key}${quote}${separator}${quoteChar}${secretRedactionMarker}${quoteChar}`;
+}
+
 function isUnsafeAllowedPathGlob(glob, lane) {
   const normalized = normalizePath(glob);
   if (!normalized || normalized.startsWith("/") || normalized.includes("..") || normalized.includes("\\") || broadAllowedPathGlobs.has(normalized)) {
@@ -521,8 +570,25 @@ function sanitizeFindings(findings) {
   return sanitized;
 }
 
-function sanitizeEvidence(value) {
-  return JSON.parse(JSON.stringify(value).replace(secretLikePatterns[0], "[REDACTED]").replace(secretLikePatterns[1], "[REDACTED]"));
+function sanitizeEvidence(value, depth = 0) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") return sanitizeText(value, maxRawSanitizedStringLength);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return String(value);
+  if (depth >= maxSanitizedEvidenceDepth) return "[SANITIZED_DEPTH_LIMIT]";
+  if (Array.isArray(value)) {
+    return value.slice(0, maxSanitizedEvidenceArrayItems).map((item) => sanitizeEvidence(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const safe = {};
+    for (const [rawKey, rawItem] of Object.entries(value).slice(0, maxSanitizedEvidenceObjectFields)) {
+      const key = sanitizeText(rawKey, 160);
+      if (!key) continue;
+      safe[key] = sanitizeEvidence(rawItem, depth + 1);
+    }
+    return safe;
+  }
+  return sanitizeText(String(value), maxRawSanitizedStringLength);
 }
 
 function summarizeValidationForContext(validation) {
@@ -552,10 +618,7 @@ function summarizeExternalReviewForContext(review) {
 }
 
 function sanitizeText(value, max) {
-  return String(value || "")
-    .replace(secretLikePatterns[0], "[REDACTED]")
-    .replace(secretLikePatterns[1], "[REDACTED]")
-    .slice(0, max);
+  return redactSecretLikeText(value).slice(0, max);
 }
 
 function sanitizeFinding(finding) {
