@@ -50,6 +50,36 @@ export const defaultConfig = Object.freeze({
   },
   allowExistingPrRecovery: false,
   outageResubmission: defaultOutageResubmissionConfig,
+  prStackExecution: {
+    enabled: false,
+    allowRun: false,
+    productionProfileActive: false,
+    maxStackSize: 4,
+    statePath: null,
+    capabilities: {
+      existingPrConvergence: false,
+      exactHeadReviewRequest: false,
+      ciScannerPolling: false,
+      exactHeadMerge: false,
+      baseRetarget: false,
+      readyTransition: false,
+      semanticProof: false,
+      finalHygiene: false,
+      issuePolling: false,
+      generatedIssueCreation: false,
+      unrelatedPrDiscovery: false,
+      systemdSupervisorLaunch: false,
+      outageChildLaunch: false,
+      canaryMutation: false,
+      productionDeploy: false,
+      secretAuthConfigMutation: false,
+      publicAdminNetworkExposure: false,
+      branchDeletion: false,
+      forcePushRebaseAmendReset: false,
+      directMainPush: false,
+      productAuthorityChanges: false,
+    },
+  },
   autoMergeWait: {
     maxAttempts: 60,
     delayMs: 30000,
@@ -185,6 +215,8 @@ export function parseCliArgs(argv) {
     supervisorRunId: null,
     securityFindingsDryRun: false,
     securityFindingsDispositionDryRun: false,
+    runPrStack: false,
+    stackPlanPath: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -225,6 +257,8 @@ export function parseCliArgs(argv) {
       args.securityFindingsDryRun = true;
       args.securityFindingsDispositionDryRun = true;
     }
+    else if (arg === "--run-pr-stack") args.runPrStack = true;
+    else if (arg === "--stack-plan") args.stackPlanPath = readValue(argv, ++index, arg);
     else if (arg === "--reviewer-smoke-tier") args.reviewerSmokeTier = readValue(argv, ++index, arg);
     else if (arg === "--since") args.sinceMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-runtime") {
@@ -259,7 +293,7 @@ export function parseCliArgs(argv) {
   }
 
   const controlMode = args.status || args.listRuns || args.listEvents || Boolean(args.controlCommand);
-  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest || controlMode || args.securityFindingsDryRun;
+  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest || controlMode || args.securityFindingsDryRun || args.runPrStack;
   if (!specialMode && args.dryRun === args.run) {
     throw new Error("Pass exactly one of --dry-run or --run");
   }
@@ -274,6 +308,17 @@ export function parseCliArgs(argv) {
   }
   if (args.securityFindingsDryRun && !args.configPath) {
     throw new Error("--security-findings-dry-run requires an explicit --config path");
+  }
+  if (args.runPrStack) {
+    if (args.dryRun || args.run || args.preflight || args.canary || args.reviewerSmokeTest || args.writeSummary || args.reviewPackage || controlMode || args.securityFindingsDryRun) {
+      throw new Error("--run-pr-stack runs as its own explicit mode and is mutually exclusive with normal runner modes");
+    }
+    if (!args.configPath) throw new Error("--run-pr-stack requires an explicit --config path");
+    if (!args.stackPlanPath) throw new Error("--run-pr-stack requires --stack-plan <absolute-path>");
+    if (!path.isAbsolute(args.configPath)) throw new Error("--run-pr-stack requires an absolute --config path");
+    if (!path.isAbsolute(args.stackPlanPath)) throw new Error("--run-pr-stack requires an absolute --stack-plan path");
+  } else if (args.stackPlanPath) {
+    throw new Error("--stack-plan is only valid with --run-pr-stack");
   }
   if (args.preflight && (args.dryRun || args.run)) {
     throw new Error("--preflight runs as its own non-mutating mode; do not pass --dry-run or --run");
@@ -349,6 +394,12 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     config.run = false;
     config.securityFindingsDispositionDryRun = Boolean(cliArgs.securityFindingsDispositionDryRun);
   }
+  if (cliArgs.runPrStack) {
+    config.mode = "pr-stack-run";
+    config.dryRun = false;
+    config.run = true;
+    config.stackPlanPath = cliArgs.stackPlanPath;
+  }
   if (cliArgs.reviewerSmokeTest) {
     config.mode = "reviewer-smoke-test";
     config.dryRun = true;
@@ -379,6 +430,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
+  config.prStackExecution = normalizePrStackExecutionConfig(config.prStackExecution);
   if (
     config.outageResubmission.allowBoundedOutageResubmission === true &&
     trustedCapabilities?.outageResubmissionControllerAvailable !== true
@@ -399,6 +451,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     path.join(config.logsRoot, "locks"),
     path.join(config.logsRoot, "canary"),
     path.join(config.logsRoot, "auto-merge"),
+    path.join(config.logsRoot, "pr-stacks"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -458,6 +511,52 @@ export function normalizeAutoMergePolicy(policy = {}) {
     requiredChecks: Object.freeze(requiredChecks),
     allowedSkippedChecks: Object.freeze(normalizeCheckAllowlist(policy.allowedSkippedChecks ?? [], "autoMergePolicy.allowedSkippedChecks")),
     allowedNeutralChecks: Object.freeze(normalizeCheckAllowlist(policy.allowedNeutralChecks ?? [], "autoMergePolicy.allowedNeutralChecks")),
+  });
+}
+
+export function normalizePrStackExecutionConfig(raw = {}) {
+  const required = [
+    "existingPrConvergence",
+    "exactHeadReviewRequest",
+    "ciScannerPolling",
+    "exactHeadMerge",
+    "baseRetarget",
+    "readyTransition",
+    "semanticProof",
+    "finalHygiene",
+  ];
+  const forbidden = [
+    "issuePolling",
+    "generatedIssueCreation",
+    "unrelatedPrDiscovery",
+    "systemdSupervisorLaunch",
+    "outageChildLaunch",
+    "canaryMutation",
+    "productionDeploy",
+    "secretAuthConfigMutation",
+    "publicAdminNetworkExposure",
+    "branchDeletion",
+    "forcePushRebaseAmendReset",
+    "directMainPush",
+    "productAuthorityChanges",
+  ];
+  if (raw && typeof raw !== "object") throw new Error("prStackExecution must be an object");
+  const capabilities = {};
+  for (const key of [...required, ...forbidden]) capabilities[key] = raw.capabilities?.[key] === true;
+  const maxStackSize = raw.maxStackSize ?? 4;
+  if (!Number.isInteger(maxStackSize) || maxStackSize < 2 || maxStackSize > 4) {
+    throw new Error("prStackExecution.maxStackSize must be an integer between 2 and 4");
+  }
+  if (raw.statePath !== null && raw.statePath !== undefined && (typeof raw.statePath !== "string" || !path.isAbsolute(raw.statePath))) {
+    throw new Error("prStackExecution.statePath must be an absolute path when set");
+  }
+  return Object.freeze({
+    enabled: raw.enabled === true,
+    allowRun: raw.allowRun === true,
+    productionProfileActive: raw.productionProfileActive === true,
+    maxStackSize,
+    statePath: raw.statePath || null,
+    capabilities: Object.freeze(capabilities),
   });
 }
 

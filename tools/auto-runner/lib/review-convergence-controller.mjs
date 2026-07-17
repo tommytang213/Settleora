@@ -489,6 +489,85 @@ export function notificationDecisionForConvergence(event = {}) {
   return { notify: false, reason: "not_operator_relevant" };
 }
 
+export async function runExistingPrReviewConvergence(input = {}) {
+  const findings = Array.isArray(input.findings) ? input.findings : [];
+  const convergence = buildLiveReviewConvergenceContext({
+    ...input,
+    currentFindings: findings,
+    relationships: input.relationships || {
+      parentPr: input.pr?.expectedParentPr ?? null,
+      dependentPrs: input.dependentPrs || [],
+    },
+  });
+  let state = convergence.gateInput.reviewConvergenceState;
+  const history = input.reviewConvergenceHistory || state.history || [];
+  if (findings.length === 0) {
+    return {
+      ok: true,
+      reason: "existing_pr_review_converged",
+      reviewConvergenceState: state,
+      convergence: convergence.context,
+      findingInventory: [],
+      sourceChangingCycle: state.sourceChangingCycle,
+    };
+  }
+  const budget = evaluateCycleBudget(state, input.config || {}, history);
+  if (!budget.ok) {
+    return {
+      ok: false,
+      reasonCode: budget.terminalReason || "review_convergence_budget_blocked",
+      reason: budget.reason,
+      reviewConvergenceState: budget.transitionedState || state,
+      budget,
+    };
+  }
+  if (budget.transitionedState) state = budget.transitionedState;
+  if (typeof input.runBatchFix !== "function") {
+    return {
+      ok: false,
+      reasonCode: "existing_pr_convergence_batch_fix_required",
+      reason: "material findings require the shared bounded review-convergence batch-fix authority",
+      reviewConvergenceState: state,
+      convergence: convergence.context,
+      findingInventory: convergence.context.findingInventory,
+      budget,
+    };
+  }
+  const fixTask = buildBatchFixTask({
+    issue: input.issue,
+    branchName: input.pr?.headRefName || input.pr?.branch || input.branchName,
+    laneDecision: input.laneDecision || {},
+    inventory: convergence.context.findingInventory,
+  });
+  const fixResult = await input.runBatchFix({ ...input, fixTask, reviewConvergenceState: state, convergence: convergence.context });
+  if (!fixResult?.ok) {
+    return {
+      ok: false,
+      reasonCode: fixResult?.reasonCode || "existing_pr_convergence_fix_not_proceeded",
+      reason: fixResult?.reason || fixResult?.reasonCode || "review convergence fix did not proceed",
+      reviewConvergenceState: markDiagnosticReviewFixTerminal(state, fixResult?.reasonCode || "existing_pr_convergence_fix_not_proceeded"),
+      convergence: convergence.context,
+      findingInventory: convergence.context.findingInventory,
+      budget,
+    };
+  }
+  const accounted = accountConvergenceEvent(state, {
+    kind: fixResult.newHead && fixResult.newHead !== state.pr?.exactHead ? "source_changed" : "wait",
+    newHead: fixResult.newHead,
+    reasonCode: "existing_pr_review_convergence_fix",
+  });
+  return {
+    ok: true,
+    reason: "existing_pr_review_convergence_fix_applied",
+    reviewConvergenceState: accounted.state,
+    convergence: convergence.context,
+    findingInventory: convergence.context.findingInventory,
+    consumedSourceCycle: accounted.consumedSourceCycle,
+    newHead: fixResult.newHead || state.pr?.exactHead || null,
+    result: fixResult,
+  };
+}
+
 function detectShortOscillation(values) {
   if (values.length < 4) return false;
   const last4 = values.slice(-4);

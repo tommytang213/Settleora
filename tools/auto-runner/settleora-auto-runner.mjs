@@ -101,6 +101,7 @@ import {
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
+import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -182,6 +183,13 @@ async function main() {
     const result = await runSecurityFindingsDryRun(config, { taskKey: "security-findings-dry-run" });
     console.log(cliArgs.json ? JSON.stringify(result, null, 2) : renderSecurityFindingsDryRunText(result));
     process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
+  if (cliArgs.runPrStack) {
+    const config = loadConfig(cliArgs);
+    const result = await runPrStackExecution(config, cliArgs);
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = result.ok || result.outcome === "waiting" ? 0 : 1;
     return;
   }
 
