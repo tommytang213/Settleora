@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { analyzeReviewSecretBoundary, providerBoundReviewDiffChars, providerBoundReviewDigest } from "../lib/review-secret-boundary.mjs";
 import { runGeminiIntegratedReview } from "../lib/gemini-reviewer.mjs";
+import { extractReviewFixTrigger, writeReviewFixEvidence } from "../lib/review-fix-policy.mjs";
 
 test("review secret boundary blocks real secret files and credential content", () => {
   const realKey = `AIza${"A".repeat(30)}`;
@@ -166,6 +167,44 @@ test("diagnostics are file and hunk associated, bounded, and sanitized", () => {
   assert.doesNotMatch(serialized, new RegExp(realKey));
   assert.doesNotMatch(serialized, /const oldApiKey|const newApiKey/);
   assert.equal(result.sanitizedDiagnostics.length <= 50, true);
+});
+
+test("structured review-fix finding evidence redacts retained fields", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fix-structured-evidence-"));
+  try {
+    const secret = "super-secret-token";
+    const externalReview = {
+      status: "blocked",
+      reason: "blocked_external_reviewer_non_pass",
+      provider: "gemini",
+      sanitizedResponseSummary: {
+        verdict: "fail",
+        findings: [{
+          provider: "gemini",
+          path: `/workspace/logs/settleora-auto-runner/secrets/${secret}`,
+          line: 12,
+          range: { startLine: 12, endLine: 13, label: `Authorization: Bearer ${secret}` },
+          title: `token=${secret}`,
+          body: `GEMINI_API_KEY=${secret}`,
+          ruleId: `api_key=${secret}`,
+        }],
+      },
+    };
+    const trigger = extractReviewFixTrigger({ externalReview });
+    const written = writeReviewFixEvidence({ logsRoot: tempRoot }, {
+      issue: { number: 921, title: "Structured secrets" },
+      lane: "workflow-docs-tooling",
+      branchName: "feature/review-fix",
+      sanitizedFindings: trigger.findings,
+    });
+    const evidence = readFileSync(written.evidencePath, "utf8");
+    assert.doesNotMatch(evidence, new RegExp(secret));
+    assert.doesNotMatch(evidence, /GEMINI_API_KEY=|Authorization: Bearer|\/workspace\/logs\/settleora-auto-runner\/secrets/);
+    assert.doesNotMatch(evidence, /\[object Object\]/);
+    assert.match(evidence, /"line": 12/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("diff metadata is ignored as credential content", () => {

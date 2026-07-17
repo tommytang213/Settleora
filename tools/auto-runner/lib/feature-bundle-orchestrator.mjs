@@ -37,6 +37,7 @@ import {
   buildLiveReviewConvergenceContext,
   claimedReviewFindingFingerprints,
   evaluateCycleBudget,
+  markDiagnosticReviewFixTerminal,
   reviewFindingFingerprintsFromSupportedContainers,
 } from "./review-convergence-controller.mjs";
 import {
@@ -532,11 +533,19 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       review: currentResult.review,
       reviewPackage: currentResult.reviewPackage,
       attemptCount: state.reviewConvergenceState.sourceChangingCycle,
+      reviewConvergenceState: state.reviewConvergenceState,
+      diagnosticAuthorization: budget.diagnosticAuthorization,
       source,
     });
     attempts.push(fixAttempt);
     if (!fixAttempt.proceeded) {
       input.recovery?.stop("bundle_review_convergence_fix_not_proceeded", fixAttempt.reason, terminalNextAction(fixAttempt.reason));
+      if (state.reviewConvergenceState?.diagnosticReviewFix?.status === "pending") {
+        state = {
+          ...state,
+          reviewConvergenceState: markDiagnosticReviewFixTerminal(state.reviewConvergenceState, fixAttempt.reason),
+        };
+      }
       state = markBundleStopped(state, { reasonCode: fixAttempt.reason || "bundle_review_convergence_fix_not_proceeded", reason: fixAttempt.reason });
       writeState(state);
       return {

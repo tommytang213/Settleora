@@ -49,6 +49,7 @@ import {
   buildLiveReviewConvergenceContext,
   claimedReviewFindingFingerprints,
   evaluateCycleBudget,
+  markDiagnosticReviewFixTerminal,
   reviewFindingsFromSupportedContainers,
   reviewFindingFingerprintsFromSupportedContainers,
 } from "./lib/review-convergence-controller.mjs";
@@ -744,9 +745,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       externalReview: iteration.externalReview,
       review: null,
       attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+      reviewConvergenceState: iteration.reviewConvergenceState,
+      diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (!fixAttempt.proceeded) {
+      markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome =
         iteration.externalReview.reason === "blocked_external_reviewer_route_not_eligible" ||
         iteration.externalReview.reason === "blocked_external_reviewer_lane_not_eligible" ||
@@ -867,6 +871,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       externalReview: iteration.externalReview,
       review: iteration.review,
       attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+      reviewConvergenceState: iteration.reviewConvergenceState,
+      diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (fixAttempt.proceeded) {
@@ -918,6 +924,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         baseSha: iteration.baseOriginMainSha,
         changedFiles,
       });
+    } else {
+      markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
     }
   }
 
@@ -964,9 +972,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         externalReview: iteration.externalReview,
         review: iteration.review,
         attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+        reviewConvergenceState: iteration.reviewConvergenceState,
+        diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
       });
       iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
       if (!fixAttempt.proceeded) {
+        markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
         iteration.outcome =
           iteration.review.verdict.verdict === "danger_gate"
             ? "danger_gate"
@@ -1091,9 +1102,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       externalReview: iteration.externalReview,
       review: iteration.review,
       attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+      reviewConvergenceState: iteration.reviewConvergenceState,
+      diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (!fixAttempt.proceeded) {
+      markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome = "review_changes_requested_retry_exhausted";
       iteration.issueComment = finishIssueOutcome(
         config,
@@ -2140,6 +2154,12 @@ function accountNormalReviewFixCommit(iteration, newHead, reasonCode) {
   const accounted = accountConvergenceEvent(state, { kind: "source_changed", newHead, reasonCode });
   iteration.reviewConvergenceState = accounted.state;
   return accounted;
+}
+
+function markNormalDiagnosticReviewFixTerminal(config, iteration, reason) {
+  if (iteration.reviewConvergenceState?.diagnosticReviewFix?.status !== "pending") return;
+  iteration.reviewConvergenceState = markDiagnosticReviewFixTerminal(iteration.reviewConvergenceState, reason);
+  persistNormalReviewConvergenceState(config, iteration, "diagnostic_epoch_terminal");
 }
 
 function persistNormalReviewConvergenceState(config, iteration, phase) {

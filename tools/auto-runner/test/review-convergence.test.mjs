@@ -514,16 +514,78 @@ test("cycle 50 starts one diagnostic epoch only when progress is still measurabl
   assert.equal(diagnostic.ok, true);
   assert.equal(diagnostic.diagnosticEpoch, true);
   assert.equal(diagnostic.transitionedState.epochDiagnosticStarted, true);
+  assert.equal(diagnostic.transitionedState.diagnosticReviewFix.status, "pending");
+  assert.equal(diagnostic.diagnosticAuthorization.kind, "diagnostic_review_fix_authorization");
+  assert.equal(diagnostic.diagnosticAuthorization.convergenceId, current.convergenceId);
+  assert.equal(diagnostic.diagnosticAuthorization.exactHead, current.pr.exactHead);
   assert.equal(diagnostic.transitionedState.sourceChangingCycle, 50);
   assert.equal(diagnostic.transitionedState.pr.exactHead, current.pr.exactHead);
-  const exhausted = evaluateCycleBudget(diagnostic.transitionedState, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, [
+  const resumed = evaluateCycleBudget(diagnostic.transitionedState, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, [
     { findingFingerprints: ["c"], patchId: "p3" },
+  ]);
+  assert.equal(resumed.ok, true);
+  assert.equal(resumed.reason, "resume_diagnostic_epoch");
+  const consumed = accountConvergenceEvent(diagnostic.transitionedState, { kind: "source_changed", newHead: "b".repeat(40), reasonCode: "diagnostic_fix_commit" });
+  assert.equal(consumed.state.sourceChangingCycle, 51);
+  assert.equal(consumed.state.diagnosticReviewFix.status, "consumed");
+  assert.equal(consumed.state.diagnosticReviewFix.consumedHead, "b".repeat(40));
+  const exhausted = evaluateCycleBudget(consumed.state, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, [
+    { findingFingerprints: ["d"], patchId: "p4" },
   ]);
   assert.equal(exhausted.terminalReason, "CYCLE_BUDGET_EXHAUSTED");
   assert.equal(exhausted.reason, "diagnostic_epoch_already_used");
   const transient = accountConvergenceEvent(diagnostic.transitionedState, { kind: "provider_retry" });
   assert.equal(transient.consumedSourceCycle, false);
   assert.equal(transient.state.epochDiagnosticStarted, true);
+  assert.equal(transient.state.diagnosticReviewFix.status, "pending");
+});
+
+test("diagnostic authorization gates the mutation decision at the normal limit", () => {
+  const cfg = { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 };
+  const current = { ...state(), sourceChangingCycle: 50 };
+  const laneDecision = {
+    lane: "workflow-docs-tooling",
+    allowedToImplement: true,
+    autoMergeEligible: true,
+    manualMergeRequired: false,
+    allowedPaths: ["tools/auto-runner/**"],
+    contract: { autoMergeEligible: true, manualMergeRequired: false },
+  };
+  const common = {
+    config: cfg,
+    issue: { number: 921, title: "Convergence", labels: [] },
+    laneDecision,
+    changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+    validation: { passed: true },
+    trigger: { actionable: true, source: "codex_mechanics", findings: ["fix"] },
+    attemptCount: 50,
+  };
+  assert.equal(evaluateReviewFixMutationDecision({ ...common, reviewConvergenceState: current }).reason, "review_fix_attempt_limit_reached");
+  const budget = evaluateCycleBudget(current, cfg, [{ findingFingerprints: ["a"], patchId: "p1" }]);
+  const allowed = evaluateReviewFixMutationDecision({
+    ...common,
+    reviewConvergenceState: budget.transitionedState,
+    diagnosticAuthorization: budget.diagnosticAuthorization,
+  });
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.diagnostic, true);
+  assert.equal(allowed.diagnosticAuthorization.attemptId, budget.transitionedState.diagnosticReviewFix.attemptId);
+  for (const bad of [
+    { diagnosticAuthorization: true },
+    { diagnosticAuthorization: { ...budget.diagnosticAuthorization, convergenceId: "wrong" } },
+    { diagnosticAuthorization: { ...budget.diagnosticAuthorization, epoch: 99 } },
+    { diagnosticAuthorization: { ...budget.diagnosticAuthorization, exactHead: "c".repeat(40) } },
+    { diagnosticAuthorization: { ...budget.diagnosticAuthorization, prNumber: 1 } },
+    { diagnosticAuthorization: { ...budget.diagnosticAuthorization, sourceChangingCycle: 49 } },
+    { reviewConvergenceState: { ...budget.transitionedState, diagnosticReviewFix: { ...budget.transitionedState.diagnosticReviewFix, status: "consumed" } } },
+  ]) {
+    assert.equal(evaluateReviewFixMutationDecision({
+      ...common,
+      reviewConvergenceState: bad.reviewConvergenceState || budget.transitionedState,
+      diagnosticAuthorization: bad.diagnosticAuthorization ?? budget.diagnosticAuthorization,
+    }).reason, "review_fix_attempt_limit_reached");
+  }
+  assert.equal(evaluateReviewFixMutationDecision({ ...common, attemptCount: 49, reviewConvergenceState: current }).allowed, true);
 });
 
 test("contract-approved lanes allow docs/runtime/sensitive fixes only under the right gates", () => {
@@ -959,7 +1021,7 @@ test("feature-bundle stops returned findings and oscillation before mutation bel
   }
 });
 
-test("feature-bundle diagnostic epoch is persisted before source mutation and denied after restart", async () => {
+test("feature-bundle diagnostic epoch persists pending, resumes once, and is denied after commit", async () => {
   const writes = [];
   const input = bundleConvergenceInput({
     sourceChangingCycle: 50,
@@ -979,6 +1041,8 @@ test("feature-bundle diagnostic epoch is persisted before source mutation and de
   const result = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
     async runFixCycle(_config, context) {
       assert.equal(context.state.reviewConvergenceState.epochDiagnosticStarted, true);
+      assert.equal(context.state.reviewConvergenceState.diagnosticReviewFix.status, "pending");
+      assert.equal(context.diagnosticAuthorization.kind, "diagnostic_review_fix_authorization");
       assert.equal(writes.some((entry) => entry.reviewConvergenceState?.epochDiagnosticStarted === true), true);
       return { proceeded: false, reason: "review_fix_left_no_changed_files", decision: { sanitizedFindings: [] } };
     },
@@ -991,23 +1055,79 @@ test("feature-bundle diagnostic epoch is persisted before source mutation and de
   });
   assert.equal(result.ok, false);
   assert.equal(result.state.reviewConvergenceState.epochDiagnosticStarted, true);
+  assert.equal(result.state.reviewConvergenceState.diagnosticReviewFix.status, "terminal");
+
+  const pendingInput = bundleConvergenceInput({
+    sourceChangingCycle: 50,
+    writeState(nextState) {
+      pendingInput.state = nextState;
+    },
+  });
+  pendingInput.state.reviewConvergenceHistory = input.state.reviewConvergenceHistory;
+  pendingInput.state.reviewConvergenceState = evaluateCycleBudget(
+    {
+      ...pendingInput.state.reviewConvergenceState,
+      sourceChangingCycle: 50,
+    },
+    { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    pendingInput.state.reviewConvergenceHistory,
+  ).transitionedState;
+  pendingInput.state.reviewConvergenceState = { ...pendingInput.state.reviewConvergenceState, sourceChangingCycle: 50 };
+  const newHead = "c".repeat(40);
   const restart = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, {
+    ...pendingInput,
+    state: pendingInput.state,
+  }, {
+    async runFixCycle(_config, context) {
+      assert.equal(context.diagnosticAuthorization.attemptId, pendingInput.state.reviewConvergenceState.diagnosticReviewFix.attemptId);
+      return {
+        proceeded: true,
+        reason: "review_fix_passed_revalidation",
+        decision: { trigger: { source: "codex_mechanics" }, sanitizedFindings: ["diagnostic"] },
+        changedFilesAfter: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFilesAfter: [],
+        validationAfter: { passed: true },
+      };
+    },
+    async commitAndRerun() {
+      return {
+        runnerCreatedCommitSha: newHead,
+        changedFiles: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFiles: [],
+        validation: { passed: true },
+        externalReview: { status: "pass", verdict: "pass", tier: "strong_independent" },
+        review: { verdict: { verdict: "approve" } },
+        reviewPackage: { packagePath: "/tmp/package.json" },
+        reviewMutationGuard: { mutationDetected: false },
+      };
+    },
+    evaluatePrePushGate() {
+      return { ok: true, reason: "pre_push_review_gates_passed" };
+    },
+    sourceStateIdentity() {
+      return fakeSourceIdentity(newHead);
+    },
+  });
+  assert.equal(restart.ok, true);
+  assert.equal(restart.state.reviewConvergenceState.sourceChangingCycle, 51);
+  assert.equal(restart.state.reviewConvergenceState.diagnosticReviewFix.status, "consumed");
+  const denied = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, {
     ...input,
-    state: result.state,
+    state: restart.state,
     writeState(nextState) {
       input.state = nextState;
     },
   }, {
     async runFixCycle() {
-      throw new Error("diagnostic epoch must not run twice");
+      throw new Error("consumed diagnostic epoch must not run twice");
     },
     async commitAndRerun() {
       throw new Error("commit should not run");
     },
   });
-  assert.equal(restart.ok, false);
-  assert.equal(restart.reasonCode, "CYCLE_BUDGET_EXHAUSTED");
-  assert.equal(restart.reason, "diagnostic_epoch_already_used");
+  assert.equal(denied.ok, false);
+  assert.equal(denied.reasonCode, "CYCLE_BUDGET_EXHAUSTED");
+  assert.equal(denied.reason, "diagnostic_epoch_already_used");
 });
 
 test("feature-bundle diagnostic persistence failure prevents fix invocation", async () => {
@@ -1503,6 +1623,136 @@ test("claimed review fingerprints preserve Gemini, Codex, and fixture provider i
     fixAttempt: { decision: { trigger: { source: "integrated_gemini" }, sanitizedFindings: [finding] } },
     externalReview: { provider: "external_review" },
   }), []);
+});
+
+test("structured review-fix findings survive trigger extraction, decision, and claimed fingerprinting", () => {
+  const structured = {
+    provider: "gemini",
+    source: "integrated_gemini",
+    severity: "high",
+    path: "tools/auto-runner/lib/review-fix-policy.mjs",
+    line: 471,
+    range: { startLine: 471, endLine: 474, label: "Authorization: Bearer should-redact" },
+    title: "Preserve structured findings before fingerprinting",
+    body: "Body with token=super-secret-token and /workspace/logs/settleora-auto-runner/secrets/value",
+    ruleId: "review-fix/structured",
+    authorityInvariant: "claimed and current fingerprints match",
+    classification: "material",
+    material: true,
+    safelyFixable: true,
+    hiddenReviewerMetadata: { raw: "omit me" },
+  };
+  const externalReview = {
+    status: "blocked",
+    reason: "blocked_external_reviewer_non_pass",
+    provider: "gemini",
+    source: "integrated_gemini",
+    sanitizedResponseSummary: { verdict: "fail", findings: [structured, { ...structured }, { nested: { malformed: true } }] },
+  };
+  const trigger = extractReviewFixTrigger({ externalReview });
+  assert.equal(trigger.actionable, true);
+  assert.equal(trigger.findings.length, 2);
+  assert.equal(typeof trigger.findings[0], "object");
+  assert.equal(trigger.findings[0].path, structured.path);
+  assert.equal(trigger.findings[0].line, 471);
+  assert.deepEqual(trigger.findings[0].range.startLine, 471);
+  assert.equal(trigger.findings[0].hiddenReviewerMetadata, undefined);
+  assert.doesNotMatch(JSON.stringify(trigger.findings), /super-secret-token|Bearer should-redact|\/workspace\/logs\/settleora-auto-runner\/secrets/);
+  assert.doesNotMatch(JSON.stringify(trigger.findings), /\[object Object\]/);
+  assert.equal(trigger.findings[1].classification, "malformed_finding");
+  assert.equal(trigger.findings[1].material, false);
+
+  const decision = evaluateReviewFixMutationDecision({
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    issue: { number: 921, title: "Convergence", labels: [] },
+    laneDecision: {
+      lane: "workflow-docs-tooling",
+      allowedToImplement: true,
+      autoMergeEligible: true,
+      manualMergeRequired: false,
+      allowedPaths: ["tools/auto-runner/**"],
+      contract: { autoMergeEligible: true, manualMergeRequired: false },
+    },
+    changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+    validation: { passed: true },
+    externalReview,
+    trigger,
+  });
+  assert.equal(decision.allowed, true);
+  assert.deepEqual(decision.sanitizedFindings, trigger.findings);
+  const rawTriggerDecision = evaluateReviewFixMutationDecision({
+    config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    issue: { number: 921, title: "Convergence", labels: [] },
+    laneDecision: {
+      lane: "workflow-docs-tooling",
+      allowedToImplement: true,
+      autoMergeEligible: true,
+      manualMergeRequired: false,
+      allowedPaths: ["tools/auto-runner/**"],
+      contract: { autoMergeEligible: true, manualMergeRequired: false },
+    },
+    changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+    validation: { passed: true },
+    trigger: { actionable: true, source: "integrated_gemini", findings: [structured] },
+  });
+  assert.equal(rawTriggerDecision.allowed, true);
+  assert.equal(rawTriggerDecision.sanitizedFindings[0].hiddenReviewerMetadata, undefined);
+  assert.doesNotMatch(JSON.stringify(rawTriggerDecision.sanitizedFindings), /super-secret-token|\/workspace\/logs\/settleora-auto-runner\/secrets/);
+
+  const sanitizedExternalReview = {
+    ...externalReview,
+    sanitizedResponseSummary: { verdict: "fail", findings: [trigger.findings[0]] },
+  };
+  const current = reviewFindingFingerprintsFromSupportedContainers({ externalReview: sanitizedExternalReview });
+  const claimed = claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger, sanitizedFindings: [trigger.findings[0]] } },
+    externalReview: sanitizedExternalReview,
+  });
+  assert.deepEqual(current, claimed);
+  assert.equal(evaluateCycleBudget(state(), { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, [
+    { findingFingerprints: current, claimedFixedFingerprints: claimed, patchId: "p1" },
+    { findingFingerprints: [], patchId: "p2" },
+    { findingFingerprints: current, patchId: "p3" },
+  ]).reason, "finding_returned_after_claimed_fix");
+});
+
+test("structured Codex findings and strings are preserved with provider-distinct fingerprints", () => {
+  const codexFinding = {
+    severity: "P1",
+    file: "tools/auto-runner/lib/review-fix-policy.mjs",
+    line: "471",
+    message: "Preserve structured findings before fingerprinting",
+    details: "same text",
+    rule: "codex-rule",
+    unknownNested: { rawProviderPayload: "omit" },
+  };
+  const review = {
+    provider: "codex",
+    verdict: {
+      verdict: "changes_requested",
+      recommended_next_action: "run_safe_fix_cycle",
+      blocking_findings: [codexFinding, "string finding still works"],
+    },
+  };
+  const trigger = extractReviewFixTrigger({ review });
+  assert.equal(trigger.findings.length, 2);
+  assert.equal(trigger.findings[0].file, codexFinding.file);
+  assert.equal(trigger.findings[0].line, 471);
+  assert.equal(trigger.findings[0].unknownNested, undefined);
+  assert.equal(trigger.findings[1], "string finding still works");
+  const codexCurrent = reviewFindingFingerprintsFromSupportedContainers({
+    review: { provider: "codex", verdict: { verdict: "changes_requested", blocking_findings: [trigger.findings[0]] } },
+  });
+  const codexClaimed = claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger, sanitizedFindings: [trigger.findings[0]] } },
+    review: { provider: "codex", source: "codex_mechanics_security_review" },
+  });
+  const geminiClaimed = claimedReviewFindingFingerprints({
+    fixAttempt: { decision: { trigger: { source: "integrated_gemini" }, sanitizedFindings: [trigger.findings[0]] } },
+    externalReview: { provider: "gemini", source: "integrated_gemini" },
+  });
+  assert.deepEqual(codexCurrent, codexClaimed);
+  assert.notDeepEqual(codexClaimed, geminiClaimed);
 });
 
 test("legacy commit-shaped patch IDs are not trusted for oscillation, but tree and stable patch identities are", () => {

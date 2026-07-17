@@ -4,6 +4,7 @@ import {
   invalidateConvergenceEvidenceForHead,
   normalizeReviewConvergenceStateIdentity,
   recordReviewRequestDedupe,
+  validateDiagnosticReviewFixAuthorization,
 } from "./review-convergence-state.mjs";
 
 export function buildLiveReviewConvergenceContext(input = {}) {
@@ -172,6 +173,20 @@ export function fingerprintReviewFinding(finding = {}) {
   };
 }
 
+export function markDiagnosticReviewFixTerminal(state, reason = "diagnostic_fix_not_proceeded") {
+  const diagnostic = state?.diagnosticReviewFix || null;
+  if (!diagnostic || diagnostic.status !== "pending") return state;
+  return {
+    ...state,
+    diagnosticReviewFix: {
+      ...diagnostic,
+      status: "terminal",
+      terminalReason: scrub(reason).slice(0, 160),
+      terminalAt: new Date().toISOString(),
+    },
+  };
+}
+
 export function freezeMaterialFindingInventory(findings = []) {
   return findings
     .map((finding) => ({ raw: finding, classified: classifyFinding(finding), fingerprint: fingerprintReviewFinding(finding) }))
@@ -234,12 +249,21 @@ export function accountConvergenceEvent(state, event = {}) {
   if (!newHead || newHead === state.pr?.exactHead) {
     return { state, consumedSourceCycle: false, reason: "unchanged_head" };
   }
+  const diagnostic = state.diagnosticReviewFix?.status === "pending"
+    ? {
+        ...state.diagnosticReviewFix,
+        status: "consumed",
+        consumedAt: new Date().toISOString(),
+        consumedHead: newHead,
+      }
+    : state.diagnosticReviewFix;
   return {
     consumedSourceCycle: true,
     reason: "source_changing_exact_head",
     state: {
       ...invalidateConvergenceEvidenceForHead(state, newHead, event.reasonCode || "source_changed"),
       sourceChangingCycle: state.sourceChangingCycle + 1,
+      diagnosticReviewFix: diagnostic,
     },
   };
 }
@@ -289,21 +313,44 @@ export function evaluateCycleBudget(state, config = {}, history = []) {
     };
   }
   if (state.sourceChangingCycle < budget.normalized) return { ok: true, budget };
-  if (state.epochDiagnosticStarted) return { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: "diagnostic_epoch_already_used", budget };
-  const diagnosticEpoch = true;
+  const diagnostic = state.diagnosticReviewFix || null;
+  if (diagnostic?.status === "pending") {
+    const authorization = diagnosticAuthorizationForState(state, budget, "resume_diagnostic_epoch");
+    return authorization.ok
+      ? { ok: true, reason: "resume_diagnostic_epoch", diagnosticEpoch: true, diagnosticAuthorization: authorization.authorization, budget }
+      : { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: authorization.reason, budget };
+  }
+  if (diagnostic?.status === "consumed") return { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: "diagnostic_epoch_already_used", budget };
+  if (diagnostic?.status === "terminal") return { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: "diagnostic_epoch_terminal", budget };
+  if (state.epochDiagnosticStarted) return { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: "diagnostic_epoch_legacy_marker_without_pending_authorization", budget };
+  const attemptId = diagnosticAttemptId(state, budget);
+  const diagnosticReviewFix = {
+    status: "pending",
+    attemptId,
+    convergenceId: state.convergenceId,
+    epoch: state.epoch,
+    prNumber: state.pr?.number ?? null,
+    exactHead: state.pr?.exactHead || null,
+    sourceChangingCycle: state.sourceChangingCycle,
+    normalizedMax: budget.normalized,
+    decision: "start_diagnostic_epoch",
+    startedAt: new Date().toISOString(),
+  };
+  const transitionedState = {
+    ...state,
+    epochDiagnosticStarted: true,
+    diagnosticEpochStartedAt: diagnosticReviewFix.startedAt,
+    diagnosticReviewFix,
+    phase: "diagnostic_epoch_started",
+  };
+  const authorization = diagnosticAuthorizationForState(transitionedState, budget, "start_diagnostic_epoch");
   return {
     ok: true,
     terminalReason: null,
     reason: "start_diagnostic_epoch",
-    diagnosticEpoch,
-    transitionedState: diagnosticEpoch
-      ? {
-          ...state,
-          epochDiagnosticStarted: true,
-          diagnosticEpochStartedAt: new Date().toISOString(),
-          phase: "diagnostic_epoch_started",
-        }
-      : null,
+    diagnosticEpoch: true,
+    diagnosticAuthorization: authorization.authorization,
+    transitionedState,
     budget,
   };
 }
@@ -357,6 +404,43 @@ function normalizeHistoryEntry(item = {}) {
     treeId: item.treeId || item.sourceIdentity?.treeId || null,
     patchIdReason: item.patchIdReason || item.sourceIdentity?.patchIdReason || (patchId ? null : item.patchIdReason || null),
   };
+}
+
+function diagnosticAuthorizationForState(state, budget, reason) {
+  const diagnostic = state.diagnosticReviewFix || {};
+  const authorization = {
+    kind: "diagnostic_review_fix_authorization",
+    decision: "start_diagnostic_epoch",
+    reason,
+    convergenceId: state.convergenceId,
+    epoch: state.epoch,
+    prNumber: state.pr?.number ?? null,
+    exactHead: state.pr?.exactHead || null,
+    sourceChangingCycle: state.sourceChangingCycle,
+    normalizedMax: budget.normalized,
+    attemptId: diagnostic.attemptId || diagnosticAttemptId(state, budget),
+    status: diagnostic.status || null,
+  };
+  const validation = validateDiagnosticReviewFixAuthorization({
+    reviewConvergenceState: state,
+    diagnosticAuthorization: authorization,
+    normalizedMax: budget.normalized,
+    attemptCount: state.sourceChangingCycle,
+  });
+  return validation.ok ? { ok: true, authorization } : validation;
+}
+
+function diagnosticAttemptId(state, budget) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      convergenceId: state.convergenceId,
+      epoch: state.epoch,
+      prNumber: state.pr?.number ?? null,
+      exactHead: state.pr?.exactHead || null,
+      sourceChangingCycle: state.sourceChangingCycle,
+      normalizedMax: budget.normalized,
+    }))
+    .digest("hex");
 }
 
 function sourceIdentityForProgress(item = {}) {

@@ -278,6 +278,37 @@ export function recordConvergenceMutationMarker(state, { kind, key, exactHead, m
   };
 }
 
+export function validateDiagnosticReviewFixAuthorization(input = {}) {
+  const state = input.reviewConvergenceState || input.state || {};
+  const authorization = input.diagnosticAuthorization || input.authorization || {};
+  const normalizedMax = Number(input.normalizedMax ?? input.maxAttempts ?? input.budget?.normalized);
+  const attemptCount = Number(input.attemptCount ?? state.sourceChangingCycle);
+  const diagnostic = state.diagnosticReviewFix || {};
+  const pr = state.pr || {};
+  const mismatches = [];
+  if (authorization?.kind !== "diagnostic_review_fix_authorization") mismatches.push("kind");
+  if (!state.convergenceId || authorization.convergenceId !== state.convergenceId) mismatches.push("convergence_id");
+  if (!Number.isInteger(state.epoch) || authorization.epoch !== state.epoch) mismatches.push("epoch");
+  if (!Number.isInteger(pr.number) || authorization.prNumber !== pr.number) mismatches.push("pr_number");
+  if (!pr.exactHead || authorization.exactHead !== pr.exactHead) mismatches.push("exact_head");
+  if (!Number.isFinite(normalizedMax) || normalizedMax !== authorization.normalizedMax) mismatches.push("normalized_max");
+  if (authorization.sourceChangingCycle !== normalizedMax) mismatches.push("authorization_source_cycle");
+  if (!Number.isFinite(attemptCount) || attemptCount !== normalizedMax || state.sourceChangingCycle !== normalizedMax) mismatches.push("source_cycle");
+  if (diagnostic.status !== "pending") mismatches.push("diagnostic_status");
+  if (!diagnostic.startedAt) mismatches.push("diagnostic_started_marker");
+  if (!diagnostic.attemptId || authorization.attemptId !== diagnostic.attemptId) mismatches.push("attempt_id");
+  if (diagnostic.consumedAt || diagnostic.consumedHead) mismatches.push("diagnostic_consumed");
+  if (diagnostic.terminalAt || diagnostic.terminalReason) mismatches.push("diagnostic_terminal");
+  if (authorization.decision !== "start_diagnostic_epoch") mismatches.push("decision");
+  if (mismatches.length > 0) return { ok: false, reason: `invalid_diagnostic_authorization:${mismatches.join(",")}` };
+  return {
+    ok: true,
+    reason: "diagnostic_authorization_valid",
+    diagnostic: true,
+    attemptId: diagnostic.attemptId,
+  };
+}
+
 export function validateReviewConvergenceState(state) {
   if (!state || typeof state !== "object") return fail("state_missing");
   if (state.stateVersion !== reviewConvergenceStateVersion) return fail("unsupported_state_version");

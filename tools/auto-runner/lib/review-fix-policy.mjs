@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { safeTimestamp, slugify } from "./logger.mjs";
 import { filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
+import { validateDiagnosticReviewFixAuthorization } from "./review-convergence-state.mjs";
 
 export const reviewFixMutationLanes = Object.freeze(
   Object.entries(laneManifest)
@@ -45,6 +46,24 @@ const secretLikePatterns = Object.freeze([
   /(GEMINI_API_KEY|authorization|x-goog-api-key|bearer\s+[A-Za-z0-9._~+/-]+|api[_-]?key|secret|token)/gi,
   /\/workspace\/logs\/settleora-auto-runner\/secrets\//gi,
 ]);
+const structuredStringBounds = Object.freeze({
+  provider: 80,
+  source: 120,
+  severity: 40,
+  path: 512,
+  file: 512,
+  title: 800,
+  message: 800,
+  body: 1600,
+  details: 1600,
+  ruleId: 160,
+  rule: 160,
+  check: 160,
+  authorityInvariant: 800,
+  invariant: 800,
+  classification: 80,
+});
+const structuredBooleanFields = Object.freeze(["manual", "duplicate", "material", "safelyFixable"]);
 
 export function normalizeReviewFixMutationConfig(config = {}) {
   const externalApproval = Boolean(config.configPath && config.allowReviewFixMutation);
@@ -89,7 +108,11 @@ export function evaluateReviewFixMutationDecision(input) {
   const issue = input.issue || {};
   const changedFiles = input.changedFiles || [];
   const attemptCount = Number(input.attemptCount || 0);
-  const trigger = input.trigger || extractReviewFixTrigger(input);
+  const rawTrigger = input.trigger || extractReviewFixTrigger(input);
+  const trigger = {
+    ...rawTrigger,
+    findings: sanitizeFindings(rawTrigger.findings || []),
+  };
   const forbiddenChangedFiles =
     input.forbiddenChangedFiles || filterForbiddenChangedFiles(changedFiles, laneDecision);
   const issueLabels = labelNames(input.issueLabels || issue.labels || []);
@@ -101,13 +124,27 @@ export function evaluateReviewFixMutationDecision(input) {
     attemptCount,
     trigger,
     sanitizedFindings: trigger.findings || [],
+    diagnostic: false,
   };
   const block = (reason) => ({ ...result, reason });
 
   if (normalized.malformed) return block("review_fix_budget_malformed");
   if (!config.allowReviewFixMutation || !normalized.enabled) return block("review_fix_mutation_disabled_by_config");
   if (!config.configPath) return block("review_fix_requires_external_config");
-  if (attemptCount >= normalized.maxAttempts) return block("review_fix_attempt_limit_reached");
+  let diagnosticAuthorization = null;
+  if (attemptCount >= normalized.maxAttempts) {
+    const diagnosticDecision = validateDiagnosticReviewFixAuthorization({
+      reviewConvergenceState: input.reviewConvergenceState,
+      diagnosticAuthorization: input.diagnosticAuthorization,
+      normalizedMax: normalized.maxAttempts,
+      attemptCount,
+    });
+    if (!diagnosticDecision.ok) return block("review_fix_attempt_limit_reached");
+    diagnosticAuthorization = {
+      kind: "diagnostic_review_fix_authorization",
+      attemptId: diagnosticDecision.attemptId,
+    };
+  }
   if (config.allowStaleClaimSteal) return block("review_fix_refuses_stale_claim_stealing");
   if (config.allowFollowupIssueCreation) return block("review_fix_refuses_followup_issue_creation");
   if (config.allowSystemdEnablement) return block("review_fix_refuses_systemd_enablement");
@@ -140,6 +177,8 @@ export function evaluateReviewFixMutationDecision(input) {
     ...result,
     allowed: true,
     reason: "review_fix_mutation_gates_passed",
+    diagnostic: Boolean(diagnosticAuthorization),
+    diagnosticAuthorization,
     laneSensitivity: laneDecision.laneManifest?.sensitivity || laneManifest[laneDecision.lane]?.sensitivity || "unknown",
     requiredReviewerTier: requiredReviewFixReviewerTier(laneDecision),
     cycleBudget: {
@@ -273,7 +312,7 @@ export function buildReviewFixPrompt({ issue, laneDecision, branchName, changedF
     "",
     `Review source: ${trigger.source}`,
     "Review findings to fix:",
-    ...sanitizeFindings(trigger.findings || []).map((finding) => `- ${finding}`),
+    ...sanitizeFindings(trigger.findings || []).map((finding) => `- ${formatFindingForPrompt(finding)}`),
     "",
     "After editing, leave the changes unstaged for the runner to validate and review again.",
     "",
@@ -468,7 +507,18 @@ function countChars(value, char) {
 }
 
 function sanitizeFindings(findings) {
-  return findings.map((finding) => sanitizeText(finding, 800)).filter(Boolean).slice(0, 20);
+  const seen = new Set();
+  const sanitized = [];
+  for (const finding of Array.isArray(findings) ? findings : []) {
+    const safe = sanitizeFinding(finding);
+    if (!safe) continue;
+    const key = stableFindingKey(safe);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sanitized.push(safe);
+    if (sanitized.length >= 20) break;
+  }
+  return sanitized;
 }
 
 function sanitizeEvidence(value) {
@@ -507,6 +557,78 @@ function sanitizeText(value, max) {
     .replace(secretLikePatterns[1], "[REDACTED]")
     .slice(0, max);
 }
+
+function sanitizeFinding(finding) {
+  if (typeof finding === "string") return sanitizeText(finding, 800);
+  if (!finding || typeof finding !== "object" || Array.isArray(finding)) return null;
+  const safe = {};
+  for (const [field, max] of Object.entries(structuredStringBounds)) {
+    if (Object.hasOwn(finding, field) && finding[field] !== null && finding[field] !== undefined) {
+      const value = sanitizeText(finding[field], max);
+      if (value) safe[field] = value;
+    }
+  }
+  for (const field of structuredBooleanFields) {
+    if (typeof finding[field] === "boolean") safe[field] = finding[field];
+  }
+  const line = normalizeLineValue(finding.line);
+  if (line !== null) safe.line = line;
+  const range = sanitizeRange(finding.range);
+  if (range) safe.range = range;
+  const hasAuthorizingContext = safe.path || safe.file || safe.title || safe.message || safe.body || safe.details || safe.ruleId || safe.rule || safe.check;
+  if (!hasAuthorizingContext) {
+    return {
+      classification: "malformed_finding",
+      material: false,
+      safelyFixable: false,
+      title: "malformed finding omitted",
+    };
+  }
+  return safe;
+}
+
+function sanitizeRange(range) {
+  if (!range) return null;
+  if (typeof range === "string") {
+    const value = sanitizeText(range, 120);
+    return value ? { label: value } : null;
+  }
+  if (!Array.isArray(range) && typeof range === "object") {
+    const safe = {};
+    for (const key of ["startLine", "endLine", "start", "end", "line"]) {
+      const value = normalizeLineValue(range[key]);
+      if (value !== null) safe[key] = value;
+    }
+    for (const key of ["label", "path", "file"]) {
+      if (range[key] !== null && range[key] !== undefined) {
+        const value = sanitizeText(range[key], key === "label" ? 120 : 512);
+        if (value) safe[key] = value;
+      }
+    }
+    return Object.keys(safe).length ? safe : null;
+  }
+  if (Array.isArray(range)) {
+    const values = range.slice(0, 4).map(normalizeLineValue).filter((value) => value !== null);
+    return values.length ? { lines: values } : null;
+  }
+  return null;
+}
+
+function normalizeLineValue(value) {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 1_000_000) return null;
+  return numeric;
+}
+
+function stableFindingKey(finding) {
+  return typeof finding === "string" ? `string:${finding}` : `object:${JSON.stringify(finding)}`;
+}
+
+function formatFindingForPrompt(finding) {
+  if (typeof finding === "string") return finding;
+  return JSON.stringify(finding);
+}
+
 
 function normalizeChangedFiles(files) {
   return (Array.isArray(files) ? files : [])
