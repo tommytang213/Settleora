@@ -36,6 +36,7 @@ import {
   buildLiveReviewConvergenceContext,
   evaluateCycleBudget,
   fingerprintReviewFinding,
+  reviewFindingFingerprintsFromSupportedContainers,
 } from "./review-convergence-controller.mjs";
 import {
   buildReviewFixPrompt,
@@ -1053,39 +1054,7 @@ function mergeBundleReviewMutationGuards(...guards) {
 }
 
 function currentBundleReviewFindingFingerprints({ externalReview, review } = {}) {
-  return [
-    ...externalReviewFindingFingerprints(externalReview),
-    ...codexReviewFindingFingerprints(review),
-  ].sort();
-}
-
-function externalReviewFindingFingerprints(externalReview = {}) {
-  if (!externalReview || externalReview.status === "pass" || externalReview.verdict === "pass") return [];
-  const findings = externalReview.sanitizedResponseSummary?.findings ||
-    externalReview.findings ||
-    externalReview.blockingFindings ||
-    [];
-  return bundleReviewFindingFingerprints(findings, {
-    provider: externalReview.provider || "external_review",
-    source: externalReview.source || "external_review",
-    severity: externalReview.severity,
-  });
-}
-
-function codexReviewFindingFingerprints(review = {}) {
-  const verdict = review?.verdict?.verdict || review?.verdict || null;
-  if (!review || ["approve", "approved", "pass"].includes(verdict)) return [];
-  const findings =
-    review.verdict?.blocking_findings ||
-    review.verdict?.findings ||
-    review.blockingFindings ||
-    review.findings ||
-    [];
-  return bundleReviewFindingFingerprints(findings, {
-    provider: review.provider || "codex",
-    source: review.source || "codex_mechanics_security_review",
-    severity: review.severity,
-  });
+  return reviewFindingFingerprintsFromSupportedContainers({ externalReview, review }).sort();
 }
 
 function bundleReviewFindingFingerprints(findings = [], defaults = {}) {

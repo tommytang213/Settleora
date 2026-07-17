@@ -188,6 +188,20 @@ export function freezeMaterialFindingInventory(findings = []) {
     }));
 }
 
+export function reviewFindingFingerprintsFromSupportedContainers({ externalReview, review } = {}) {
+  const fingerprints = freezeMaterialFindingInventory(
+    reviewFindingsFromSupportedContainers({ externalReview, review }),
+  ).map((finding) => finding.fingerprint);
+  return [...new Set(fingerprints)].sort();
+}
+
+export function reviewFindingsFromSupportedContainers({ externalReview, review } = {}) {
+  return [
+    ...externalReviewFindingsFromSupportedContainers(externalReview),
+    ...codexReviewFindingsFromSupportedContainers(review),
+  ];
+}
+
 export function classifyFinding(finding = {}) {
   if (finding.manual === true || finding.classification === "manual") {
     return { material: true, safelyFixable: false, classification: "manual", terminalReason: "MANUAL_DECISION_REQUIRED" };
@@ -251,14 +265,24 @@ export function evaluateCycleBudget(state, config = {}, history = []) {
   const budget = normalizeConvergenceBudget(config);
   if (budget.malformed) return { ok: false, terminalReason: "MANUAL_DECISION_REQUIRED", reason: "review_fix_budget_malformed", budget };
   if (!budget.enabled) return { ok: false, terminalReason: "MANUAL_DECISION_REQUIRED", reason: "review_fix_mutation_disabled_by_zero_budget", budget };
+  const progress = analyzeConvergenceProgress(history);
+  if (!progress.ok) {
+    return {
+      ok: false,
+      terminalReason: progress.terminalReason,
+      reason: progress.reason,
+      fingerprint: progress.fingerprint,
+      threshold: progress.threshold,
+      budget,
+    };
+  }
   if (state.sourceChangingCycle < budget.normalized) return { ok: true, budget };
   if (state.epochDiagnosticStarted) return { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: "diagnostic_epoch_already_used", budget };
-  const progress = analyzeConvergenceProgress(history);
-  const diagnosticEpoch = progress.ok;
+  const diagnosticEpoch = true;
   return {
-    ok: progress.ok,
-    terminalReason: progress.ok ? null : progress.terminalReason,
-    reason: progress.ok ? "start_diagnostic_epoch" : progress.reason,
+    ok: true,
+    terminalReason: null,
+    reason: "start_diagnostic_epoch",
     diagnosticEpoch,
     transitionedState: diagnosticEpoch
       ? {
@@ -322,6 +346,66 @@ function detectReturnedFinding(history) {
     }
   }
   return null;
+}
+
+function externalReviewFindingsFromSupportedContainers(externalReview = {}) {
+  if (!externalReview || reviewVerdictIsPass(externalReview)) return [];
+  return collectSupportedFindingArrays(externalReview, [
+    ["sanitizedResponseSummary", "findings"],
+    ["findings"],
+    ["blockingFindings"],
+  ]).map((finding) => normalizeReviewFindingForFingerprint(finding, {
+    provider: externalReview.provider || "external_review",
+    source: externalReview.source || "external_review",
+    severity: externalReview.severity,
+  }));
+}
+
+function codexReviewFindingsFromSupportedContainers(review = {}) {
+  if (!review || reviewVerdictIsPass(review)) return [];
+  return collectSupportedFindingArrays(review, [
+    ["verdict", "blocking_findings"],
+    ["verdict", "findings"],
+    ["blockingFindings"],
+    ["findings"],
+  ]).map((finding) => normalizeReviewFindingForFingerprint(finding, {
+    provider: review.provider || "codex",
+    source: review.source || "codex_mechanics_security_review",
+    severity: review.severity,
+  }));
+}
+
+function collectSupportedFindingArrays(source = {}, paths = []) {
+  const findings = [];
+  for (const pathParts of paths) {
+    const value = pathParts.reduce((current, part) => current?.[part], source);
+    if (Array.isArray(value)) findings.push(...value);
+  }
+  return findings;
+}
+
+function normalizeReviewFindingForFingerprint(finding, defaults = {}) {
+  if (finding && typeof finding === "object") {
+    return {
+      provider: defaults.provider,
+      source: defaults.source,
+      severity: defaults.severity,
+      ...finding,
+    };
+  }
+  const text = String(finding || "");
+  return {
+    provider: defaults.provider,
+    source: defaults.source,
+    severity: defaults.severity,
+    title: text,
+    body: text,
+  };
+}
+
+function reviewVerdictIsPass(review = {}) {
+  const verdict = review.verdict?.verdict || review.verdict || review.sanitizedResponseSummary?.verdict || review.status || null;
+  return ["approve", "approved", "pass"].includes(verdict);
 }
 
 function digestFindingSet(fingerprints = []) {

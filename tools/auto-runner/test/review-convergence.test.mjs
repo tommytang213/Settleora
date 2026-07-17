@@ -18,6 +18,7 @@ import {
   normalizeConvergenceBudget,
   notificationDecisionForConvergence,
   planExactHeadReviewRequest,
+  reviewFindingFingerprintsFromSupportedContainers,
 } from "../lib/review-convergence-controller.mjs";
 import {
   bindReviewConvergenceEvidence,
@@ -467,6 +468,33 @@ test("no-progress, returned finding, and A/B oscillation are detected", () => {
   ]).terminalReason, "REVIEW_OSCILLATION");
 });
 
+test("cycle budget stops no-progress, returned findings, and oscillation before budget exhaustion", () => {
+  const belowBudget = { ...state(), sourceChangingCycle: 8 };
+  const cfg = { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" };
+  assert.equal(evaluateCycleBudget(belowBudget, cfg, [
+    { findingFingerprints: ["a"], patchId: "p1" },
+    { findingFingerprints: ["a"], patchId: "p2" },
+    { findingFingerprints: ["a"], patchId: "p3" },
+  ]).terminalReason, "NO_PROGRESS");
+  assert.equal(evaluateCycleBudget(belowBudget, cfg, [
+    { findingFingerprints: ["a"], claimedFixedFingerprints: ["a"], patchId: "p1" },
+    { findingFingerprints: [], patchId: "p2" },
+    { findingFingerprints: ["a"], patchId: "p3" },
+  ]).reason, "finding_returned_after_claimed_fix");
+  assert.equal(evaluateCycleBudget(belowBudget, cfg, [
+    { findingFingerprints: ["a"], patchId: "A" },
+    { findingFingerprints: ["b"], patchId: "B" },
+    { findingFingerprints: ["c"], patchId: "A" },
+    { findingFingerprints: ["d"], patchId: "B" },
+  ]).terminalReason, "REVIEW_OSCILLATION");
+  const measurable = evaluateCycleBudget(belowBudget, cfg, [
+    { findingFingerprints: ["a"], patchId: "A" },
+    { findingFingerprints: ["b"], patchId: "B" },
+  ]);
+  assert.equal(measurable.ok, true);
+  assert.equal(measurable.diagnosticEpoch, undefined);
+});
+
 test("cycle 50 starts one diagnostic epoch only when progress is still measurable", () => {
   const current = { ...state(), sourceChangingCycle: 50 };
   const diagnostic = evaluateCycleBudget(current, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, [
@@ -854,6 +882,70 @@ test("feature-bundle Codex non-approve invokes bounded executor and consumes one
   assert.deepEqual(input.recovery.actions.filter((action) => action[0] === "advance")[0], ["advance", "review_fix", "run_bundle_codex_review_convergence"]);
 });
 
+test("feature-bundle stops no-progress before running another fix below budget", async () => {
+  const input = bundleConvergenceInput({
+    sourceChangingCycle: 8,
+    writeState(nextState) {
+      input.state = nextState;
+    },
+  });
+  input.state.reviewConvergenceHistory = [
+    { findingFingerprints: ["same-finding"], patchId: "p1" },
+    { findingFingerprints: ["same-finding"], patchId: "p2" },
+    { findingFingerprints: ["same-finding"], patchId: "p3" },
+  ];
+  input.state.reviewConvergenceState = { ...input.state.reviewConvergenceState, sourceChangingCycle: 8 };
+  const result = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+    async runFixCycle() {
+      throw new Error("no-progress must stop before mutation");
+    },
+    async commitAndRerun() {
+      throw new Error("commit should not run");
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "NO_PROGRESS");
+  assert.equal(result.reason, "identical_material_finding_set_repeated");
+  assert.equal(result.state.reviewConvergenceState.sourceChangingCycle, 8);
+});
+
+test("feature-bundle stops returned findings and oscillation before mutation below budget", async () => {
+  for (const [name, history, expectedReasonCode, expectedReason] of [
+    ["returned", [
+      { findingFingerprints: ["a"], claimedFixedFingerprints: ["a"], patchId: "p1" },
+      { findingFingerprints: [], patchId: "p2" },
+      { findingFingerprints: ["a"], patchId: "p3" },
+    ], "NO_PROGRESS", "finding_returned_after_claimed_fix"],
+    ["oscillation", [
+      { findingFingerprints: ["a"], patchId: "A" },
+      { findingFingerprints: ["b"], patchId: "B" },
+      { findingFingerprints: ["c"], patchId: "A" },
+      { findingFingerprints: ["d"], patchId: "B" },
+    ], "REVIEW_OSCILLATION", "patch_or_tree_identity_oscillation"],
+  ]) {
+    const input = bundleConvergenceInput({
+      sourceChangingCycle: 8,
+      writeState(nextState) {
+        input.state = nextState;
+      },
+    });
+    input.state.reviewConvergenceHistory = history;
+    input.state.reviewConvergenceState = { ...input.state.reviewConvergenceState, sourceChangingCycle: 8 };
+    const result = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+      async runFixCycle() {
+        throw new Error(`${name} must stop before mutation`);
+      },
+      async commitAndRerun() {
+        throw new Error("commit should not run");
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, expectedReasonCode);
+    assert.equal(result.reason, expectedReason);
+    assert.equal(result.state.reviewConvergenceState.sourceChangingCycle, 8);
+  }
+});
+
 test("feature-bundle diagnostic epoch is persisted before source mutation and denied after restart", async () => {
   const writes = [];
   const input = bundleConvergenceInput({
@@ -1178,4 +1270,86 @@ test("feature-bundle history records clean post-fix reviews as empty current fin
   assert.deepEqual(history[0].claimedFixedFingerprints, [
     fingerprintReviewFinding({ provider: "codex", source: "codex_mechanics_security_review", severity: "unknown", title: attempted, body: attempted }).fingerprint,
   ]);
+});
+
+test("normal convergence fingerprints Gemini sanitized finding containers stably", () => {
+  const geminiFinding = {
+    provider: "gemini",
+    severity: "high",
+    path: "tools/auto-runner/settleora-auto-runner.mjs",
+    line: 2058,
+    title: "Fingerprint Gemini findings in normal convergence history",
+    body: "sanitized finding only",
+    ruleId: "gemini-history",
+  };
+  const externalReview = {
+    status: "fail",
+    verdict: "fail",
+    provider: "gemini",
+    sanitizedResponseSummary: { verdict: "fail", findings: [geminiFinding] },
+  };
+  const first = reviewFindingFingerprintsFromSupportedContainers({ externalReview });
+  const restart = JSON.parse(JSON.stringify(first));
+  assert.deepEqual(first, [fingerprintReviewFinding(geminiFinding).fingerprint]);
+  assert.deepEqual(restart, first);
+  assert.equal(analyzeConvergenceProgress([
+    { findingFingerprints: first, patchId: "p1" },
+    { findingFingerprints: restart, patchId: "p2" },
+    { findingFingerprints: first, patchId: "p3" },
+  ]).terminalReason, "NO_PROGRESS");
+});
+
+test("normal convergence collects all supported external and Codex finding containers", () => {
+  const laterFinding = {
+    provider: "gemini",
+    severity: "medium",
+    path: "tools/auto-runner/settleora-auto-runner.mjs",
+    line: 2058,
+    title: "Later non-empty supported container",
+  };
+  const codexFinding = {
+    provider: "codex",
+    severity: "high",
+    path: "tools/auto-runner/lib/feature-bundle-orchestrator.mjs",
+    line: 497,
+    title: "Stop bundle no-progress before spending the full budget",
+  };
+  const duplicateGemini = { ...laterFinding };
+  const fingerprints = reviewFindingFingerprintsFromSupportedContainers({
+    externalReview: {
+      status: "fail",
+      verdict: "fail",
+      provider: "gemini",
+      sanitizedResponseSummary: { verdict: "fail", findings: [] },
+      findings: [],
+      blockingFindings: [laterFinding, duplicateGemini],
+    },
+    review: {
+      verdict: {
+        verdict: "changes_requested",
+        blocking_findings: [codexFinding],
+      },
+    },
+  });
+  assert.deepEqual(fingerprints, [
+    fingerprintReviewFinding(codexFinding).fingerprint,
+    fingerprintReviewFinding(laterFinding).fingerprint,
+  ].sort());
+  assert.equal(new Set(fingerprints).size, 2);
+});
+
+test("normal convergence records clean Gemini pass as no material fingerprints", () => {
+  const fingerprints = reviewFindingFingerprintsFromSupportedContainers({
+    externalReview: {
+      status: "pass",
+      verdict: "pass",
+      provider: "gemini",
+      sanitizedResponseSummary: {
+        verdict: "pass",
+        findings: [{ provider: "gemini", severity: "high", title: "stale ignored" }],
+      },
+    },
+    review: { verdict: { verdict: "approve", blocking_findings: [{ provider: "codex", title: "stale ignored" }] } },
+  });
+  assert.deepEqual(fingerprints, []);
 });

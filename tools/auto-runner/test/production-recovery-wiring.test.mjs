@@ -157,7 +157,7 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /evaluateNormalReviewConvergenceBudget\(config, iteration/);
   assert.match(source, /loadReviewConvergenceState\(config/);
   assert.match(source, /writeReviewConvergenceState\(config/);
-  assert.match(source, /analyzeConvergenceProgress\(iteration\.reviewConvergenceHistory\)/);
+  assert.match(source, /evaluateCycleBudget\(iteration\.reviewConvergenceState, config, iteration\.reviewConvergenceHistory\)/);
   assert.match(source, /accountNormalReviewFixCommit\(iteration, iteration\.runnerCreatedCommitSha, "review_fix_commit"\)/);
   assert.match(source, /accountNormalReviewFixCommit\(iteration, iteration\.runnerCreatedCommitSha, "codex_review_initial_fix_commit"\)/);
   assert.match(source, /accountNormalReviewFixCommit\(iteration, iteration\.runnerCreatedCommitSha, "codex_review_convergence_fix_commit"\)/);

@@ -45,10 +45,10 @@ import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gem
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
   accountConvergenceEvent,
-  analyzeConvergenceProgress,
   buildLiveReviewConvergenceContext,
   evaluateCycleBudget,
-  freezeMaterialFindingInventory,
+  reviewFindingsFromSupportedContainers,
+  reviewFindingFingerprintsFromSupportedContainers,
 } from "./lib/review-convergence-controller.mjs";
 import {
   loadReviewConvergenceState,
@@ -2053,19 +2053,7 @@ function compareFingerprints(before, after) {
 }
 
 function currentReviewFindingFingerprints({ externalReview, review } = {}) {
-  const findings = [];
-  for (const finding of externalReview?.findings || externalReview?.blockingFindings || []) {
-    findings.push(normalizeReviewFindingForFingerprint(finding, "external_review"));
-  }
-  for (const finding of review?.findings || review?.verdict?.blocking_findings || []) {
-    findings.push(normalizeReviewFindingForFingerprint(finding, "codex_mechanics_security_review"));
-  }
-  return freezeMaterialFindingInventory(findings).map((finding) => finding.fingerprint);
-}
-
-function normalizeReviewFindingForFingerprint(finding, provider) {
-  if (finding && typeof finding === "object") return { provider, ...finding };
-  return { provider, title: String(finding || ""), body: String(finding || "") };
+  return reviewFindingFingerprintsFromSupportedContainers({ externalReview, review });
 }
 
 function appendNormalReviewConvergenceHistory(iteration, { externalReview, review, fixAttempt, patchId, treeId }) {
@@ -2103,20 +2091,15 @@ function evaluateNormalReviewConvergenceBudget(config, iteration, context) {
     reviewConvergenceState: iteration.reviewConvergenceState || seed.gateInput.reviewConvergenceState,
     reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
     sourceChangingCycle: iteration.reviewConvergenceState?.sourceChangingCycle ?? seed.gateInput.reviewConvergenceState.sourceChangingCycle,
-    currentFindings: [
-      ...(context.externalReview?.findings || context.externalReview?.blockingFindings || []),
-      ...(context.review?.findings || context.review?.verdict?.blocking_findings || []),
-    ],
+    currentFindings: reviewFindingsFromSupportedContainers({
+      externalReview: context.externalReview,
+      review: context.review,
+    }),
   });
   iteration.reviewConvergence = built.context;
   iteration.reviewConvergenceState = built.gateInput.reviewConvergenceState;
   iteration.reviewConvergenceHistory = built.gateInput.reviewConvergenceHistory;
   persistNormalReviewConvergenceState(config, iteration, "budget_evaluated");
-  const progress = analyzeConvergenceProgress(iteration.reviewConvergenceHistory);
-  if (!progress.ok) {
-    iteration.reviewConvergenceBudget = progress;
-    return progress;
-  }
   const decision = evaluateCycleBudget(iteration.reviewConvergenceState, config, iteration.reviewConvergenceHistory);
   if (decision.transitionedState) {
     iteration.reviewConvergenceState = decision.transitionedState;
