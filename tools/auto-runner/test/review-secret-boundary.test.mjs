@@ -305,6 +305,9 @@ test("review-fix secret redaction covers assignments, headers, query values, and
   assert.doesNotMatch(apiKeyHeader, new RegExp(secret));
   assert.match(apiKeyHeader, /X-API-Key:\s*\[REDACTED\]/);
   assert.match(apiKeyHeader, /x-api-key=\[REDACTED\]&safe=visible/);
+  const quotedHeader = redactSecretLikeText(`curl -H "x-api-key: ${secret}" https://example.invalid`);
+  assert.doesNotMatch(quotedHeader, new RegExp(secret));
+  assert.match(quotedHeader, /"x-api-key: \[REDACTED\]"/);
   const multiValueHeaders = redactSecretLikeText([
     `X-API-Key: ${secret}; safe=visible`,
     `Cookie: session=${secret}; safe=visible`,
@@ -328,6 +331,12 @@ test("review-fix secret redaction covers assignments, headers, query values, and
   ].join("\n"));
   assert.doesNotMatch(terminated, new RegExp(secret));
   assert.match(terminated, /safe=visible/);
+
+  const wrapped = redactSecretLikeText(`headers={"x-api-key":"${secret}","safe":"visible"} query={accessToken:${secret},safe:visible}`);
+  assert.doesNotMatch(wrapped, new RegExp(secret));
+  assert.match(wrapped, /headers=\{"x-api-key":"\[REDACTED\]","safe":"visible"\}/);
+  assert.match(wrapped, /query=\{accessToken:\[REDACTED\],safe:visible\}/);
+  assert.equal(redactSecretLikeText(wrapped), wrapped);
 
   const harmless = redactSecretLikeText("access token budget, client secret policy, API key rotation design, and authorization policy remain meaningful");
   assert.equal(harmless, "access token budget, client secret policy, API key rotation design, and authorization policy remain meaningful");

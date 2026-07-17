@@ -1763,7 +1763,7 @@ test("current finding inventory, fingerprints, state, and batch context are reda
   const c = config();
   try {
     const secret = "fake-cycle16-canary-current-inventory-value";
-    const hexSecret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const hexSecret = ["0123456789abcdef", "0123456789abcdef", "0123456789abcdef", "0123456789abcdef"].join("");
     const storedFingerprint = "f".repeat(64);
     const rawGeminiFinding = {
       provider: "gemini",
