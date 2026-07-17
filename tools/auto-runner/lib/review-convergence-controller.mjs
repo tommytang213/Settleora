@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { defaultNoProgressSourceCycles, hardMaxReviewFixSourceCycles, normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import {
   invalidateConvergenceEvidenceForHead,
+  normalizeReviewConvergenceStateIdentity,
   recordReviewRequestDedupe,
 } from "./review-convergence-state.mjs";
 
@@ -91,27 +92,51 @@ export function buildLiveReviewConvergenceContext(input = {}) {
     requestDedupeMarkers: existing?.reviewRequests || existing?.githubReviewRequests || input.requestDedupeMarkers || {},
     mutationDedupeMarkers: existing?.mutationMarkers || input.mutationDedupeMarkers || {},
   };
+  const reviewConvergenceState = normalizeReviewConvergenceStateIdentity({
+    ...input,
+    config,
+    repository: context.repository,
+    issue,
+    issueNumber: issue.number,
+    taskKey: context.task.taskKey,
+    pr: {
+      number: pr.number,
+      headRefName: pr.branch,
+      baseRefName: pr.base,
+      headRefOid: pr.exactHead,
+    },
+    branchName: pr.branch,
+    baseRef: pr.base,
+    exactHead: pr.exactHead,
+    sourceChangingCycle: context.sourceChangingCycle,
+    reviewConvergenceState: {
+      ...(existing || {}),
+      stateVersion: context.stateVersion,
+      repository: context.repository,
+      task: context.task,
+      pr: context.pr,
+      branch: context.branch,
+      epoch: context.epoch,
+      epochDiagnosticStarted: existing?.epochDiagnosticStarted === true || input.epochDiagnosticStarted === true,
+      sourceChangingCycle: context.sourceChangingCycle,
+      findingInventory: context.findingInventory,
+      evidence: context.evidence,
+      reviewRequests: context.reviewRequests,
+      mutationMarkers: context.mutationMarkers,
+      relationships: context.relationships,
+    },
+  });
+  const normalizedContext = {
+    ...context,
+    convergenceId: reviewConvergenceState.convergenceId,
+  };
   return {
-    context,
+    context: normalizedContext,
     gateInput: {
       config,
-      reviewConvergenceState: {
-        stateVersion: context.stateVersion,
-        repository: context.repository,
-        task: context.task,
-        pr: context.pr,
-        branch: context.branch,
-        epoch: context.epoch,
-        epochDiagnosticStarted: existing?.epochDiagnosticStarted === true || input.epochDiagnosticStarted === true,
-        sourceChangingCycle: context.sourceChangingCycle,
-        findingInventory: context.findingInventory,
-        evidence: context.evidence,
-        reviewRequests: context.reviewRequests,
-        mutationMarkers: context.mutationMarkers,
-        relationships: context.relationships,
-      },
+      reviewConvergenceState,
       reviewConvergenceHistory: history,
-      reviewConvergenceContext: context,
+      reviewConvergenceContext: normalizedContext,
     },
   };
 }
@@ -229,11 +254,20 @@ export function evaluateCycleBudget(state, config = {}, history = []) {
   if (state.sourceChangingCycle < budget.normalized) return { ok: true, budget };
   if (state.epochDiagnosticStarted) return { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: "diagnostic_epoch_already_used", budget };
   const progress = analyzeConvergenceProgress(history);
+  const diagnosticEpoch = progress.ok;
   return {
     ok: progress.ok,
     terminalReason: progress.ok ? null : progress.terminalReason,
     reason: progress.ok ? "start_diagnostic_epoch" : progress.reason,
-    diagnosticEpoch: progress.ok,
+    diagnosticEpoch,
+    transitionedState: diagnosticEpoch
+      ? {
+          ...state,
+          epochDiagnosticStarted: true,
+          diagnosticEpochStartedAt: new Date().toISOString(),
+          phase: "diagnostic_epoch_started",
+        }
+      : null,
     budget,
   };
 }

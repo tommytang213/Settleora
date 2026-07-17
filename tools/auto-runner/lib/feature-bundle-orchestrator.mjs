@@ -506,6 +506,14 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
         summary: { budget },
       };
     }
+    if (budget.transitionedState) {
+      state = {
+        ...state,
+        reviewConvergenceState: budget.transitionedState,
+      };
+      writeState(state);
+      budget.transitionedState = state.reviewConvergenceState;
+    }
 
     input.recovery?.advance("review_fix", source === "codex_mechanics_security_review" ? "run_bundle_codex_review_convergence" : "run_bundle_review_convergence");
     const fixAttempt = await dependencies.runFixCycle(config, {

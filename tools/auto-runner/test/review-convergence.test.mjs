@@ -328,6 +328,101 @@ test("durable state key treats GitHub PR-shaped branch identity as canonical", (
   }
 });
 
+test("fresh normal convergence state has canonical identity before first write and reloads without forking", () => {
+  const c = config();
+  try {
+    const canonical = {
+      repository: "tommytang213/Settleora",
+      issueNumber: 921,
+      prNumber: 922,
+      branchName: "feature/convergence",
+      baseRef: "main",
+    };
+    const built = buildLiveReviewConvergenceContext({
+      config: { ...c, repositorySlug: canonical.repository, configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: canonical.issueNumber, title: "Convergence" },
+      pr: { number: canonical.prNumber, headRefName: canonical.branchName, baseRefName: canonical.baseRef, headRefOid: "a".repeat(40) },
+      currentFindings: [{ provider: "codex", severity: "high", path: "tools/auto-runner/settleora-auto-runner.mjs", line: 2114, title: "Persist identity" }],
+    });
+    const current = built.gateInput.reviewConvergenceState;
+    assert.equal(current.convergenceId, reviewConvergenceStorageKey(canonical));
+    assert.doesNotThrow(() => writeReviewConvergenceState(c, current));
+    assert.equal(reviewConvergenceStatePath(c, canonical), reviewConvergenceStatePath(c, current.convergenceId));
+    const reloaded = loadReviewConvergenceState(c, canonical);
+    assert.equal(reloaded.ok, true);
+    assert.equal(reloaded.state.convergenceId, current.convergenceId);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("restart/load preserves convergence evidence history and dedupe markers on the same canonical state path", () => {
+  const c = config();
+  try {
+    const canonical = {
+      repository: "tommytang213/Settleora",
+      issueNumber: 921,
+      prNumber: 922,
+      branchName: "feature/convergence",
+      baseRef: "main",
+    };
+    let current = buildLiveReviewConvergenceContext({
+      config: { ...c, repositorySlug: canonical.repository, configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: canonical.issueNumber, title: "Convergence" },
+      pr: { number: canonical.prNumber, headRefName: canonical.branchName, baseRefName: canonical.baseRef, headRefOid: "a".repeat(40) },
+    }).gateInput.reviewConvergenceState;
+    current = bindReviewConvergenceEvidence(current, "review", { status: "blocked", exactHead: "a".repeat(40), digest: "review-digest" });
+    current = recordConvergenceMutationMarker(current, { kind: "commit", key: "cycle-1", exactHead: "a".repeat(40), metadata: { reason: "test" } }).state;
+    current = planExactHeadReviewRequest(current, { purpose: "codex", reviewerTier: "cheap_independent" }).state;
+    const history = [{ findingFingerprints: ["finding-a"], claimedFixedFingerprints: ["finding-a"], patchId: "patch-1" }];
+    const written = writeReviewConvergenceState(c, { ...current, history, reviewConvergenceHistory: history });
+    const restart = buildLiveReviewConvergenceContext({
+      config: { ...c, repositorySlug: canonical.repository, configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: canonical.issueNumber, title: "Convergence" },
+      pr: { number: canonical.prNumber, headRefName: canonical.branchName, baseRefName: canonical.baseRef, headRefOid: "a".repeat(40) },
+      reviewConvergenceState: loadReviewConvergenceState(c, canonical).state,
+    });
+    const rewritten = writeReviewConvergenceState(c, {
+      ...restart.gateInput.reviewConvergenceState,
+      history,
+      reviewConvergenceHistory: history,
+    });
+    assert.equal(rewritten.statePath, written.statePath);
+    assert.equal(restart.gateInput.reviewConvergenceState.convergenceId, current.convergenceId);
+    assert.equal(restart.gateInput.reviewConvergenceState.evidence.review.digest, "review-digest");
+    assert.equal(Object.keys(restart.gateInput.reviewConvergenceState.reviewRequests).length, 1);
+    assert.equal(Object.keys(restart.gateInput.reviewConvergenceState.mutationMarkers).length, 1);
+    assert.deepEqual(rewritten.state.history, history);
+  } finally {
+    c.cleanup();
+  }
+});
+
+test("fresh bundle convergence uses canonical identity and incomplete identity fails closed before mutation state exists", () => {
+  const built = buildLiveReviewConvergenceContext({
+    config: { repositorySlug: "tommytang213/Settleora", configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+    issue: { number: 921, title: "Convergence" },
+    branchName: "feature/bundle",
+    baseRef: "main",
+    exactHead: "b".repeat(40),
+    relationships: { bundleId: "bundle-921", sliceOrder: ["slice-one"] },
+  });
+  assert.equal(
+    built.gateInput.reviewConvergenceState.convergenceId,
+    reviewConvergenceStorageKey({
+      repository: "tommytang213/Settleora",
+      issueNumber: 921,
+      prNumber: 921,
+      branchName: "feature/bundle",
+      baseRef: "main",
+    }),
+  );
+  assert.throws(
+    () => buildLiveReviewConvergenceContext({ issue: { number: 921, title: "Convergence" }, baseRef: "main", exactHead: "b".repeat(40) }),
+    /Invalid review convergence state: pr_identity_missing/,
+  );
+});
+
 test("exact-head review request dedupe allows one request per PR head purpose", () => {
   const first = planExactHeadReviewRequest(state(), { purpose: "codex", reviewerTier: "cheap_independent" });
   assert.equal(first.duplicate, false);
@@ -378,9 +473,19 @@ test("cycle 50 starts one diagnostic epoch only when progress is still measurabl
     { findingFingerprints: ["a"], patchId: "p1" },
     { findingFingerprints: ["b"], patchId: "p2" },
   ]);
+  assert.equal(diagnostic.ok, true);
   assert.equal(diagnostic.diagnosticEpoch, true);
-  const exhausted = evaluateCycleBudget({ ...current, epochDiagnosticStarted: true }, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, []);
+  assert.equal(diagnostic.transitionedState.epochDiagnosticStarted, true);
+  assert.equal(diagnostic.transitionedState.sourceChangingCycle, 50);
+  assert.equal(diagnostic.transitionedState.pr.exactHead, current.pr.exactHead);
+  const exhausted = evaluateCycleBudget(diagnostic.transitionedState, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, [
+    { findingFingerprints: ["c"], patchId: "p3" },
+  ]);
   assert.equal(exhausted.terminalReason, "CYCLE_BUDGET_EXHAUSTED");
+  assert.equal(exhausted.reason, "diagnostic_epoch_already_used");
+  const transient = accountConvergenceEvent(diagnostic.transitionedState, { kind: "provider_retry" });
+  assert.equal(transient.consumedSourceCycle, false);
+  assert.equal(transient.state.epochDiagnosticStarted, true);
 });
 
 test("contract-approved lanes allow docs/runtime/sensitive fixes only under the right gates", () => {
@@ -664,6 +769,8 @@ test("live callers continue bounded convergence instead of stopping at pre-push 
   assert.match(runnerSource, /completeHeadEvidence\(evidenceByKind/);
   assert.match(runnerSource, /persistCompleteHeadEvidence\(config, state, evidenceByKind, identity\)/);
   assert.match(runnerGate, /iteration\.validation = bindValidationEvidence\(postFix\.validation/);
+  assert.match(runnerSource, /if \(decision\.transitionedState\) \{/);
+  assert.match(runnerSource, /persistNormalReviewConvergenceState\(config, iteration, "diagnostic_epoch_started"\)/);
   assert.doesNotMatch(
     runnerSource.slice(
       runnerSource.indexOf("if (config.requirePrePrReview && config.dryRun"),
@@ -678,6 +785,9 @@ test("live callers continue bounded convergence instead of stopping at pre-push 
   assert.match(bundleSource, /dependencies\.runFixCycle\(config/);
   assert.match(bundleSource, /dependencies\.commitAndRerun\(config/);
   assert.match(bundleSource, /accountConvergenceEvent\(state\.reviewConvergenceState/);
+  assert.match(bundleSource, /if \(budget\.transitionedState\) \{/);
+  assert.match(bundleSource, /reviewConvergenceState: budget\.transitionedState/);
+  assert.match(bundleSource, /writeState\(state\);/);
   assert.match(bundleSource, /run_bundle_codex_review_convergence/);
   assert.match(bundleSource, /persistBundleExactHeadEvidence\(recovery/);
   assert.match(bundleSource, /completeHeadEvidence\(evidenceByKind/);
@@ -742,6 +852,82 @@ test("feature-bundle Codex non-approve invokes bounded executor and consumes one
   assert.equal(persisted[0].headSha, newHead);
   assert.equal(persisted[0].externalReview.reviewedHead, newHead);
   assert.deepEqual(input.recovery.actions.filter((action) => action[0] === "advance")[0], ["advance", "review_fix", "run_bundle_codex_review_convergence"]);
+});
+
+test("feature-bundle diagnostic epoch is persisted before source mutation and denied after restart", async () => {
+  const writes = [];
+  const input = bundleConvergenceInput({
+    sourceChangingCycle: 50,
+    writeState(nextState) {
+      writes.push(nextState);
+      input.state = nextState;
+    },
+  });
+  input.state.reviewConvergenceHistory = [
+    { findingFingerprints: ["a"], patchId: "p1" },
+    { findingFingerprints: ["b"], patchId: "p2" },
+  ];
+  input.state.reviewConvergenceState = {
+    ...input.state.reviewConvergenceState,
+    sourceChangingCycle: 50,
+  };
+  const result = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+    async runFixCycle(_config, context) {
+      assert.equal(context.state.reviewConvergenceState.epochDiagnosticStarted, true);
+      assert.equal(writes.some((entry) => entry.reviewConvergenceState?.epochDiagnosticStarted === true), true);
+      return { proceeded: false, reason: "review_fix_left_no_changed_files", decision: { sanitizedFindings: [] } };
+    },
+    async commitAndRerun() {
+      throw new Error("commit should not run");
+    },
+    persistExactHeadEvidence() {
+      throw new Error("evidence should not persist without source mutation");
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.state.reviewConvergenceState.epochDiagnosticStarted, true);
+  const restart = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, {
+    ...input,
+    state: result.state,
+    writeState(nextState) {
+      input.state = nextState;
+    },
+  }, {
+    async runFixCycle() {
+      throw new Error("diagnostic epoch must not run twice");
+    },
+    async commitAndRerun() {
+      throw new Error("commit should not run");
+    },
+  });
+  assert.equal(restart.ok, false);
+  assert.equal(restart.reasonCode, "CYCLE_BUDGET_EXHAUSTED");
+  assert.equal(restart.reason, "diagnostic_epoch_already_used");
+});
+
+test("feature-bundle diagnostic persistence failure prevents fix invocation", async () => {
+  const input = bundleConvergenceInput({
+    sourceChangingCycle: 50,
+    writeState(nextState) {
+      if (nextState.reviewConvergenceState?.epochDiagnosticStarted) {
+        throw new Error("diagnostic marker write failed");
+      }
+      input.state = nextState;
+    },
+  });
+  input.state.reviewConvergenceHistory = [
+    { findingFingerprints: ["a"], patchId: "p1" },
+    { findingFingerprints: ["b"], patchId: "p2" },
+  ];
+  input.state.reviewConvergenceState = { ...input.state.reviewConvergenceState, sourceChangingCycle: 50 };
+  await assert.rejects(
+    runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+      async runFixCycle() {
+        throw new Error("fix must not run when diagnostic marker cannot persist");
+      },
+    }),
+    /diagnostic marker write failed/,
+  );
 });
 
 test("feature-bundle convergence restart skips completed slices and does not duplicate source cycle before mutation", async () => {

@@ -82,6 +82,103 @@ export function createInitialReviewConvergenceState(input = {}) {
   return state;
 }
 
+export function normalizeReviewConvergenceStateIdentity(input = {}) {
+  const existing = input.reviewConvergenceState || input.convergenceState || input.state || {};
+  const pr = {
+    number: input.pr?.number ?? input.prNumber ?? existing.pr?.number ?? null,
+    headRefName: input.pr?.headRefName ?? input.pr?.branch ?? input.branchName ?? input.branch?.name ?? existing.pr?.branch ?? "",
+    baseRefName: input.pr?.baseRefName ?? input.pr?.base ?? input.baseRef ?? input.branch?.baseRef ?? existing.pr?.base ?? "main",
+    headRefOid:
+      input.exactHead ||
+      input.expectedHeadSha ||
+      input.actualHeadSha ||
+      input.runnerCreatedCommitSha ||
+      input.pr?.exactHead ||
+      input.pr?.headSha ||
+      input.pr?.headRefOid ||
+      existing.pr?.exactHead ||
+      null,
+  };
+  const repository = input.repository || existing.repository || input.config?.repositorySlug || "tommytang213/Settleora";
+  const issue = input.issue || existing.task || {};
+  const canonicalConvergenceId = reviewConvergenceStorageKey({
+    stackId: input.stackId || existing.stackId || null,
+    repository,
+    issueNumber: input.issueNumber ?? existing.task?.issueNumber ?? issue.number ?? null,
+    prNumber: pr.number,
+    branchName: pr.headRefName,
+    baseRef: pr.baseRefName,
+  });
+  if (existing.convergenceId && existing.convergenceId !== canonicalConvergenceId) {
+    throw new Error("Invalid review convergence state: convergence_identity_mismatch");
+  }
+  const initial = createInitialReviewConvergenceState({
+    stackId: input.stackId || existing.stackId || null,
+    convergenceId: canonicalConvergenceId,
+    repository,
+    issue,
+    issueNumber: input.issueNumber ?? existing.task?.issueNumber ?? issue.number ?? null,
+    taskKey: input.taskKey || existing.task?.taskKey || input.promptInfo?.timestampKey || null,
+    pr,
+    branchName: pr.headRefName,
+    baseRef: pr.baseRefName,
+    exactHead: pr.headRefOid,
+    epoch: Number.isInteger(existing.epoch) ? existing.epoch : input.epoch,
+    sourceChangingCycle: Number.isInteger(input.sourceChangingCycle)
+      ? input.sourceChangingCycle
+      : Number.isInteger(existing.sourceChangingCycle)
+        ? existing.sourceChangingCycle
+        : 0,
+    parentPr: input.parentPr ?? existing.relationships?.parentPr ?? null,
+    dependentPrs: input.dependentPrs ?? existing.relationships?.dependentPrs ?? [],
+    phase: input.phase || existing.phase || "initialized",
+  });
+  const normalized = {
+    ...initial,
+    ...existing,
+    stateVersion: initial.stateVersion,
+    stackId: existing.stackId || initial.stackId,
+    convergenceId: existing.convergenceId || initial.convergenceId,
+    repository: initial.repository,
+    task: {
+      ...initial.task,
+      ...(existing.task || {}),
+      issueNumber: initial.task.issueNumber,
+      issueTitle: initial.task.issueTitle || existing.task?.issueTitle || "",
+      taskKey: initial.task.taskKey || existing.task?.taskKey || null,
+    },
+    pr: {
+      ...(existing.pr || {}),
+      ...initial.pr,
+    },
+    branch: {
+      ...(existing.branch || {}),
+      name: initial.pr.branch,
+      baseRef: initial.pr.base,
+      exactHead: initial.pr.exactHead,
+    },
+    epoch: initial.epoch,
+    sourceChangingCycle: initial.sourceChangingCycle,
+    findingInventory: Array.isArray(input.findingInventory)
+      ? input.findingInventory
+      : Array.isArray(existing.findingInventory)
+        ? existing.findingInventory
+        : initial.findingInventory,
+    evidence: input.evidence || existing.evidence || initial.evidence,
+    reviewRequests: existing.reviewRequests || existing.githubReviewRequests || input.reviewRequests || initial.reviewRequests,
+    mutationMarkers: existing.mutationMarkers || input.mutationMarkers || initial.mutationMarkers,
+    relationships: {
+      ...(initial.relationships || {}),
+      ...(existing.relationships || {}),
+      ...(input.relationships || {}),
+    },
+    timestamps: existing.timestamps || initial.timestamps,
+  };
+  const validation = validateReviewConvergenceState(normalized);
+  if (!validation.ok) throw new Error(`Invalid review convergence state: ${validation.reason}`);
+  return sanitizeState(normalized);
+}
+
 export function writeReviewConvergenceState(config, state) {
   const validation = validateReviewConvergenceState(state);
   if (!validation.ok) throw new Error(`Invalid review convergence state: ${validation.reason}`);

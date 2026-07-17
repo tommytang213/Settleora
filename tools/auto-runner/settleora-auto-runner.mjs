@@ -2118,6 +2118,11 @@ function evaluateNormalReviewConvergenceBudget(config, iteration, context) {
     return progress;
   }
   const decision = evaluateCycleBudget(iteration.reviewConvergenceState, config, iteration.reviewConvergenceHistory);
+  if (decision.transitionedState) {
+    iteration.reviewConvergenceState = decision.transitionedState;
+    persistNormalReviewConvergenceState(config, iteration, "diagnostic_epoch_started");
+    decision.transitionedState = iteration.reviewConvergenceState;
+  }
   iteration.reviewConvergenceBudget = decision;
   return decision;
 }
