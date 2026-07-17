@@ -498,6 +498,113 @@ test("review-fix redaction treats completed markers as secret boundaries", () =>
   }
 });
 
+test("review-fix redaction fails closed for malformed quoted secret values", () => {
+  const secret = runtimeCanary("malformed-quoted");
+  const second = runtimeCanary("malformed-quoted-second");
+  const harmless = `notes="'${secret}`;
+  assert.equal(redactSecretLikeText(harmless), harmless);
+
+  const cases = [
+    {
+      name: "marker unterminated double quoted token",
+      input: `[REDACTED]token="${secret}`,
+      keep: /\[REDACTED\]token="\[REDACTED\]"/,
+    },
+    {
+      name: "marker unterminated single quoted token",
+      input: `[REDACTED]token='${secret}`,
+      keep: /\[REDACTED\]token='\[REDACTED\]'/,
+    },
+    {
+      name: "mismatched single close for double quoted token",
+      input: `token="${secret}'`,
+      keep: /token="\[REDACTED\]"'/,
+    },
+    {
+      name: "mismatched double close for single quoted token",
+      input: `token='${secret}"`,
+      keep: /token='\[REDACTED\]'"/,
+    },
+    {
+      name: "marker api key alias malformed quote",
+      input: `[REDACTED]x-api-key="${secret}`,
+      keep: /\[REDACTED\]x-api-key="\[REDACTED\]"/,
+    },
+    {
+      name: "marker camel case alias malformed quote",
+      input: `[REDACTED]accessToken='${secret}`,
+      keep: /\[REDACTED\]accessToken='\[REDACTED\]'/,
+    },
+    {
+      name: "quoted json key malformed quoted value",
+      input: `[REDACTED]"token":"${secret}`,
+      keep: /\[REDACTED\]"token":"\[REDACTED\]"/,
+    },
+    {
+      name: "single quoted json key malformed quoted value",
+      input: `[REDACTED]'token':'${secret}`,
+      keep: /\[REDACTED\]'token':'\[REDACTED\]'/,
+    },
+    {
+      name: "malformed bearer authorization value",
+      input: `Authorization: Bearer "${secret}`,
+      keep: /Authorization: Bearer \[REDACTED\]/,
+    },
+    {
+      name: "malformed basic authorization value",
+      input: `Authorization: Basic '${secret}`,
+      keep: /Authorization: Basic \[REDACTED\]/,
+    },
+    {
+      name: "malformed value inside quoted wrapper",
+      input: `headers="[REDACTED]token='${secret}"`,
+      keep: /headers="\[REDACTED\]token='\[REDACTED\]'"/,
+    },
+    {
+      name: "malformed value inside unquoted wrapper",
+      input: `headers={[REDACTED]token="${secret}}`,
+      keep: /headers=\{\[REDACTED\]token="\[REDACTED\]"\}/,
+    },
+    {
+      name: "query malformed value preserves safe field",
+      input: `https://example.invalid/path?[REDACTED]token="${secret}&safe=visible`,
+      keep: /&safe=visible/,
+    },
+    {
+      name: "json-like malformed value preserves comma safe field",
+      input: `{[REDACTED]"token":"${secret},"safe":"visible"}`,
+      keep: /"safe":"visible"/,
+    },
+    {
+      name: "malformed value reaches bounded end",
+      input: `prefix [REDACTED]token="${secret}`,
+      keep: /\[REDACTED\]token="\[REDACTED\]"/,
+    },
+    {
+      name: "malformed value reaches newline",
+      input: `[REDACTED]token="${secret}\nsafe=visible`,
+      keep: /\nsafe=visible/,
+    },
+    {
+      name: "multiple malformed secret assignments",
+      input: `[REDACTED]token="${secret};[REDACTED]clientSecret='${second}`,
+      keep: /\[REDACTED\]clientSecret='\[REDACTED\]'/,
+    },
+    {
+      name: "existing marker malformed and balanced secret",
+      input: `[REDACTED]token="${secret}; x-api-key="${second}"`,
+      keep: /x-api-key="\[REDACTED\]"/,
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+    assert.doesNotMatch(redacted, new RegExp(second), item.name);
+    assert.match(redacted, item.keep, item.name);
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+});
+
 test("review-fix redaction is stack-safe and bounded for adversarial wrappers", () => {
   const secret = runtimeCanary("adversarial-wrapper");
   const started = process.hrtime.bigint();
@@ -622,6 +729,78 @@ test("review-fix prompt and evidence never serialize fake canary values", () => 
     assert.doesNotMatch(evidence, new RegExp(secret));
     assert.match(evidence, /"safe": "visible"/);
     assert.doesNotMatch(evidence, /\[object Object\]/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review-fix malformed quoted canaries never reach prompts or evidence", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fix-malformed-canary-"));
+  try {
+    const secret = runtimeCanary("prompt-evidence-malformed");
+    const trigger = {
+      actionable: true,
+      source: "integrated_gemini",
+      verdict: "fail",
+      findings: [{
+        provider: "gemini",
+        severity: "high",
+        path: `tools/auto-runner/lib/review-fix-policy.mjs?[REDACTED]token="${secret}&safe=visible`,
+        file: `tools/auto-runner/lib/review-fix-policy.mjs#[REDACTED]accessToken='${secret}`,
+        line: 136,
+        range: { startLine: 136, endLine: 137, label: `[REDACTED]"token":"${secret}` },
+        title: `[REDACTED]x-api-key="${secret}`,
+        message: `Authorization: Bearer "${secret}`,
+        body: `headers="[REDACTED]token='${secret}"`,
+        details: `query={[REDACTED]clientSecret:"${secret},safe:visible}`,
+        rule: `token="${secret}'`,
+        ruleId: `token='${secret}"`,
+        check: `[REDACTED]token="${secret}\nsafe=visible`,
+        invariant: "harmless malformed quote text remains visible",
+        authorityInvariant: `history={[REDACTED]token="${secret};safe=visible}`,
+      }],
+    };
+    const decision = evaluateReviewFixMutationDecision({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: 921, title: "Malformed canary", labels: [] },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedToImplement: true,
+        autoMergeEligible: true,
+        manualMergeRequired: false,
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const prompt = buildReviewFixPrompt({
+      issue: { number: 921, title: "Malformed canary" },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      branchName: "feature/review-fix",
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const written = writeReviewFixEvidence({ logsRoot: tempRoot }, {
+      issue: { number: 921, title: "Malformed canary" },
+      trigger,
+      decision,
+      findingInventory: [{ fingerprint: `[REDACTED]token="${secret}`, history: [`Authorization: Basic '${secret}`] }],
+      durableStateFixture: { prompt: `[REDACTED]accessToken='${secret}`, safe: "visible" },
+    });
+    const evidence = readFileSync(written.evidencePath, "utf8");
+    for (const output of [JSON.stringify(decision), prompt, evidence]) {
+      assert.doesNotMatch(output, new RegExp(secret));
+      assert.match(output, /\[REDACTED\]/);
+    }
+    assert.match(prompt, /safe=visible/);
+    assert.match(evidence, /"safe": "visible"/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

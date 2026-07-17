@@ -50,7 +50,10 @@ const maxRawSanitizedStringLength = 20_000;
 const maxSecretRedactionPasses = 1;
 const maxSecretRedactionReplacements = 1_000;
 const secretLexicalBoundarySource = "(^|[?&#=\\s,{[(;\\]])";
+const directSecretKeySource = "((?=[A-Za-z0-9_-]*(?:auth|api|token|secret|password|passwd|credential|key|cookie|csrf|xsrf|jwt|session|bearer))[A-Za-z][A-Za-z0-9_-]{0,80})";
 const protectedSecretLogPathPattern = /\/workspace\/logs\/settleora-auto-runner\/secrets\/(?:\[REDACTED\]|[^\s"',;)}\]]*)/gi;
+const malformedDoubleQuotedAuthorizationHeaderPattern = /\b(authorization)\s*:\s*(Bearer|Basic)\s+"([^"',;&?}\]\)\r\n]*)(?=[',;&?}\]\)\r\n]|$)/gi;
+const malformedSingleQuotedAuthorizationHeaderPattern = /\b(authorization)\s*:\s*(Bearer|Basic)\s+'([^'",;&?}\]\)\r\n]*)(?=[";,&?}\]\)\r\n]|$)/gi;
 const authorizationHeaderPattern = /\b(authorization)\s*:\s*(Bearer|Basic)\s+(?:\[REDACTED\]|[^\s,;&}\]\r\n]+)/gi;
 const standaloneAuthorizationPattern = /\b(Bearer|Basic)\s+(?:[A-Za-z0-9._~+/-]+=*|\[REDACTED\])/gi;
 const authorizationAssignmentPattern = new RegExp(
@@ -106,11 +109,35 @@ const secretAssignmentPattern = new RegExp(
   ].join(""),
   "gi",
 );
+const malformedDoubleQuotedDirectSecretAssignmentPattern = new RegExp(
+  [
+    secretLexicalBoundarySource,
+    "([\"']?)",
+    directSecretKeySource,
+    "\\2",
+    "\\s*([:=])\\s*",
+    "\"([^\"',;&?}\\]\\)\\r\\n]*)",
+    "(?=[',;&?}\\]\\)\\r\\n]|$)",
+  ].join(""),
+  "gi",
+);
+const malformedSingleQuotedDirectSecretAssignmentPattern = new RegExp(
+  [
+    secretLexicalBoundarySource,
+    "([\"']?)",
+    directSecretKeySource,
+    "\\2",
+    "\\s*([:=])\\s*",
+    "'([^'\",;&?}\\]\\)\\r\\n]*)",
+    "(?=[\",;&?}\\]\\)\\r\\n]|$)",
+  ].join(""),
+  "gi",
+);
 const directSecretAssignmentPattern = new RegExp(
   [
     secretLexicalBoundarySource,
     "([\"']?)",
-    "((?=[A-Za-z0-9_-]*(?:auth|api|token|secret|password|passwd|credential|key|cookie|csrf|xsrf|jwt|session|bearer))[A-Za-z][A-Za-z0-9_-]{0,80})",
+    directSecretKeySource,
     "\\2",
     "\\s*([:=])\\s*",
     "(?:",
@@ -122,11 +149,35 @@ const directSecretAssignmentPattern = new RegExp(
   ].join(""),
   "gi",
 );
+const malformedDoubleQuotedMarkerAdjacentSecretAssignmentPattern = new RegExp(
+  [
+    "(\\[REDACTED\\])",
+    "([\"']?)",
+    directSecretKeySource,
+    "\\2",
+    "\\s*([:=])\\s*",
+    "\"([^\"',;&?}\\]\\)\\r\\n]*)",
+    "(?=[',;&?}\\]\\)\\r\\n]|$)",
+  ].join(""),
+  "gi",
+);
+const malformedSingleQuotedMarkerAdjacentSecretAssignmentPattern = new RegExp(
+  [
+    "(\\[REDACTED\\])",
+    "([\"']?)",
+    directSecretKeySource,
+    "\\2",
+    "\\s*([:=])\\s*",
+    "'([^'\",;&?}\\]\\)\\r\\n]*)",
+    "(?=[\",;&?}\\]\\)\\r\\n]|$)",
+  ].join(""),
+  "gi",
+);
 const markerAdjacentSecretAssignmentPattern = new RegExp(
   [
     "(\\[REDACTED\\])",
     "([\"']?)",
-    "((?=[A-Za-z0-9_-]*(?:auth|api|token|secret|password|passwd|credential|key|cookie|csrf|xsrf|jwt|session|bearer))[A-Za-z][A-Za-z0-9_-]{0,80})",
+    directSecretKeySource,
     "\\2",
     "\\s*([:=])\\s*",
     "(?:",
@@ -541,11 +592,17 @@ export function redactSecretLikeText(value) {
 function redactSecretLikeTextPass(value, state, { includeWrappers }) {
   let redacted = String(value ?? "").slice(0, maxRawSanitizedStringLength)
     .replace(protectedSecretLogPathPattern, (match) => noteRedaction(state, match, secretRedactionMarker))
+    .replace(malformedDoubleQuotedAuthorizationHeaderPattern, (match, key, scheme) => replaceMalformedAuthorizationHeader(state, match, key, scheme))
+    .replace(malformedSingleQuotedAuthorizationHeaderPattern, (match, key, scheme) => replaceMalformedAuthorizationHeader(state, match, key, scheme))
     .replace(authorizationHeaderPattern, (match, key, scheme) => noteRedaction(state, match, `${key}: ${scheme} ${secretRedactionMarker}`))
     .replace(secretHeaderPattern, (...args) => replaceSecretHeader(state, ...args))
     .replace(quotedSecretHeaderPattern, (...args) => replaceSecretHeader(state, ...args))
     .replace(authorizationAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
+    .replace(malformedDoubleQuotedMarkerAdjacentSecretAssignmentPattern, (...args) => replaceMalformedSecretAssignment(state, "\"", ...args))
+    .replace(malformedSingleQuotedMarkerAdjacentSecretAssignmentPattern, (...args) => replaceMalformedSecretAssignment(state, "'", ...args))
     .replace(markerAdjacentSecretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
+    .replace(malformedDoubleQuotedDirectSecretAssignmentPattern, (...args) => replaceMalformedSecretAssignment(state, "\"", ...args))
+    .replace(malformedSingleQuotedDirectSecretAssignmentPattern, (...args) => replaceMalformedSecretAssignment(state, "'", ...args))
     .replace(includeWrappers ? secretAssignmentPattern : directSecretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
     .replace(standaloneAuthorizationPattern, (match, scheme) => noteRedaction(state, match, `${scheme} ${secretRedactionMarker}`));
   for (const pattern of obviousCredentialPatterns) {
@@ -573,6 +630,10 @@ function replaceSecretHeader(state, _match, lineStart, indent, key, value) {
   return noteRedaction(state, _match, `${lineStart}${indent}${key}: ${secretRedactionMarker}`);
 }
 
+function replaceMalformedAuthorizationHeader(state, _match, key, scheme) {
+  return noteRedaction(state, _match, `${key}: ${scheme} ${secretRedactionMarker}`);
+}
+
 function replaceSecretAssignment(state, _match, prefix, quote, key, separator, doubleQuoted, singleQuoted, alreadyRedacted, unquoted) {
   if (!isCanonicalSecretKey(key)) {
     return redactWrappedSecretAssignment(state, _match, prefix, quote, key, separator, doubleQuoted, singleQuoted, alreadyRedacted, unquoted);
@@ -585,6 +646,12 @@ function replaceSecretAssignment(state, _match, prefix, quote, key, separator, d
   }
   const quoteChar = doubleQuoted !== undefined ? "\"" : singleQuoted !== undefined ? "'" : "";
   return noteRedaction(state, _match, `${prefix}${quote}${key}${quote}${separator}${quoteChar}${secretRedactionMarker}${quoteChar}`);
+}
+
+function replaceMalformedSecretAssignment(state, valueQuote, _match, prefix, quote, key, separator, value) {
+  if (!isCanonicalSecretKey(key)) return _match;
+  if (isPartialRedactionMarkerValue(value)) return _match;
+  return noteRedaction(state, _match, `${prefix}${quote}${key}${quote}${separator}${valueQuote}${secretRedactionMarker}${valueQuote}`);
 }
 
 function redactWrappedSecretAssignment(state, _match, prefix, quote, key, separator, doubleQuoted, singleQuoted, alreadyRedacted, unquoted) {
