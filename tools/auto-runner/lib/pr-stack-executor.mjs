@@ -12,6 +12,7 @@ import { executeAutoMerge, inspectAutoMergeGithubState } from "./auto-merge-poli
 import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 import { runExistingPrReviewConvergence } from "./review-convergence-controller.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
+import { classifyIssueLane, filterForbiddenChangedFiles } from "./lane-policy.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -87,11 +88,12 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
 
   const dispatch = await dispatchStackAction({ config, stackConfig, plan, state, action, adapter });
   if (!dispatch.ok) {
+    const evidence = dispatch.evidencePatch ? mergeEvidencePatch(state.evidence, dispatch.evidencePatch) : dispatch.evidence || state.evidence;
     const blocked = transitionState(state, {
       phase: dispatch.waiting ? "waiting" : "blocked",
       terminal: dispatch.waiting ? null : { reasonCode: dispatch.reasonCode, reason: dispatch.reason },
       wait: dispatch.waiting ? { reasonCode: dispatch.reasonCode, action } : null,
-      evidence: dispatch.evidence || state.evidence,
+      evidence,
       sourceCycles: dispatch.sourceCycles || state.sourceCycles,
       exactHeads: dispatch.exactHeads || state.exactHeads,
       orderedPrs: dispatch.orderedPrs || state.orderedPrs,
@@ -275,6 +277,7 @@ export function validatePrStackState(state = {}, plan = null) {
       const actual = state.orderedPrs[index];
       for (const key of ["number", "baseRefName", "headRefName", "headRefOid", "expectedParentPr", "expectedParentBranch"]) {
         if (key === "headRefOid" && state.exactHeads?.[expected.number]) continue;
+        if (key === "baseRefName" && state.evidence?.retargeted?.[expected.number]?.ok === true) continue;
         if (actual[key] !== expected[key]) return fail("stack_state_pr_identity_mismatch", `stack state PR ${key} differs from plan`);
       }
     }
@@ -364,7 +367,13 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
 
 async function dispatchCompleteGates({ config, state, action, pr, adapter }) {
   const result = await adapter.completeFinalGates({ config, state, pr });
-  if (!result?.ok) return waitOrFail(result, "final_gates_failed");
+  if (!result?.ok) {
+    if (result?.waiting && result.evidencePatch) {
+      const patchValidation = validateEvidencePatch(result.evidencePatch);
+      if (!patchValidation.ok) return patchValidation;
+    }
+    return waitOrFail(result, "final_gates_failed");
+  }
   return { ok: true, evidence: putEvidence(state.evidence, "gatesPassed", pr.number, result), summary: { action: action.action, prNumber: pr.number } };
 }
 
@@ -400,12 +409,13 @@ async function dispatchRetargetPr({ state, action, pr, adapter }) {
   }
   const result = await adapter.retargetPrBase({ pr, newBase: action.newBase || "main", expectedHead: pr.headRefOid, expectedCurrentBase: pr.baseRefName });
   if (!result?.ok) return waitOrFail(result, "retarget_failed");
+  const retargetProof = { ...result, ok: true, newBase: action.newBase || "main", after: { ...(result.after || {}), baseRefName: action.newBase || "main" } };
   const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "retarget_pr", key: `${pr.headRefOid}:main`, prNumber: pr.number, exactHead: pr.headRefOid });
   const mutationMarkers = {
     ...marker.plan.mutationMarkers,
-    [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(result) },
+    [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(retargetProof) },
   };
-  return { ok: true, evidence: putEvidence(state.evidence, "retargeted", pr.number, result), mutationMarkers, summary: { action: action.action, prNumber: pr.number } };
+  return { ok: true, evidence: putEvidence(state.evidence, "retargeted", pr.number, retargetProof), mutationMarkers, summary: { action: action.action, prNumber: pr.number } };
 }
 
 async function dispatchOwnDeltaProof({ state, action, pr, adapter }) {
@@ -421,12 +431,13 @@ async function dispatchOwnDeltaProof({ state, action, pr, adapter }) {
     if (!state.mutationMarkers[markerKey]) {
       const ready = await adapter.markReadyForReview({ pr, expectedHead: pr.headRefOid });
       if (!ready?.ok) return waitOrFail(ready, "ready_transition_failed");
+      const readyProof = { ...ready, ok: true, after: { ...(ready.after || {}), isDraft: false } };
       const marker = recordStackMutationMarker({ mutationMarkers }, { kind: "ready_pr", key: pr.headRefOid, prNumber: pr.number, exactHead: pr.headRefOid });
       mutationMarkers = {
         ...marker.plan.mutationMarkers,
-        [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(ready) },
+        [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(readyProof) },
       };
-      evidence = putEvidence(evidence, "ready", pr.number, ready);
+      evidence = putEvidence(evidence, "ready", pr.number, readyProof);
     }
   }
   return { ok: true, evidence, mutationMarkers, summary: { action: action.action, prNumber: pr.number } };
@@ -483,6 +494,15 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     },
     async completeFinalGates({ config: cfg, state, pr }) {
       const gate = collectFinalGateEvidence({ config: cfg || config, state, pr, runner: runner || defaultRunner });
+      if (!gate.ok && gate.waiting && gate.evidence) {
+        return {
+          ok: false,
+          waiting: true,
+          reasonCode: gate.reasonCode,
+          reason: gate.reason,
+          evidencePatch: { finalGateSnapshots: { [pr.number]: gate.evidence } },
+        };
+      }
       if (!gate.ok) return gate;
       return gate.evidence;
     },
@@ -494,6 +514,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         return fail("merge_pr_head_stale", `PR #${pr.number} head changed before merge`);
       }
       const changedFiles = normalizeChangedFiles(gateEvidence.changedFiles || inspection.changedFiles || pr.changedFiles || []);
+      const allowedPathProofValid = allowedPathProofMatchesGate(gateEvidence, changedFiles, expectedHead);
       const laneDecision = gateEvidence.laneDecision || {
         lane: "workflow-docs-tooling",
         canonicalLane: "workflow-docs-tooling",
@@ -521,7 +542,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         currentOriginMainSha: gateEvidence.currentOriginMainSha || gateEvidence.baseSha || null,
         changedFiles,
         forbiddenChangedFiles: gateEvidence.forbiddenChangedFiles || [],
-        changedFilesExactlyMatchAllowedPaths: gateEvidence.changedFilesExactlyMatchAllowedPaths === true,
+        changedFilesExactlyMatchAllowedPaths: allowedPathProofValid,
         worktreeClean: true,
         requiredChecks: gateEvidence.requiredChecks || inspection.requiredChecks || [],
         reviewThreads: gateEvidence.reviewThreads || inspection.reviewThreads || [],
@@ -556,10 +577,14 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (!current.ok) return current;
       return { ok: true, before: pr.ownDelta, after: current.ownDelta };
     },
-    async markReadyForReview({ pr }) {
-      const result = defaultRunner("gh", ["pr", "ready", String(pr.number)], { cwd: config.repoRoot });
+    async markReadyForReview({ pr, expectedHead }) {
+      const before = readPrReadyProof({ config, pr, expectedHead, expectedDraft: true, runner: runner || defaultRunner });
+      if (!before.ok) return before;
+      const result = (runner || defaultRunner)("gh", ["pr", "ready", String(pr.number)], { cwd: config.repoRoot });
       if (result.status !== 0 || result.error) return fail("ready_failed", boundedText(result.stderr || result.error || result.stdout));
-      return { ok: true, prNumber: pr.number };
+      const after = readPrReadyProof({ config, pr: { ...pr, isDraft: false }, expectedHead, expectedDraft: false, runner: runner || defaultRunner });
+      if (!after.ok) return after;
+      return { ok: true, prNumber: pr.number, expectedHead, before: before.proof, after: after.proof };
     },
     async updatePrStatusEvidence() {
       return { ok: true, reason: "status_update_not_required" };
@@ -600,12 +625,18 @@ function transitionState(state, patch = {}) {
 
 function rebindPlanToStateHeads(plan, state) {
   const exactHeads = state?.exactHeads || {};
+  const statePrs = new Map((state?.orderedPrs || []).map((pr) => [pr.number, pr]));
   return {
     ...plan,
-    orderedPrs: plan.orderedPrs.map((pr) => ({
-      ...pr,
-      headRefOid: exactHeads[pr.number] || pr.headRefOid,
-    })),
+    orderedPrs: plan.orderedPrs.map((pr) => {
+      const statePr = statePrs.get(pr.number) || {};
+      return {
+        ...pr,
+        baseRefName: statePr.baseRefName || pr.baseRefName,
+        isDraft: statePr.isDraft ?? pr.isDraft,
+        headRefOid: exactHeads[pr.number] || statePr.headRefOid || pr.headRefOid,
+      };
+    }),
   };
 }
 
@@ -622,20 +653,31 @@ function rebindStateToNewHead(state, prNumber, newHead, sourceCycles, result) {
     evidence,
     sourceCycles,
     exactHeads: { ...(state.exactHeads || {}), [prNumber]: newHead },
-    orderedPrs: (state.orderedPrs || []).map((pr) => (pr.number === prNumber ? { ...pr, headRefOid: newHead } : pr)),
+    orderedPrs: rebindOrderedPrToNewHead(state, prNumber, newHead),
     mutationMarkers: pruneHeadBoundMutationMarkers(state.mutationMarkers, prNumber, oldHead),
   };
 }
 
 function invalidateHeadBoundEvidence(evidence = {}, prNumber) {
   const next = { ...(evidence || {}) };
-  for (const key of ["gatesPassed", "merged", "currentMainProof", "currentMainProven", "mergedCurrentMain", "retargeted", "ownDeltaPreserved", "ready"]) {
+  for (const key of ["gatesPassed", "merged", "currentMainProof", "currentMainProven", "mergedCurrentMain", "ownDeltaPreserved", "validation", "strongReview", "codexReview", "review"]) {
     if (next[key]?.[prNumber]) {
       next[key] = { ...next[key] };
       delete next[key][prNumber];
     }
   }
   return next;
+}
+
+function rebindOrderedPrToNewHead(state, prNumber, newHead) {
+  const durableRetarget = state.evidence?.retargeted?.[prNumber] || null;
+  const durableReady = state.evidence?.ready?.[prNumber] || null;
+  return (state.orderedPrs || []).map((pr) => {
+    if (pr.number !== prNumber) return pr;
+    const baseRefName = durableRetarget?.newBase || durableRetarget?.after?.baseRefName || pr.baseRefName;
+    const isDraft = durableReady?.after ? Boolean(durableReady.after.isDraft) : durableReady?.ok === true ? false : pr.isDraft;
+    return { ...pr, headRefOid: newHead, baseRefName, isDraft };
+  });
 }
 
 function pruneHeadBoundMutationMarkers(markers = {}, prNumber, oldHead) {
@@ -709,8 +751,43 @@ function putEvidence(evidence, kind, key, value) {
 }
 
 function waitOrFail(result, fallback) {
-  if (result?.waiting) return { ok: false, waiting: true, reasonCode: result.reasonCode || fallback, reason: result.reason || fallback, evidence: result.evidence };
+  if (result?.waiting) {
+    return {
+      ok: false,
+      waiting: true,
+      reasonCode: result.reasonCode || fallback,
+      reason: result.reason || fallback,
+      evidence: result.evidence,
+      evidencePatch: result.evidencePatch,
+    };
+  }
   return fail(result?.reasonCode || fallback, result?.reason || fallback);
+}
+
+function mergeEvidencePatch(evidence = {}, patch = {}) {
+  const validation = validateEvidencePatch(patch);
+  if (!validation.ok) throw new Error(`Invalid evidence patch: ${validation.reasonCode}`);
+  const next = { ...(evidence || {}) };
+  for (const [kind, entries] of Object.entries(patch)) {
+    next[kind] = { ...(next[kind] || {}) };
+    for (const [key, value] of Object.entries(entries)) {
+      next[kind][key] = sanitizeState(value);
+    }
+  }
+  return next;
+}
+
+function validateEvidencePatch(patch = {}) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return fail("stack_evidence_patch_invalid", "evidence patch must be an object");
+  for (const [kind, entries] of Object.entries(patch)) {
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(kind)) return fail("stack_evidence_patch_invalid", "evidence patch kind is invalid");
+    if (!entries || typeof entries !== "object" || Array.isArray(entries)) return fail("stack_evidence_patch_invalid", "evidence patch entries must be keyed objects");
+    for (const [key, value] of Object.entries(entries)) {
+      if (!/^[A-Za-z0-9_.:-]+$/.test(String(key))) return fail("stack_evidence_patch_invalid", "evidence patch key is invalid");
+      if (value === undefined || typeof value === "function") return fail("stack_evidence_patch_invalid", "evidence patch value is invalid");
+    }
+  }
+  return { ok: true };
 }
 
 function nextUnmergedPr(plan, evidence, justMerged) {
@@ -742,6 +819,12 @@ function boundedProof(value) {
 
 function normalizeChangedFiles(files = []) {
   return [...new Set((Array.isArray(files) ? files : []).map((file) => String(file || "").trim()).filter(Boolean))].sort();
+}
+
+function sameStringSet(left = [], right = []) {
+  const normalizedLeft = normalizeChangedFiles(left);
+  const normalizedRight = normalizeChangedFiles(right);
+  return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((value, index) => value === normalizedRight[index]);
 }
 
 function sanitizeState(value) {
@@ -848,13 +931,37 @@ function readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, ru
   return { ok: true, proof };
 }
 
+function readPrReadyProof({ config, pr, expectedHead, expectedDraft, runner }) {
+  const result = runner(
+    "gh",
+    ["pr", "view", String(pr.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid"],
+    { cwd: config.repoRoot },
+  );
+  if (result.status !== 0 || result.error) return fail("ready_pr_read_failed", boundedText(result.stderr || result.error || result.stdout));
+  let proof;
+  try {
+    proof = JSON.parse(result.stdout || "{}");
+  } catch (error) {
+    return fail("ready_pr_read_parse_failed", error.message);
+  }
+  if (proof.number !== pr.number) return fail("ready_pr_number_mismatch", "PR readback number did not match");
+  if (proof.state !== "OPEN") return fail("ready_pr_state_not_open", `PR state is ${proof.state || "unknown"}`);
+  if (proof.headRefName !== pr.headRefName) return fail("ready_pr_branch_mismatch", "PR head branch did not match plan");
+  if (proof.headRefOid !== expectedHead) return fail("ready_pr_head_stale", "PR head changed before ready transition");
+  if (proof.baseRefName !== pr.baseRefName) return fail("ready_pr_base_stale", "PR base changed before ready transition");
+  if (Boolean(proof.isDraft) !== Boolean(expectedDraft)) return fail("ready_pr_draft_state_mismatch", "PR draft state did not match expected ready transition state");
+  return { ok: true, proof };
+}
+
 function collectFinalGateEvidence({ config, state, pr, runner }) {
-  const inspection = inspectAutoMergeGithubState(config, { issue: { number: pr.issueNumber || 921 }, prUrlOrNumber: pr.number });
+  const inspection = inspectAutoMergeGithubState(config, { issue: finalGateIssue(config, state, pr), prUrlOrNumber: pr.number });
   if (!inspection?.pr) return fail("final_gate_pr_read_failed", "PR state could not be read");
   const currentHead = inspection.pr.headRefOid || pr.headRefOid;
   if (currentHead !== pr.headRefOid) return fail("final_gate_pr_head_stale", `PR #${pr.number} head changed before final gates`);
   const changed = readCurrentPrOwnDelta({ config, pr, runner });
   if (!changed.ok) return changed;
+  const laneProof = buildAllowedPathProof({ issue: inspection.issue, changedFiles: changed.ownDelta.fileSet, exactHead: currentHead });
+  if (!laneProof.ok) return laneProof;
   const status = finalExternalGateStatus(inspection);
   const base = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
   const worktree = runner("git", ["status", "--porcelain=v1", "--untracked-files=no"], { cwd: config.repoRoot });
@@ -864,6 +971,10 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
     pr: inspection.pr,
     changedFiles: changed.ownDelta.fileSet,
     changedFilesDigest: changed.ownDelta.fileSetDigest,
+    changedFilesExactlyMatchAllowedPaths: laneProof.changedFilesExactlyMatchAllowedPaths,
+    allowedPathProof: laneProof,
+    forbiddenChangedFiles: laneProof.rejectedPaths,
+    laneDecision: laneProof.laneDecision,
     canonicalDigest: changed.ownDelta.normalizedPatchDigest,
     ownDelta: changed.ownDelta,
     requiredChecks: inspection.requiredChecks || [],
@@ -877,9 +988,55 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
     worktreeClean: worktree.status === 0 && String(worktree.stdout || "").trim() === "",
     collectedAt: new Date().toISOString(),
   };
+  if (!laneProof.changedFilesExactlyMatchAllowedPaths) {
+    return fail("changed_files_do_not_match_allowed_paths", `changed files outside allowed contract: ${laneProof.rejectedPaths.join(",")}`);
+  }
   if (!status.ok) return { ok: false, waiting: status.waiting, reasonCode: status.reasonCode, reason: status.reason, evidence };
   if (!evidence.worktreeClean) return fail("final_gate_worktree_not_clean", "worktree must be clean before final gates pass");
   return { ok: true, evidence };
+}
+
+function finalGateIssue(config = {}, state = {}, pr = {}) {
+  return (
+    pr.issue ||
+    config.prStackIssue ||
+    state.issue ||
+    { number: pr.issueNumber || state.issueNumber || 921, labels: [], body: "" }
+  );
+}
+
+function buildAllowedPathProof({ issue, changedFiles, exactHead }) {
+  const normalized = normalizeChangedFiles(changedFiles);
+  const laneDecision = classifyIssueLane(issue || {});
+  if (!laneDecision.allowedToImplement) {
+    return fail("allowed_path_contract_unavailable", laneDecision.reason || "lane contract did not authorize implementation");
+  }
+  const rejectedPaths = filterForbiddenChangedFiles(normalized, laneDecision);
+  return {
+    ok: true,
+    exactHead,
+    changedFiles: normalized,
+    changedFilesDigest: digestJson(normalized),
+    lane: laneDecision.lane,
+    canonicalLane: laneDecision.canonicalLane || laneDecision.lane,
+    contractAllowedPaths: laneDecision.allowedPaths || [],
+    laneManifestAllowedPaths: laneDecision.laneManifestAllowedPaths || laneDecision.laneManifest?.allowedPaths || [],
+    rejectedPaths,
+    changedFilesExactlyMatchAllowedPaths: rejectedPaths.length === 0,
+    laneDecision,
+    provenAt: new Date().toISOString(),
+  };
+}
+
+function allowedPathProofMatchesGate(gateEvidence = {}, changedFiles = [], expectedHead = null) {
+  const proof = gateEvidence.allowedPathProof || {};
+  const normalized = normalizeChangedFiles(changedFiles);
+  if (proof.ok !== true || proof.changedFilesExactlyMatchAllowedPaths !== true) return false;
+  if (expectedHead && proof.exactHead !== expectedHead) return false;
+  if (!sameStringSet(proof.changedFiles || [], normalized)) return false;
+  if (proof.changedFilesDigest !== digestJson(normalized)) return false;
+  if (Array.isArray(proof.rejectedPaths) && proof.rejectedPaths.length > 0) return false;
+  return true;
 }
 
 function finalExternalGateStatus(inspection = {}) {
