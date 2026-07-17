@@ -405,17 +405,31 @@ async function dispatchRetargetPr({ state, action, pr, adapter }) {
   if (!state.evidence?.currentMainProof?.[parentNumber]) return fail("retarget_without_current_main_refused", "current-main proof required before retarget");
   const markerKey = markerKeyFor("retarget_pr", pr.number, `${pr.headRefOid}:main`);
   if (state.mutationMarkers[markerKey]) {
-    return { ok: true, evidence: putEvidence(state.evidence, "retargeted", pr.number, state.mutationMarkers[markerKey].result || { ok: true }), mutationMarkers: state.mutationMarkers, summary: { action: action.action, duplicate: true } };
+    const retargetProof = state.mutationMarkers[markerKey].result || { ok: true, newBase: action.newBase || "main" };
+    return {
+      ok: true,
+      evidence: putEvidence(state.evidence, "retargeted", pr.number, retargetProof),
+      mutationMarkers: state.mutationMarkers,
+      orderedPrs: rebindOrderedPrAfterRetarget(state, pr.number, retargetProof),
+      summary: { action: action.action, duplicate: true },
+    };
   }
   const result = await adapter.retargetPrBase({ pr, newBase: action.newBase || "main", expectedHead: pr.headRefOid, expectedCurrentBase: pr.baseRefName });
   if (!result?.ok) return waitOrFail(result, "retarget_failed");
-  const retargetProof = { ...result, ok: true, newBase: action.newBase || "main", after: { ...(result.after || {}), baseRefName: action.newBase || "main" } };
+  const actualNewBase = result.after?.baseRefName || action.newBase || "main";
+  const retargetProof = { ...result, ok: true, newBase: actualNewBase, after: { ...(result.after || {}), baseRefName: actualNewBase } };
   const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "retarget_pr", key: `${pr.headRefOid}:main`, prNumber: pr.number, exactHead: pr.headRefOid });
   const mutationMarkers = {
     ...marker.plan.mutationMarkers,
     [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(retargetProof) },
   };
-  return { ok: true, evidence: putEvidence(state.evidence, "retargeted", pr.number, retargetProof), mutationMarkers, summary: { action: action.action, prNumber: pr.number } };
+  return {
+    ok: true,
+    evidence: putEvidence(state.evidence, "retargeted", pr.number, retargetProof),
+    mutationMarkers,
+    orderedPrs: rebindOrderedPrAfterRetarget(state, pr.number, retargetProof),
+    summary: { action: action.action, prNumber: pr.number },
+  };
 }
 
 async function dispatchOwnDeltaProof({ state, action, pr, adapter }) {
@@ -515,6 +529,16 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       }
       const changedFiles = normalizeChangedFiles(gateEvidence.changedFiles || inspection.changedFiles || pr.changedFiles || []);
       const allowedPathProofValid = allowedPathProofMatchesGate(gateEvidence, changedFiles, expectedHead);
+      const expectedBase = gateEvidence.baseSha || gateEvidence.expectedOriginMainSha || null;
+      if (!validSha(expectedBase)) return fail("final_gate_base_missing", "final gate evidence must be bound to origin/main");
+      const reviewEvidence = finalGateReviewEvidenceForMerge(gateEvidence, {
+        expectedHead,
+        expectedBase,
+        changedFiles,
+      });
+      if (!reviewEvidence.ok) return reviewEvidence;
+      const worktreeProof = readMergeWorktreeCleanProof({ config: cfg || config, expectedHead, runner: runner || defaultRunner });
+      if (!worktreeProof.ok) return worktreeProof;
       const laneDecision = gateEvidence.laneDecision || {
         lane: "workflow-docs-tooling",
         canonicalLane: "workflow-docs-tooling",
@@ -538,21 +562,22 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         expectedHeadSha: expectedHead,
         actualHeadSha: expectedHead,
         runnerCreatedCommitSha: expectedHead,
-        expectedOriginMainSha: gateEvidence.baseSha || gateEvidence.expectedOriginMainSha || null,
+        expectedOriginMainSha: expectedBase,
         currentOriginMainSha: gateEvidence.currentOriginMainSha || gateEvidence.baseSha || null,
         changedFiles,
         forbiddenChangedFiles: gateEvidence.forbiddenChangedFiles || [],
         changedFilesExactlyMatchAllowedPaths: allowedPathProofValid,
-        worktreeClean: true,
+        worktreeClean: worktreeProof.clean === true,
+        worktreeCleanProof: worktreeProof,
         requiredChecks: gateEvidence.requiredChecks || inspection.requiredChecks || [],
         reviewThreads: gateEvidence.reviewThreads || inspection.reviewThreads || [],
         codeScanningAlerts: gateEvidence.codeScanningAlerts || inspection.codeScanningAlerts || [],
         blockingMarkers: gateEvidence.blockingMarkers || inspection.blockingMarkers || [],
         validation: gateEvidence.validation || {},
-        externalReview: gateEvidence.externalReview || {},
+        externalReview: reviewEvidence.strongIndependent,
         externalReviewRequired: true,
-        review: gateEvidence.review || {},
-        codexMechanicsReviewApproved: gateEvidence.codexMechanicsReviewApproved === true,
+        review: reviewEvidence.codex,
+        codexMechanicsReviewApproved: reviewEvidence.codexMechanicsReviewApproved === true,
         issueLinkageEvidence: gateEvidence.issueLinkageEvidence || { available: true, linked: true, matchedSources: ["stack-plan"] },
       };
       const result = executeAutoMerge(cfg || config, context, runner ? { runner } : {});
@@ -678,6 +703,14 @@ function rebindOrderedPrToNewHead(state, prNumber, newHead) {
     const isDraft = durableReady?.after ? Boolean(durableReady.after.isDraft) : durableReady?.ok === true ? false : pr.isDraft;
     return { ...pr, headRefOid: newHead, baseRefName, isDraft };
   });
+}
+
+function rebindOrderedPrAfterRetarget(state, prNumber, proof = {}) {
+  const actualBase = proof.after?.baseRefName || proof.newBase || null;
+  if (!actualBase) return state.orderedPrs;
+  return (state.orderedPrs || []).map((pr) => (
+    pr.number === prNumber ? { ...pr, baseRefName: actualBase } : pr
+  ));
 }
 
 function pruneHeadBoundMutationMarkers(markers = {}, prNumber, oldHead) {
@@ -846,6 +879,10 @@ function digestJson(value) {
   return createHash("sha256").update(JSON.stringify(value || {})).digest("hex");
 }
 
+function digestStringSet(values = []) {
+  return createHash("sha256").update(normalizeChangedFiles(values).join("\n")).digest("hex");
+}
+
 function validStackId(value) {
   return typeof value === "string" && /^[A-Za-z0-9._:-]{3,160}$/.test(value);
 }
@@ -964,13 +1001,23 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
   if (!laneProof.ok) return laneProof;
   const status = finalExternalGateStatus(inspection);
   const base = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
-  const worktree = runner("git", ["status", "--porcelain=v1", "--untracked-files=no"], { cwd: config.repoRoot });
+  const currentOriginMainSha = base.status === 0 && !base.error ? String(base.stdout || "").trim() : null;
+  if (!validSha(currentOriginMainSha)) return fail("final_gate_base_unreadable", "origin/main could not be read for final gate evidence");
+  const reviewEvidence = buildFinalGateReviewEvidence({
+    state,
+    prNumber: pr.number,
+    expectedHead: currentHead,
+    expectedBase: currentOriginMainSha,
+    changedFiles: changed.ownDelta.fileSet,
+  });
+  if (!reviewEvidence.ok) return reviewEvidence;
+  const worktree = readMergeWorktreeCleanProof({ config, expectedHead: currentHead, runner });
   const evidence = {
-    ok: status.ok && worktree.status === 0 && String(worktree.stdout || "").trim() === "",
+    ok: status.ok && worktree.ok && worktree.clean === true,
     exactHead: currentHead,
     pr: inspection.pr,
     changedFiles: changed.ownDelta.fileSet,
-    changedFilesDigest: changed.ownDelta.fileSetDigest,
+    changedFilesDigest: digestStringSet(changed.ownDelta.fileSet),
     changedFilesExactlyMatchAllowedPaths: laneProof.changedFilesExactlyMatchAllowedPaths,
     allowedPathProof: laneProof,
     forbiddenChangedFiles: laneProof.rejectedPaths,
@@ -982,18 +1029,125 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
     codeScanningAlerts: inspection.codeScanningAlerts || [],
     blockingMarkers: inspection.blockingMarkers || [],
     validation: state?.evidence?.validation?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.validation || null,
-    strongReview: state?.evidence?.strongReview?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.externalReview || null,
-    codexReview: state?.evidence?.codexReview?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.review || null,
-    currentOriginMainSha: base.status === 0 && !base.error ? String(base.stdout || "").trim() : null,
-    worktreeClean: worktree.status === 0 && String(worktree.stdout || "").trim() === "",
+    reviewEvidence: { strongIndependent: reviewEvidence.strongIndependent, codex: reviewEvidence.codex },
+    strongReview: reviewEvidence.strongIndependent,
+    codexReview: reviewEvidence.codex,
+    externalReview: reviewEvidence.strongIndependent,
+    review: reviewEvidence.codex,
+    codexMechanicsReviewApproved: true,
+    currentOriginMainSha,
+    expectedOriginMainSha: currentOriginMainSha,
+    baseSha: currentOriginMainSha,
+    worktreeClean: worktree.clean === true,
+    worktreeCleanProof: worktree,
     collectedAt: new Date().toISOString(),
   };
   if (!laneProof.changedFilesExactlyMatchAllowedPaths) {
     return fail("changed_files_do_not_match_allowed_paths", `changed files outside allowed contract: ${laneProof.rejectedPaths.join(",")}`);
   }
   if (!status.ok) return { ok: false, waiting: status.waiting, reasonCode: status.reasonCode, reason: status.reason, evidence };
-  if (!evidence.worktreeClean) return fail("final_gate_worktree_not_clean", "worktree must be clean before final gates pass");
+  if (!worktree.ok || !evidence.worktreeClean) return fail("final_gate_worktree_not_clean", "worktree must be clean before final gates pass", { worktreeCleanProof: worktree });
   return { ok: true, evidence };
+}
+
+function buildFinalGateReviewEvidence({ state, prNumber, expectedHead, expectedBase, changedFiles }) {
+  const gate = state?.evidence?.gatesPassed?.[prNumber] || {};
+  const strongIndependent = state?.evidence?.strongReview?.[prNumber] || gate.reviewEvidence?.strongIndependent || gate.strongReview || gate.externalReview || null;
+  const codex = state?.evidence?.codexReview?.[prNumber] || gate.reviewEvidence?.codex || gate.codexReview || gate.review || null;
+  return validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles });
+}
+
+function finalGateReviewEvidenceForMerge(gateEvidence, { expectedHead, expectedBase, changedFiles }) {
+  const strongIndependent = gateEvidence.reviewEvidence?.strongIndependent || gateEvidence.strongReview || gateEvidence.externalReview || null;
+  const codex = gateEvidence.reviewEvidence?.codex || gateEvidence.codexReview || gateEvidence.review || null;
+  return validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles });
+}
+
+function validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles }) {
+  const strong = validateReviewEvidenceObject(strongIndependent, {
+    name: "strong_review",
+    expectedHead,
+    expectedBase,
+    changedFiles,
+    requireIndependent: true,
+  });
+  if (!strong.ok) return strong;
+  const codexReview = validateReviewEvidenceObject(codex, {
+    name: "codex_review",
+    expectedHead,
+    expectedBase,
+    changedFiles,
+    requireIndependent: false,
+  });
+  if (!codexReview.ok) return codexReview;
+  return {
+    ok: true,
+    strongIndependent: strong.review,
+    codex: codexReview.review,
+    codexMechanicsReviewApproved: true,
+  };
+}
+
+function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase, changedFiles, requireIndependent }) {
+  if (!review || typeof review !== "object" || Array.isArray(review)) {
+    return fail(`${name}_missing`, `${name} evidence is required`);
+  }
+  const reviewedHead = review.reviewedHead || review.headSha || review.prHeadSha || null;
+  if (reviewedHead !== expectedHead) return fail(`${name}_head_mismatch`, `${name} evidence is not bound to the exact head`);
+  if (expectedBase && review.baseSha !== expectedBase) return fail(`${name}_base_mismatch`, `${name} evidence is not bound to the exact base`);
+  if (!Array.isArray(review.changedFiles)) return fail(`${name}_files_missing`, `${name} changed files are required`);
+  if (!sameStringSet(review.changedFiles, changedFiles)) return fail(`${name}_files_mismatch`, `${name} changed files do not match final gate files`);
+  if (review.changedFilesDigest !== digestStringSet(changedFiles)) return fail(`${name}_file_digest_mismatch`, `${name} changed-file digest does not match final gate files`);
+  if (!review.completedAt && !review.finishedAt) return fail(`${name}_timestamp_missing`, `${name} timestamp is required`);
+  if (requireIndependent && (review.status !== "pass" || review.verdict !== "pass" || review.independent !== true || review.provider === "codex")) {
+    return fail(`${name}_not_strong_independent_pass`, `${name} must be a strong independent pass`);
+  }
+  const verdict = review.verdict?.verdict || review.verdict;
+  if (!requireIndependent && verdict !== "approve") return fail(`${name}_not_approved`, `${name} must be an approved Codex review`);
+  if (!requireIndependent && (review.mutationDetected === true || review.checkoutMutationDetected === true)) {
+    return fail(`${name}_mutated_checkout`, `${name} mutated the checkout`);
+  }
+  return { ok: true, review: sanitizeState(review) };
+}
+
+function readMergeWorktreeCleanProof({ config, expectedHead, runner }) {
+  const cwd = config.repoRoot || process.cwd();
+  const head = runner("git", ["rev-parse", "HEAD"], { cwd });
+  if (head.status !== 0 || head.error) {
+    return fail("merge_worktree_head_unreadable", boundedText(head.stderr || head.error || head.stdout), {
+      clean: false,
+      repoPath: cwd,
+      expectedHead,
+    });
+  }
+  const actualHead = String(head.stdout || "").trim();
+  if (expectedHead && actualHead !== expectedHead) {
+    return fail("merge_worktree_head_mismatch", "worktree HEAD does not match expected PR head", {
+      clean: false,
+      repoPath: cwd,
+      expectedHead,
+      actualHead,
+    });
+  }
+  const status = runner("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd });
+  if (status.status !== 0 || status.error) {
+    return fail("merge_worktree_status_unreadable", boundedText(status.stderr || status.error || status.stdout), {
+      clean: false,
+      repoPath: cwd,
+      expectedHead,
+      actualHead,
+    });
+  }
+  const statusText = String(status.stdout || "").trim();
+  return {
+    ok: true,
+    clean: statusText === "",
+    repoPath: cwd,
+    expectedHead,
+    actualHead,
+    statusPorcelain: statusText,
+    checkedAt: new Date().toISOString(),
+  };
 }
 
 function finalGateIssue(config = {}, state = {}, pr = {}) {

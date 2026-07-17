@@ -88,7 +88,7 @@ test("executor follows nextStackAction through convergence, gates, merge, curren
   ];
   for (let i = 0; i < expected.length; i += 1) {
     const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
-    assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(result.ok, true);
   }
   assert.deepEqual(calls, expected);
   const state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
@@ -124,7 +124,7 @@ test("new source head consumes one parent cycle and waits do not consume cycles"
       convergeExistingPr: async () => ({ ok: true, newHead: sha("c") }),
     },
   });
-  assert.equal(result.ok, true);
+    assert.equal(result.ok, true, result.reasonCode);
   let state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
   assert.equal(state.sourceCycles["919"], 1);
   assert.equal(state.exactHeads["919"], sha("c"));
@@ -256,6 +256,7 @@ test("production merge adapter carries real gate changed-file evidence", async (
       results: [{ command: "node --test tools/auto-runner/test/pr-stack-executor.test.mjs", status: 0 }],
       completedAt: new Date().toISOString(),
       headSha: sha("a"),
+      baseSha: sha("e"),
       changedFiles,
       changedFilesDigest: digest,
       profile: "runner-tests",
@@ -265,6 +266,7 @@ test("production merge adapter carries real gate changed-file evidence", async (
       tier: "strong_independent",
       verdict: "pass",
       reviewedHead: sha("a"),
+      baseSha: sha("e"),
       changedFiles,
       changedFilesDigest: digest,
       independent: true,
@@ -273,12 +275,37 @@ test("production merge adapter carries real gate changed-file evidence", async (
     },
     review: {
       reviewedHead: sha("a"),
+      baseSha: sha("e"),
       changedFiles,
       changedFilesDigest: digest,
       verdict: { verdict: "approve" },
       completedAt: new Date().toISOString(),
     },
+    reviewEvidence: {
+      strongIndependent: {
+        status: "pass",
+        tier: "strong_independent",
+        verdict: "pass",
+        reviewedHead: sha("a"),
+        baseSha: sha("e"),
+        changedFiles,
+        changedFilesDigest: digest,
+        independent: true,
+        provider: "gemini",
+        completedAt: new Date().toISOString(),
+      },
+      codex: {
+        reviewedHead: sha("a"),
+        baseSha: sha("e"),
+        changedFiles,
+        changedFilesDigest: digest,
+        verdict: { verdict: "approve" },
+        completedAt: new Date().toISOString(),
+      },
+    },
     codexMechanicsReviewApproved: true,
+    baseSha: sha("e"),
+    expectedOriginMainSha: sha("e"),
     requiredChecks: [
       check("Validate scaffold"),
       check("CodeQL"),
@@ -429,6 +456,44 @@ test("production retarget blocks stale proof before mutation", async () => {
   assert.equal(edits, 0);
 });
 
+test("retarget post-readback updates ordered PR base and restart consumes persisted main base", async () => {
+  const fixture = stackFixtureAtChild();
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  let retargets = 0;
+  let result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
+    adapter: {
+      retargetPrBase: async () => {
+        retargets += 1;
+        return { ok: true, newBase: "main", after: { baseRefName: "main" } };
+      },
+    },
+  });
+  assert.equal(result.ok, true);
+  let state = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(state.orderedPrs[1].baseRefName, "main");
+  assert.equal(state.evidence.retargeted["920"].after.baseRefName, "main");
+
+  const calls = [];
+  result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
+    adapter: {
+      retargetPrBase: async () => { calls.push("retarget"); return { ok: true }; },
+      proveSemanticOwnDelta: async ({ pr }) => {
+        calls.push(`own-delta:${pr.baseRefName}`);
+        return { ok: true, before: pr.ownDelta, after: { ...pr.ownDelta, reversePatchApplies: true } };
+      },
+      markReadyForReview: async ({ pr }) => {
+        calls.push(`ready:${pr.baseRefName}`);
+        return { ok: true, after: { isDraft: false, baseRefName: pr.baseRefName } };
+      },
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(retargets, 1);
+  assert.deepEqual(calls, ["own-delta:main", "ready:main"]);
+  state = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(state.orderedPrs[1].baseRefName, "main");
+});
+
 test("production final gates collect real evidence and wait on pending checks or scanners", async () => {
   const fixture = stackFixture();
   const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
@@ -437,12 +502,15 @@ test("production final gates collect real evidence and wait on pending checks or
       if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
       if (args.includes("apply")) return fakeRunner();
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
       if (args[0] === "status") return fakeRunner();
       return fakeRunner();
     },
   });
-  const result = await adapter.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state: createInitialPrStackState({ plan: fixture.plan }), pr: fixture.plan.orderedPrs[0] });
+  const gateState = createInitialPrStackState({ plan: fixture.plan });
+  gateState.evidence.gatesPassed["919"] = gateEvidence({ changedFiles: ["tools/auto-runner/919.mjs"] });
+  const result = await adapter.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state: gateState, pr: { ...fixture.plan.orderedPrs[0], issue: autoRunnerIssue() } });
   assert.equal(result.ok, true);
   assert.deepEqual(result.changedFiles, ["tools/auto-runner/919.mjs"]);
 
@@ -466,12 +534,15 @@ test("final gates prove changed files against the real lane contract and reject 
       if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
       if (args.includes("apply")) return fakeRunner();
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
       if (args[0] === "status") return fakeRunner();
       return fakeRunner();
     },
   });
-  const ok = await adapter.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state: createInitialPrStackState({ plan: fixture.plan }), pr: fixture.plan.orderedPrs[0] });
+  const okState = createInitialPrStackState({ plan: fixture.plan });
+  okState.evidence.gatesPassed["919"] = gateEvidence({ changedFiles: ["tools/auto-runner/919.mjs"] });
+  const ok = await adapter.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state: okState, pr: { ...fixture.plan.orderedPrs[0], issue: autoRunnerIssue() } });
   assert.equal(ok.ok, true);
   assert.equal(ok.changedFilesExactlyMatchAllowedPaths, true);
   assert.deepEqual(ok.allowedPathProof.changedFiles, ["tools/auto-runner/919.mjs"]);
@@ -488,10 +559,15 @@ test("final gates prove changed files against the real lane contract and reject 
       if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
       if (args.includes("apply")) return fakeRunner();
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+      if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "status") return fakeRunner();
       return fakeRunner();
     },
   });
-  const blocked = await blockedAdapter.completeFinalGates({ config: blockedConfig, state: createInitialPrStackState({ plan: fixture.plan }), pr: fixture.plan.orderedPrs[0] });
+  const blockedState = createInitialPrStackState({ plan: fixture.plan });
+  blockedState.evidence.gatesPassed["919"] = gateEvidence({ changedFiles: ["tools/auto-runner/919.mjs"] });
+  const blocked = await blockedAdapter.completeFinalGates({ config: blockedConfig, state: blockedState, pr: { ...fixture.plan.orderedPrs[0], issue: autoRunnerIssue(["docs/workflow/**"]) } });
   assert.equal(blocked.ok, false);
   assert.equal(blocked.reasonCode, "changed_files_do_not_match_allowed_paths");
 });
@@ -525,10 +601,12 @@ test("merge consumes the exact-head allowed-path proof and invalidates stale hea
       laneManifest: { decisionType: "runnable", autoMergeAllowed: true },
       allowedPaths: ["tools/auto-runner/**"],
     },
-    validation: { passed: true, results: [{ command: "test", status: 0 }], completedAt: new Date().toISOString(), headSha: sha("a"), changedFiles, changedFilesDigest: digest, profile: "runner-tests" },
-    externalReview: { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: sha("a"), changedFiles, changedFilesDigest: digest, independent: true, provider: "gemini", completedAt: new Date().toISOString() },
-    review: { reviewedHead: sha("a"), changedFiles, changedFilesDigest: digest, verdict: { verdict: "approve" }, completedAt: new Date().toISOString() },
+    validation: { passed: true, results: [{ command: "test", status: 0 }], completedAt: new Date().toISOString(), headSha: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, profile: "runner-tests" },
+    externalReview: { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, independent: true, provider: "gemini", completedAt: new Date().toISOString() },
+    review: { reviewedHead: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, verdict: { verdict: "approve" }, completedAt: new Date().toISOString() },
     codexMechanicsReviewApproved: true,
+    baseSha: sha("e"),
+    expectedOriginMainSha: sha("e"),
     requiredChecks: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
     issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
   };
@@ -547,6 +625,69 @@ test("merge consumes the exact-head allowed-path proof and invalidates stale hea
   const staleFiles = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
   assert.equal(staleFiles.ok, false);
   assert.equal(staleFiles.reasonCode, "changed_files_do_not_match_allowed_paths");
+});
+
+test("head, base, digest mismatch, and partial final-gate review evidence block merge", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
+  const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
+  const state = createInitialPrStackState({ plan: fixture.plan });
+
+  state.evidence.gatesPassed["919"] = gateEvidence({ strongReview: { reviewedHead: sha("b") } });
+  assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "strong_review_head_mismatch");
+
+  state.evidence.gatesPassed["919"] = gateEvidence({ codexReview: { baseSha: sha("f") } });
+  assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "codex_review_base_mismatch");
+
+  state.evidence.gatesPassed["919"] = gateEvidence({ strongReview: { changedFilesDigest: digestStrings(["other.mjs"]) } });
+  assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "strong_review_file_digest_mismatch");
+
+  const partial = gateEvidence();
+  delete partial.reviewEvidence.codex;
+  delete partial.review;
+  delete partial.codexReview;
+  state.evidence.gatesPassed["919"] = partial;
+  assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "codex_review_missing");
+});
+
+test("merge reads actual clean worktree state and dirty or unreadable status blocks", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.gatesPassed["919"] = gateEvidence();
+  const run = (runner) => createProductionPrStackAdapter(config, { runner }).mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
+
+  let statusCall = null;
+  const clean = await run((command, args, options) => {
+    if (command === "git" && args[0] === "status") statusCall = { args, cwd: options.cwd };
+    return fakeRunner(command, args, options);
+  });
+  assert.equal(clean.ok, true);
+  assert.deepEqual(statusCall.args, ["status", "--porcelain=v1", "--untracked-files=all"]);
+  assert.equal(statusCall.cwd, config.repoRoot);
+
+  for (const dirty of [" M tools/auto-runner/lib/pr-stack-executor.mjs\n", "M  tools/auto-runner/lib/pr-stack-executor.mjs\n", "?? tools/auto-runner/new.mjs\n"]) {
+    const result = await run((command, args, options) => {
+      if (command === "git" && args[0] === "status") return { status: 0, stdout: dirty, stderr: "", error: null };
+      return fakeRunner(command, args, options);
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, "worktree_not_clean");
+  }
+
+  const unreadable = await run((command, args, options) => {
+    if (command === "git" && args[0] === "status") return { status: 128, stdout: "", stderr: "not a git repository", error: null };
+    return fakeRunner(command, args, options);
+  });
+  assert.equal(unreadable.ok, false);
+  assert.equal(unreadable.reasonCode, "merge_worktree_status_unreadable");
+
+  const wrongHead = await run((command, args, options) => {
+    if (command === "git" && args[0] === "rev-parse") return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
+    return fakeRunner(command, args, options);
+  });
+  assert.equal(wrongHead.ok, false);
+  assert.equal(wrongHead.reasonCode, "merge_worktree_head_mismatch");
 });
 
 test("gate wait evidence patches preserve existing maps, are idempotent, and malformed patches fail closed", async () => {
@@ -923,6 +1064,72 @@ function check(name) {
   return { name, status: "COMPLETED", conclusion: "SUCCESS" };
 }
 
+function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"], strongReview = {}, codexReview = {} } = {}) {
+  const digest = digestStrings(changedFiles);
+  const strongIndependent = {
+    status: "pass",
+    tier: "strong_independent",
+    verdict: "pass",
+    reviewedHead: sha("a"),
+    baseSha: sha("e"),
+    changedFiles,
+    changedFilesDigest: digest,
+    independent: true,
+    provider: "gemini",
+    completedAt: "2026-07-17T00:00:00.000Z",
+    ...strongReview,
+  };
+  const codex = {
+    reviewedHead: sha("a"),
+    baseSha: sha("e"),
+    changedFiles,
+    changedFilesDigest: digest,
+    verdict: { verdict: "approve" },
+    completedAt: "2026-07-17T00:00:01.000Z",
+    ...codexReview,
+  };
+  return {
+    ok: true,
+    exactHead: sha("a"),
+    changedFiles,
+    changedFilesDigest: digest,
+    changedFilesExactlyMatchAllowedPaths: true,
+    allowedPathProof: {
+      ok: true,
+      exactHead: sha("a"),
+      changedFiles,
+      changedFilesDigest: digestJson(changedFiles),
+      rejectedPaths: [],
+      changedFilesExactlyMatchAllowedPaths: true,
+    },
+    laneDecision: {
+      lane: "workflow-docs-tooling",
+      canonicalLane: "workflow-docs-tooling",
+      branchStrategy: "normal",
+      validationProfile: "runner-tests",
+      reviewerTier: "strong_independent",
+      allowedToImplement: true,
+      autoMergeEligible: true,
+      manualMergeRequired: false,
+      contract: { autoMergeEligible: true, manualMergeRequired: false },
+      laneManifest: { decisionType: "runnable", autoMergeAllowed: true },
+      allowedPaths: ["tools/auto-runner/**"],
+    },
+    validation: { passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-17T00:00:02.000Z", headSha: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, profile: "runner-tests" },
+    reviewEvidence: { strongIndependent, codex },
+    strongReview: strongIndependent,
+    codexReview: codex,
+    externalReview: strongIndependent,
+    review: codex,
+    codexMechanicsReviewApproved: true,
+    baseSha: sha("e"),
+    expectedOriginMainSha: sha("e"),
+    currentOriginMainSha: sha("e"),
+    requiredChecks: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
+    issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
+  };
+}
+
 function digestStrings(items) {
   return createHash("sha256").update([...items].sort().join("\n")).digest("hex");
 }
@@ -931,7 +1138,16 @@ function digestJson(value) {
   return createHash("sha256").update(JSON.stringify(value || {})).digest("hex");
 }
 
-function fakeRunner() {
+function fakeRunner(command, args = []) {
+  if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
+    return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+  }
+  if (command === "git" && args[0] === "rev-parse") {
+    return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+  }
+  if (command === "git" && args[0] === "status") {
+    return { status: 0, stdout: "", stderr: "", error: null };
+  }
   return { status: 0, stdout: "", stderr: "", error: null };
 }
 
