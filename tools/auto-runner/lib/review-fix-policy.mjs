@@ -55,7 +55,7 @@ const canonicalQuotedTailDelimiters = new Set(["\r", "\n"]);
 // one escaped layer (\") and one additional layer (\\"). Deeper quote escaping
 // inside a secret-shaped assignment is ambiguous and fails closed for that span.
 const maxEscapedStructuralQuoteDepth = 2;
-const secretLexicalBoundarySource = "(^|[?&#=\\s,{[(;\\]])";
+const secretLexicalBoundarySource = "(^|[?&#=:\\s,{[(;\\]])";
 const directSecretKeySource = "((?=[A-Za-z0-9_-]*(?:auth|api|token|secret|password|passwd|credential|key|cookie|csrf|xsrf|jwt|session|bearer))[A-Za-z][A-Za-z0-9_-]{0,80})";
 const protectedSecretLogPathPattern = /\/workspace\/logs\/settleora-auto-runner\/secrets\/(?:\[REDACTED\]|[^\s"',;)}\]]*)/gi;
 const malformedDoubleQuotedAuthorizationHeaderPattern = /\b(authorization)\s*:\s*(Bearer|Basic)\s+"([^"',;&?}\]\)\r\n]*)(?=[',;&?}\]\)\r\n]|$)/gi;
@@ -772,11 +772,29 @@ function scanCanonicalQuotedSecretValueSpan(canonical, quoteStart, quoteChar) {
 function scanCanonicalUnquotedSecretValueSpan(canonical, valueStart, { key }) {
   const value = canonical.normalized;
   if (String(key).toLowerCase() === "authorization") {
-    const scheme = value.slice(valueStart).match(/^(Bearer|Basic)(?=$|[\s,;&?}\]\)\r\n])/i);
-    if (scheme) return null;
+    const authorizationSpan = scanCanonicalAuthorizationAssignmentValueSpan(canonical, valueStart);
+    if (authorizationSpan !== undefined) return authorizationSpan;
   }
   const boundary = findCanonicalUnquotedValueBoundary(canonical, valueStart);
   return safeCanonicalValueSpan(canonical, valueStart, boundary);
+}
+
+function scanCanonicalAuthorizationAssignmentValueSpan(canonical, valueStart) {
+  const value = canonical.normalized;
+  const scheme = value.slice(valueStart).match(/^(Bearer|Basic)(?=$|[\s,;&?}\]\)\r\n])/i);
+  if (!scheme) return undefined;
+  const boundary = findCanonicalUnquotedValueBoundary(canonical, valueStart);
+  let credentialStart = valueStart + scheme[1].length;
+  while (credentialStart < boundary && /[ \t]/.test(value[credentialStart])) credentialStart += 1;
+  if (credentialStart >= boundary) return null;
+  const existingMarkerEnd = credentialStart + secretRedactionMarker.length;
+  if (
+    value.slice(credentialStart, existingMarkerEnd).toUpperCase() === secretRedactionMarker &&
+    isCanonicalQuotedValueBoundary(value[existingMarkerEnd])
+  ) {
+    return null;
+  }
+  return safeCanonicalValueSpan(canonical, valueStart, boundary, `${scheme[1]} ${secretRedactionMarker}`);
 }
 
 function findCanonicalUnquotedValueBoundary(canonical, start) {

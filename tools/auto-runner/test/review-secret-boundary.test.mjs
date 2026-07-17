@@ -1093,6 +1093,210 @@ test("review-fix redaction consumes quoted delimiters and unquoted escaped quote
   assert.doesNotMatch(budgetRedacted, new RegExp(budgetSecret));
 });
 
+test("review-fix redaction consumes complete Authorization assignment escaped tails", () => {
+  const secret = runtimeCanary("authorization-escaped-tail");
+  const second = runtimeCanary("authorization-second");
+  const third = runtimeCanary("authorization-third");
+  const backslash = "\\";
+  const doubleQuote = "\"";
+  const escapedQuote = `${backslash}${doubleQuote}`;
+  const lowerKey = ["author", "ization"].join("");
+  const camelKey = ["Author", "ization"].join("");
+  const bearer = ["Bear", "er"].join("");
+  const basic = ["Bas", "ic"].join("");
+  const auth = (key, separator, scheme, value, suffix = ";safe=visible") =>
+    `${key}${separator}${scheme} ${value}${suffix}`;
+  const cases = [
+    {
+      name: "bearer escaped quote semicolon sibling",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`),
+      keep: new RegExp(`${lowerKey}=${bearer} \\[REDACTED\\];safe=visible`),
+    },
+    {
+      name: "basic escaped quote semicolon sibling",
+      input: auth(lowerKey, "=", basic, `${secret}${escapedQuote}rawtail`),
+      keep: new RegExp(`${lowerKey}=${basic} \\[REDACTED\\];safe=visible`),
+    },
+    {
+      name: "camel case key",
+      input: auth(camelKey, "=", bearer, `${secret}${escapedQuote}rawtail`),
+      keep: new RegExp(`${camelKey}=${bearer} \\[REDACTED\\];safe=visible`),
+    },
+    {
+      name: "colon assignment in wrapper",
+      input: `headers={${auth(camelKey, ":", bearer, `${secret}${escapedQuote}rawtail`)}}`,
+      keep: new RegExp(`${camelKey}:\\s*${bearer} \\[REDACTED\\];safe=visible`),
+    },
+    {
+      name: "whitespace around key separator and scheme",
+      input: `${lowerKey}  = \t${bearer}   ${secret}${escapedQuote}rawtail;safe=visible`,
+      keep: new RegExp(`${lowerKey}  = \t${bearer} \\[REDACTED\\];safe=visible`),
+    },
+    {
+      name: "repeated escaped quotes",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}mid${escapedQuote}rawtail`),
+      keep: /;safe=visible/,
+    },
+    {
+      name: "repeated backslashes",
+      input: auth(lowerKey, "=", bearer, `${secret}${backslash}${backslash}${backslash}rawtail`),
+      keep: /;safe=visible/,
+    },
+    {
+      name: "escaped quote near credential start",
+      input: auth(lowerKey, "=", bearer, `${escapedQuote}${secret}rawtail`),
+      keep: /;safe=visible/,
+    },
+    {
+      name: "escaped quote near deterministic delimiter",
+      input: auth(lowerKey, "=", bearer, `${secret}rawtail${escapedQuote}`),
+      keep: /;safe=visible/,
+    },
+    {
+      name: "ampersand sibling",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`, "&safe=visible"),
+      keep: /&safe=visible/,
+    },
+    {
+      name: "query sibling",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`, "?safe=visible"),
+      keep: /\?safe=visible/,
+    },
+    {
+      name: "comma sibling",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`, ",safe=visible"),
+      keep: /,safe=visible/,
+    },
+    {
+      name: "closing brace boundary",
+      input: `headers={${auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`, "}safe=visible")}`,
+      keep: /}safe=visible/,
+    },
+    {
+      name: "closing bracket boundary",
+      input: `[${auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`, "]safe=visible")}`,
+      keep: /\]safe=visible/,
+    },
+    {
+      name: "closing parenthesis boundary",
+      input: `(${auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`, ")safe=visible")}`,
+      keep: /\)safe=visible/,
+    },
+    {
+      name: "newline boundary",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`, "\nsafe=visible"),
+      keep: /\nsafe=visible/,
+    },
+    {
+      name: "input end boundary",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`, ""),
+      keep: new RegExp(`${lowerKey}=${bearer} \\[REDACTED\\]$`),
+    },
+    {
+      name: "nested wrapper assignment",
+      input: `outer={headers={${auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`)}};mode=read}`,
+      keep: /mode=read/,
+    },
+    {
+      name: "escaped json-like wrapper assignment",
+      input: `headers={${escapedQuote}${lowerKey}${escapedQuote}:${bearer} ${secret}${escapedQuote}rawtail,${escapedQuote}safe${escapedQuote}:${escapedQuote}visible${escapedQuote}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "marker adjacent assignment",
+      input: `[REDACTED]${auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`)}`,
+      keep: /\[REDACTED\]/,
+    },
+    {
+      name: "multiple authorization assignments",
+      input: `${auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`)} ${auth(camelKey, "=", basic, `${second}${escapedQuote}rawtail`, "&safe=visible")}`,
+      keep: /&safe=visible/,
+    },
+    {
+      name: "mixed authorization and ordinary secret assignments",
+      input: `${auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`)} clientSecret=${third}${escapedQuote}rawtail&safe=visible`,
+      keep: /&safe=visible/,
+    },
+    {
+      name: "malformed bearer ambiguous whitespace fails closed",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail safe=visible`, ""),
+      keep: new RegExp(`${lowerKey}=${bearer} \\[REDACTED\\]$`),
+      dropsSafe: true,
+    },
+    {
+      name: "malformed basic ambiguous whitespace fails closed",
+      input: auth(lowerKey, "=", basic, `${second}${escapedQuote}rawtail safe=visible`, ""),
+      keep: new RegExp(`${lowerKey}=${basic} \\[REDACTED\\]$`),
+      dropsSafe: true,
+    },
+    {
+      name: "already redacted bearer idempotent",
+      input: `${lowerKey}=${bearer} [REDACTED];safe=visible`,
+      exact: `${lowerKey}=${bearer} [REDACTED];safe=visible`,
+      allowMarker: true,
+    },
+    {
+      name: "already redacted basic idempotent",
+      input: `${lowerKey}=${basic} [REDACTED];safe=visible`,
+      exact: `${lowerKey}=${basic} [REDACTED];safe=visible`,
+      allowMarker: true,
+    },
+    {
+      name: "harmless prose",
+      input: `${bearer}, ${basic}, and ${lowerKey} policy text without assignment grammar stays readable.`,
+      exact: `${bearer}, ${basic}, and ${lowerKey} policy text without assignment grammar stays readable.`,
+      harmlessKeepsText: true,
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    if (item.exact) {
+      assert.equal(redacted, item.exact, item.name);
+      assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+      continue;
+    }
+    if (item.harmlessKeepsText) {
+      assert.equal(redacted, item.input, item.name);
+      continue;
+    }
+    assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+    assert.doesNotMatch(redacted, new RegExp(second), item.name);
+    assert.doesNotMatch(redacted, new RegExp(third), item.name);
+    assert.doesNotMatch(redacted, /rawtail/, item.name);
+    assert.match(redacted, item.keep, item.name);
+    assert.match(redacted, /\[REDACTED\]/, item.name);
+    if (item.dropsSafe) assert.doesNotMatch(redacted, /safe=visible/, item.name);
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+
+  const nearBound = `${"headers=".repeat(750)}${auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`)}${"x".repeat(4_000)}`.slice(0, 19_950);
+  const nearBoundStarted = process.hrtime.bigint();
+  const nearBoundRedacted = redactSecretLikeText(nearBound);
+  const nearBoundElapsedMs = Number(process.hrtime.bigint() - nearBoundStarted) / 1_000_000;
+  assert.equal(nearBoundElapsedMs < 1_000, true, `near-bound authorization elapsed ${nearBoundElapsedMs}ms`);
+  assert.doesNotMatch(nearBoundRedacted, new RegExp(secret));
+  assert.doesNotMatch(nearBoundRedacted, /rawtail/);
+  assert.equal(nearBoundRedacted.length <= 20_000, true);
+
+  const manySiblingFragments = Array.from({ length: 1_000 }, (_item, index) =>
+    `h${index}={${auth(lowerKey, "=", bearer, `${second}${escapedQuote}rawtail`)}}`).join(" ");
+  const manyStarted = process.hrtime.bigint();
+  const manyRedacted = redactSecretLikeText(manySiblingFragments);
+  const manyElapsedMs = Number(process.hrtime.bigint() - manyStarted) / 1_000_000;
+  assert.equal(manyElapsedMs < 1_000, true, `many authorization elapsed ${manyElapsedMs}ms`);
+  assert.doesNotMatch(manyRedacted, new RegExp(second));
+  assert.doesNotMatch(manyRedacted, /rawtail/);
+  assert.match(manyRedacted, /safe=visible/);
+
+  const budgetSecret = ["authorization", "budget"].join("-");
+  const manySecrets = Array.from({ length: 1_100 }, () =>
+    auth(lowerKey, "=", bearer, `${budgetSecret}${escapedQuote}rawtail`)).join(";");
+  const budgetRedacted = redactSecretLikeText(manySecrets);
+  assert.equal(budgetRedacted.length <= 20_000, true);
+  assert.doesNotMatch(budgetRedacted, new RegExp(budgetSecret));
+  assert.doesNotMatch(budgetRedacted, /rawtail/);
+});
+
 test("review-fix redaction treats completed markers as secret boundaries", () => {
   const secret = runtimeCanary("marker-boundary");
   const second = runtimeCanary("marker-boundary-second");
@@ -1778,6 +1982,102 @@ test("review-fix backslash and escaped-quote canaries never reach prompt evidenc
       assert.match(output, /\[REDACTED\]/);
     }
     assert.match(prompt, /safe/);
+    assert.match(evidence, /visible/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review-fix Authorization assignment canaries never reach prompt evidence or durable fixtures", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fix-authorization-assignment-canary-"));
+  try {
+    const secret = runtimeCanary("prompt-evidence-authorization-assignment");
+    const second = runtimeCanary("prompt-evidence-basic-assignment");
+    const backslash = "\\";
+    const escapedQuote = `${backslash}"`;
+    const lowerKey = ["author", "ization"].join("");
+    const bearer = ["Bear", "er"].join("");
+    const basic = ["Bas", "ic"].join("");
+    const bearerAssignment = `${lowerKey}=${bearer} ${secret}${escapedQuote}rawtail;safe=visible`;
+    const basicAssignment = `${lowerKey}=${basic} ${second}${escapedQuote}rawtail;safe=visible`;
+    const trigger = {
+      actionable: true,
+      source: "integrated_gemini",
+      verdict: "fail",
+      findings: [{
+        provider: "gemini",
+        severity: "high",
+        path: `tools/auto-runner/lib/review-fix-policy.mjs?${bearerAssignment}`,
+        file: `tools/auto-runner/lib/review-fix-policy.mjs#${basicAssignment}`,
+        line: 776,
+        range: { startLine: 774, endLine: 776, label: `inventory=${bearerAssignment}; history=${basicAssignment}` },
+        title: `Authorization assignment ${bearerAssignment}`,
+        message: `Escaped tail ${basicAssignment}`,
+        body: `mixed ${bearerAssignment} ${basicAssignment}`,
+        details: `fingerprint ${bearerAssignment}`,
+        rule: `report ${basicAssignment}`,
+        ruleId: `sarif ${bearerAssignment}`,
+        check: `state ${basicAssignment}`,
+        invariant: `prompt ${bearerAssignment}`,
+        authorityInvariant: `evidence ${basicAssignment}`,
+      }],
+    };
+    const decision = evaluateReviewFixMutationDecision({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: 921, title: "Authorization assignment canary", labels: [] },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedToImplement: true,
+        autoMergeEligible: true,
+        manualMergeRequired: false,
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const prompt = buildReviewFixPrompt({
+      issue: { number: 921, title: "Authorization assignment canary" },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      branchName: "feature/review-fix",
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const written = writeReviewFixEvidence({ logsRoot: tempRoot }, {
+      issue: { number: 921, title: "Authorization assignment canary" },
+      trigger,
+      decision,
+      promptFixture: `${bearerAssignment} ${basicAssignment}`,
+      structuredFindings: trigger.findings,
+      findingInventory: [{
+        fingerprint: `fp:${bearerAssignment}`,
+        history: [`history:${basicAssignment}`],
+      }],
+      durableStateFixture: {
+        decision: bearerAssignment,
+        prompt: basicAssignment,
+        evidence: bearerAssignment,
+        inventory: [basicAssignment],
+        fingerprints: [bearerAssignment],
+        history: [`report:${basicAssignment}`, `sarif:${bearerAssignment}`],
+        logs: `logs:${basicAssignment}`,
+        safe: "visible",
+      },
+    });
+    const evidence = readFileSync(written.evidencePath, "utf8");
+    for (const output of [JSON.stringify(decision.sanitizedFindings), JSON.stringify(decision), prompt, evidence]) {
+      assert.doesNotMatch(output, new RegExp(secret));
+      assert.doesNotMatch(output, new RegExp(second));
+      assert.doesNotMatch(output, /rawtail/);
+      assert.match(output, new RegExp(`${bearer} \\[REDACTED\\]|${basic} \\[REDACTED\\]`));
+    }
+    assert.match(prompt, /safe=visible/);
     assert.match(evidence, /visible/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
