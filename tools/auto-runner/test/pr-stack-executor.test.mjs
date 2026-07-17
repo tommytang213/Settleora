@@ -127,13 +127,33 @@ test("new source head consumes one parent cycle and waits do not consume cycles"
   assert.equal(result.ok, true);
   let state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
   assert.equal(state.sourceCycles["919"], 1);
+  assert.equal(state.exactHeads["919"], sha("c"));
+  assert.equal(state.orderedPrs[0].headRefOid, sha("c"));
+  assert.equal(state.evidence.reviewConverged["919"].newHead, sha("c"));
 
   result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
-    adapter: { completeFinalGates: async () => ({ ok: false, waiting: true, reasonCode: "ci_check_completion_wait" }) },
+    adapter: {
+      completeFinalGates: async ({ pr }) => {
+        assert.equal(pr.headRefOid, sha("c"));
+        return { ok: false, waiting: true, reasonCode: "ci_check_completion_wait" };
+      },
+    },
   });
   assert.equal(result.outcome, "waiting");
   state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
   assert.equal(state.sourceCycles["919"], 1);
+
+  const waitFixture = stackFixture();
+  const waitStatePath = path.join(path.dirname(waitFixture.planPath), "stack-state.json");
+  const waitState = createInitialPrStackState({ plan: waitFixture.plan });
+  waitState.evidence.reviewConverged["919"] = { ok: true };
+  writePrStackState(waitStatePath, waitState);
+  result = await runPrStackExecution(waitFixture.config, { stackPlanPath: waitFixture.planPath }, {
+    adapter: { completeFinalGates: async () => ({ ok: false, waiting: true, reasonCode: "ci_check_completion_wait" }) },
+  });
+  assert.equal(result.outcome, "waiting");
+  state = JSON.parse(readFileSync(waitStatePath, "utf8"));
+  assert.equal(state.sourceCycles["919"], 0);
 });
 
 test("source-changing cycles are independently available up to 50 per PR", () => {
@@ -271,6 +291,165 @@ test("production merge adapter carries real gate changed-file evidence", async (
   assert.equal(result.result.result, "dry_run_eligible");
 });
 
+test("production own-delta adapter recomputes the current PR patch", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, repoRoot: fixture.root };
+  const patch = [
+    "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs",
+    "new file mode 100644",
+    "index 0000000..1111111",
+    "--- /dev/null",
+    "+++ b/tools/auto-runner/919.mjs",
+    "@@ -0,0 +1 @@",
+    "+export const value = 1;",
+    "",
+  ].join("\n");
+  const adapter = createProductionPrStackAdapter(config, {
+    runner: (_command, args) => {
+      if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (args.includes("--patch")) return { status: 0, stdout: patch, stderr: "", error: null };
+      if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
+      if (args.includes("apply")) return { status: 0, stdout: "", stderr: "", error: null };
+      return fakeRunner();
+    },
+  });
+  const result = await adapter.proveSemanticOwnDelta({ pr: fixture.plan.orderedPrs[0] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.after.fileSet, ["tools/auto-runner/919.mjs"]);
+  assert.ok(result.after.stablePatchId);
+  assert.notEqual(result.after.normalizedPatchDigest, fixture.plan.orderedPrs[0].ownDelta.normalizedPatchDigest);
+});
+
+test("production own-delta adapter fails without patch-to-tree proof", async () => {
+  const fixture = stackFixture();
+  const adapter = createProductionPrStackAdapter({ ...fixture.config, repoRoot: fixture.root }, {
+    runner: (_command, args) => {
+      if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
+      if (args.includes("apply")) return { status: args.includes("--reverse") ? 1 : 0, stdout: "", stderr: "no reverse", error: null };
+      return fakeRunner();
+    },
+  });
+  const proofInput = await adapter.proveSemanticOwnDelta({ pr: fixture.plan.orderedPrs[0] });
+  assert.equal(proofInput.ok, true);
+  const childFixture = stackFixtureAtChild({ retargeted: true });
+  const result = await runPrStackExecution(childFixture.config, { stackPlanPath: childFixture.planPath }, {
+    adapter: { proveSemanticOwnDelta: async ({ pr }) => ({ ok: true, before: pr.ownDelta, after: proofInput.after }) },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "semantic_own_delta_failed");
+});
+
+test("current-main proof fetches origin main and verifies parent merge ancestry", async () => {
+  const fixture = stackFixtureAtChild();
+  const state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
+  const calls = [];
+  const adapter = createProductionPrStackAdapter(fixture.config, {
+    runner: (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      if (args[0] === "fetch") return fakeRunner();
+      if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "merge-base") return fakeRunner();
+      return fakeRunner();
+    },
+  });
+  const proof = await adapter.fetchCurrentMain({ config: fixture.config, state, pr: fixture.plan.orderedPrs[0] });
+  assert.equal(proof.ok, true);
+  assert.equal(proof.currentMain, sha("e"));
+  assert.ok(calls.includes("git fetch origin main"));
+  assert.ok(calls.includes(`git merge-base --is-ancestor ${sha("e")} origin/main`));
+});
+
+test("current-main proof blocks when origin main advances after prior proof", async () => {
+  const fixture = stackFixtureAtChild();
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  state.evidence.currentMainProof["919"] = { ok: true, currentMain: sha("d") };
+  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  const adapter = createProductionPrStackAdapter(fixture.config, {
+    runner: (_command, args) => {
+      if (args[0] === "fetch") return fakeRunner();
+      if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "merge-base") return fakeRunner();
+      return fakeRunner();
+    },
+  });
+  const proof = await adapter.fetchCurrentMain({ config: fixture.config, state, pr: fixture.plan.orderedPrs[0] });
+  assert.equal(proof.ok, false);
+  assert.equal(proof.reasonCode, "current_main_changed_requires_refresh");
+});
+
+test("production retarget reads fresh PR proof before mutation and readback after mutation", async () => {
+  const fixture = stackFixtureAtChild();
+  const calls = [];
+  const adapter = createProductionPrStackAdapter(fixture.config, {
+    runner: (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      if (args[0] === "pr" && args[1] === "view") {
+        const base = calls.some((call) => call.includes("pr edit")) ? "main" : "feature/auto-913-parent";
+        return { status: 0, stdout: JSON.stringify({ number: 920, state: "OPEN", isDraft: true, baseRefName: base, headRefName: "feature/auto-913-child", headRefOid: sha("b") }), stderr: "", error: null };
+      }
+      if (args[0] === "pr" && args[1] === "edit") return fakeRunner();
+      return fakeRunner();
+    },
+  });
+  const result = await adapter.retargetPrBase({ pr: fixture.plan.orderedPrs[1], newBase: "main", expectedHead: sha("b"), expectedCurrentBase: "feature/auto-913-parent" });
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, [
+    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid",
+    "gh pr edit 920 --base main",
+    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid",
+  ]);
+});
+
+test("production retarget blocks stale proof before mutation", async () => {
+  const fixture = stackFixtureAtChild();
+  let edits = 0;
+  const adapter = createProductionPrStackAdapter(fixture.config, {
+    runner: (_command, args) => {
+      if (args[0] === "pr" && args[1] === "view") {
+        return { status: 0, stdout: JSON.stringify({ number: 920, state: "OPEN", isDraft: true, baseRefName: "feature/auto-913-parent", headRefName: "feature/auto-913-child", headRefOid: sha("z") }), stderr: "", error: null };
+      }
+      if (args[0] === "pr" && args[1] === "edit") edits += 1;
+      return fakeRunner();
+    },
+  });
+  const result = await adapter.retargetPrBase({ pr: fixture.plan.orderedPrs[1], newBase: "main", expectedHead: sha("b"), expectedCurrentBase: "feature/auto-913-parent" });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "retarget_pr_head_stale");
+  assert.equal(edits, 0);
+});
+
+test("production final gates collect real evidence and wait on pending checks or scanners", async () => {
+  const fixture = stackFixture();
+  const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
+    runner: (_command, args) => {
+      if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
+      if (args.includes("apply")) return fakeRunner();
+      if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "status") return fakeRunner();
+      return fakeRunner();
+    },
+  });
+  const result = await adapter.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state: createInitialPrStackState({ plan: fixture.plan }), pr: fixture.plan.orderedPrs[0] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.changedFiles, ["tools/auto-runner/919.mjs"]);
+
+  const waitFixture = stackFixture();
+  const waitStatePath = path.join(path.dirname(waitFixture.planPath), "stack-state.json");
+  const waitState = createInitialPrStackState({ plan: waitFixture.plan });
+  waitState.evidence.reviewConverged["919"] = { ok: true };
+  writePrStackState(waitStatePath, waitState);
+  const waiting = await runPrStackExecution(waitFixture.config, { stackPlanPath: waitFixture.planPath }, {
+    adapter: { completeFinalGates: async () => ({ ok: false, waiting: true, reasonCode: "scanner_result_wait" }) },
+  });
+  assert.equal(waiting.outcome, "waiting");
+  assert.equal(waiting.reasonCode, "scanner_result_wait");
+});
+
 test("unknown action, stale head, repository mismatch, production profile, and forbidden capabilities block", async () => {
   const fixture = stackFixture();
   assert.equal(loadExecutableStackPlan({ ...fixture.config, repositorySlug: "other/repo" }, fixture.planPath).reasonCode, "stack_repository_mismatch");
@@ -296,7 +475,7 @@ test("secrets and raw provider-looking payloads are redacted from stack state", 
   });
   const text = readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8");
   assert.doesNotMatch(text, /not-a-real-api-key|Bearer abc/);
-  assert.match(text, /\[redacted\]/);
+  assert.match(text, /\[REDACTED\]/);
 });
 
 test("resume from blocker state path advances without changing immutable identity", async () => {
@@ -375,8 +554,8 @@ function stackFixtureAtChild(flags = {}) {
   const state = createInitialPrStackState({ plan: fixture.plan });
   state.evidence.reviewConverged["919"] = { ok: true };
   state.evidence.gatesPassed["919"] = { ok: true };
-  state.evidence.merged["919"] = { ok: true, merged: true, mergeSha: sha("m") };
-  state.evidence.currentMainProof["919"] = { ok: true, currentMain: sha("m") };
+  state.evidence.merged["919"] = { ok: true, merged: true, mergeSha: sha("e") };
+  state.evidence.currentMainProof["919"] = { ok: true, currentMain: sha("e") };
   if (flags.retargeted) state.evidence.retargeted["920"] = { ok: true };
   if (flags.ownDelta) state.evidence.ownDeltaPreserved["920"] = { ok: true };
   if (flags.ready) state.evidence.ready["920"] = { ok: true };

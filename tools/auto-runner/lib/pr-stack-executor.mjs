@@ -11,6 +11,7 @@ import {
 import { executeAutoMerge, inspectAutoMergeGithubState } from "./auto-merge-policy.mjs";
 import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 import { runExistingPrReviewConvergence } from "./review-convergence-controller.mjs";
+import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -67,11 +68,12 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   const adapter = options.adapter || createProductionPrStackAdapter(config, options);
   const planLoad = loadExecutableStackPlan(config, cliArgs.stackPlanPath, { stackConfig });
   if (!planLoad.ok) return fail(planLoad.reasonCode, planLoad.reason, { statePath: planLoad.statePath || null });
-  const plan = planLoad.plan;
+  let plan = planLoad.plan;
   const statePath = resolveStackStatePath(config, stackConfig, planLoad.planPath);
   const loadedState = loadOrCreateStackState({ config, plan, statePath, adapter });
   if (!loadedState.ok) return fail(loadedState.reasonCode, loadedState.reason, { statePath });
   let state = loadedState.state;
+  plan = rebindPlanToStateHeads(plan, state);
   state = transitionState(state, {
     phase: "planning",
     terminal: null,
@@ -90,6 +92,9 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
       terminal: dispatch.waiting ? null : { reasonCode: dispatch.reasonCode, reason: dispatch.reason },
       wait: dispatch.waiting ? { reasonCode: dispatch.reasonCode, action } : null,
       evidence: dispatch.evidence || state.evidence,
+      sourceCycles: dispatch.sourceCycles || state.sourceCycles,
+      exactHeads: dispatch.exactHeads || state.exactHeads,
+      orderedPrs: dispatch.orderedPrs || state.orderedPrs,
       summary: dispatch.summary || null,
     });
     writePrStackState(statePath, blocked);
@@ -104,6 +109,8 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     mutationMarkers: dispatch.mutationMarkers || state.mutationMarkers,
     activePrNumber: dispatch.activePrNumber ?? state.activePrNumber,
     sourceCycles: dispatch.sourceCycles || state.sourceCycles,
+    exactHeads: dispatch.exactHeads || state.exactHeads,
+    orderedPrs: dispatch.orderedPrs || state.orderedPrs,
     summary: dispatch.summary || null,
   });
   writePrStackState(statePath, nextState);
@@ -267,6 +274,7 @@ export function validatePrStackState(state = {}, plan = null) {
       const expected = immutablePrIdentity(plan.orderedPrs[index]);
       const actual = state.orderedPrs[index];
       for (const key of ["number", "baseRefName", "headRefName", "headRefOid", "expectedParentPr", "expectedParentBranch"]) {
+        if (key === "headRefOid" && state.exactHeads?.[expected.number]) continue;
         if (actual[key] !== expected[key]) return fail("stack_state_pr_identity_mismatch", `stack state PR ${key} differs from plan`);
       }
     }
@@ -327,7 +335,19 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   if (!result?.ok) return waitOrFail(result, "pr_convergence_failed");
   const newHead = result.newHead || result.headRefOid || pr.headRefOid;
   const sourceCycles = { ...(state.sourceCycles || {}) };
-  if (newHead !== pr.headRefOid) sourceCycles[pr.number] = (sourceCycles[pr.number] || 0) + 1;
+  if (newHead !== pr.headRefOid) {
+    sourceCycles[pr.number] = (sourceCycles[pr.number] || 0) + 1;
+    const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, result);
+    return {
+      ok: true,
+      evidence: rebound.evidence,
+      mutationMarkers: rebound.mutationMarkers,
+      sourceCycles,
+      exactHeads: rebound.exactHeads,
+      orderedPrs: rebound.orderedPrs,
+      summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, reboundExactHead: true },
+    };
+  }
   const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "converge_pr", key: pr.headRefOid, prNumber: pr.number, exactHead: pr.headRefOid });
   const mutationMarkers = {
     ...marker.plan.mutationMarkers,
@@ -461,8 +481,10 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         ? { ...result, headRefOid: result.newHead || pr.headRefOid }
         : result;
     },
-    async completeFinalGates({ pr }) {
-      return { ok: true, reason: "final_gates_delegated", exactHead: pr.headRefOid };
+    async completeFinalGates({ config: cfg, state, pr }) {
+      const gate = collectFinalGateEvidence({ config: cfg || config, state, pr, runner: runner || defaultRunner });
+      if (!gate.ok) return gate;
+      return gate.evidence;
     },
     async mergePr({ config: cfg, state, pr, expectedHead }) {
       const gateEvidence = state.evidence?.gatesPassed?.[pr.number] || {};
@@ -517,16 +539,22 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         ? { ok: true, merged: result.result === "merged", mergeSha: result.mergeSha || null, result }
         : fail(result.reason || "merge_blocked", result.reason || "merge blocked");
     },
-    async fetchCurrentMain() {
-      return { ok: true, reason: "current_main_proof_delegated", fetchedAt: new Date().toISOString() };
+    async fetchCurrentMain({ config: cfg, state, pr }) {
+      return fetchCurrentMainProof({ config: cfg || config, state, pr, runner: runner || defaultRunner });
     },
     async retargetPrBase({ pr, newBase, expectedHead, expectedCurrentBase }) {
-      const result = defaultRunner("gh", ["pr", "edit", String(pr.number), "--base", String(newBase)], { cwd: config.repoRoot });
+      const proof = readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner: runner || defaultRunner });
+      if (!proof.ok) return proof;
+      const result = (runner || defaultRunner)("gh", ["pr", "edit", String(pr.number), "--base", String(newBase)], { cwd: config.repoRoot });
       if (result.status !== 0 || result.error) return fail("retarget_failed", boundedText(result.stderr || result.error || result.stdout));
-      return { ok: true, prNumber: pr.number, newBase, expectedHead, expectedCurrentBase };
+      const after = readPrRetargetProof({ config, pr: { ...pr, baseRefName: newBase }, expectedHead, expectedCurrentBase: newBase, runner: runner || defaultRunner });
+      if (!after.ok) return after;
+      return { ok: true, prNumber: pr.number, newBase, expectedHead, expectedCurrentBase, before: proof.proof, after: after.proof };
     },
     async proveSemanticOwnDelta({ pr }) {
-      return { ok: true, before: pr.ownDelta, after: { ...pr.ownDelta, reversePatchApplies: true } };
+      const current = readCurrentPrOwnDelta({ config, pr, runner: runner || defaultRunner });
+      if (!current.ok) return current;
+      return { ok: true, before: pr.ownDelta, after: current.ownDelta };
     },
     async markReadyForReview({ pr }) {
       const result = defaultRunner("gh", ["pr", "ready", String(pr.number)], { cwd: config.repoRoot });
@@ -562,10 +590,61 @@ function transitionState(state, patch = {}) {
     evidence: patch.evidence || state.evidence,
     mutationMarkers: patch.mutationMarkers || state.mutationMarkers,
     sourceCycles: patch.sourceCycles || state.sourceCycles,
+    exactHeads: patch.exactHeads || state.exactHeads,
+    orderedPrs: patch.orderedPrs || state.orderedPrs,
     terminal: patch.terminal === undefined ? state.terminal : patch.terminal,
     wait: patch.wait === undefined ? state.wait : patch.wait,
     summaries,
   });
+}
+
+function rebindPlanToStateHeads(plan, state) {
+  const exactHeads = state?.exactHeads || {};
+  return {
+    ...plan,
+    orderedPrs: plan.orderedPrs.map((pr) => ({
+      ...pr,
+      headRefOid: exactHeads[pr.number] || pr.headRefOid,
+    })),
+  };
+}
+
+function rebindStateToNewHead(state, prNumber, newHead, sourceCycles, result) {
+  const oldHead = state.exactHeads?.[prNumber] || state.orderedPrs?.find((pr) => pr.number === prNumber)?.headRefOid || null;
+  const evidence = putEvidence(invalidateHeadBoundEvidence(state.evidence, prNumber), "reviewConverged", prNumber, {
+    ...result,
+    ok: true,
+    oldHead,
+    newHead,
+    reboundExactHead: true,
+  });
+  return {
+    evidence,
+    sourceCycles,
+    exactHeads: { ...(state.exactHeads || {}), [prNumber]: newHead },
+    orderedPrs: (state.orderedPrs || []).map((pr) => (pr.number === prNumber ? { ...pr, headRefOid: newHead } : pr)),
+    mutationMarkers: pruneHeadBoundMutationMarkers(state.mutationMarkers, prNumber, oldHead),
+  };
+}
+
+function invalidateHeadBoundEvidence(evidence = {}, prNumber) {
+  const next = { ...(evidence || {}) };
+  for (const key of ["gatesPassed", "merged", "currentMainProof", "currentMainProven", "mergedCurrentMain", "retargeted", "ownDeltaPreserved", "ready"]) {
+    if (next[key]?.[prNumber]) {
+      next[key] = { ...next[key] };
+      delete next[key][prNumber];
+    }
+  }
+  return next;
+}
+
+function pruneHeadBoundMutationMarkers(markers = {}, prNumber, oldHead) {
+  return Object.fromEntries(
+    Object.entries(markers || {}).filter(([key, marker]) => {
+      if (marker?.prNumber !== prNumber) return true;
+      return oldHead ? !key.includes(oldHead) && marker.exactHead !== oldHead : false;
+    }),
+  );
 }
 
 function resolveStackStatePath(config, stackConfig, planPath) {
@@ -666,27 +745,22 @@ function normalizeChangedFiles(files = []) {
 }
 
 function sanitizeState(value) {
-  if (Array.isArray(value)) return value.slice(0, 200).map(sanitizeState);
-  if (!value || typeof value !== "object") return sanitizeScalar(value);
-  const out = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (/token|secret|authorization|password|credential|api[_-]?key|env/i.test(key)) {
-      out[key] = "[redacted]";
-    } else {
-      out[key] = sanitizeState(raw);
-    }
-  }
-  return out;
+  return boundSanitizedEvidence(sanitizePersistedEvidence(value));
 }
 
-function sanitizeScalar(value) {
-  if (typeof value !== "string") return value;
-  return boundedText(value.replace(/(ghp_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|Bearer\s+[A-Za-z0-9._-]+)/g, "[redacted]"), 2000);
+function boundSanitizedEvidence(value) {
+  if (Array.isArray(value)) return value.slice(0, 200).map(boundSanitizedEvidence);
+  if (!value || typeof value !== "object") return typeof value === "string" ? boundedText(value, 2000) : value;
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, boundSanitizedEvidence(child)]));
 }
 
 function boundedText(value, max = 1000) {
   const text = String(value ?? "");
   return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function digestJson(value) {
+  return createHash("sha256").update(JSON.stringify(value || {})).digest("hex");
 }
 
 function validStackId(value) {
@@ -732,8 +806,185 @@ function unresolvedThreadsAsFindings(threads = []) {
     }));
 }
 
+function fetchCurrentMainProof({ config, state, pr, runner }) {
+  const cwd = config.repoRoot;
+  const mergeProof = state?.evidence?.merged?.[pr.number] || {};
+  const parentMergeSha = mergeProof.mergeSha || mergeProof.result?.mergeSha || null;
+  if (!validSha(parentMergeSha)) return fail("current_main_parent_merge_sha_missing", "parent merge SHA is required before current-main proof");
+  const fetch = runner("git", ["fetch", "origin", "main"], { cwd });
+  if (fetch.status !== 0 || fetch.error) return fail("current_main_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
+  const current = runner("git", ["rev-parse", "origin/main"], { cwd });
+  if (current.status !== 0 || current.error) return fail("current_main_read_failed", boundedText(current.stderr || current.error || current.stdout));
+  const currentMain = String(current.stdout || "").trim();
+  if (!validSha(currentMain)) return fail("current_main_sha_invalid", "origin/main did not resolve to a valid SHA");
+  const prior = state?.evidence?.currentMainProof?.[pr.number]?.currentMain || null;
+  if (prior && prior !== currentMain) return fail("current_main_changed_requires_refresh", `origin/main moved from ${prior} to ${currentMain}`);
+  const ancestor = runner("git", ["merge-base", "--is-ancestor", parentMergeSha, "origin/main"], { cwd });
+  if (ancestor.status !== 0 || ancestor.error) {
+    return fail("current_main_parent_merge_not_ancestor", `parent merge ${parentMergeSha} is not an ancestor of origin/main ${currentMain}`);
+  }
+  return { ok: true, currentMain, parentMergeSha, parentMergeIsAncestor: true, fetchedAt: new Date().toISOString() };
+}
+
+function readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner }) {
+  const result = runner(
+    "gh",
+    ["pr", "view", String(pr.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid"],
+    { cwd: config.repoRoot },
+  );
+  if (result.status !== 0 || result.error) return fail("retarget_pr_read_failed", boundedText(result.stderr || result.error || result.stdout));
+  let proof;
+  try {
+    proof = JSON.parse(result.stdout || "{}");
+  } catch (error) {
+    return fail("retarget_pr_read_parse_failed", error.message);
+  }
+  if (proof.number !== pr.number) return fail("retarget_pr_number_mismatch", "PR readback number did not match");
+  if (proof.state !== "OPEN") return fail("retarget_pr_state_not_open", `PR state is ${proof.state || "unknown"}`);
+  if (Boolean(proof.isDraft) !== Boolean(pr.isDraft)) return fail("retarget_pr_draft_state_changed", "PR draft state did not match plan proof");
+  if (proof.headRefName !== pr.headRefName) return fail("retarget_pr_branch_mismatch", "PR head branch did not match plan");
+  if (proof.headRefOid !== expectedHead) return fail("retarget_pr_head_stale", "PR head changed before retarget");
+  if (proof.baseRefName !== expectedCurrentBase) return fail("retarget_pr_base_stale", "PR base changed before retarget");
+  return { ok: true, proof };
+}
+
+function collectFinalGateEvidence({ config, state, pr, runner }) {
+  const inspection = inspectAutoMergeGithubState(config, { issue: { number: pr.issueNumber || 921 }, prUrlOrNumber: pr.number });
+  if (!inspection?.pr) return fail("final_gate_pr_read_failed", "PR state could not be read");
+  const currentHead = inspection.pr.headRefOid || pr.headRefOid;
+  if (currentHead !== pr.headRefOid) return fail("final_gate_pr_head_stale", `PR #${pr.number} head changed before final gates`);
+  const changed = readCurrentPrOwnDelta({ config, pr, runner });
+  if (!changed.ok) return changed;
+  const status = finalExternalGateStatus(inspection);
+  const base = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
+  const worktree = runner("git", ["status", "--porcelain=v1", "--untracked-files=no"], { cwd: config.repoRoot });
+  const evidence = {
+    ok: status.ok && worktree.status === 0 && String(worktree.stdout || "").trim() === "",
+    exactHead: currentHead,
+    pr: inspection.pr,
+    changedFiles: changed.ownDelta.fileSet,
+    changedFilesDigest: changed.ownDelta.fileSetDigest,
+    canonicalDigest: changed.ownDelta.normalizedPatchDigest,
+    ownDelta: changed.ownDelta,
+    requiredChecks: inspection.requiredChecks || [],
+    reviewThreads: inspection.reviewThreads || [],
+    codeScanningAlerts: inspection.codeScanningAlerts || [],
+    blockingMarkers: inspection.blockingMarkers || [],
+    validation: state?.evidence?.validation?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.validation || null,
+    strongReview: state?.evidence?.strongReview?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.externalReview || null,
+    codexReview: state?.evidence?.codexReview?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.review || null,
+    currentOriginMainSha: base.status === 0 && !base.error ? String(base.stdout || "").trim() : null,
+    worktreeClean: worktree.status === 0 && String(worktree.stdout || "").trim() === "",
+    collectedAt: new Date().toISOString(),
+  };
+  if (!status.ok) return { ok: false, waiting: status.waiting, reasonCode: status.reasonCode, reason: status.reason, evidence };
+  if (!evidence.worktreeClean) return fail("final_gate_worktree_not_clean", "worktree must be clean before final gates pass");
+  return { ok: true, evidence };
+}
+
+function finalExternalGateStatus(inspection = {}) {
+  const pendingCheck = (inspection.requiredChecks || []).find((check) => String(check.status || "").toUpperCase() !== "COMPLETED");
+  if (pendingCheck) return { ok: false, waiting: true, reasonCode: "ci_check_completion_wait", reason: `required check pending: ${pendingCheck.name || "unknown"}` };
+  const failedCheck = (inspection.requiredChecks || []).find((check) => String(check.conclusion || "").toUpperCase() !== "SUCCESS");
+  if (failedCheck) return { ok: false, waiting: false, reasonCode: "required_check_failed", reason: `required check failed: ${failedCheck.name || "unknown"}` };
+  if ((inspection.reviewThreads || []).some((thread) => thread.isResolved === false)) {
+    return { ok: false, waiting: true, reasonCode: "github_codex_result_wait", reason: "unresolved review threads remain" };
+  }
+  if ((inspection.codeScanningAlerts || []).some((alert) => String(alert.state || "").toLowerCase() === "open")) {
+    return { ok: false, waiting: true, reasonCode: "scanner_result_wait", reason: "open code-scanning alerts remain" };
+  }
+  if ((inspection.blockingMarkers || []).length > 0) {
+    return { ok: false, waiting: false, reasonCode: "final_gate_blocking_markers", reason: inspection.blockingMarkers.join(",") };
+  }
+  return { ok: true };
+}
+
+function readCurrentPrOwnDelta({ config, pr, runner }) {
+  const cwd = config.repoRoot;
+  const nameOnly = runner("gh", ["pr", "diff", String(pr.number), "--name-only"], { cwd });
+  if (nameOnly.status !== 0 || nameOnly.error) {
+    return fail("own_delta_current_files_unavailable", boundedText(nameOnly.stderr || nameOnly.error || nameOnly.stdout));
+  }
+  const patch = runner("gh", ["pr", "diff", String(pr.number), "--patch"], { cwd });
+  if (patch.status !== 0 || patch.error) {
+    return fail("own_delta_current_patch_unavailable", boundedText(patch.stderr || patch.error || patch.stdout));
+  }
+  const patchText = String(patch.stdout || "");
+  const fileSet = normalizeChangedFiles(nameOnly.stdout.split(/\r?\n/));
+  const patchStats = summarizePatch(patchText);
+  const stablePatchId = computeStablePatchId(patchText, cwd);
+  if (!stablePatchId) return fail("own_delta_current_patch_id_unavailable", "current PR stable patch ID could not be computed");
+  const forwardPatchApplies = patchApplyCheck({ patchText, cwd, reverse: false, runner });
+  const reversePatchApplies = patchApplyCheck({ patchText, cwd, reverse: true, runner });
+  return {
+    ok: true,
+    ownDelta: {
+      fileSet,
+      fileSetDigest: digestJson(fileSet),
+      diffstat: { files: fileSet.length, additions: patchStats.additions, deletions: patchStats.deletions },
+      diffstatDigest: digestJson({ files: fileSet.length, additions: patchStats.additions, deletions: patchStats.deletions }),
+      numstat: patchStats.numstat,
+      numstatDigest: digestJson(patchStats.numstat),
+      stablePatchId,
+      normalizedPatchDigest: digestJson(normalizePatchForDigest(patchText)),
+      rawDiffHash: createHash("sha256").update(patchText).digest("hex"),
+      forwardPatchApplies,
+      reversePatchApplies,
+    },
+  };
+}
+
+function summarizePatch(patchText) {
+  const perFile = {};
+  let current = null;
+  let additions = 0;
+  let deletions = 0;
+  for (const line of String(patchText || "").split(/\r?\n/)) {
+    const fileMatch = line.match(/^diff --git a\/(.+?) b\/(.+)$/);
+    if (fileMatch) {
+      current = fileMatch[2];
+      perFile[current] ||= { added: 0, deleted: 0 };
+      continue;
+    }
+    if (!current || line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) {
+      additions += 1;
+      perFile[current].added += 1;
+    } else if (line.startsWith("-")) {
+      deletions += 1;
+      perFile[current].deleted += 1;
+    }
+  }
+  return { additions, deletions, numstat: perFile };
+}
+
+function normalizePatchForDigest(patchText) {
+  return String(patchText || "")
+    .replace(/^index [0-9a-f]+\.\.[0-9a-f]+.*$/gim, "index <normalized>")
+    .replace(/\r\n/g, "\n")
+    .trim();
+}
+
+function computeStablePatchId(patchText, cwd) {
+  const result = spawnSync("git", ["patch-id", "--stable"], {
+    cwd,
+    input: patchText,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (result.status !== 0 || result.error) return null;
+  return String(result.stdout || "").trim().split(/\s+/)[0] || null;
+}
+
+function patchApplyCheck({ patchText, cwd, reverse, runner }) {
+  const args = ["apply", "--check"];
+  if (reverse) args.push("--reverse");
+  const result = runner("git", args, { cwd, input: patchText });
+  return result.status === 0 && !result.error;
+}
+
 function defaultRunner(command, args, options = {}) {
-  const result = spawnSync(command, args, { cwd: options.cwd, encoding: "utf8", windowsHide: true });
+  const result = spawnSync(command, args, { cwd: options.cwd, input: options.input, encoding: "utf8", windowsHide: true });
   return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 
