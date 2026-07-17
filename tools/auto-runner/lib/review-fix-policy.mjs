@@ -49,6 +49,10 @@ const maxSanitizedEvidenceObjectFields = 200;
 const maxRawSanitizedStringLength = 20_000;
 const maxSecretRedactionPasses = 1;
 const maxSecretRedactionReplacements = 1_000;
+// Escaped reviewer evidence is scanned with a fixed quote-token depth: plain,
+// one escaped layer (\") and one additional layer (\\"). Deeper quote escaping
+// inside a secret-shaped assignment is ambiguous and fails closed for that span.
+const maxEscapedStructuralQuoteDepth = 2;
 const secretLexicalBoundarySource = "(^|[?&#=\\s,{[(;\\]])";
 const directSecretKeySource = "((?=[A-Za-z0-9_-]*(?:auth|api|token|secret|password|passwd|credential|key|cookie|csrf|xsrf|jwt|session|bearer))[A-Za-z][A-Za-z0-9_-]{0,80})";
 const protectedSecretLogPathPattern = /\/workspace\/logs\/settleora-auto-runner\/secrets\/(?:\[REDACTED\]|[^\s"',;)}\]]*)/gi;
@@ -109,8 +113,7 @@ const secretAssignmentPattern = new RegExp(
   ].join(""),
   "gi",
 );
-const malformedDoubleQuotedDirectSecretAssignmentPattern = new RegExp(
-  [
+const malformedDoubleQuotedDirectSecretAssignmentSource = [
     secretLexicalBoundarySource,
     "([\"']?)",
     directSecretKeySource,
@@ -118,11 +121,10 @@ const malformedDoubleQuotedDirectSecretAssignmentPattern = new RegExp(
     "\\s*([:=])\\s*",
     "\"([^\"',;&?}\\]\\)\\r\\n]*)",
     "(?=[',;&?}\\]\\)\\r\\n]|$)",
-  ].join(""),
-  "gi",
-);
-const malformedSingleQuotedDirectSecretAssignmentPattern = new RegExp(
-  [
+  ].join("");
+const malformedDoubleQuotedDirectSecretAssignmentPattern = new RegExp(malformedDoubleQuotedDirectSecretAssignmentSource, "gi");
+const malformedDoubleQuotedDirectSecretAssignmentPatternWithIndices = new RegExp(malformedDoubleQuotedDirectSecretAssignmentSource, "gid");
+const malformedSingleQuotedDirectSecretAssignmentSource = [
     secretLexicalBoundarySource,
     "([\"']?)",
     directSecretKeySource,
@@ -130,11 +132,10 @@ const malformedSingleQuotedDirectSecretAssignmentPattern = new RegExp(
     "\\s*([:=])\\s*",
     "'([^'\",;&?}\\]\\)\\r\\n]*)",
     "(?=[\",;&?}\\]\\)\\r\\n]|$)",
-  ].join(""),
-  "gi",
-);
-const directSecretAssignmentPattern = new RegExp(
-  [
+  ].join("");
+const malformedSingleQuotedDirectSecretAssignmentPattern = new RegExp(malformedSingleQuotedDirectSecretAssignmentSource, "gi");
+const malformedSingleQuotedDirectSecretAssignmentPatternWithIndices = new RegExp(malformedSingleQuotedDirectSecretAssignmentSource, "gid");
+const directSecretAssignmentSource = [
     secretLexicalBoundarySource,
     "([\"']?)",
     directSecretKeySource,
@@ -144,11 +145,11 @@ const directSecretAssignmentPattern = new RegExp(
     "\"([^\"\\r\\n]*)\"",
     "|'([^'\\r\\n]*)'",
     "|(\\[REDACTED\\])",
-    "|([^\"'\\s,;&?}\\]\\r\\n]+)",
+    "|([^\\\\\"'\\s,;&?}\\]\\r\\n]+)",
     ")",
-  ].join(""),
-  "gi",
-);
+  ].join("");
+const directSecretAssignmentPattern = new RegExp(directSecretAssignmentSource, "gi");
+const directSecretAssignmentPatternWithIndices = new RegExp(directSecretAssignmentSource, "gid");
 const malformedDoubleQuotedMarkerAdjacentSecretAssignmentPattern = new RegExp(
   [
     "(\\[REDACTED\\])",
@@ -184,11 +185,14 @@ const markerAdjacentSecretAssignmentPattern = new RegExp(
     "\"([^\"\\r\\n]*)\"",
     "|'([^'\\r\\n]*)'",
     "|(\\[REDACTED\\])",
-    "|([^\"'\\s,;&?}\\]\\r\\n]+)",
+    "|([^\\\\\"'\\s,;&?}\\]\\r\\n]+)",
     ")",
   ].join(""),
   "gi",
 );
+const markerAdjacentSecretAssignmentPatternWithIndices = new RegExp(markerAdjacentSecretAssignmentPattern.source, "gid");
+const authorizationHeaderPatternWithIndices = new RegExp(authorizationHeaderPattern.source, "gid");
+const standaloneAuthorizationPatternWithIndices = new RegExp(standaloneAuthorizationPattern.source, "gid");
 const structuredStringBounds = Object.freeze({
   provider: 80,
   source: 120,
@@ -597,7 +601,10 @@ function redactSecretLikeTextPass(value, state, { includeWrappers }) {
     .replace(authorizationHeaderPattern, (match, key, scheme) => noteRedaction(state, match, `${key}: ${scheme} ${secretRedactionMarker}`))
     .replace(secretHeaderPattern, (...args) => replaceSecretHeader(state, ...args))
     .replace(quotedSecretHeaderPattern, (...args) => replaceSecretHeader(state, ...args))
-    .replace(authorizationAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
+    .replace(authorizationAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args));
+  redacted = redactEscapedSecretAssignments(redacted, state);
+  if (state.limitHit) return secretRedactionMarker;
+  redacted = redacted
     .replace(malformedDoubleQuotedMarkerAdjacentSecretAssignmentPattern, (...args) => replaceMalformedSecretAssignment(state, "\"", ...args))
     .replace(malformedSingleQuotedMarkerAdjacentSecretAssignmentPattern, (...args) => replaceMalformedSecretAssignment(state, "'", ...args))
     .replace(markerAdjacentSecretAssignmentPattern, (...args) => replaceSecretAssignment(state, ...args))
@@ -612,6 +619,139 @@ function redactSecretLikeTextPass(value, state, { includeWrappers }) {
     redacted = redacted.replace(pattern, (match) => noteRedaction(state, match, secretRedactionMarker));
   }
   return redacted.slice(0, maxRawSanitizedStringLength);
+}
+
+function redactEscapedSecretAssignments(value, state) {
+  const bounded = String(value ?? "").slice(0, maxRawSanitizedStringLength);
+  const canonical = canonicalizeEscapedStructuralQuotes(bounded);
+  if (!canonical.hasEscapedQuote && !canonical.hasOverDepthQuote) return bounded;
+  const replacements = [];
+  collectEscapedAssignmentReplacements(canonical, replacements, malformedDoubleQuotedDirectSecretAssignmentPatternWithIndices, {
+    keyIndex: 3,
+    valueIndexes: [5],
+    wholeOnOverDepth: true,
+  });
+  collectEscapedAssignmentReplacements(canonical, replacements, malformedSingleQuotedDirectSecretAssignmentPatternWithIndices, {
+    keyIndex: 3,
+    valueIndexes: [5],
+    wholeOnOverDepth: true,
+  });
+  collectEscapedAssignmentReplacements(canonical, replacements, markerAdjacentSecretAssignmentPatternWithIndices, {
+    keyIndex: 3,
+    valueIndexes: [5, 6, 8],
+    alreadyRedactedIndex: 7,
+    wholeOnOverDepth: true,
+  });
+  collectEscapedAssignmentReplacements(canonical, replacements, directSecretAssignmentPatternWithIndices, {
+    keyIndex: 3,
+    valueIndexes: [5, 6, 8],
+    alreadyRedactedIndex: 7,
+    wholeOnOverDepth: true,
+  });
+  collectEscapedAuthorizationReplacements(canonical, replacements);
+  return applyEscapedReplacements(bounded, state, replacements);
+}
+
+function canonicalizeEscapedStructuralQuotes(value) {
+  const normalized = [];
+  const map = [];
+  const overDepth = [];
+  let hasEscapedQuote = false;
+  let hasOverDepthQuote = false;
+  for (let index = 0; index < value.length;) {
+    if (value[index] === "\\") {
+      let slashEnd = index;
+      while (slashEnd < value.length && value[slashEnd] === "\\") slashEnd += 1;
+      const quote = value[slashEnd];
+      if (quote === "\"" || quote === "'") {
+        const depth = slashEnd - index;
+        normalized.push(quote);
+        map.push([index, slashEnd + 1]);
+        const tooDeep = depth > maxEscapedStructuralQuoteDepth;
+        overDepth.push(tooDeep);
+        hasEscapedQuote = true;
+        hasOverDepthQuote ||= tooDeep;
+        index = slashEnd + 1;
+        continue;
+      }
+    }
+    normalized.push(value[index]);
+    map.push([index, index + 1]);
+    overDepth.push(false);
+    index += 1;
+  }
+  return { normalized: normalized.join(""), map, overDepth, hasEscapedQuote, hasOverDepthQuote };
+}
+
+function collectEscapedAssignmentReplacements(canonical, replacements, pattern, options) {
+  pattern.lastIndex = 0;
+  for (const match of canonical.normalized.matchAll(pattern)) {
+    if (!match.indices) continue;
+    const key = match[options.keyIndex];
+    if (!isCanonicalSecretKey(key)) continue;
+    if (options.alreadyRedactedIndex && match[options.alreadyRedactedIndex] !== undefined) continue;
+    const wholeRange = match.indices[0];
+    if (!wholeRange) continue;
+    const wholeOverDepth = rangeHasOverDepth(canonical, wholeRange);
+    const valueIndex = options.valueIndexes.find((index) => match.indices[index]);
+    const valueRange = valueIndex ? match.indices[valueIndex] : null;
+    if (!valueRange) continue;
+    const rawValue = match[valueIndex];
+    if (isPartialRedactionMarkerValue(rawValue)) continue;
+    if (String(key).toLowerCase() === "authorization" && /^(?:Bearer|Basic)$/i.test(String(rawValue || ""))) continue;
+    const range = wholeOverDepth && options.wholeOnOverDepth ? wholeRange : valueRange;
+    replacements.push(originalReplacementRange(canonical, range, secretRedactionMarker));
+  }
+}
+
+function collectEscapedAuthorizationReplacements(canonical, replacements) {
+  for (const pattern of [authorizationHeaderPatternWithIndices, standaloneAuthorizationPatternWithIndices]) {
+    pattern.lastIndex = 0;
+    for (const match of canonical.normalized.matchAll(pattern)) {
+      if (!match.indices?.[0]) continue;
+      const replacement = pattern === standaloneAuthorizationPatternWithIndices
+        ? `${match[1]} ${secretRedactionMarker}`
+        : `${match[1]}: ${match[2]} ${secretRedactionMarker}`;
+      replacements.push(originalReplacementRange(canonical, match.indices[0], replacement));
+    }
+  }
+}
+
+function rangeHasOverDepth(canonical, range) {
+  for (let index = range[0]; index < range[1]; index += 1) {
+    if (canonical.overDepth[index]) return true;
+  }
+  return false;
+}
+
+function originalReplacementRange(canonical, range, replacement) {
+  const start = canonical.map[range[0]]?.[0] ?? 0;
+  const end = canonical.map[Math.max(range[1] - 1, range[0])]?.[1] ?? start;
+  return { start, end, replacement };
+}
+
+function applyEscapedReplacements(value, state, replacements) {
+  const ordered = [...replacements]
+    .filter((item) => item && item.end > item.start)
+    .sort((left, right) => left.start - right.start || right.end - left.end);
+  const accepted = [];
+  let coveredUntil = -1;
+  for (const item of ordered) {
+    if (item.start < coveredUntil) continue;
+    accepted.push(item);
+    coveredUntil = item.end;
+  }
+  if (!accepted.length) return value;
+  let output = "";
+  let cursor = 0;
+  for (const item of accepted) {
+    output += value.slice(cursor, item.start);
+    output += noteRedaction(state, value.slice(item.start, item.end), item.replacement);
+    cursor = item.end;
+    if (state.limitHit) return secretRedactionMarker;
+  }
+  output += value.slice(cursor);
+  return output.slice(0, maxRawSanitizedStringLength);
 }
 
 function noteRedaction(state, match, replacement) {

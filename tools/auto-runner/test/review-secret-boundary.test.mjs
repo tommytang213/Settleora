@@ -515,6 +515,176 @@ test("review-fix redaction gives nested direct secrets precedence over wrapper m
   }
 });
 
+test("review-fix redaction covers escaped nested secret assignments", () => {
+  const secret = runtimeCanary("escaped-nested");
+  const second = runtimeCanary("escaped-nested-second");
+  const third = runtimeCanary("escaped-nested-third");
+  const backslash = "\\";
+  const doubleQuote = "\"";
+  const singleQuote = "'";
+  const escapedQuote = (depth = 1, quote = doubleQuote) => `${backslash.repeat(depth)}${quote}`;
+  const escapedObject = (key, value, depth = 1) =>
+    `{${escapedQuote(depth)}${key}${escapedQuote(depth)}:${escapedQuote(depth)}${value}${escapedQuote(depth)},${escapedQuote(depth)}safe${escapedQuote(depth)}:${escapedQuote(depth)}visible${escapedQuote(depth)}}`;
+  const cases = [
+    {
+      name: "escaped json token assignment",
+      input: escapedObject("token", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped clientSecret",
+      input: escapedObject("clientSecret", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped accessToken",
+      input: escapedObject("accessToken", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped api-key alias",
+      input: escapedObject("api-key", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped snake case alias",
+      input: escapedObject("client_secret", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped hyphenated alias",
+      input: escapedObject("client-secret", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped single quoted token assignment",
+      input: `{${escapedQuote(1, singleQuote)}token${escapedQuote(1, singleQuote)}:${escapedQuote(1, singleQuote)}${secret}${escapedQuote(1, singleQuote)},${escapedQuote(1, singleQuote)}safe${escapedQuote(1, singleQuote)}:${escapedQuote(1, singleQuote)}visible${escapedQuote(1, singleQuote)}}`,
+      keep: /\\'safe\\':\\'visible\\'/,
+    },
+    {
+      name: "escaped key with unescaped value",
+      input: `headers={${escapedQuote()}token${escapedQuote()}:${secret},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "unescaped key with escaped quoted value",
+      input: `headers={token:${escapedQuote()}${secret}${escapedQuote()},safe:visible}`,
+      keep: /safe:visible/,
+    },
+    {
+      name: "one additional escaping layer",
+      input: escapedObject("token", secret, 2),
+      keep: /\\\\"safe\\\\":\\\\"visible\\\\"/,
+    },
+    {
+      name: "escaped object inside quoted wrapper",
+      input: `headers="${escapedObject("token", secret)}"`,
+      keep: /headers=".*\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped object inside escaped quoted wrapper",
+      input: `headers=${escapedQuote()}${escapedObject("token", secret)}${escapedQuote()}`,
+      keep: /headers=\\".*\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped object inside unquoted wrapper",
+      input: `headers=${escapedObject("token", secret)}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped object inside query parameter",
+      input: `https://example.invalid/path?headers=${escapedObject("token", secret)}&mode=read`,
+      keep: /&mode=read/,
+    },
+    {
+      name: "escaped bearer authorization",
+      input: `Authorization: Bearer ${escapedQuote()}${secret}${escapedQuote()}`,
+      keep: /Authorization: Bearer \[REDACTED\]/,
+    },
+    {
+      name: "escaped basic authorization",
+      input: `Authorization: Basic ${escapedQuote()}${secret}${escapedQuote()}`,
+      keep: /Authorization: Basic \[REDACTED\]/,
+    },
+    {
+      name: "marker adjacent escaped assignment",
+      input: `[REDACTED]${escapedObject("token", secret)}`,
+      keep: /\[REDACTED\]/,
+    },
+    {
+      name: "multiple escaped sibling secret assignments",
+      input: `{${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${escapedQuote()},${escapedQuote()}clientSecret${escapedQuote()}:${escapedQuote()}${second}${escapedQuote()},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "mixed escaped and ordinary nested secret assignments",
+      input: `headers={${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${escapedQuote()},clientSecret:${second},safe:visible}`,
+      keep: /safe:visible/,
+    },
+    {
+      name: "balanced escaped secret plus malformed escaped secret",
+      input: `headers={${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${escapedQuote()},${escapedQuote()}clientSecret${escapedQuote()}:${escapedQuote()}${second},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "escaped safe adjacent field remains visible",
+      input: escapedObject("token", secret),
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+    {
+      name: "wrapper containing only escaped safe fields remains meaningful",
+      input: `headers={${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()},${escapedQuote()}mode${escapedQuote()}:${escapedQuote()}read${escapedQuote()}}`,
+      exact: `headers={${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()},${escapedQuote()}mode${escapedQuote()}:${escapedQuote()}read${escapedQuote()}}`,
+    },
+    {
+      name: "harmless backslash quote prose remains meaningful",
+      input: `Harmless text says ${escapedQuote()}token${escapedQuote()} and ${escapedQuote()}secret${escapedQuote()} are words, not assignments.`,
+      exact: `Harmless text says ${escapedQuote()}token${escapedQuote()} and ${escapedQuote()}secret${escapedQuote()} are words, not assignments.`,
+    },
+    {
+      name: "deeper ambiguous escape fails closed",
+      input: `headers={${escapedQuote(3)}token${escapedQuote(3)}:${escapedQuote(3)}${third}${escapedQuote(3)},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
+      keep: /\\"safe\\":\\"visible\\"/,
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+    assert.doesNotMatch(redacted, new RegExp(second), item.name);
+    assert.doesNotMatch(redacted, new RegExp(third), item.name);
+    if (item.exact) {
+      assert.equal(redacted, item.exact, item.name);
+    } else {
+      assert.match(redacted, item.keep, item.name);
+      assert.match(redacted, /\[REDACTED\]/, item.name);
+    }
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+
+  const nearBound = `${"headers=".repeat(1_000)}${escapedObject("token", secret)}${"x".repeat(2_000)}`.slice(0, 19_900);
+  const nearBoundStarted = process.hrtime.bigint();
+  const nearBoundRedacted = redactSecretLikeText(nearBound);
+  const nearBoundElapsedMs = Number(process.hrtime.bigint() - nearBoundStarted) / 1_000_000;
+  assert.equal(nearBoundElapsedMs < 1_000, true, `near-bound elapsed ${nearBoundElapsedMs}ms`);
+  assert.doesNotMatch(nearBoundRedacted, new RegExp(secret));
+  assert.equal(nearBoundRedacted.length <= 20_000, true);
+
+  const manySiblingFragments = Array.from({ length: 1_000 }, (_item, index) =>
+    `h${index}=${escapedObject("token", secret)}`).join(" ");
+  const manyStarted = process.hrtime.bigint();
+  const manyRedacted = redactSecretLikeText(manySiblingFragments);
+  const manyElapsedMs = Number(process.hrtime.bigint() - manyStarted) / 1_000_000;
+  assert.equal(manyElapsedMs < 1_000, true, `many elapsed ${manyElapsedMs}ms`);
+  assert.doesNotMatch(manyRedacted, new RegExp(secret));
+  assert.match(manyRedacted, /safe/);
+
+  const budgetSecret = ["q"].join("");
+  const manySecrets = Array.from({ length: 1_100 }, () => `${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${budgetSecret}${escapedQuote()}`).join(";");
+  const budgetRedacted = redactSecretLikeText(manySecrets);
+  assert.equal(budgetRedacted, "[REDACTED]");
+  assert.doesNotMatch(budgetRedacted, new RegExp(budgetSecret));
+});
+
 test("review-fix redaction treats completed markers as secret boundaries", () => {
   const secret = runtimeCanary("marker-boundary");
   const second = runtimeCanary("marker-boundary-second");
@@ -1024,6 +1194,90 @@ test("review-fix nested wrapper canaries never reach prompt evidence or durable 
     }
     assert.match(prompt, /safe=visible/);
     assert.match(evidence, /"safe": "visible"/);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("review-fix escaped nested canaries never reach prompt evidence or durable fixtures", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-fix-escaped-canary-"));
+  try {
+    const secret = runtimeCanary("prompt-evidence-escaped-nested");
+    const backslash = "\\";
+    const escapedQuote = `${backslash}"`;
+    const escapedWrapper = `headers={${escapedQuote}token${escapedQuote}:${escapedQuote}${secret}${escapedQuote},${escapedQuote}safe${escapedQuote}:${escapedQuote}visible${escapedQuote}}`;
+    const trigger = {
+      actionable: true,
+      source: "integrated_gemini",
+      verdict: "fail",
+      findings: [{
+        provider: "gemini",
+        severity: "high",
+        path: `tools/auto-runner/lib/review-fix-policy.mjs?${escapedWrapper}`,
+        file: `tools/auto-runner/lib/review-fix-policy.mjs#metadata={${escapedQuote}clientSecret${escapedQuote}:${escapedQuote}${secret}${escapedQuote}}`,
+        line: 606,
+        range: { startLine: 606, endLine: 607, label: `query={ ${escapedQuote}accessToken${escapedQuote} : ${escapedQuote}${secret}${escapedQuote} , safe : visible }` },
+        title: `escaped nested token ${escapedWrapper}`,
+        message: `headers={${escapedQuote}api-key${escapedQuote}:${escapedQuote}${secret}${escapedQuote},safe:visible}`,
+        body: `Authorization: Bearer ${escapedQuote}${secret}${escapedQuote}`,
+        details: `metadata={${escapedQuote}client_secret${escapedQuote}:${escapedQuote}${secret}${escapedQuote};safe=visible}`,
+        rule: `headers={${escapedQuote}client-secret${escapedQuote}:${escapedQuote}${secret}${escapedQuote};safe=visible}`,
+        ruleId: `query={${escapedQuote}token${escapedQuote}=${escapedQuote}${secret}${escapedQuote}&safe=visible}`,
+        check: `outer={headers={${escapedQuote}token${escapedQuote}:${escapedQuote}${secret}${escapedQuote},safe:visible};safe=visible}`,
+        invariant: "escaped safe adjacent fields stay visible",
+        authorityInvariant: `history={headers={${escapedQuote}token${escapedQuote}:${escapedQuote}${secret}${escapedQuote},safe:visible}}`,
+      }],
+    };
+    const decision = evaluateReviewFixMutationDecision({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      issue: { number: 921, title: "Escaped nested canary", labels: [] },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedToImplement: true,
+        autoMergeEligible: true,
+        manualMergeRequired: false,
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const prompt = buildReviewFixPrompt({
+      issue: { number: 921, title: "Escaped nested canary" },
+      laneDecision: {
+        lane: "workflow-docs-tooling",
+        allowedPaths: ["tools/auto-runner/**"],
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+      },
+      branchName: "feature/review-fix",
+      changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+      validation: { passed: true },
+      trigger,
+    });
+    const written = writeReviewFixEvidence({ logsRoot: tempRoot }, {
+      issue: { number: 921, title: "Escaped nested canary" },
+      trigger,
+      decision,
+      promptFixture: escapedWrapper,
+      structuredFindings: trigger.findings,
+      findingInventory: [{ fingerprint: `headers={${escapedQuote}token${escapedQuote}:${escapedQuote}${secret}${escapedQuote},safe:visible}`, history: [`metadata={${escapedQuote}clientSecret${escapedQuote}:${escapedQuote}${secret}${escapedQuote}}`] }],
+      durableStateFixture: {
+        prompt: `query={ ${escapedQuote}accessToken${escapedQuote} : ${escapedQuote}${secret}${escapedQuote} , safe : visible }`,
+        evidence: `headers={${escapedQuote}api-key${escapedQuote}:${escapedQuote}${secret}${escapedQuote},safe:visible}`,
+        inventory: [`headers={${escapedQuote}client-secret${escapedQuote}:${escapedQuote}${secret}${escapedQuote};safe=visible}`],
+        fingerprints: [`query={${escapedQuote}token${escapedQuote}=${escapedQuote}${secret}${escapedQuote}&safe=visible}`],
+        history: [`outer={headers={${escapedQuote}token${escapedQuote}:${escapedQuote}${secret}${escapedQuote},safe:visible};safe=visible}`],
+        safe: "visible",
+      },
+    });
+    const evidence = readFileSync(written.evidencePath, "utf8");
+    for (const output of [JSON.stringify(decision.sanitizedFindings), JSON.stringify(decision), prompt, evidence]) {
+      assert.doesNotMatch(output, new RegExp(secret));
+      assert.match(output, /\[REDACTED\]/);
+    }
+    assert.match(prompt, /safe/);
+    assert.match(evidence, /visible/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
