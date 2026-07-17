@@ -14,6 +14,10 @@ import {
   writeReviewFixEvidence,
 } from "../lib/review-fix-policy.mjs";
 
+function runtimeCanary(label = "value") {
+  return ["fake", "cycle18", "canary", label].join("-");
+}
+
 test("review secret boundary blocks real secret files and credential content", () => {
   const realKey = `AIza${"A".repeat(30)}`;
   const cases = [
@@ -343,6 +347,107 @@ test("review-fix secret redaction covers assignments, headers, query values, and
 
   const long = redactSecretLikeText(`${"x".repeat(10_000)} token=${secret} ${"y".repeat(10_000)}`);
   assert.doesNotMatch(long, new RegExp(secret));
+});
+
+test("review-fix redaction rescans wrappers with existing markers and remains idempotent", () => {
+  const secret = runtimeCanary("mixed-wrapper");
+  const second = runtimeCanary("second-wrapper");
+  const cases = [
+    {
+      name: "safe raw prior",
+      input: `headers="safe=visible; x-api-key=${secret}; prior=[REDACTED]"`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "prior raw",
+      input: `headers="prior=[REDACTED]; x-api-key=${secret}; safe=visible"`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "raw prior",
+      input: `headers="x-api-key=${secret}; prior=[REDACTED]; safe=visible"`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "multiple raw",
+      input: `headers="token=${secret}; safe=visible; prior=[REDACTED]; client_secret=${second}"`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "malformed marker later raw",
+      input: `headers="prior=[REDACTED; safe=visible; x-api-key=${secret}"`,
+      keep: /safe=visible/,
+    },
+    {
+      name: "json-like nested",
+      input: `headers={"prior":"[REDACTED]","x-api-key":"${secret}","safe":"visible"}`,
+      keep: /"safe":"visible"/,
+    },
+    {
+      name: "query wrapper",
+      input: `query="safe=visible&accessToken=${secret}&prior=[REDACTED]"`,
+      keep: /safe=visible/,
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+    assert.doesNotMatch(redacted, new RegExp(second), item.name);
+    assert.match(redacted, /\[REDACTED\]/, item.name);
+    assert.match(redacted, item.keep, item.name);
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+});
+
+test("review-fix redaction is stack-safe and bounded for adversarial wrappers", () => {
+  const secret = runtimeCanary("adversarial-wrapper");
+  const started = process.hrtime.bigint();
+  const nested = `${"headers=".repeat(1_000)}token=${secret}`;
+  assert.doesNotThrow(() => redactSecretLikeText(nested));
+  const nestedRedacted = redactSecretLikeText(nested);
+  const elapsedMs = Number(process.hrtime.bigint() - started) / 1_000_000;
+  assert.equal(elapsedMs < 1_000, true, `elapsed ${elapsedMs}ms`);
+  assert.doesNotMatch(nestedRedacted, new RegExp(secret));
+  assert.equal(nestedRedacted.length <= 20_000, true);
+
+  const nearBound = `${"headers=".repeat(2_200)}token=${secret};safe=visible;${"x".repeat(3_000)}`;
+  const nearBoundRedacted = redactSecretLikeText(nearBound);
+  assert.doesNotMatch(nearBoundRedacted, new RegExp(secret));
+  assert.equal(nearBoundRedacted.length <= 20_000, true);
+
+  const sibling = [
+    `headers="safe=visible; x-api-key=${secret}"`,
+    `query="token=${secret}&safe=visible"`,
+    `metadata={"clientSecret":"${secret}","safe":"visible"}`,
+  ].join(" ");
+  const siblingRedacted = redactSecretLikeText(sibling);
+  assert.doesNotMatch(siblingRedacted, new RegExp(secret));
+  assert.match(siblingRedacted, /safe=visible/);
+
+  const malformed = `headers="'[{token=${secret}; prior=[REDACTED; safe=visible" query={accessToken:${secret}`;
+  const malformedRedacted = redactSecretLikeText(malformed);
+  assert.doesNotThrow(() => redactSecretLikeText(malformed));
+  assert.doesNotMatch(malformedRedacted, new RegExp(secret));
+  assert.match(malformedRedacted, /safe=visible/);
+
+  const budgetSecret = ["s"].join("");
+  const manySecrets = Array.from({ length: 4_100 }, () => `token=${budgetSecret}`).join(";");
+  const budgetRedacted = redactSecretLikeText(manySecrets);
+  assert.equal(budgetRedacted, "[REDACTED]");
+  assert.doesNotMatch(budgetRedacted, new RegExp(budgetSecret));
+
+  let repeated = siblingRedacted;
+  for (let index = 0; index < 10; index += 1) {
+    const next = redactSecretLikeText(repeated);
+    assert.equal(next, repeated);
+    assert.equal(next.length <= 20_000, true);
+    repeated = next;
+  }
+
+  const prose = redactSecretLikeText(`Harmless prose remains meaningful while headers="safe=visible; x-api-key=${secret}; prior=[REDACTED]"`);
+  assert.match(prose, /Harmless prose remains meaningful/);
+  assert.match(prose, /safe=visible/);
+  assert.doesNotMatch(prose, new RegExp(secret));
 });
 
 test("review-fix prompt and evidence never serialize fake canary values", () => {
