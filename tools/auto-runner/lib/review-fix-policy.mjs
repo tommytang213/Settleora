@@ -49,6 +49,8 @@ const maxSanitizedEvidenceObjectFields = 200;
 const maxRawSanitizedStringLength = 20_000;
 const maxSecretRedactionPasses = 1;
 const maxSecretRedactionReplacements = 1_000;
+const canonicalUnquotedValueDelimiters = new Set([",", ";", "&", "?", "}", "]", ")", "\r", "\n"]);
+const canonicalQuotedTailDelimiters = new Set(["\r", "\n"]);
 // Escaped reviewer evidence is scanned with a fixed quote-token depth: plain,
 // one escaped layer (\") and one additional layer (\\"). Deeper quote escaping
 // inside a secret-shaped assignment is ambiguous and fails closed for that span.
@@ -749,27 +751,22 @@ function scanCanonicalQuotedSecretValueSpan(canonical, quoteStart, quoteChar) {
   if (canonical.overDepth[quoteStart]) return null;
   const structuralDepth = canonical.quoteDepth[quoteStart] ?? 0;
   const contentStart = quoteStart + 1;
-  let sawOverDepth = canonical.overDepth[quoteStart] === true;
   for (let index = contentStart; index < value.length; index += 1) {
-    sawOverDepth ||= canonical.overDepth[index] === true;
     if (value[index] === "\r" || value[index] === "\n") {
-      const boundary = findCanonicalValueBoundary(value, contentStart);
-      return safeCanonicalValueSpan(canonical, contentStart, boundary, `${secretRedactionMarker}${quoteChar}`);
-    }
-    if (";&?}])".includes(value[index])) {
-      return safeCanonicalValueSpan(canonical, contentStart, index, `${secretRedactionMarker}${quoteChar}`);
+      const boundary = findCanonicalQuotedTailBoundary(value, contentStart);
+      return safeCanonicalValueSpan(canonical, quoteStart, boundary);
     }
     if (value[index] !== quoteChar) continue;
     const depth = canonical.quoteDepth[index] ?? 0;
     if (depth !== structuralDepth) continue;
-    if (sawOverDepth) {
-      const boundary = findCanonicalValueBoundary(value, contentStart);
-      return safeCanonicalValueSpan(canonical, contentStart, Math.max(boundary, index));
+    if (!isCanonicalQuotedValueBoundary(value[index + 1])) {
+      const boundary = findCanonicalUnquotedValueBoundary(canonical, index + 1);
+      return safeCanonicalValueSpan(canonical, quoteStart, boundary);
     }
     return safeCanonicalValueSpan(canonical, contentStart, index);
   }
-  const boundary = findCanonicalValueBoundary(value, contentStart);
-  return safeCanonicalValueSpan(canonical, contentStart, boundary, `${secretRedactionMarker}${quoteChar}`);
+  const boundary = findCanonicalQuotedTailBoundary(value, contentStart);
+  return safeCanonicalValueSpan(canonical, quoteStart, boundary);
 }
 
 function scanCanonicalUnquotedSecretValueSpan(canonical, valueStart, { key }) {
@@ -778,15 +775,29 @@ function scanCanonicalUnquotedSecretValueSpan(canonical, valueStart, { key }) {
     const scheme = value.slice(valueStart).match(/^(Bearer|Basic)(?=$|[\s,;&?}\]\)\r\n])/i);
     if (scheme) return null;
   }
-  const boundary = findCanonicalValueBoundary(value, valueStart);
+  const boundary = findCanonicalUnquotedValueBoundary(canonical, valueStart);
   return safeCanonicalValueSpan(canonical, valueStart, boundary);
 }
 
-function findCanonicalValueBoundary(value, start) {
+function findCanonicalUnquotedValueBoundary(canonical, start) {
+  const value = canonical.normalized;
   for (let index = start; index < value.length; index += 1) {
-    if ("\"',;&?}])\r\n".includes(value[index])) return index;
+    const char = value[index];
+    if (canonicalUnquotedValueDelimiters.has(char)) return index;
+    if ((char === "\"" || char === "'") && (canonical.quoteDepth[index] ?? 0) === 0) return index;
   }
   return value.length;
+}
+
+function findCanonicalQuotedTailBoundary(value, start) {
+  for (let index = start; index < value.length; index += 1) {
+    if (canonicalQuotedTailDelimiters.has(value[index])) return index;
+  }
+  return value.length;
+}
+
+function isCanonicalQuotedValueBoundary(char) {
+  return char === undefined || canonicalUnquotedValueDelimiters.has(char) || /\s/.test(char);
 }
 
 function safeCanonicalValueSpan(canonical, start, end, replacement = secretRedactionMarker) {

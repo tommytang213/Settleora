@@ -477,7 +477,7 @@ test("review-fix redaction gives nested direct secrets precedence over wrapper m
     {
       name: "balanced plus malformed nested secret",
       input: `headers={token:"${secret}",clientSecret:'${second};safe=visible}`,
-      keep: /token:"\[REDACTED\]",clientSecret:'\[REDACTED\]';safe=visible/,
+      keep: /^headers=\{token:"\[REDACTED\]",clientSecret:\[REDACTED\]$/,
     },
     {
       name: "nested query preserves ampersand safe field",
@@ -624,7 +624,7 @@ test("review-fix redaction covers escaped nested secret assignments", () => {
     {
       name: "balanced escaped secret plus malformed escaped secret",
       input: `headers={${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${escapedQuote()},${escapedQuote()}clientSecret${escapedQuote()}:${escapedQuote()}${second},${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
-      keep: /\\"safe\\":\\"visible\\"/,
+      keep: /^headers=\{\\"token\\":\\"\[REDACTED\]\\",\\"clientSecret\\":\[REDACTED\]\}$/,
     },
     {
       name: "escaped safe adjacent field remains visible",
@@ -829,7 +829,7 @@ test("review-fix redaction treats escaped quotes inside quoted secrets as data",
     {
       name: "malformed escaped quoted value fail closed",
       input: `{${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${secret}${backslash}${backslash}${backslash}${doubleQuote}tail,${escapedQuote()}safe${escapedQuote()}:${escapedQuote()}visible${escapedQuote()}}`,
-      keep: /\\"safe\\":\\"visible\\"/,
+      keep: /^\{\\"token\\":\[REDACTED\]\}$/,
     },
     {
       name: "mixed ordinary and escaped nested assignments",
@@ -891,6 +891,203 @@ test("review-fix redaction treats escaped quotes inside quoted secrets as data",
   const budgetSecret = ["r"].join("");
   const manySecrets = Array.from({ length: 1_100 }, () =>
     `${escapedQuote()}token${escapedQuote()}:${escapedQuote()}${budgetSecret}${escapedQuote()}`).join(";");
+  const budgetRedacted = redactSecretLikeText(manySecrets);
+  assert.equal(budgetRedacted, "[REDACTED]");
+  assert.doesNotMatch(budgetRedacted, new RegExp(budgetSecret));
+});
+
+test("review-fix redaction consumes quoted delimiters and unquoted escaped quotes", () => {
+  const secret = runtimeCanary("quoted-delimiter");
+  const second = runtimeCanary("unquoted-escaped-quote");
+  const third = runtimeCanary("alias-escaped-quote");
+  const backslash = "\\";
+  const doubleQuote = "\"";
+  const singleQuote = "'";
+  const escapedQuote = (depth = 1, quote = doubleQuote) => `${backslash.repeat(depth)}${quote}`;
+  const quoted = (key, value, quote = doubleQuote) => `${key}=${quote}${value}${quote}`;
+  const escapedQuoted = (key, value, depth = 1) => `${escapedQuote(depth)}${key}${escapedQuote(depth)}:${escapedQuote(depth)}${value}${escapedQuote(depth)}`;
+  const unquotedEscaped = (key, value, quote = doubleQuote) => `${key}=${value}${backslash}${quote}rawtail`;
+  const cases = [
+    {
+      name: "double quoted semicolon",
+      input: `${quoted("token", `${secret};rawtail`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "single quoted semicolon",
+      input: `${quoted("token", `${secret};rawtail`, singleQuote)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "quoted ampersand",
+      input: `${quoted("token", `${secret}&rawtail`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "quoted question",
+      input: `${quoted("token", `${secret}?rawtail`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "quoted close brace",
+      input: `${quoted("token", `${secret}}rawtail`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "quoted close bracket",
+      input: `${quoted("token", `${secret}]rawtail`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "quoted close paren",
+      input: `${quoted("token", `${secret})rawtail`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "quoted comma",
+      input: `${quoted("token", `${secret},rawtail`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "several quoted delimiters",
+      input: `${quoted("token", `${secret};&?}]),rawtail`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "delimiter before structural close",
+      input: `${quoted("token", `${secret};`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "escaped quote plus quoted delimiters",
+      input: `${quoted("token", `${secret}${backslash}${doubleQuote}rawtail;&?`)},safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "one additional escaped quote layer plus delimiters",
+      input: `{${escapedQuoted("token", `${secret};rawtail&?`, 2)},${escapedQuote(2)}safe${escapedQuote(2)}:${escapedQuote(2)}visible${escapedQuote(2)}}`,
+      keep: /\\\\"safe\\\\":\\\\"visible\\\\"/,
+    },
+    {
+      name: "malformed quoted delimiters fail closed",
+      input: `token="${secret};rawtail,safe=visible`,
+      keep: /^token=\[REDACTED\]$/,
+      dropsSafe: true,
+    },
+    {
+      name: "safe sibling after structural closure",
+      input: `token="${secret};rawtail",safe=visible`,
+      keep: /,safe=visible/,
+    },
+    {
+      name: "unquoted escaped double quote",
+      input: `${unquotedEscaped("token", second)};safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "unquoted escaped single quote",
+      input: `${unquotedEscaped("token", second, singleQuote)};safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "multiple unquoted escaped quotes",
+      input: `token=${second}${backslash}${doubleQuote}mid${backslash}${doubleQuote}rawtail;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "unquoted escaped quote near start",
+      input: `token=a${backslash}${doubleQuote}${second}rawtail;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "unquoted escaped quote near end",
+      input: `token=${second}rawtail${backslash}${doubleQuote};safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "clientSecret escaped quote alias",
+      input: `${unquotedEscaped("clientSecret", third)};safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "accessToken escaped quote alias",
+      input: `${unquotedEscaped("accessToken", third)}&safe=visible`,
+      keep: /&safe=visible/,
+    },
+    {
+      name: "api-key escaped quote alias",
+      input: `${unquotedEscaped("api-key", third)}?safe=visible`,
+      keep: /\?safe=visible/,
+    },
+    {
+      name: "query escaped quote sibling",
+      input: `https://example.invalid/path?token=${second}${backslash}${doubleQuote}rawtail&safe=visible`,
+      keep: /&safe=visible/,
+    },
+    {
+      name: "wrapper unquoted escaped quote",
+      input: `headers={token:${second}${backslash}${doubleQuote}rawtail,safe:visible}`,
+      keep: /,safe:visible/,
+    },
+    {
+      name: "marker adjacent unquoted escaped quote",
+      input: `[REDACTED]token=${second}${backslash}${doubleQuote}rawtail;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "several sibling assignments",
+      input: `token=${second}${backslash}${doubleQuote}rawtail;clientSecret=${third}${backslash}${singleQuote}rawtail;safe=visible`,
+      keep: /;safe=visible/,
+    },
+    {
+      name: "ambiguous quote join fails closed through tail",
+      input: `token="${secret}"rawtail;safe=visible`,
+      keep: /^token=\[REDACTED\];safe=visible$/,
+    },
+    {
+      name: "harmless escaped quote prose",
+      input: `Harmless text says token ${backslash}${doubleQuote}${second}${backslash}${doubleQuote} without assignment.`,
+      exact: `Harmless text says token ${backslash}${doubleQuote}${second}${backslash}${doubleQuote} without assignment.`,
+      harmlessKeepsSecret: true,
+    },
+  ];
+  for (const item of cases) {
+    const redacted = redactSecretLikeText(item.input);
+    if (item.harmlessKeepsSecret) {
+      assert.equal(redacted, item.exact, item.name);
+      continue;
+    }
+    assert.doesNotMatch(redacted, new RegExp(secret), item.name);
+    assert.doesNotMatch(redacted, new RegExp(second), item.name);
+    assert.doesNotMatch(redacted, new RegExp(third), item.name);
+    assert.doesNotMatch(redacted, /rawtail/, item.name);
+    if (item.dropsSafe) assert.doesNotMatch(redacted, /safe=visible/, item.name);
+    assert.match(redacted, item.keep, item.name);
+    assert.match(redacted, /\[REDACTED\]/, item.name);
+    assert.equal(redactSecretLikeText(redacted), redacted, item.name);
+  }
+
+  const nearBound = `${"prefix=".repeat(700)}token="${secret};rawtail&?}]),"${"x".repeat(5_000)}`.slice(0, 19_950);
+  const nearBoundStarted = process.hrtime.bigint();
+  const nearBoundRedacted = redactSecretLikeText(nearBound);
+  const nearBoundElapsedMs = Number(process.hrtime.bigint() - nearBoundStarted) / 1_000_000;
+  assert.equal(nearBoundElapsedMs < 1_000, true, `near-bound elapsed ${nearBoundElapsedMs}ms`);
+  assert.doesNotMatch(nearBoundRedacted, new RegExp(secret));
+  assert.doesNotMatch(nearBoundRedacted, /rawtail/);
+  assert.equal(nearBoundRedacted.length <= 20_000, true);
+
+  const manySiblingFragments = Array.from({ length: 1_000 }, (_item, index) =>
+    `h${index}={token:${second}${backslash}${doubleQuote}rawtail,safe:visible}`).join(" ");
+  const manyStarted = process.hrtime.bigint();
+  const manyRedacted = redactSecretLikeText(manySiblingFragments);
+  const manyElapsedMs = Number(process.hrtime.bigint() - manyStarted) / 1_000_000;
+  assert.equal(manyElapsedMs < 1_000, true, `many elapsed ${manyElapsedMs}ms`);
+  assert.doesNotMatch(manyRedacted, new RegExp(second));
+  assert.doesNotMatch(manyRedacted, /rawtail/);
+  assert.match(manyRedacted, /safe/);
+
+  const budgetSecret = ["s"].join("");
+  const manySecrets = Array.from({ length: 1_100 }, () => `token="${budgetSecret};rawtail"`).join(";");
   const budgetRedacted = redactSecretLikeText(manySecrets);
   assert.equal(budgetRedacted, "[REDACTED]");
   assert.doesNotMatch(budgetRedacted, new RegExp(budgetSecret));
@@ -1005,42 +1202,42 @@ test("review-fix redaction fails closed for malformed quoted secret values", () 
     {
       name: "marker unterminated double quoted token",
       input: `[REDACTED]token="${secret}`,
-      keep: /\[REDACTED\]token="\[REDACTED\]"/,
+      keep: /^\[REDACTED\]token=\[REDACTED\]$/,
     },
     {
       name: "marker unterminated single quoted token",
       input: `[REDACTED]token='${secret}`,
-      keep: /\[REDACTED\]token='\[REDACTED\]'/,
+      keep: /^\[REDACTED\]token=\[REDACTED\]$/,
     },
     {
       name: "mismatched single close for double quoted token",
       input: `token="${secret}'`,
-      keep: /token="\[REDACTED\]"'/,
+      keep: /^token=\[REDACTED\]$/,
     },
     {
       name: "mismatched double close for single quoted token",
       input: `token='${secret}"`,
-      keep: /token='\[REDACTED\]'"/,
+      keep: /^token=\[REDACTED\]$/,
     },
     {
       name: "marker api key alias malformed quote",
       input: `[REDACTED]x-api-key="${secret}`,
-      keep: /\[REDACTED\]x-api-key="\[REDACTED\]"/,
+      keep: /^\[REDACTED\]x-api-key=\[REDACTED\]$/,
     },
     {
       name: "marker camel case alias malformed quote",
       input: `[REDACTED]accessToken='${secret}`,
-      keep: /\[REDACTED\]accessToken='\[REDACTED\]'/,
+      keep: /^\[REDACTED\]accessToken=\[REDACTED\]$/,
     },
     {
       name: "quoted json key malformed quoted value",
       input: `[REDACTED]"token":"${secret}`,
-      keep: /\[REDACTED\]"token":"\[REDACTED\]"/,
+      keep: /^\[REDACTED\]"token":\[REDACTED\]$/,
     },
     {
       name: "single quoted json key malformed quoted value",
       input: `[REDACTED]'token':'${secret}`,
-      keep: /\[REDACTED\]'token':'\[REDACTED\]'/,
+      keep: /^\[REDACTED\]'token':\[REDACTED\]$/,
     },
     {
       name: "malformed bearer authorization value",
@@ -1055,27 +1252,27 @@ test("review-fix redaction fails closed for malformed quoted secret values", () 
     {
       name: "malformed value inside quoted wrapper",
       input: `headers="[REDACTED]token='${secret}"`,
-      keep: /headers="\[REDACTED\]token='\[REDACTED\]'"/,
+      keep: /^headers="\[REDACTED\]token=\[REDACTED\]$/,
     },
     {
       name: "malformed value inside unquoted wrapper",
       input: `headers={[REDACTED]token="${secret}}`,
-      keep: /headers=\{\[REDACTED\]token="\[REDACTED\]"\}/,
+      keep: /^headers=\{\[REDACTED\]token=\[REDACTED\]$/,
     },
     {
-      name: "query malformed value preserves safe field",
+      name: "query malformed value fails closed through unsafe field",
       input: `https://example.invalid/path?[REDACTED]token="${secret}&safe=visible`,
-      keep: /&safe=visible/,
+      keep: /^https:\/\/example\.invalid\/path\?\[REDACTED\]token=\[REDACTED\]$/,
     },
     {
-      name: "json-like malformed value preserves comma safe field",
+      name: "json-like malformed value fails closed through unsafe key",
       input: `{[REDACTED]"token":"${secret},"safe":"visible"}`,
-      keep: /"safe":"visible"/,
+      keep: /^\{\[REDACTED\]"token":\[REDACTED\]":"visible"\}$/,
     },
     {
       name: "malformed value reaches bounded end",
       input: `prefix [REDACTED]token="${secret}`,
-      keep: /\[REDACTED\]token="\[REDACTED\]"/,
+      keep: /prefix \[REDACTED\]token=\[REDACTED\]$/,
     },
     {
       name: "malformed value reaches newline",
@@ -1085,12 +1282,12 @@ test("review-fix redaction fails closed for malformed quoted secret values", () 
     {
       name: "multiple malformed secret assignments",
       input: `[REDACTED]token="${secret};[REDACTED]clientSecret='${second}`,
-      keep: /\[REDACTED\]clientSecret='\[REDACTED\]'/,
+      keep: /^\[REDACTED\]token=\[REDACTED\]$/,
     },
     {
       name: "existing marker malformed and balanced secret",
       input: `[REDACTED]token="${secret}; x-api-key="${second}"`,
-      keep: /x-api-key="\[REDACTED\]"/,
+      keep: /^\[REDACTED\]token=\[REDACTED\]"$/,
     },
   ];
   for (const item of cases) {
