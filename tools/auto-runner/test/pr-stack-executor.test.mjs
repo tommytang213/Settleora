@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,7 @@ import { loadConfig, parseCliArgs } from "../lib/config.mjs";
 import { buildReadOnlyLiveStackFixturePlan, createDependentPrStackPlan } from "../lib/pr-stack-controller.mjs";
 import {
   createInitialPrStackState,
+  createProductionPrStackAdapter,
   loadExecutableStackPlan,
   runPrStackExecution,
   validateExecutableStackPlan,
@@ -199,6 +201,76 @@ test("final hygiene occurs only after every PR has merge proof", async () => {
   assert.equal(hygiene, 1);
 });
 
+test("production merge adapter carries real gate changed-file evidence", async () => {
+  const fixture = stackFixture();
+  const changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"];
+  const digest = digestStrings(changedFiles);
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.gatesPassed["919"] = {
+    ok: true,
+    changedFiles,
+    changedFilesExactlyMatchAllowedPaths: true,
+    laneDecision: {
+      lane: "workflow-docs-tooling",
+      canonicalLane: "workflow-docs-tooling",
+      branchStrategy: "normal",
+      validationProfile: "runner-tests",
+      reviewerTier: "strong_independent",
+      allowedToImplement: true,
+      autoMergeEligible: true,
+      manualMergeRequired: false,
+      contract: { autoMergeEligible: true, manualMergeRequired: false },
+      laneManifest: { decisionType: "runnable", autoMergeAllowed: true },
+      allowedPaths: ["tools/auto-runner/**"],
+    },
+    validation: {
+      passed: true,
+      results: [{ command: "node --test tools/auto-runner/test/pr-stack-executor.test.mjs", status: 0 }],
+      completedAt: new Date().toISOString(),
+      headSha: sha("a"),
+      changedFiles,
+      changedFilesDigest: digest,
+      profile: "runner-tests",
+    },
+    externalReview: {
+      status: "pass",
+      tier: "strong_independent",
+      verdict: "pass",
+      reviewedHead: sha("a"),
+      changedFiles,
+      changedFilesDigest: digest,
+      independent: true,
+      provider: "gemini",
+      completedAt: new Date().toISOString(),
+    },
+    review: {
+      reviewedHead: sha("a"),
+      changedFiles,
+      changedFilesDigest: digest,
+      verdict: { verdict: "approve" },
+      completedAt: new Date().toISOString(),
+    },
+    codexMechanicsReviewApproved: true,
+    requiredChecks: [
+      check("Validate scaffold"),
+      check("CodeQL"),
+      check("Semgrep CE scan"),
+      check("Trivy repository scan"),
+    ],
+    issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
+  };
+  const config = {
+    ...fixture.config,
+    dryRun: true,
+    allowAutoMerge: true,
+    autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] },
+  };
+  const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
+  const result = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
+  assert.equal(result.ok, true);
+  assert.equal(result.result.result, "dry_run_eligible");
+});
+
 test("unknown action, stale head, repository mismatch, production profile, and forbidden capabilities block", async () => {
   const fixture = stackFixture();
   assert.equal(loadExecutableStackPlan({ ...fixture.config, repositorySlug: "other/repo" }, fixture.planPath).reasonCode, "stack_repository_mismatch");
@@ -346,6 +418,18 @@ function pr(number, baseRefName, headRefName, headRefOid, isDraft = false) {
       reversePatchApplies: true,
     },
   };
+}
+
+function check(name) {
+  return { name, status: "COMPLETED", conclusion: "SUCCESS" };
+}
+
+function digestStrings(items) {
+  return createHash("sha256").update([...items].sort().join("\n")).digest("hex");
+}
+
+function fakeRunner() {
+  return { status: 0, stdout: "", stderr: "", error: null };
 }
 
 function scriptedAdapter(calls) {

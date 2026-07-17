@@ -464,20 +464,53 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     async completeFinalGates({ pr }) {
       return { ok: true, reason: "final_gates_delegated", exactHead: pr.headRefOid };
     },
-    async mergePr({ config: cfg, pr, expectedHead }) {
+    async mergePr({ config: cfg, state, pr, expectedHead }) {
+      const gateEvidence = state.evidence?.gatesPassed?.[pr.number] || {};
+      const inspection = await this.inspectPr({ config: cfg || config, prNumber: pr.number });
+      if (!inspection?.ok) return waitOrFail(inspection, "merge_pr_inspection_failed");
+      if (inspection.headRefOid && inspection.headRefOid !== expectedHead) {
+        return fail("merge_pr_head_stale", `PR #${pr.number} head changed before merge`);
+      }
+      const changedFiles = normalizeChangedFiles(gateEvidence.changedFiles || inspection.changedFiles || pr.changedFiles || []);
+      const laneDecision = gateEvidence.laneDecision || {
+        lane: "workflow-docs-tooling",
+        canonicalLane: "workflow-docs-tooling",
+        branchStrategy: "normal",
+        validationProfile: "runner-tests",
+        reviewerTier: "strong_independent",
+        allowedToImplement: true,
+        autoMergeEligible: true,
+        manualMergeRequired: false,
+        contract: { autoMergeEligible: true, manualMergeRequired: false },
+        laneManifest: { decisionType: "runnable", autoMergeAllowed: true },
+        allowedPaths: ["tools/auto-runner/**", "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md", "docs/planning/**"],
+      };
       const context = {
-        issue: { number: pr.issueNumber || 921, state: "OPEN", labels: [] },
-        pr: { ...pr, state: "OPEN", isDraft: false, baseRefName: "main", headRefOid: expectedHead, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" },
+        config: cfg || config,
+        issue: gateEvidence.issue || { number: pr.issueNumber || 921, state: "OPEN", labels: [] },
+        issueLabels: gateEvidence.issueLabels || [],
+        pr: { ...pr, ...(inspection.pr || {}), state: "OPEN", isDraft: false, baseRefName: "main", headRefOid: expectedHead },
+        laneDecision,
+        branchName: pr.headRefName,
         expectedHeadSha: expectedHead,
         actualHeadSha: expectedHead,
         runnerCreatedCommitSha: expectedHead,
-        changedFiles: [],
-        changedFilesExactlyMatchAllowedPaths: true,
+        expectedOriginMainSha: gateEvidence.baseSha || gateEvidence.expectedOriginMainSha || null,
+        currentOriginMainSha: gateEvidence.currentOriginMainSha || gateEvidence.baseSha || null,
+        changedFiles,
+        forbiddenChangedFiles: gateEvidence.forbiddenChangedFiles || [],
+        changedFilesExactlyMatchAllowedPaths: gateEvidence.changedFilesExactlyMatchAllowedPaths === true,
         worktreeClean: true,
-        requiredChecks: [],
-        reviewThreads: [],
-        codeScanningAlerts: [],
-        blockingMarkers: [],
+        requiredChecks: gateEvidence.requiredChecks || inspection.requiredChecks || [],
+        reviewThreads: gateEvidence.reviewThreads || inspection.reviewThreads || [],
+        codeScanningAlerts: gateEvidence.codeScanningAlerts || inspection.codeScanningAlerts || [],
+        blockingMarkers: gateEvidence.blockingMarkers || inspection.blockingMarkers || [],
+        validation: gateEvidence.validation || {},
+        externalReview: gateEvidence.externalReview || {},
+        externalReviewRequired: true,
+        review: gateEvidence.review || {},
+        codexMechanicsReviewApproved: gateEvidence.codexMechanicsReviewApproved === true,
+        issueLinkageEvidence: gateEvidence.issueLinkageEvidence || { available: true, linked: true, matchedSources: ["stack-plan"] },
       };
       const result = executeAutoMerge(cfg || config, context, runner ? { runner } : {});
       return result.result === "merged" || result.result === "dry_run_eligible"
@@ -626,6 +659,10 @@ function summarizeStackState(state) {
 
 function boundedProof(value) {
   return sanitizeState(value);
+}
+
+function normalizeChangedFiles(files = []) {
+  return [...new Set((Array.isArray(files) ? files : []).map((file) => String(file || "").trim()).filter(Boolean))].sort();
 }
 
 function sanitizeState(value) {

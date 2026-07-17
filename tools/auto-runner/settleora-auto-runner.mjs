@@ -187,9 +187,20 @@ async function main() {
   }
   if (cliArgs.runPrStack) {
     const config = loadConfig(cliArgs);
-    const result = await runPrStackExecution(config, cliArgs);
-    console.log(JSON.stringify(result, null, 2));
-    process.exitCode = result.ok || result.outcome === "waiting" ? 0 : 1;
+    let lockPath = null;
+    try {
+      lockPath = acquireRunnerLock(config, {
+        runId: `pr-stack-${safeTimestamp()}`,
+        mode: config.mode,
+        configPath: config.configPath || null,
+        stackPlanPath: cliArgs.stackPlanPath,
+      });
+      const result = await runPrStackExecution(config, cliArgs);
+      console.log(JSON.stringify(result, null, 2));
+      process.exitCode = result.ok || result.outcome === "waiting" ? 0 : 1;
+    } finally {
+      releaseRunnerLock(lockPath);
+    }
     return;
   }
 
