@@ -31,7 +31,16 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
-import { buildLiveReviewConvergenceContext } from "./review-convergence-controller.mjs";
+import {
+  accountConvergenceEvent,
+  buildLiveReviewConvergenceContext,
+  evaluateCycleBudget,
+} from "./review-convergence-controller.mjs";
+import {
+  buildReviewFixPrompt,
+  evaluateReviewFixMutationDecision,
+  extractReviewFixTrigger,
+} from "./review-fix-policy.mjs";
 import {
   evaluateAutoMergeDecision,
   evaluatePrePushReviewGate,
@@ -237,9 +246,9 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     recovery?.stop("bundle_dirty_after_slices", "Bundle worktree dirty after checkpoint commits.", "stop_fail_closed");
     return stopBundle(result, "bundle_recovery_failed", "bundle_dirty_after_slices", "Bundle worktree was dirty after checkpoint commits.");
   }
-  const finalHead = config.dryRun ? null : getRefSha("HEAD");
-  const aggregateFiles = config.dryRun ? [] : listChangedFiles("origin/main", "HEAD");
-  const aggregateForbidden = filterForbiddenChangedFiles(aggregateFiles, planned.laneDecision);
+  let finalHead = config.dryRun ? null : getRefSha("HEAD");
+  let aggregateFiles = config.dryRun ? [] : listChangedFiles("origin/main", "HEAD");
+  let aggregateForbidden = filterForbiddenChangedFiles(aggregateFiles, planned.laneDecision);
   if (aggregateForbidden.length > 0) {
     recovery?.stop("bundle_aggregate_scope_escape", aggregateForbidden.join(","), "stop_fail_closed");
     return stopBundle(result, "scope_failed", "bundle_aggregate_scope_escape", "Aggregate bundle scope escaped parent lane.", {
@@ -336,56 +345,50 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   result.reviewConvergence = reviewConvergence.context;
   state = { ...state, reviewConvergenceState: reviewConvergence.gateInput.reviewConvergenceState };
   if (!config.dryRun) writeBundleState(config, state);
-  const prePushGate = evaluatePrePushReviewGate({
+  let prePushGate = evaluatePrePushReviewGate({
     ...reviewConvergence.gateInput,
     laneDecision: planned.laneDecision,
     externalReview: result.externalReview,
     reviewMutationGuard: { mutationDetected: false },
   });
-  if (!prePushGate.ok && prePushGate.outcome === "review_convergence_required") {
-    state = {
-      ...state,
-      reviewConvergenceState: {
-        ...state.reviewConvergenceState,
-        continuation: {
-          status: "required",
-          outcome: prePushGate.outcome,
-          reason: prePushGate.reason,
-          message: prePushGate.message,
-          exactHead: finalHead,
-          recordedAt: new Date().toISOString(),
-        },
-      },
-    };
-    if (!config.dryRun) writeBundleState(config, state);
-    recovery?.advance("review_fix", "run_bundle_review_convergence");
-    result.outcome = "review_convergence_required";
-    result.bundle.state = summarizeBundleState(state);
-    result.recovery = recovery?.summary();
-    return result;
+  const convergence = await runBundleReviewConvergence(config, {
+    issue,
+    laneDecision: planned.laneDecision,
+    plan,
+    state,
+    result,
+    branchName: bundleBranchName,
+    baseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
+    forbiddenChangedFiles: aggregateForbidden,
+    validation: finalValidation,
+    reviewPackage: result.reviewPackage,
+    prePushGate,
+    recovery,
+    writeState: (nextState) => {
+      state = nextState;
+      if (!config.dryRun) writeBundleState(config, state);
+    },
+  });
+  state = convergence.state;
+  if (convergence.result) {
+    result.validation = convergence.result.validation;
+    result.externalReview = convergence.result.externalReview;
+    result.review = convergence.result.review;
+    result.reviewPackage = convergence.result.reviewPackage || result.reviewPackage;
+    result.reviewMutationGuard = convergence.result.reviewMutationGuard;
+    aggregateFiles = convergence.result.changedFiles || aggregateFiles;
+    aggregateForbidden = convergence.result.forbiddenChangedFiles || aggregateForbidden;
+    finalHead = convergence.result.headSha || state.lastVerifiedHead || finalHead;
+    prePushGate = convergence.prePushGate || prePushGate;
   }
-  if (!config.dryRun && result.review.verdict?.verdict !== "approve") {
-    state = {
-      ...state,
-      reviewConvergenceState: {
-        ...state.reviewConvergenceState,
-        continuation: {
-          status: "required",
-          outcome: "review_convergence_required",
-          reason: result.review.reviewFailureReason || result.review.verdict?.verdict || "codex_review_failed",
-          message: "Exact-head Codex mechanics/security review requires bounded bundle convergence.",
-          exactHead: finalHead,
-          source: "codex_mechanics_security_review",
-          recordedAt: new Date().toISOString(),
-        },
-      },
-    };
-    if (!config.dryRun) writeBundleState(config, state);
-    recovery?.advance("review_fix", "run_bundle_codex_review_convergence");
-    result.outcome = "review_convergence_required";
+  if (!convergence.ok) {
+    result.outcome = convergence.outcome;
     result.bundle.state = summarizeBundleState(state);
     result.recovery = recovery?.summary();
-    return result;
+    return stopBundle(result, convergence.outcome, convergence.reasonCode, convergence.reason, {
+      reviewConvergence: convergence.summary,
+    });
   }
   if (!prePushGate.ok || (!config.dryRun && result.review.verdict?.verdict !== "approve")) {
     recovery?.stop("bundle_review_failed", prePushGate.reason || result.review.verdict?.verdict || "bundle_review_failed", "run_focused_fix_or_escalate");
@@ -427,6 +430,319 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   result.recovery = recovery?.summary();
   result.bundle.state = summarizeBundleState(state);
   return result;
+}
+
+export async function runBundleReviewConvergence(config, input, deps = {}) {
+  const writeState = input.writeState || (() => {});
+  let state = input.state;
+  let currentResult = {
+    validation: input.validation,
+    externalReview: input.result?.externalReview,
+    review: input.result?.review,
+    reviewPackage: input.reviewPackage,
+    reviewMutationGuard: input.result?.reviewMutationGuard || { mutationDetected: false },
+  };
+  let changedFiles = input.changedFiles || [];
+  let forbiddenChangedFiles = input.forbiddenChangedFiles || [];
+  let prePushGate = input.prePushGate;
+  const attempts = [];
+  const dependencies = {
+    runFixCycle: deps.runFixCycle || runBundleReviewFixCycle,
+    commitAndRerun: deps.commitAndRerun || commitBundleReviewFixAndRerunExactHeadReviews,
+    evaluatePrePushGate: deps.evaluatePrePushGate || evaluatePrePushReviewGate,
+    persistExactHeadEvidence: deps.persistExactHeadEvidence || persistBundleExactHeadEvidence,
+  };
+
+  while (true) {
+    const codexNeedsConvergence = !config.dryRun && currentResult.review?.verdict?.verdict && currentResult.review.verdict.verdict !== "approve";
+    const gateNeedsConvergence = !prePushGate.ok && prePushGate.outcome === "review_convergence_required";
+    if (!codexNeedsConvergence && !gateNeedsConvergence) {
+      return { ok: true, state, result: { ...currentResult, changedFiles, forbiddenChangedFiles, headSha: state.lastVerifiedHead }, prePushGate, attempts };
+    }
+
+    const source = codexNeedsConvergence ? "codex_mechanics_security_review" : "independent_review";
+    const reason = codexNeedsConvergence
+      ? currentResult.review.reviewFailureReason || currentResult.review.verdict?.verdict || "codex_review_failed"
+      : prePushGate.reason || "review_convergence_required";
+    state = markBundleReviewConvergenceRequired(state, {
+      exactHead: state.lastVerifiedHead,
+      outcome: "review_convergence_required",
+      reason,
+      message: codexNeedsConvergence
+        ? "Exact-head Codex mechanics/security review requires bounded bundle convergence."
+        : prePushGate.message,
+      source,
+    });
+    writeState(state);
+
+    const budget = evaluateCycleBudget(state.reviewConvergenceState, config, state.reviewConvergenceHistory || []);
+    if (!budget.ok) {
+      input.recovery?.stop(`bundle_review_convergence_${budget.terminalReason || "blocked"}`, budget.reason, "stop_fail_closed");
+      return {
+        ok: false,
+        outcome: terminalOutcomeForConvergence(budget.terminalReason),
+        reasonCode: budget.terminalReason || "bundle_review_convergence_blocked",
+        reason: budget.reason,
+        state,
+        attempts,
+        summary: { budget },
+      };
+    }
+
+    input.recovery?.advance("review_fix", source === "codex_mechanics_security_review" ? "run_bundle_codex_review_convergence" : "run_bundle_review_convergence");
+    const fixAttempt = await dependencies.runFixCycle(config, {
+      issue: input.issue,
+      laneDecision: input.laneDecision,
+      plan: input.plan,
+      state,
+      branchName: input.branchName,
+      changedFiles,
+      forbiddenChangedFiles,
+      validation: currentResult.validation,
+      externalReview: currentResult.externalReview,
+      review: currentResult.review,
+      reviewPackage: currentResult.reviewPackage,
+      attemptCount: state.reviewConvergenceState.sourceChangingCycle,
+      source,
+    });
+    attempts.push(fixAttempt);
+    if (!fixAttempt.proceeded) {
+      input.recovery?.stop("bundle_review_convergence_fix_not_proceeded", fixAttempt.reason, terminalNextAction(fixAttempt.reason));
+      state = markBundleStopped(state, { reasonCode: fixAttempt.reason || "bundle_review_convergence_fix_not_proceeded", reason: fixAttempt.reason });
+      writeState(state);
+      return {
+        ok: false,
+        outcome: outcomeForFixStop(fixAttempt.reason),
+        reasonCode: fixAttempt.reason || "bundle_review_convergence_fix_not_proceeded",
+        reason: `Bundle review convergence could not safely continue: ${fixAttempt.reason}.`,
+        state,
+        attempts,
+        summary: { fixAttempt },
+      };
+    }
+
+    const postFix = await dependencies.commitAndRerun(config, {
+      issue: input.issue,
+      laneDecision: input.laneDecision,
+      plan: input.plan,
+      state,
+      branchName: input.branchName,
+      baseSha: input.baseSha,
+      fixAttempt,
+    });
+    changedFiles = postFix.changedFiles || changedFiles;
+    forbiddenChangedFiles = postFix.forbiddenChangedFiles || forbiddenChangedFiles;
+    currentResult = {
+      validation: bindValidationEvidence(postFix.validation, {
+        headSha: postFix.runnerCreatedCommitSha,
+        baseSha: input.baseSha,
+        changedFiles,
+        profile: input.laneDecision.validationProfile,
+      }),
+      externalReview: postFix.externalReview,
+      review: postFix.review,
+      reviewPackage: postFix.reviewPackage,
+      reviewMutationGuard: postFix.reviewMutationGuard,
+    };
+    const accounted = accountConvergenceEvent(state.reviewConvergenceState, {
+      kind: "source_changed",
+      newHead: postFix.runnerCreatedCommitSha,
+      reasonCode: "bundle_review_convergence_fix_commit",
+    });
+    state = {
+      ...state,
+      lastVerifiedHead: postFix.runnerCreatedCommitSha || state.lastVerifiedHead,
+      sourceChangingCycle: accounted.state.sourceChangingCycle,
+      reviewConvergenceState: accounted.state,
+      reviewConvergenceHistory: [
+        ...(state.reviewConvergenceHistory || []),
+        {
+          findingFingerprints: (fixAttempt.decision?.sanitizedFindings || []).map((finding) => String(finding)),
+          claimedFixedFingerprints: (fixAttempt.decision?.sanitizedFindings || []).map((finding) => String(finding)),
+          patchId: postFix.runnerCreatedCommitSha || null,
+        },
+      ],
+      finalization: {
+        ...state.finalization,
+        validation: currentResult.validation,
+        reviewPackage: postFix.reviewPackage?.packagePath || postFix.reviewPackage || state.finalization?.reviewPackage || null,
+        externalReview: currentResult.externalReview,
+        codexReview: currentResult.review,
+      },
+    };
+    input.recovery?.headChanged(postFix.runnerCreatedCommitSha, "bundle_review_convergence_fix_commit");
+    input.recovery?.marker("checkpoint_commit", `bundle-review-convergence-${postFix.runnerCreatedCommitSha || "dry-run"}`, {
+      target: input.branchName,
+      correlation: input.issue?.number || "",
+    });
+    const evidence = dependencies.persistExactHeadEvidence(input.recovery, {
+      validation: currentResult.validation,
+      externalReview: currentResult.externalReview,
+      review: currentResult.review,
+      headSha: postFix.runnerCreatedCommitSha,
+      baseSha: input.baseSha,
+      changedFiles,
+    });
+    if (evidence && !evidence.ok) {
+      input.recovery?.stop("bundle_exact_head_evidence_incomplete_after_convergence", evidence.reasonCode, "regenerate_exact_head_evidence");
+      state = markBundleStopped(state, { reasonCode: evidence.reasonCode || "bundle_exact_head_evidence_incomplete_after_convergence", reason: evidence.reason });
+      writeState(state);
+      return {
+        ok: false,
+        outcome: "auto_failed",
+        reasonCode: evidence.reasonCode || "bundle_exact_head_evidence_incomplete_after_convergence",
+        reason: "Bundle exact-head evidence was incomplete after convergence.",
+        state,
+        attempts,
+        summary: { evidence },
+      };
+    }
+    writeState(state);
+
+    const reviewConvergence = buildLiveReviewConvergenceContext({
+      config,
+      issue: input.issue,
+      laneDecision: input.laneDecision,
+      branchName: input.branchName,
+      baseRef: "main",
+      exactHead: postFix.runnerCreatedCommitSha,
+      sourceChangingCycle: state.sourceChangingCycle,
+      reviewConvergenceState: state.reviewConvergenceState,
+      relationships: {
+        bundleId: input.plan?.id,
+        sliceOrder: input.plan?.slices?.map((slice) => slice.id) || [],
+      },
+    });
+    state = { ...state, reviewConvergenceState: reviewConvergence.gateInput.reviewConvergenceState };
+    prePushGate = dependencies.evaluatePrePushGate({
+      ...reviewConvergence.gateInput,
+      laneDecision: input.laneDecision,
+      externalReview: currentResult.externalReview,
+      reviewMutationGuard: currentResult.reviewMutationGuard || { mutationDetected: false },
+    });
+  }
+}
+
+async function runBundleReviewFixCycle(config, context) {
+  const trigger = extractReviewFixTrigger(context);
+  const decision = evaluateReviewFixMutationDecision({ ...context, config, trigger });
+  if (!decision.allowed) {
+    return { attempted: false, proceeded: false, reason: decision.reason, decision };
+  }
+  const prompt = buildReviewFixPrompt({
+    issue: context.issue,
+    laneDecision: context.laneDecision,
+    branchName: context.branchName,
+    changedFiles: context.changedFiles || [],
+    trigger,
+    validation: context.validation,
+  });
+  const promptPath = path.join(
+    config.logsRoot,
+    "review-fix",
+    `${safeTimestamp()}-issue-${context.issue.number}-${slugify(context.issue.title, 40)}-bundle-review-fix.md`,
+  );
+  mkdirSync(path.dirname(promptPath), { recursive: true });
+  writeFileSync(promptPath, prompt);
+  const codex = runCodexPrompt(config, { branchName: context.branchName, prompt, promptPath }, "bundle-review-fix");
+  if (!codex.skipped && (codex.error || codex.status !== 0)) {
+    return { attempted: true, proceeded: false, reason: "review_fix_codex_failed", decision, promptPath, codex };
+  }
+  const changedFilesAfter = listWorkingTreeChangedFiles();
+  const forbiddenChangedFilesAfter = filterForbiddenChangedFiles(changedFilesAfter, context.laneDecision);
+  if (forbiddenChangedFilesAfter.length > 0) {
+    return { attempted: true, proceeded: false, reason: `review_fix_forbidden_changed_files:${forbiddenChangedFilesAfter.join(",")}`, decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter };
+  }
+  if (!config.dryRun && changedFilesAfter.length === 0) {
+    return { attempted: true, proceeded: false, reason: "review_fix_left_no_changed_files", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter };
+  }
+  const validationPlan = planValidation(changedFilesAfter, context.laneDecision);
+  const validationAfter = runValidationPlan(config, validationPlan);
+  if (!validationAfter.passed) {
+    return { attempted: true, proceeded: false, reason: "review_fix_validation_failed", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter };
+  }
+  return {
+    attempted: true,
+    proceeded: true,
+    reason: "review_fix_passed_revalidation",
+    decision,
+    promptPath,
+    codex,
+    changedFilesAfter,
+    forbiddenChangedFilesAfter,
+    validationAfter,
+  };
+}
+
+async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt }) {
+  const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
+  const commit = commitExplicitPaths(config, changedFilesBeforeCommit, `Feature bundle issue #${issue.number}: review-fix follow-up`);
+  const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
+  const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
+  const validation = fixAttempt.validationAfter;
+  const reviewPackage = writeBundleReviewPackage(config, {
+    issue,
+    laneDecision,
+    plan,
+    state: { ...state, lastVerifiedHead: runnerCreatedCommitSha || state.lastVerifiedHead },
+    changedFiles,
+    validation,
+    headSha: runnerCreatedCommitSha,
+    baseSha,
+  });
+  const externalReview = await runGeminiIntegratedReview(config, reviewPackage);
+  const review = runReviewPrompt(config, reviewPackage);
+  return {
+    changedFiles,
+    forbiddenChangedFiles,
+    validation,
+    commit,
+    runnerCreatedCommitSha,
+    reviewPackage,
+    externalReview,
+    review,
+    reviewMutationGuard: { mutationDetected: false, branchName },
+  };
+}
+
+function markBundleReviewConvergenceRequired(state, { exactHead, outcome, reason, message, source }) {
+  return {
+    ...state,
+    reviewConvergenceState: {
+      ...(state.reviewConvergenceState || {}),
+      continuation: {
+        status: "required",
+        outcome,
+        reason,
+        message,
+        exactHead,
+        source,
+        recordedAt: new Date().toISOString(),
+      },
+    },
+  };
+}
+
+function terminalOutcomeForConvergence(terminalReason) {
+  if (terminalReason === "UNSAFE_SCOPE_CHANGE") return "scope_failed";
+  if (terminalReason === "VALIDATION_BLOCKED") return "validation_failed";
+  if (terminalReason === "REVIEW_PROVIDER_BLOCKED") return "auto_failed";
+  if (terminalReason === "MANUAL_DECISION_REQUIRED") return "blocked_needs_tommy";
+  return "review_changes_requested_retry_exhausted";
+}
+
+function outcomeForFixStop(reason = "") {
+  if (String(reason).includes("forbidden_changed_files") || String(reason).includes("unsafe") || String(reason).includes("outside_contract")) return "scope_failed";
+  if (String(reason).includes("validation")) return "validation_failed";
+  if (String(reason).includes("manual") || String(reason).includes("needs_tommy")) return "blocked_needs_tommy";
+  return "review_changes_requested_retry_exhausted";
+}
+
+function terminalNextAction(reason = "") {
+  if (String(reason).includes("forbidden") || String(reason).includes("unsafe") || String(reason).includes("outside_contract")) return "stop_fail_closed";
+  if (String(reason).includes("manual") || String(reason).includes("needs_tommy")) return "manual_recovery_required";
+  return "create_or_reuse_followup_or_escalate";
 }
 
 export function generateBundleSlicePrompt(config, { issue, laneDecision, plan, slice, branchName, state }) {
