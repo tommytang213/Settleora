@@ -55,6 +55,7 @@ const canonicalQuotedTailDelimiters = new Set(["\r", "\n"]);
 // one escaped layer (\") and one additional layer (\\"). Deeper quote escaping
 // inside a secret-shaped assignment is ambiguous and fails closed for that span.
 const maxEscapedStructuralQuoteDepth = 2;
+const maxEscapedDelimiterBackslashDepth = 16;
 const secretLexicalBoundarySource = "(^|[?&#=:\\s,{[(;\\]])";
 const directSecretKeySource = "((?=[A-Za-z0-9_-]*(?:auth|api|token|secret|password|passwd|credential|key|cookie|csrf|xsrf|jwt|session|bearer))[A-Za-z][A-Za-z0-9_-]{0,80})";
 const protectedSecretLogPathPattern = /\/workspace\/logs\/settleora-auto-runner\/secrets\/(?:\[REDACTED\]|[^\s"',;)}\]]*)/gi;
@@ -783,7 +784,10 @@ function scanCanonicalAuthorizationAssignmentValueSpan(canonical, valueStart) {
   const value = canonical.normalized;
   const scheme = value.slice(valueStart).match(/^(Bearer|Basic)(?=$|[\s,;&?}\]\)\r\n])/i);
   if (!scheme) return undefined;
-  const boundary = findCanonicalUnquotedValueBoundary(canonical, valueStart);
+  const boundary = findCanonicalUnquotedValueBoundary(canonical, valueStart, {
+    escapeAwareDelimiters: true,
+    failClosedOnAmbiguousEscape: true,
+  });
   let credentialStart = valueStart + scheme[1].length;
   while (credentialStart < boundary && /[ \t]/.test(value[credentialStart])) credentialStart += 1;
   if (credentialStart >= boundary) return null;
@@ -797,14 +801,32 @@ function scanCanonicalAuthorizationAssignmentValueSpan(canonical, valueStart) {
   return safeCanonicalValueSpan(canonical, valueStart, boundary, `${scheme[1]} ${secretRedactionMarker}`);
 }
 
-function findCanonicalUnquotedValueBoundary(canonical, start) {
+function findCanonicalUnquotedValueBoundary(canonical, start, options = {}) {
   const value = canonical.normalized;
   for (let index = start; index < value.length; index += 1) {
     const char = value[index];
-    if (canonicalUnquotedValueDelimiters.has(char)) return index;
+    if (canonicalUnquotedValueDelimiters.has(char)) {
+      if (!options.escapeAwareDelimiters) return index;
+      const escapeState = canonicalDelimiterEscapeState(canonical, index);
+      if (escapeState.ambiguous) return options.failClosedOnAmbiguousEscape ? value.length : index;
+      if (escapeState.escaped) continue;
+      return index;
+    }
     if ((char === "\"" || char === "'") && (canonical.quoteDepth[index] ?? 0) === 0) return index;
   }
   return value.length;
+}
+
+function canonicalDelimiterEscapeState(canonical, delimiterIndex) {
+  const value = canonical.normalized;
+  let slashCount = 0;
+  for (let index = delimiterIndex - 1; index >= 0 && value[index] === "\\"; index -= 1) {
+    slashCount += 1;
+    if (slashCount > maxEscapedDelimiterBackslashDepth) {
+      return { escaped: true, ambiguous: true };
+    }
+  }
+  return { escaped: slashCount % 2 === 1, ambiguous: false };
 }
 
 function findCanonicalQuotedTailBoundary(value, start) {

@@ -1104,9 +1104,22 @@ test("review-fix redaction consumes complete Authorization assignment escaped ta
   const camelKey = ["Author", "ization"].join("");
   const bearer = ["Bear", "er"].join("");
   const basic = ["Bas", "ic"].join("");
+  const escapedDelimiter = (char, slashCount = 1) => `${backslash.repeat(slashCount)}${char}`;
   const auth = (key, separator, scheme, value, suffix = ";safe=visible") =>
     `${key}${separator}${scheme} ${value}${suffix}`;
   const cases = [
+    {
+      name: "bearer escaped semicolon sibling",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter(";")}tail`),
+      keep: new RegExp(`${lowerKey}=${bearer} \\[REDACTED\\];safe=visible`),
+      drops: /tail/,
+    },
+    {
+      name: "basic escaped semicolon sibling",
+      input: auth(lowerKey, "=", basic, `${secret}${escapedDelimiter(";")}tail`),
+      keep: new RegExp(`${lowerKey}=${basic} \\[REDACTED\\];safe=visible`),
+      drops: /tail/,
+    },
     {
       name: "bearer escaped quote semicolon sibling",
       input: auth(lowerKey, "=", bearer, `${secret}${escapedQuote}rawtail`),
@@ -1141,6 +1154,76 @@ test("review-fix redaction consumes complete Authorization assignment escaped ta
       name: "repeated backslashes",
       input: auth(lowerKey, "=", bearer, `${secret}${backslash}${backslash}${backslash}rawtail`),
       keep: /;safe=visible/,
+    },
+    {
+      name: "escaped ampersand",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter("&")}tail`, "&safe=visible"),
+      keep: /&safe=visible/,
+      drops: /tail/,
+    },
+    {
+      name: "escaped question mark",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter("?")}tail`, "?safe=visible"),
+      keep: /\?safe=visible/,
+      drops: /tail/,
+    },
+    {
+      name: "escaped comma",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter(",")}tail`, ",safe=visible"),
+      keep: /,safe=visible/,
+      drops: /tail/,
+    },
+    {
+      name: "escaped closing brace",
+      input: `headers={${auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter("}")}tail`, "}safe=visible")}`,
+      keep: /}safe=visible/,
+      drops: /tail/,
+    },
+    {
+      name: "escaped closing bracket",
+      input: `[${auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter("]")}tail`, "]safe=visible")}`,
+      keep: /\]safe=visible/,
+      drops: /tail/,
+    },
+    {
+      name: "escaped closing parenthesis",
+      input: `(${auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter(")")}tail`, ")safe=visible")}`,
+      keep: /\)safe=visible/,
+      drops: /tail/,
+    },
+    {
+      name: "repeated escaped delimiters",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter(";")}mid${escapedDelimiter("&")}tail`, "&safe=visible"),
+      keep: /&safe=visible/,
+      drops: /mid|tail/,
+    },
+    {
+      name: "escaped delimiter near credential start",
+      input: auth(lowerKey, "=", bearer, `${escapedDelimiter(";")}${secret}tail`),
+      keep: /;safe=visible/,
+      drops: /tail/,
+    },
+    {
+      name: "escaped delimiter immediately before structural delimiter",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter(";")}`, ";safe=visible"),
+      keep: /;safe=visible/,
+    },
+    {
+      name: "odd backslash run before delimiter",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter(";", 3)}tail`),
+      keep: /;safe=visible/,
+      drops: /tail/,
+    },
+    {
+      name: "even backslash run before delimiter",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter(";", 2)}`),
+      keep: /;safe=visible/,
+    },
+    {
+      name: "repeated backslashes plus escaped quote and escaped delimiter",
+      input: auth(lowerKey, "=", bearer, `${secret}${backslash}${backslash}${escapedQuote}mid${escapedDelimiter(";")}tail`),
+      keep: /;safe=visible/,
+      drops: /mid|tail/,
     },
     {
       name: "escaped quote near credential start",
@@ -1230,6 +1313,13 @@ test("review-fix redaction consumes complete Authorization assignment escaped ta
       dropsSafe: true,
     },
     {
+      name: "over-depth escaped delimiter fails closed",
+      input: auth(lowerKey, "=", bearer, `${secret}${escapedDelimiter(";", 17)}tail;safe=visible`, ""),
+      keep: new RegExp(`${lowerKey}=${bearer} \\[REDACTED\\]$`),
+      dropsSafe: true,
+      drops: /tail/,
+    },
+    {
       name: "already redacted bearer idempotent",
       input: `${lowerKey}=${bearer} [REDACTED];safe=visible`,
       exact: `${lowerKey}=${bearer} [REDACTED];safe=visible`,
@@ -1263,6 +1353,7 @@ test("review-fix redaction consumes complete Authorization assignment escaped ta
     assert.doesNotMatch(redacted, new RegExp(second), item.name);
     assert.doesNotMatch(redacted, new RegExp(third), item.name);
     assert.doesNotMatch(redacted, /rawtail/, item.name);
+    if (item.drops) assert.doesNotMatch(redacted, item.drops, item.name);
     assert.match(redacted, item.keep, item.name);
     assert.match(redacted, /\[REDACTED\]/, item.name);
     if (item.dropsSafe) assert.doesNotMatch(redacted, /safe=visible/, item.name);
@@ -1995,11 +2086,12 @@ test("review-fix Authorization assignment canaries never reach prompt evidence o
     const second = runtimeCanary("prompt-evidence-basic-assignment");
     const backslash = "\\";
     const escapedQuote = `${backslash}"`;
+    const escapedSemicolon = `${backslash};`;
     const lowerKey = ["author", "ization"].join("");
     const bearer = ["Bear", "er"].join("");
     const basic = ["Bas", "ic"].join("");
-    const bearerAssignment = `${lowerKey}=${bearer} ${secret}${escapedQuote}rawtail;safe=visible`;
-    const basicAssignment = `${lowerKey}=${basic} ${second}${escapedQuote}rawtail;safe=visible`;
+    const bearerAssignment = `${lowerKey}=${bearer} ${secret}${escapedSemicolon}rawtail;safe=visible`;
+    const basicAssignment = `${lowerKey}=${basic} ${second}${escapedQuote}mid${escapedSemicolon}rawtail;safe=visible`;
     const trigger = {
       actionable: true,
       source: "integrated_gemini",
