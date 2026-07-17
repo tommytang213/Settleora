@@ -151,3 +151,20 @@ test("head-changing commit invalidates every stale evidence binding", () => {
     config.cleanup();
   }
 });
+
+test("normal review convergence checks mutation and budget before accepting post-fix evidence", () => {
+  const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(source, /evaluateNormalReviewConvergenceBudget\(config, iteration/);
+  assert.match(source, /loadReviewConvergenceState\(config/);
+  assert.match(source, /writeReviewConvergenceState\(config/);
+  assert.match(source, /evaluateCycleBudget\(iteration\.reviewConvergenceState, config, iteration\.reviewConvergenceHistory\)/);
+  assert.match(source, /accountNormalReviewFixCommit\(iteration, iteration\.runnerCreatedCommitSha, "review_fix_commit"\)/);
+  assert.match(source, /accountNormalReviewFixCommit\(iteration, iteration\.runnerCreatedCommitSha, "codex_review_initial_fix_commit"\)/);
+  assert.match(source, /accountNormalReviewFixCommit\(iteration, iteration\.runnerCreatedCommitSha, "codex_review_convergence_fix_commit"\)/);
+  assert.match(source, /accountNormalReviewFixCommit\(iteration, iteration\.runnerCreatedCommitSha, "review_convergence_fix_commit"\)/);
+  assert.match(source, /if \(iteration\.reviewMutationGuard\?\.mutationDetected\) \{\n\s+return stopForPostFixReviewMutation/);
+  assert.match(source, /appendNormalReviewConvergenceHistory\(iteration/);
+  assert.match(source, /persistNormalReviewConvergenceState\(config, iteration, "post_fix_reviewed"\)/);
+  assert.match(source, /reviewConvergenceState: iteration\.reviewConvergenceState/);
+  assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
+});

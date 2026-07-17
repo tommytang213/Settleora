@@ -22,6 +22,7 @@ import {
   listChangedFiles,
   listWorkingTreeChangedFiles,
   runGit,
+  sourceStateIdentityForCommit,
 } from "./git-workspace.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./codex-runner.mjs";
@@ -31,6 +32,19 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
+import {
+  accountConvergenceEvent,
+  buildLiveReviewConvergenceContext,
+  claimedReviewFindingFingerprints,
+  evaluateCycleBudget,
+  markDiagnosticReviewFixTerminal,
+  reviewFindingFingerprintsFromSupportedContainers,
+} from "./review-convergence-controller.mjs";
+import {
+  buildReviewFixPrompt,
+  evaluateReviewFixMutationDecision,
+  extractReviewFixTrigger,
+} from "./review-fix-policy.mjs";
 import {
   evaluateAutoMergeDecision,
   evaluatePrePushReviewGate,
@@ -44,6 +58,7 @@ import {
   bindRecoveryEvidence,
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
+  persistCompleteHeadEvidence,
   recordIdempotentMutation,
   writeRecoveryState,
 } from "./recovery-state.mjs";
@@ -235,9 +250,9 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     recovery?.stop("bundle_dirty_after_slices", "Bundle worktree dirty after checkpoint commits.", "stop_fail_closed");
     return stopBundle(result, "bundle_recovery_failed", "bundle_dirty_after_slices", "Bundle worktree was dirty after checkpoint commits.");
   }
-  const finalHead = config.dryRun ? null : getRefSha("HEAD");
-  const aggregateFiles = config.dryRun ? [] : listChangedFiles("origin/main", "HEAD");
-  const aggregateForbidden = filterForbiddenChangedFiles(aggregateFiles, planned.laneDecision);
+  let finalHead = config.dryRun ? null : getRefSha("HEAD");
+  let aggregateFiles = config.dryRun ? [] : listChangedFiles("origin/main", "HEAD");
+  let aggregateForbidden = filterForbiddenChangedFiles(aggregateFiles, planned.laneDecision);
   if (aggregateForbidden.length > 0) {
     recovery?.stop("bundle_aggregate_scope_escape", aggregateForbidden.join(","), "stop_fail_closed");
     return stopBundle(result, "scope_failed", "bundle_aggregate_scope_escape", "Aggregate bundle scope escaped parent lane.", {
@@ -284,7 +299,26 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     headSha: finalHead,
     baseSha: baseOriginMainSha,
   });
+  const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
+  const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_external_review",
+  });
+  if (externalReviewMutationGuard.mutationDetected) {
+    result.reviewMutationGuard = externalReviewMutationGuard;
+    return stopForBundleReviewMutation({ config, result, state, recovery, guard: externalReviewMutationGuard, phase: "bundle_external_review" });
+  }
+  const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
+  recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
+  result.review = runReviewPrompt(config, result.reviewPackage);
+  const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_codex_review",
+  });
+  if (codexReviewMutationGuard.mutationDetected) {
+    result.reviewMutationGuard = codexReviewMutationGuard;
+    return stopForBundleReviewMutation({ config, result, state, recovery, guard: codexReviewMutationGuard, phase: "bundle_codex_review" });
+  }
+  result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard);
   recovery?.evidence("externalReview", {
     status: result.externalReview.status === "pass" ? "passed" : "blocked",
     headSha: result.externalReview.reviewedHead || finalHead,
@@ -294,8 +328,6 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     evidencePath: result.externalReview.reportPath || result.externalReview.evidencePath,
     summary: result.externalReview.reason,
   });
-  recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
-  result.review = runReviewPrompt(config, result.reviewPackage);
   recovery?.evidence("codexReview", {
     status: result.review.verdict?.verdict === "approve" ? "passed" : "blocked",
     headSha: finalHead,
@@ -305,11 +337,80 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     evidencePath: result.review.logPath || result.review.promptPath,
     summary: result.review.reviewFailureReason || result.review.verdict?.verdict,
   });
-  const prePushGate = evaluatePrePushReviewGate({
+  const finalEvidence = persistBundleExactHeadEvidence(recovery, {
+    validation: finalValidation,
+    externalReview: result.externalReview,
+    review: result.review,
+    headSha: finalHead,
+    baseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
+  });
+  if (finalEvidence && !finalEvidence.ok) {
+    recovery?.stop("bundle_exact_head_evidence_incomplete", finalEvidence.reasonCode || "bundle_exact_head_evidence_incomplete", "regenerate_exact_head_evidence");
+    return stopBundle(result, "auto_failed", finalEvidence.reasonCode || "bundle_exact_head_evidence_incomplete", "Bundle exact-head evidence was incomplete or stale.");
+  }
+  const reviewConvergence = buildLiveReviewConvergenceContext({
+    config,
+    issue,
+    laneDecision: planned.laneDecision,
+    branchName: bundleBranchName,
+    baseRef: "main",
+    exactHead: finalHead,
+    sourceChangingCycle: state.sourceChangingCycle,
+    reviewConvergenceState: state.reviewConvergenceState || null,
+    relationships: {
+      bundleId: plan.id,
+      sliceOrder: plan.slices.map((slice) => slice.id),
+    },
+  });
+  result.reviewConvergence = reviewConvergence.context;
+  state = { ...state, reviewConvergenceState: reviewConvergence.gateInput.reviewConvergenceState };
+  if (!config.dryRun) writeBundleState(config, state);
+  let prePushGate = evaluatePrePushReviewGate({
+    ...reviewConvergence.gateInput,
     laneDecision: planned.laneDecision,
     externalReview: result.externalReview,
-    reviewMutationGuard: { mutationDetected: false },
+    reviewMutationGuard: result.reviewMutationGuard,
   });
+  const convergence = await runBundleReviewConvergence(config, {
+    issue,
+    laneDecision: planned.laneDecision,
+    plan,
+    state,
+    result,
+    branchName: bundleBranchName,
+    baseSha: baseOriginMainSha,
+    changedFiles: aggregateFiles,
+    forbiddenChangedFiles: aggregateForbidden,
+    validation: finalValidation,
+    reviewPackage: result.reviewPackage,
+    prePushGate,
+    recovery,
+    writeState: (nextState) => {
+      state = nextState;
+      if (!config.dryRun) writeBundleState(config, state);
+    },
+  });
+  state = convergence.state;
+  if (convergence.result) {
+    result.validation = convergence.result.validation;
+    result.externalReview = convergence.result.externalReview;
+    result.review = convergence.result.review;
+    result.reviewPackage = convergence.result.reviewPackage || result.reviewPackage;
+    result.reviewMutationGuard = convergence.result.reviewMutationGuard;
+    aggregateFiles = convergence.result.changedFiles || aggregateFiles;
+    aggregateForbidden = convergence.result.forbiddenChangedFiles || aggregateForbidden;
+    finalHead = convergence.result.headSha || state.lastVerifiedHead || finalHead;
+    prePushGate = convergence.prePushGate || prePushGate;
+  }
+  if (!convergence.ok) {
+    result.outcome = convergence.outcome;
+    result.bundle.state = summarizeBundleState(state);
+    result.recovery = recovery?.summary();
+    return stopBundle(result, convergence.outcome, convergence.reasonCode, convergence.reason, {
+      reviewConvergence: convergence.summary,
+    });
+  }
   if (!prePushGate.ok || (!config.dryRun && result.review.verdict?.verdict !== "approve")) {
     recovery?.stop("bundle_review_failed", prePushGate.reason || result.review.verdict?.verdict || "bundle_review_failed", "run_focused_fix_or_escalate");
     return stopBundle(result, prePushGate.outcome || "codex_review_failed", prePushGate.reason || "bundle_review_failed", prePushGate.message || "Bundle review failed.");
@@ -350,6 +451,403 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   result.recovery = recovery?.summary();
   result.bundle.state = summarizeBundleState(state);
   return result;
+}
+
+export async function runBundleReviewConvergence(config, input, deps = {}) {
+  const writeState = input.writeState || (() => {});
+  let state = input.state;
+  let currentResult = {
+    validation: input.validation,
+    externalReview: input.result?.externalReview,
+    review: input.result?.review,
+    reviewPackage: input.reviewPackage,
+    reviewMutationGuard: input.result?.reviewMutationGuard || { mutationDetected: false },
+  };
+  let changedFiles = input.changedFiles || [];
+  let forbiddenChangedFiles = input.forbiddenChangedFiles || [];
+  let prePushGate = input.prePushGate;
+  const attempts = [];
+  const dependencies = {
+    runFixCycle: deps.runFixCycle || runBundleReviewFixCycle,
+    commitAndRerun: deps.commitAndRerun || commitBundleReviewFixAndRerunExactHeadReviews,
+    evaluatePrePushGate: deps.evaluatePrePushGate || evaluatePrePushReviewGate,
+    persistExactHeadEvidence: deps.persistExactHeadEvidence || persistBundleExactHeadEvidence,
+    sourceStateIdentity: deps.sourceStateIdentity || sourceStateIdentityForCommit,
+  };
+
+  while (true) {
+    const codexNeedsConvergence = !config.dryRun && currentResult.review?.verdict?.verdict && currentResult.review.verdict.verdict !== "approve";
+    const gateNeedsConvergence = !prePushGate.ok && prePushGate.outcome === "review_convergence_required";
+    if (!codexNeedsConvergence && !gateNeedsConvergence) {
+      return { ok: true, state, result: { ...currentResult, changedFiles, forbiddenChangedFiles, headSha: state.lastVerifiedHead }, prePushGate, attempts };
+    }
+
+    const source = codexNeedsConvergence ? "codex_mechanics_security_review" : "independent_review";
+    const reason = codexNeedsConvergence
+      ? currentResult.review.reviewFailureReason || currentResult.review.verdict?.verdict || "codex_review_failed"
+      : prePushGate.reason || "review_convergence_required";
+    state = markBundleReviewConvergenceRequired(state, {
+      exactHead: state.lastVerifiedHead,
+      outcome: "review_convergence_required",
+      reason,
+      message: codexNeedsConvergence
+        ? "Exact-head Codex mechanics/security review requires bounded bundle convergence."
+        : prePushGate.message,
+      source,
+    });
+    writeState(state);
+
+    const budget = evaluateCycleBudget(state.reviewConvergenceState, config, state.reviewConvergenceHistory || []);
+    if (!budget.ok) {
+      input.recovery?.stop(`bundle_review_convergence_${budget.terminalReason || "blocked"}`, budget.reason, "stop_fail_closed");
+      return {
+        ok: false,
+        outcome: terminalOutcomeForConvergence(budget.terminalReason),
+        reasonCode: budget.terminalReason || "bundle_review_convergence_blocked",
+        reason: budget.reason,
+        state,
+        attempts,
+        summary: { budget },
+      };
+    }
+    if (budget.transitionedState) {
+      state = {
+        ...state,
+        reviewConvergenceState: budget.transitionedState,
+      };
+      writeState(state);
+      budget.transitionedState = state.reviewConvergenceState;
+    }
+
+    input.recovery?.advance("review_fix", source === "codex_mechanics_security_review" ? "run_bundle_codex_review_convergence" : "run_bundle_review_convergence");
+    const fixAttempt = await dependencies.runFixCycle(config, {
+      issue: input.issue,
+      laneDecision: input.laneDecision,
+      plan: input.plan,
+      state,
+      branchName: input.branchName,
+      changedFiles,
+      forbiddenChangedFiles,
+      validation: currentResult.validation,
+      externalReview: currentResult.externalReview,
+      review: currentResult.review,
+      reviewPackage: currentResult.reviewPackage,
+      attemptCount: state.reviewConvergenceState.sourceChangingCycle,
+      reviewConvergenceState: state.reviewConvergenceState,
+      diagnosticAuthorization: budget.diagnosticAuthorization,
+      source,
+    });
+    attempts.push(fixAttempt);
+    if (!fixAttempt.proceeded) {
+      input.recovery?.stop("bundle_review_convergence_fix_not_proceeded", fixAttempt.reason, terminalNextAction(fixAttempt.reason));
+      if (state.reviewConvergenceState?.diagnosticReviewFix?.status === "pending") {
+        state = {
+          ...state,
+          reviewConvergenceState: markDiagnosticReviewFixTerminal(state.reviewConvergenceState, fixAttempt.reason),
+        };
+      }
+      state = markBundleStopped(state, { reasonCode: fixAttempt.reason || "bundle_review_convergence_fix_not_proceeded", reason: fixAttempt.reason });
+      writeState(state);
+      return {
+        ok: false,
+        outcome: outcomeForFixStop(fixAttempt.reason),
+        reasonCode: fixAttempt.reason || "bundle_review_convergence_fix_not_proceeded",
+        reason: `Bundle review convergence could not safely continue: ${fixAttempt.reason}.`,
+        state,
+        attempts,
+        summary: { fixAttempt },
+      };
+    }
+
+    const postFix = await dependencies.commitAndRerun(config, {
+      issue: input.issue,
+      laneDecision: input.laneDecision,
+      plan: input.plan,
+      state,
+      branchName: input.branchName,
+      baseSha: input.baseSha,
+      fixAttempt,
+    });
+    changedFiles = postFix.changedFiles || changedFiles;
+    forbiddenChangedFiles = postFix.forbiddenChangedFiles || forbiddenChangedFiles;
+    currentResult = {
+      validation: bindValidationEvidence(postFix.validation, {
+        headSha: postFix.runnerCreatedCommitSha,
+        baseSha: input.baseSha,
+        changedFiles,
+        profile: input.laneDecision.validationProfile,
+      }),
+      externalReview: postFix.externalReview,
+      review: postFix.review,
+      reviewPackage: postFix.reviewPackage,
+      reviewMutationGuard: postFix.reviewMutationGuard,
+    };
+    if (currentResult.reviewMutationGuard?.mutationDetected) {
+      input.recovery?.stop("bundle_review_mutation_detected_after_convergence", currentResult.reviewMutationGuard.reason, "operator_recovery_required");
+      state = markBundleStopped(state, {
+        reasonCode: "bundle_review_mutation_detected_after_convergence",
+        reason: currentResult.reviewMutationGuard.reason,
+      });
+      state = {
+        ...state,
+        reviewConvergenceState: {
+          ...(state.reviewConvergenceState || {}),
+          reviewMutationGuard: currentResult.reviewMutationGuard,
+          continuation: {
+            ...(state.reviewConvergenceState?.continuation || {}),
+            status: "stopped",
+            outcome: "bundle_review_mutation_detected",
+            reason: currentResult.reviewMutationGuard.reason,
+            recordedAt: new Date().toISOString(),
+          },
+        },
+      };
+      writeState(state);
+      return {
+        ok: false,
+        outcome: "auto_failed",
+        reasonCode: "bundle_review_mutation_detected_after_convergence",
+        reason: currentResult.reviewMutationGuard.reason,
+        state,
+        attempts,
+        summary: { reviewMutationGuard: currentResult.reviewMutationGuard },
+      };
+    }
+    const sourceIdentity = postFix.runnerCreatedCommitSha
+      ? dependencies.sourceStateIdentity({ baseRef: input.baseSha, headRef: postFix.runnerCreatedCommitSha })
+      : { exactHead: null, treeId: null, patchId: null, patchIdReason: "dry_run_or_missing_head" };
+    const accounted = accountConvergenceEvent(state.reviewConvergenceState, {
+      kind: "source_changed",
+      newHead: postFix.runnerCreatedCommitSha,
+      reasonCode: "bundle_review_convergence_fix_commit",
+    });
+    state = {
+      ...state,
+      lastVerifiedHead: postFix.runnerCreatedCommitSha || state.lastVerifiedHead,
+      sourceChangingCycle: accounted.state.sourceChangingCycle,
+      reviewConvergenceState: accounted.state,
+      reviewConvergenceHistory: [
+        ...(state.reviewConvergenceHistory || []),
+        {
+          findingFingerprints: currentBundleReviewFindingFingerprints({
+            externalReview: currentResult.externalReview,
+            review: currentResult.review,
+          }),
+          claimedFixedFingerprints: claimedReviewFindingFingerprints({
+            fixAttempt,
+            externalReview: currentResult.externalReview,
+            review: currentResult.review,
+            source,
+          }),
+          exactHead: sourceIdentity.exactHead,
+          treeId: sourceIdentity.treeId,
+          patchId: sourceIdentity.patchId,
+          patchIdKind: sourceIdentity.patchId ? "stable_patch_id" : null,
+          patchIdReason: sourceIdentity.patchIdReason,
+        },
+      ],
+      finalization: {
+        ...state.finalization,
+        validation: currentResult.validation,
+        reviewPackage: postFix.reviewPackage?.packagePath || postFix.reviewPackage || state.finalization?.reviewPackage || null,
+        externalReview: currentResult.externalReview,
+        codexReview: currentResult.review,
+      },
+    };
+    input.recovery?.headChanged(postFix.runnerCreatedCommitSha, "bundle_review_convergence_fix_commit");
+    input.recovery?.marker("checkpoint_commit", `bundle-review-convergence-${postFix.runnerCreatedCommitSha || "dry-run"}`, {
+      target: input.branchName,
+      correlation: input.issue?.number || "",
+    });
+    const evidence = dependencies.persistExactHeadEvidence(input.recovery, {
+      validation: currentResult.validation,
+      externalReview: currentResult.externalReview,
+      review: currentResult.review,
+      headSha: postFix.runnerCreatedCommitSha,
+      baseSha: input.baseSha,
+      changedFiles,
+    });
+    if (evidence && !evidence.ok) {
+      input.recovery?.stop("bundle_exact_head_evidence_incomplete_after_convergence", evidence.reasonCode, "regenerate_exact_head_evidence");
+      state = markBundleStopped(state, { reasonCode: evidence.reasonCode || "bundle_exact_head_evidence_incomplete_after_convergence", reason: evidence.reason });
+      writeState(state);
+      return {
+        ok: false,
+        outcome: "auto_failed",
+        reasonCode: evidence.reasonCode || "bundle_exact_head_evidence_incomplete_after_convergence",
+        reason: "Bundle exact-head evidence was incomplete after convergence.",
+        state,
+        attempts,
+        summary: { evidence },
+      };
+    }
+    writeState(state);
+
+    const reviewConvergence = buildLiveReviewConvergenceContext({
+      config,
+      issue: input.issue,
+      laneDecision: input.laneDecision,
+      branchName: input.branchName,
+      baseRef: "main",
+      exactHead: postFix.runnerCreatedCommitSha,
+      sourceChangingCycle: state.sourceChangingCycle,
+      reviewConvergenceState: state.reviewConvergenceState,
+      relationships: {
+        bundleId: input.plan?.id,
+        sliceOrder: input.plan?.slices?.map((slice) => slice.id) || [],
+      },
+    });
+    state = { ...state, reviewConvergenceState: reviewConvergence.gateInput.reviewConvergenceState };
+    prePushGate = dependencies.evaluatePrePushGate({
+      ...reviewConvergence.gateInput,
+      laneDecision: input.laneDecision,
+      externalReview: currentResult.externalReview,
+      reviewMutationGuard: currentResult.reviewMutationGuard || { mutationDetected: false },
+    });
+  }
+}
+
+async function runBundleReviewFixCycle(config, context) {
+  const trigger = extractReviewFixTrigger(context);
+  const decision = evaluateReviewFixMutationDecision({ ...context, config, trigger });
+  if (!decision.allowed) {
+    return { attempted: false, proceeded: false, reason: decision.reason, decision };
+  }
+  const prompt = buildReviewFixPrompt({
+    issue: context.issue,
+    laneDecision: context.laneDecision,
+    branchName: context.branchName,
+    changedFiles: context.changedFiles || [],
+    trigger,
+    validation: context.validation,
+  });
+  const promptPath = path.join(
+    config.logsRoot,
+    "review-fix",
+    `${safeTimestamp()}-issue-${context.issue.number}-${slugify(context.issue.title, 40)}-bundle-review-fix.md`,
+  );
+  mkdirSync(path.dirname(promptPath), { recursive: true });
+  writeFileSync(promptPath, prompt);
+  const codex = runCodexPrompt(config, { branchName: context.branchName, prompt, promptPath }, "bundle-review-fix");
+  if (!codex.skipped && (codex.error || codex.status !== 0)) {
+    return { attempted: true, proceeded: false, reason: "review_fix_codex_failed", decision, promptPath, codex };
+  }
+  const changedFilesAfter = listWorkingTreeChangedFiles();
+  const forbiddenChangedFilesAfter = filterForbiddenChangedFiles(changedFilesAfter, context.laneDecision);
+  if (forbiddenChangedFilesAfter.length > 0) {
+    return { attempted: true, proceeded: false, reason: `review_fix_forbidden_changed_files:${forbiddenChangedFilesAfter.join(",")}`, decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter };
+  }
+  if (!config.dryRun && changedFilesAfter.length === 0) {
+    return { attempted: true, proceeded: false, reason: "review_fix_left_no_changed_files", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter };
+  }
+  const validationPlan = planValidation(changedFilesAfter, context.laneDecision);
+  const validationAfter = runValidationPlan(config, validationPlan);
+  if (!validationAfter.passed) {
+    return { attempted: true, proceeded: false, reason: "review_fix_validation_failed", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter };
+  }
+  return {
+    attempted: true,
+    proceeded: true,
+    reason: "review_fix_passed_revalidation",
+    decision,
+    promptPath,
+    codex,
+    changedFilesAfter,
+    forbiddenChangedFilesAfter,
+    validationAfter,
+  };
+}
+
+async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt }) {
+  const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
+  const commit = commitExplicitPaths(config, changedFilesBeforeCommit, `Feature bundle issue #${issue.number}: review-fix follow-up`);
+  const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
+  const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
+  const validation = fixAttempt.validationAfter;
+  const reviewPackage = writeBundleReviewPackage(config, {
+    issue,
+    laneDecision,
+    plan,
+    state: { ...state, lastVerifiedHead: runnerCreatedCommitSha || state.lastVerifiedHead },
+    changedFiles,
+    validation,
+    headSha: runnerCreatedCommitSha,
+    baseSha,
+  });
+  const externalReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
+  const externalReview = await runGeminiIntegratedReview(config, reviewPackage);
+  const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(externalReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_convergence_external_review",
+  });
+  if (externalReviewMutationGuard.mutationDetected) {
+    return {
+      changedFiles,
+      forbiddenChangedFiles,
+      validation,
+      commit,
+      runnerCreatedCommitSha,
+      reviewPackage,
+      externalReview,
+      review: null,
+      reviewMutationGuard: externalReviewMutationGuard,
+    };
+  }
+  const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
+  const review = runReviewPrompt(config, reviewPackage);
+  const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_convergence_codex_review",
+  });
+  return {
+    changedFiles,
+    forbiddenChangedFiles,
+    validation,
+    commit,
+    runnerCreatedCommitSha,
+    reviewPackage,
+    externalReview,
+    review,
+    reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
+  };
+}
+
+function markBundleReviewConvergenceRequired(state, { exactHead, outcome, reason, message, source }) {
+  return {
+    ...state,
+    reviewConvergenceState: {
+      ...(state.reviewConvergenceState || {}),
+      continuation: {
+        status: "required",
+        outcome,
+        reason,
+        message,
+        exactHead,
+        source,
+        recordedAt: new Date().toISOString(),
+      },
+    },
+  };
+}
+
+function terminalOutcomeForConvergence(terminalReason) {
+  if (terminalReason === "UNSAFE_SCOPE_CHANGE") return "scope_failed";
+  if (terminalReason === "VALIDATION_BLOCKED") return "validation_failed";
+  if (terminalReason === "REVIEW_PROVIDER_BLOCKED") return "auto_failed";
+  if (terminalReason === "MANUAL_DECISION_REQUIRED") return "blocked_needs_tommy";
+  return "review_changes_requested_retry_exhausted";
+}
+
+function outcomeForFixStop(reason = "") {
+  if (String(reason).includes("forbidden_changed_files") || String(reason).includes("unsafe") || String(reason).includes("outside_contract")) return "scope_failed";
+  if (String(reason).includes("validation")) return "validation_failed";
+  if (String(reason).includes("manual") || String(reason).includes("needs_tommy")) return "blocked_needs_tommy";
+  return "review_changes_requested_retry_exhausted";
+}
+
+function terminalNextAction(reason = "") {
+  if (String(reason).includes("forbidden") || String(reason).includes("unsafe") || String(reason).includes("outside_contract")) return "stop_fail_closed";
+  if (String(reason).includes("manual") || String(reason).includes("needs_tommy")) return "manual_recovery_required";
+  return "create_or_reuse_followup_or_escalate";
 }
 
 export function generateBundleSlicePrompt(config, { issue, laneDecision, plan, slice, branchName, state }) {
@@ -495,6 +993,90 @@ function stopBundle(result, outcome, reasonCode, reason, extra = {}) {
   };
 }
 
+function stopForBundleReviewMutation({ config, result, state, recovery, guard, phase }) {
+  const reason = guard.reason || `Bundle review command mutated checkout during ${phase}.`;
+  const stoppedState = markBundleStopped(state, { reasonCode: "bundle_review_mutation_detected", reason });
+  if (config && !config.dryRun) writeBundleState(config, stoppedState);
+  recovery?.stop("bundle_review_mutation_detected", reason, "operator_recovery_required");
+  return stopBundle(result, "auto_failed", "bundle_review_mutation_detected", reason, {
+    reviewMutationGuard: guard,
+    bundle: {
+      ...result.bundle,
+      state: summarizeBundleState(stoppedState),
+    },
+    recovery: recovery?.summary(),
+  });
+}
+
+function captureBundleReviewCheckoutFingerprint(config = {}) {
+  if (config.dryRun) {
+    return {
+      dryRun: true,
+      branch: null,
+      head: null,
+      status: "",
+      untracked: [],
+    };
+  }
+  const cwd = config.repoRoot || process.cwd();
+  const branch = runGit(["branch", "--show-current"], { cwd });
+  const head = runGit(["rev-parse", "HEAD"], { cwd });
+  const untracked = runGit(["ls-files", "--others", "--exclude-standard"], { cwd });
+  const status = runGit(["status", "--porcelain=v1"], { cwd });
+  const gitResults = [branch, head, status, untracked];
+  return {
+    dryRun: false,
+    branch: branch.stdout.trim(),
+    head: head.stdout.trim(),
+    status: status.stdout.split(/\r?\n/).filter(Boolean).sort().join("\n"),
+    untracked: untracked.stdout.split(/\r?\n/).filter(Boolean).sort(),
+    gitReadErrors: gitResults.filter((result) => result.error || result.status !== 0).map((result) => ({
+      command: result.command,
+      status: result.status,
+      error: result.error || result.stderr || result.stdout,
+    })),
+  };
+}
+
+function compareBundleReviewCheckoutFingerprint(before, after, { phase } = {}) {
+  if (before?.dryRun || after?.dryRun) {
+    return { mutationDetected: false, phase: phase || "bundle_review", before, after, reason: null, changedFields: [] };
+  }
+  const changedFields = [];
+  if (before?.branch !== after?.branch) changedFields.push("branch");
+  if (before?.head !== after?.head) changedFields.push("head");
+  if (before?.status !== after?.status) changedFields.push("status");
+  if (JSON.stringify(before?.untracked || []) !== JSON.stringify(after?.untracked || [])) changedFields.push("untracked");
+  if ((before?.gitReadErrors || []).length > 0 || (after?.gitReadErrors || []).length > 0) changedFields.push("git_read_error");
+  const mutationDetected = changedFields.length > 0;
+  return {
+    mutationDetected,
+    phase: phase || "bundle_review",
+    changedFields,
+    before,
+    after,
+    reason: mutationDetected
+      ? `Bundle review command mutated checkout during ${phase || "bundle_review"}: ${changedFields.join(",")}`
+      : null,
+  };
+}
+
+function mergeBundleReviewMutationGuards(...guards) {
+  const changedFields = [...new Set(guards.flatMap((guard) => guard?.changedFields || []))].sort();
+  const mutation = guards.find((guard) => guard?.mutationDetected);
+  return {
+    mutationDetected: Boolean(mutation),
+    phase: mutation?.phase || guards.map((guard) => guard?.phase).filter(Boolean).join("+") || "bundle_review",
+    changedFields,
+    reason: mutation?.reason || null,
+    guards,
+  };
+}
+
+function currentBundleReviewFindingFingerprints({ externalReview, review } = {}) {
+  return reviewFindingFingerprintsFromSupportedContainers({ externalReview, review }).sort();
+}
+
 function createBundleRecoveryRecorder(config, input) {
   if (config.dryRun) return null;
   let state = input.existingState || createInitialRecoveryState({
@@ -546,6 +1128,14 @@ function createBundleRecoveryRecorder(config, input) {
     evidence(kind, evidence) {
       return persist(bindRecoveryEvidence(state, kind, evidence));
     },
+    completeHeadEvidence(evidenceByKind, identity = {}) {
+      const persisted = persistCompleteHeadEvidence(config, state, evidenceByKind, identity);
+      if (persisted.ok) {
+        state = persisted.state;
+        statePath = persisted.statePath;
+      }
+      return persisted;
+    },
     headChanged(newHeadSha, reasonCode) {
       return persist(invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }));
     },
@@ -585,6 +1175,51 @@ function createBundleRecoveryRecorder(config, input) {
       };
     },
   };
+}
+
+function persistBundleExactHeadEvidence(recovery, { validation, externalReview, review, headSha, baseSha, changedFiles }) {
+  if (!recovery) return null;
+  const changedFilesDigest = validation?.changedFilesDigest || externalReview?.changedFilesDigest || review?.changedFilesDigest || null;
+  return recovery.completeHeadEvidence?.(
+    {
+      localValidation: {
+        status: validation?.passed ? "passed" : "failed",
+        headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest,
+        source: "local_validation",
+        profile: validation?.profile,
+        summary: "bundle final exact-head validation",
+      },
+      externalReview: {
+        status: externalReview?.status === "pass" ? "passed" : "blocked",
+        headSha: externalReview?.reviewedHead || headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest: externalReview?.changedFilesDigest,
+        evidencePath: externalReview?.reportPath || externalReview?.evidencePath,
+        source: externalReview?.source || "external_review",
+        provider: externalReview?.provider,
+        tier: externalReview?.tier,
+        resultId: externalReview?.resultId || externalReview?.reviewId,
+        summary: externalReview?.reason || externalReview?.status,
+      },
+      codexReview: {
+        status: review?.verdict?.verdict === "approve" ? "passed" : "blocked",
+        headSha: review?.reviewedHead || headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest: review?.changedFilesDigest,
+        evidencePath: review?.logPath || review?.promptPath,
+        source: review?.source || "codex_mechanics_security_review",
+        provider: review?.provider || "codex",
+        resultId: review?.resultId || review?.reviewId,
+        summary: review?.reviewFailureReason || review?.verdict?.verdict,
+      },
+    },
+    { headSha, baseSha, changedFiles, changedFilesDigest },
+  );
 }
 
 function gitObjectExists(config, sha) {

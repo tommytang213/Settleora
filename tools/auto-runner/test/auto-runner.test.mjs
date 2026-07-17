@@ -250,7 +250,7 @@ test("canary real-run allows auto-merge only for explicit external max-2 low-ris
   assert.match(tooMany.reason, /maxIterations must be <= 2/);
 });
 
-test("review-fix mutation defaults off and clamps explicit low-risk approval to one attempt", () => {
+test("review-fix mutation defaults off and clamps explicit approval to fifty cycles", () => {
   const defaults = normalizeReviewFixMutationConfig({});
   assert.equal(defaults.enabled, false);
   assert.equal(defaults.maxAttempts, 0);
@@ -270,7 +270,8 @@ test("review-fix mutation defaults off and clamps explicit low-risk approval to 
   };
   const normalized = normalizeReviewFixMutationConfig(approved);
   assert.equal(normalized.enabled, true);
-  assert.equal(normalized.maxAttempts, 1);
+  assert.equal(normalized.maxAttempts, 50);
+  assert.equal(normalized.hardMaxSourceChangingCycles, 50);
   const approval = evaluateReviewFixMutationApproval(approved);
   assert.equal(approval.approved, true);
   assert.equal(approval.mode, "approved_clamped");
@@ -955,7 +956,7 @@ test("review-fix mutation decision requires actionable low-risk auto-merge contr
   assert.match(broad.reason, /unsafe_contract_allowed_path/);
 });
 
-test("review-fix mutation blocks stop labels, broad trusted run, and non-actionable reviewer output", () => {
+test("review-fix mutation blocks stop labels and non-actionable reviewer output while allowing trusted approved runs", () => {
   const config = {
     configPath: "/workspace/logs/settleora-auto-runner/local-review-fix.json",
     allowReviewFixMutation: true,
@@ -981,7 +982,7 @@ test("review-fix mutation blocks stop labels, broad trusted run, and non-actiona
     },
   };
   assert.match(evaluateReviewFixMutationDecision({ ...common, issue: { ...common.issue, labels: ["blocked"] } }).reason, /issue_stop_label/);
-  assert.equal(evaluateReviewFixMutationDecision({ ...common, config: { ...config, trustedRealRunApproved: true } }).reason, "review_fix_refuses_broad_trusted_real_run");
+  assert.equal(evaluateReviewFixMutationDecision({ ...common, config: { ...config, trustedRealRunApproved: true } }).allowed, true);
   assert.match(
     evaluateReviewFixMutationDecision({
       ...common,
@@ -4589,6 +4590,40 @@ test("pre-push review gate blocks mutation and required independent-review failu
       outcome: "auto_failed",
       reason: "exact_head_review_mutated_checkout",
       message: "exact-head review mutated the checkout",
+    },
+  );
+  assert.deepEqual(
+    evaluatePrePushReviewGate({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      laneDecision: clientUiLane,
+      externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
+      reviewMutationGuard: { mutationDetected: false },
+      reviewConvergenceState: { sourceChangingCycle: 2, pr: { exactHead: "head123" } },
+      reviewConvergenceHistory: [
+        { findingFingerprints: ["a"], patchId: "p1" },
+        { findingFingerprints: ["b"], patchId: "p2" },
+      ],
+    }),
+    {
+      ok: false,
+      outcome: "review_convergence_required",
+      reason: "exact_head_independent_review_not_passed_convergence_required:skipped_external_reviewer_tier_disabled",
+      message: "exact-head independent review returned skipped_external_reviewer_tier_disabled; bounded review convergence remains available",
+      convergence: {
+        ok: true,
+        reason: "bounded_review_convergence_available",
+        budget: {
+          requested: 50,
+          normalized: 50,
+          hardMaximum: 50,
+          enabled: true,
+          malformed: false,
+          policy: "clamp_to_hard_max",
+        },
+        diagnosticEpoch: false,
+        reviewStatus: "skipped",
+        reviewReason: "skipped_external_reviewer_tier_disabled",
+      },
     },
   );
   assert.deepEqual(

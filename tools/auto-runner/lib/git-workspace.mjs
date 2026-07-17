@@ -35,6 +35,36 @@ export function getRefSha(ref, options = {}) {
   return result.stdout.trim();
 }
 
+export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef = "HEAD", cwd = process.cwd() } = {}) {
+  const exactHead = getRefSha(headRef, { cwd });
+  const treeResult = runGit(["rev-parse", `${headRef}^{tree}`], { cwd });
+  assertGitSuccess(treeResult, `Unable to resolve tree for ${headRef}`);
+  const treeId = treeResult.stdout.trim();
+  const diff = runGit(["diff", "--binary", `${baseRef}...${headRef}`], { cwd });
+  assertGitSuccess(diff, `Unable to read cumulative diff for ${baseRef}...${headRef}`);
+  if (!diff.stdout.trim()) {
+    return { exactHead, treeId, patchId: null, patchIdReason: "empty_cumulative_diff" };
+  }
+  const patchId = spawnSync("git", ["patch-id", "--stable"], {
+    cwd,
+    input: diff.stdout,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (patchId.error || patchId.status !== 0) {
+    return {
+      exactHead,
+      treeId,
+      patchId: null,
+      patchIdReason: `patch_id_unavailable:${patchId.stderr || patchId.error?.message || "unknown"}`.slice(0, 240),
+    };
+  }
+  const stablePatchId = patchId.stdout.trim().split(/\s+/)[0] || null;
+  return stablePatchId
+    ? { exactHead, treeId, patchId: stablePatchId, patchIdReason: null }
+    : { exactHead, treeId, patchId: null, patchIdReason: "patch_id_empty_output" };
+}
+
 export function getStatusShort(options = {}) {
   const result = runGit(["status", "--short"], options);
   assertGitSuccess(result, "Unable to read git status");
