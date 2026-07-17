@@ -35,6 +35,7 @@ import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
   evaluateCycleBudget,
+  fingerprintReviewFinding,
 } from "./review-convergence-controller.mjs";
 import {
   buildReviewFixPrompt,
@@ -295,7 +296,26 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     headSha: finalHead,
     baseSha: baseOriginMainSha,
   });
+  const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
+  const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_external_review",
+  });
+  if (externalReviewMutationGuard.mutationDetected) {
+    result.reviewMutationGuard = externalReviewMutationGuard;
+    return stopForBundleReviewMutation({ config, result, state, recovery, guard: externalReviewMutationGuard, phase: "bundle_external_review" });
+  }
+  const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
+  recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
+  result.review = runReviewPrompt(config, result.reviewPackage);
+  const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_codex_review",
+  });
+  if (codexReviewMutationGuard.mutationDetected) {
+    result.reviewMutationGuard = codexReviewMutationGuard;
+    return stopForBundleReviewMutation({ config, result, state, recovery, guard: codexReviewMutationGuard, phase: "bundle_codex_review" });
+  }
+  result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard);
   recovery?.evidence("externalReview", {
     status: result.externalReview.status === "pass" ? "passed" : "blocked",
     headSha: result.externalReview.reviewedHead || finalHead,
@@ -305,8 +325,6 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     evidencePath: result.externalReview.reportPath || result.externalReview.evidencePath,
     summary: result.externalReview.reason,
   });
-  recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
-  result.review = runReviewPrompt(config, result.reviewPackage);
   recovery?.evidence("codexReview", {
     status: result.review.verdict?.verdict === "approve" ? "passed" : "blocked",
     headSha: finalHead,
@@ -349,7 +367,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     ...reviewConvergence.gateInput,
     laneDecision: planned.laneDecision,
     externalReview: result.externalReview,
-    reviewMutationGuard: { mutationDetected: false },
+    reviewMutationGuard: result.reviewMutationGuard,
   });
   const convergence = await runBundleReviewConvergence(config, {
     issue,
@@ -544,6 +562,37 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       reviewPackage: postFix.reviewPackage,
       reviewMutationGuard: postFix.reviewMutationGuard,
     };
+    if (currentResult.reviewMutationGuard?.mutationDetected) {
+      input.recovery?.stop("bundle_review_mutation_detected_after_convergence", currentResult.reviewMutationGuard.reason, "operator_recovery_required");
+      state = markBundleStopped(state, {
+        reasonCode: "bundle_review_mutation_detected_after_convergence",
+        reason: currentResult.reviewMutationGuard.reason,
+      });
+      state = {
+        ...state,
+        reviewConvergenceState: {
+          ...(state.reviewConvergenceState || {}),
+          reviewMutationGuard: currentResult.reviewMutationGuard,
+          continuation: {
+            ...(state.reviewConvergenceState?.continuation || {}),
+            status: "stopped",
+            outcome: "bundle_review_mutation_detected",
+            reason: currentResult.reviewMutationGuard.reason,
+            recordedAt: new Date().toISOString(),
+          },
+        },
+      };
+      writeState(state);
+      return {
+        ok: false,
+        outcome: "auto_failed",
+        reasonCode: "bundle_review_mutation_detected_after_convergence",
+        reason: currentResult.reviewMutationGuard.reason,
+        state,
+        attempts,
+        summary: { reviewMutationGuard: currentResult.reviewMutationGuard },
+      };
+    }
     const accounted = accountConvergenceEvent(state.reviewConvergenceState, {
       kind: "source_changed",
       newHead: postFix.runnerCreatedCommitSha,
@@ -557,8 +606,14 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       reviewConvergenceHistory: [
         ...(state.reviewConvergenceHistory || []),
         {
-          findingFingerprints: (fixAttempt.decision?.sanitizedFindings || []).map((finding) => String(finding)),
-          claimedFixedFingerprints: (fixAttempt.decision?.sanitizedFindings || []).map((finding) => String(finding)),
+          findingFingerprints: currentBundleReviewFindingFingerprints({
+            externalReview: currentResult.externalReview,
+            review: currentResult.review,
+          }),
+          claimedFixedFingerprints: bundleReviewFindingFingerprints(fixAttempt.decision?.sanitizedFindings || [], {
+            provider: source === "codex_mechanics_security_review" ? "codex" : "external_review",
+            source,
+          }),
           patchId: postFix.runnerCreatedCommitSha || null,
         },
       ],
@@ -691,8 +746,29 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     headSha: runnerCreatedCommitSha,
     baseSha,
   });
+  const externalReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   const externalReview = await runGeminiIntegratedReview(config, reviewPackage);
+  const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(externalReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_convergence_external_review",
+  });
+  if (externalReviewMutationGuard.mutationDetected) {
+    return {
+      changedFiles,
+      forbiddenChangedFiles,
+      validation,
+      commit,
+      runnerCreatedCommitSha,
+      reviewPackage,
+      externalReview,
+      review: null,
+      reviewMutationGuard: externalReviewMutationGuard,
+    };
+  }
+  const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   const review = runReviewPrompt(config, reviewPackage);
+  const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_convergence_codex_review",
+  });
   return {
     changedFiles,
     forbiddenChangedFiles,
@@ -702,7 +778,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
-    reviewMutationGuard: { mutationDetected: false, branchName },
+    reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
   };
 }
 
@@ -885,6 +961,155 @@ function stopBundle(result, outcome, reasonCode, reason, extra = {}) {
     ok: false,
     outcome,
     stopReason: { reasonCode, reason },
+  };
+}
+
+function stopForBundleReviewMutation({ config, result, state, recovery, guard, phase }) {
+  const reason = guard.reason || `Bundle review command mutated checkout during ${phase}.`;
+  const stoppedState = markBundleStopped(state, { reasonCode: "bundle_review_mutation_detected", reason });
+  if (config && !config.dryRun) writeBundleState(config, stoppedState);
+  recovery?.stop("bundle_review_mutation_detected", reason, "operator_recovery_required");
+  return stopBundle(result, "auto_failed", "bundle_review_mutation_detected", reason, {
+    reviewMutationGuard: guard,
+    bundle: {
+      ...result.bundle,
+      state: summarizeBundleState(stoppedState),
+    },
+    recovery: recovery?.summary(),
+  });
+}
+
+function captureBundleReviewCheckoutFingerprint(config = {}) {
+  if (config.dryRun) {
+    return {
+      dryRun: true,
+      branch: null,
+      head: null,
+      status: "",
+      untracked: [],
+    };
+  }
+  const cwd = config.repoRoot || process.cwd();
+  const branch = runGit(["branch", "--show-current"], { cwd });
+  const head = runGit(["rev-parse", "HEAD"], { cwd });
+  const untracked = runGit(["ls-files", "--others", "--exclude-standard"], { cwd });
+  const status = runGit(["status", "--porcelain=v1"], { cwd });
+  const gitResults = [branch, head, status, untracked];
+  return {
+    dryRun: false,
+    branch: branch.stdout.trim(),
+    head: head.stdout.trim(),
+    status: status.stdout.split(/\r?\n/).filter(Boolean).sort().join("\n"),
+    untracked: untracked.stdout.split(/\r?\n/).filter(Boolean).sort(),
+    gitReadErrors: gitResults.filter((result) => result.error || result.status !== 0).map((result) => ({
+      command: result.command,
+      status: result.status,
+      error: result.error || result.stderr || result.stdout,
+    })),
+  };
+}
+
+function compareBundleReviewCheckoutFingerprint(before, after, { phase } = {}) {
+  if (before?.dryRun || after?.dryRun) {
+    return { mutationDetected: false, phase: phase || "bundle_review", before, after, reason: null, changedFields: [] };
+  }
+  const changedFields = [];
+  if (before?.branch !== after?.branch) changedFields.push("branch");
+  if (before?.head !== after?.head) changedFields.push("head");
+  if (before?.status !== after?.status) changedFields.push("status");
+  if (JSON.stringify(before?.untracked || []) !== JSON.stringify(after?.untracked || [])) changedFields.push("untracked");
+  if ((before?.gitReadErrors || []).length > 0 || (after?.gitReadErrors || []).length > 0) changedFields.push("git_read_error");
+  const mutationDetected = changedFields.length > 0;
+  return {
+    mutationDetected,
+    phase: phase || "bundle_review",
+    changedFields,
+    before,
+    after,
+    reason: mutationDetected
+      ? `Bundle review command mutated checkout during ${phase || "bundle_review"}: ${changedFields.join(",")}`
+      : null,
+  };
+}
+
+function mergeBundleReviewMutationGuards(...guards) {
+  const changedFields = [...new Set(guards.flatMap((guard) => guard?.changedFields || []))].sort();
+  const mutation = guards.find((guard) => guard?.mutationDetected);
+  return {
+    mutationDetected: Boolean(mutation),
+    phase: mutation?.phase || guards.map((guard) => guard?.phase).filter(Boolean).join("+") || "bundle_review",
+    changedFields,
+    reason: mutation?.reason || null,
+    guards,
+  };
+}
+
+function currentBundleReviewFindingFingerprints({ externalReview, review } = {}) {
+  return [
+    ...externalReviewFindingFingerprints(externalReview),
+    ...codexReviewFindingFingerprints(review),
+  ].sort();
+}
+
+function externalReviewFindingFingerprints(externalReview = {}) {
+  if (!externalReview || externalReview.status === "pass" || externalReview.verdict === "pass") return [];
+  const findings = externalReview.sanitizedResponseSummary?.findings ||
+    externalReview.findings ||
+    externalReview.blockingFindings ||
+    [];
+  return bundleReviewFindingFingerprints(findings, {
+    provider: externalReview.provider || "external_review",
+    source: externalReview.source || "external_review",
+    severity: externalReview.severity,
+  });
+}
+
+function codexReviewFindingFingerprints(review = {}) {
+  const verdict = review?.verdict?.verdict || review?.verdict || null;
+  if (!review || ["approve", "approved", "pass"].includes(verdict)) return [];
+  const findings =
+    review.verdict?.blocking_findings ||
+    review.verdict?.findings ||
+    review.blockingFindings ||
+    review.findings ||
+    [];
+  return bundleReviewFindingFingerprints(findings, {
+    provider: review.provider || "codex",
+    source: review.source || "codex_mechanics_security_review",
+    severity: review.severity,
+  });
+}
+
+function bundleReviewFindingFingerprints(findings = [], defaults = {}) {
+  return findings
+    .map((finding) => normalizeBundleReviewFinding(finding, defaults))
+    .map((finding) => fingerprintReviewFinding(finding).fingerprint)
+    .filter(Boolean)
+    .sort();
+}
+
+function normalizeBundleReviewFinding(finding, defaults = {}) {
+  if (typeof finding === "string") {
+    const text = finding.trim();
+    return {
+      provider: defaults.provider || defaults.source || "unknown",
+      source: defaults.source || defaults.provider || "unknown",
+      severity: defaults.severity || "unknown",
+      title: text,
+      body: text,
+    };
+  }
+  return {
+    provider: finding?.provider || finding?.source || defaults.provider || defaults.source || "unknown",
+    source: finding?.source || finding?.provider || defaults.source || defaults.provider || "unknown",
+    severity: finding?.severity || defaults.severity || "unknown",
+    path: finding?.path || finding?.file || "",
+    line: finding?.line,
+    range: finding?.range,
+    title: finding?.title || finding?.message || "",
+    body: finding?.body || finding?.details || "",
+    ruleId: finding?.ruleId || finding?.rule || finding?.check || "",
+    authorityInvariant: finding?.authorityInvariant || finding?.invariant || "",
   };
 }
 

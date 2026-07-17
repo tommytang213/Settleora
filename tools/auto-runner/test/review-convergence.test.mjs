@@ -657,6 +657,14 @@ test("live callers continue bounded convergence instead of stopping at pre-push 
   assert.match(bundleSource, /run_bundle_codex_review_convergence/);
   assert.match(bundleSource, /persistBundleExactHeadEvidence\(recovery/);
   assert.match(bundleSource, /completeHeadEvidence\(evidenceByKind/);
+  const initialReviewBlock = bundleSource.slice(
+    bundleSource.indexOf("const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);"),
+    bundleSource.indexOf("const finalEvidence = persistBundleExactHeadEvidence(recovery"),
+  );
+  assert.match(initialReviewBlock, /compareBundleReviewCheckoutFingerprint\(reviewFingerprintBefore/);
+  assert.match(initialReviewBlock, /stopForBundleReviewMutation/);
+  assert.match(initialReviewBlock, /compareBundleReviewCheckoutFingerprint\(codexReviewFingerprintBefore/);
+  assert.match(initialReviewBlock, /result\.reviewMutationGuard/);
 });
 
 test("feature-bundle Codex non-approve invokes bounded executor and consumes one source cycle only after new head", async () => {
@@ -768,5 +776,196 @@ test("feature-bundle convergence fail-closes unsafe non-proceeded fixes without 
     "bundle_review_convergence_fix_not_proceeded",
     "review_fix_forbidden_changed_files:services/api/Program.cs",
     "stop_fail_closed",
+  ]);
+});
+
+test("feature-bundle convergence fails closed when post-fix review mutates checkout before evidence or cycle accounting", async () => {
+  const input = bundleConvergenceInput({
+    writeState(nextState) {
+      input.state = nextState;
+    },
+  });
+  const result = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+    async runFixCycle() {
+      return {
+        proceeded: true,
+        reason: "review_fix_passed_revalidation",
+        decision: { sanitizedFindings: [{ provider: "codex", path: "tools/auto-runner/lib/feature-bundle-orchestrator.mjs", line: 705, title: "Stop pushing" }] },
+        changedFilesAfter: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFilesAfter: [],
+        validationAfter: { passed: true, profile: "runner-tests", changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+      };
+    },
+    async commitAndRerun() {
+      return {
+        runnerCreatedCommitSha: "b".repeat(40),
+        changedFiles: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFiles: [],
+        validation: { passed: true, profile: "runner-tests", changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        externalReview: { status: "pass", verdict: "pass", tier: "strong_independent", reviewedHead: "b".repeat(40), changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        review: { verdict: { verdict: "approve" }, reviewedHead: "c".repeat(40), changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        reviewPackage: { packagePath: "/tmp/package.json" },
+        reviewMutationGuard: {
+          mutationDetected: true,
+          phase: "bundle_convergence_codex_review",
+          changedFields: ["head"],
+          before: { branch: "feature/bundle", head: "b".repeat(40), status: "", untracked: [] },
+          after: { branch: "feature/bundle", head: "c".repeat(40), status: "", untracked: [] },
+          reason: "Bundle review command mutated checkout during bundle_convergence_codex_review: head",
+        },
+      };
+    },
+    persistExactHeadEvidence() {
+      throw new Error("review-created mutation must stop before exact-head evidence persistence");
+    },
+    evaluatePrePushGate() {
+      throw new Error("review-created mutation must stop before pre-push gate");
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "bundle_review_mutation_detected_after_convergence");
+  assert.equal(result.state.sourceChangingCycle, 7);
+  assert.equal(result.state.reviewConvergenceState.sourceChangingCycle, 7);
+  assert.equal(result.state.reviewConvergenceState.pr.exactHead, "a".repeat(40));
+  assert.equal(result.state.reviewConvergenceState.reviewMutationGuard.mutationDetected, true);
+  assert.deepEqual(result.state.reviewConvergenceState.reviewMutationGuard.changedFields, ["head"]);
+  assert.equal(result.state.reviewConvergenceHistory, undefined);
+});
+
+test("feature-bundle history fingerprints structured current findings separately from claimed fixes", async () => {
+  const attemptedOne = {
+    provider: "codex",
+    severity: "high",
+    path: "tools/auto-runner/lib/feature-bundle-orchestrator.mjs",
+    line: 560,
+    title: "Fingerprint real review findings in history",
+    body: "attempted first",
+    ruleId: "history",
+    authorityInvariant: "stable history",
+  };
+  const attemptedTwo = {
+    provider: "gemini",
+    severity: "medium",
+    path: "tools/auto-runner/lib/feature-bundle-orchestrator.mjs",
+    line: 705,
+    title: "Stop pushing after bundle review mutations",
+    body: "attempted second",
+    ruleId: "mutation",
+    authorityInvariant: "no push before approval",
+  };
+  const remaining = {
+    provider: "gemini",
+    severity: "medium",
+    path: "tools/auto-runner/lib/feature-bundle-orchestrator.mjs",
+    line: 705,
+    title: "Still dirty after review",
+    body: "checkout dirtied",
+    ruleId: "mutation",
+    authorityInvariant: "no push before approval",
+  };
+  const input = bundleConvergenceInput({
+    writeState(nextState) {
+      input.state = nextState;
+    },
+  });
+  const result = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+    async runFixCycle() {
+      return {
+        proceeded: true,
+        reason: "review_fix_passed_revalidation",
+        decision: { sanitizedFindings: [attemptedOne, attemptedTwo] },
+        changedFilesAfter: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFilesAfter: [],
+        validationAfter: { passed: true, profile: "runner-tests", changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+      };
+    },
+    async commitAndRerun() {
+      return {
+        runnerCreatedCommitSha: "b".repeat(40),
+        changedFiles: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFiles: [],
+        validation: { passed: true, profile: "runner-tests", changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        externalReview: {
+          status: "fail",
+          verdict: "fail",
+          tier: "strong_independent",
+          reviewedHead: "b".repeat(40),
+          changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]),
+          sanitizedResponseSummary: { findings: [remaining] },
+        },
+        review: { verdict: { verdict: "approve" }, reviewedHead: "b".repeat(40), changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        reviewPackage: { packagePath: "/tmp/package.json" },
+        reviewMutationGuard: { mutationDetected: false },
+      };
+    },
+    evaluatePrePushGate() {
+      return { ok: true, reason: "pre_push_review_gates_passed" };
+    },
+    persistExactHeadEvidence() {
+      return { ok: true };
+    },
+  });
+  const history = result.state.reviewConvergenceHistory;
+  assert.equal(result.ok, true);
+  assert.equal(history.length, 1);
+  assert.deepEqual(history[0].findingFingerprints, [fingerprintReviewFinding(remaining).fingerprint]);
+  assert.deepEqual(history[0].claimedFixedFingerprints, [
+    fingerprintReviewFinding(attemptedOne).fingerprint,
+    fingerprintReviewFinding(attemptedTwo).fingerprint,
+  ].sort());
+  assert.equal(new Set(history[0].claimedFixedFingerprints).size, 2);
+  assert.doesNotMatch(JSON.stringify(history), /\[object Object\]/);
+
+  const roundTrip = JSON.parse(JSON.stringify(history));
+  assert.deepEqual(roundTrip, history);
+  assert.equal(analyzeConvergenceProgress([
+    { findingFingerprints: history[0].claimedFixedFingerprints, claimedFixedFingerprints: history[0].claimedFixedFingerprints, patchId: "p1" },
+    { findingFingerprints: [], patchId: "p2" },
+    { findingFingerprints: [history[0].claimedFixedFingerprints[0]], patchId: "p3" },
+  ]).terminalReason, "NO_PROGRESS");
+});
+
+test("feature-bundle history records clean post-fix reviews as empty current findings", async () => {
+  const attempted = "Stop pushing after bundle review mutations";
+  const input = bundleConvergenceInput({
+    writeState(nextState) {
+      input.state = nextState;
+    },
+  });
+  const result = await runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {
+    async runFixCycle() {
+      return {
+        proceeded: true,
+        reason: "review_fix_passed_revalidation",
+        decision: { sanitizedFindings: [attempted] },
+        changedFilesAfter: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFilesAfter: [],
+        validationAfter: { passed: true, profile: "runner-tests", changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+      };
+    },
+    async commitAndRerun() {
+      return {
+        runnerCreatedCommitSha: "b".repeat(40),
+        changedFiles: ["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"],
+        forbiddenChangedFiles: [],
+        validation: { passed: true, profile: "runner-tests", changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        externalReview: { status: "pass", verdict: "pass", tier: "strong_independent", reviewedHead: "b".repeat(40), changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        review: { verdict: { verdict: "approve" }, reviewedHead: "b".repeat(40), changedFilesDigest: digestChangedFiles(["tools/auto-runner/lib/feature-bundle-orchestrator.mjs"]) },
+        reviewPackage: { packagePath: "/tmp/package.json" },
+        reviewMutationGuard: { mutationDetected: false },
+      };
+    },
+    evaluatePrePushGate() {
+      return { ok: true, reason: "pre_push_review_gates_passed" };
+    },
+    persistExactHeadEvidence() {
+      return { ok: true };
+    },
+  });
+  const history = result.state.reviewConvergenceHistory;
+  assert.equal(result.ok, true);
+  assert.deepEqual(history[0].findingFingerprints, []);
+  assert.deepEqual(history[0].claimedFixedFingerprints, [
+    fingerprintReviewFinding({ provider: "codex", source: "codex_mechanics_security_review", severity: "unknown", title: attempted, body: attempted }).fingerprint,
   ]);
 });
