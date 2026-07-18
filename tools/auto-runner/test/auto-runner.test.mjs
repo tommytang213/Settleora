@@ -4770,7 +4770,7 @@ test("auto-merge waits through blocked merge state after checks and then merges 
     assert.equal(inspections, 2);
     assert.equal(result.result, "merged");
     assert.equal(result.waitAttempts.length, 2);
-    assert.ok(calls.includes("gh pr merge 1 --merge --match-head-commit head123"));
+    assert.ok(calls.includes("gh pr merge 1 --repo tommytang213/Settleora --merge --match-head-commit head123"));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }

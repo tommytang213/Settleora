@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -90,7 +90,7 @@ test("executor follows nextStackAction through convergence, gates, merge, curren
   ];
   for (let i = 0; i < expected.length; i += 1) {
     const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.reasonCode);
   }
   assert.deepEqual(calls, expected);
   const state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
@@ -1222,7 +1222,7 @@ test("semantic own-delta proof is mandatory and ready transition requires it", a
       markReadyForReview: async () => { ready += 1; return { ok: true }; },
     },
   });
-  assert.equal(ok.ok, true);
+  assert.equal(ok.ok, true, ok.reasonCode);
   assert.equal(ready, 1);
 });
 
@@ -1230,7 +1230,7 @@ test("final hygiene occurs only after every PR has merge proof", async () => {
   const fixture = stackFixtureAtChild({ retargeted: true, ownDelta: true, ready: true, childConverged: true, childGates: true });
   let hygiene = 0;
   let result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter: { mergePr: async () => ({ ok: true, mergeSha: sha("d") }) } });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.reasonCode);
   result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter: { runFinalHygiene: async () => { hygiene += 1; return { ok: true }; } } });
   assert.equal(result.ok, true);
   assert.equal(hygiene, 1);
@@ -1451,9 +1451,9 @@ test("production retarget reads fresh PR proof before mutation and readback afte
   const result = await adapter.retargetPrBase({ pr: fixture.plan.orderedPrs[1], newBase: "main", expectedHead: sha("b"), expectedCurrentBase: "feature/auto-913-parent" });
   assert.equal(result.ok, true);
   assert.deepEqual(calls, [
-    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid",
-    "gh pr edit 920 --base main",
-    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid",
+    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository",
+    "gh pr edit 920 --repo tommytang213/Settleora --base main",
+    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository",
   ]);
 });
 
@@ -1513,6 +1513,133 @@ test("retarget post-readback updates ordered PR base and restart consumes persis
   assert.equal(state.orderedPrs[1].baseRefName, "main");
 });
 
+test("durable mutation intents persist before retarget ready and merge mutations", async () => {
+  const retargetFixture = stackFixtureAtChild();
+  let retargetSawIntent = false;
+  let retargetCalls = 0;
+  const repoAdapter = (overrides = {}) => ({
+    capabilities: { repositoryBoundOperations: true },
+    readRepositoryOperationContext: async () => ({ ok: true, worktreePath: retargetFixture.config.repoRoot, originRepositorySlug: "tommytang213/Settleora" }),
+    inspectPr: async ({ prNumber }) => ({
+      ok: true,
+      pr: prNumber === 920
+        ? { number: 920, state: "OPEN", isDraft: true, baseRefName: "feature/auto-913-parent", headRefName: "feature/auto-913-child", headRefOid: sha("b"), headRepositorySlug: "tommytang213/Settleora", baseRepositorySlug: "tommytang213/Settleora", isCrossRepository: false }
+        : { number: 919, state: "OPEN", isDraft: false, baseRefName: "main", headRefName: "feature/auto-913-parent", headRefOid: sha("a"), headRepositorySlug: "tommytang213/Settleora", baseRepositorySlug: "tommytang213/Settleora", isCrossRepository: false },
+      headRefOid: prNumber === 920 ? sha("b") : sha("a"),
+    }),
+    ...overrides,
+  });
+  const retarget = await runPrStackExecution(retargetFixture.config, { stackPlanPath: retargetFixture.planPath }, {
+    adapter: repoAdapter({
+      retargetPrBase: async () => {
+        retargetCalls += 1;
+        retargetSawIntent = readdirSync(path.join(retargetFixture.config.logsRoot, "stack-operation-intents")).some((name) => name.endsWith(".json"));
+        return { ok: true, after: { baseRefName: "main" } };
+      },
+    }),
+  });
+  assert.equal(retarget.ok, true, retarget.reasonCode);
+  assert.equal(retargetCalls, 1);
+  assert.equal(retargetSawIntent, true);
+
+  const readyFixture = stackFixtureAtChild({ retargeted: true });
+  persistReadyBaseRebound(readyFixture);
+  let readySawIntent = false;
+  const ready = await runPrStackExecution(readyFixture.config, { stackPlanPath: readyFixture.planPath }, {
+    adapter: {
+      capabilities: { repositoryBoundOperations: true },
+      readRepositoryOperationContext: async () => ({ ok: true, worktreePath: readyFixture.config.repoRoot, originRepositorySlug: "tommytang213/Settleora" }),
+      inspectPr: async () => ({ ok: true, pr: { number: 920, state: "OPEN", isDraft: true, baseRefName: "main", headRefName: "feature/auto-913-child", headRefOid: sha("b"), headRepositorySlug: "tommytang213/Settleora", baseRepositorySlug: "tommytang213/Settleora", isCrossRepository: false }, headRefOid: sha("b") }),
+      proveSemanticOwnDelta: async ({ pr }) => ({ ok: true, before: pr.ownDelta, after: { ...pr.ownDelta, reversePatchApplies: true } }),
+      markReadyForReview: async () => {
+        readySawIntent = readdirSync(path.join(readyFixture.config.logsRoot, "stack-operation-intents")).some((name) => name.endsWith(".json"));
+        return { ok: true, after: { isDraft: false } };
+      },
+    },
+  });
+  assert.equal(ready.ok, true, ready.reasonCode);
+  assert.equal(readySawIntent, true);
+
+  const mergeFixture = stackFixture();
+  const mergeStatePath = path.join(path.dirname(mergeFixture.planPath), "stack-state.json");
+  const mergeState = createInitialPrStackState({ plan: mergeFixture.plan });
+  mergeState.evidence.reviewConverged["919"] = { ok: true };
+  mergeState.evidence.gatesPassed["919"] = gateEvidence();
+  writePrStackState(mergeStatePath, mergeState);
+  let mergeSawIntent = false;
+  const merged = await runPrStackExecution(mergeFixture.config, { stackPlanPath: mergeFixture.planPath }, {
+    adapter: {
+      capabilities: { repositoryBoundOperations: true },
+      readRepositoryOperationContext: async () => ({ ok: true, worktreePath: mergeFixture.config.repoRoot, originRepositorySlug: "tommytang213/Settleora" }),
+      inspectPr: async () => ({ ok: true, pr: { number: 919, state: "OPEN", isDraft: false, baseRefName: "main", headRefName: "feature/auto-913-parent", headRefOid: sha("a"), headRepositorySlug: "tommytang213/Settleora", baseRepositorySlug: "tommytang213/Settleora", isCrossRepository: false }, headRefOid: sha("a") }),
+      mergePr: async () => {
+        mergeSawIntent = readdirSync(path.join(mergeFixture.config.logsRoot, "stack-operation-intents")).some((name) => name.endsWith(".json"));
+        return { ok: true, mergeSha: sha("m") };
+      },
+    },
+  });
+  assert.equal(merged.ok, true);
+  assert.equal(mergeSawIntent, true);
+});
+
+test("completed retarget ready and merge operations recover without duplicate mutation or source-cycle count", async () => {
+  const retargetFixture = stackFixtureAtChild();
+  let retargetCalls = 0;
+  const retarget = await runPrStackExecution(retargetFixture.config, { stackPlanPath: retargetFixture.planPath }, {
+    adapter: {
+      capabilities: { repositoryBoundOperations: true },
+      readRepositoryOperationContext: async () => ({ ok: true, worktreePath: retargetFixture.config.repoRoot, originRepositorySlug: "tommytang213/Settleora" }),
+      inspectPr: async () => ({ ok: true, pr: { number: 920, state: "OPEN", isDraft: true, baseRefName: "main", headRefName: "feature/auto-913-child", headRefOid: sha("b"), headRepositorySlug: "tommytang213/Settleora", baseRepositorySlug: "tommytang213/Settleora", isCrossRepository: false }, headRefOid: sha("b") }),
+      retargetPrBase: async () => { retargetCalls += 1; return { ok: true }; },
+    },
+  });
+  assert.equal(retarget.ok, true, retarget.reasonCode);
+  assert.equal(retargetCalls, 0);
+  let state = JSON.parse(readFileSync(path.join(path.dirname(retargetFixture.planPath), "stack-state.json"), "utf8"));
+  assert.equal(state.sourceCycles["920"], 0);
+  assert.equal(state.evidence.retargeted["920"].newBase, "main");
+
+  const readyFixture = stackFixtureAtChild({ retargeted: true });
+  persistReadyBaseRebound(readyFixture);
+  let readyCalls = 0;
+  const ready = await runPrStackExecution(readyFixture.config, { stackPlanPath: readyFixture.planPath }, {
+    adapter: {
+      capabilities: { repositoryBoundOperations: true },
+      readRepositoryOperationContext: async () => ({ ok: true, worktreePath: readyFixture.config.repoRoot, originRepositorySlug: "tommytang213/Settleora" }),
+      inspectPr: async () => ({ ok: true, pr: { number: 920, state: "OPEN", isDraft: false, baseRefName: "main", headRefName: "feature/auto-913-child", headRefOid: sha("b"), headRepositorySlug: "tommytang213/Settleora", baseRepositorySlug: "tommytang213/Settleora", isCrossRepository: false }, headRefOid: sha("b") }),
+      proveSemanticOwnDelta: async ({ pr }) => ({ ok: true, before: pr.ownDelta, after: { ...pr.ownDelta, reversePatchApplies: true } }),
+      markReadyForReview: async () => { readyCalls += 1; return { ok: true }; },
+    },
+  });
+  assert.equal(ready.ok, true, ready.reasonCode);
+  assert.equal(readyCalls, 0);
+  state = JSON.parse(readFileSync(path.join(path.dirname(readyFixture.planPath), "stack-state.json"), "utf8"));
+  assert.equal(state.sourceCycles["920"], 0);
+  assert.equal(state.evidence.ready["920"].after.isDraft, false);
+
+  const mergeFixture = stackFixture();
+  const mergeStatePath = path.join(path.dirname(mergeFixture.planPath), "stack-state.json");
+  const mergeState = createInitialPrStackState({ plan: mergeFixture.plan });
+  mergeState.evidence.reviewConverged["919"] = { ok: true };
+  mergeState.evidence.gatesPassed["919"] = gateEvidence();
+  writePrStackState(mergeStatePath, mergeState);
+  let mergeCalls = 0;
+  const merged = await runPrStackExecution(mergeFixture.config, { stackPlanPath: mergeFixture.planPath }, {
+    adapter: {
+      capabilities: { repositoryBoundOperations: true },
+      readRepositoryOperationContext: async () => ({ ok: true, worktreePath: mergeFixture.config.repoRoot, originRepositorySlug: "tommytang213/Settleora" }),
+      inspectPr: async () => ({ ok: true, pr: { number: 919, state: "MERGED", isDraft: false, baseRefName: "main", headRefName: "feature/auto-913-parent", headRefOid: sha("a"), headRepositorySlug: "tommytang213/Settleora", baseRepositorySlug: "tommytang213/Settleora", isCrossRepository: false, mergeCommitOid: sha("m"), mergedAt: "2026-07-18T00:00:00Z" }, headRefOid: sha("a") }),
+      proveMergedPr: async () => ({ ok: true, merged: true, mergeSha: sha("m"), sourceHeadSha: sha("a") }),
+      mergePr: async () => { mergeCalls += 1; return { ok: true }; },
+    },
+  });
+  assert.equal(merged.ok, true);
+  assert.equal(mergeCalls, 0);
+  state = JSON.parse(readFileSync(mergeStatePath, "utf8"));
+  assert.equal(state.sourceCycles["919"], 0);
+  assert.equal(state.evidence.merged["919"].mergeSha, sha("m"));
+});
+
 test("production final gates collect real evidence and wait on pending checks or scanners", async () => {
   const fixture = stackFixture();
   const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
@@ -1520,11 +1647,11 @@ test("production final gates collect real evidence and wait on pending checks or
       if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
-      if (args.includes("apply")) return fakeRunner();
+      if (args.includes("apply")) return fakeRunner(_command, args);
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
-      if (args[0] === "status") return fakeRunner();
-      return fakeRunner();
+      if (args[0] === "status") return fakeRunner(_command, args);
+      return fakeRunner(_command, args);
     },
   });
   const gateState = createInitialPrStackState({ plan: fixture.plan });
@@ -1608,17 +1735,17 @@ test("final gates prove changed files against the real lane contract and reject 
       if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
-      if (args.includes("apply")) return fakeRunner();
+      if (args.includes("apply")) return fakeRunner(_command, args);
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
-      if (args[0] === "status") return fakeRunner();
-      return fakeRunner();
+      if (args[0] === "status") return fakeRunner(_command, args);
+      return fakeRunner(_command, args);
     },
   });
   const okState = createInitialPrStackState({ plan: fixture.plan });
   okState.evidence.gatesPassed["919"] = gateEvidence({ changedFiles: ["tools/auto-runner/919.mjs"] });
   const ok = await adapter.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state: okState, pr: { ...fixture.plan.orderedPrs[0], issue: autoRunnerIssue() } });
-  assert.equal(ok.ok, true);
+  assert.equal(ok.ok, true, ok.reasonCode);
   assert.equal(ok.changedFilesExactlyMatchAllowedPaths, true);
   assert.deepEqual(ok.allowedPathProof.changedFiles, ["tools/auto-runner/919.mjs"]);
   assert.deepEqual(ok.allowedPathProof.rejectedPaths, []);
@@ -1633,11 +1760,11 @@ test("final gates prove changed files against the real lane contract and reject 
       if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
-      if (args.includes("apply")) return fakeRunner();
+      if (args.includes("apply")) return fakeRunner(_command, args);
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
-      if (args[0] === "status") return fakeRunner();
-      return fakeRunner();
+      if (args[0] === "status") return fakeRunner(_command, args);
+      return fakeRunner(_command, args);
     },
   });
   const blockedState = createInitialPrStackState({ plan: fixture.plan });
@@ -2001,9 +2128,9 @@ test("production ready transition uses injected fixed argv runner with pre-proof
   const result = await adapter.markReadyForReview({ pr: { ...fixture.plan.orderedPrs[1], baseRefName: "main" }, expectedHead: sha("b") });
   assert.equal(result.ok, true);
   assert.deepEqual(calls.map((call) => `${call.command} ${call.args.join(" ")}`), [
-    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid",
-    "gh pr ready 920",
-    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid",
+    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository",
+    "gh pr ready 920 --repo tommytang213/Settleora",
+    "gh pr view 920 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository",
   ]);
 });
 
@@ -2140,6 +2267,14 @@ function stackFixtureAtChild(flags = {}) {
   state.activePrNumber = 920;
   writePrStackState(statePath, state);
   return fixture;
+}
+
+function persistReadyBaseRebound(fixture) {
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  state.evidence.retargeted["920"] = { ok: true, newBase: "main", after: { baseRefName: "main" } };
+  state.orderedPrs = state.orderedPrs.map((entry) => entry.number === 920 ? { ...entry, baseRefName: "main" } : entry);
+  writePrStackState(statePath, state);
 }
 
 function makePlan({ prs } = {}) {
@@ -2420,7 +2555,10 @@ function digestStringList(items) {
 }
 
 function finalGateRunner(changedFiles = ["tools/auto-runner/919.mjs"]) {
-  return (_command, args = []) => {
+  return (command, args = []) => {
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") return fakeRunner(command, args);
+    if (command === "git" && args[0] === "remote" && args[1] === "get-url") return fakeRunner(command, args);
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") return fakeRunner(command, args);
     if (args.includes("--name-only")) return { status: 0, stdout: `${changedFiles.join("\n")}\n`, stderr: "", error: null };
     if (args.includes("--patch")) return { status: 0, stdout: changedFiles.map((file) => `diff --git a/${file} b/${file}\n`).join(""), stderr: "", error: null };
     if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
@@ -2506,7 +2644,36 @@ function productionPushRunner(calls, { branch, oldHead, candidateHead }) {
 }
 
 function fakeRunner(command, args = []) {
+  if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+    return {
+      status: 0,
+      stdout: JSON.stringify({
+        number: Number(args[2]),
+        state: "OPEN",
+        isDraft: false,
+        baseRefName: "main",
+        headRefName: Number(args[2]) === 920 ? "feature/auto-913-child" : "feature/auto-913-parent",
+        headRefOid: Number(args[2]) === 920 ? sha("b") : sha("a"),
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+        headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: "tommytang213/Settleora" },
+        headRepositoryOwner: { login: "tommytang213" },
+        isCrossRepository: false,
+        statusCheckRollup: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
+        comments: [],
+        reviews: [],
+      }),
+      stderr: "",
+      error: null,
+    };
+  }
+  if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
+    return { status: 0, stdout: "git@github.com:tommytang213/Settleora.git\n", stderr: "", error: null };
+  }
   if (command === "git" && args[0] === "rev-list") return fakeRevList(args);
+  if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") {
+    return { status: 0, stdout: `${process.cwd()}\n`, stderr: "", error: null };
+  }
   if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
     return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
   }

@@ -259,6 +259,7 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
 }
 
 export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
+  const repositorySlug = config.repositorySlug || "tommytang213/Settleora";
   if (config.dryRun) {
     return {
       pr: { state: "OPEN", isDraft: false, baseRefName: "main", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" },
@@ -281,6 +282,8 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
       String(prUrlOrNumber),
       "--json",
       "number,url,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,title,body,statusCheckRollup,comments,reviews",
+      "--repo",
+      repositorySlug,
     ],
     { cwd: config.repoRoot },
   );
@@ -353,7 +356,7 @@ export function executeAutoMerge(config, context, options = {}) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
     return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
   }
-  const merge = runner("gh", ["pr", "merge", String(prNumber), "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", config.repositorySlug || "tommytang213/Settleora", "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
   if (merge.error || merge.status !== 0) {
     const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
@@ -375,7 +378,7 @@ export function executeAutoMerge(config, context, options = {}) {
       runner: (command, args) => runner(command, args, { cwd: config.repoRoot }),
     },
   );
-  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
+  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--repo", config.repositorySlug || "tommytang213/Settleora", "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
   const merged = {
     ...finalDecision,
     attempted: true,
@@ -764,6 +767,7 @@ function inspectReviewThreads(config, prNumber, blockingMarkers) {
     blockingMarkers.push("review_thread_inspection_missing_pr_number");
     return [{ isResolved: false }];
   }
+  const [owner, name] = String(config.repositorySlug || "tommytang213/Settleora").split("/");
   const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}}}}}`;
   const result = defaultRunner(
     "gh",
@@ -771,9 +775,9 @@ function inspectReviewThreads(config, prNumber, blockingMarkers) {
       "api",
       "graphql",
       "-f",
-      "owner=tommytang213",
+      `owner=${owner}`,
       "-f",
-      "name=Settleora",
+      `name=${name}`,
       "-F",
       `number=${prNumber}`,
       "-f",
@@ -798,9 +802,10 @@ function inspectCodeScanningAlerts(config, headRefName, blockingMarkers) {
     blockingMarkers.push("code_scanning_ref_missing");
     return [{ state: "open" }];
   }
+  const repositorySlug = config.repositorySlug || "tommytang213/Settleora";
   const result = defaultRunner(
     "gh",
-    ["api", `/repos/tommytang213/Settleora/code-scanning/alerts?state=open&ref=refs/heads/${encodeURIComponent(headRefName)}`],
+    ["api", `/repos/${repositorySlug}/code-scanning/alerts?state=open&ref=refs/heads/${encodeURIComponent(headRefName)}`],
     { cwd: config.repoRoot },
   );
   if (result.error || result.status !== 0) {
@@ -916,7 +921,7 @@ function restoreSourceBranchIfDeleted(config, context, runner) {
 }
 
 function readMergeSha(runner, cwd, prNumber) {
-  const result = runner("gh", ["pr", "view", String(prNumber), "--json", "mergeCommit", "-q", ".mergeCommit.oid"], { cwd });
+  const result = runner("gh", ["pr", "view", String(prNumber), "--repo", "tommytang213/Settleora", "--json", "mergeCommit", "-q", ".mergeCommit.oid"], { cwd });
   return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : null;
 }
 

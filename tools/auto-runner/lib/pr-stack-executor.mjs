@@ -318,9 +318,9 @@ async function dispatchStackAction({ config, stackConfig, plan, state, action, a
     case "merge_pr":
       return dispatchMergePr({ config, plan, state, action, pr, adapter });
     case "retarget_pr":
-      return dispatchRetargetPr({ state, action, pr, adapter });
+      return dispatchRetargetPr({ config, plan, state, action, pr, adapter });
     case "prove_own_delta":
-      return dispatchOwnDeltaProof({ state, action, pr, adapter });
+      return dispatchOwnDeltaProof({ config, plan, state, action, pr, adapter });
     case "hygiene":
       return dispatchHygiene({ config, plan, state, adapter });
     case "complete":
@@ -341,7 +341,9 @@ async function dispatchRecoverActivePr({ config, plan, state, action, adapter })
       summary: { action: action.action, reason: action.reason, proof: boundedProof(proof) },
     };
   }
-  const recovered = await adapter.inspectPr({ config, plan, state, prNumber: action.prNumber });
+  const repositoryContext = await buildRepositoryOperationContext({ config, plan, state, prNumber: action.prNumber, adapter });
+  if (!repositoryContext.ok) return repositoryContext;
+  const recovered = await adapter.inspectPr({ config, plan, state, prNumber: action.prNumber, repositoryContext: repositoryContext.context });
   if (!recovered?.ok) return waitOrFail(recovered, "active_pr_recovery_failed");
   return { ok: true, evidence: state.evidence, summary: { action: action.action, reason: action.reason, inspected: boundedProof(recovered) } };
 }
@@ -435,13 +437,43 @@ async function dispatchMergePr({ config, plan, state, action, pr, adapter }) {
   if (state.mutationMarkers[markerKey]) {
     return { ok: true, evidence: putEvidence(state.evidence, "merged", pr.number, state.mutationMarkers[markerKey].result || { ok: true, merged: true }), mutationMarkers: state.mutationMarkers, summary: { action: action.action, duplicate: true } };
   }
-  const result = await adapter.mergePr({ config, plan, state, pr, expectedHead: action.expectedHead || pr.headRefOid });
+  const intent = await prepareStackMutationIntent({
+    config,
+    plan,
+    state,
+    pr,
+    adapter,
+    operationType: "merge_pr",
+    expectedPreState: expectedMergePreState({ pr, state, expectedHead: action.expectedHead || pr.headRefOid }),
+    intendedPostState: intendedMergePostState({ pr, expectedHead: action.expectedHead || pr.headRefOid }),
+  });
+  if (!intent.ok) return intent;
+  if (intent.observedComplete) {
+    const proof = await finalizeObservedStackMutation({ config, plan, state, pr, adapter, intent: intent.intent });
+    if (!proof.ok) return proof;
+    const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "merge_pr", key: pr.headRefOid, prNumber: pr.number, exactHead: pr.headRefOid });
+    const mutationMarkers = {
+      ...marker.plan.mutationMarkers,
+      [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(proof.result) },
+    };
+    await finalizeStackOperationEvidence({ config, intent: proof.intent, result: proof.result });
+    return {
+      ok: true,
+      evidence: putEvidence(state.evidence, "merged", pr.number, { ...proof.result, ok: true, merged: true }),
+      mutationMarkers,
+      activePrNumber: nextUnmergedPr(plan, state.evidence, pr.number),
+      summary: { action: action.action, prNumber: pr.number, mergeSha: proof.result.mergeSha || null, recoveredCompletedMutation: true },
+    };
+  }
+  const result = await adapter.mergePr({ config, plan, state, pr, expectedHead: action.expectedHead || pr.headRefOid, operationIntent: intent.intent, repositoryContext: intent.repositoryContext });
   if (!result?.ok) return waitOrFail(result, "merge_failed");
+  await markStackOperationObservedComplete({ config, intent: intent.intent, result });
   const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "merge_pr", key: pr.headRefOid, prNumber: pr.number, exactHead: pr.headRefOid });
   const mutationMarkers = {
     ...marker.plan.mutationMarkers,
     [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(result) },
   };
+  await finalizeStackOperationEvidence({ config, intent: intent.intent, result });
   return {
     ok: true,
     evidence: putEvidence(state.evidence, "merged", pr.number, { ...result, ok: true, merged: true }),
@@ -451,7 +483,7 @@ async function dispatchMergePr({ config, plan, state, action, pr, adapter }) {
   };
 }
 
-async function dispatchRetargetPr({ state, action, pr, adapter }) {
+async function dispatchRetargetPr({ config, plan, state, action, pr, adapter }) {
   const parentNumber = pr.expectedParentPr;
   if (!state.evidence?.merged?.[parentNumber]) return fail("retarget_without_parent_merge_refused", "parent merge proof required before retarget");
   if (!state.evidence?.currentMainProof?.[parentNumber]) return fail("retarget_without_current_main_refused", "current-main proof required before retarget");
@@ -466,15 +498,47 @@ async function dispatchRetargetPr({ state, action, pr, adapter }) {
       summary: { action: action.action, duplicate: true },
     };
   }
-  const result = await adapter.retargetPrBase({ pr, newBase: action.newBase || "main", expectedHead: pr.headRefOid, expectedCurrentBase: pr.baseRefName });
+  const newBase = action.newBase || "main";
+  const intent = await prepareStackMutationIntent({
+    config,
+    plan,
+    state,
+    pr,
+    adapter,
+    operationType: "retarget_pr",
+    expectedPreState: expectedRetargetPreState({ pr }),
+    intendedPostState: intendedRetargetPostState({ pr, newBase }),
+  });
+  if (!intent.ok) return intent;
+  if (intent.observedComplete) {
+    const proof = await finalizeObservedStackMutation({ config, plan, state, pr, adapter, intent: intent.intent });
+    if (!proof.ok) return proof;
+    const retargetProof = { ...proof.result, ok: true, newBase, after: { ...(proof.result.after || {}), baseRefName: newBase } };
+    const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "retarget_pr", key: `${pr.headRefOid}:main`, prNumber: pr.number, exactHead: pr.headRefOid });
+    const mutationMarkers = {
+      ...marker.plan.mutationMarkers,
+      [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(retargetProof) },
+    };
+    await finalizeStackOperationEvidence({ config, intent: proof.intent, result: retargetProof });
+    return {
+      ok: true,
+      evidence: putEvidence(state.evidence, "retargeted", pr.number, retargetProof),
+      mutationMarkers,
+      orderedPrs: rebindOrderedPrAfterRetarget(state, pr.number, retargetProof),
+      summary: { action: action.action, prNumber: pr.number, recoveredCompletedMutation: true },
+    };
+  }
+  const result = await adapter.retargetPrBase({ pr, newBase, expectedHead: pr.headRefOid, expectedCurrentBase: pr.baseRefName, operationIntent: intent.intent, repositoryContext: intent.repositoryContext });
   if (!result?.ok) return waitOrFail(result, "retarget_failed");
-  const actualNewBase = result.after?.baseRefName || action.newBase || "main";
+  await markStackOperationObservedComplete({ config, intent: intent.intent, result });
+  const actualNewBase = result.after?.baseRefName || newBase;
   const retargetProof = { ...result, ok: true, newBase: actualNewBase, after: { ...(result.after || {}), baseRefName: actualNewBase } };
   const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "retarget_pr", key: `${pr.headRefOid}:main`, prNumber: pr.number, exactHead: pr.headRefOid });
   const mutationMarkers = {
     ...marker.plan.mutationMarkers,
     [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(retargetProof) },
   };
+  await finalizeStackOperationEvidence({ config, intent: intent.intent, result: retargetProof });
   return {
     ok: true,
     evidence: putEvidence(state.evidence, "retargeted", pr.number, retargetProof),
@@ -484,7 +548,7 @@ async function dispatchRetargetPr({ state, action, pr, adapter }) {
   };
 }
 
-async function dispatchOwnDeltaProof({ state, action, pr, adapter }) {
+async function dispatchOwnDeltaProof({ config, plan, state, action, pr, adapter }) {
   if (!state.evidence?.retargeted?.[pr.number]) return fail("own_delta_without_retarget_refused", "semantic own-delta proof requires retarget evidence");
   const proofInput = await adapter.proveSemanticOwnDelta({ pr, state });
   if (!proofInput?.ok && !proofInput?.before) return fail("semantic_own_delta_missing_evidence", "semantic own-delta evidence missing");
@@ -495,14 +559,34 @@ async function dispatchOwnDeltaProof({ state, action, pr, adapter }) {
   if (pr.isDraft) {
     const markerKey = markerKeyFor("ready_pr", pr.number, pr.headRefOid);
     if (!state.mutationMarkers[markerKey]) {
-      const ready = await adapter.markReadyForReview({ pr, expectedHead: pr.headRefOid });
+      const intent = await prepareStackMutationIntent({
+        config,
+        plan,
+        state,
+        pr,
+        adapter,
+        operationType: "mark_ready",
+        expectedPreState: expectedReadyPreState({ pr }),
+        intendedPostState: intendedReadyPostState({ pr }),
+      });
+      if (!intent.ok) return intent;
+      let ready;
+      if (intent.observedComplete) {
+        const proof = await finalizeObservedStackMutation({ config, plan, state, pr, adapter, intent: intent.intent });
+        if (!proof.ok) return proof;
+        ready = proof.result;
+      } else {
+        ready = await adapter.markReadyForReview({ pr, expectedHead: pr.headRefOid, operationIntent: intent.intent, repositoryContext: intent.repositoryContext });
+      }
       if (!ready?.ok) return waitOrFail(ready, "ready_transition_failed");
       const readyProof = { ...ready, ok: true, after: { ...(ready.after || {}), isDraft: false } };
+      if (!intent.observedComplete) await markStackOperationObservedComplete({ config, intent: intent.intent, result: ready });
       const marker = recordStackMutationMarker({ mutationMarkers }, { kind: "ready_pr", key: pr.headRefOid, prNumber: pr.number, exactHead: pr.headRefOid });
       mutationMarkers = {
         ...marker.plan.mutationMarkers,
         [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(readyProof) },
       };
+      await finalizeStackOperationEvidence({ config, intent: intent.intent, result: readyProof });
       evidence = putEvidence(evidence, "ready", pr.number, readyProof);
     }
   }
@@ -528,24 +612,66 @@ async function dispatchHygiene({ config, plan, state, adapter }) {
 export function createProductionPrStackAdapter(config = {}, options = {}) {
   const runner = options.runner;
   const runBatchFix = options.runBatchFix || ((payload) => runExistingPrBatchFix(payload, createProductionBatchFixAdapters(config, options)));
+  const run = runner || defaultRunner;
   return {
     capabilities: {
       shellFreeArgv: true,
       usesExistingMergeAuthority: true,
       usesExistingHygieneAuthority: true,
       usesExistingBatchFixAuthority: true,
+      repositoryBoundOperations: true,
     },
-    async inspectPr({ config: cfg, prNumber }) {
-      const state = inspectAutoMergeGithubState(cfg || config, { issue: {}, prUrlOrNumber: prNumber });
-      if (!state?.pr) return fail("inspect_pr_missing", "PR inspection did not return a PR");
+    async readRepositoryOperationContext({ config: cfg, prNumber }) {
+      const targetConfig = cfg || config;
+      const cwd = path.resolve(targetConfig.repoRoot || process.cwd());
+      const worktree = run("git", ["rev-parse", "--show-toplevel"], { cwd });
+      if (worktree.status !== 0 || worktree.error) return fail("repository_operation_root_unreadable", boundedText(worktree.stderr || worktree.error || worktree.stdout));
+      const rawWorktree = String(worktree.stdout || "").trim();
+      const worktreePath = path.isAbsolute(rawWorktree) ? path.resolve(rawWorktree) : cwd;
+      if (worktreePath !== cwd) return fail("repository_operation_root_mismatch", "configured repoRoot does not match git toplevel");
+      const origin = readOriginRepositoryProof({ config: targetConfig, runner: run });
+      if (!origin.ok) return origin;
+      return { ok: true, worktreePath, originRepositorySlug: origin.repositorySlug, prNumber, proof: { originCheckedAt: origin.checkedAt } };
+    },
+    async inspectPr({ config: cfg, plan, state, prNumber, repositoryContext = null }) {
+      const targetConfig = cfg || config;
+      const context = repositoryContext || (await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber, adapter: this })).context;
+      if (!context) return fail("repository_operation_context_missing", "repository operation context is required");
+      const repo = context.argvRepository || targetConfig.repositorySlug || "tommytang213/Settleora";
+      const raw = run(
+        "gh",
+        [
+          "pr",
+          "view",
+          String(prNumber),
+          "--repo",
+          repo,
+          "--json",
+          "number,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,title,body,statusCheckRollup,comments,reviews,mergeCommit,mergedAt",
+        ],
+        { cwd: targetConfig.repoRoot },
+      );
+      if (raw.status !== 0 || raw.error) return fail("inspect_pr_read_failed", boundedText(raw.stderr || raw.error || raw.stdout));
+      let pr;
+      try {
+        pr = JSON.parse(raw.stdout || "{}");
+      } catch (error) {
+        return fail("inspect_pr_parse_failed", error.message);
+      }
+      const proof = normalizeBoundLivePrProof({ config: targetConfig, pr, repositoryContext: context });
+      if (!proof.ok) return proof;
+      const stateSnapshot = inspectAutoMergeGithubState({ ...targetConfig, repositorySlug: repo }, { issue: {}, prUrlOrNumber: prNumber });
+      const reviewThreads = stateSnapshot.reviewThreads || [];
+      if (!pr?.number) return fail("inspect_pr_missing", "PR inspection did not return a PR");
       return {
         ok: true,
-        pr: state.pr,
-        headRefOid: state.pr.headRefOid,
-        requiredChecks: state.requiredChecks || [],
-        reviewThreads: state.reviewThreads || [],
-        codeScanningAlerts: state.codeScanningAlerts || [],
-        findings: unresolvedThreadsAsFindings(state.reviewThreads || []),
+        pr: { ...pr, ...proof.proof, repositoryProof: context },
+        headRefOid: pr.headRefOid,
+        requiredChecks: stackFlattenCheckRollup(pr.statusCheckRollup || []),
+        reviewThreads,
+        codeScanningAlerts: stateSnapshot.codeScanningAlerts || [],
+        findings: unresolvedThreadsAsFindings(reviewThreads),
+        repositoryContext: context,
       };
     },
     async convergeExistingPr({ pr, findings = [], state = null, plan = null, sourceCycleBudget = null }) {
@@ -569,7 +695,9 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     },
     async completeFinalGates({ config: cfg, state, pr }) {
       const targetConfig = cfg || config;
-      let gate = collectFinalGateEvidence({ config: targetConfig, state, pr, runner: runner || defaultRunner });
+      const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, state, prNumber: pr.number, adapter: this });
+      if (!repositoryContext.ok) return repositoryContext;
+      let gate = await collectFinalGateEvidence({ config: targetConfig, state, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
       if (isFinalGateExactHeadEvidenceMissing(gate)) {
         const prepared = await prepareExactHeadFinalGateEvidence({
           config: targetConfig,
@@ -582,7 +710,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         });
         if (!prepared.ok) return prepared;
         const patchedState = { ...state, evidence: mergeEvidencePatch(state.evidence, prepared.evidencePatch) };
-        gate = collectFinalGateEvidence({ config: targetConfig, state: patchedState, pr, runner: runner || defaultRunner });
+        gate = await collectFinalGateEvidence({ config: targetConfig, state: patchedState, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
         if (!gate.ok && gate.waiting) {
           return { ...gate, evidencePatch: prepared.evidencePatch };
         }
@@ -599,9 +727,12 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (!gate.ok) return gate;
       return gate.evidence;
     },
-    async mergePr({ config: cfg, state, pr, expectedHead }) {
+    async mergePr({ config: cfg, plan = null, state, pr, expectedHead }) {
       const gateEvidence = state.evidence?.gatesPassed?.[pr.number] || {};
-      const inspection = await this.inspectPr({ config: cfg || config, prNumber: pr.number });
+      const targetConfig = cfg || config;
+      const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
+      if (!repositoryContext.ok) return repositoryContext;
+      const inspection = await this.inspectPr({ config: targetConfig, plan, state, prNumber: pr.number, repositoryContext: repositoryContext.context });
       if (!inspection?.ok) return waitOrFail(inspection, "merge_pr_inspection_failed");
       if (inspection.headRefOid && inspection.headRefOid !== expectedHead) {
         return fail("merge_pr_head_stale", `PR #${pr.number} head changed before merge`);
@@ -610,7 +741,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       const allowedPathProofValid = allowedPathProofMatchesGate(gateEvidence, changedFiles, expectedHead);
       const expectedBase = gateEvidence.baseSha || gateEvidence.expectedOriginMainSha || null;
       if (!validSha(expectedBase)) return fail("final_gate_base_missing", "final gate evidence must be bound to origin/main");
-      const baseRefresh = fetchAndReadOriginMain({ config: cfg || config, runner: runner || defaultRunner, reasonPrefix: "merge_base" });
+      const baseRefresh = fetchAndReadOriginMain({ config: targetConfig, runner: run, reasonPrefix: "merge_base" });
       if (!baseRefresh.ok) return baseRefresh;
       if (baseRefresh.currentOriginMainSha !== expectedBase) {
         return fail("merge_base_advanced_requires_final_gate_refresh", `origin/main moved from ${expectedBase} to ${baseRefresh.currentOriginMainSha}`);
@@ -621,7 +752,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         changedFiles,
       });
       if (!reviewEvidence.ok) return reviewEvidence;
-      const worktreeProof = readMergeWorktreeCleanProof({ config: cfg || config, expectedHead, runner: runner || defaultRunner });
+      const worktreeProof = readMergeWorktreeCleanProof({ config: targetConfig, expectedHead, runner: run });
       if (!worktreeProof.ok) return worktreeProof;
       const laneDecision = gateEvidence.laneDecision || {
         lane: "workflow-docs-tooling",
@@ -637,10 +768,10 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         allowedPaths: ["tools/auto-runner/**", "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md", "docs/planning/**"],
       };
       const context = {
-        config: cfg || config,
+        config: targetConfig,
         issue: gateEvidence.issue || { number: pr.issueNumber || 921, state: "OPEN", labels: [] },
         issueLabels: gateEvidence.issueLabels || [],
-        pr: { ...pr, ...(inspection.pr || {}), state: "OPEN", isDraft: false, baseRefName: "main", headRefOid: expectedHead },
+        pr: { ...pr, ...(inspection.pr || {}), state: "OPEN", isDraft: false, baseRefName: "main", headRefOid: expectedHead, repositoryProof: repositoryContext.context },
         laneDecision,
         branchName: pr.headRefName,
         expectedHeadSha: expectedHead,
@@ -664,34 +795,37 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         codexMechanicsReviewApproved: reviewEvidence.codexMechanicsReviewApproved === true,
         issueLinkageEvidence: gateEvidence.issueLinkageEvidence || { available: true, linked: true, matchedSources: ["stack-plan"] },
       };
-      const result = executeAutoMerge(cfg || config, context, runner ? { runner } : {});
+      const mergeRunner = repositoryBoundGhRunner(run, repositoryContext.context);
+      const result = executeAutoMerge(targetConfig, context, { runner: mergeRunner, inspectState: () => ({ pr: inspection.pr, requiredChecks: inspection.requiredChecks, reviewThreads: inspection.reviewThreads, codeScanningAlerts: inspection.codeScanningAlerts, blockingMarkers: inspection.blockingMarkers || [] }) });
       return result.result === "merged" || result.result === "dry_run_eligible"
         ? { ok: true, merged: result.result === "merged", mergeSha: result.mergeSha || null, result }
         : fail(result.reason || "merge_blocked", result.reason || "merge blocked");
     },
     async fetchCurrentMain({ config: cfg, state, pr }) {
-      return fetchCurrentMainProof({ config: cfg || config, state, pr, runner: runner || defaultRunner });
+      return fetchCurrentMainProof({ config: cfg || config, state, pr, runner: run });
     },
-    async retargetPrBase({ pr, newBase, expectedHead, expectedCurrentBase }) {
-      const proof = readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner: runner || defaultRunner });
+    async retargetPrBase({ pr, newBase, expectedHead, expectedCurrentBase, repositoryContext = null }) {
+      const repo = repositoryContext?.argvRepository || config.repositorySlug || "tommytang213/Settleora";
+      const proof = readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner: run, repositoryContext });
       if (!proof.ok) return proof;
-      const result = (runner || defaultRunner)("gh", ["pr", "edit", String(pr.number), "--base", String(newBase)], { cwd: config.repoRoot });
+      const result = run("gh", ["pr", "edit", String(pr.number), "--repo", repo, "--base", String(newBase)], { cwd: config.repoRoot });
       if (result.status !== 0 || result.error) return fail("retarget_failed", boundedText(result.stderr || result.error || result.stdout));
-      const after = readPrRetargetProof({ config, pr: { ...pr, baseRefName: newBase }, expectedHead, expectedCurrentBase: newBase, runner: runner || defaultRunner });
+      const after = readPrRetargetProof({ config, pr: { ...pr, baseRefName: newBase }, expectedHead, expectedCurrentBase: newBase, runner: run, repositoryContext });
       if (!after.ok) return after;
       return { ok: true, prNumber: pr.number, newBase, expectedHead, expectedCurrentBase, before: proof.proof, after: after.proof };
     },
     async proveSemanticOwnDelta({ pr }) {
-      const current = readCurrentPrOwnDelta({ config, pr, runner: runner || defaultRunner });
+      const current = readCurrentPrOwnDelta({ config, pr, runner: run });
       if (!current.ok) return current;
       return { ok: true, before: pr.ownDelta, after: current.ownDelta };
     },
-    async markReadyForReview({ pr, expectedHead }) {
-      const before = readPrReadyProof({ config, pr, expectedHead, expectedDraft: true, runner: runner || defaultRunner });
+    async markReadyForReview({ pr, expectedHead, repositoryContext = null }) {
+      const repo = repositoryContext?.argvRepository || config.repositorySlug || "tommytang213/Settleora";
+      const before = readPrReadyProof({ config, pr, expectedHead, expectedDraft: true, runner: run, repositoryContext });
       if (!before.ok) return before;
-      const result = (runner || defaultRunner)("gh", ["pr", "ready", String(pr.number)], { cwd: config.repoRoot });
+      const result = run("gh", ["pr", "ready", String(pr.number), "--repo", repo], { cwd: config.repoRoot });
       if (result.status !== 0 || result.error) return fail("ready_failed", boundedText(result.stderr || result.error || result.stdout));
-      const after = readPrReadyProof({ config, pr: { ...pr, isDraft: false }, expectedHead, expectedDraft: false, runner: runner || defaultRunner });
+      const after = readPrReadyProof({ config, pr: { ...pr, isDraft: false }, expectedHead, expectedDraft: false, runner: run, repositoryContext });
       if (!after.ok) return after;
       return { ok: true, prNumber: pr.number, expectedHead, before: before.proof, after: after.proof };
     },
@@ -699,7 +833,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       return { ok: true, reason: "status_update_not_required" };
     },
     async reconcilePendingPushIntent({ config: cfg, state, pr, livePr }) {
-      return reconcileTaskScopedPendingPushIntent({ config: cfg || config, state, pr, livePr, runner: runner || defaultRunner });
+      return reconcileTaskScopedPendingPushIntent({ config: cfg || config, state, pr, livePr, runner: run });
     },
     async runFinalHygiene({ config: cfg, plan, state }) {
       const finalPr = plan.orderedPrs.at(-1);
@@ -905,6 +1039,312 @@ function transitionState(state, patch = {}) {
     wait: patch.wait === undefined ? state.wait : patch.wait,
     summaries,
   });
+}
+
+async function buildRepositoryOperationContext({ config = {}, plan = null, state = null, prNumber = null, adapter = null } = {}) {
+  const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || plan?.repository || state?.repository || "tommytang213/Settleora");
+  if (!configuredRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
+  const repoRoot = path.resolve(config.repoRoot || process.cwd());
+  const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
+  if (repoRoot === protectedRoot) return fail("repository_operation_protected_root_refused", "stack repository operations cannot use the protected root");
+  let worktreePath = repoRoot;
+  if (typeof adapter?.readRepositoryOperationContext === "function") {
+    const adapterProof = await adapter.readRepositoryOperationContext({ config, plan, state, prNumber, configuredRepositorySlug, repoRoot });
+    if (!adapterProof?.ok) return adapterProof;
+    worktreePath = path.resolve(adapterProof.worktreePath || repoRoot);
+    if (worktreePath !== repoRoot) return fail("repository_operation_root_mismatch", "adapter repository root does not match configured repoRoot");
+    if (adapterProof.originRepositorySlug && canonicalRepositorySlug(adapterProof.originRepositorySlug) !== configuredRepositorySlug) {
+      return fail("origin_repository_mismatch", "origin repository does not match configured repository");
+    }
+    return {
+      ok: true,
+      context: sanitizeState({
+        schemaVersion: 1,
+        configuredRepositorySlug,
+        repoRoot,
+        worktreePath,
+        originRepositorySlug: adapterProof.originRepositorySlug || configuredRepositorySlug,
+        expectedHost: "github.com",
+        repositoryId: adapterProof.repositoryId || null,
+        prNumber,
+        sameRepositoryRequired: true,
+        argvRepository: configuredRepositorySlug,
+        proof: adapterProof.proof || null,
+        createdAt: new Date().toISOString(),
+      }),
+    };
+  }
+  return {
+    ok: true,
+    context: sanitizeState({
+      schemaVersion: 1,
+      configuredRepositorySlug,
+      repoRoot,
+      worktreePath,
+      originRepositorySlug: configuredRepositorySlug,
+      expectedHost: "github.com",
+      repositoryId: null,
+      prNumber,
+      sameRepositoryRequired: true,
+      argvRepository: configuredRepositorySlug,
+      createdAt: new Date().toISOString(),
+    }),
+  };
+}
+
+async function prepareStackMutationIntent({ config = {}, plan = null, state = {}, pr = {}, adapter = null, operationType, expectedPreState, intendedPostState } = {}) {
+  const repositoryContext = await buildRepositoryOperationContext({ config, plan, state, prNumber: pr.number, adapter });
+  if (!repositoryContext.ok) return repositoryContext;
+  const discovered = discoverStackOperationRecords({ config, plan, state, pr, operationType, expectedPreState, intendedPostState, repositoryContext: repositoryContext.context });
+  if (!discovered.ok) return discovered;
+  const intent = discovered.intent || persistStackOperationIntent({ config, plan, state, pr, operationType, expectedPreState, intendedPostState, repositoryContext: repositoryContext.context });
+  if (!intent.ok) return intent;
+  if (adapter.capabilities?.repositoryBoundOperations !== true || typeof adapter.inspectPr !== "function") {
+    return { ok: true, intent: intent.intent, repositoryContext: repositoryContext.context, observedComplete: false, inspectionSkipped: "adapter_without_repository_bound_inspectPr" };
+  }
+  const live = await adapter.inspectPr({ config, plan, state, prNumber: pr.number, repositoryContext: repositoryContext.context });
+  if (!live?.ok) return waitOrFail(live, "stack_mutation_reconcile_pr_read_failed");
+  const classification = classifyStackMutationState({ operationType, intent: intent.intent, live });
+  if (!classification.ok) return classification;
+  if (classification.state === "already_finalized") return { ok: true, intent: intent.intent, repositoryContext: repositoryContext.context, observedComplete: true };
+  if (classification.state === "post_state_exact") {
+    const observed = await markStackOperationObservedComplete({ config, intent: intent.intent, result: { ok: true, recovered: true, after: classification.proof, pr: live.pr || null } });
+    if (!observed.ok) return observed;
+    return { ok: true, intent: observed.intent, repositoryContext: repositoryContext.context, observedComplete: true };
+  }
+  if (classification.state === "pre_state_exact") return { ok: true, intent: intent.intent, repositoryContext: repositoryContext.context, observedComplete: false };
+  return fail("stack_mutation_state_conflict", "live PR state did not match exact mutation pre-state or post-state");
+}
+
+function stackOperationRoot(config = {}) {
+  return path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "stack-operation-intents");
+}
+
+function persistStackOperationIntent({ config = {}, plan = null, state = {}, pr = {}, operationType, expectedPreState, intendedPostState, repositoryContext } = {}) {
+  const operationId = digestJson({
+    repository: repositoryContext.configuredRepositorySlug,
+    stackId: plan?.stackId || state.stackId,
+    prNumber: pr.number,
+    operationType,
+    head: pr.headRefOid,
+    expectedPreState,
+    intendedPostState,
+  });
+  const root = stackOperationRoot(config);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const intentPath = path.join(root, `${operationId}.json`);
+  const intent = sanitizeState({
+    schemaVersion: 1,
+    operationId,
+    status: "mutation_intent",
+    repository: repositoryContext.configuredRepositorySlug,
+    configuredRepositorySlug: repositoryContext.configuredRepositorySlug,
+    originRepositorySlug: repositoryContext.originRepositorySlug,
+    repositoryId: repositoryContext.repositoryId || null,
+    stackId: plan?.stackId || state.stackId || null,
+    prNumber: pr.number,
+    operationType,
+    taskKey: config.taskKey || null,
+    runId: config.runId || null,
+    supervisorRunId: config.supervisorRunId || null,
+    expectedPreState,
+    intendedPostState,
+    repositoryContext,
+    priorMutationMarkerDigest: digestJson(state.mutationMarkers || {}),
+    priorEvidenceDigest: digestJson(state.evidence || {}),
+    createdAt: new Date().toISOString(),
+    intentPath,
+  });
+  const tmp = `${intentPath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(intent, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, intentPath);
+  const readBack = readStackOperationIntent(intentPath);
+  if (!readBack.ok) return readBack;
+  const validation = validateStackOperationIntent({ config, plan, state, pr, intent: readBack.intent, operationType, expectedPreState, intendedPostState, repositoryContext });
+  if (!validation.ok) return validation;
+  return { ok: true, intent: readBack.intent };
+}
+
+function readStackOperationIntent(intentPath) {
+  try {
+    return { ok: true, intent: JSON.parse(readFileSync(intentPath, "utf8")) };
+  } catch {
+    return fail("stack_operation_intent_malformed", "stack operation intent could not be read back");
+  }
+}
+
+function discoverStackOperationRecords({ config = {}, plan = null, state = {}, pr = {}, operationType, expectedPreState, intendedPostState, repositoryContext } = {}) {
+  const root = stackOperationRoot(config);
+  if (!existsSync(root)) return { ok: true, intent: null };
+  const matches = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const filePath = path.join(root, entry.name);
+    const loaded = readStackOperationIntent(filePath);
+    if (!loaded.ok) return loaded;
+    const intent = { ...loaded.intent, intentPath: loaded.intent.intentPath || filePath };
+    if (!["mutation_intent", "mutation_observed_complete", "mutation_evidence_finalized"].includes(String(intent.status || ""))) {
+      return fail("stack_operation_intent_status_unknown", "stack operation intent status is not recoverable");
+    }
+    const validation = validateStackOperationIntent({ config, plan, state, pr, intent, operationType, expectedPreState, intendedPostState, repositoryContext });
+    if (validation.ok) matches.push(intent);
+    else if (sameStackOperationEnvelope({ intent, pr, operationType })) return validation;
+  }
+  if (matches.length > 1) return fail("stack_operation_intent_ambiguous", "multiple matching stack operation intents exist");
+  return { ok: true, intent: matches[0] || null };
+}
+
+function sameStackOperationEnvelope({ intent = {}, pr = {}, operationType } = {}) {
+  return intent.prNumber === pr.number && intent.operationType === operationType && intent.expectedPreState?.headRefOid === pr.headRefOid;
+}
+
+function validateStackOperationIntent({ config = {}, plan = null, state = {}, pr = {}, intent = {}, operationType, expectedPreState, intendedPostState, repositoryContext } = {}) {
+  if (!intent || typeof intent !== "object" || Array.isArray(intent)) return fail("stack_operation_intent_malformed", "stack operation intent must be an object");
+  const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || plan?.repository || state.repository || "tommytang213/Settleora");
+  if (intent.schemaVersion !== 1) return fail("stack_operation_intent_malformed", "stack operation intent schema is unsupported");
+  if (intent.repository !== configuredRepositorySlug || canonicalRepositorySlug(intent.configuredRepositorySlug) !== configuredRepositorySlug) return fail("stack_operation_repository_mismatch", "stack operation intent repository does not match");
+  if (canonicalRepositorySlug(intent.originRepositorySlug) !== configuredRepositorySlug) return fail("stack_operation_origin_mismatch", "stack operation intent origin does not match");
+  if (plan?.stackId && intent.stackId !== plan.stackId) return fail("stack_operation_stack_mismatch", "stack operation intent stack ID does not match");
+  if (intent.prNumber !== pr.number || intent.operationType !== operationType) return fail("stack_operation_intent_mismatch", "stack operation intent action identity does not match");
+  if (digestJson(intent.expectedPreState) !== digestJson(expectedPreState) || digestJson(intent.intendedPostState) !== digestJson(intendedPostState)) return fail("stack_operation_state_mismatch", "stack operation intent pre/post state does not match");
+  if (intent.repositoryContext?.argvRepository !== repositoryContext.argvRepository) return fail("stack_operation_repository_context_mismatch", "stack operation repository argv proof does not match");
+  if (config.taskKey !== undefined && intent.taskKey !== (config.taskKey || null)) return fail("stack_operation_task_mismatch", "stack operation task key does not match");
+  if (config.runId !== undefined && intent.runId !== (config.runId || null)) return fail("stack_operation_run_mismatch", "stack operation run ID does not match");
+  if (config.supervisorRunId !== undefined && intent.supervisorRunId !== (config.supervisorRunId || null)) return fail("stack_operation_supervisor_mismatch", "stack operation supervisor run ID does not match");
+  return { ok: true };
+}
+
+async function markStackOperationObservedComplete({ config = {}, intent = {}, result = {} } = {}) {
+  const updated = sanitizeState({ ...intent, status: "mutation_observed_complete", observedResult: boundedProof(result), observedAt: new Date().toISOString() });
+  return writeStackOperationIntent(config, updated);
+}
+
+async function finalizeStackOperationEvidence({ config = {}, intent = {}, result = {} } = {}) {
+  const updated = sanitizeState({ ...intent, status: "mutation_evidence_finalized", finalizedResult: boundedProof(result), evidenceFinalizedAt: new Date().toISOString() });
+  return writeStackOperationIntent(config, updated);
+}
+
+function writeStackOperationIntent(_config = {}, intent = {}) {
+  const intentPath = intent.intentPath || path.join(stackOperationRoot(_config), `${intent.operationId}.json`);
+  mkdirSync(path.dirname(intentPath), { recursive: true, mode: 0o700 });
+  const tmp = `${intentPath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(intent, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, intentPath);
+  const readBack = readStackOperationIntent(intentPath);
+  if (!readBack.ok) return readBack;
+  return { ok: true, intent: readBack.intent };
+}
+
+async function finalizeObservedStackMutation({ config = {}, plan = null, state = {}, pr = {}, adapter = null, intent = {} } = {}) {
+  const live = await adapter.inspectPr({ config, plan, state, prNumber: pr.number, repositoryContext: intent.repositoryContext });
+  if (!live?.ok) return waitOrFail(live, "stack_mutation_observed_read_failed");
+  const classification = classifyStackMutationState({ operationType: intent.operationType, intent, live });
+  if (!classification.ok || !["post_state_exact", "already_finalized"].includes(classification.state)) {
+    return fail("stack_mutation_observed_state_conflict", "completed mutation no longer matches intended post-state");
+  }
+  if (intent.operationType === "merge_pr") {
+    const proof = typeof adapter.proveMergedPr === "function"
+      ? await adapter.proveMergedPr({ config, plan, state, pr, intent, live })
+      : defaultMergedPrProof({ pr, live, intent });
+    if (!proof.ok) return proof;
+    return { ok: true, intent, result: proof };
+  }
+  return {
+    ok: true,
+    intent,
+    result: { ok: true, recovered: true, before: intent.expectedPreState, after: classification.proof, repositoryContext: intent.repositoryContext },
+  };
+}
+
+function classifyStackMutationState({ operationType, intent = {}, live = {} } = {}) {
+  if (intent.status === "mutation_evidence_finalized") return { ok: true, state: "already_finalized", proof: intent.finalizedResult || intent.observedResult || {} };
+  const pr = { ...(intent.expectedPreState || {}), ...(live.pr || live), number: (live.pr || live).number ?? intent.prNumber };
+  const proof = normalizeLivePrState(pr);
+  if (!proof.ok) return proof;
+  const pre = intent.expectedPreState || {};
+  const post = intent.intendedPostState || {};
+  if (operationType === "merge_pr" && proof.state === "MERGED") return { ok: true, state: "post_state_exact", proof };
+  if (prStatesMatch(proof, post)) return { ok: true, state: "post_state_exact", proof };
+  if (prStatesMatch(proof, pre)) return { ok: true, state: "pre_state_exact", proof };
+  return fail("stack_mutation_state_conflict", "live PR state differs from mutation pre/post state", { proof, pre, post });
+}
+
+function normalizeLivePrState(pr = {}) {
+  const proof = {
+    number: Number(pr.number),
+    state: pr.state || null,
+    isDraft: Boolean(pr.isDraft),
+    baseRefName: pr.baseRefName || null,
+    headRefName: pr.headRefName || null,
+    headRefOid: pr.headRefOid || null,
+    baseRepositorySlug: canonicalRepositorySlug(pr.baseRepositorySlug || pr.baseRepository?.nameWithOwner || pr.baseRepository?.full_name || null),
+    headRepositorySlug: canonicalRepositorySlug(pr.headRepositorySlug || pr.headRepository?.nameWithOwner || pr.headRepository?.full_name || null),
+    isCrossRepository: pr.isCrossRepository === true,
+    mergeCommitOid: pr.mergeCommit?.oid || pr.mergeCommitOid || pr.mergeSha || null,
+    mergedAt: pr.mergedAt || null,
+  };
+  if (!Number.isInteger(proof.number)) return fail("stack_pr_number_invalid", "live PR number is invalid");
+  return { ok: true, ...proof };
+}
+
+function prStatesMatch(actual = {}, expected = {}) {
+  for (const [key, value] of Object.entries(expected || {})) {
+    if (value === undefined || value === null) continue;
+    if (key.endsWith("RepositorySlug")) {
+      if (canonicalRepositorySlug(actual[key]) !== canonicalRepositorySlug(value)) return false;
+    } else if (actual[key] !== value) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function expectedRetargetPreState({ pr }) {
+  return mutationPrState({ pr, baseRefName: pr.baseRefName, isDraft: Boolean(pr.isDraft), state: "OPEN" });
+}
+
+function intendedRetargetPostState({ pr, newBase }) {
+  return mutationPrState({ pr, baseRefName: newBase, isDraft: Boolean(pr.isDraft), state: "OPEN" });
+}
+
+function expectedReadyPreState({ pr }) {
+  return mutationPrState({ pr, baseRefName: pr.baseRefName, isDraft: true, state: "OPEN" });
+}
+
+function intendedReadyPostState({ pr }) {
+  return mutationPrState({ pr, baseRefName: pr.baseRefName, isDraft: false, state: "OPEN" });
+}
+
+function expectedMergePreState({ pr, expectedHead }) {
+  return mutationPrState({ pr: { ...pr, headRefOid: expectedHead }, baseRefName: pr.baseRefName, isDraft: false, state: "OPEN" });
+}
+
+function intendedMergePostState({ pr, expectedHead }) {
+  return mutationPrState({ pr: { ...pr, headRefOid: expectedHead }, baseRefName: pr.baseRefName, isDraft: false, state: "MERGED" });
+}
+
+function mutationPrState({ pr, baseRefName, isDraft, state }) {
+  return sanitizeState({
+    number: pr.number,
+    state,
+    isDraft,
+    baseRefName,
+    headRefName: pr.headRefName,
+    headRefOid: pr.headRefOid,
+    baseRepositorySlug: pr.baseRepositorySlug || null,
+    headRepositorySlug: pr.headRepositorySlug || null,
+    isCrossRepository: false,
+  });
+}
+
+function defaultMergedPrProof({ pr, live, intent }) {
+  const proof = normalizeLivePrState(live.pr || live);
+  if (!proof.ok) return proof;
+  if (proof.headRefOid !== intent.expectedPreState?.headRefOid) return fail("merge_source_head_mismatch", "merged PR head does not match mutation intent");
+  if (proof.baseRefName !== intent.expectedPreState?.baseRefName) return fail("merge_base_repository_mismatch", "merged PR base does not match mutation intent");
+  const mergeSha = proof.mergeCommitOid || live.mergeSha || null;
+  if (!validSha(mergeSha)) return fail("merge_sha_missing", "merged PR proof is missing a merge commit SHA");
+  return { ok: true, merged: true, recovered: true, prNumber: pr.number, mergeSha, sourceHeadSha: proof.headRefOid, before: intent.expectedPreState, after: proof, repositoryContext: intent.repositoryContext };
 }
 
 function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, findings = [] } = {}) {
@@ -1784,6 +2224,59 @@ function validateRepositoryIdentityProof({ config = {}, liveProof = {}, originPr
   };
 }
 
+function normalizeBoundLivePrProof({ config = {}, pr = {}, repositoryContext = {} } = {}) {
+  const configuredRepositorySlug = canonicalRepositorySlug(repositoryContext.configuredRepositorySlug || config.repositorySlug || "tommytang213/Settleora");
+  const headRepository = canonicalRepositoryFromProvider(pr.headRepository || {});
+  const baseRepository = canonicalRepositoryFromProvider(pr.baseRepository || {});
+  const headOwner = pr.headRepositoryOwner?.login || pr.headRepository?.owner?.login || null;
+  const headName = pr.headRepository?.name || null;
+  const proof = {
+    ...pr,
+    baseRepositorySlug: canonicalRepositorySlug(pr.baseRepositorySlug) || baseRepository.slug || configuredRepositorySlug,
+    baseRepositoryId: pr.baseRepositoryId || baseRepository.id || null,
+    headRepositorySlug: headRepository.slug || canonicalRepositorySlug(headOwner && headName ? `${headOwner}/${headName}` : null),
+    headRepositoryId: headRepository.id || null,
+    originRepositorySlug: repositoryContext.originRepositorySlug || null,
+    isCrossRepository: pr.isCrossRepository === true,
+  };
+  const identity = validateRepositoryIdentityProof({ config, liveProof: proof, originProof: { repositorySlug: repositoryContext.originRepositorySlug } });
+  if (!identity.ok) return identity;
+  return {
+    ok: true,
+    proof: sanitizeState({
+      repositorySlug: configuredRepositorySlug,
+      configuredRepositorySlug,
+      baseRepositorySlug: identity.baseRepositorySlug,
+      headRepositorySlug: identity.headRepositorySlug,
+      originRepositorySlug: identity.originRepositorySlug,
+      baseRepositoryId: identity.repositoryIds.baseRepositoryId,
+      headRepositoryId: identity.repositoryIds.headRepositoryId,
+      isCrossRepository: false,
+      inspectedAt: new Date().toISOString(),
+      argvRepository: repositoryContext.argvRepository || configuredRepositorySlug,
+    }),
+  };
+}
+
+function stackFlattenCheckRollup(rollup = []) {
+  return (Array.isArray(rollup) ? rollup : []).map((check) => ({
+    name: check.name || check.context || "unknown",
+    status: check.status || (check.state === "SUCCESS" ? "COMPLETED" : check.state),
+    conclusion: check.conclusion || check.state,
+  }));
+}
+
+function repositoryBoundGhRunner(runner, repositoryContext = {}) {
+  const repo = repositoryContext.argvRepository || repositoryContext.configuredRepositorySlug || "tommytang213/Settleora";
+  return (command, args = [], options = {}) => {
+    if (command !== "gh" || args[0] !== "pr") return runner(command, args, options);
+    const hasRepo = args.includes("--repo") || args.includes("-R");
+    if (hasRepo) return runner(command, args, options);
+    const next = [...args.slice(0, 2), ...args.slice(2, 3), "--repo", repo, ...args.slice(3)];
+    return runner(command, next, options);
+  };
+}
+
 function proveTargetBatchFixWorktree({ config, pr, runner }) {
   const cwd = config.repoRoot || process.cwd();
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
@@ -2392,10 +2885,11 @@ function fetchCurrentMainProof({ config, state, pr, runner }) {
   return { ok: true, currentMain, parentMergeSha, parentMergeIsAncestor: true, fetchedAt: new Date().toISOString() };
 }
 
-function readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner }) {
+function readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner, repositoryContext = null }) {
+  const repo = repositoryContext?.argvRepository || config.repositorySlug || "tommytang213/Settleora";
   const result = runner(
     "gh",
-    ["pr", "view", String(pr.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid"],
+    ["pr", "view", String(pr.number), "--repo", repo, "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository"],
     { cwd: config.repoRoot },
   );
   if (result.status !== 0 || result.error) return fail("retarget_pr_read_failed", boundedText(result.stderr || result.error || result.stdout));
@@ -2411,13 +2905,19 @@ function readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, ru
   if (proof.headRefName !== pr.headRefName) return fail("retarget_pr_branch_mismatch", "PR head branch did not match plan");
   if (proof.headRefOid !== expectedHead) return fail("retarget_pr_head_stale", "PR head changed before retarget");
   if (proof.baseRefName !== expectedCurrentBase) return fail("retarget_pr_base_stale", "PR base changed before retarget");
+  if (repositoryContext) {
+    const repoProof = normalizeBoundLivePrProof({ config, pr: proof, repositoryContext });
+    if (!repoProof.ok) return repoProof;
+    proof.repositoryProof = repoProof.proof;
+  }
   return { ok: true, proof };
 }
 
-function readPrReadyProof({ config, pr, expectedHead, expectedDraft, runner }) {
+function readPrReadyProof({ config, pr, expectedHead, expectedDraft, runner, repositoryContext = null }) {
+  const repo = repositoryContext?.argvRepository || config.repositorySlug || "tommytang213/Settleora";
   const result = runner(
     "gh",
-    ["pr", "view", String(pr.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid"],
+    ["pr", "view", String(pr.number), "--repo", repo, "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository"],
     { cwd: config.repoRoot },
   );
   if (result.status !== 0 || result.error) return fail("ready_pr_read_failed", boundedText(result.stderr || result.error || result.stdout));
@@ -2433,6 +2933,11 @@ function readPrReadyProof({ config, pr, expectedHead, expectedDraft, runner }) {
   if (proof.headRefOid !== expectedHead) return fail("ready_pr_head_stale", "PR head changed before ready transition");
   if (proof.baseRefName !== pr.baseRefName) return fail("ready_pr_base_stale", "PR base changed before ready transition");
   if (Boolean(proof.isDraft) !== Boolean(expectedDraft)) return fail("ready_pr_draft_state_mismatch", "PR draft state did not match expected ready transition state");
+  if (repositoryContext) {
+    const repoProof = normalizeBoundLivePrProof({ config, pr: proof, repositoryContext });
+    if (!repoProof.ok) return repoProof;
+    proof.repositoryProof = repoProof.proof;
+  }
   return { ok: true, proof };
 }
 
@@ -2445,7 +2950,9 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
   if (typeof runStrongReview !== "function" || typeof runCodexReview !== "function") {
     return fail("exact_head_review_adapter_unconfigured", "strong and Codex exact-head review adapters are required before final gates");
   }
-  const prereq = collectFinalGatePrerequisites({ config, state, pr, runner, reasonPrefix: "exact_head_gate" });
+  const repositoryContext = await buildRepositoryOperationContext({ config, state, prNumber: pr.number, adapter: { readRepositoryOperationContext: null } });
+  if (!repositoryContext.ok) return repositoryContext;
+  const prereq = await collectFinalGatePrerequisites({ config, state, pr, runner, repositoryContext: repositoryContext.context, reasonPrefix: "exact_head_gate" });
   if (!prereq.ok) return prereq;
   const validationPlan = planValidation(prereq.changedFiles, prereq.laneProof.laneDecision || { validationProfile: "runner-tests" });
   const validation = bindValidationEvidence(runValidation(config, validationPlan), {
@@ -2503,8 +3010,8 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
   };
 }
 
-function collectFinalGateEvidence({ config, state, pr, runner }) {
-  const prereq = collectFinalGatePrerequisites({ config, state, pr, runner, reasonPrefix: "final_gate" });
+async function collectFinalGateEvidence({ config, state, pr, runner, adapter = null, repositoryContext = null }) {
+  const prereq = await collectFinalGatePrerequisites({ config, state, pr, runner, adapter, repositoryContext, reasonPrefix: "final_gate" });
   if (!prereq.ok) return prereq;
   const { inspection, currentHead, currentOriginMainSha, originMainFetchedAt, changed, laneProof, status } = prereq;
   const validationEvidence = state?.evidence?.validation?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.validation || null;
@@ -2562,9 +3069,12 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
   return { ok: true, evidence };
 }
 
-function collectFinalGatePrerequisites({ config, state, pr, runner, reasonPrefix }) {
-  const inspection = inspectAutoMergeGithubState(config, { issue: finalGateIssue(config, state, pr), prUrlOrNumber: pr.number });
+async function collectFinalGatePrerequisites({ config, state, pr, runner, adapter = null, repositoryContext = null, reasonPrefix }) {
+  const inspection = adapter?.inspectPr
+    ? await adapter.inspectPr({ config, state, prNumber: pr.number, repositoryContext })
+    : inspectAutoMergeGithubState(config, { issue: finalGateIssue(config, state, pr), prUrlOrNumber: pr.number });
   if (!inspection?.pr) return fail(`${reasonPrefix}_pr_read_failed`, "PR state could not be read");
+  inspection.issue = inspection.issue || finalGateIssue(config, state, pr);
   const currentHead = inspection.pr.headRefOid || pr.headRefOid;
   if (currentHead !== pr.headRefOid) return fail(`${reasonPrefix}_pr_head_stale`, `PR #${pr.number} head changed before final gates`);
   if (inspection.pr.baseRefName !== pr.baseRefName) return fail(`${reasonPrefix}_pr_base_stale`, `PR #${pr.number} base changed before final gates`);
@@ -2788,11 +3298,12 @@ export function finalExternalGateStatus(inspection = {}) {
 
 function readCurrentPrOwnDelta({ config, pr, runner }) {
   const cwd = config.repoRoot;
-  const nameOnly = runner("gh", ["pr", "diff", String(pr.number), "--name-only"], { cwd });
+  const repo = config.repositorySlug || "tommytang213/Settleora";
+  const nameOnly = runner("gh", ["pr", "diff", String(pr.number), "--repo", repo, "--name-only"], { cwd });
   if (nameOnly.status !== 0 || nameOnly.error) {
     return fail("own_delta_current_files_unavailable", boundedText(nameOnly.stderr || nameOnly.error || nameOnly.stdout));
   }
-  const patch = runner("gh", ["pr", "diff", String(pr.number), "--patch"], { cwd });
+  const patch = runner("gh", ["pr", "diff", String(pr.number), "--repo", repo, "--patch"], { cwd });
   if (patch.status !== 0 || patch.error) {
     return fail("own_delta_current_patch_unavailable", boundedText(patch.stderr || patch.error || patch.stdout));
   }
