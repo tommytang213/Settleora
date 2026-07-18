@@ -356,7 +356,10 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
       : null;
     if (reconciled?.ok && reconciled.finalized === true) {
       const newHead = reconciled.newHead;
-      const sourceCycles = { ...(state.sourceCycles || {}), [pr.number]: (state.sourceCycles?.[pr.number] || 0) + 1 };
+      const budget = evaluateSourceCycleBudget({ config, state, pr, findings: before.findings || [] });
+      if (!budget.ok && budget.reasonCode !== "source_cycle_budget_exhausted") return budget;
+      const consumed = budget.ok ? budget.consumed : state.sourceCycles?.[pr.number];
+      const sourceCycles = { ...(state.sourceCycles || {}), [pr.number]: consumed + 1 };
       const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, reconciled);
       if (!rebound.ok) return rebound;
       return {
@@ -374,12 +377,14 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
     }
     return fail("stack_pr_head_stale", `PR #${pr.number} head changed`);
   }
-  const result = await adapter.convergeExistingPr({ config, plan, state, pr, findings: before.findings || [] });
+  const budget = evaluateSourceCycleBudget({ config, state, pr, findings: before.findings || [] });
+  if (!budget.ok) return budget;
+  const result = await adapter.convergeExistingPr({ config, plan, state, pr, findings: before.findings || [], sourceCycleBudget: budget });
   if (!result?.ok) return waitOrFail(result, "pr_convergence_failed");
   const newHead = result.newHead || result.headRefOid || pr.headRefOid;
   const sourceCycles = { ...(state.sourceCycles || {}) };
   if (newHead !== pr.headRefOid) {
-    sourceCycles[pr.number] = (sourceCycles[pr.number] || 0) + 1;
+    sourceCycles[pr.number] = budget.consumed + 1;
     const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, result);
     if (!rebound.ok) return rebound;
     return {
@@ -402,7 +407,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
     evidence: putEvidence(state.evidence, "reviewConverged", pr.number, result),
     mutationMarkers,
     sourceCycles,
-    summary: { action: action.action, prNumber: pr.number, sourceCycleConsumed: newHead !== pr.headRefOid },
+    summary: { action: action.action, prNumber: pr.number, sourceCycleConsumed: newHead !== pr.headRefOid, sourceCycleBudget: budget.summary },
   };
 }
 
@@ -537,13 +542,16 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         findings: unresolvedThreadsAsFindings(state.reviewThreads || []),
       };
     },
-    async convergeExistingPr({ pr, findings = [] }) {
+    async convergeExistingPr({ pr, findings = [], state = null, sourceCycleBudget = null }) {
+      const durableBudget = sourceCycleBudget || evaluateSourceCycleBudget({ config, state, pr, findings });
+      if (!durableBudget.ok) return durableBudget;
       const result = await runExistingPrReviewConvergence({
         config,
         issue: { number: pr.issueNumber || 921, title: pr.title || "" },
         pr,
         findings,
         laneDecision: { lane: "workflow-docs-tooling", allowedPaths: ["tools/auto-runner/**", "docs/**"] },
+        sourceCycleBudget: durableBudget,
         runBatchFix,
       });
       return result.ok
@@ -788,6 +796,8 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           newHead: candidate.newHead,
           parent: candidate.parent,
           tree: candidate.tree,
+          commitChain: candidate.commitChain,
+          commitChainDigest: candidate.commitChainDigest,
           baseSha: base.sha,
           changedFilesDigest: digestStringSet(changedFiles),
           findingFingerprints,
@@ -857,6 +867,47 @@ function transitionState(state, patch = {}) {
     wait: patch.wait === undefined ? state.wait : patch.wait,
     summaries,
   });
+}
+
+function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, findings = [] } = {}) {
+  const prNumber = pr?.number;
+  if (!Number.isInteger(prNumber)) return fail("source_cycle_state_pr_invalid", "source-cycle budget requires a valid PR number");
+  const hasDurableState = state && typeof state === "object" && !Array.isArray(state);
+  const sourceCycles = hasDurableState ? state.sourceCycles || {} : { [prNumber]: 0 };
+  if (hasDurableState && !Object.prototype.hasOwnProperty.call(sourceCycles, prNumber)) {
+    return fail("source_cycle_state_missing", "durable source-cycle state is missing for the active PR");
+  }
+  const consumed = sourceCycles[prNumber];
+  if (!Number.isInteger(consumed) || consumed < 0) {
+    return fail("source_cycle_state_malformed", "durable source-cycle count is malformed");
+  }
+  const max = normalizeSourceCycleMax(config);
+  if (!Number.isInteger(max) || max < 0) return fail("source_cycle_budget_malformed", "source-cycle maximum is malformed");
+  const epoch = state?.sourceCycleEpoch?.[prNumber] || state?.sourceCycleEpoch || 1;
+  if (!Number.isInteger(epoch) || epoch < 1) return fail("source_cycle_epoch_malformed", "durable source-cycle epoch is malformed");
+  const materialFindings = Array.isArray(findings) ? findings.filter((finding) => finding && finding.material !== false) : [];
+  const remaining = Math.max(0, max - consumed);
+  const summary = {
+    prNumber,
+    exactHead: pr?.headRefOid || null,
+    epoch,
+    consumed,
+    max,
+    remaining,
+    materialFindingCount: materialFindings.length,
+  };
+  if (materialFindings.length > 0 && consumed >= max) {
+    return fail("source_cycle_budget_exhausted", "durable per-PR source-cycle budget is exhausted", { summary, sourceCycleBudget: summary });
+  }
+  return { ok: true, ...summary, summary };
+}
+
+function normalizeSourceCycleMax(config = {}) {
+  const stackMax = config?.prStackExecution?.maxSourceCyclesPerPr;
+  if (Number.isInteger(stackMax) && stackMax > 0) return stackMax;
+  const legacyMax = config?.maxReviewFixCycles;
+  if (Number.isInteger(legacyMax) && legacyMax > 0) return legacyMax;
+  return 50;
 }
 
 function rebindPlanToStateHeads(plan, state) {
@@ -937,10 +988,13 @@ function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHe
   const changedFiles = normalizeChangedFiles(nested.changedFiles || sourceIdentity.changedFiles || []);
   const changedFilesDigest = nested.changedFilesDigest || sourceIdentity.changedFilesDigest || null;
   const expectedBase = sourceIdentity.baseSha || nested.baseSha || null;
+  const chain = validateCanonicalCommitChain(sourceIdentity.commitChain || [], { oldHead, newHead, candidateParent: sourceIdentity.parent || null });
+  if (!chain.ok) return chain;
   if (!validSha(oldHead) || !validSha(newHead)) return fail("source_rebound_head_invalid", "source rebound head identity is invalid");
   if (sourceIdentity.oldHead && sourceIdentity.oldHead !== oldHead) return fail("source_rebound_old_head_mismatch", "source identity old head does not match");
   if ((sourceIdentity.newHead || sourceIdentity.headSha) !== newHead) return fail("source_rebound_source_head_mismatch", "source identity new head does not match");
-  if (sourceIdentity.parent && sourceIdentity.parent !== oldHead) return fail("source_rebound_parent_mismatch", "candidate parent does not match pre-fix head");
+  if (sourceIdentity.parent && sourceIdentity.parent !== chain.parent) return fail("source_rebound_parent_mismatch", "candidate parent must match the penultimate canonical commit-chain entry");
+  if (sourceIdentity.commitChainDigest && sourceIdentity.commitChainDigest !== chain.digest) return fail("source_rebound_commit_chain_digest_mismatch", "source identity commit-chain digest does not match");
   if (!validSha(sourceIdentity.tree)) return fail("source_rebound_tree_missing", "candidate tree evidence is missing");
   if (!validSha(expectedBase)) return fail("source_rebound_base_missing", "candidate base evidence is missing");
   if (changedFiles.length === 0) return fail("source_rebound_changed_files_missing", "candidate changed-file evidence is missing");
@@ -969,6 +1023,9 @@ function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHe
   const [, marker] = markerEntries[0];
   if (marker?.prNumber !== prNumber) return fail("source_rebound_marker_pr_mismatch", "durable mutation marker PR number does not match");
   if (marker.oldHead !== oldHead || marker.newHead !== newHead) return fail("source_rebound_marker_head_mismatch", "durable mutation marker head identity does not match");
+  const markerChain = validateCanonicalCommitChain(marker.sourceIdentity?.commitChain || marker.commitChain || [], { oldHead, newHead, candidateParent: marker.sourceIdentity?.parent || sourceIdentity.parent || null });
+  if (!markerChain.ok) return markerChain;
+  if (markerChain.digest !== chain.digest) return fail("source_rebound_marker_commit_chain_mismatch", "durable mutation marker commit-chain evidence does not match");
   if (!sameStringSet(marker.changedFiles || [], changedFiles) || marker.changedFilesDigest !== changedFilesDigest) {
     return fail("source_rebound_marker_files_mismatch", "durable mutation marker file evidence does not match");
   }
@@ -991,7 +1048,7 @@ function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHe
     validation: { ...validation.validation, exactHead: newHead },
     strongReview: strongReview.review,
     codexReview: codexReview.review,
-    sourceIdentity,
+    sourceIdentity: { ...sourceIdentity, parent: chain.parent, commitChain: chain.chain, commitChainDigest: chain.digest },
     changedFiles,
     changedFilesDigest,
     reviewPackageDigest: nested.reviewPackageDigest || nested.reviewPackage?.digest || null,
@@ -1181,6 +1238,10 @@ function sameStringSet(left = [], right = []) {
   return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((value, index) => value === normalizedRight[index]);
 }
 
+function sameStringList(left = [], right = []) {
+  return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function sanitizeState(value) {
   return boundSanitizedEvidence(sanitizePersistedEvidence(value));
 }
@@ -1202,6 +1263,10 @@ function digestJson(value) {
 
 function digestStringSet(values = []) {
   return createHash("sha256").update(normalizeChangedFiles(values).join("\n")).digest("hex");
+}
+
+function digestStringList(values = []) {
+  return createHash("sha256").update((Array.isArray(values) ? values : []).join("\n")).digest("hex");
 }
 
 function validStackId(value) {
@@ -1497,11 +1562,10 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
   if (before.sha !== exactHead) {
     const clean = readWorktreeCleanProof({ runner, cwd });
     if (!clean.ok || clean.clean !== true) return fail("existing_pr_batch_fix_candidate_dirty", "existing local candidate has additional source changes");
-    const ancestry = runner("git", ["merge-base", "--is-ancestor", exactHead, before.sha], { cwd });
-    if (ancestry.status !== 0 || ancestry.error) return fail("existing_pr_batch_fix_candidate_not_descendant", "existing local candidate is not descended from the expected old head");
-    const parent = readGitSha({ runner, cwd, ref: "HEAD^", reasonCode: "existing_pr_batch_fix_candidate_parent_unreadable" });
+    const chain = deriveCanonicalCommitChain({ runner, cwd, oldHead: exactHead, newHead: before.sha });
+    if (!chain.ok) return chain;
     const tree = readGitSha({ runner, cwd, ref: "HEAD^{tree}", reasonCode: "existing_pr_batch_fix_candidate_tree_unreadable" });
-    return { ok: true, reused: true, oldHead: exactHead, parent: parent.sha || null, newHead: before.sha, tree: tree.sha || null, committedAt: new Date().toISOString() };
+    return { ok: true, reused: true, oldHead: exactHead, parent: chain.parent, newHead: before.sha, tree: tree.sha || null, commitChain: chain.chain, commitChainDigest: chain.digest, committedAt: new Date().toISOString() };
   }
   for (const file of normalizeChangedFiles(changedFiles)) {
     const add = runner("git", ["add", "--", file], { cwd });
@@ -1514,7 +1578,10 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
   const tree = readGitSha({ runner, cwd, ref: "HEAD^{tree}", reasonCode: "existing_pr_batch_fix_candidate_tree_unreadable" });
   if (!head.ok || !parent.ok || !tree.ok) return head.ok ? parent.ok ? tree : parent : head;
   if (head.sha === exactHead) return fail("existing_pr_batch_fix_new_head_required", "candidate commit did not advance HEAD");
-  return { ok: true, reused: false, oldHead: exactHead, parent: parent.sha, newHead: head.sha, tree: tree.sha, committedAt: new Date().toISOString() };
+  const chain = deriveCanonicalCommitChain({ runner, cwd, oldHead: exactHead, newHead: head.sha });
+  if (!chain.ok) return chain;
+  if (chain.parent !== parent.sha) return fail("existing_pr_batch_fix_candidate_parent_mismatch", "candidate parent does not match canonical commit chain");
+  return { ok: true, reused: false, oldHead: exactHead, parent: parent.sha, newHead: head.sha, tree: tree.sha, commitChain: chain.chain, commitChainDigest: chain.digest, committedAt: new Date().toISOString() };
 }
 
 function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null }) {
@@ -1522,6 +1589,8 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const intentPath = path.join(root, `${digestJson({ markerKey, prNumber: pr?.number, oldHead, newHead })}.json`);
   const sourceIdentity = reviewed?.sourceIdentity || {};
+  const commitChain = normalizeCommitChain(sourceIdentity.commitChain || [oldHead, sourceIdentity.parent, newHead]);
+  const commitChainDigest = sourceIdentity.commitChainDigest || digestStringList(commitChain);
   const intent = sanitizeState({
     status: "push_intent",
     markerKey,
@@ -1540,7 +1609,8 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
     candidateNewHead: newHead,
     candidateParent: sourceIdentity.parent || null,
     candidateTree: sourceIdentity.tree || null,
-    commitChain: normalizeCommitChain(sourceIdentity.commitChain || [oldHead, sourceIdentity.parent, newHead]),
+    commitChain,
+    commitChainDigest,
     findingInventoryDigest: fingerprintDigest || null,
     findingFingerprints: reviewed?.sourceIdentity?.findingFingerprints || [],
     changedFiles,
@@ -1578,6 +1648,10 @@ function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = fa
   if (baseFetch.status !== 0 || baseFetch.error) return fail("push_intent_base_fetch_failed", boundedText(baseFetch.stderr || baseFetch.error || baseFetch.stdout));
   const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "push_intent_remote_unreadable" });
   const local = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "push_intent_local_head_unreadable" });
+  const rederivedChain = deriveCanonicalCommitChain({ runner, cwd, oldHead: intent.oldHead, newHead: intent.candidateNewHead, reasonPrefix: "push_intent" });
+  if (!rederivedChain.ok) return rederivedChain;
+  if (!sameStringList(rederivedChain.chain, intent.commitChain || [])) return fail("push_intent_commit_chain_mismatch", "push intent commit chain does not match git first-parent ancestry");
+  if (intent.commitChainDigest && intent.commitChainDigest !== rederivedChain.digest) return fail("push_intent_commit_chain_digest_mismatch", "push intent commit-chain digest does not match git first-parent ancestry");
   const live = readLivePrProof({ config, pr, expectedHead: null, runner });
   if (!live.ok) return live;
   const repositoryIdentity = validateRepositoryIdentityProof({ config, liveProof: live.proof, originProof: { repositorySlug: live.proof.originRepositorySlug }, intent });
@@ -1694,11 +1768,14 @@ function validatePushIntentShape({ config = {}, pr = {}, intent = {} } = {}) {
   if (intent.sourceBranch !== pr.headRefName) return fail("push_intent_branch_mismatch", "push intent source branch does not match");
   if (!validSha(intent.oldHead) || !validSha(intent.candidateNewHead)) return fail("push_intent_malformed", "push intent head identity is invalid");
   if (!validSha(intent.candidateParent) || !validSha(intent.candidateTree)) return fail("push_intent_malformed", "push intent candidate parent/tree identity is invalid");
-  const commitChain = normalizeCommitChain(intent.commitChain || []);
-  if (commitChain.length < 2 || commitChain[0] !== intent.oldHead || commitChain.at(-1) !== intent.candidateNewHead) {
-    return fail("push_intent_commit_chain_mismatch", "push intent commit chain must run from old head to candidate head");
-  }
-  if (commitChain.at(-2) !== intent.candidateParent) return fail("push_intent_candidate_parent_mismatch", "push intent candidate parent must be the penultimate commit in the commit chain");
+  const commitChain = validateCanonicalCommitChain(intent.commitChain || [], {
+    oldHead: intent.oldHead,
+    newHead: intent.candidateNewHead,
+    candidateParent: intent.candidateParent,
+    reasonPrefix: "push_intent",
+  });
+  if (!commitChain.ok) return commitChain;
+  if (intent.commitChainDigest && intent.commitChainDigest !== commitChain.digest) return fail("push_intent_commit_chain_digest_mismatch", "push intent commit-chain digest does not match");
   const changedFiles = normalizeChangedFiles(intent.changedFiles || []);
   if (changedFiles.length === 0 || intent.changedFilesDigest !== digestStringSet(changedFiles)) return fail("push_intent_changed_files_mismatch", "push intent changed-file digest does not match");
   if (!intent.findingInventoryDigest) return fail("push_intent_finding_digest_missing", "push intent finding inventory digest is missing");
@@ -1766,6 +1843,7 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
       parent: intent.candidateParent,
       tree: intent.candidateTree,
       commitChain,
+      commitChainDigest: intent.commitChainDigest || digestStringList(commitChain),
       baseSha: intent.sourceIdentity?.baseSha || intent.validation?.baseSha || intent.externalReview?.baseSha || intent.review?.baseSha || null,
       changedFilesDigest: intent.changedFilesDigest,
     },
@@ -1811,6 +1889,40 @@ function normalizeCommitChain(values = []) {
     if (normalized.at(-1) !== sha) normalized.push(sha);
   }
   return normalized;
+}
+
+function deriveCanonicalCommitChain({ runner, cwd, oldHead, newHead, reasonPrefix = "existing_pr_batch_fix" } = {}) {
+  if (!validSha(oldHead) || !validSha(newHead)) return fail(`${reasonPrefix}_commit_chain_head_invalid`, "canonical commit-chain head identity is invalid");
+  if (oldHead === newHead) return fail(`${reasonPrefix}_commit_chain_new_head_required`, "canonical commit chain requires a new head");
+  const ancestry = runner("git", ["merge-base", "--is-ancestor", oldHead, newHead], { cwd });
+  if (ancestry.status !== 0 || ancestry.error) return fail(`${reasonPrefix}_candidate_not_descendant`, "candidate is not descended from the expected old head");
+  const listed = runner("git", ["rev-list", "--first-parent", "--reverse", `${oldHead}..${newHead}`], { cwd });
+  if (listed.status !== 0 || listed.error) return fail(`${reasonPrefix}_commit_chain_unreadable`, boundedText(listed.stderr || listed.error || listed.stdout));
+  const commits = normalizeCommitChain(String(listed.stdout || "").split(/\r?\n/));
+  const chain = [oldHead, ...commits];
+  const shape = validateCanonicalCommitChain(chain, { oldHead, newHead, reasonPrefix });
+  if (!shape.ok) return shape;
+  for (let index = 1; index < chain.length; index += 1) {
+    const child = chain[index];
+    const parent = chain[index - 1];
+    const parents = runner("git", ["rev-list", "--parents", "-n", "1", child], { cwd });
+    if (parents.status !== 0 || parents.error) return fail(`${reasonPrefix}_commit_chain_parent_unreadable`, boundedText(parents.stderr || parents.error || parents.stdout));
+    const tokens = normalizeCommitChain(String(parents.stdout || "").trim().split(/\s+/));
+    if (tokens.length !== 2) return fail(`${reasonPrefix}_commit_chain_merge_refused`, "canonical commit chain rejects merge commits and hidden side parents");
+    if (tokens[0] !== child || tokens[1] !== parent) return fail(`${reasonPrefix}_commit_chain_parent_mismatch`, "canonical commit chain adjacency does not match git parentage");
+  }
+  return shape;
+}
+
+function validateCanonicalCommitChain(values = [], { oldHead, newHead, candidateParent = null, reasonPrefix = "source_rebound" } = {}) {
+  const chain = normalizeCommitChain(values);
+  if (chain.length < 2) return fail(`${reasonPrefix}_commit_chain_mismatch`, "canonical commit chain must include old and new heads");
+  if (chain[0] !== oldHead) return fail(`${reasonPrefix}_commit_chain_first_mismatch`, "canonical commit chain must start at old head");
+  if (chain.at(-1) !== newHead) return fail(`${reasonPrefix}_commit_chain_final_mismatch`, "canonical commit chain must end at candidate head");
+  if (new Set(chain).size !== chain.length) return fail(`${reasonPrefix}_commit_chain_duplicate`, "canonical commit chain must not contain duplicates");
+  const parent = chain.at(-2);
+  if (candidateParent && candidateParent !== parent) return fail(`${reasonPrefix}_candidate_parent_mismatch`, "candidate parent must be the penultimate commit in the canonical chain");
+  return { ok: true, chain, parent, digest: digestStringList(chain) };
 }
 
 function fetchAndReadOriginMain({ config, runner, reasonPrefix }) {
@@ -2368,10 +2480,13 @@ export const prStackExecutorTestInternals = Object.freeze({
   canonicalRepositoryFromOriginUrl,
   canonicalRepositorySlug,
   createOrReuseLocalCandidateCommit,
+  deriveCanonicalCommitChain,
   discoverTaskScopedPendingPushIntents,
+  evaluateSourceCycleBudget,
   fetchAndReadOriginMain,
   finalizePushIntent,
   normalizeSourceChangingConvergenceResult,
+  validateCanonicalCommitChain,
   persistPushIntent,
   proveTargetBatchFixWorktree,
   reconcileTaskScopedPendingPushIntent,

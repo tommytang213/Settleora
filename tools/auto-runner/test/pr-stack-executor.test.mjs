@@ -417,7 +417,7 @@ test("push intent supports preserved multi-commit chains from remote parent to c
     config: { ...fixture.config, repoRoot: fixture.root },
     pr: fixture.plan.orderedPrs[0],
     intent,
-    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("d"), remoteHead: sha("d"), liveHead: sha("d") }),
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("d"), remoteHead: sha("d"), liveHead: sha("d"), commitChain: [sha("a"), sha("b"), sha("c"), sha("d")] }),
     requireCandidate: true,
   });
   assert.equal(reconciled.ok, true, reconciled.reasonCode);
@@ -425,7 +425,7 @@ test("push intent supports preserved multi-commit chains from remote parent to c
     config: { ...fixture.config, repoRoot: fixture.root },
     pr: fixture.plan.orderedPrs[0],
     intent: { ...intent, commitChain: [sha("a"), sha("b"), sha("d")] },
-    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("d"), remoteHead: sha("d"), liveHead: sha("d") }),
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("d"), remoteHead: sha("d"), liveHead: sha("d"), commitChain: [sha("a"), sha("b"), sha("c"), sha("d")] }),
   });
   assert.equal(badChain.reasonCode, "push_intent_candidate_parent_mismatch");
 });
@@ -746,6 +746,115 @@ test("source-changing cycles are independently available up to 50 per PR", () =>
   state.sourceCycles["919"] = 50;
   state.sourceCycles["920"] = 49;
   assert.equal(validatePrStackState(state, plan).ok, true);
+});
+
+test("persisted source-cycle budget is passed through and exhausted budgets block before convergence mutation", async () => {
+  const fixture = stackFixture();
+  let receivedBudget = null;
+  let convergeCalls = 0;
+  let result = await runPrStackExecution(
+    { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
+    { stackPlanPath: fixture.planPath },
+    {
+      adapter: {
+        inspectPr: async () => ({ ok: true, headRefOid: sha("a"), findings: [{ title: "finding", material: true }] }),
+        convergeExistingPr: async ({ sourceCycleBudget }) => {
+          convergeCalls += 1;
+          receivedBudget = sourceCycleBudget;
+          return { ok: true, headRefOid: sha("a") };
+        },
+      },
+    },
+  );
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(convergeCalls, 1);
+  assert.equal(receivedBudget.consumed, 0);
+  assert.equal(receivedBudget.remaining, 2);
+
+  const exhaustedFixture = stackFixture();
+  const statePath = path.join(path.dirname(exhaustedFixture.planPath), "stack-state.json");
+  const state = createInitialPrStackState({ plan: exhaustedFixture.plan });
+  state.sourceCycles["919"] = 2;
+  writePrStackState(statePath, state);
+  result = await runPrStackExecution(
+    { ...exhaustedFixture.config, prStackExecution: { ...exhaustedFixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
+    { stackPlanPath: exhaustedFixture.planPath },
+    {
+      adapter: {
+        inspectPr: async () => ({ ok: true, headRefOid: sha("a"), findings: [{ title: "finding", material: true }] }),
+        convergeExistingPr: async () => {
+          convergeCalls += 1;
+          return { ok: true };
+        },
+      },
+    },
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "source_cycle_budget_exhausted");
+  assert.equal(convergeCalls, 1);
+});
+
+test("malformed or wrong-PR source-cycle state fails closed while independent PR counters remain separate", async () => {
+  const fixture = stackFixture();
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.sourceCycles["919"] = "1";
+  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  let result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
+    adapter: {
+      inspectPr: async () => ({ ok: true, headRefOid: sha("a"), findings: [{ title: "finding" }] }),
+      convergeExistingPr: async () => ({ ok: true }),
+    },
+  });
+  assert.equal(result.reasonCode, "source_cycle_state_malformed");
+
+  const childFixture = stackFixtureAtChild({ retargeted: true, ownDelta: true, ready: true });
+  const childStatePath = path.join(path.dirname(childFixture.planPath), "stack-state.json");
+  const childState = JSON.parse(readFileSync(childStatePath, "utf8"));
+  childState.sourceCycles["919"] = 50;
+  childState.sourceCycles["920"] = 0;
+  writePrStackState(childStatePath, childState);
+  result = await runPrStackExecution(
+    { ...childFixture.config, prStackExecution: { ...childFixture.config.prStackExecution, maxSourceCyclesPerPr: 1 } },
+    { stackPlanPath: childFixture.planPath },
+    {
+      adapter: {
+        inspectPr: async () => ({ ok: true, headRefOid: sha("b"), findings: [{ title: "child finding" }] }),
+        convergeExistingPr: async () => ({ ok: true, headRefOid: sha("b") }),
+      },
+    },
+  );
+  assert.equal(result.ok, true, result.reasonCode);
+});
+
+test("canonical commit-chain validation accepts multi-commit rebound and rejects digest or adjacency drift", () => {
+  const chain = [sha("a"), sha("b"), sha("c"), sha("d")];
+  const valid = sourceChangingConvergenceResult({
+    prNumber: 919,
+    oldHead: sha("a"),
+    newHead: sha("d"),
+    overrides: { sourceIdentity: { parent: sha("c"), commitChain: chain } },
+  });
+  const normalized = prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(valid, { prNumber: 919, oldHead: sha("a"), newHead: sha("d") });
+  assert.equal(normalized.ok, true, normalized.reasonCode);
+  assert.deepEqual(normalized.sourceIdentity.commitChain, chain);
+  assert.equal(normalized.sourceIdentity.parent, sha("c"));
+  assert.equal(
+    prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(
+      sourceChangingConvergenceResult({
+        prNumber: 919,
+        oldHead: sha("a"),
+        newHead: sha("d"),
+        overrides: { sourceIdentity: { parent: sha("c"), commitChain: chain, commitChainDigest: sha("f") } },
+      }),
+      { prNumber: 919, oldHead: sha("a"), newHead: sha("d") },
+    ).reasonCode,
+    "source_rebound_commit_chain_digest_mismatch",
+  );
+  assert.equal(
+    prStackExecutorTestInternals.validateCanonicalCommitChain([sha("a"), sha("c"), sha("b"), sha("d")], { oldHead: sha("a"), newHead: sha("d"), candidateParent: sha("c") }).reasonCode,
+    "source_rebound_candidate_parent_mismatch",
+  );
 });
 
 test("parent merge proof and current-main proof are required before child retarget", async () => {
@@ -1818,6 +1927,8 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
 
 function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha = sha("e"), changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"], tree = sha("d"), fingerprintDigest = sha("f"), overrides = {} } = {}) {
   const changedFilesDigest = digestStrings(changedFiles);
+  const commitChain = overrides.sourceIdentity?.commitChain || [oldHead, newHead];
+  const commitChainDigest = digestStringList(commitChain);
   const validation = {
     passed: true,
     results: [{ command: "node --test tools/auto-runner/test/pr-stack-executor.test.mjs", status: 0 }],
@@ -1874,6 +1985,8 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
       newHead,
       parent: oldHead,
       tree,
+      commitChain,
+      commitChainDigest,
       baseSha,
       changedFilesDigest,
       configuredRepositorySlug: "tommytang213/Settleora",
@@ -1910,6 +2023,10 @@ function digestStrings(items) {
 
 function digestJson(value) {
   return createHash("sha256").update(JSON.stringify(value || {})).digest("hex");
+}
+
+function digestStringList(items) {
+  return createHash("sha256").update((Array.isArray(items) ? items : []).join("\n")).digest("hex");
 }
 
 function finalGateRunner(changedFiles = ["tools/auto-runner/919.mjs"]) {
@@ -1969,6 +2086,7 @@ function targetWorktreeRunner(calls, options = {}) {
     if (command === "git" && args[0] === "branch") return { status: 0, stdout: `${branch}\n`, stderr: "", error: null };
     if (command === "git" && args[0] === "rev-parse" && String(args[1]).startsWith("origin/")) return { status: 0, stdout: `${remoteHead}\n`, stderr: "", error: null };
     if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${head}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-list") return fakeRevList(args, options.commitChain);
     if (command === "git" && args[0] === "merge-base") {
       return options.mergeBaseFails ? { status: 1, stdout: "", stderr: "not ancestor", error: null } : fakeRunner(command, args);
     }
@@ -1979,6 +2097,7 @@ function targetWorktreeRunner(calls, options = {}) {
 }
 
 function fakeRunner(command, args = []) {
+  if (command === "git" && args[0] === "rev-list") return fakeRevList(args);
   if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
     return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
   }
@@ -1989,6 +2108,27 @@ function fakeRunner(command, args = []) {
     return { status: 0, stdout: "", stderr: "", error: null };
   }
   return { status: 0, stdout: "", stderr: "", error: null };
+}
+
+function fakeRevList(args = [], explicitChain = null) {
+  if (args.includes("--parents")) {
+    const child = args.at(-1);
+    const chain = normalizeFakeChain(explicitChain);
+    const index = chain.indexOf(child);
+    const parent = index > 0 ? chain[index - 1] : sha("a");
+    return { status: 0, stdout: `${child} ${parent}\n`, stderr: "", error: null };
+  }
+  const range = args.at(-1) || "";
+  const [oldHead, newHead] = range.split("..");
+  const explicit = normalizeFakeChain(explicitChain);
+  const commits = explicit.length > 0 && explicit[0] === oldHead && explicit.at(-1) === newHead
+    ? explicit.slice(1)
+    : [newHead].filter(Boolean);
+  return { status: 0, stdout: `${commits.join("\n")}\n`, stderr: "", error: null };
+}
+
+function normalizeFakeChain(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
 function scriptedAdapter(calls) {
