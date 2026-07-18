@@ -44,6 +44,24 @@ function mutationConfig(overrides = {}) {
   return { run: true, allowFollowupIssueCreation: true, logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", ...overrides };
 }
 
+function issueViewBody(number, repositorySlug = "tommytang213/Settleora", overrides = {}) {
+  return JSON.stringify({
+    number,
+    url: `https://github.com/${repositorySlug}/issues/${number}`,
+    body: "",
+    comments: [],
+    ...overrides,
+  });
+}
+
+function issueViewLabels(number, repositorySlug = "tommytang213/Settleora", labels = []) {
+  return JSON.stringify({
+    number,
+    url: `https://github.com/${repositorySlug}/issues/${number}`,
+    labels: labels.map((name) => ({ name })),
+  });
+}
+
 function rekey(proposal) {
   return { ...proposal, idempotencyKey: digestProposal({ ...proposal, idempotencyKey: undefined, laneDecision: undefined }) };
 }
@@ -71,7 +89,9 @@ test("validated runnable proposal creates one fully specified issue", () => {
   const runner = runnerWith([
     { status: 0, stdout: "[]" },
     { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1001" },
+    { status: 0, stdout: issueViewBody(1001) },
     { status: 0, stdout: "commented" },
+    { status: 0, stdout: issueViewLabels(1001, "tommytang213/Settleora", ["workflow"]) },
     { status: 0, stdout: "labeled" },
   ]);
   const result = executeIssueMutationPipeline(
@@ -145,7 +165,9 @@ test("retry after uncertain response re-reads by correlation and reuses", () => 
   const runner = runnerWith([
     { status: 0, stdout: "[]" },
     { status: 1, stderr: "network timeout" },
-    { status: 0, stdout: JSON.stringify([{ number: 1002, state: "OPEN", body: proposal.correlationKey }]) },
+    { status: 0, stdout: JSON.stringify([{ number: 1002, url: "https://github.com/tommytang213/Settleora/issues/1002", state: "OPEN", body: proposal.correlationKey }]) },
+    { status: 0, stdout: issueViewBody(1002, "tommytang213/Settleora", { body: proposal.correlationKey }) },
+    { status: 0, stdout: issueViewLabels(1002, "tommytang213/Settleora", proposal.proposedLabels) },
   ]);
   const result = executeIssueMutationPipeline(
     mutationConfig(),
@@ -159,7 +181,10 @@ test("retry after uncertain response re-reads by correlation and reuses", () => 
 
 test("repeated execution creates zero additional issues when exact correlation exists", () => {
   const proposal = runnableProposal();
-  const runner = runnerWith();
+  const runner = runnerWith([
+    { status: 0, stdout: issueViewBody(1003, "tommytang213/Settleora", { body: proposal.correlationKey }) },
+    { status: 0, stdout: issueViewLabels(1003, "tommytang213/Settleora", proposal.proposedLabels) },
+  ]);
   const result = executeIssueMutationPipeline(
     mutationConfig(),
     [proposal],
@@ -274,7 +299,9 @@ test("max issues per run is enforced", () => {
   const runner = runnerWith([
     { status: 0, stdout: "[]" },
     { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1004" },
+    { status: 0, stdout: issueViewBody(1004) },
     { status: 0 },
+    { status: 0, stdout: issueViewLabels(1004, "tommytang213/Settleora", first.proposedLabels) },
     { status: 0 },
   ]);
   const result = executeIssueMutationPipeline(
@@ -301,15 +328,13 @@ test("dry-run produces exact previews and no mutations while writing sanitized e
   assert.doesNotMatch(evidence, /GEMINI_API_KEY|bearer /i);
 });
 
-test("partial comment/label/project failure records component results without duplicating issue", () => {
+test("required comment command failure blocks pipeline before label read", () => {
   const proposal = runnableProposal();
   const runner = runnerWith([
     { status: 0, stdout: "[]" },
     { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1005" },
-    { status: 0, stdout: JSON.stringify({ number: 1005, url: "https://github.com/tommytang213/Settleora/issues/1005", body: "", comments: [] }) },
+    { status: 0, stdout: issueViewBody(1005) },
     { status: 1, stderr: "comment failed" },
-    { status: 0, stdout: JSON.stringify({ number: 1005, url: "https://github.com/tommytang213/Settleora/issues/1005", labels: [] }) },
-    { status: 0, stdout: "labels ok" },
   ]);
   const result = executeIssueMutationPipeline(
     mutationConfig(),
@@ -317,9 +342,15 @@ test("partial comment/label/project failure records component results without du
     {},
     { runner },
   );
-  assert.equal(result.results[0].action, "created");
+  assert.equal(result.results[0].action, "blocked");
+  assert.equal(result.results[0].completed, false);
+  assert.equal(result.results[0].success, false);
+  assert.equal(result.results[0].failedComponent, "correlation_comment");
+  assert.equal(result.results[0].reasonCode, "comment failed");
+  assert.equal(result.results[0].issue.number, 1005);
   assert.equal(result.results[0].components.comment.status, "failed");
-  assert.equal(result.results[0].components.labels.status, "updated");
+  assert.equal(result.results[0].components.labels, undefined);
+  assert.equal(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "edit"), false);
 });
 
 test("repository binding is required and malformed repository values fail before runner invocation", () => {
@@ -348,9 +379,9 @@ test("non-default repository is used for list, create, comment, and labels witho
   const runner = runnerWith([
     { status: 0, stdout: "[]" },
     { status: 0, stdout: `https://github.com/${repositorySlug}/issues/1010` },
-    { status: 0, stdout: JSON.stringify({ number: 1010, url: `https://github.com/${repositorySlug}/issues/1010`, body: "", comments: [] }) },
+    { status: 0, stdout: issueViewBody(1010, repositorySlug) },
     { status: 0, stdout: "commented" },
-    { status: 0, stdout: JSON.stringify({ number: 1010, url: `https://github.com/${repositorySlug}/issues/1010`, labels: [{ name: "workflow" }] }) },
+    { status: 0, stdout: issueViewLabels(1010, repositorySlug, ["workflow"]) },
     { status: 0, stdout: "labeled" },
   ]);
   const result = executeIssueMutationPipeline(mutationConfig({ repositorySlug }), [proposal], {}, { runner });
@@ -371,9 +402,9 @@ test("same correlation in another repository does not dedupe configured reposito
   const runner = runnerWith([
     { status: 0, stdout: JSON.stringify([{ number: 1011, url: "https://github.com/other-org/Other/issues/1011", state: "OPEN", body: proposal.correlationKey }]) },
     { status: 0, stdout: `https://github.com/${repositorySlug}/issues/1012` },
-    { status: 0, stdout: JSON.stringify({ number: 1012, url: `https://github.com/${repositorySlug}/issues/1012`, body: "", comments: [] }) },
+    { status: 0, stdout: issueViewBody(1012, repositorySlug) },
     { status: 0, stdout: "commented" },
-    { status: 0, stdout: JSON.stringify({ number: 1012, url: `https://github.com/${repositorySlug}/issues/1012`, labels: [] }) },
+    { status: 0, stdout: issueViewLabels(1012, repositorySlug) },
     { status: 0, stdout: "labeled" },
   ]);
   const result = executeIssueMutationPipeline(
@@ -392,13 +423,18 @@ test("repository-bound evidence is reused idempotently and legacy unbound eviden
     mutationConfig(),
     [proposal],
     { openIssues: [{ number: 1013, repositorySlug: "tommytang213/Settleora", state: "OPEN", body: proposal.correlationKey }] },
-    { runner: runnerWith() },
+    {
+      runner: runnerWith([
+        { status: 0, stdout: issueViewBody(1013, "tommytang213/Settleora", { body: proposal.correlationKey }) },
+        { status: 0, stdout: issueViewLabels(1013, "tommytang213/Settleora", proposal.proposedLabels) },
+      ]),
+    },
   );
   assert.equal(bound.results[0].action, "reuse");
   assert.equal(bound.results[0].duplicate.matches[0].repositorySlug, "tommytang213/Settleora");
   const legacy = executeIssueMutationPipeline(mutationConfig(), [proposal], { openIssues: [{ number: 1013, state: "OPEN", body: proposal.correlationKey }] }, { runner: runnerWith([{ status: 0, stdout: "[]" }]) });
   assert.notEqual(legacy.results[0].action, "reuse");
-  assert.equal(legacy.results[0].reason, "issue_create_output_repository_mismatch_or_malformed");
+  assert.equal(legacy.results[0].reason, "issue_repository_evidence_missing");
   const other = executeIssueMutationPipeline(
     mutationConfig({ repositorySlug: "octo-org/NonDefault" }),
     [proposal],
@@ -410,10 +446,20 @@ test("repository-bound evidence is reused idempotently and legacy unbound eviden
 
 test("second restart after completion is a no-op", () => {
   const proposal = runnableProposal();
-  const legacy = executeIssueMutationPipeline(mutationConfig(), [proposal], { closedIssues: [{ number: 1018, repositorySlug: "tommytang213/Settleora", state: "CLOSED", reason: "completed", body: proposal.correlationKey }] }, { runner: runnerWith() });
+  const legacy = executeIssueMutationPipeline(
+    mutationConfig(),
+    [proposal],
+    { closedIssues: [{ number: 1018, repositorySlug: "tommytang213/Settleora", state: "CLOSED", reason: "completed", body: proposal.correlationKey }] },
+    {
+      runner: runnerWith([
+        { status: 0, stdout: issueViewBody(1018, "tommytang213/Settleora", { body: proposal.correlationKey }) },
+        { status: 0, stdout: issueViewLabels(1018, "tommytang213/Settleora", proposal.proposedLabels) },
+      ]),
+    },
+  );
   assert.equal(legacy.results[0].action, "reuse_completed_evidence");
   assert.equal(legacy.results[0].reason, "completed_duplicate");
-  assert.equal(legacy.results[0].reuse.skipped, true);
+  assert.equal(legacy.results[0].reuse.status, "skipped");
   assert.equal(legacy.results[0].reuse.reason, "correlation_already_present");
 });
 
@@ -421,6 +467,8 @@ test("created issue before restart is not recreated and completed components are
   const proposal = runnableProposal();
   const runner = runnerWith([
     { status: 0, stdout: JSON.stringify([{ number: 1014, url: "https://github.com/tommytang213/Settleora/issues/1014", state: "OPEN", body: proposal.correlationKey }]) },
+    { status: 0, stdout: issueViewBody(1014, "tommytang213/Settleora", { body: proposal.correlationKey }) },
+    { status: 0, stdout: issueViewLabels(1014, "tommytang213/Settleora", proposal.proposedLabels) },
   ]);
   const result = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner });
   assert.equal(result.results[0].action, "reuse");
@@ -429,8 +477,8 @@ test("created issue before restart is not recreated and completed components are
   const partialRunner = runnerWith([
     { status: 0, stdout: "[]" },
     { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1015" },
-    { status: 0, stdout: JSON.stringify({ number: 1015, url: "https://github.com/tommytang213/Settleora/issues/1015", body: "", comments: [{ body: proposal.correlationKey }] }) },
-    { status: 0, stdout: JSON.stringify({ number: 1015, url: "https://github.com/tommytang213/Settleora/issues/1015", labels: proposal.proposedLabels.map((name) => ({ name })) }) },
+    { status: 0, stdout: issueViewBody(1015, "tommytang213/Settleora", { comments: [{ body: proposal.correlationKey }] }) },
+    { status: 0, stdout: issueViewLabels(1015, "tommytang213/Settleora", proposal.proposedLabels) },
   ]);
   const partial = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: partialRunner });
   assert.equal(partial.results[0].components.comment.status, "skipped");
@@ -451,9 +499,9 @@ test("partial label state resumes only missing labels", () => {
   const runner = runnerWith([
     { status: 0, stdout: "[]" },
     { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1016" },
-    { status: 0, stdout: JSON.stringify({ number: 1016, url: "https://github.com/tommytang213/Settleora/issues/1016", body: "", comments: [] }) },
+    { status: 0, stdout: issueViewBody(1016) },
     { status: 0, stdout: "commented" },
-    { status: 0, stdout: JSON.stringify({ number: 1016, url: "https://github.com/tommytang213/Settleora/issues/1016", labels: [{ name: "auto-ready" }] }) },
+    { status: 0, stdout: issueViewLabels(1016, "tommytang213/Settleora", ["auto-ready"]) },
     { status: 0, stdout: "labeled" },
   ]);
   const result = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner });
@@ -478,33 +526,264 @@ test("malformed issue-create output and component repository mismatch fail close
         { status: 0, stdout: "[]" },
         { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1017" },
         { status: 0, stdout: JSON.stringify({ number: 1017, url: "https://github.com/other-org/Other/issues/1017", comments: [] }) },
-        { status: 0, stdout: JSON.stringify({ number: 1017, url: "https://github.com/tommytang213/Settleora/issues/1017", labels: [] }) },
       ]),
     },
   );
+  assert.equal(mismatch.results[0].action, "blocked");
+  assert.equal(mismatch.results[0].failedComponent, "correlation_comment");
   assert.equal(mismatch.results[0].components.comment.status, "failed");
   assert.equal(mismatch.results[0].components.comment.reason, "issue_repository_mismatch");
+  assert.equal(mismatch.results[0].components.labels, undefined);
 });
 
 test("created issue readback rejects an unexpected issue number", () => {
   const proposal = runnableProposal();
+  const runner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1019" },
+    { status: 0, stdout: issueViewBody(1020, "tommytang213/Settleora") },
+  ]);
   const result = executeIssueMutationPipeline(
     mutationConfig(),
     [proposal],
     {},
+    { runner },
+  );
+  assert.equal(result.results[0].action, "blocked");
+  assert.equal(result.results[0].completed, false);
+  assert.equal(result.results[0].failedComponent, "correlation_comment");
+  assert.equal(result.results[0].reasonCode, "issue_number_mismatch");
+  assert.equal(result.results[0].issue.number, 1019);
+  assert.equal(result.results[0].components.comment.status, "failed");
+  assert.equal(result.results[0].components.comment.reason, "issue_number_mismatch");
+  assert.equal(result.results[0].components.labels, undefined);
+  assert.equal(runner.calls.some((call) => call.args[0] === "issue" && ["comment", "edit"].includes(call.args[1])), false);
+});
+
+test("label readback issue-number mismatch blocks after preserving comment evidence", () => {
+  const proposal = runnableProposal();
+  const runner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1021" },
+    { status: 0, stdout: issueViewBody(1021) },
+    { status: 0, stdout: "commented" },
+    { status: 0, stdout: issueViewLabels(1022) },
+  ]);
+  const result = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner });
+  assert.equal(result.results[0].action, "blocked");
+  assert.equal(result.results[0].completed, false);
+  assert.equal(result.results[0].failedComponent, "queue_labels");
+  assert.equal(result.results[0].reasonCode, "issue_number_mismatch");
+  assert.equal(result.results[0].components.comment.status, "updated");
+  assert.equal(result.results[0].components.labels.status, "failed");
+  assert.equal(result.results[0].components.labels.reason, "issue_number_mismatch");
+  assert.equal(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "edit"), false);
+});
+
+test("required label read and mutation failures block completed success", () => {
+  const proposal = runnableProposal();
+  const readRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1023" },
+    { status: 0, stdout: issueViewBody(1023) },
+    { status: 0, stdout: "commented" },
+    { status: 1, stderr: "label read failed" },
+  ]);
+  const readFailure = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: readRunner });
+  assert.equal(readFailure.results[0].action, "blocked");
+  assert.equal(readFailure.results[0].failedComponent, "queue_labels");
+  assert.equal(readFailure.results[0].reasonCode, "queue_label_read_failed");
+  assert.equal(readFailure.results[0].components.labels.status, "failed");
+  assert.equal(readRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "edit"), false);
+
+  const editRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1024" },
+    { status: 0, stdout: issueViewBody(1024) },
+    { status: 0, stdout: "commented" },
+    { status: 0, stdout: issueViewLabels(1024) },
+    { status: 1, stderr: "label edit failed" },
+  ]);
+  const editFailure = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: editRunner });
+  assert.equal(editFailure.results[0].action, "blocked");
+  assert.equal(editFailure.results[0].failedComponent, "queue_labels");
+  assert.equal(editFailure.results[0].reasonCode, "label edit failed");
+  assert.equal(editFailure.results[0].components.labels.status, "failed");
+  assert.equal(editFailure.results[0].components.labels.labelsAdded.length, 0);
+});
+
+test("malformed comment and label readbacks block pipeline completion", () => {
+  const proposal = runnableProposal();
+  const malformedCommentRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1025" },
+    { status: 0, stdout: "{" },
+  ]);
+  const malformedComment = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: malformedCommentRunner });
+  assert.equal(malformedComment.results[0].action, "blocked");
+  assert.equal(malformedComment.results[0].failedComponent, "correlation_comment");
+  assert.match(malformedComment.results[0].reasonCode, /^correlation_comment_read_parse_failed:/);
+  assert.equal(malformedComment.results[0].components.labels, undefined);
+
+  const missingCommentIdentityRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1026" },
+    { status: 0, stdout: JSON.stringify({ body: "", comments: [] }) },
+  ]);
+  const missingCommentIdentity = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: missingCommentIdentityRunner });
+  assert.equal(missingCommentIdentity.results[0].action, "blocked");
+  assert.equal(missingCommentIdentity.results[0].failedComponent, "correlation_comment");
+  assert.equal(missingCommentIdentity.results[0].reasonCode, "issue_repository_evidence_missing");
+
+  const malformedLabelRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1027" },
+    { status: 0, stdout: issueViewBody(1027) },
+    { status: 0, stdout: "commented" },
+    { status: 0, stdout: "{" },
+  ]);
+  const malformedLabel = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: malformedLabelRunner });
+  assert.equal(malformedLabel.results[0].action, "blocked");
+  assert.equal(malformedLabel.results[0].failedComponent, "queue_labels");
+  assert.match(malformedLabel.results[0].reasonCode, /^queue_label_read_parse_failed:/);
+
+  const missingLabelIdentityRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1028" },
+    { status: 0, stdout: issueViewBody(1028) },
+    { status: 0, stdout: "commented" },
+    { status: 0, stdout: JSON.stringify({ labels: [] }) },
+  ]);
+  const missingLabelIdentity = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: missingLabelIdentityRunner });
+  assert.equal(missingLabelIdentity.results[0].action, "blocked");
+  assert.equal(missingLabelIdentity.results[0].failedComponent, "queue_labels");
+  assert.equal(missingLabelIdentity.results[0].reasonCode, "issue_repository_evidence_missing");
+});
+
+test("existing issue component mismatch blocks reuse success and performs no later mutation", () => {
+  const proposal = runnableProposal();
+  const runner = runnerWith([
+    { status: 0, stdout: issueViewBody(1030, "tommytang213/Settleora", { body: proposal.correlationKey }) },
+    { status: 0, stdout: issueViewLabels(1031) },
+  ]);
+  const result = executeIssueMutationPipeline(
+    mutationConfig(),
+    [proposal],
+    { openIssues: [{ number: 1030, repositorySlug: "tommytang213/Settleora", url: "https://github.com/tommytang213/Settleora/issues/1030", state: "OPEN", body: proposal.correlationKey }] },
+    { runner },
+  );
+  assert.equal(result.results[0].action, "blocked");
+  assert.notEqual(result.results[0].action, "existing");
+  assert.notEqual(result.results[0].action, "reuse");
+  assert.equal(result.results[0].failedComponent, "queue_labels");
+  assert.equal(result.results[0].reasonCode, "issue_number_mismatch");
+  assert.equal(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "edit"), false);
+});
+
+test("restart after created issue comment mismatch reuses issue and does not create a second issue", () => {
+  const proposal = runnableProposal();
+  const firstRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1032" },
+    { status: 0, stdout: issueViewBody(1033) },
+  ]);
+  const first = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: firstRunner });
+  assert.equal(first.results[0].action, "blocked");
+  assert.equal(first.results[0].issue.number, 1032);
+  assert.equal(firstRunner.calls.filter((call) => call.args[0] === "issue" && call.args[1] === "create").length, 1);
+
+  const restartRunner = runnerWith([
+    { status: 0, stdout: JSON.stringify([{ number: 1032, url: "https://github.com/tommytang213/Settleora/issues/1032", state: "OPEN", body: proposal.correlationKey }]) },
+    { status: 0, stdout: issueViewBody(1032, "tommytang213/Settleora", { body: proposal.correlationKey }) },
+    { status: 0, stdout: issueViewLabels(1032, "tommytang213/Settleora", proposal.proposedLabels) },
+  ]);
+  const restarted = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: restartRunner });
+  assert.equal(restarted.results[0].action, "reuse");
+  assert.equal(restarted.results[0].completed, true);
+  assert.equal(restartRunner.calls.filter((call) => call.args[0] === "issue" && call.args[1] === "create").length, 0);
+});
+
+test("restart after comment success and label failure dedupes comment then resumes labels", () => {
+  const proposal = runnableProposal();
+  const firstRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1034" },
+    { status: 0, stdout: issueViewBody(1034) },
+    { status: 0, stdout: "commented" },
+    { status: 0, stdout: issueViewLabels(1034) },
+    { status: 1, stderr: "label edit failed" },
+  ]);
+  const first = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: firstRunner });
+  assert.equal(first.results[0].action, "blocked");
+  assert.equal(first.results[0].components.comment.status, "updated");
+  assert.equal(first.results[0].failedComponent, "queue_labels");
+
+  const restartRunner = runnerWith([
+    { status: 0, stdout: JSON.stringify([{ number: 1034, url: "https://github.com/tommytang213/Settleora/issues/1034", state: "OPEN", body: proposal.correlationKey }]) },
+    { status: 0, stdout: issueViewBody(1034, "tommytang213/Settleora", { comments: [{ body: proposal.correlationKey }] }) },
+    { status: 0, stdout: issueViewLabels(1034, "tommytang213/Settleora", ["workflow"]) },
+    { status: 0, stdout: "labeled" },
+  ]);
+  const restarted = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner: restartRunner });
+  assert.equal(restarted.results[0].action, "reuse");
+  assert.equal(restarted.results[0].components.comment.status, "skipped");
+  assert.equal(restarted.results[0].components.labels.status, "updated");
+  assert.equal(restarted.results[0].completed, true);
+  assert.equal(restartRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment"), false);
+  assert.equal(restartRunner.calls.filter((call) => call.args[0] === "issue" && call.args[1] === "edit").length, 1);
+});
+
+test("persistent mismatch remains blocked and consumes no later mutation", () => {
+  const proposal = runnableProposal();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const runner = runnerWith([
+      { status: 0, stdout: "[]" },
+      { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1035" },
+      { status: 0, stdout: issueViewBody(1036) },
+    ]);
+    const result = executeIssueMutationPipeline(mutationConfig(), [proposal], {}, { runner });
+    assert.equal(result.results[0].action, "blocked");
+    assert.equal(result.results[0].reasonCode, "issue_number_mismatch");
+    assert.equal(result.results[0].failedComponent, "correlation_comment");
+    assert.equal(runner.calls.some((call) => call.args[0] === "issue" && ["comment", "edit"].includes(call.args[1])), false);
+  }
+});
+
+test("same-number issue in another repository and legacy unbound evidence cannot satisfy recovery", () => {
+  const proposal = runnableProposal();
+  const otherRepo = executeIssueMutationPipeline(
+    mutationConfig(),
+    [proposal],
+    { openIssues: [{ number: 1037, repositorySlug: "other-org/Other", url: "https://github.com/other-org/Other/issues/1037", state: "OPEN", body: proposal.correlationKey }] },
     {
       runner: runnerWith([
         { status: 0, stdout: "[]" },
-        { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1019" },
-        { status: 0, stdout: JSON.stringify({ number: 1020, url: "https://github.com/tommytang213/Settleora/issues/1020", body: "", comments: [] }) },
-        { status: 0, stdout: JSON.stringify({ number: 1019, url: "https://github.com/tommytang213/Settleora/issues/1019", labels: [] }) },
-        { status: 0, stdout: "labeled" },
+        { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1037" },
+        { status: 0, stdout: issueViewBody(1037) },
+        { status: 0, stdout: "commented" },
+        { status: 0, stdout: issueViewLabels(1037, "tommytang213/Settleora", proposal.proposedLabels) },
       ]),
     },
   );
-  assert.equal(result.results[0].action, "created");
-  assert.equal(result.results[0].components.comment.status, "failed");
-  assert.equal(result.results[0].components.comment.reason, "issue_number_mismatch");
+  assert.equal(otherRepo.results[0].action, "created");
+  assert.equal(otherRepo.results[0].issue.repositorySlug, "tommytang213/Settleora");
+
+  const legacyRunner = runnerWith([
+    { status: 0, stdout: "[]" },
+    { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1039" },
+    { status: 0, stdout: issueViewBody(1039) },
+    { status: 0, stdout: "commented" },
+    { status: 0, stdout: issueViewLabels(1039, "tommytang213/Settleora", proposal.proposedLabels) },
+  ]);
+  const legacy = executeIssueMutationPipeline(
+    mutationConfig(),
+    [proposal],
+    { openIssues: [{ number: 1038, state: "OPEN", body: proposal.correlationKey }] },
+    { runner: legacyRunner },
+  );
+  assert.equal(legacy.results[0].action, "blocked");
+  assert.equal(legacy.results[0].reason, "issue_repository_evidence_missing");
+  assert.equal(legacyRunner.calls.length, 0);
 });
 
 test("bundle proposals can receive auto-bundle only with valid bundle contract", () => {

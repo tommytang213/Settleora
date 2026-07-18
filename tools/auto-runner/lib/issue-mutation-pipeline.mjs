@@ -67,8 +67,40 @@ export function executeIssueMutationPipeline(config = {}, proposals = [], eviden
       continue;
     }
     if (duplicate.action === "reuse" || duplicate.action === "reuse_completed_evidence") {
-      const reuse = maybeCommentExistingCorrelation(config, validation.proposal, duplicate.matches[0], runner, repositoryContext);
-      results.push(finalize(config, proposal, { action: duplicate.action, reason: duplicate.reason, duplicate, reuse, beforePath }));
+      const existingIssue = bindIssueEvidence(duplicate.matches[0], repositoryContext);
+      const completion = completeRequiredIssueComponents(config, validation.proposal, existingIssue, runner, repositoryContext);
+      if (!completion.ok) {
+        results.push(
+          finalize(config, proposal, {
+            action: "blocked",
+            reason: completion.reasonCode,
+            reasonCode: completion.reasonCode,
+            failedComponent: completion.failedComponent,
+            completed: false,
+            success: false,
+            duplicate,
+            issue: existingIssue,
+            components: completion.components,
+            repositoryContext,
+            beforePath,
+          }),
+        );
+        continue;
+      }
+      results.push(
+        finalize(config, proposal, {
+          action: duplicate.action,
+          reason: duplicate.reason,
+          duplicate,
+          reuse: completion.components.comment,
+          components: completion.components,
+          issue: existingIssue,
+          repositoryContext,
+          completed: true,
+          success: true,
+          beforePath,
+        }),
+      );
       continue;
     }
     if (createdOrQueued >= maxIssues) {
@@ -89,7 +121,39 @@ export function executeIssueMutationPipeline(config = {}, proposals = [], eviden
 
     const rereadBefore = findExistingByCorrelation(validation.proposal, evidence, runner, repositoryContext);
     if (rereadBefore.found) {
-      results.push(finalize(config, proposal, { action: "reuse", reason: "reread_before_create_found_existing", duplicate: rereadBefore, beforePath }));
+      const existingIssue = bindIssueEvidence(rereadBefore.matches[0], repositoryContext);
+      const completion = completeRequiredIssueComponents(config, validation.proposal, existingIssue, runner, repositoryContext);
+      if (!completion.ok) {
+        results.push(
+          finalize(config, proposal, {
+            action: "blocked",
+            reason: completion.reasonCode,
+            reasonCode: completion.reasonCode,
+            failedComponent: completion.failedComponent,
+            completed: false,
+            success: false,
+            duplicate: rereadBefore,
+            issue: existingIssue,
+            components: completion.components,
+            repositoryContext,
+            beforePath,
+          }),
+        );
+        continue;
+      }
+      results.push(
+        finalize(config, proposal, {
+          action: "reuse",
+          reason: "reread_before_create_found_existing",
+          duplicate: rereadBefore,
+          components: completion.components,
+          issue: existingIssue,
+          repositoryContext,
+          completed: true,
+          success: true,
+          beforePath,
+        }),
+      );
       continue;
     }
 
@@ -97,7 +161,41 @@ export function executeIssueMutationPipeline(config = {}, proposals = [], eviden
     if (created.uncertain) {
       const rereadAfter = findExistingByCorrelation(validation.proposal, evidence, runner, repositoryContext);
       if (rereadAfter.found) {
-        results.push(finalize(config, proposal, { action: "reuse", reason: "uncertain_create_response_reused_by_correlation", create: created, duplicate: rereadAfter, beforePath }));
+        const existingIssue = bindIssueEvidence(rereadAfter.matches[0], repositoryContext);
+        const completion = completeRequiredIssueComponents(config, validation.proposal, existingIssue, runner, repositoryContext);
+        if (!completion.ok) {
+          results.push(
+            finalize(config, proposal, {
+              action: "blocked",
+              reason: completion.reasonCode,
+              reasonCode: completion.reasonCode,
+              failedComponent: completion.failedComponent,
+              completed: false,
+              success: false,
+              create: created,
+              duplicate: rereadAfter,
+              issue: existingIssue,
+              components: completion.components,
+              repositoryContext,
+              beforePath,
+            }),
+          );
+          continue;
+        }
+        results.push(
+          finalize(config, proposal, {
+            action: "reuse",
+            reason: "uncertain_create_response_reused_by_correlation",
+            create: created,
+            duplicate: rereadAfter,
+            components: completion.components,
+            issue: existingIssue,
+            repositoryContext,
+            completed: true,
+            success: true,
+            beforePath,
+          }),
+        );
         continue;
       }
     }
@@ -107,9 +205,27 @@ export function executeIssueMutationPipeline(config = {}, proposals = [], eviden
     }
 
     createdOrQueued += 1;
+    const completion = completeRequiredIssueComponents(config, validation.proposal, created.issue, runner, repositoryContext);
+    if (!completion.ok) {
+      results.push(
+        finalize(config, proposal, {
+          action: "blocked",
+          reason: completion.reasonCode,
+          reasonCode: completion.reasonCode,
+          failedComponent: completion.failedComponent,
+          completed: false,
+          success: false,
+          repositoryContext,
+          create: created,
+          components: completion.components,
+          issue: created.issue,
+          beforePath,
+        }),
+      );
+      continue;
+    }
     const components = {
-      comment: addCorrelationComment(validation.proposal, created.issue, runner, repositoryContext),
-      labels: ensureQueueLabels(validation.proposal, created.issue, runner, repositoryContext),
+      ...completion.components,
       project: updateProjectStatusIfSupported(config, validation.proposal, created.issue, runner),
     };
     results.push(
@@ -120,6 +236,8 @@ export function executeIssueMutationPipeline(config = {}, proposals = [], eviden
         create: created,
         components,
         issue: created.issue,
+        completed: true,
+        success: true,
         beforePath,
       }),
     );
@@ -284,6 +402,37 @@ function maybeCommentExistingCorrelation(config, proposal, match, runner, reposi
   return addCorrelationComment(proposal, match, runner, repositoryContext);
 }
 
+function completeRequiredIssueComponents(config, proposal, issue, runner, repositoryContext) {
+  const components = {};
+  if (!mutationCapability(config).allowed) {
+    components.comment = { status: "failed", reason: "mutation_not_allowed", repositorySlug: repositoryContext.repositorySlug, issueNumber: issue?.number || null };
+  } else {
+    components.comment = addCorrelationComment(proposal, issue, runner, repositoryContext);
+  }
+  if (componentFailed(components.comment)) {
+    return requiredComponentFailure("correlation_comment", components.comment, components);
+  }
+  components.labels = ensureQueueLabels(proposal, issue, runner, repositoryContext);
+  if (componentFailed(components.labels)) {
+    return requiredComponentFailure("queue_labels", components.labels, components);
+  }
+  return { ok: true, components };
+}
+
+function componentFailed(component = {}) {
+  return ["failed", "not_updated"].includes(component.status) && component.reason !== "no_queue_labels";
+}
+
+function requiredComponentFailure(failedComponent, component = {}, components = {}) {
+  const reasonCode = component.reason || `${failedComponent}_failed`;
+  return {
+    ok: false,
+    failedComponent,
+    reasonCode,
+    components,
+  };
+}
+
 function addCorrelationComment(proposal, issue, runner, repositoryContext) {
   if (!issue?.number) return { status: "not_updated", reason: "issue_number_missing" };
   if (!sameRepositoryIssue(issue, repositoryContext)) return { status: "failed", reason: "issue_repository_mismatch", repositorySlug: repositoryContext.repositorySlug };
@@ -291,7 +440,7 @@ function addCorrelationComment(proposal, issue, runner, repositoryContext) {
   if (existing.status !== 0 || existing.error) return { status: "failed", reason: "correlation_comment_read_failed", result: commandStatus(existing), repositorySlug: repositoryContext.repositorySlug };
   try {
     const parsed = JSON.parse(existing.stdout || "{}");
-    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext, { expectedIssueNumber: issue.number });
+    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext, { expectedIssueNumber: issue.number, requireEvidence: true, requireIssueNumber: true });
     if (!repositoryCheck.ok) return { status: "failed", reason: repositoryCheck.reason, repositorySlug: repositoryContext.repositorySlug };
     const text = `${parsed.body || ""}\n${(Array.isArray(parsed.comments) ? parsed.comments : []).map((comment) => comment.body || "").join("\n")}`;
     if (text.includes(proposal.correlationKey) || text.includes(proposal.idempotencyKey)) {
@@ -325,7 +474,7 @@ function ensureQueueLabels(proposal, issue, runner, repositoryContext) {
   if (view.status !== 0 || view.error) return { status: "failed", reason: "queue_label_read_failed", result: commandStatus(view), repositorySlug: repositoryContext.repositorySlug };
   try {
     const parsed = JSON.parse(view.stdout || "{}");
-    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext, { expectedIssueNumber: issue.number });
+    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext, { expectedIssueNumber: issue.number, requireEvidence: true, requireIssueNumber: true });
     if (!repositoryCheck.ok) return { status: "failed", reason: repositoryCheck.reason, repositorySlug: repositoryContext.repositorySlug };
     const existing = labelNames(parsed.labels);
     const missing = labels.filter((label) => !existing.includes(label));
@@ -437,10 +586,14 @@ function proposalSummary(proposal = {}) {
 
 function repositoryBoundDuplicateEvidence(duplicate = {}, repositoryContext = {}) {
   if (!duplicate.ok || !Array.isArray(duplicate.matches)) return duplicate;
-  const matches = duplicate.matches.filter((match) => repositoryEvidenceMatches(match, repositoryContext, { requireEvidence: true }).ok).map((match) => bindIssueEvidence(match, repositoryContext));
+  const checkedMatches = duplicate.matches.map((match) => ({ match, check: repositoryEvidenceMatches(match, repositoryContext, { requireEvidence: true }) }));
+  const matches = checkedMatches.filter((entry) => entry.check.ok).map((entry) => bindIssueEvidence(entry.match, repositoryContext));
   if (matches.length === duplicate.matches.length) return { ...duplicate, matches, repositorySlug: repositoryContext.repositorySlug };
   if (matches.length > 0) return { ...duplicate, matches, repositorySlug: repositoryContext.repositorySlug, ignoredOtherRepositoryMatches: duplicate.matches.length - matches.length };
   if (["reuse", "reuse_completed_evidence"].includes(duplicate.action)) {
+    if (checkedMatches.some((entry) => entry.check.reason === "issue_repository_evidence_missing")) {
+      return { ok: false, action: "blocked", reason: "issue_repository_evidence_missing", matches: [], repositorySlug: repositoryContext.repositorySlug };
+    }
     return { ok: true, action: "none", reason: "repository_scoped_duplicate_not_found", matches: [], ignoredOtherRepositoryMatches: duplicate.matches.length, repositorySlug: repositoryContext.repositorySlug };
   }
   return { ...duplicate, matches, repositorySlug: repositoryContext.repositorySlug, ignoredOtherRepositoryMatches: duplicate.matches.length };
@@ -461,6 +614,7 @@ function repositoryEvidenceMatches(item = {}, repositoryContext = {}, options = 
   if (evidenceId && repositoryContext.repositoryId && evidenceId !== repositoryContext.repositoryId) return { ok: false, reason: "issue_repository_id_mismatch", observedRepositoryId: evidenceId };
   const observedIssueNumber = normalizeIssueNumber(item.number);
   const expectedIssueNumber = normalizeIssueNumber(options.expectedIssueNumber);
+  if (options.requireIssueNumber && !observedIssueNumber) return { ok: false, reason: "issue_number_missing" };
   if (expectedIssueNumber && observedIssueNumber && observedIssueNumber !== expectedIssueNumber) {
     return { ok: false, reason: "issue_number_mismatch", observedIssueNumber, expectedIssueNumber };
   }
