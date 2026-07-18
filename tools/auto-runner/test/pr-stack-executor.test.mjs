@@ -367,6 +367,7 @@ test("push intent is durable before push and crash-after-push reconciliation fin
     fingerprintDigest: sha("d"),
     reviewed,
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("d") }),
   });
   assert.equal(JSON.parse(readFileSync(intent.intentPath, "utf8")).status, "push_intent");
   const persisted = JSON.parse(readFileSync(intent.intentPath, "utf8"));
@@ -411,6 +412,7 @@ test("push intent supports preserved multi-commit chains from remote parent to c
     fingerprintDigest: sha("f"),
     reviewed,
     pushTarget: `origin ${sha("d")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("d"), candidateParent: sha("c"), tree: sha("e"), commitChain: [sha("a"), sha("b"), sha("c"), sha("d")], fingerprintDigest: sha("f") }),
   });
   assert.deepEqual(intent.commitChain, [sha("a"), sha("b"), sha("c"), sha("d")]);
   const reconciled = prStackExecutorTestInternals.reconcilePushIntent({
@@ -444,6 +446,7 @@ test("push intent repository identity validator rejects mismatches before push c
     fingerprintDigest: sha("d"),
     reviewed,
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("d") }),
   });
   assert.equal(prStackExecutorTestInternals.reconcilePushIntent({
     config: { ...fixture.config, repoRoot: fixture.root },
@@ -483,6 +486,7 @@ test("startup push-intent reconciliation rejects fork repositories even with mat
     fingerprintDigest: sha("f"),
     reviewed,
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("f"), taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" }),
   });
   const result = prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({
     config,
@@ -513,6 +517,7 @@ test("push intent reconciliation fails closed on conflicting remote or live head
     fingerprintDigest: sha("d"),
     reviewed,
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("d") }),
   });
   const runner = targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("z"), remoteHead: sha("z"), liveHead: sha("z") });
   const result = prStackExecutorTestInternals.reconcilePushIntent({
@@ -583,6 +588,7 @@ test("task-scoped pending push intent is reconciled before stale-head blocking a
     fingerprintDigest: sha("f"),
     reviewed,
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("f"), taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" }),
   });
   let convergenceCalls = 0;
   const calls = [];
@@ -628,6 +634,7 @@ test("push intent discovery ignores unrelated intents and fails closed on malfor
     fingerprintDigest: sha("f"),
     reviewed,
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("f"), taskKey: "other", runId: "run-1", supervisorRunId: "supervisor-1" }),
   });
   assert.equal(prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({ config, state: createInitialPrStackState({ plan: fixture.plan }), pr, livePr: { headRefOid: sha("c") } }).intents.length, 0);
   writeFileSync(path.join(config.logsRoot, "source-cycle-intents", "bad.json"), "{bad", { mode: 0o600 });
@@ -647,6 +654,7 @@ test("push intent discovery ignores unrelated intents and fails closed on malfor
       fingerprintDigest: sha("f"),
       reviewed,
       pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+      sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("f"), taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" }),
     });
     const copyPath = path.join(secondConfig.logsRoot, "source-cycle-intents", `${suffix}.json`);
     writeFileSync(copyPath, JSON.stringify({ ...JSON.parse(readFileSync(intent.intentPath, "utf8")), intentPath: copyPath }, null, 2), { mode: 0o600 });
@@ -675,6 +683,7 @@ test("push intent classifications cover not completed unpushed candidate confirm
     fingerprintDigest: sha("f"),
     reviewed,
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("f"), taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" }),
   });
   assert.equal(prStackExecutorTestInternals.reconcilePushIntent({
     config: { ...config, repoRoot: fixture.root },
@@ -695,9 +704,189 @@ test("push intent classifications cover not completed unpushed candidate confirm
     runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("a"), remoteHead: sha("c"), liveHead: sha("c") }),
   });
   assert.equal(confirmed.ok, true, confirmed.reasonCode);
-  const idempotent = prStackExecutorTestInternals.finalizePushIntent({ intent: JSON.parse(readFileSync(intent.intentPath, "utf8")), remoteHead: sha("c"), liveHead: sha("c") });
+  const idempotent = prStackExecutorTestInternals.finalizePushIntent({ config: { ...config, repoRoot: fixture.root }, pr: fixture.plan.orderedPrs[0], intent: JSON.parse(readFileSync(intent.intentPath, "utf8")), remoteHead: sha("c"), liveHead: sha("c") });
   assert.equal(idempotent.ok, true);
   assert.equal(idempotent.idempotent, true);
+});
+
+test("source-cycle reservations enforce creation budget ordinal and duplicate ownership", () => {
+  const fixture = stackFixture();
+  const pr = fixture.plan.orderedPrs[0];
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  const budget = prStackExecutorTestInternals.evaluateSourceCycleBudget({
+    config: { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
+    state,
+    pr,
+    findings: [{ title: "finding" }],
+  });
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  const reserved = prStackExecutorTestInternals.persistSourceCycleReservation({
+    config: { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
+    state,
+    pr,
+    budget,
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("f"),
+    reviewed,
+  });
+  assert.equal(reserved.ok, true, reserved.reasonCode);
+  assert.equal(reserved.reservation.consumedBefore, 0);
+  assert.equal(reserved.reservation.consumedAfter, 1);
+  assert.equal(reserved.reservation.maxAtReservation, 2);
+
+  const duplicate = prStackExecutorTestInternals.persistSourceCycleReservation({
+    config: { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
+    state,
+    pr,
+    budget,
+    oldHead: sha("a"),
+    newHead: sha("d"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("g"),
+    reviewed: sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("d"), fingerprintDigest: sha("g") }).result,
+  });
+  assert.equal(duplicate.reasonCode, "source_cycle_reservation_conflict");
+
+  state.sourceCycles["919"] = 2;
+  const exhausted = prStackExecutorTestInternals.evaluateSourceCycleBudget({
+    config: { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
+    state,
+    pr,
+    findings: [{ title: "finding" }],
+  });
+  assert.equal(exhausted.reasonCode, "source_cycle_budget_exhausted");
+  assert.equal(prStackExecutorTestInternals.persistSourceCycleReservation({
+    config: { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
+    state,
+    pr,
+    budget: exhausted,
+    oldHead: sha("a"),
+    newHead: sha("e"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("h"),
+    reviewed,
+  }).reasonCode, "source_cycle_budget_exhausted");
+});
+
+test("source-cycle reservation shape rejects over-budget malformed PR epoch chain and candidate drift", () => {
+  const fixture = stackFixture();
+  const pr = fixture.plan.orderedPrs[0];
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  const valid = testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), maxAtReservation: 2 });
+  assert.equal(prStackExecutorTestInternals.validateSourceCycleReservation({ config: { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } }, state, pr, reservation: valid, oldHead: sha("a"), newHead: sha("c"), expectStatus: "source_cycle_reserved", requireCurrentCount: true }).ok, true);
+  assert.equal(prStackExecutorTestInternals.validateSourceCycleReservation({ config: fixture.config, state, pr, reservation: { ...valid, consumedBefore: 2, consumedAfter: 3, reservedOrdinal: 3, maxAtReservation: 2 }, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_cycle_reservation_over_budget");
+  assert.equal(prStackExecutorTestInternals.validateSourceCycleReservation({ config: fixture.config, state, pr, reservation: { ...valid, consumedAfter: 3, reservedOrdinal: 3 }, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_cycle_reservation_malformed");
+  assert.equal(prStackExecutorTestInternals.validateSourceCycleReservation({ config: fixture.config, state, pr, reservation: { ...valid, prNumber: 920 }, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_cycle_reservation_pr_mismatch");
+  assert.equal(prStackExecutorTestInternals.validateSourceCycleReservation({ config: fixture.config, state, pr, reservation: { ...valid, sourceCycleEpoch: 2 }, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_cycle_reservation_epoch_mismatch");
+  assert.equal(prStackExecutorTestInternals.validateSourceCycleReservation({ config: fixture.config, state, pr, reservation: { ...valid, commitChainDigest: sha("z") }, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_cycle_reservation_chain_mismatch");
+  assert.equal(prStackExecutorTestInternals.validateSourceCycleReservation({ config: fixture.config, state, pr, reservation: { ...valid, finalCandidateHead: sha("d"), candidateNewHead: sha("d") }, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_cycle_reservation_candidate_mismatch");
+});
+
+test("stale-head reconciliation requires finalized reservation and never treats exhausted budget as success", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1", prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } };
+  const pr = fixture.plan.orderedPrs[0];
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.sourceCycles["919"] = 2;
+  writePrStackState(statePath, state);
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  prStackExecutorTestInternals.persistPushIntent({
+    config,
+    markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+    pr,
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("f"),
+    reviewed,
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("f"), maxAtReservation: 2, consumedBefore: 2, taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" }),
+  });
+  let convergenceCalls = 0;
+  const calls = [];
+  const result = await runPrStackExecution(config, { stackPlanPath: fixture.planPath }, {
+    adapter: {
+      inspectPr: async () => ({ ok: true, headRefOid: sha("c"), findings: [{ title: "finding" }] }),
+      reconcilePendingPushIntent: async ({ config: cfg, state: current, pr: currentPr, livePr }) => prStackExecutorTestInternals.reconcileTaskScopedPendingPushIntent({
+        config: { ...cfg, repoRoot: fixture.root },
+        state: current,
+        pr: currentPr,
+        livePr,
+        runner: targetWorktreeRunner(calls, { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") }),
+      }),
+      convergeExistingPr: async () => {
+        convergenceCalls += 1;
+        return sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("d") });
+      },
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "source_cycle_reservation_over_budget");
+  assert.equal(convergenceCalls, 0);
+  assert.equal(calls.includes(`git push origin ${sha("c")}:feature/auto-913-parent`), false);
+  assert.equal(JSON.parse(readFileSync(statePath, "utf8")).sourceCycles["919"], 2);
+});
+
+test("remote candidate reconciliation finalizes exactly once and fails closed without matching marker", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" };
+  const pr = fixture.plan.orderedPrs[0];
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  const reservation = testSourceCycleReservation({ oldHead: sha("a"), newHead: sha("c"), fingerprintDigest: sha("f"), taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" });
+  const intent = prStackExecutorTestInternals.persistPushIntent({
+    config,
+    markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+    pr,
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("f"),
+    reviewed,
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    sourceCycleReservation: reservation,
+  });
+  const confirmed = prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...config, repoRoot: fixture.root },
+    pr,
+    intent,
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") }),
+  });
+  assert.equal(confirmed.ok, true, confirmed.reasonCode);
+  assert.equal(confirmed.sourceCycleReservation.consumedAfter, 1);
+  const confirmedIntent = JSON.parse(readFileSync(intent.intentPath, "utf8"));
+  const idempotent = prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...config, repoRoot: fixture.root },
+    pr,
+    intent: confirmedIntent,
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") }),
+  });
+  assert.equal(idempotent.ok, true, idempotent.reasonCode);
+  assert.equal(idempotent.idempotent, true);
+  const staleCountState = createInitialPrStackState({ plan: fixture.plan });
+  staleCountState.sourceCycles["919"] = 1;
+  const pendingWithoutFinalizedReservationPath = path.join(config.logsRoot, "source-cycle-intents", "pending-without-finalized-reservation.json");
+  writeFileSync(
+    pendingWithoutFinalizedReservationPath,
+    JSON.stringify({
+      ...confirmedIntent,
+      status: "push_intent",
+      intentPath: pendingWithoutFinalizedReservationPath,
+      sourceCycleReservation: { ...confirmedIntent.sourceCycleReservation, status: "source_cycle_reserved", finalizedAt: null },
+    }, null, 2),
+    { mode: 0o600 },
+  );
+  const missingMarker = prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({
+    config,
+    state: staleCountState,
+    pr,
+    livePr: { headRefOid: sha("c") },
+  });
+  assert.equal(missingMarker.reasonCode, "source_cycle_reservation_conflict");
 });
 
 test("new source head consumes one parent cycle and waits do not consume cycles", async () => {
@@ -1929,6 +2118,17 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
   const changedFilesDigest = digestStrings(changedFiles);
   const commitChain = overrides.sourceIdentity?.commitChain || [oldHead, newHead];
   const commitChainDigest = digestStringList(commitChain);
+  const sourceCycleReservation = overrides.sourceCycleReservation || testSourceCycleReservation({
+    prNumber,
+    oldHead,
+    newHead,
+    candidateParent: commitChain.at(-2),
+    tree,
+    commitChain,
+    changedFiles,
+    fingerprintDigest,
+    status: "source_cycle_finalized",
+  });
   const validation = {
     passed: true,
     results: [{ command: "node --test tools/auto-runner/test/pr-stack-executor.test.mjs", status: 0 }],
@@ -1994,6 +2194,7 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
       headRepositorySlug: "tommytang213/Settleora",
       originRepositorySlug: "tommytang213/Settleora",
       repositoryIds: { baseRepositoryId: "repo-1", headRepositoryId: "repo-1" },
+      sourceCycleReservation,
       ...(overrides.sourceIdentity || {}),
     },
     pushedAt: "2026-07-18T00:00:03.000Z",
@@ -2015,6 +2216,62 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
     ...(overrides.nested || {}),
   };
   return { ok: true, newHead, result: nested, ...overrides.outer };
+}
+
+function testSourceCycleReservation({ prNumber = 919, oldHead = sha("a"), newHead = sha("c"), candidateParent = oldHead, tree = sha("d"), commitChain = [oldHead, newHead], changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"], fingerprintDigest = sha("f"), status = "source_cycle_reserved", consumedBefore = 0, maxAtReservation = 50, epoch = 1, taskKey = null, runId = null, supervisorRunId = null } = {}) {
+  const consumedAfter = consumedBefore + 1;
+  const commitChainDigest = digestStringList(commitChain);
+  const changedFilesDigest = digestStrings(changedFiles);
+  const reservationId = digestJson({
+    repository: "tommytang213/Settleora",
+    prNumber,
+    epoch,
+    consumedAfter,
+    oldHead,
+    newHead,
+    commitChainDigest,
+    changedFilesDigest,
+    fingerprintDigest,
+  });
+  return {
+    status,
+    reservationId,
+    reservationPath: `/workspace/logs/source-cycle-reservations/${reservationId}.json`,
+    repository: "tommytang213/Settleora",
+    configuredRepositorySlug: "tommytang213/Settleora",
+    baseRepositorySlug: "tommytang213/Settleora",
+    headRepositorySlug: "tommytang213/Settleora",
+    originRepositorySlug: "tommytang213/Settleora",
+    repositoryIds: { baseRepositoryId: "repo-1", headRepositoryId: "repo-1" },
+    prNumber,
+    sourceBranch: prNumber === 920 ? "feature/auto-913-child" : "feature/auto-913-parent",
+    sourceCycleEpoch: epoch,
+    policyDigest: digestJson({ repositorySlug: "tommytang213/Settleora", maxSourceCyclesPerPr: maxAtReservation }),
+    maxAtReservation,
+    consumedBefore,
+    reservedOrdinal: consumedAfter,
+    consumedAfter,
+    remainingBefore: maxAtReservation - consumedBefore,
+    oldHead,
+    finalCandidateHead: newHead,
+    candidateNewHead: newHead,
+    candidateParent,
+    candidateTree: tree,
+    commitChain,
+    commitChainDigest,
+    findingInventoryDigest: fingerprintDigest,
+    findingFingerprints: [`${prNumber}:finding`],
+    changedFiles,
+    changedFilesDigest,
+    validationHead: newHead,
+    strongReviewHead: newHead,
+    codexReviewHead: newHead,
+    taskKey,
+    runId,
+    supervisorRunId,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    finalizedAt: status === "source_cycle_finalized" ? "2026-07-18T00:00:03.000Z" : null,
+  };
 }
 
 function digestStrings(items) {

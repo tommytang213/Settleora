@@ -108,6 +108,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
       terminal: dispatch.waiting ? null : { reasonCode: dispatch.reasonCode, reason: dispatch.reason },
       wait: dispatch.waiting ? { reasonCode: dispatch.reasonCode, action } : null,
       evidence,
+      sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
       sourceCycles: dispatch.sourceCycles || state.sourceCycles,
       exactHeads: dispatch.exactHeads || state.exactHeads,
       orderedPrs: dispatch.orderedPrs || state.orderedPrs,
@@ -124,6 +125,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     evidence: dispatch.evidence || state.evidence,
     mutationMarkers: dispatch.mutationMarkers || state.mutationMarkers,
     activePrNumber: dispatch.activePrNumber ?? state.activePrNumber,
+    sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
     sourceCycles: dispatch.sourceCycles || state.sourceCycles,
     exactHeads: dispatch.exactHeads || state.exactHeads,
     orderedPrs: dispatch.orderedPrs || state.orderedPrs,
@@ -201,6 +203,7 @@ export function createInitialPrStackState({ plan, adapter = null } = {}) {
     currentPhase: "initialized",
     currentAction: null,
     sourceCycles: Object.fromEntries(plan.orderedPrs.map((pr) => [pr.number, 0])),
+    sourceCycleReservations: {},
     exactHeads: Object.fromEntries(plan.orderedPrs.map((pr) => [pr.number, pr.headRefOid])),
     exactBases: Object.fromEntries(plan.orderedPrs.map((pr) => [pr.number, pr.baseRefName])),
     findingHistory: {},
@@ -356,20 +359,20 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
       : null;
     if (reconciled?.ok && reconciled.finalized === true) {
       const newHead = reconciled.newHead;
-      const budget = evaluateSourceCycleBudget({ config, state, pr, findings: before.findings || [] });
-      if (!budget.ok && budget.reasonCode !== "source_cycle_budget_exhausted") return budget;
-      const consumed = budget.ok ? budget.consumed : state.sourceCycles?.[pr.number];
-      const sourceCycles = { ...(state.sourceCycles || {}), [pr.number]: consumed + 1 };
+      const reserved = validateReconciledSourceCycle({ config, state, pr, result: reconciled });
+      if (!reserved.ok) return reserved;
+      const sourceCycles = { ...(state.sourceCycles || {}), [pr.number]: reserved.consumedAfter };
       const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, reconciled);
       if (!rebound.ok) return rebound;
       return {
         ok: true,
         evidence: rebound.evidence,
         mutationMarkers: rebound.mutationMarkers,
+        sourceCycleReservations: upsertSourceCycleReservation(state.sourceCycleReservations, reserved.reservation),
         sourceCycles,
         exactHeads: rebound.exactHeads,
         orderedPrs: rebound.orderedPrs,
-        summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, pushIntentReconciledBeforeStale: true },
+        summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, pushIntentReconciledBeforeStale: true, sourceCycleReservation: reserved.summary },
       };
     }
     if (reconciled?.ok === false && reconciled.reasonCode !== "push_intent_not_completed" && reconciled.reasonCode !== "push_intent_unpushed_candidate") {
@@ -384,17 +387,20 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   const newHead = result.newHead || result.headRefOid || pr.headRefOid;
   const sourceCycles = { ...(state.sourceCycles || {}) };
   if (newHead !== pr.headRefOid) {
-    sourceCycles[pr.number] = budget.consumed + 1;
+    const reserved = validateReconciledSourceCycle({ config, state, pr, result, budget });
+    if (!reserved.ok) return reserved;
+    sourceCycles[pr.number] = reserved.consumedAfter;
     const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, result);
     if (!rebound.ok) return rebound;
     return {
       ok: true,
       evidence: rebound.evidence,
       mutationMarkers: rebound.mutationMarkers,
+      sourceCycleReservations: upsertSourceCycleReservation(state.sourceCycleReservations, reserved.reservation),
       sourceCycles,
       exactHeads: rebound.exactHeads,
       orderedPrs: rebound.orderedPrs,
-      summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, reboundExactHead: true },
+      summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, reboundExactHead: true, sourceCycleReservation: reserved.summary },
     };
   }
   const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "converge_pr", key: pr.headRefOid, prNumber: pr.number, exactHead: pr.headRefOid });
@@ -805,7 +811,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         },
       };
     },
-    async commitAndPush({ exactHead, changedFiles, reviewed, pr, fingerprintDigest, markerKey }) {
+    async commitAndPush({ exactHead, changedFiles, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null }) {
       const newHead = reviewed?.localCandidate?.newHead || reviewed?.sourceIdentity?.newHead || null;
       if (!validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", "validated local candidate head is missing");
       const branch = pr?.headRefName || pr?.branch || "";
@@ -822,6 +828,20 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (!local.ok || local.sha !== newHead) return fail("existing_pr_batch_fix_candidate_head_mismatch", "validated local candidate is not checked out");
       const clean = readWorktreeCleanProof({ runner, cwd });
       if (!clean.ok || clean.clean !== true) return fail("existing_pr_batch_fix_candidate_worktree_dirty", "candidate worktree must be clean before push", { worktree: clean });
+      const reservation = persistSourceCycleReservation({
+        config,
+        state,
+        pr,
+        budget: sourceCycleBudget,
+        oldHead: exactHead,
+        newHead,
+        changedFiles,
+        fingerprintDigest,
+        reviewed,
+        liveProof: live.proof,
+        repositoryIdentity: live.repositoryIdentity,
+      });
+      if (!reservation.ok) return reservation;
       const intent = persistPushIntent({
         config,
         markerKey,
@@ -835,17 +855,18 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         pushTarget: `origin ${newHead}:${branch}`,
         liveProof: live.proof,
         repositoryIdentity: live.repositoryIdentity,
+        sourceCycleReservation: reservation.reservation,
       });
       const reconciledIntent = reconcilePushIntent({ config, pr, intent, runner });
       if (reconciledIntent.ok && reconciledIntent.finalized === true) {
-        return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead }, pushedAt: reconciledIntent.confirmedAt, pushIntent: intent, pushConfirmation: reconciledIntent };
+        return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead, sourceCycleReservation: reconciledIntent.sourceCycleReservation }, pushedAt: reconciledIntent.confirmedAt, pushIntent: intent, pushConfirmation: reconciledIntent, sourceCycleReservation: reconciledIntent.sourceCycleReservation };
       }
       if (!reconciledIntent.ok && reconciledIntent.reasonCode !== "push_intent_not_completed") return reconciledIntent;
       const push = runner("git", ["push", "origin", `${newHead}:${branch}`], { cwd });
       if (push.status !== 0 || push.error) return fail("existing_pr_batch_fix_push_failed", boundedText(push.stderr || push.error || push.stdout));
       const confirmation = reconcilePushIntent({ config, pr, intent, runner, requireCandidate: true });
       if (!confirmation.ok) return confirmation;
-      return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead }, pushedAt: confirmation.confirmedAt, pushIntent: intent, pushConfirmation: confirmation };
+      return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead, sourceCycleReservation: confirmation.sourceCycleReservation }, pushedAt: confirmation.confirmedAt, pushIntent: intent, pushConfirmation: confirmation, sourceCycleReservation: confirmation.sourceCycleReservation };
     },
     async persistMutationMarker() {},
   };
@@ -860,6 +881,7 @@ function transitionState(state, patch = {}) {
     activePrNumber: patch.activePrNumber ?? state.activePrNumber,
     evidence: patch.evidence || state.evidence,
     mutationMarkers: patch.mutationMarkers || state.mutationMarkers,
+    sourceCycleReservations: patch.sourceCycleReservations || state.sourceCycleReservations || {},
     sourceCycles: patch.sourceCycles || state.sourceCycles,
     exactHeads: patch.exactHeads || state.exactHeads,
     orderedPrs: patch.orderedPrs || state.orderedPrs,
@@ -900,6 +922,240 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
     return fail("source_cycle_budget_exhausted", "durable per-PR source-cycle budget is exhausted", { summary, sourceCycleBudget: summary });
   }
   return { ok: true, ...summary, summary };
+}
+
+function sourceCyclePolicyDigest(config = {}, max = normalizeSourceCycleMax(config)) {
+  return digestJson({
+    repositorySlug: config.repositorySlug || "tommytang213/Settleora",
+    maxSourceCyclesPerPr: max,
+  });
+}
+
+function sourceCycleReservationRoot(config = {}) {
+  return path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-reservations");
+}
+
+function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budget = null, oldHead, newHead, changedFiles = [], fingerprintDigest = null, reviewed = {}, liveProof = null, repositoryIdentity = null } = {}) {
+  if (!budget?.ok) return fail(budget?.reasonCode || "source_cycle_reservation_budget_missing", budget?.reason || "valid source-cycle budget is required before reservation");
+  const sourceIdentity = reviewed?.sourceIdentity || {};
+  const maxAtReservation = budget.max;
+  const consumedBefore = budget.consumed;
+  const consumedAfter = consumedBefore + 1;
+  if (consumedBefore >= maxAtReservation) return fail("source_cycle_budget_exhausted", "source-cycle reservation cannot be created after budget exhaustion", { sourceCycleBudget: budget.summary || budget });
+  if (consumedAfter > maxAtReservation) return fail("source_cycle_reservation_over_budget", "source-cycle reservation would exceed the configured maximum");
+  const epoch = budget.epoch;
+  const commitChain = normalizeCommitChain(sourceIdentity.commitChain || [oldHead, sourceIdentity.parent, newHead]);
+  const commitChainDigest = sourceIdentity.commitChainDigest || digestStringList(commitChain);
+  const changedFilesDigest = digestStringSet(changedFiles);
+  const reservationId = digestJson({
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    prNumber: pr?.number,
+    epoch,
+    consumedAfter,
+    oldHead,
+    newHead,
+    commitChainDigest,
+    changedFilesDigest,
+    fingerprintDigest,
+  });
+  const reservation = sanitizeState({
+    status: "source_cycle_reserved",
+    reservationId,
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    configuredRepositorySlug: repositoryIdentity?.configuredRepositorySlug || sourceIdentity.configuredRepositorySlug || config.repositorySlug || "tommytang213/Settleora",
+    baseRepositorySlug: repositoryIdentity?.baseRepositorySlug || liveProof?.baseRepositorySlug || sourceIdentity.baseRepositorySlug || null,
+    headRepositorySlug: repositoryIdentity?.headRepositorySlug || liveProof?.headRepositorySlug || sourceIdentity.headRepositorySlug || null,
+    originRepositorySlug: repositoryIdentity?.originRepositorySlug || liveProof?.originRepositorySlug || sourceIdentity.originRepositorySlug || null,
+    repositoryIds: repositoryIdentity?.repositoryIds || sourceIdentity.repositoryIds || {},
+    prNumber: pr?.number || null,
+    sourceBranch: pr?.headRefName || pr?.branch || null,
+    sourceCycleEpoch: epoch,
+    policyDigest: sourceCyclePolicyDigest(config, maxAtReservation),
+    maxAtReservation,
+    consumedBefore,
+    reservedOrdinal: consumedAfter,
+    consumedAfter,
+    remainingBefore: maxAtReservation - consumedBefore,
+    oldHead,
+    finalCandidateHead: newHead,
+    candidateNewHead: newHead,
+    candidateParent: sourceIdentity.parent || null,
+    candidateTree: sourceIdentity.tree || null,
+    commitChain,
+    commitChainDigest,
+    findingInventoryDigest: fingerprintDigest,
+    findingFingerprints: sourceIdentity.findingFingerprints || reviewed?.findingFingerprints || [],
+    changedFiles,
+    changedFilesDigest,
+    validationHead: reviewed?.validation?.headSha || null,
+    strongReviewHead: reviewed?.externalReview?.reviewedHead || reviewed?.externalReview?.headSha || null,
+    codexReviewHead: reviewed?.review?.reviewedHead || reviewed?.review?.headSha || null,
+    validation: reviewed?.validation || null,
+    externalReview: reviewed?.externalReview || null,
+    review: reviewed?.review || null,
+    taskKey: config.taskKey || null,
+    runId: config.runId || null,
+    supervisorRunId: config.supervisorRunId || null,
+    createdAt: new Date().toISOString(),
+    finalizedAt: null,
+  });
+  const validation = validateSourceCycleReservation({ config, state, pr, reservation, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  if (!validation.ok) return validation;
+  const root = sourceCycleReservationRoot(config);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const reservationPath = path.join(root, `${reservationId}.json`);
+  reservation.reservationPath = reservationPath;
+  const duplicate = readSourceCycleReservationFile(reservationPath);
+  if (duplicate.ok && duplicate.reservation?.reservationId !== reservationId) return fail("source_cycle_reservation_conflict", "reservation path already contains another reservation");
+  const conflicts = findReservationOrdinalConflicts({ config, reservation });
+  if (!conflicts.ok) return conflicts;
+  const tmp = `${reservationPath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(reservation, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, reservationPath);
+  const readBack = readSourceCycleReservationFile(reservationPath);
+  if (!readBack.ok) return readBack;
+  const persisted = { ...readBack.reservation, reservationPath };
+  const persistedValidation = validateSourceCycleReservation({ config, state, pr, reservation: persisted, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  if (!persistedValidation.ok) return persistedValidation;
+  return { ok: true, reservation: persisted };
+}
+
+function readSourceCycleReservationFile(reservationPath) {
+  if (!reservationPath || !existsSync(reservationPath)) return fail("source_cycle_reservation_missing", "source-cycle reservation file is missing");
+  try {
+    return { ok: true, reservation: JSON.parse(readFileSync(reservationPath, "utf8")) };
+  } catch {
+    return fail("source_cycle_reservation_malformed", "source-cycle reservation JSON could not be parsed");
+  }
+}
+
+function findReservationOrdinalConflicts({ config = {}, reservation = {} } = {}) {
+  const root = sourceCycleReservationRoot(config);
+  if (!existsSync(root)) return { ok: true };
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const filePath = path.join(root, entry.name);
+    const loaded = readSourceCycleReservationFile(filePath);
+    if (!loaded.ok) return loaded;
+    const current = loaded.reservation || {};
+    if (current.reservationId === reservation.reservationId) continue;
+    if (
+      current.repository === reservation.repository
+      && current.prNumber === reservation.prNumber
+      && current.sourceCycleEpoch === reservation.sourceCycleEpoch
+      && current.consumedAfter === reservation.consumedAfter
+      && ["source_cycle_reserved", "source_cycle_finalized"].includes(String(current.status || ""))
+    ) {
+      return fail("source_cycle_reservation_conflict", "another reservation already owns the PR epoch ordinal", { reservationPath: filePath });
+    }
+  }
+  return { ok: true };
+}
+
+function validateSourceCycleReservation({ config = {}, state = {}, pr = {}, reservation = {}, oldHead = null, newHead = null, changedFiles = null, fingerprintDigest = null, expectStatus = null, requireCurrentCount = false } = {}) {
+  if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) return fail("source_cycle_reservation_missing", "source-cycle reservation is required");
+  if (expectStatus && reservation.status !== expectStatus) return fail("source_cycle_reservation_status_mismatch", "source-cycle reservation status does not match the required phase");
+  const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (reservation.repository !== configuredRepositorySlug || canonicalRepositorySlug(reservation.configuredRepositorySlug) !== configuredRepositorySlug) return fail("source_cycle_reservation_repository_mismatch", "source-cycle reservation repository does not match");
+  if (reservation.prNumber !== pr?.number) return fail("source_cycle_reservation_pr_mismatch", "source-cycle reservation PR number does not match");
+  if (reservation.sourceBranch !== pr?.headRefName) return fail("source_cycle_reservation_branch_mismatch", "source-cycle reservation branch does not match");
+  const expectedEpoch = state?.sourceCycleEpoch?.[pr.number] || state?.sourceCycleEpoch || 1;
+  if (!Number.isInteger(reservation.sourceCycleEpoch) || reservation.sourceCycleEpoch !== expectedEpoch) return fail("source_cycle_reservation_epoch_mismatch", "source-cycle reservation epoch does not match");
+  if (!Number.isInteger(reservation.maxAtReservation) || reservation.maxAtReservation < 0) return fail("source_cycle_reservation_malformed", "reservation max is malformed");
+  if (reservation.policyDigest !== sourceCyclePolicyDigest(config, reservation.maxAtReservation)) return fail("source_cycle_reservation_policy_mismatch", "source-cycle reservation policy digest does not match");
+  if (!Number.isInteger(reservation.consumedBefore) || reservation.consumedBefore < 0) return fail("source_cycle_reservation_malformed", "reservation consumed-before count is malformed");
+  if (!Number.isInteger(reservation.consumedAfter) || reservation.consumedAfter !== reservation.consumedBefore + 1) return fail("source_cycle_reservation_malformed", "reservation consumed-after count is malformed");
+  if (reservation.reservedOrdinal !== reservation.consumedAfter) return fail("source_cycle_reservation_malformed", "reservation ordinal does not match consumed-after count");
+  if (reservation.consumedBefore >= reservation.maxAtReservation || reservation.consumedAfter > reservation.maxAtReservation) return fail("source_cycle_reservation_over_budget", "source-cycle reservation exceeds the budget active at reservation time");
+  if (requireCurrentCount && state?.sourceCycles?.[pr.number] !== reservation.consumedBefore) return fail("source_cycle_reservation_conflict", "durable source-cycle count no longer matches the reservation's consumed-before count");
+  if (oldHead && reservation.oldHead !== oldHead) return fail("source_cycle_reservation_old_head_mismatch", "reservation old head does not match");
+  const expectedNewHead = newHead || reservation.finalCandidateHead || reservation.candidateNewHead;
+  if (expectedNewHead && (reservation.finalCandidateHead !== expectedNewHead || reservation.candidateNewHead !== expectedNewHead)) return fail("source_cycle_reservation_candidate_mismatch", "reservation candidate head does not match");
+  if (!validSha(reservation.candidateTree)) return fail("source_cycle_reservation_candidate_mismatch", "reservation candidate tree is missing");
+  const commitChain = validateCanonicalCommitChain(reservation.commitChain || [], {
+    oldHead: reservation.oldHead,
+    newHead: reservation.finalCandidateHead,
+    candidateParent: reservation.candidateParent,
+    reasonPrefix: "source_cycle_reservation",
+  });
+  if (!commitChain.ok) return commitChain;
+  if (reservation.commitChainDigest !== commitChain.digest) return fail("source_cycle_reservation_chain_mismatch", "reservation commit-chain digest does not match");
+  const normalizedFiles = normalizeChangedFiles(changedFiles || reservation.changedFiles || []);
+  if (normalizedFiles.length === 0 || reservation.changedFilesDigest !== digestStringSet(normalizedFiles)) return fail("source_cycle_reservation_files_mismatch", "reservation changed-file digest does not match");
+  if (fingerprintDigest && reservation.findingInventoryDigest !== fingerprintDigest) return fail("source_cycle_reservation_finding_mismatch", "reservation finding digest does not match");
+  if (config.taskKey !== undefined && reservation.taskKey !== (config.taskKey || null)) return fail("source_cycle_reservation_task_mismatch", "reservation task key does not match");
+  if (config.runId !== undefined && reservation.runId !== (config.runId || null)) return fail("source_cycle_reservation_run_mismatch", "reservation run ID does not match");
+  if (config.supervisorRunId !== undefined && reservation.supervisorRunId !== (config.supervisorRunId || null)) return fail("source_cycle_reservation_supervisor_mismatch", "reservation supervisor run ID does not match");
+  return { ok: true, reservation, consumedBefore: reservation.consumedBefore, consumedAfter: reservation.consumedAfter, summary: sourceCycleReservationSummary(reservation) };
+}
+
+function validateReconciledSourceCycle({ config = {}, state = {}, pr = {}, result = {}, budget = null } = {}) {
+  const intent = result.pushIntent || result.intent || null;
+  const confirmation = result.pushConfirmation?.marker || result.pushConfirmation || null;
+  const reservation = result.sourceCycleReservation || intent?.sourceCycleReservation || confirmation?.sourceCycleReservation || result.result?.sourceIdentity?.sourceCycleReservation || null;
+  const normalized = reservation || null;
+  const validation = validateSourceCycleReservation({
+    config,
+    state,
+    pr,
+    reservation: normalized,
+    oldHead: pr.headRefOid,
+    newHead: result.newHead || intent?.candidateNewHead || result.result?.newHead || null,
+    changedFiles: result.result?.changedFiles || intent?.changedFiles || normalized?.changedFiles || [],
+    fingerprintDigest: result.result?.fingerprintDigest || intent?.findingInventoryDigest || normalized?.findingInventoryDigest || null,
+    expectStatus: "source_cycle_finalized",
+    requireCurrentCount: true,
+  });
+  if (!validation.ok) {
+    if (budget?.reasonCode === "source_cycle_budget_exhausted") return fail("source_cycle_reservation_conflict", "source_cycle_budget_exhausted cannot authorize source-cycle reconciliation");
+    return validation.reasonCode === "source_cycle_reservation_status_mismatch" ? fail("source_cycle_reservation_conflict", "source-cycle reservation was not finalized before state rebound") : validation;
+  }
+  if (budget?.ok && budget.consumed !== validation.consumedBefore) return fail("source_cycle_reservation_conflict", "source-cycle budget does not match the finalized reservation");
+  return validation;
+}
+
+function finalizeSourceCycleReservation({ config = {}, pr = {}, intent = {}, remoteHead = null, liveHead = null, localHead = null } = {}) {
+  const reservation = intent.sourceCycleReservation;
+  const validation = validateSourceCycleReservation({ config, state: { sourceCycles: { [pr.number]: reservation?.consumedBefore } }, pr, reservation, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  if (!validation.ok) return validation;
+  if (remoteHead !== reservation.finalCandidateHead || liveHead !== reservation.finalCandidateHead) return fail("source_cycle_reservation_candidate_mismatch", "reservation cannot finalize without remote/live candidate equality");
+  const finalized = sanitizeState({
+    ...reservation,
+    status: "source_cycle_finalized",
+    localHead,
+    remoteHead,
+    liveHead,
+    finalizedAt: new Date().toISOString(),
+  });
+  const reservationPath = reservation.reservationPath;
+  if (reservationPath) {
+    mkdirSync(path.dirname(reservationPath), { recursive: true, mode: 0o700 });
+    const tmp = `${reservationPath}.${process.pid}.${Date.now()}.finalized.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(finalized, null, 2)}\n`, { mode: 0o600 });
+    renameSync(tmp, reservationPath);
+  }
+  return { ok: true, reservation: finalized, summary: sourceCycleReservationSummary(finalized) };
+}
+
+function sourceCycleReservationSummary(reservation = {}) {
+  return {
+    reservationId: reservation.reservationId || null,
+    status: reservation.status || null,
+    prNumber: reservation.prNumber || null,
+    sourceCycleEpoch: reservation.sourceCycleEpoch || null,
+    maxAtReservation: reservation.maxAtReservation ?? null,
+    consumedBefore: reservation.consumedBefore ?? null,
+    consumedAfter: reservation.consumedAfter ?? null,
+    reservedOrdinal: reservation.reservedOrdinal ?? null,
+    oldHead: reservation.oldHead || null,
+    finalCandidateHead: reservation.finalCandidateHead || null,
+    policyDigest: reservation.policyDigest || null,
+  };
+}
+
+function upsertSourceCycleReservation(reservations = {}, reservation = {}) {
+  if (!reservation?.reservationId) return reservations || {};
+  return { ...(reservations || {}), [reservation.reservationId]: sanitizeState(reservation) };
 }
 
 function normalizeSourceCycleMax(config = {}) {
@@ -1584,7 +1840,7 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
   return { ok: true, reused: false, oldHead: exactHead, parent: parent.sha, newHead: head.sha, tree: tree.sha, commitChain: chain.chain, commitChainDigest: chain.digest, committedAt: new Date().toISOString() };
 }
 
-function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null }) {
+function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null, sourceCycleReservation = null }) {
   const root = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-intents");
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const intentPath = path.join(root, `${digestJson({ markerKey, prNumber: pr?.number, oldHead, newHead })}.json`);
@@ -1618,6 +1874,8 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
     patchDigest: sourceIdentity.patchDigest || null,
     sourceCycleEpoch: sourceIdentity.epoch || 1,
     nextSourceCycleCount: sourceIdentity.nextSourceCycleCount || null,
+    sourceCycleReservationId: sourceCycleReservation?.reservationId || null,
+    sourceCycleReservation: sourceCycleReservation || null,
     taskKey: config.taskKey || null,
     runId: config.runId || null,
     supervisorRunId: config.supervisorRunId || null,
@@ -1660,7 +1918,7 @@ function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = fa
   const localHead = local.ok ? local.sha : null;
   const liveHead = live.proof.headRefOid;
   if (remoteHead === intent.candidateNewHead && liveHead === intent.candidateNewHead) {
-    return finalizePushIntent({ intent, remoteHead, liveHead, localHead });
+    return finalizePushIntent({ config, pr, intent, remoteHead, liveHead, localHead });
   }
   if (!requireCandidate && remoteHead === intent.oldHead && (!liveHead || liveHead === intent.oldHead)) {
     if (localHead === intent.candidateNewHead) {
@@ -1674,13 +1932,18 @@ function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = fa
   return fail("push_intent_conflicting_head", "remote/live head conflicts with durable push intent", { localHead, remoteHead, liveHead });
 }
 
-function finalizePushIntent({ intent, remoteHead, liveHead, localHead = null }) {
+function finalizePushIntent({ config = {}, pr = {}, intent, remoteHead, liveHead, localHead = null }) {
   if (intent.status === "push_confirmed") {
-    return { ok: true, finalized: true, idempotent: true, confirmedAt: intent.finalizedAt || null, marker: intent };
+    const finalizedReservation = intent.sourceCycleReservation || null;
+    if (finalizedReservation?.status !== "source_cycle_finalized") return fail("source_cycle_reservation_conflict", "confirmed push intent is missing finalized source-cycle reservation proof");
+    return { ok: true, finalized: true, idempotent: true, confirmedAt: intent.finalizedAt || null, marker: intent, sourceCycleReservation: finalizedReservation };
   }
+  const reservation = finalizeSourceCycleReservation({ config, pr, intent, remoteHead, liveHead, localHead });
+  if (!reservation.ok) return reservation;
   const confirmed = sanitizeState({
     ...intent,
     status: "push_confirmed",
+    sourceCycleReservation: reservation.reservation,
     localHead,
     remoteHead,
     liveHead,
@@ -1696,7 +1959,7 @@ function finalizePushIntent({ intent, remoteHead, liveHead, localHead = null }) 
   const tmp = `${intent.intentPath}.${process.pid}.${Date.now()}.confirmed.tmp`;
   writeFileSync(tmp, `${JSON.stringify(confirmed, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, intent.intentPath);
-  return { ok: true, finalized: true, confirmedAt: confirmed.finalizedAt, marker: confirmed };
+  return { ok: true, finalized: true, confirmedAt: confirmed.finalizedAt, marker: confirmed, sourceCycleReservation: reservation.reservation };
 }
 
 function reconcileTaskScopedPendingPushIntent({ config = {}, state = {}, pr = {}, livePr = {}, runner = defaultRunner } = {}) {
@@ -1709,7 +1972,7 @@ function reconcileTaskScopedPendingPushIntent({ config = {}, state = {}, pr = {}
   if (!reconciled.ok) return reconciled;
   const sourceResult = sourceChangingResultFromIntent({ intent, confirmation: reconciled });
   if (!sourceResult.ok) return sourceResult;
-  return { ok: true, finalized: true, newHead: intent.candidateNewHead, result: sourceResult.result, pushConfirmation: reconciled.marker };
+  return { ok: true, finalized: true, newHead: intent.candidateNewHead, result: sourceResult.result, pushConfirmation: reconciled.marker, pushIntent: intent, sourceCycleReservation: reconciled.sourceCycleReservation };
 }
 
 function discoverTaskScopedPendingPushIntents({ config = {}, state = {}, pr = {}, livePr = {} } = {}) {
@@ -1742,7 +2005,10 @@ function discoverTaskScopedPendingPushIntents({ config = {}, state = {}, pr = {}
 
 function intentMatchesStalePr({ config = {}, state = {}, pr = {}, livePr = {}, intent = {} } = {}) {
   const validation = validatePushIntentShape({ config, pr, intent });
-  if (!validation.ok) return validation.reasonCode === "push_intent_malformed" ? validation : { ok: false, ignored: true };
+  if (!validation.ok) {
+    if (validation.reasonCode === "push_intent_malformed" || String(validation.reasonCode || "").startsWith("source_cycle_")) return validation;
+    return { ok: false, ignored: true };
+  }
   if (intent.oldHead !== pr.headRefOid) return { ok: false, ignored: true };
   if (livePr?.headRefOid && livePr.headRefOid !== intent.candidateNewHead) return { ok: false, ignored: true };
   if (livePr?.headRepositorySlug || livePr?.baseRepositorySlug || livePr?.originRepositorySlug) {
@@ -1750,8 +2016,19 @@ function intentMatchesStalePr({ config = {}, state = {}, pr = {}, livePr = {}, i
     if (!repositoryIdentity.ok) return repositoryIdentity;
   }
   if (intent.markerKey && !String(intent.markerKey).startsWith(`existing_pr_batch_fix:${pr.number}:${pr.headRefOid}:`)) return { ok: false, ignored: true };
-  const expectedNext = (state.sourceCycles?.[pr.number] || 0) + 1;
-  if (intent.nextSourceCycleCount != null && intent.nextSourceCycleCount !== expectedNext) return { ok: false, ignored: true };
+  const reservation = intent.sourceCycleReservation || null;
+  if (!reservation) return fail("source_cycle_reservation_missing", "push intent cannot reconcile without a source-cycle reservation");
+  const currentCount = state.sourceCycles?.[pr.number];
+  if (!Number.isInteger(currentCount) || currentCount < 0) return fail("source_cycle_state_malformed", "durable source-cycle count is malformed");
+  if (currentCount === reservation.consumedBefore) {
+    const pending = validateSourceCycleReservation({ config, state, pr, reservation, oldHead: pr.headRefOid, newHead: intent.candidateNewHead, changedFiles: intent.changedFiles, fingerprintDigest: intent.findingInventoryDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+    if (!pending.ok) return pending;
+  } else if (currentCount === reservation.consumedAfter) {
+    if (reservation.status !== "source_cycle_finalized") return fail("source_cycle_reservation_conflict", "source-cycle count reached reserved ordinal without matching finalization proof");
+  } else {
+    return fail("source_cycle_reservation_conflict", "source-cycle count conflicts with pending push intent reservation");
+  }
+  if (intent.nextSourceCycleCount != null && intent.nextSourceCycleCount !== reservation.consumedAfter) return fail("source_cycle_reservation_conflict", "push intent next source-cycle count does not match reservation");
   return { ok: true };
 }
 
@@ -1811,6 +2088,19 @@ function validatePushIntentShape({ config = {}, pr = {}, intent = {} } = {}) {
   if (config.supervisorRunId !== undefined && intent.supervisorRunId !== (config.supervisorRunId || null)) return fail("push_intent_supervisor_mismatch", "push intent supervisor run ID does not match");
   const expectedTarget = `origin ${intent.candidateNewHead}:${intent.sourceBranch}`;
   if (intent.pushTarget !== expectedTarget) return fail("push_intent_target_mismatch", "push intent push target does not match candidate/source branch");
+  const reservation = validateSourceCycleReservation({
+    config,
+    state: { sourceCycles: { [pr.number]: intent.sourceCycleReservation?.consumedBefore }, sourceCycleEpoch: { [pr.number]: intent.sourceCycleReservation?.sourceCycleEpoch } },
+    pr,
+    reservation: intent.sourceCycleReservation,
+    oldHead: intent.oldHead,
+    newHead: intent.candidateNewHead,
+    changedFiles,
+    fingerprintDigest: intent.findingInventoryDigest,
+    expectStatus: intent.status === "push_confirmed" ? "source_cycle_finalized" : "source_cycle_reserved",
+    requireCurrentCount: true,
+  });
+  if (!reservation.ok) return reservation.reasonCode === "source_cycle_reservation_status_mismatch" ? fail("source_cycle_reservation_conflict", reservation.reason) : reservation;
   return { ok: true };
 }
 
@@ -1846,6 +2136,7 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
       commitChainDigest: intent.commitChainDigest || digestStringList(commitChain),
       baseSha: intent.sourceIdentity?.baseSha || intent.validation?.baseSha || intent.externalReview?.baseSha || intent.review?.baseSha || null,
       changedFilesDigest: intent.changedFilesDigest,
+      sourceCycleReservation: confirmation.sourceCycleReservation || confirmation.marker?.sourceCycleReservation || intent.sourceCycleReservation || null,
     },
     pushedAt: confirmation.confirmedAt || confirmation.marker?.finalizedAt || new Date().toISOString(),
   });
@@ -2488,6 +2779,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   normalizeSourceChangingConvergenceResult,
   validateCanonicalCommitChain,
   persistPushIntent,
+  persistSourceCycleReservation,
   proveTargetBatchFixWorktree,
   reconcileTaskScopedPendingPushIntent,
   reconcilePushIntent,
@@ -2495,6 +2787,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   readOriginRepositoryProof,
   readWorktreeCleanProof,
   sourceChangingResultFromIntent,
+  validateSourceCycleReservation,
   safeSourceBranchTarget,
   validateRepositoryIdentityProof,
   validatePushTargetBranch,
