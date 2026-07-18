@@ -191,10 +191,12 @@ test("historical summaries/status/events remain readable and sanitized in commen
 });
 
 test("ordinary merge path invokes the completion pipeline safely", () => {
+  const repositorySlug = "tommytang213/Settleora";
   const changedFiles = ["tools/auto-runner/lib/example.mjs"];
   const digest = "18241bec16277a702d8fbc0bf037adcd214d3b804d200586c011fa1614b026ce";
   const contextBase = {
     config: {
+      repositorySlug,
       allowAutoMerge: true,
       autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"], requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"] },
     },
@@ -225,20 +227,84 @@ test("ordinary merge path invokes the completion pipeline safely", () => {
     expectedHeadSha: headSha,
     expectedOriginMainSha: baseSha,
     currentOriginMainSha: baseSha,
-    pr: { number: 100, url: "https://github.com/tommytang213/Settleora/pull/100", state: "OPEN", isDraft: false, baseRefName: "main", headRefName: "feature/auto-891-example", headRefOid: headSha, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", title: "Fix #891", body: "Closes #891" },
+    pr: {
+      number: 100,
+      url: "https://github.com/tommytang213/Settleora/pull/100",
+      state: "OPEN",
+      isDraft: false,
+      baseRefName: "main",
+      headRefName: "feature/auto-891-example",
+      headRefOid: headSha,
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+      title: "Fix #891",
+      body: "Closes #891",
+      headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: repositorySlug },
+      headRepositoryOwner: { login: "tommytang213" },
+      isCrossRepository: false,
+    },
     requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"].map((name) => ({ name, status: "COMPLETED", conclusion: "SUCCESS" })),
     reviewThreads: [],
     codeScanningAlerts: [],
     blockingMarkers: [],
   };
-  const runner = runnerWith({ "git rev-parse origin/main": { status: 0, stdout: baseSha } });
+  const runner = runnerWith({
+    "git rev-parse origin/main": { status: 0, stdout: baseSha },
+    pr: {
+      number: 100,
+      state: "MERGED",
+      baseRefName: "main",
+      headRefOid: headSha,
+      mergeCommit: { oid: mergeSha },
+      mergedAt: "2026-07-13T08:01:00Z",
+      headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: repositorySlug },
+      headRepositoryOwner: { login: "tommytang213" },
+      isCrossRepository: false,
+    },
+  });
   const result = executeAutoMerge(
-    { ...contextBase.config, repoRoot: "/workspace/repos/Settleora", logsRoot: logsRoot(), run: true, allowFollowupIssueCreation: false },
+    { ...contextBase.config, repoRoot: "/workspace/repos/Settleora", logsRoot: logsRoot(), run: true, allowFollowupIssueCreation: false, githubHost: "github.com" },
     contextBase,
     { runner, inspectState: () => ({}) },
   );
   assert.equal(result.result, "merged", JSON.stringify({ reason: result.reason, result }, null, 2));
+  assert.equal(result.mergeReadback.configuredRepositorySlug, repositorySlug);
+  assert.equal(result.mergeReadback.prNumber, 100);
+  assert.equal(result.mergeReadback.state, "MERGED");
+  assert.equal(result.mergeReadback.baseRefName, "main");
+  assert.equal(result.mergeReadback.sourceHeadSha, headSha);
+  assert.equal(result.mergeReadback.mergeSha, mergeSha);
+  assert.equal(result.mergeReadback.mergedAt, "2026-07-13T08:01:00Z");
+  assert.equal(result.mergeReadback.headRepositorySlug, repositorySlug);
+  assert.equal(result.mergeReadback.headRepositoryId, "repo-1");
+  assert.equal(result.mergeReadback.isCrossRepository, false);
   assert.equal(result.completionHygiene.status, "merged");
+  assert.equal(runner.calls.filter((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "merge").length, 1);
+  assert.equal(
+    runner.calls.filter(
+      (call) =>
+        call.command === "gh" &&
+        call.args[0] === "pr" &&
+        call.args[1] === "view" &&
+        call.args.includes("number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository"),
+    ).length,
+    1,
+  );
+  assert.equal(runner.calls.filter((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "comment").length, 1);
+  assert.equal(runner.calls.filter((call) => call.command === "gh" && call.args[0] === "issue" && call.args[1] === "comment").length, 2);
+  assert.equal(runner.calls.filter((call) => call.command === "gh" && call.args[0] === "issue" && call.args[1] === "close").length, 1);
+  assert.deepEqual(
+    runner.calls.find((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "merge")?.args,
+    ["pr", "merge", "100", "--repo", repositorySlug, "--merge", "--match-head-commit", headSha],
+  );
+  assert.deepEqual(
+    runner.calls.find((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "view")?.args,
+    ["pr", "view", "100", "--repo", repositorySlug, "--json", "number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository"],
+  );
+  assert.deepEqual(
+    runner.calls.find((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "comment")?.args.slice(0, 5),
+    ["pr", "comment", "100", "--repo", repositorySlug],
+  );
 });
 
 test("feature-bundle context can use the same completion pipeline", () => {
