@@ -550,7 +550,25 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         : result;
     },
     async completeFinalGates({ config: cfg, state, pr }) {
-      const gate = collectFinalGateEvidence({ config: cfg || config, state, pr, runner: runner || defaultRunner });
+      const targetConfig = cfg || config;
+      let gate = collectFinalGateEvidence({ config: targetConfig, state, pr, runner: runner || defaultRunner });
+      if (isFinalGateExactHeadEvidenceMissing(gate)) {
+        const prepared = await prepareExactHeadFinalGateEvidence({
+          config: targetConfig,
+          state,
+          pr,
+          runner: runner || defaultRunner,
+          runStrongReview: options.runStrongReview,
+          runCodexReview: options.runCodexReview,
+          runValidation: options.runValidationPlan || runValidationPlan,
+        });
+        if (!prepared.ok) return prepared;
+        const patchedState = { ...state, evidence: mergeEvidencePatch(state.evidence, prepared.evidencePatch) };
+        gate = collectFinalGateEvidence({ config: targetConfig, state: patchedState, pr, runner: runner || defaultRunner });
+        if (!gate.ok && gate.waiting) {
+          return { ...gate, evidencePatch: prepared.evidencePatch };
+        }
+      }
       if (!gate.ok && gate.waiting && gate.evidence) {
         return {
           ok: false,
@@ -1712,22 +1730,84 @@ function readPrReadyProof({ config, pr, expectedHead, expectedDraft, runner }) {
   return { ok: true, proof };
 }
 
+function isFinalGateExactHeadEvidenceMissing(result) {
+  if (!result || result.ok !== false) return false;
+  return /^(source_rebound_validation|strong_review|codex_review)_/.test(String(result.reasonCode || ""));
+}
+
+async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, runStrongReview, runCodexReview, runValidation = runValidationPlan }) {
+  if (typeof runStrongReview !== "function" || typeof runCodexReview !== "function") {
+    return fail("exact_head_review_adapter_unconfigured", "strong and Codex exact-head review adapters are required before final gates");
+  }
+  const prereq = collectFinalGatePrerequisites({ config, state, pr, runner, reasonPrefix: "exact_head_gate" });
+  if (!prereq.ok) return prereq;
+  const validationPlan = planValidation(prereq.changedFiles, prereq.laneProof.laneDecision || { validationProfile: "runner-tests" });
+  const validation = bindValidationEvidence(runValidation(config, validationPlan), {
+    headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha,
+    changedFiles: prereq.changedFiles,
+    profile: prereq.laneProof.laneDecision?.validationProfile || validationPlan.profile,
+  });
+  const validationCheck = validateValidationEvidenceObject(validation, {
+    expectedHead: prereq.currentHead,
+    expectedBase: prereq.currentOriginMainSha,
+    changedFiles: prereq.changedFiles,
+  });
+  if (!validationCheck.ok) return validationCheck;
+  const strongReview = await runStrongReview({
+    config,
+    pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
+    changedFiles: prereq.changedFiles,
+    validation,
+    headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha,
+  });
+  const strongCheck = validateReviewEvidenceObject(strongReview, {
+    name: "strong_review",
+    expectedHead: prereq.currentHead,
+    expectedBase: prereq.currentOriginMainSha,
+    changedFiles: prereq.changedFiles,
+    requireIndependent: true,
+  });
+  if (!strongCheck.ok) return strongCheck;
+  const codexReview = await runCodexReview({
+    config,
+    pr: { ...pr, ...(prereq.inspection.pr || {}), headRefOid: prereq.currentHead },
+    changedFiles: prereq.changedFiles,
+    validation,
+    externalReview: strongCheck.review,
+    headSha: prereq.currentHead,
+    baseSha: prereq.currentOriginMainSha,
+  });
+  const codexCheck = validateReviewEvidenceObject(codexReview, {
+    name: "codex_review",
+    expectedHead: prereq.currentHead,
+    expectedBase: prereq.currentOriginMainSha,
+    changedFiles: prereq.changedFiles,
+    requireIndependent: false,
+  });
+  if (!codexCheck.ok) return codexCheck;
+  return {
+    ok: true,
+    evidencePatch: {
+      validation: { [pr.number]: validationCheck.validation },
+      strongReview: { [pr.number]: strongCheck.review },
+      codexReview: { [pr.number]: codexCheck.review },
+    },
+  };
+}
+
 function collectFinalGateEvidence({ config, state, pr, runner }) {
-  const inspection = inspectAutoMergeGithubState(config, { issue: finalGateIssue(config, state, pr), prUrlOrNumber: pr.number });
-  if (!inspection?.pr) return fail("final_gate_pr_read_failed", "PR state could not be read");
-  const currentHead = inspection.pr.headRefOid || pr.headRefOid;
-  if (currentHead !== pr.headRefOid) return fail("final_gate_pr_head_stale", `PR #${pr.number} head changed before final gates`);
-  if (inspection.pr.baseRefName !== pr.baseRefName) return fail("final_gate_pr_base_stale", `PR #${pr.number} base changed before final gates`);
-  if (inspection.pr.state !== "OPEN") return fail("final_gate_pr_state_not_open", `PR #${pr.number} is not open`);
-  if (inspection.pr.isDraft) return fail("final_gate_pr_is_draft", `PR #${pr.number} is draft`);
-  const changed = readCurrentPrOwnDelta({ config, pr, runner });
-  if (!changed.ok) return changed;
-  const laneProof = buildAllowedPathProof({ issue: inspection.issue, changedFiles: changed.ownDelta.fileSet, exactHead: currentHead });
-  if (!laneProof.ok) return laneProof;
-  const status = finalExternalGateStatus({ ...inspection, config });
-  const base = fetchAndReadOriginMain({ config, runner, reasonPrefix: "final_gate" });
-  if (!base.ok) return base;
-  const currentOriginMainSha = base.currentOriginMainSha;
+  const prereq = collectFinalGatePrerequisites({ config, state, pr, runner, reasonPrefix: "final_gate" });
+  if (!prereq.ok) return prereq;
+  const { inspection, currentHead, currentOriginMainSha, originMainFetchedAt, changed, laneProof, status } = prereq;
+  const validationEvidence = state?.evidence?.validation?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.validation || null;
+  const validation = validateValidationEvidenceObject(validationEvidence, {
+    expectedHead: currentHead,
+    expectedBase: currentOriginMainSha,
+    changedFiles: changed.ownDelta.fileSet,
+  });
+  if (!validation.ok) return validation;
   const reviewEvidence = buildFinalGateReviewEvidence({
     state,
     prNumber: pr.number,
@@ -1753,7 +1833,7 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
     reviewThreads: inspection.reviewThreads || [],
     codeScanningAlerts: inspection.codeScanningAlerts || [],
     blockingMarkers: inspection.blockingMarkers || [],
-    validation: state?.evidence?.validation?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.validation || null,
+    validation: validation.validation,
     reviewEvidence: { strongIndependent: reviewEvidence.strongIndependent, codex: reviewEvidence.codex },
     strongReview: reviewEvidence.strongIndependent,
     codexReview: reviewEvidence.codex,
@@ -1763,7 +1843,7 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
     currentOriginMainSha,
     expectedOriginMainSha: currentOriginMainSha,
     baseSha: currentOriginMainSha,
-    originMainFetchedAt: base.fetchedAt,
+    originMainFetchedAt,
     worktreeClean: worktree.clean === true,
     worktreeCleanProof: worktree,
     collectedAt: new Date().toISOString(),
@@ -1774,6 +1854,37 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
   if (!status.ok) return { ok: false, waiting: status.waiting, reasonCode: status.reasonCode, reason: status.reason, evidence };
   if (!worktree.ok || !evidence.worktreeClean) return fail("final_gate_worktree_not_clean", "worktree must be clean before final gates pass", { worktreeCleanProof: worktree });
   return { ok: true, evidence };
+}
+
+function collectFinalGatePrerequisites({ config, state, pr, runner, reasonPrefix }) {
+  const inspection = inspectAutoMergeGithubState(config, { issue: finalGateIssue(config, state, pr), prUrlOrNumber: pr.number });
+  if (!inspection?.pr) return fail(`${reasonPrefix}_pr_read_failed`, "PR state could not be read");
+  const currentHead = inspection.pr.headRefOid || pr.headRefOid;
+  if (currentHead !== pr.headRefOid) return fail(`${reasonPrefix}_pr_head_stale`, `PR #${pr.number} head changed before final gates`);
+  if (inspection.pr.baseRefName !== pr.baseRefName) return fail(`${reasonPrefix}_pr_base_stale`, `PR #${pr.number} base changed before final gates`);
+  if (inspection.pr.state !== "OPEN") return fail(`${reasonPrefix}_pr_state_not_open`, `PR #${pr.number} is not open`);
+  if (inspection.pr.isDraft) return fail(`${reasonPrefix}_pr_is_draft`, `PR #${pr.number} is draft`);
+  const changed = readCurrentPrOwnDelta({ config, pr, runner });
+  if (!changed.ok) return changed;
+  const laneProof = buildAllowedPathProof({ issue: inspection.issue, changedFiles: changed.ownDelta.fileSet, exactHead: currentHead });
+  if (!laneProof.ok) return laneProof;
+  if (!laneProof.changedFilesExactlyMatchAllowedPaths) {
+    return fail("changed_files_do_not_match_allowed_paths", `changed files outside allowed contract: ${laneProof.rejectedPaths.join(",")}`);
+  }
+  const status = finalExternalGateStatus({ ...inspection, config });
+  const base = fetchAndReadOriginMain({ config, runner, reasonPrefix });
+  if (!base.ok) return base;
+  return {
+    ok: true,
+    inspection,
+    currentHead,
+    currentOriginMainSha: base.currentOriginMainSha,
+    originMainFetchedAt: base.fetchedAt,
+    changed,
+    changedFiles: changed.ownDelta.fileSet,
+    laneProof,
+    status,
+  };
 }
 
 function buildFinalGateReviewEvidence({ state, prNumber, expectedHead, expectedBase, changedFiles }) {

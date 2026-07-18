@@ -923,6 +923,62 @@ test("production final gates collect real evidence and wait on pending checks or
   assert.equal(waiting.reasonCode, "scanner_result_wait");
 });
 
+test("production final gates run exact-head validation and reviews when convergence had no source change", async () => {
+  const fixture = stackFixture();
+  const changedFiles = ["tools/auto-runner/919.mjs"];
+  const digest = digestStrings(changedFiles);
+  const calls = [];
+  const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
+    runner: finalGateRunner(changedFiles),
+    runValidationPlan: (_config, plan) => {
+      calls.push(`validation:${plan.profile}`);
+      return { passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-18T00:00:00.000Z", profile: plan.profile };
+    },
+    runStrongReview: async ({ headSha, baseSha, changedFiles: files, validation }) => {
+      calls.push("strong");
+      assert.equal(validation.headSha, sha("a"));
+      return { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, independent: true, provider: "gemini", providerProfile: "gemini-strong", evidencePath: "/workspace/logs/strong.json", completedAt: "2026-07-18T00:00:01.000Z" };
+    },
+    runCodexReview: async ({ headSha, baseSha, changedFiles: files, externalReview }) => {
+      calls.push("codex");
+      assert.equal(externalReview.reviewedHead, sha("a"));
+      return { reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" };
+    },
+  });
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.reviewConverged["919"] = { ok: true, headRefOid: sha("a"), findings: [] };
+  const result = await adapter.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state, pr: { ...fixture.plan.orderedPrs[0], issue: autoRunnerIssue() } });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.deepEqual(calls, ["validation:runner-tests", "strong", "codex"]);
+  assert.equal(result.validation.headSha, sha("a"));
+  assert.equal(result.strongReview.reviewedHead, sha("a"));
+  assert.equal(result.codexReview.reviewedHead, sha("a"));
+});
+
+test("production final gates fail closed when exact-head review adapters or bound evidence are missing", async () => {
+  const fixture = stackFixture();
+  const changedFiles = ["tools/auto-runner/919.mjs"];
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.reviewConverged["919"] = { ok: true, headRefOid: sha("a"), findings: [] };
+
+  const unconfigured = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
+    runner: finalGateRunner(changedFiles),
+  });
+  const missing = await unconfigured.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state, pr: { ...fixture.plan.orderedPrs[0], issue: autoRunnerIssue() } });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reasonCode, "exact_head_review_adapter_unconfigured");
+
+  const staleCodex = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
+    runner: finalGateRunner(changedFiles),
+    runValidationPlan: (_config, plan) => ({ passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-18T00:00:00.000Z", profile: plan.profile }),
+    runStrongReview: async ({ headSha, baseSha, changedFiles: files }) => ({ status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digestStrings(files), independent: true, provider: "gemini", providerProfile: "gemini-strong", evidencePath: "/workspace/logs/strong.json", completedAt: "2026-07-18T00:00:01.000Z" }),
+    runCodexReview: async ({ baseSha, changedFiles: files }) => ({ reviewedHead: sha("b"), baseSha, changedFiles: files, changedFilesDigest: digestStrings(files), verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" }),
+  });
+  const stale = await staleCodex.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state, pr: { ...fixture.plan.orderedPrs[0], issue: autoRunnerIssue() } });
+  assert.equal(stale.ok, false);
+  assert.equal(stale.reasonCode, "codex_review_head_mismatch");
+});
+
 test("final gates prove changed files against the real lane contract and reject out-of-contract paths", async () => {
   const fixture = stackFixture();
   const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
@@ -1658,6 +1714,19 @@ function digestStrings(items) {
 
 function digestJson(value) {
   return createHash("sha256").update(JSON.stringify(value || {})).digest("hex");
+}
+
+function finalGateRunner(changedFiles = ["tools/auto-runner/919.mjs"]) {
+  return (_command, args = []) => {
+    if (args.includes("--name-only")) return { status: 0, stdout: `${changedFiles.join("\n")}\n`, stderr: "", error: null };
+    if (args.includes("--patch")) return { status: 0, stdout: changedFiles.map((file) => `diff --git a/${file} b/${file}\n`).join(""), stderr: "", error: null };
+    if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
+    if (args.includes("apply")) return fakeRunner();
+    if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+    if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+    if (args[0] === "status") return fakeRunner();
+    return fakeRunner();
+  };
 }
 
 function targetWorktreeRunner(calls, options = {}) {
