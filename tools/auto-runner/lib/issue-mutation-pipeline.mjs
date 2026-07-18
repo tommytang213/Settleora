@@ -260,7 +260,9 @@ function createIssue(proposal, runner, repositoryContext) {
     uncertain: false,
     issue: {
       number,
-      url,
+      url: parsed.canonicalUrl,
+      canonicalUrl: parsed.canonicalUrl,
+      issueUrlParseProof: parsed,
       repositorySlug: repositoryContext.repositorySlug,
       repositoryId: repositoryContext.repositoryId || null,
       state: "OPEN",
@@ -289,7 +291,7 @@ function addCorrelationComment(proposal, issue, runner, repositoryContext) {
   if (existing.status !== 0 || existing.error) return { status: "failed", reason: "correlation_comment_read_failed", result: commandStatus(existing), repositorySlug: repositoryContext.repositorySlug };
   try {
     const parsed = JSON.parse(existing.stdout || "{}");
-    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext);
+    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext, { expectedIssueNumber: issue.number });
     if (!repositoryCheck.ok) return { status: "failed", reason: repositoryCheck.reason, repositorySlug: repositoryContext.repositorySlug };
     const text = `${parsed.body || ""}\n${(Array.isArray(parsed.comments) ? parsed.comments : []).map((comment) => comment.body || "").join("\n")}`;
     if (text.includes(proposal.correlationKey) || text.includes(proposal.idempotencyKey)) {
@@ -323,7 +325,7 @@ function ensureQueueLabels(proposal, issue, runner, repositoryContext) {
   if (view.status !== 0 || view.error) return { status: "failed", reason: "queue_label_read_failed", result: commandStatus(view), repositorySlug: repositoryContext.repositorySlug };
   try {
     const parsed = JSON.parse(view.stdout || "{}");
-    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext);
+    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext, { expectedIssueNumber: issue.number });
     if (!repositoryCheck.ok) return { status: "failed", reason: repositoryCheck.reason, repositorySlug: repositoryContext.repositorySlug };
     const existing = labelNames(parsed.labels);
     const missing = labels.filter((label) => !existing.includes(label));
@@ -457,6 +459,11 @@ function repositoryEvidenceMatches(item = {}, repositoryContext = {}, options = 
   if (evidenceSlug && evidenceSlug !== repositoryContext.repositorySlug) return { ok: false, reason: "issue_repository_mismatch", observedRepositorySlug: evidenceSlug };
   const evidenceId = item.repositoryId || item.repository?.id || null;
   if (evidenceId && repositoryContext.repositoryId && evidenceId !== repositoryContext.repositoryId) return { ok: false, reason: "issue_repository_id_mismatch", observedRepositoryId: evidenceId };
+  const observedIssueNumber = normalizeIssueNumber(item.number);
+  const expectedIssueNumber = normalizeIssueNumber(options.expectedIssueNumber);
+  if (expectedIssueNumber && observedIssueNumber && observedIssueNumber !== expectedIssueNumber) {
+    return { ok: false, reason: "issue_number_mismatch", observedIssueNumber, expectedIssueNumber };
+  }
   return { ok: true };
 }
 
@@ -472,15 +479,55 @@ function bindIssueEvidence(issue = {}, repositoryContext = {}) {
   };
 }
 
-function parseIssueUrl(url, repositorySlug) {
-  const [owner, repo] = repositorySlug.split("/");
-  const escapedOwner = escapeRegExp(owner);
-  const escapedRepo = escapeRegExp(repo);
-  const match = String(url || "").match(new RegExp(`^https://github\\.com/${escapedOwner}/${escapedRepo}/issues/(\\d+)(?:[/?#].*)?$`, "i"));
-  if (!match) return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
-  const number = normalizeIssueNumber(match[1]);
+export function parseIssueUrl(url, repositorySlug) {
+  const canonicalRepositorySlug = normalizeRepositorySlug(repositorySlug);
+  if (!canonicalRepositorySlug) return { ok: false, reason: "issue_url_repository_slug_malformed" };
+  const rawUrl = String(url || "").trim();
+  if (!rawUrl || rawUrl !== String(url || "") || hasControlCharacter(rawUrl)) {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  if (parsed.protocol !== "https:") return { ok: false, reason: "issue_url_protocol_unsupported" };
+  if (parsed.hostname.toLowerCase() !== "github.com") return { ok: false, reason: "issue_url_host_unsupported" };
+  if (parsed.username || parsed.password) return { ok: false, reason: "issue_url_credentials_forbidden" };
+  if (parsed.port) return { ok: false, reason: "issue_url_port_forbidden" };
+  if (parsed.search) return { ok: false, reason: "issue_url_query_forbidden" };
+  if (parsed.hash) return { ok: false, reason: "issue_url_fragment_forbidden" };
+
+  const rawSegments = parsed.pathname.split("/");
+  if (rawSegments.length !== 5 || rawSegments[0] !== "") {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  const [rawOwner, rawRepo, rawType, rawNumber] = rawSegments.slice(1);
+  const decoded = [rawOwner, rawRepo, rawType, rawNumber].map((segment) => decodePathSegment(segment));
+  if (decoded.some((segment) => !segment.ok)) {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  const [owner, repo, type, numberSegment] = decoded.map((segment) => segment.value);
+  const [expectedOwner, expectedRepo] = canonicalRepositorySlug.split("/");
+  if (owner.toLowerCase() !== expectedOwner.toLowerCase() || repo.toLowerCase() !== expectedRepo.toLowerCase()) {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  if (type !== "issues") return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  if (rawNumber !== numberSegment) return { ok: false, reason: "issue_create_output_number_malformed" };
+  if (!isDecimalDigits(numberSegment)) return { ok: false, reason: "issue_create_output_number_malformed" };
+  const number = normalizeIssueNumber(numberSegment);
   if (!number) return { ok: false, reason: "issue_create_output_number_malformed" };
-  return { ok: true, number: Number(number) };
+  return {
+    ok: true,
+    repositorySlug: canonicalRepositorySlug,
+    canonicalRepositorySlug,
+    host: "github.com",
+    number: Number(number),
+    issueNumber: Number(number),
+    canonicalUrl: `https://github.com/${canonicalRepositorySlug}/issues/${Number(number)}`,
+    parsedAt: new Date().toISOString(),
+  };
 }
 
 function normalizeMaxIssues(value) {
@@ -529,6 +576,44 @@ function repositorySlugFromGithubUrl(value) {
   return normalizeRepositorySlug(`${match[1]}/${match[2]}`);
 }
 
+function decodePathSegment(segment) {
+  if (!segment || hasControlCharacter(segment) || hasEncodedForbiddenPathScalar(segment)) {
+    return { ok: false };
+  }
+  let decoded;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    return { ok: false };
+  }
+  if (!decoded || hasControlCharacter(decoded) || decoded.includes("/") || decoded.includes("\\") || decoded === "." || decoded === "..") {
+    return { ok: false };
+  }
+  return { ok: true, value: decoded };
+}
+
+function hasEncodedForbiddenPathScalar(value) {
+  const lower = String(value || "").toLowerCase();
+  return lower.includes("%2f") || lower.includes("%5c") || lower.includes("%2e");
+}
+
+function hasControlCharacter(value) {
+  for (const char of String(value || "")) {
+    const code = char.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function isDecimalDigits(value) {
+  const text = String(value || "");
+  if (!text) return false;
+  for (const char of text) {
+    if (char < "0" || char > "9") return false;
+  }
+  return true;
+}
+
 function normalizeIssueNumber(issueNumber) {
   const number = typeof issueNumber === "number" ? issueNumber : Number(issueNumber);
   if (!Number.isSafeInteger(number) || number <= 0 || number > 999_999_999) return null;
@@ -538,10 +623,6 @@ function normalizeIssueNumber(issueNumber) {
 function labelNames(labels = []) {
   if (!Array.isArray(labels)) return [];
   return labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean);
-}
-
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function bounded(value) {

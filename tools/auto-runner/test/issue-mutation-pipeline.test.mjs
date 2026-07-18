@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { deriveIssueProposals, digestProposal } from "../lib/issue-proposals.mjs";
-import { executeIssueMutationPipeline, validateMutationProposal } from "../lib/issue-mutation-pipeline.mjs";
+import { executeIssueMutationPipeline, parseIssueUrl, validateMutationProposal } from "../lib/issue-mutation-pipeline.mjs";
 
 function logsRoot() {
   return mkdtempSync(path.join(tmpdir(), "settleora-generated-work-"));
@@ -48,6 +48,24 @@ function rekey(proposal) {
   return { ...proposal, idempotencyKey: digestProposal({ ...proposal, idempotencyKey: undefined, laneDecision: undefined }) };
 }
 
+function assertParsedIssueUrl(url, repositorySlug, issueNumber) {
+  const result = parseIssueUrl(url, repositorySlug);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.canonicalRepositorySlug, repositorySlug);
+  assert.equal(result.repositorySlug, repositorySlug);
+  assert.equal(result.host, "github.com");
+  assert.equal(result.issueNumber, issueNumber);
+  assert.equal(result.number, issueNumber);
+  assert.equal(result.canonicalUrl, `https://github.com/${repositorySlug}/issues/${issueNumber}`);
+  assert.match(result.parsedAt, /^\d{4}-\d{2}-\d{2}T/);
+}
+
+function assertRejectedIssueUrl(url, repositorySlug, expectedReason) {
+  const result = parseIssueUrl(url, repositorySlug);
+  assert.equal(result.ok, false, `${url} unexpectedly parsed as ${JSON.stringify(result)}`);
+  if (expectedReason) assert.equal(result.reason, expectedReason);
+}
+
 test("validated runnable proposal creates one fully specified issue", () => {
   const proposal = runnableProposal();
   const runner = runnerWith([
@@ -71,6 +89,55 @@ test("validated runnable proposal creates one fully specified issue", () => {
     assert.equal(call.args[call.args.indexOf("--repo") + 1], "tommytang213/Settleora");
   }
   assert.equal(result.results[0].components.project.status, "not_updated");
+});
+
+test("issue URL parser accepts only structural GitHub issue URLs for the configured repository", () => {
+  assertParsedIssueUrl("https://github.com/tommytang213/Settleora/issues/1001", "tommytang213/Settleora", 1001);
+  assertParsedIssueUrl("https://github.com/octo-org/NonDefault/issues/42", "octo-org/NonDefault", 42);
+  assertParsedIssueUrl("https://github.com/TOMMYTANG213/settleora/issues/1001", "tommytang213/Settleora", 1001);
+
+  assertRejectedIssueUrl("https://github.com/other-owner/Settleora/issues/1001", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Other/issues/1001", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/other-owner/Other/issues/1001", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/pull/1001", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/0", "tommytang213/Settleora", "issue_create_output_number_malformed");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/-1", "tommytang213/Settleora", "issue_create_output_number_malformed");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/1.5", "tommytang213/Settleora", "issue_create_output_number_malformed");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/abc", "tommytang213/Settleora", "issue_create_output_number_malformed");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/9007199254740992", "tommytang213/Settleora", "issue_create_output_number_malformed");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/1001/extra", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/1001?state=open", "tommytang213/Settleora", "issue_url_query_forbidden");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/1001#discussion", "tommytang213/Settleora", "issue_url_fragment_forbidden");
+  assertRejectedIssueUrl("https://user:pass@github.com/tommytang213/Settleora/issues/1001", "tommytang213/Settleora", "issue_url_credentials_forbidden");
+  assertRejectedIssueUrl("https://github.com:444/tommytang213/Settleora/issues/1001", "tommytang213/Settleora", "issue_url_port_forbidden");
+  assertRejectedIssueUrl("http://github.com/tommytang213/Settleora/issues/1001", "tommytang213/Settleora", "issue_url_protocol_unsupported");
+  assertRejectedIssueUrl("https://github.example.com/tommytang213/Settleora/issues/1001", "tommytang213/Settleora", "issue_url_host_unsupported");
+  assertRejectedIssueUrl("https://github.com/tommytang213%2Fother/Settleora/issues/1001", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213%5Cother/Settleora/issues/1001", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/%2eSettleora/issues/1001", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/%31", "tommytang213/Settleora", "issue_create_output_number_malformed");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/1001/", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/%00Settleora/issues/1001", "tommytang213/Settleora");
+  assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/1001\n", "tommytang213/Settleora");
+});
+
+test("issue URL parser rejects malformed configured repository slugs and uses no dynamic RegExp", () => {
+  for (const repositorySlug of [
+    "tommytang213",
+    "Settleora",
+    "tommytang213/Settleora/extra",
+    "--repo/Settleora",
+    "tommytang213/Settleora token=abcdefghijklmnopqrstuvwxyz123456",
+    "https://github.com/tommytang213/Settleora",
+    "github.com/Settleora",
+    "tommytang213/github.com",
+    "tommytang213/user@Settleora",
+  ]) {
+    assertRejectedIssueUrl("https://github.com/tommytang213/Settleora/issues/1001", repositorySlug, "issue_url_repository_slug_malformed");
+  }
+  assert.doesNotMatch(parseIssueUrl.toString(), /\bRegExp\b|new\s+RegExp/);
 });
 
 test("retry after uncertain response re-reads by correlation and reuses", () => {
@@ -417,6 +484,27 @@ test("malformed issue-create output and component repository mismatch fail close
   );
   assert.equal(mismatch.results[0].components.comment.status, "failed");
   assert.equal(mismatch.results[0].components.comment.reason, "issue_repository_mismatch");
+});
+
+test("created issue readback rejects an unexpected issue number", () => {
+  const proposal = runnableProposal();
+  const result = executeIssueMutationPipeline(
+    mutationConfig(),
+    [proposal],
+    {},
+    {
+      runner: runnerWith([
+        { status: 0, stdout: "[]" },
+        { status: 0, stdout: "https://github.com/tommytang213/Settleora/issues/1019" },
+        { status: 0, stdout: JSON.stringify({ number: 1020, url: "https://github.com/tommytang213/Settleora/issues/1020", body: "", comments: [] }) },
+        { status: 0, stdout: JSON.stringify({ number: 1019, url: "https://github.com/tommytang213/Settleora/issues/1019", labels: [] }) },
+        { status: 0, stdout: "labeled" },
+      ]),
+    },
+  );
+  assert.equal(result.results[0].action, "created");
+  assert.equal(result.results[0].components.comment.status, "failed");
+  assert.equal(result.results[0].components.comment.reason, "issue_number_mismatch");
 });
 
 test("bundle proposals can receive auto-bundle only with valid bundle contract", () => {
