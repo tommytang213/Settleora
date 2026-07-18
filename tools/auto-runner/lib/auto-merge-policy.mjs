@@ -7,7 +7,7 @@ import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
-import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
+import { buildIssueOperationContext, completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 import { evaluateCycleBudget } from "./review-convergence-controller.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
@@ -259,7 +259,17 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
 }
 
 export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
-  const repositorySlug = config.repositorySlug || "tommytang213/Settleora";
+  const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug);
+  if (!repositorySlug) {
+    return {
+      pr: {},
+      issue,
+      requiredChecks: [],
+      reviewThreads: [],
+      codeScanningAlerts: [],
+      blockingMarkers: ["configured_repository_invalid"],
+    };
+  }
   if (config.dryRun) {
     return {
       pr: { state: "OPEN", isDraft: false, baseRefName: "main", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" },
@@ -287,7 +297,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
     ],
     { cwd: config.repoRoot },
   );
-  const issueView = defaultRunner("gh", ["issue", "view", String(issue.number), "--json", "number,title,state,labels,url"], {
+  const issueView = defaultRunner("gh", ["issue", "view", String(issue.number), "--repo", repositorySlug, "--json", "number,title,state,labels,url"], {
     cwd: config.repoRoot,
   });
   const blockingMarkers = [];
@@ -1095,60 +1105,98 @@ function commandStatus(result) {
 
 export function cleanupIssueLifecycleLabels(config, context, runner = defaultRunner) {
   const issueNumber = context.issue?.number;
+  const repositoryContext = buildIssueOperationContext(config, context);
   const base = {
+    repositorySlug: repositoryContext.repositorySlug || null,
+    repositoryId: repositoryContext.repositoryId || null,
     issueNumber: issueNumber || null,
+    operation: "issue_lifecycle_label_cleanup",
+    correlation: {
+      stackId: repositoryContext.stackId || context.stackId || null,
+      taskKey: repositoryContext.taskKey || context.taskKey || config.taskKey || null,
+      runId: repositoryContext.runId || context.runId || config.runId || null,
+      supervisorRunId: repositoryContext.supervisorRunId || context.supervisorRunId || config.supervisorRunId || null,
+    },
     transientAllowlist: [...transientIssueLifecycleLabels],
     labelsFound: [],
     labelsRemoved: [],
+    labelsRetained: [],
     status: "skipped",
     commandStatus: null,
     failureReason: null,
     dryRun: Boolean(config.dryRun),
+    completedAt: null,
   };
+  if (!repositoryContext.ok) {
+    return {
+      ...base,
+      status: "failed",
+      failureReason: repositoryContext.reason,
+      completedAt: new Date().toISOString(),
+    };
+  }
   if (!issueNumber) return { ...base, failureReason: "missing_issue_number" };
   if (config.dryRun) {
     const labelsFound = labelNames(context.issue?.labels || []);
     const labelsRemoved = labelsFound.filter((label) => transientIssueLifecycleLabels.includes(label));
+    const labelsRetained = labelsFound.filter((label) => !transientIssueLifecycleLabels.includes(label));
     return {
       ...base,
       labelsFound,
       labelsRemoved,
+      labelsRetained,
       status: "dry_run_preview",
       commandStatus: { view: { status: 0, error: null }, remove: { status: null, error: null } },
+      completedAt: new Date().toISOString(),
     };
   }
 
-  const view = runner("gh", ["issue", "view", String(issueNumber), "--json", "labels"], { cwd: config.repoRoot });
+  const view = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "labels"], { cwd: config.repoRoot });
   if (view.error || view.status !== 0) {
     return {
       ...base,
       status: "failed",
       commandStatus: { view: commandStatus(view), remove: null },
       failureReason: bounded(view.stderr || view.stdout || view.error || "issue_label_view_failed"),
+      completedAt: new Date().toISOString(),
     };
   }
   let labelsFound = [];
   try {
-    labelsFound = labelNames(JSON.parse(view.stdout || "{}").labels || []);
+    const parsed = JSON.parse(view.stdout || "{}");
+    if (!Array.isArray(parsed.labels)) {
+      return {
+        ...base,
+        status: "failed",
+        commandStatus: { view: commandStatus(view), remove: null },
+        failureReason: "issue_label_view_malformed_labels",
+        completedAt: new Date().toISOString(),
+      };
+    }
+    labelsFound = labelNames(parsed.labels);
   } catch (error) {
     return {
       ...base,
       status: "failed",
       commandStatus: { view: commandStatus(view), remove: null },
       failureReason: `issue_label_view_parse_failed:${bounded(error.message, 240)}`,
+      completedAt: new Date().toISOString(),
     };
   }
   const labelsRemoved = labelsFound.filter((label) => transientIssueLifecycleLabels.includes(label));
+  const labelsRetained = labelsFound.filter((label) => !transientIssueLifecycleLabels.includes(label));
   if (labelsRemoved.length === 0) {
     return {
       ...base,
       labelsFound,
       labelsRemoved,
+      labelsRetained,
       status: "passed_noop",
       commandStatus: { view: commandStatus(view), remove: { status: null, error: null } },
+      completedAt: new Date().toISOString(),
     };
   }
-  const remove = runner("gh", ["issue", "edit", String(issueNumber), "--remove-label", labelsRemoved.join(",")], {
+  const remove = runner("gh", ["issue", "edit", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--remove-label", labelsRemoved.join(",")], {
     cwd: config.repoRoot,
   });
   if (remove.error || remove.status !== 0) {
@@ -1156,21 +1204,26 @@ export function cleanupIssueLifecycleLabels(config, context, runner = defaultRun
       ...base,
       labelsFound,
       labelsRemoved: [],
+      labelsRetained,
       status: "failed",
       commandStatus: { view: commandStatus(view), remove: commandStatus(remove) },
       failureReason: bounded(remove.stderr || remove.stdout || remove.error || "issue_label_remove_failed"),
+      completedAt: new Date().toISOString(),
     };
   }
   return {
     ...base,
     labelsFound,
     labelsRemoved,
+    labelsRetained,
     status: "passed",
     commandStatus: { view: commandStatus(view), remove: commandStatus(remove) },
+    completedAt: new Date().toISOString(),
   };
 }
 
 function labelNames(labels) {
+  if (!Array.isArray(labels)) return [];
   return labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean);
 }
 
@@ -1202,7 +1255,7 @@ function sanitizeEvidence(value) {
 }
 
 function bounded(value, max = 1000) {
-  const text = String(value || "");
+  const text = String(sanitizePersistedEvidence(value || ""));
   return text.length > max ? `${text.slice(0, max)}\n[truncated]` : text;
 }
 

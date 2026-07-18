@@ -3702,8 +3702,19 @@ function patchApplyCheck({ patchText, cwd, reverse, runner }) {
 
 function createFinalHygieneRunner(runner, repositoryContext = {}) {
   const commandEvidence = [];
-  const repo = repositoryContext.argvRepository || repositoryContext.configuredRepositorySlug || "tommytang213/Settleora";
+  const repo = repositoryContext.argvRepository || repositoryContext.configuredRepositorySlug || null;
   const wrapped = (command, args = [], options = {}) => {
+    if (command === "gh" && (args[0] === "issue" || args[0] === "pr") && !repo) {
+      const result = { status: 1, stdout: "", stderr: "repository_context_required", error: null };
+      commandEvidence.push({
+        command,
+        args: sanitizeArgv(args),
+        status: result.status,
+        ok: false,
+        stderr: result.stderr,
+      });
+      return result;
+    }
     const finalArgs = command === "gh" && (args[0] === "issue" || args[0] === "pr") && !args.includes("--repo") && !args.includes("-R")
       ? [...args.slice(0, 2), ...args.slice(2, 3), "--repo", repo, ...args.slice(3)]
       : args;

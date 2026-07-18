@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  buildIssueOperationContext,
   buildLedgerReconciliationProposal,
   cleanupTransientLabels,
   completeMergedIssueHygiene,
@@ -121,11 +122,15 @@ test("retry does not duplicate completion comments or closure", () => {
 
 test("transient labels are removed while durable labels remain", () => {
   const runner = runnerWith({ "git rev-parse origin/main": { status: 0, stdout: baseSha } });
-  const result = cleanupTransientLabels(narrowIssue(), runner);
+  const result = cleanupTransientLabels(narrowIssue(), runner, { repositorySlug: "tommytang213/Settleora", repositoryId: "repo-1" });
   assert.equal(result.status, "updated");
   assert.deepEqual(result.attemptedRemove.sort(), ["auto-claimed", "auto-running"]);
   assert.ok(result.preserved.includes("area:infra"));
   assert.ok(result.preserved.includes("auto-ready"));
+  assert.deepEqual(
+    runner.calls.find((call) => call.command === "gh" && call.args[0] === "issue" && call.args[1] === "edit")?.args.slice(0, 5),
+    ["issue", "edit", "891", "--repo", "tommytang213/Settleora"],
+  );
 });
 
 test("parent progress shows completed, remaining, blockers, future, manual, and keep-open rationale", () => {
@@ -305,10 +310,85 @@ test("ordinary merge path invokes the completion pipeline safely", () => {
     runner.calls.find((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "comment")?.args.slice(0, 5),
     ["pr", "comment", "100", "--repo", repositorySlug],
   );
+  for (const call of runner.calls.filter((entry) => entry.command === "gh" && (entry.args[0] === "issue" || entry.args[0] === "pr"))) {
+    assert.equal(call.args.includes("--repo"), true, `${call.command} ${call.args.join(" ")}`);
+    assert.equal(call.args[call.args.indexOf("--repo") + 1], repositorySlug, `${call.command} ${call.args.join(" ")}`);
+  }
 });
 
 test("feature-bundle context can use the same completion pipeline", () => {
   const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ bundle: { id: "issue-892-bundle-v1" } }), { runner: runnerWith() });
   assert.equal(result.status, "merged");
   assert.equal(result.closeDecision.close, true);
+});
+
+test("completion hygiene requires a repository context before issue commands", () => {
+  const calls = [];
+  const runner = (command, args) => {
+    calls.push({ command, args });
+    return { status: 0, stdout: "" };
+  };
+  const result = completeMergedIssueHygiene(
+    { logsRoot: logsRoot() },
+    context({ pr: { number: 100, url: "https://example.invalid/pull/100", headRefOid: headSha } }),
+    { runner },
+  );
+  assert.equal(result.status, "failed");
+  assert.equal(result.reason, "repository_slug_required");
+  assert.deepEqual(calls, []);
+});
+
+test("completion hygiene rejects malformed and mismatched repository context before mutation", () => {
+  assert.equal(
+    buildIssueOperationContext(
+      { repositorySlug: "tommytang213/Settleora" },
+      context({ repositoryContext: { configuredRepositorySlug: "other-owner/OtherRepo" } }),
+    ).reason,
+    "repository_configuredRepositorySlug_mismatch",
+  );
+  assert.equal(
+    buildIssueOperationContext(
+      { repositorySlug: "https://github.com/tommytang213/Settleora" },
+      context(),
+    ).reason,
+    "repository_slug_required",
+  );
+  assert.equal(
+    buildIssueOperationContext(
+      { repositorySlug: "tommytang213/Settleora", githubHost: "github.enterprise.invalid" },
+      context(),
+    ).reason,
+    "unsupported_github_host",
+  );
+});
+
+test("completion hygiene uses non-default repository for reads, comments, labels, close, and dedupe", () => {
+  const repositorySlug = "octo-org/NonDefault";
+  const calls = [];
+  const runner = (command, args) => {
+    calls.push({ command, args });
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+      const repo = args[args.indexOf("--repo") + 1];
+      const number = Number(args[2]);
+      if (repo !== repositorySlug) {
+        return { status: 0, stdout: JSON.stringify({ number, title: "Wrong repo", state: "CLOSED", labels: [], comments: [{ body: `settleora-completion:891:${mergeSha}` }] }) };
+      }
+      return { status: 0, stdout: JSON.stringify(number === 800 ? { number, title: "Umbrella", state: "OPEN", labels: [], body: "", comments: [] } : narrowIssue()) };
+    }
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      return { status: 0, stdout: JSON.stringify({ number: 100, url: `https://github.com/${repositorySlug}/pull/100`, headRefOid: headSha, mergeCommit: { oid: mergeSha } }) };
+    }
+    return { status: 0, stdout: "" };
+  };
+  const result = completeMergedIssueHygiene(
+    { logsRoot: logsRoot(), repositorySlug },
+    context({ pr: { number: 100, url: `https://github.com/${repositorySlug}/pull/100`, headRefOid: headSha } }),
+    { runner },
+  );
+  assert.equal(result.status, "merged");
+  assert.equal(result.comment.status, "updated");
+  for (const call of calls.filter((entry) => entry.command === "gh" && (entry.args[0] === "issue" || entry.args[0] === "pr"))) {
+    assert.equal(call.args.includes("--repo"), true, `${call.command} ${call.args.join(" ")}`);
+    assert.equal(call.args[call.args.indexOf("--repo") + 1], repositorySlug, `${call.command} ${call.args.join(" ")}`);
+  }
 });

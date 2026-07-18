@@ -5413,8 +5413,8 @@ test("successful auto-merge removes only present transient issue labels", () => 
     assert.equal(result.result, "merged");
     assert.equal(result.issueLabelCleanupResult.status, "passed");
     assert.deepEqual(result.issueLabelCleanupResult.labelsRemoved, ["auto-running", "auto-claimed"]);
-    const editCall = calls.find((call) => call.startsWith("gh issue edit 1 --remove-label"));
-    assert.equal(editCall, "gh issue edit 1 --remove-label auto-running,auto-claimed");
+    const editCall = calls.find((call) => call.startsWith("gh issue edit 1 --repo"));
+    assert.equal(editCall, "gh issue edit 1 --repo tommytang213/Settleora --remove-label auto-running,auto-claimed");
     assert.doesNotMatch(editCall, /workflow|area:mobile-ui/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
@@ -5437,6 +5437,7 @@ test("label cleanup succeeds as no-op when no transient labels are present", () 
   assert.equal(result.status, "passed_noop");
   assert.deepEqual(result.labelsRemoved, []);
   assert.equal(calls.length, 1);
+  assert.equal(calls[0], "gh issue view 1 --repo tommytang213/Settleora --json labels");
 });
 
 test("label cleanup records view and removal failures without changing merge success", () => {
@@ -5480,6 +5481,101 @@ test("label cleanup records view and removal failures without changing merge suc
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("label cleanup requires valid repository context before runner invocation", () => {
+  const calls = [];
+  const withoutRepo = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), dryRun: false },
+    { ...autoMergeContext({ config: {} }), config: {}, pr: { number: 1, url: "https://example.invalid/pull/1" } },
+    (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      return ok("");
+    },
+  );
+  assert.equal(withoutRepo.status, "failed");
+  assert.equal(withoutRepo.failureReason, "repository_slug_required");
+  assert.deepEqual(calls, []);
+
+  const malformed = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug: "tommytang213 Settleora", dryRun: false },
+    autoMergeContext(),
+    (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      return ok("");
+    },
+  );
+  assert.equal(malformed.status, "failed");
+  assert.equal(malformed.failureReason, "repository_slug_required");
+  assert.deepEqual(calls, []);
+});
+
+test("label cleanup uses non-default repository and rejects repository mismatch", () => {
+  const repositorySlug = "octo-org/OtherRepo";
+  const calls = [];
+  const result = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug, dryRun: false },
+    autoMergeContext({
+      config: { repositorySlug },
+      pr: { url: `https://github.com/${repositorySlug}/pull/1`, headRepository: { nameWithOwner: repositorySlug, id: "repo-2" } },
+    }),
+    (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+        assert.equal(args[args.indexOf("--repo") + 1], repositorySlug);
+        return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }, { name: "area:infra" }] }));
+      }
+      if (command === "gh" && args[0] === "issue" && args[1] === "edit") {
+        assert.equal(args[args.indexOf("--repo") + 1], repositorySlug);
+        return ok("");
+      }
+      return fail(`unexpected ${command} ${args.join(" ")}`);
+    },
+  );
+  assert.equal(result.status, "passed");
+  assert.deepEqual(result.labelsRemoved, ["auto-running"]);
+  assert.deepEqual(result.labelsRetained, ["workflow", "area:infra"]);
+  assert.deepEqual(calls, [
+    `gh issue view 1 --repo ${repositorySlug} --json labels`,
+    `gh issue edit 1 --repo ${repositorySlug} --remove-label auto-running`,
+  ]);
+
+  const mismatchCalls = [];
+  const mismatch = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug, dryRun: false },
+    autoMergeContext({
+      config: { repositorySlug },
+      pr: { url: `https://github.com/${repositorySlug}/pull/1`, headRepository: { nameWithOwner: "tommytang213/Settleora", id: "repo-1" } },
+    }),
+    (command, args) => {
+      mismatchCalls.push(`${command} ${args.join(" ")}`);
+      return ok("");
+    },
+  );
+  assert.equal(mismatch.status, "failed");
+  assert.equal(mismatch.failureReason, "repository_pr_head_mismatch");
+  assert.deepEqual(mismatchCalls, []);
+});
+
+test("label cleanup fails closed on malformed label readback and sanitizes command failure", () => {
+  const malformed = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug: "tommytang213/Settleora", dryRun: false },
+    autoMergeContext(),
+    () => ok(JSON.stringify({ labels: { name: "auto-running" } })),
+  );
+  assert.equal(malformed.status, "failed");
+  assert.equal(malformed.failureReason, "issue_label_view_malformed_labels");
+
+  const failed = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug: "tommytang213/Settleora", dryRun: false },
+    autoMergeContext(),
+    (command, args) => {
+      if (command === "gh" && args[0] === "issue" && args[1] === "view") return fail("view denied token ghp_abcdefghijklmnopqrstuvwxyz123456");
+      return ok("");
+    },
+  );
+  assert.equal(failed.status, "failed");
+  assert.doesNotMatch(failed.failureReason, /ghp_abcdefghijklmnopqrstuvwxyz123456/);
 });
 
 test("issue close failure and label cleanup failure are independently represented", () => {
