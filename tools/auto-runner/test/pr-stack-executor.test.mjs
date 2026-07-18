@@ -132,7 +132,7 @@ test("production stack convergence invokes shared batch-fix callback with comple
       return { ok: true, newHead: sha("c") };
     },
   });
-  const result = await adapter.convergeExistingPr({ pr: fixture.plan.orderedPrs[0], findings });
+  const result = await adapter.convergeExistingPr({ pr: fixture.plan.orderedPrs[0], findings, state: createInitialPrStackState({ plan: fixture.plan }), plan: fixture.plan });
   assert.equal(result.ok, true, result.reasonCode);
   assert.equal(result.newHead, sha("c"));
   assert.equal(calls.length, 1);
@@ -770,6 +770,96 @@ test("source-cycle reservations enforce creation budget ordinal and duplicate ow
   }).reasonCode, "source_cycle_budget_exhausted");
 });
 
+test("production commitAndPush requires explicit validated stack state before reservation or push", async () => {
+  const fixture = stackFixture();
+  const pr = fixture.plan.orderedPrs[0];
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  const budget = prStackExecutorTestInternals.evaluateSourceCycleBudget({
+    config: fixture.config,
+    state,
+    pr,
+    findings: [{ title: "finding" }],
+  });
+  const calls = [];
+  const adapters = prStackExecutorTestInternals.createProductionBatchFixAdapters(fixture.config, {
+    runner: productionPushRunner(calls, { branch: "feature/auto-913-parent", oldHead: sha("a"), candidateHead: sha("c") }),
+  });
+  const missing = await adapters.commitAndPush({
+    exactHead: sha("a"),
+    changedFiles: reviewed.changedFiles,
+    reviewed,
+    pr,
+    fingerprintDigest: sha("f"),
+    markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+    sourceCycleBudget: budget,
+    plan: fixture.plan,
+  });
+  assert.equal(missing.reasonCode, "source_cycle_operation_state_missing");
+  assert.equal(calls.some((call) => call.startsWith("git push origin")), false);
+  assert.equal(calls.some((call) => call.includes("source-cycle-reservations")), false);
+});
+
+test("production commitAndPush binds reservation to exact durable state and pushes after readback", async () => {
+  const fixture = stackFixture();
+  const pr = fixture.plan.orderedPrs[0];
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  const budget = prStackExecutorTestInternals.evaluateSourceCycleBudget({
+    config: fixture.config,
+    state,
+    pr,
+    findings: [{ title: "finding" }],
+  });
+  const context = prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state, pr, sourceCycleBudget: budget });
+  assert.equal(context.ok, true, context.reasonCode);
+  const calls = [];
+  const adapters = prStackExecutorTestInternals.createProductionBatchFixAdapters(fixture.config, {
+    runner: productionPushRunner(calls, { branch: "feature/auto-913-parent", oldHead: sha("a"), candidateHead: sha("c") }),
+  });
+  const pushed = await adapters.commitAndPush({
+    exactHead: sha("a"),
+    changedFiles: reviewed.changedFiles,
+    reviewed,
+    pr,
+    fingerprintDigest: sha("f"),
+    markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+    sourceCycleBudget: budget,
+    sourceCycleOperationContext: context.context,
+    plan: fixture.plan,
+  });
+  assert.equal(pushed.ok, true, pushed.reasonCode);
+  assert.equal(pushed.sourceCycleReservation.status, "source_cycle_finalized");
+  assert.equal(pushed.sourceCycleReservation.consumedAfter, 1);
+  assert.equal(calls.filter((call) => call === `git push origin ${sha("c")}:feature/auto-913-parent`).length, 1);
+});
+
+test("source-cycle operation context rejects malformed stale or foreign state before reservation", () => {
+  const fixture = stackFixture();
+  const pr = fixture.plan.orderedPrs[0];
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  const budget = prStackExecutorTestInternals.evaluateSourceCycleBudget({ config: fixture.config, state, pr, findings: [{ title: "finding" }] });
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  assert.equal(prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, stateVersion: 0 }, pr, sourceCycleBudget: budget }).reasonCode, "stack_state_unknown_version");
+  assert.equal(prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, activePrNumber: 920 }, pr, sourceCycleBudget: budget }).reasonCode, "source_cycle_operation_pr_mismatch");
+  assert.equal(prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, exactHeads: { ...state.exactHeads, 919: sha("b") } }, pr, sourceCycleBudget: budget }).reasonCode, "source_cycle_operation_head_mismatch");
+  assert.equal(prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, sourceCycles: { ...state.sourceCycles, 919: 1 } }, pr, sourceCycleBudget: budget }).reasonCode, "source_cycle_reservation_conflict");
+  const context = prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state, pr, sourceCycleBudget: budget });
+  assert.equal(context.ok, true);
+  assert.equal(prStackExecutorTestInternals.validateSourceCycleOperationContext({
+    config: fixture.config,
+    plan: fixture.plan,
+    context: { ...context.context, state: { ...context.context.state, repository: "other/Settleora" } },
+    pr,
+    exactHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("f"),
+    reviewed,
+    sourceCycleBudget: budget,
+  }).reasonCode, "stack_state_identity_mismatch");
+});
+
 test("source-cycle reservation shape rejects over-budget malformed PR epoch chain and candidate drift", () => {
   const fixture = stackFixture();
   const pr = fixture.plan.orderedPrs[0];
@@ -859,6 +949,49 @@ test("remote candidate reconciliation finalizes exactly once and fails closed wi
   assert.equal(confirmed.ok, true, confirmed.reasonCode);
   assert.equal(confirmed.sourceCycleReservation.consumedAfter, 1);
   const confirmedIntent = JSON.parse(readFileSync(intent.intentPath, "utf8"));
+  const incompleteReboundState = createInitialPrStackState({ plan: fixture.plan });
+  const discoveredConfirmed = prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({
+    config,
+    state: incompleteReboundState,
+    pr,
+    livePr: { headRefOid: sha("c") },
+  });
+  assert.equal(discoveredConfirmed.ok, true, discoveredConfirmed.reasonCode);
+  assert.equal(discoveredConfirmed.intents.length, 1);
+  assert.equal(discoveredConfirmed.intents[0].status, "push_confirmed");
+  const restartCalls = [];
+  const recovered = prStackExecutorTestInternals.reconcileTaskScopedPendingPushIntent({
+    config: { ...config, repoRoot: fixture.root },
+    state: incompleteReboundState,
+    pr,
+    livePr: { headRefOid: sha("c") },
+    runner: targetWorktreeRunner(restartCalls, { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") }),
+  });
+  assert.equal(recovered.ok, true, recovered.reasonCode);
+  assert.equal(recovered.sourceCycleReservation.consumedAfter, 1);
+  assert.equal(restartCalls.some((call) => call.startsWith("git push origin")), false);
+  const reboundState = createInitialPrStackState({ plan: fixture.plan });
+  reboundState.sourceCycles["919"] = 1;
+  reboundState.exactHeads["919"] = sha("c");
+  reboundState.orderedPrs[0].headRefOid = sha("c");
+  const alreadyRebound = prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({
+    config,
+    state: reboundState,
+    pr,
+    livePr: { headRefOid: sha("c") },
+  });
+  assert.equal(alreadyRebound.ok, true, alreadyRebound.reasonCode);
+  assert.equal(alreadyRebound.intents.length, 0);
+  const terminalPath = path.join(config.logsRoot, "source-cycle-intents", "terminal-rebound.json");
+  writeFileSync(terminalPath, JSON.stringify({ ...confirmedIntent, status: "rebound_finalized", intentPath: terminalPath }, null, 2), { mode: 0o600 });
+  const terminalIgnored = prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({
+    config,
+    state: reboundState,
+    pr,
+    livePr: { headRefOid: sha("c") },
+  });
+  assert.equal(terminalIgnored.ok, true, terminalIgnored.reasonCode);
+  assert.equal(terminalIgnored.intents.length, 0);
   const idempotent = prStackExecutorTestInternals.reconcilePushIntent({
     config: { ...config, repoRoot: fixture.root },
     pr,
@@ -2350,6 +2483,25 @@ function targetWorktreeRunner(calls, options = {}) {
     if (command === "git" && args[0] === "merge") return fakeRunner(command, args);
     if (command === "git" && args[0] === "switch") return fakeRunner(command, args);
     return fakeRunner(command, args);
+  };
+}
+
+function productionPushRunner(calls, { branch, oldHead, candidateHead }) {
+  let pushed = false;
+  return (command, args = []) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "git" && args[0] === "push") {
+      pushed = true;
+      return { status: 0, stdout: "", stderr: "", error: null };
+    }
+    const remoteHead = pushed ? candidateHead : oldHead;
+    return targetWorktreeRunner(calls, {
+      branch,
+      liveBranch: branch,
+      head: candidateHead,
+      remoteHead,
+      liveHead: remoteHead,
+    })(command, args);
   };
 }
 

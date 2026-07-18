@@ -548,9 +548,11 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         findings: unresolvedThreadsAsFindings(state.reviewThreads || []),
       };
     },
-    async convergeExistingPr({ pr, findings = [], state = null, sourceCycleBudget = null }) {
+    async convergeExistingPr({ pr, findings = [], state = null, plan = null, sourceCycleBudget = null }) {
       const durableBudget = sourceCycleBudget || evaluateSourceCycleBudget({ config, state, pr, findings });
       if (!durableBudget.ok) return durableBudget;
+      const sourceCycleOperationContext = createSourceCycleOperationContext({ config, plan, state, pr, sourceCycleBudget: durableBudget });
+      if (!sourceCycleOperationContext.ok) return sourceCycleOperationContext;
       const result = await runExistingPrReviewConvergence({
         config,
         issue: { number: pr.issueNumber || 921, title: pr.title || "" },
@@ -558,6 +560,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         findings,
         laneDecision: { lane: "workflow-docs-tooling", allowedPaths: ["tools/auto-runner/**", "docs/**"] },
         sourceCycleBudget: durableBudget,
+        sourceCycleOperationContext: sourceCycleOperationContext.context,
         runBatchFix,
       });
       return result.ok
@@ -811,10 +814,23 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         },
       };
     },
-    async commitAndPush({ exactHead, changedFiles, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null }) {
+    async commitAndPush({ exactHead, changedFiles, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null }) {
       const newHead = reviewed?.localCandidate?.newHead || reviewed?.sourceIdentity?.newHead || null;
       if (!validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", "validated local candidate head is missing");
       const branch = pr?.headRefName || pr?.branch || "";
+      const operationContext = validateSourceCycleOperationContext({
+        config,
+        plan,
+        context: sourceCycleOperationContext,
+        pr,
+        exactHead,
+        newHead,
+        changedFiles,
+        fingerprintDigest,
+        reviewed,
+        sourceCycleBudget,
+      });
+      if (!operationContext.ok) return operationContext;
       const live = readLivePrProof({ config, pr, expectedHead: exactHead, runner });
       if (!live.ok) return live;
       const targetValidation = validatePushTargetBranch({
@@ -830,7 +846,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (!clean.ok || clean.clean !== true) return fail("existing_pr_batch_fix_candidate_worktree_dirty", "candidate worktree must be clean before push", { worktree: clean });
       const reservation = persistSourceCycleReservation({
         config,
-        state,
+        state: operationContext.state,
         pr,
         budget: sourceCycleBudget,
         oldHead: exactHead,
@@ -861,7 +877,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (reconciledIntent.ok && reconciledIntent.finalized === true) {
         return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead, sourceCycleReservation: reconciledIntent.sourceCycleReservation }, pushedAt: reconciledIntent.confirmedAt, pushIntent: intent, pushConfirmation: reconciledIntent, sourceCycleReservation: reconciledIntent.sourceCycleReservation };
       }
-      if (!reconciledIntent.ok && reconciledIntent.reasonCode !== "push_intent_not_completed") return reconciledIntent;
+      if (!reconciledIntent.ok && !["push_intent_not_completed", "push_intent_unpushed_candidate"].includes(reconciledIntent.reasonCode)) return reconciledIntent;
       const push = runner("git", ["push", "origin", `${newHead}:${branch}`], { cwd });
       if (push.status !== 0 || push.error) return fail("existing_pr_batch_fix_push_failed", boundedText(push.stderr || push.error || push.stdout));
       const confirmation = reconcilePushIntent({ config, pr, intent, runner, requireCandidate: true });
@@ -922,6 +938,90 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
     return fail("source_cycle_budget_exhausted", "durable per-PR source-cycle budget is exhausted", { summary, sourceCycleBudget: summary });
   }
   return { ok: true, ...summary, summary };
+}
+
+function createSourceCycleOperationContext({ config = {}, plan = null, state = null, pr = {}, sourceCycleBudget = null } = {}) {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return fail("source_cycle_operation_state_missing", "validated stack state is required before source-cycle reservation");
+  const stateValidation = validatePrStackState(state, plan);
+  if (!stateValidation.ok) return stateValidation;
+  if (!sourceCycleBudget?.ok) return fail(sourceCycleBudget?.reasonCode || "source_cycle_reservation_budget_missing", sourceCycleBudget?.reason || "valid source-cycle budget is required before reservation");
+  const prNumber = pr?.number;
+  if (!Number.isInteger(prNumber)) return fail("source_cycle_state_pr_invalid", "source-cycle operation context requires a valid PR number");
+  const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (state.repository !== configuredRepositorySlug) return fail("source_cycle_operation_repository_mismatch", "stack state repository does not match configured repository");
+  const activePrNumber = state.activePrNumber ?? state.currentAction?.prNumber ?? prNumber;
+  if (activePrNumber !== prNumber) return fail("source_cycle_operation_pr_mismatch", "source-cycle operation context is not bound to the active PR");
+  const exactHead = state.exactHeads?.[prNumber] || state.orderedPrs?.find((entry) => entry.number === prNumber)?.headRefOid || null;
+  if (exactHead !== pr.headRefOid) return fail("source_cycle_operation_head_mismatch", "stack state exact head does not match the PR old head");
+  if (sourceCycleBudget.prNumber !== prNumber || sourceCycleBudget.exactHead !== pr.headRefOid) return fail("source_cycle_operation_budget_mismatch", "source-cycle budget is not bound to the active PR/head");
+  const currentCount = state.sourceCycles?.[prNumber];
+  if (currentCount !== sourceCycleBudget.consumed) return fail("source_cycle_reservation_conflict", "source-cycle budget does not match durable state count");
+  const epoch = state?.sourceCycleEpoch?.[prNumber] || state?.sourceCycleEpoch || 1;
+  if (epoch !== sourceCycleBudget.epoch) return fail("source_cycle_epoch_malformed", "source-cycle budget epoch does not match durable state");
+  const context = sanitizeState({
+    state,
+    stateDigest: digestJson(state),
+    stackId: state.stackId,
+    repository: state.repository,
+    activePrNumber,
+    prNumber,
+    sourceBranch: pr.headRefName,
+    oldHead: pr.headRefOid,
+    sourceCycleEpoch: sourceCycleBudget.epoch,
+    consumedBefore: sourceCycleBudget.consumed,
+    maxAtReservation: sourceCycleBudget.max,
+    consumedAfter: sourceCycleBudget.consumed + 1,
+    policyDigest: sourceCyclePolicyDigest(config, sourceCycleBudget.max),
+    taskKey: config.taskKey || null,
+    runId: config.runId || null,
+    supervisorRunId: config.supervisorRunId || null,
+    createdAt: new Date().toISOString(),
+  });
+  return { ok: true, context };
+}
+
+function validateSourceCycleOperationContext({ config = {}, plan = null, context = null, pr = {}, exactHead = null, newHead = null, changedFiles = [], fingerprintDigest = null, reviewed = {}, sourceCycleBudget = null } = {}) {
+  if (!context || typeof context !== "object" || Array.isArray(context)) return fail("source_cycle_operation_state_missing", "validated stack state context is required before source-cycle reservation");
+  const state = context.state;
+  if (!state || typeof state !== "object" || Array.isArray(state)) return fail("source_cycle_operation_state_missing", "validated stack state context is missing its durable state snapshot");
+  const stateValidation = validatePrStackState(state, plan);
+  if (!stateValidation.ok) return stateValidation;
+  const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (context.repository !== configuredRepositorySlug || state.repository !== configuredRepositorySlug) return fail("source_cycle_operation_repository_mismatch", "source-cycle operation context repository does not match");
+  if (plan && context.stackId !== plan.stackId) return fail("source_cycle_operation_stack_mismatch", "source-cycle operation context stack identity does not match");
+  if (context.stateDigest !== digestJson(state)) return fail("source_cycle_operation_state_mismatch", "source-cycle operation context state digest does not match");
+  if (context.prNumber !== pr?.number || context.activePrNumber !== pr?.number) return fail("source_cycle_operation_pr_mismatch", "source-cycle operation context PR does not match");
+  if (context.sourceBranch !== pr?.headRefName) return fail("source_cycle_operation_branch_mismatch", "source-cycle operation context branch does not match");
+  if (context.oldHead !== exactHead || state.exactHeads?.[pr.number] !== exactHead) return fail("source_cycle_operation_head_mismatch", "source-cycle operation context old head does not match durable state");
+  if (!sourceCycleBudget?.ok) return fail(sourceCycleBudget?.reasonCode || "source_cycle_reservation_budget_missing", sourceCycleBudget?.reason || "valid source-cycle budget is required before reservation");
+  if (
+    context.sourceCycleEpoch !== sourceCycleBudget.epoch
+    || context.consumedBefore !== sourceCycleBudget.consumed
+    || context.maxAtReservation !== sourceCycleBudget.max
+    || context.consumedAfter !== sourceCycleBudget.consumed + 1
+    || state.sourceCycles?.[pr.number] !== sourceCycleBudget.consumed
+  ) {
+    return fail("source_cycle_operation_budget_mismatch", "source-cycle operation context budget does not match durable state");
+  }
+  if (context.policyDigest !== sourceCyclePolicyDigest(config, sourceCycleBudget.max)) return fail("source_cycle_reservation_policy_mismatch", "source-cycle operation context policy digest does not match");
+  const sourceIdentity = reviewed?.sourceIdentity || {};
+  const commitChain = validateCanonicalCommitChain(sourceIdentity.commitChain || [], {
+    oldHead: exactHead,
+    newHead,
+    candidateParent: sourceIdentity.parent || null,
+    reasonPrefix: "source_cycle_operation",
+  });
+  if (!commitChain.ok) return commitChain;
+  if (sourceIdentity.commitChainDigest && sourceIdentity.commitChainDigest !== commitChain.digest) return fail("source_cycle_operation_chain_mismatch", "source-cycle operation context candidate chain digest does not match");
+  if (!validSha(newHead) || (sourceIdentity.newHead || sourceIdentity.headSha) !== newHead) return fail("source_cycle_operation_candidate_mismatch", "source-cycle operation context candidate head does not match reviewed source identity");
+  if (!validSha(sourceIdentity.tree)) return fail("source_cycle_operation_candidate_mismatch", "source-cycle operation context candidate tree is missing");
+  const normalizedChangedFiles = normalizeChangedFiles(changedFiles);
+  if (normalizedChangedFiles.length === 0 || sourceIdentity.changedFilesDigest !== digestStringSet(normalizedChangedFiles)) return fail("source_cycle_operation_files_mismatch", "source-cycle operation context changed-file digest does not match");
+  if (fingerprintDigest && reviewed?.sourceIdentity?.fingerprintDigest && reviewed.sourceIdentity.fingerprintDigest !== fingerprintDigest) return fail("source_cycle_operation_finding_mismatch", "source-cycle operation context finding digest does not match");
+  if (config.taskKey !== undefined && context.taskKey !== (config.taskKey || null)) return fail("source_cycle_operation_task_mismatch", "source-cycle operation context task key does not match");
+  if (config.runId !== undefined && context.runId !== (config.runId || null)) return fail("source_cycle_operation_run_mismatch", "source-cycle operation context run ID does not match");
+  if (config.supervisorRunId !== undefined && context.supervisorRunId !== (config.supervisorRunId || null)) return fail("source_cycle_operation_supervisor_mismatch", "source-cycle operation context supervisor run ID does not match");
+  return { ok: true, state };
 }
 
 function sourceCyclePolicyDigest(config = {}, max = normalizeSourceCycleMax(config)) {
@@ -1995,12 +2095,19 @@ function discoverTaskScopedPendingPushIntents({ config = {}, state = {}, pr = {}
       return fail("push_intent_malformed", "task-scoped push intent JSON could not be parsed", { intentPath });
     }
     const intent = { ...parsed, intentPath: parsed.intentPath || intentPath };
-    if (intent.status !== "push_intent") continue;
+    if (isTerminalPushIntentStatus(intent.status)) continue;
+    if (!["push_intent", "push_confirmed"].includes(String(intent.status || ""))) {
+      return fail("push_intent_status_unknown", "task-scoped push intent status is not recoverable or terminal", { intentPath });
+    }
     const matched = intentMatchesStalePr({ config, state, pr, livePr, intent });
     if (matched.ok) intents.push(intent);
     else if (matched.reasonCode) return { ...matched, intentPath };
   }
   return { ok: true, intents };
+}
+
+function isTerminalPushIntentStatus(status) {
+  return ["rebound_finalized", "push_rebound_finalized", "blocked", "cancelled", "canceled", "push_blocked", "push_cancelled"].includes(String(status || ""));
 }
 
 function intentMatchesStalePr({ config = {}, state = {}, pr = {}, livePr = {}, intent = {} } = {}) {
@@ -2020,7 +2127,16 @@ function intentMatchesStalePr({ config = {}, state = {}, pr = {}, livePr = {}, i
   if (!reservation) return fail("source_cycle_reservation_missing", "push intent cannot reconcile without a source-cycle reservation");
   const currentCount = state.sourceCycles?.[pr.number];
   if (!Number.isInteger(currentCount) || currentCount < 0) return fail("source_cycle_state_malformed", "durable source-cycle count is malformed");
-  if (currentCount === reservation.consumedBefore) {
+  const alreadyRebound = state.exactHeads?.[pr.number] === intent.candidateNewHead
+    && state.orderedPrs?.some((entry) => entry.number === pr.number && entry.headRefOid === intent.candidateNewHead)
+    && currentCount === reservation.consumedAfter;
+  if (alreadyRebound) return { ok: false, ignored: true };
+  if (intent.status === "push_confirmed") {
+    if (reservation.status !== "source_cycle_finalized") return fail("source_cycle_reservation_conflict", "confirmed push intent is missing finalized source-cycle reservation proof");
+    if (currentCount !== reservation.consumedBefore) return fail("source_cycle_reservation_conflict", "confirmed push intent can only recover an incomplete rebound from the reservation consumed-before count");
+    const finalized = validateSourceCycleReservation({ config, state: { ...state, sourceCycles: { ...(state.sourceCycles || {}), [pr.number]: reservation.consumedBefore } }, pr, reservation, oldHead: pr.headRefOid, newHead: intent.candidateNewHead, changedFiles: intent.changedFiles, fingerprintDigest: intent.findingInventoryDigest, expectStatus: "source_cycle_finalized", requireCurrentCount: true });
+    if (!finalized.ok) return finalized;
+  } else if (currentCount === reservation.consumedBefore) {
     const pending = validateSourceCycleReservation({ config, state, pr, reservation, oldHead: pr.headRefOid, newHead: intent.candidateNewHead, changedFiles: intent.changedFiles, fingerprintDigest: intent.findingInventoryDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
     if (!pending.ok) return pending;
   } else if (currentCount === reservation.consumedAfter) {
@@ -2770,7 +2886,9 @@ export function digestStackPlan(plan) {
 export const prStackExecutorTestInternals = Object.freeze({
   canonicalRepositoryFromOriginUrl,
   canonicalRepositorySlug,
+  createProductionBatchFixAdapters,
   createOrReuseLocalCandidateCommit,
+  createSourceCycleOperationContext,
   deriveCanonicalCommitChain,
   discoverTaskScopedPendingPushIntents,
   evaluateSourceCycleBudget,
@@ -2787,6 +2905,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   readOriginRepositoryProof,
   readWorktreeCleanProof,
   sourceChangingResultFromIntent,
+  validateSourceCycleOperationContext,
   validateSourceCycleReservation,
   safeSourceBranchTarget,
   validateRepositoryIdentityProof,
