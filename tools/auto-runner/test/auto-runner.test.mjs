@@ -5379,7 +5379,10 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
     const runner = (command, args) => {
       calls.push(`${command} ${args.join(" ")}`);
       if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-      if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+      if (command === "gh" && args[0] === "pr" && args[1] === "view" && String(args[args.indexOf("--json") + 1] || "").includes("mergeCommit")) return ok(mergeReadbackJson("tommytang213/Settleora"));
+      if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(preMergePrJson());
+      if (command === "gh" && args[0] === "api" && args[1] === "graphql") return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+      if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
       if (command === "git" && args[0] === "ls-remote") return ok("");
       if (command === "git" && args[0] === "push") return ok("");
       if (command === "gh" && args[0] === "issue" && args[1] === "view") {
@@ -5460,7 +5463,10 @@ test("label cleanup records view and removal failures without changing merge suc
       {
         runner: (command, args) => {
           if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "gh" && args[0] === "pr" && args[1] === "view" && String(args[args.indexOf("--json") + 1] || "").includes("mergeCommit")) return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(preMergePrJson());
+          if (command === "gh" && args[0] === "api" && args[1] === "graphql") return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+          if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
           if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
           if (command === "gh" && args[0] === "issue" && args[1] === "view") {
             return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }] }));
@@ -5587,7 +5593,10 @@ test("issue close failure and label cleanup failure are independently represente
       {
         runner: (command, args) => {
           if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "gh" && args[0] === "pr" && args[1] === "view" && String(args[args.indexOf("--json") + 1] || "").includes("mergeCommit")) return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(preMergePrJson());
+          if (command === "gh" && args[0] === "api" && args[1] === "graphql") return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+          if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
           if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
           if (command === "gh" && args[0] === "issue" && args[1] === "view") {
             return ok(JSON.stringify({ labels: [{ name: "auto-running" }] }));
@@ -6753,7 +6762,7 @@ function createAutoMergeRunner(calls) {
         mergeStateStatus: "CLEAN",
         title: "Auto-runner: #1 Low risk auto merge",
         body: "Closes or updates #1.",
-        statusCheckRollup: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+        statusCheckRollup: autoMergeRequiredChecks(),
         comments: [],
         reviews: [],
       }));
@@ -6816,6 +6825,26 @@ function mergeReadbackJson(repositorySlug, overrides = {}) {
     headRepository: { id: "repo-1", name: repositorySlug.split("/")[1], nameWithOwner: repositorySlug },
     headRepositoryOwner: { login: repositorySlug.split("/")[0] },
     isCrossRepository: false,
+    ...overrides,
+  });
+}
+
+function preMergePrJson(overrides = {}) {
+  return JSON.stringify({
+    number: 1,
+    url: "https://example.invalid/pull/1",
+    state: "OPEN",
+    isDraft: false,
+    baseRefName: "main",
+    headRefName: "feature/auto-1-test",
+    headRefOid: "head123",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    title: "Auto-runner: #1 Low risk auto merge",
+    body: "Closes or updates #1.",
+    statusCheckRollup: autoMergeRequiredChecks(),
+    comments: [],
+    reviews: [],
     ...overrides,
   });
 }

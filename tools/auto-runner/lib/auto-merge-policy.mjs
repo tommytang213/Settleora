@@ -258,7 +258,21 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
   return { evidencePath };
 }
 
-export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
+export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {}, options = {}) {
+  const runner = options.runner || (config.dryRun ? defaultRunner : null);
+  const commandEvidence = [];
+  const run = (command, args, runnerOptions = {}) => {
+    const result = runner(command, args, runnerOptions);
+    commandEvidence.push({
+      command,
+      args: args.map((arg) => String(arg || "")),
+      cwd: runnerOptions.cwd || null,
+      status: result?.status ?? null,
+      ok: result?.status === 0 && !result?.error,
+      runnerIdentity: runner?.settleoraRunnerIdentity || null,
+    });
+    return result;
+  };
   const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug);
   if (!repositorySlug) {
     return {
@@ -268,6 +282,17 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
       reviewThreads: [],
       codeScanningAlerts: [],
       blockingMarkers: ["configured_repository_invalid"],
+    };
+  }
+  if (!runner || (!config.dryRun && runner === defaultRunner)) {
+    return {
+      pr: {},
+      issue,
+      requiredChecks: [],
+      reviewThreads: [{ isResolved: false }],
+      codeScanningAlerts: [{ state: "open" }],
+      blockingMarkers: ["auto_merge_inspection_runner_missing"],
+      commandEvidence,
     };
   }
   if (config.dryRun) {
@@ -282,9 +307,10 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
       reviewThreads: [],
       codeScanningAlerts: [],
       blockingMarkers: [],
+      commandEvidence,
     };
   }
-  const prView = defaultRunner(
+  const prView = run(
     "gh",
     [
       "pr",
@@ -297,7 +323,8 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
     ],
     { cwd: config.repoRoot },
   );
-  const issueView = defaultRunner("gh", ["issue", "view", String(issue.number), "--repo", repositorySlug, "--json", "number,title,state,labels,url"], {
+  const issueNumber = issue?.number || prUrlOrNumber;
+  const issueView = run("gh", ["issue", "view", String(issueNumber), "--repo", repositorySlug, "--json", "number,title,state,labels,url"], {
     cwd: config.repoRoot,
   });
   const blockingMarkers = [];
@@ -316,8 +343,8 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
   if (prView.error || prView.status !== 0) blockingMarkers.push("pr_view_failed");
   if (issueView.error || issueView.status !== 0) blockingMarkers.push("issue_view_failed");
 
-  const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers);
-  const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers);
+  const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers, run);
+  const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers, run);
   blockingMarkers.push(...detectBlockingMarkers(pr.comments || [], pr.reviews || []));
   return {
     pr,
@@ -326,6 +353,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
     reviewThreads,
     codeScanningAlerts,
     blockingMarkers,
+    commandEvidence,
   };
 }
 
@@ -351,10 +379,11 @@ export function executeAutoMerge(config, context, options = {}) {
   }
 
   const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
-  const defaultInspectState =
-    runner === defaultRunner
-      ? (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber })
-      : () => ({});
+  const defaultInspectState = (cfg, ctx) => inspectAutoMergeGithubState(
+    { ...(ctx.config || {}), ...cfg, repositorySlug: cfg.repositorySlug || ctx.config?.repositorySlug },
+    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber },
+    { runner },
+  );
   const refreshed = (options.inspectState || defaultInspectState)(config, context);
   const finalContext = mergeAutoMergeContext(context, refreshed);
   if (!config.dryRun && finalContext.expectedOriginMainSha) {
@@ -794,14 +823,14 @@ function nearestDelayBucket(delayMs) {
   return selected;
 }
 
-function inspectReviewThreads(config, prNumber, blockingMarkers) {
+function inspectReviewThreads(config, prNumber, blockingMarkers, runner = defaultRunner) {
   if (!prNumber) {
     blockingMarkers.push("review_thread_inspection_missing_pr_number");
     return [{ isResolved: false }];
   }
   const [owner, name] = String(config.repositorySlug || "tommytang213/Settleora").split("/");
   const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}}}}}`;
-  const result = defaultRunner(
+  const result = runner(
     "gh",
     [
       "api",
@@ -829,13 +858,13 @@ function inspectReviewThreads(config, prNumber, blockingMarkers) {
   }
 }
 
-function inspectCodeScanningAlerts(config, headRefName, blockingMarkers) {
+function inspectCodeScanningAlerts(config, headRefName, blockingMarkers, runner = defaultRunner) {
   if (!headRefName) {
     blockingMarkers.push("code_scanning_ref_missing");
     return [{ state: "open" }];
   }
   const repositorySlug = config.repositorySlug || "tommytang213/Settleora";
-  const result = defaultRunner(
+  const result = runner(
     "gh",
     ["api", `/repos/${repositorySlug}/code-scanning/alerts?state=open&ref=refs/heads/${encodeURIComponent(headRefName)}`],
     { cwd: config.repoRoot },

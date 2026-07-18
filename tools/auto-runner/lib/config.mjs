@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { isUtf8 } from "node:buffer";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
@@ -368,7 +369,8 @@ function readValue(argv, index, name) {
 export function loadConfig(cliArgs, trustedCapabilities = {}) {
   let fileConfig = {};
   if (cliArgs.configPath) {
-    fileConfig = JSON.parse(readFileSync(cliArgs.configPath, "utf8"));
+    const loaded = readTrustedConfigFile(cliArgs.configPath, { runPrStack: cliArgs.runPrStack });
+    fileConfig = loaded.config;
   }
   const config = {
     ...defaultConfig,
@@ -462,6 +464,58 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+function readTrustedConfigFile(configPath, { runPrStack = false } = {}) {
+  const resolved = path.resolve(configPath);
+  if (!runPrStack) {
+    return { config: JSON.parse(readFileSync(resolved, "utf8")), evidence: null };
+  }
+  if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("Config path must be absolute and canonical.");
+  const linkStat = lstatSync(resolved);
+  if (linkStat.isSymbolicLink()) throw new Error("Config path must not be a symlink.");
+  const real = realpathSync(resolved);
+  if (real !== resolved) throw new Error("Config path realpath must match the canonical path.");
+  const stat = statSync(real);
+  if (!stat.isFile()) throw new Error("Config path must be a regular file.");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) throw new Error("Config file owner must match the current operator.");
+  if ((stat.mode & 0o022) !== 0) throw new Error("Config file must not be group/world writable.");
+  if (stat.size > 1024 * 1024) throw new Error("Config file exceeds the bounded size limit.");
+  const buffer = readFileSync(real);
+  if (!isUtf8(buffer)) throw new Error("Config file must be valid UTF-8.");
+  let parsed;
+  try {
+    parsed = JSON.parse(buffer.toString("utf8"));
+  } catch (error) {
+    throw new Error(`Config JSON is malformed: ${error.message}`);
+  }
+  if (runPrStack) {
+    const logsRoot = path.resolve(parsed.logsRoot || defaultConfig.logsRoot);
+    const trustedControlRoot = path.resolve(parsed.trustedControlRoot || path.join(defaultConfig.logsRoot, "trusted-control"));
+    if (!isInsidePath(real, logsRoot) && !isInsidePath(real, trustedControlRoot)) {
+      throw new Error("--run-pr-stack config path must be under configured logsRoot or trusted control root.");
+    }
+    if (parsed.repositorySlug && parsed.repositorySlug !== defaultConfig.repositorySlug) {
+      throw new Error("--run-pr-stack config repository must match the approved repository identity.");
+    }
+  }
+  return {
+    config: parsed,
+    evidence: {
+      path: resolved,
+      realpath: real,
+      size: stat.size,
+      mode: stat.mode & 0o777,
+      uid: stat.uid,
+      loadedAt: new Date().toISOString(),
+    },
+  };
+}
+
+function isInsidePath(candidate, root) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 export function normalizeAutoMergePolicy(policy = {}) {

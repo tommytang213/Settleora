@@ -33,8 +33,9 @@ test("CLI accepts the documented stack mode and rejects incomplete or mixed stac
 
 test("stack mode loads as pr-stack-run and cannot be enabled by default config", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-config-"));
-  const configPath = path.join(root, "config.json");
   const logsRoot = path.join(root, "logs");
+  mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
+  const configPath = path.join(logsRoot, "config.json");
   writeFileSync(configPath, JSON.stringify({ logsRoot, repoRoot: process.cwd(), repositorySlug: "tommytang213/Settleora" }), { mode: 0o600 });
   const config = loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "plan.json")]));
   assert.equal(config.mode, "pr-stack-run");
@@ -2328,7 +2329,8 @@ test("full [919, 920] sequence advances across a post-ready source-head change",
 function stackFixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-"));
   const logsRoot = path.join(root, "logs");
-  const configPath = path.join(root, "config.json");
+  mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
+  const configPath = path.join(logsRoot, "config.json");
   const configJson = {
     repoRoot: process.cwd(),
     logsRoot,
@@ -2855,18 +2857,22 @@ function finalHygieneRunner(calls, options = {}) {
       };
     }
     if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      const number = Number(args[2]);
       return {
         status: 0,
         stdout: JSON.stringify({
-          number: 920,
-          url: "https://github.com/tommytang213/Settleora/pull/920",
-          title: "Child",
+          number,
+          url: `https://github.com/tommytang213/Settleora/pull/${number}`,
+          title: number === 919 ? "Parent" : "Child",
           state: "MERGED",
-          headRefName: "feature/auto-913-child",
-          headRefOid: sha("b"),
+          headRefName: number === 919 ? "feature/auto-913-parent" : "feature/auto-913-child",
+          headRefOid: number === 919 ? sha("a") : sha("b"),
           baseRefName: "main",
-          mergeCommit: { oid: sha("d") },
+          mergeCommit: { oid: number === 919 ? sha("c") : sha("d") },
           mergedAt: "2026-07-18T00:00:00Z",
+          headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: "tommytang213/Settleora" },
+          headRepositoryOwner: { login: "tommytang213" },
+          isCrossRepository: false,
         }),
         stderr: "",
         error: null,
@@ -3006,6 +3012,9 @@ function fakeRunner(command, args = []) {
   }
   if (command === "gh" && args.includes("--patch")) {
     return { status: 0, stdout: "diff --git a/tools/auto-runner/lib/pr-stack-executor.mjs b/tools/auto-runner/lib/pr-stack-executor.mjs\n", stderr: "", error: null };
+  }
+  if (command === "git" && args[0] === "patch-id") {
+    return { status: 0, stdout: `${sha("d")} 0000000000000000000000000000000000000000\n`, stderr: "", error: null };
   }
   if (command === "git" && args[0] === "rev-list") return fakeRevList(args);
   if (command === "git" && args[0] === "branch" && args[1] === "--show-current") {

@@ -16,6 +16,7 @@ import {
 } from "./auto-merge-policy.mjs";
 import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 import {
+  freezeMaterialFindingInventory,
   runExistingPrBatchFix,
   runExistingPrReviewConvergence,
 } from "./review-convergence-controller.mjs";
@@ -724,7 +725,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       }
       const proof = normalizeBoundLivePrProof({ config: targetConfig, pr, repositoryContext: context });
       if (!proof.ok) return proof;
-      const stateSnapshot = inspectAutoMergeGithubState({ ...targetConfig, repositorySlug: repo }, { issue: {}, prUrlOrNumber: prNumber });
+      const stateSnapshot = inspectAutoMergeGithubState({ ...targetConfig, repositorySlug: repo }, { issue: {}, prUrlOrNumber: prNumber }, { runner: run });
       const reviewThreads = stateSnapshot.reviewThreads || [];
       if (!pr?.number) return fail("inspect_pr_missing", "PR inspection did not return a PR");
       return {
@@ -743,12 +744,14 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (!durableBudget.ok) return durableBudget;
       const sourceCycleOperationContext = createSourceCycleOperationContext({ config, plan, state, pr, sourceCycleBudget: durableBudget });
       if (!sourceCycleOperationContext.ok) return sourceCycleOperationContext;
+      const laneDecision = buildStackLaneContract({ config, plan, state, pr, findings, sourceCycleBudget: durableBudget });
+      if (!laneDecision.ok) return laneDecision;
       const result = await runExistingPrReviewConvergence({
         config,
         issue: { number: pr.issueNumber || 921, title: pr.title || "" },
         pr,
         findings,
-        laneDecision: { lane: "workflow-docs-tooling", allowedPaths: ["tools/auto-runner/**", "docs/**"] },
+        laneDecision: laneDecision.contract,
         sourceCycleBudget: durableBudget,
         sourceCycleOperationContext: sourceCycleOperationContext.context,
         runBatchFix,
@@ -917,6 +920,8 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (targetConfig.dryRun === true) return fail("final_hygiene_dry_run_cannot_complete_stack", "dry-run final hygiene cannot persist production stack completion");
       const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: plan.issueNumber || 921, adapter: this });
       if (!repositoryContext.ok) return repositoryContext;
+      const liveMergeProof = await proveFreshLiveMergedStackState({ config: targetConfig, plan, state, adapter: this, repositoryContext: repositoryContext.context });
+      if (!liveMergeProof.ok) return liveMergeProof;
       const finalPr = plan.orderedPrs.at(-1);
       const mergeProof = state.evidence?.merged?.[finalPr.number] || {};
       const completedPrs = plan.orderedPrs.map((stackPr) => ({
@@ -935,7 +940,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         runId: targetConfig.runId || state.runId || null,
         supervisorRunId: targetConfig.supervisorRunId || state.supervisorRunId || null,
         repositoryContext: repositoryContext.context,
-        repositoryOperationProof: repositoryContext.context,
+        repositoryOperationProof: { ...repositoryContext.context, liveMergeProof },
         worktreePath: repositoryContext.context.worktreePath,
         completedPrs,
         parentIssue: plan.parentIssueNumber || plan.parentIssue || 800,
@@ -952,7 +957,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       }, { runner: hygieneRunner });
       const validation = validateFinalHygieneResult(result, hygieneRunner.commandEvidence);
       if (!validation.ok) return validation;
-      return { ok: true, result: validation.result };
+      return { ok: true, result: { ...validation.result, liveMergeProof } };
     },
   };
 }
@@ -3743,6 +3748,114 @@ function finalGateIssue(config = {}, state = {}, pr = {}) {
   );
 }
 
+function buildStackLaneContract({ config = {}, plan = {}, state = {}, pr = {}, findings = [], sourceCycleBudget = null } = {}) {
+  const allowedPaths = normalizeChangedFiles(
+    pr.allowedPaths ||
+    plan.allowedPaths ||
+    plan.laneContract?.allowedPaths ||
+    config.prStackExecution?.allowedPaths ||
+    ["tools/auto-runner/**", "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md", "docs/planning/**"],
+  );
+  if (allowedPaths.length === 0) return fail("stack_lane_contract_allowed_paths_missing", "complete stack lane contract requires allowed paths before source mutation");
+  if (!pr.number || !validSha(pr.headRefOid) || !pr.headRefName || !pr.baseRefName) {
+    return fail("stack_lane_contract_pr_identity_missing", "complete stack lane contract requires PR number, branch, head, and base identity");
+  }
+  const repository = canonicalRepositorySlug(plan.repository || state.repository || config.repositorySlug || "tommytang213/Settleora");
+  if (!repository) return fail("stack_lane_contract_repository_missing", "complete stack lane contract requires repository identity");
+  const findingIdentities = freezeMaterialFindingInventory(findings).map((finding) => finding.fingerprint).filter(Boolean).sort();
+  if (findings.length > 0 && findingIdentities.length === 0) {
+    return fail("stack_lane_contract_finding_identity_missing", "complete stack lane contract requires finding identities");
+  }
+  const dependencyIdentity = {
+    parentPr: pr.expectedParentPr ?? null,
+    parentBranch: pr.expectedParentBranch ?? null,
+    order: pr.order ?? null,
+    role: (pr.order ?? 0) === 0 ? "parent" : "child",
+  };
+  const correlationIdentity = {
+    stackId: plan.stackId || state.stackId || null,
+    taskKey: config.taskKey || state.taskKey || null,
+    sourceCycleEpoch: sourceCycleBudget?.epoch ?? config.prStackExecution?.sourceCycleEpoch ?? 1,
+    sourceCycleOrdinal: sourceCycleBudget?.nextOrdinal ?? null,
+  };
+  if (!correlationIdentity.stackId) return fail("stack_lane_contract_correlation_missing", "complete stack lane contract requires stack correlation identity");
+  const lane = plan.laneContract?.lane || pr.lane || "workflow-docs-tooling";
+  const contract = {
+    lane,
+    canonicalLane: lane,
+    allowedToImplement: true,
+    allowedPaths,
+    laneManifestAllowedPaths: allowedPaths,
+    validationProfile: plan.laneContract?.validationProfile || pr.validationProfile || "runner-tests",
+    manualMergeRequired: false,
+    autoMergeEligible: true,
+    implementationSensitivity: "low",
+    contract: {
+      contractVersion: 1,
+      lane,
+      allowedPaths,
+      validationProfile: plan.laneContract?.validationProfile || pr.validationProfile || "runner-tests",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+      requiredReading: ["PROGRAM_ARCHITECTURE.md", "README.md", "docs/workflow/CODEX_TASK_GUIDE.md"],
+    },
+    stackLaneContract: {
+      schemaVersion: 1,
+      laneId: lane,
+      order: pr.order ?? null,
+      role: dependencyIdentity.role,
+      prNumber: pr.number,
+      repository,
+      sourceBranch: pr.headRefName,
+      expectedHead: pr.headRefOid,
+      expectedBase: pr.baseRefName,
+      allowedPaths,
+      prohibitedPaths: protectedBranchNames.has(pr.headRefName) ? [pr.headRefName] : [],
+      scopeClass: "workflow-docs-tooling",
+      findingIdentities,
+      dependencyIdentity,
+      mutationPolicy: { sourceMutationAllowed: true, directMainPush: false, forcePush: false, branchDeletion: false },
+      reviewPolicy: { compactRequired: true, strongRequired: true, exactHeadRequired: true },
+      correlationIdentity,
+      digest: digestJson({ repository, prNumber: pr.number, head: pr.headRefOid, allowedPaths, findingIdentities, correlationIdentity }),
+    },
+  };
+  return { ok: true, contract: sanitizeState(contract) };
+}
+
+async function proveFreshLiveMergedStackState({ config = {}, plan = {}, state = {}, adapter, repositoryContext = {} } = {}) {
+  const proofs = [];
+  for (const pr of plan.orderedPrs || []) {
+    const expectedMergeSha = state.evidence?.merged?.[pr.number]?.mergeSha || state.evidence?.merged?.[pr.number]?.result?.mergeSha || null;
+    if (!validSha(expectedMergeSha)) return fail("final_hygiene_live_merge_proof_missing", `missing durable merge SHA for PR #${pr.number}`);
+    const live = await adapter.inspectPr({ config, plan, state, prNumber: pr.number, repositoryContext });
+    if (!live?.ok) return fail("final_hygiene_live_merge_proof_missing", live?.reason || `fresh live merge proof failed for PR #${pr.number}`, { prNumber: pr.number, live: sanitizeState(live || {}) });
+    const livePr = live.pr || {};
+    const liveMergeSha = livePr.mergeCommit?.oid || livePr.mergeSha || livePr.mergeCommitOid || null;
+    const baseRepositorySlug = livePr.baseRepositorySlug || repositoryContext.configuredRepositorySlug || config.repositorySlug || null;
+    const headRepositorySlug = livePr.headRepositorySlug || repositoryContext.configuredRepositorySlug || config.repositorySlug || null;
+    if (livePr.state !== "MERGED") return fail("final_hygiene_live_merge_proof_missing", `PR #${pr.number} is not live MERGED`, { prNumber: pr.number, state: livePr.state || null });
+    if (livePr.headRefOid !== pr.headRefOid) return fail("final_hygiene_live_merge_proof_missing", `PR #${pr.number} live head does not match expected immutable lane head`, { prNumber: pr.number });
+    if (liveMergeSha !== expectedMergeSha) return fail("final_hygiene_live_merge_proof_missing", `PR #${pr.number} live merge commit does not match durable merge evidence`, { prNumber: pr.number });
+    if (livePr.baseRefName !== "main") return fail("final_hygiene_live_merge_proof_missing", `PR #${pr.number} live base is not main`, { prNumber: pr.number, baseRefName: livePr.baseRefName || null });
+    const configured = repositoryContext.configuredRepositorySlug || config.repositorySlug || "tommytang213/Settleora";
+    if (baseRepositorySlug !== configured || headRepositorySlug !== configured) return fail("final_hygiene_live_merge_proof_missing", `PR #${pr.number} live repository identity mismatch`, { prNumber: pr.number });
+    proofs.push(sanitizeState({
+      prNumber: pr.number,
+      state: livePr.state,
+      expectedHead: pr.headRefOid,
+      sourceHeadSha: livePr.headRefOid,
+      expectedMergeSha,
+      liveMergeSha,
+      baseRefName: livePr.baseRefName,
+      repositorySlug: configured,
+      commandEvidence: live.commandEvidence || null,
+      provenAt: new Date().toISOString(),
+    }));
+  }
+  return { ok: true, proofType: "fresh_live_merged_stack_state", repositoryContext, proofs, provenAt: new Date().toISOString() };
+}
+
 function buildAllowedPathProof({ issue, changedFiles, exactHead }) {
   const normalized = normalizeChangedFiles(changedFiles);
   const laneDecision = classifyIssueLane(issue || {});
@@ -3821,8 +3934,8 @@ function readCurrentPrOwnDelta({ config, pr, runner }) {
   const patchText = String(patch.stdout || "");
   const fileSet = normalizeChangedFiles(nameOnly.stdout.split(/\r?\n/));
   const patchStats = summarizePatch(patchText);
-  const stablePatchId = computeStablePatchId(patchText, cwd);
-  if (!stablePatchId) return fail("own_delta_current_patch_id_unavailable", "current PR stable patch ID could not be computed");
+  const stablePatchId = computeStablePatchId(patchText, cwd, runner);
+  if (!stablePatchId.ok) return fail("own_delta_current_patch_id_unavailable", stablePatchId.reason || "current PR stable patch ID could not be computed", { patchIdEvidence: stablePatchId.evidence || null });
   const forwardPatchApplies = patchApplyCheck({ patchText, cwd, reverse: false, runner });
   const reversePatchApplies = patchApplyCheck({ patchText, cwd, reverse: true, runner });
   return {
@@ -3838,7 +3951,8 @@ function readCurrentPrOwnDelta({ config, pr, runner }) {
       diffstatDigest: digestJson({ files: fileSet.length, additions: patchStats.additions, deletions: patchStats.deletions }),
       numstat: patchStats.numstat,
       numstatDigest: digestJson(patchStats.numstat),
-      stablePatchId,
+      stablePatchId: stablePatchId.patchId,
+      stablePatchIdEvidence: stablePatchId.evidence,
       normalizedPatchDigest: digestJson(normalizePatchForDigest(patchText)),
       rawDiffHash: createHash("sha256").update(patchText).digest("hex"),
       rawDiffSha256: createHash("sha256").update(patchText).digest("hex"),
@@ -3862,8 +3976,8 @@ function buildCanonicalCandidatePrDelta({ config = {}, runner, cwd, pr = {}, bas
   const patchText = String(raw.stdout || "");
   const changedFiles = normalizeChangedFiles(String(fileResult.stdout || "").split(/\r?\n/));
   if (changedFiles.length === 0) return fail("full_candidate_delta_files_missing", "full candidate PR delta contains no changed files");
-  const stablePatchId = computeStablePatchId(patchText, cwd);
-  if (!stablePatchId) return fail("full_candidate_delta_patch_id_unavailable", "full candidate PR delta stable patch ID could not be computed");
+  const stablePatchId = computeStablePatchId(patchText, cwd, runner);
+  if (!stablePatchId.ok) return fail("full_candidate_delta_patch_id_unavailable", stablePatchId.reason || "full candidate PR delta stable patch ID could not be computed", { patchIdEvidence: stablePatchId.evidence || null });
   const patchStats = summarizePatch(patchText);
   const allowedRejected = filterForbiddenChangedFiles(changedFiles, laneDecision || {});
   const delta = sanitizeState({
@@ -3888,7 +4002,8 @@ function buildCanonicalCandidatePrDelta({ config = {}, runner, cwd, pr = {}, bas
     rawDiffSha256: createHash("sha256").update(patchText).digest("hex"),
     rawDiffHash: createHash("sha256").update(patchText).digest("hex"),
     normalizedPatchDigest: digestJson(normalizePatchForDigest(patchText)),
-    stablePatchId,
+    stablePatchId: stablePatchId.patchId,
+    stablePatchIdEvidence: stablePatchId.evidence,
     diffstat: { files: changedFiles.length, additions: patchStats.additions, deletions: patchStats.deletions, text: boundedText(statResult.stdout || "", 4000) },
     diffstatDigest: digestJson({ files: changedFiles.length, additions: patchStats.additions, deletions: patchStats.deletions }),
     numstat: parseNumstat(numstatResult.stdout),
@@ -4003,15 +4118,33 @@ function normalizePatchForDigest(patchText) {
     .trim();
 }
 
-function computeStablePatchId(patchText, cwd) {
-  const result = spawnSync("git", ["patch-id", "--stable"], {
+function computeStablePatchId(patchText, cwd, runner) {
+  const input = String(patchText || "");
+  const inputDiffSha256 = createHash("sha256").update(input).digest("hex");
+  if (typeof runner !== "function") return fail("stable_patch_id_runner_missing", "stable patch ID requires an injected fixed-argv runner", { evidence: { inputDiffSha256 } });
+  if (input.length > 16 * 1024 * 1024) return fail("stable_patch_id_input_too_large", "stable patch ID input exceeds bounded stdin", { evidence: { inputDiffSha256, inputBytes: input.length } });
+  const args = ["patch-id", "--stable"];
+  const result = runner("git", args, { cwd, input, timeoutMs: 30_000 });
+  const evidence = sanitizeState({
+    command: "git",
+    args,
     cwd,
-    input: patchText,
-    encoding: "utf8",
-    windowsHide: true,
+    shell: false,
+    stdinBounded: true,
+    inputBytes: input.length,
+    inputDiffSha256,
+    status: result?.status ?? null,
+    error: result?.error || null,
+    stderr: boundedText(result?.stderr || "", 1000),
+    commandEvidence: result?.commandEvidence || null,
+    runnerIdentity: runner.settleoraRunnerIdentity || null,
+    completedAt: new Date().toISOString(),
   });
-  if (result.status !== 0 || result.error) return null;
-  return String(result.stdout || "").trim().split(/\s+/)[0] || null;
+  if (!isRunnerResult(result)) return fail("stable_patch_id_runner_malformed", "stable patch ID runner did not return command evidence", { evidence });
+  if (result.status !== 0 || result.error) return fail("stable_patch_id_command_failed", "stable patch ID command failed", { evidence });
+  const patchId = String(result.stdout || "").trim().split(/\s+/)[0] || null;
+  if (!/^[a-f0-9]{40}$/i.test(String(patchId || ""))) return fail("stable_patch_id_output_invalid", "stable patch ID output was invalid", { evidence });
+  return { ok: true, patchId, evidence: { ...evidence, patchId } };
 }
 
 function patchApplyCheck({ patchText, cwd, reverse, runner }) {
