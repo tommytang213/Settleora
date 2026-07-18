@@ -6438,6 +6438,27 @@ test("implementation path verifies mutation workspace after task branch creation
   assert.ok(promptIndex < codexIndex);
 });
 
+test("stack CLI constructs and injects one live fixed-argv runner", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const stackIndex = source.indexOf("if (cliArgs.runPrStack)");
+  const loadIndex = source.indexOf("const config = loadConfig(cliArgs);", stackIndex);
+  const runnerIndex = source.indexOf("const liveRunner = createLiveFixedArgvRunner(config);", stackIndex);
+  const lockIndex = source.indexOf("acquireRunnerLock(config", stackIndex);
+  const executionIndex = source.indexOf("runPrStackExecution(config, cliArgs, { runner: liveRunner })", stackIndex);
+  assert.notEqual(stackIndex, -1);
+  assert.notEqual(loadIndex, -1);
+  assert.notEqual(runnerIndex, -1);
+  assert.notEqual(lockIndex, -1);
+  assert.notEqual(executionIndex, -1);
+  assert.ok(loadIndex < runnerIndex);
+  assert.ok(runnerIndex < lockIndex);
+  assert.ok(lockIndex < executionIndex);
+  assert.match(source, /settleoraFixedArgvRunner = true/);
+  assert.match(source, /settleoraRunnerMode = "live"/);
+  assert.match(source, /shell_execution_refused/);
+  assert.match(source, /spawnSync\(command, args,[\s\S]*shell: false/);
+});
+
 function createTempGitRepo() {
   const repo = mkdtempSync(path.join(tmpdir(), "settleora-auto-runner-git-"));
   mkdirSync(path.join(repo, "docs/workflow"), { recursive: true });

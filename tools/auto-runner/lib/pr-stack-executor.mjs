@@ -96,6 +96,25 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   });
   writePrStackState(statePath, state);
 
+  if (typeof adapter.preflightLiveRunner === "function") {
+    const preflight = await adapter.preflightLiveRunner({ config, plan, state });
+    if (!preflight?.ok) {
+      const blocked = transitionState(state, {
+        phase: "blocked",
+        terminal: { reasonCode: preflight?.reasonCode || "stack_live_runner_missing", reason: preflight?.reason || "live runner preflight failed" },
+        summary: { action: "live_runner_preflight", result: boundedProof(preflight || {}) },
+      });
+      writePrStackState(statePath, blocked);
+      return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+    }
+    state = transitionState(state, {
+      phase: "planning",
+      evidence: putEvidence(state.evidence, "liveRunnerPreflight", plan.stackId, preflight),
+      summary: { action: "live_runner_preflight", result: boundedProof(preflight) },
+    });
+    writePrStackState(statePath, state);
+  }
+
   const action = nextStackAction(plan, state.evidence || {});
   state = transitionState(state, { phase: "dispatch", currentAction: action });
   writePrStackState(statePath, state);
@@ -642,11 +661,34 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       usesExistingHygieneAuthority: true,
       usesExistingBatchFixAuthority: true,
       repositoryBoundOperations: true,
+      liveRunnerInjected: Boolean(runner),
+      liveRunnerIdentity: runner?.settleoraRunnerIdentity || null,
+    },
+    async preflightLiveRunner({ config: cfg, plan, state }) {
+      const targetConfig = cfg || config;
+      const runnerProof = validateStackLiveRunner({ runner, run });
+      if (!runnerProof.ok) return runnerProof;
+      const repositoryContext = await buildRepositoryOperationContext({
+        config: targetConfig,
+        plan,
+        state,
+        prNumber: plan.issueNumber || plan.orderedPrs?.[0]?.number || null,
+        adapter: this,
+      });
+      if (!repositoryContext.ok) return repositoryContext;
+      return {
+        ok: true,
+        runnerIdentity: runnerProof.runnerIdentity,
+        repositoryContext: repositoryContext.context,
+        finalHygieneReceivesSameRunner: true,
+        mutationCapabilitiesCoherent: true,
+      };
     },
     async readRepositoryOperationContext({ config: cfg, prNumber }) {
       const targetConfig = cfg || config;
       const cwd = path.resolve(targetConfig.repoRoot || process.cwd());
       const worktree = run("git", ["rev-parse", "--show-toplevel"], { cwd });
+      if (!isRunnerResult(worktree)) return fail("repository_operation_runner_malformed", "live runner did not return fixed-argv command evidence");
       if (worktree.status !== 0 || worktree.error) return fail("repository_operation_root_unreadable", boundedText(worktree.stderr || worktree.error || worktree.stdout));
       const rawWorktree = String(worktree.stdout || "").trim();
       const worktreePath = path.isAbsolute(rawWorktree) ? path.resolve(rawWorktree) : cwd;
@@ -4009,6 +4051,26 @@ function createFinalHygieneRunner(runner, repositoryContext = {}) {
   };
   wrapped.commandEvidence = commandEvidence;
   return wrapped;
+}
+
+function validateStackLiveRunner({ runner, run } = {}) {
+  if (typeof runner !== "function") return fail("stack_live_runner_missing", "production stack execution requires an injected live runner");
+  if (run === defaultRunner) return fail("stack_live_runner_missing", "production stack execution cannot use the default runner");
+  if (runner.settleoraRunnerMode === "noop" || runner.settleoraNoopRunner === true) {
+    return fail("stack_live_runner_missing", "production stack execution cannot use a no-op runner");
+  }
+  if (runner.settleoraFixedArgvRunner !== true || runner.settleoraRunnerMode !== "live") {
+    return fail("stack_live_runner_missing", "production stack execution requires a live fixed-argv runner");
+  }
+  const identity = runner.settleoraRunnerIdentity || {};
+  if (identity.kind !== "live-fixed-argv" || !identity.repositorySlug || !identity.repoRoot) {
+    return fail("stack_live_runner_missing", "live runner identity is incomplete");
+  }
+  return { ok: true, runnerIdentity: sanitizeState(identity) };
+}
+
+function isRunnerResult(result) {
+  return result && typeof result === "object" && !Array.isArray(result) && (Number.isInteger(result.status) || result.status === null);
 }
 
 function sanitizeArgv(args = []) {

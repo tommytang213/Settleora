@@ -1345,6 +1345,59 @@ test("production final hygiene requires the injected live runner and records com
   assert.equal(calls.some((call) => call.startsWith("gh issue comment 800")), true);
 });
 
+test("production stack execution preflights live runner before any external mutation", async () => {
+  const fixture = stackFixtureAtChild();
+  const missing = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reasonCode, "stack_live_runner_missing");
+
+  const noopCalls = [];
+  const noopRunner = liveFixedArgvRunner(targetWorktreeRunner(noopCalls, { branch: "feature/auto-913-child", head: sha("b"), remoteHead: sha("b"), liveHead: sha("b") }), { mode: "noop" });
+  const noopFixture = stackFixtureAtChild();
+  const noop = await runPrStackExecution(noopFixture.config, { stackPlanPath: noopFixture.planPath }, { runner: noopRunner });
+  assert.equal(noop.ok, false);
+  assert.equal(noop.reasonCode, "stack_live_runner_missing");
+  assert.equal(noopCalls.length, 0);
+
+  const malformedCalls = [];
+  const malformedRunner = liveFixedArgvRunner((command, args = []) => {
+    malformedCalls.push(`${command} ${args.join(" ")}`);
+    return undefined;
+  });
+  const malformedFixture = stackFixtureAtChild();
+  const malformed = await runPrStackExecution(malformedFixture.config, { stackPlanPath: malformedFixture.planPath }, { runner: malformedRunner });
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.reasonCode, "repository_operation_runner_malformed");
+  assert.deepEqual(malformedCalls, ["git rev-parse --show-toplevel"]);
+
+  const noMutationFixture = stackFixtureAtChild();
+  const noMutationCalls = [];
+  const noMutation = await runPrStackExecution(noMutationFixture.config, { stackPlanPath: noMutationFixture.planPath }, {
+    runner: noopRunner,
+    adapter: createProductionPrStackAdapter(noMutationFixture.config, { runner: noopRunner }),
+  });
+  assert.equal(noMutation.ok, false);
+  assert.equal(noMutation.reasonCode, "stack_live_runner_missing");
+  assert.equal(noMutationCalls.some((call) => call.startsWith("gh pr edit") || call.startsWith("gh pr ready") || call.startsWith("git push") || call.startsWith("gh pr merge")), false);
+});
+
+test("successful production final hygiene uses the same preflighted live runner evidence", async () => {
+  const fixture = stackFixture();
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c") };
+  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d") };
+  const calls = [];
+  const liveRunner = liveFixedArgvRunner(finalHygieneRunner(calls));
+  const adapter = createProductionPrStackAdapter(fixture.config, { runner: liveRunner });
+  const preflight = await adapter.preflightLiveRunner({ config: fixture.config, plan: fixture.plan, state });
+  assert.equal(preflight.ok, true, preflight.reasonCode);
+  const result = await adapter.runFinalHygiene({ config: fixture.config, plan: fixture.plan, state });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(preflight.runnerIdentity.kind, "live-fixed-argv");
+  assert.equal(result.result.commandEvidence.some((entry) => entry.command === "gh" && entry.args.includes("--repo") && entry.args.includes("tommytang213/Settleora")), true);
+  assert.equal(calls.some((call) => call.startsWith("gh issue comment 921")), true);
+});
+
 test("production final hygiene rejects claimed success when a required component fails", async () => {
   const fixture = stackFixture();
   const state = createInitialPrStackState({ plan: fixture.plan });
@@ -1872,11 +1925,12 @@ test("legacy gatesPassed is atomically invalidated and returns to complete_gates
   state.sourceCycles["919"] = 0;
   writePrStackState(statePath, state);
   let mergeCommands = 0;
+  const runner = liveFixedArgvRunner((command, args = [], options = {}) => {
+    if (command === "gh" && args[0] === "pr" && args[1] === "merge") mergeCommands += 1;
+    return fakeRunner(command, args, options);
+  });
   const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } }, {
-    runner: (command, args = [], options = {}) => {
-      if (command === "gh" && args[0] === "pr" && args[1] === "merge") mergeCommands += 1;
-      return fakeRunner(command, args, options);
-    },
+    runner,
   });
   const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
   assert.equal(result.ok, true, result.reasonCode);
@@ -1897,7 +1951,7 @@ test("merge operation intent binds gate and validation proof digests", async () 
   state.evidence.gatesPassed["919"] = gateEvidence();
   writePrStackState(statePath, state);
   const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
-  const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
+  const adapter = createProductionPrStackAdapter(config, { runner: liveFixedArgvRunner(fakeRunner) });
   const result = await runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter });
   assert.equal(result.ok, true, result.reasonCode);
   const intentRoot = path.join(fixture.config.logsRoot, "stack-operation-intents");
@@ -2828,6 +2882,20 @@ function finalHygieneRunner(calls, options = {}) {
     if (command === "gh" && args[0] === "issue" && args[1] === "edit") return { status: 0, stdout: "", stderr: "", error: null };
     return { status: 0, stdout: "", stderr: "", error: null };
   };
+}
+
+function liveFixedArgvRunner(runner, { mode = "live" } = {}) {
+  runner.settleoraFixedArgvRunner = true;
+  runner.settleoraRunnerMode = mode;
+  runner.settleoraNoopRunner = mode === "noop";
+  runner.settleoraRunnerIdentity = {
+    kind: "live-fixed-argv",
+    repositorySlug: "tommytang213/Settleora",
+    repoRoot: process.cwd(),
+    timeoutMs: 30000,
+    maxOutputBytes: 131072,
+  };
+  return runner;
 }
 
 function targetWorktreeRunner(calls, options = {}) {

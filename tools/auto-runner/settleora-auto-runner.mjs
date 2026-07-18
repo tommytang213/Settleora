@@ -187,6 +187,7 @@ async function main() {
   }
   if (cliArgs.runPrStack) {
     const config = loadConfig(cliArgs);
+    const liveRunner = createLiveFixedArgvRunner(config);
     let lockPath = null;
     try {
       lockPath = acquireRunnerLock(config, {
@@ -195,7 +196,7 @@ async function main() {
         configPath: config.configPath || null,
         stackPlanPath: cliArgs.stackPlanPath,
       });
-      const result = await runPrStackExecution(config, cliArgs);
+      const result = await runPrStackExecution(config, cliArgs, { runner: liveRunner });
       console.log(JSON.stringify(result, null, 2));
       process.exitCode = result.ok || result.outcome === "waiting" ? 0 : 1;
     } finally {
@@ -1752,6 +1753,72 @@ function readPrDiff(config, prNumber) {
 function spawnLike(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", windowsHide: true });
   return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
+}
+
+function createLiveFixedArgvRunner(config = {}) {
+  const repositorySlug = String(config.repositorySlug || "");
+  const repoRoot = path.resolve(config.repoRoot || process.cwd());
+  const maxOutputBytes = Number.isInteger(config.prStackExecution?.runnerMaxOutputBytes)
+    ? Math.max(1024, Math.min(config.prStackExecution.runnerMaxOutputBytes, 1024 * 1024))
+    : 128 * 1024;
+  const timeoutMs = Number.isInteger(config.prStackExecution?.runnerTimeoutMs)
+    ? Math.max(1000, Math.min(config.prStackExecution.runnerTimeoutMs, 120000))
+    : 30000;
+  const runner = (command, args = [], options = {}) => {
+    if (typeof command !== "string" || command.trim() !== command || command.length === 0 || /\s/.test(command)) {
+      return { status: 1, stdout: "", stderr: "fixed_argv_command_required", error: "fixed_argv_command_required" };
+    }
+    if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
+      return { status: 1, stdout: "", stderr: "fixed_argv_args_required", error: "fixed_argv_args_required" };
+    }
+    if (options.shell === true) {
+      return { status: 1, stdout: "", stderr: "shell_execution_refused", error: "shell_execution_refused" };
+    }
+    const cwd = path.resolve(options.cwd || repoRoot);
+    const result = spawnSync(command, args, {
+      cwd,
+      input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+      timeout: options.timeoutMs || timeoutMs,
+      maxBuffer: maxOutputBytes,
+    });
+    return {
+      status: result.status ?? (result.error ? 1 : 0),
+      stdout: boundRunnerOutput(result.stdout || "", maxOutputBytes),
+      stderr: boundRunnerOutput(result.stderr || "", maxOutputBytes),
+      error: result.error?.message ? boundRunnerOutput(result.error.message, 2000) : null,
+      commandEvidence: {
+        command,
+        args: args.map((arg) => sanitizeRunnerArg(arg)),
+        cwd,
+        repositorySlug,
+        status: result.status ?? (result.error ? 1 : 0),
+      },
+    };
+  };
+  runner.settleoraFixedArgvRunner = true;
+  runner.settleoraRunnerMode = "live";
+  runner.settleoraRunnerIdentity = {
+    kind: "live-fixed-argv",
+    repositorySlug,
+    repoRoot,
+    timeoutMs,
+    maxOutputBytes,
+  };
+  return runner;
+}
+
+function boundRunnerOutput(value, max = 128 * 1024) {
+  const text = String(value || "").replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
+  return text.length > max ? `${text.slice(0, max)}[truncated]` : text;
+}
+
+function sanitizeRunnerArg(value) {
+  const text = String(value || "");
+  const bounded = text.length > 240 ? `${text.slice(0, 240)}[truncated]` : text;
+  return bounded.replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
 }
 
 async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName, changedFiles, forbidden }) {
