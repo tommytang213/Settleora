@@ -1236,6 +1236,44 @@ test("final hygiene occurs only after every PR has merge proof", async () => {
   assert.equal(hygiene, 1);
 });
 
+test("production final hygiene requires the injected live runner and records command evidence", async () => {
+  const fixture = stackFixture();
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c") };
+  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d") };
+
+  const missing = await createProductionPrStackAdapter(fixture.config).runFinalHygiene({ config: fixture.config, plan: fixture.plan, state });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reasonCode, "final_hygiene_runner_missing");
+
+  const dryRunAdapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, { runner: finalHygieneRunner([]) });
+  const dryRun = await dryRunAdapter.runFinalHygiene({ config: { ...fixture.config, dryRun: true }, plan: fixture.plan, state });
+  assert.equal(dryRun.ok, false);
+  assert.equal(dryRun.reasonCode, "final_hygiene_dry_run_cannot_complete_stack");
+
+  const calls = [];
+  const adapter = createProductionPrStackAdapter(fixture.config, { runner: finalHygieneRunner(calls) });
+  const result = await adapter.runFinalHygiene({ config: fixture.config, plan: fixture.plan, state });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(result.result.commandEvidence.some((entry) => entry.command === "gh" && entry.args.includes("--repo") && entry.args.includes("tommytang213/Settleora")), true);
+  assert.equal(calls.some((call) => call.startsWith("gh issue comment 921")), true);
+  assert.equal(calls.some((call) => call.startsWith("gh issue comment 800")), true);
+});
+
+test("production final hygiene rejects claimed success when a required component fails", async () => {
+  const fixture = stackFixture();
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c") };
+  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d") };
+  const adapter = createProductionPrStackAdapter(fixture.config, {
+    runner: finalHygieneRunner([], { failFirstIssueComment: true }),
+  });
+  const result = await adapter.runFinalHygiene({ config: fixture.config, plan: fixture.plan, state });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "final_hygiene_component_failed");
+  assert.equal(result.component, "comment");
+});
+
 test("production merge adapter carries real gate changed-file evidence", async () => {
   const fixture = stackFixture();
   const changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"];
@@ -1644,12 +1682,14 @@ test("production final gates collect real evidence and wait on pending checks or
   const fixture = stackFixture();
   const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
     runner: (_command, args) => {
-      if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
-      if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (_command === "gh" && args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (_command === "gh" && args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
       if (args.includes("apply")) return fakeRunner(_command, args);
+      if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
       if (args[0] === "status") return fakeRunner(_command, args);
       return fakeRunner(_command, args);
     },
@@ -1732,12 +1772,14 @@ test("final gates prove changed files against the real lane contract and reject 
   const fixture = stackFixture();
   const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
     runner: (_command, args) => {
-      if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
-      if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (_command === "gh" && args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (_command === "gh" && args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
       if (args.includes("apply")) return fakeRunner(_command, args);
+      if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
       if (args[0] === "status") return fakeRunner(_command, args);
       return fakeRunner(_command, args);
     },
@@ -1757,12 +1799,14 @@ test("final gates prove changed files against the real lane contract and reject 
   };
   const blockedAdapter = createProductionPrStackAdapter(blockedConfig, {
     runner: (_command, args) => {
-      if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
-      if (args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (_command === "gh" && args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
+      if (_command === "gh" && args.includes("--patch")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
       if (args.includes("apply")) return fakeRunner(_command, args);
+      if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
       if (args[0] === "status") return fakeRunner(_command, args);
       return fakeRunner(_command, args);
     },
@@ -2316,6 +2360,7 @@ function check(name) {
 
 function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"], strongReview = {}, codexReview = {} } = {}) {
   const digest = digestStrings(changedFiles);
+  const worktreeProof = exactWorktreeProof();
   const strongIndependent = {
     status: "pass",
     tier: "strong_independent",
@@ -2367,7 +2412,24 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
       laneManifest: { decisionType: "runnable", autoMergeAllowed: true },
       allowedPaths: ["tools/auto-runner/**"],
     },
-    validation: { passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-17T00:00:02.000Z", headSha: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, profile: "runner-tests" },
+    validation: {
+      passed: true,
+      results: [{ command: "test", status: 0 }],
+      completedAt: "2026-07-17T00:00:02.000Z",
+      headSha: sha("a"),
+      baseSha: sha("e"),
+      changedFiles,
+      changedFilesDigest: digest,
+      profile: "runner-tests",
+      treeSha: worktreeProof.treeSha,
+      canonicalWorktreePath: worktreeProof.worktreePath,
+      preWorktreeProof: worktreeProof,
+      postWorktreeProof: worktreeProof,
+      preWorktreeProofDigest: digestJson(worktreeProof),
+      postWorktreeProofDigest: digestJson(worktreeProof),
+      rawDiffDigest: sha("r"),
+      packageDigest: sha("p"),
+    },
     reviewEvidence: { strongIndependent, codex },
     strongReview: strongIndependent,
     codexReview: codex,
@@ -2379,6 +2441,33 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
     currentOriginMainSha: sha("e"),
     requiredChecks: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
     issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
+  };
+}
+
+function exactWorktreeProof(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    proofType: "test",
+    worktreePath: process.cwd(),
+    configuredRepository: "tommytang213/Settleora",
+    originRepositorySlug: "tommytang213/Settleora",
+    expectedPrNumber: 919,
+    expectedHeadBranch: "feature/auto-913-parent",
+    branchName: "feature/auto-913-parent",
+    detachedHead: false,
+    expectedHead: sha("a"),
+    actualHead: sha("a"),
+    treeSha: sha("e"),
+    cleanIndex: true,
+    cleanTrackedWorktree: true,
+    clean: true,
+    noStagedChanges: true,
+    noNonIgnoredUntrackedFiles: true,
+    statusPorcelain: "",
+    activeOperation: false,
+    activeGitOperations: { ok: true, MERGE_HEAD: false, REBASE_HEAD: false, CHERRY_PICK_HEAD: false, REVERT_HEAD: false, BISECT_LOG: false, activeOperation: false },
+    provedAt: "2026-07-18T00:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -2559,14 +2648,69 @@ function finalGateRunner(changedFiles = ["tools/auto-runner/919.mjs"]) {
     if (command === "gh" && args[0] === "pr" && args[1] === "view") return fakeRunner(command, args);
     if (command === "git" && args[0] === "remote" && args[1] === "get-url") return fakeRunner(command, args);
     if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") return fakeRunner(command, args);
-    if (args.includes("--name-only")) return { status: 0, stdout: `${changedFiles.join("\n")}\n`, stderr: "", error: null };
-    if (args.includes("--patch")) return { status: 0, stdout: changedFiles.map((file) => `diff --git a/${file} b/${file}\n`).join(""), stderr: "", error: null };
+    if (command === "gh" && args.includes("--name-only")) return { status: 0, stdout: `${changedFiles.join("\n")}\n`, stderr: "", error: null };
+    if (command === "gh" && args.includes("--patch")) return { status: 0, stdout: changedFiles.map((file) => `diff --git a/${file} b/${file}\n`).join(""), stderr: "", error: null };
     if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
     if (args.includes("apply")) return fakeRunner();
+    if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
     if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
     if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+    if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
     if (args[0] === "status") return fakeRunner();
     return fakeRunner();
+  };
+}
+
+function finalHygieneRunner(calls, options = {}) {
+  let failedComment = false;
+  return (command, args = [], runnerOptions = {}) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") return { status: 0, stdout: `${runnerOptions.cwd || process.cwd()}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "remote" && args[1] === "get-url") return { status: 0, stdout: "git@github.com:tommytang213/Settleora.git\n", stderr: "", error: null };
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+      const number = Number(args.find((arg) => /^\d+$/.test(String(arg))));
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          number,
+          title: number === 800 ? "Umbrella tracker" : "Live stack acceptance",
+          body: number === 800 ? "Keep #800 open until final acceptance." : "Close rule: keep open until live acceptance completes. Remaining gates: live acceptance.",
+          state: "OPEN",
+          labels: [],
+          comments: [],
+          url: `https://github.com/tommytang213/Settleora/issues/${number}`,
+        }),
+        stderr: "",
+        error: null,
+      };
+    }
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          number: 920,
+          url: "https://github.com/tommytang213/Settleora/pull/920",
+          title: "Child",
+          state: "MERGED",
+          headRefName: "feature/auto-913-child",
+          headRefOid: sha("b"),
+          baseRefName: "main",
+          mergeCommit: { oid: sha("d") },
+          mergedAt: "2026-07-18T00:00:00Z",
+        }),
+        stderr: "",
+        error: null,
+      };
+    }
+    if (command === "gh" && args[0] === "issue" && args[1] === "comment") {
+      if (options.failFirstIssueComment && !failedComment) {
+        failedComment = true;
+        return { status: 1, stdout: "", stderr: "simulated comment failure", error: null };
+      }
+      return { status: 0, stdout: "", stderr: "", error: null };
+    }
+    if (command === "gh" && args[0] === "issue" && args[1] === "edit") return { status: 0, stdout: "", stderr: "", error: null };
+    return { status: 0, stdout: "", stderr: "", error: null };
   };
 }
 
@@ -2578,7 +2722,7 @@ function targetWorktreeRunner(calls, options = {}) {
   const liveHead = options.liveHead ?? remoteHead;
   const base = options.base ?? "main";
   const originUrl = options.originUrl ?? "git@github.com:tommytang213/Settleora.git";
-  return (command, args = []) => {
+  return (command, args = [], runnerOptions = {}) => {
     calls.push(`${command} ${args.join(" ")}`);
     if (command === "gh" && args[0] === "pr" && args[1] === "view") {
       const configuredSlug = options.baseRepositorySlug ?? "tommytang213/Settleora";
@@ -2609,7 +2753,10 @@ function targetWorktreeRunner(calls, options = {}) {
       };
     }
     if (command === "git" && args[0] === "remote" && args[1] === "get-url") return { status: 0, stdout: `${originUrl}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") return { status: 0, stdout: `${runnerOptions.cwd || process.cwd()}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "--verify") return { status: options.activeOperation ? 0 : 1, stdout: options.activeOperation ? `${sha("x")}\n` : "", stderr: "", error: null };
     if (command === "git" && args[0] === "status") return { status: 0, stdout: options.statusPorcelain || "", stderr: "", error: null };
+    if (command === "git" && args[0] === "diff") return { status: 0, stdout: options.diffPorcelain || "", stderr: "", error: null };
     if (command === "git" && args[0] === "fetch") return fakeRunner(command, args);
     if (command === "git" && args[0] === "branch") return { status: 0, stdout: `${branch}\n`, stderr: "", error: null };
     if (command === "git" && args[0] === "rev-parse" && String(args[1]).startsWith("origin/")) return { status: 0, stdout: `${remoteHead}\n`, stderr: "", error: null };

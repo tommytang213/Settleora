@@ -703,7 +703,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
           config: targetConfig,
           state,
           pr,
-          runner: runner || defaultRunner,
+          runner: run,
           runStrongReview: options.runStrongReview,
           runCodexReview: options.runCodexReview,
           runValidation: options.runValidationPlan || runValidationPlan,
@@ -836,17 +836,48 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       return reconcileTaskScopedPendingPushIntent({ config: cfg || config, state, pr, livePr, runner: run });
     },
     async runFinalHygiene({ config: cfg, plan, state }) {
+      const targetConfig = cfg || config;
+      if (!runner) return fail("final_hygiene_runner_missing", "production final hygiene requires the injected live runner");
+      if (run === defaultRunner) return fail("final_hygiene_default_runner_refused", "production final hygiene cannot use the default runner");
+      if (targetConfig.dryRun === true) return fail("final_hygiene_dry_run_cannot_complete_stack", "dry-run final hygiene cannot persist production stack completion");
+      const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: plan.issueNumber || 921, adapter: this });
+      if (!repositoryContext.ok) return repositoryContext;
       const finalPr = plan.orderedPrs.at(-1);
       const mergeProof = state.evidence?.merged?.[finalPr.number] || {};
-      const result = completeMergedIssueHygiene(cfg || config, {
+      const completedPrs = plan.orderedPrs.map((stackPr) => ({
+        number: stackPr.number,
+        headRefName: stackPr.headRefName,
+        headRefOid: stackPr.headRefOid,
+        mergeSha: state.evidence?.merged?.[stackPr.number]?.mergeSha || state.evidence?.merged?.[stackPr.number]?.result?.mergeSha || null,
+      }));
+      if (completedPrs.some((completed) => !completed.number || !validSha(completed.headRefOid) || !validSha(completed.mergeSha))) {
+        return fail("final_hygiene_merged_pr_proof_incomplete", "final hygiene requires complete merged PR identity and merge SHA proof");
+      }
+      const hygieneRunner = createFinalHygieneRunner(run, repositoryContext.context);
+      const result = completeMergedIssueHygiene(targetConfig, {
+        stackId: plan.stackId,
+        taskKey: targetConfig.taskKey || state.taskKey || null,
+        runId: targetConfig.runId || state.runId || null,
+        supervisorRunId: targetConfig.supervisorRunId || state.supervisorRunId || null,
+        repositoryContext: repositoryContext.context,
+        repositoryOperationProof: repositoryContext.context,
+        worktreePath: repositoryContext.context.worktreePath,
+        completedPrs,
+        parentIssue: plan.parentIssueNumber || plan.parentIssue || 800,
+        hygieneMarkers: state.evidence?.hygiene?.[plan.stackId] || null,
+        mutationMarkers: state.mutationMarkers || {},
+        logsRoot: targetConfig.logsRoot || null,
+        dryRun: false,
         issue: { number: plan.issueNumber || 921, state: "OPEN", labels: [] },
         pr: finalPr,
         mergeSha: mergeProof.mergeSha || mergeProof.result?.mergeSha || null,
         sourceHeadSha: finalPr.headRefOid,
         closeRuleSatisfied: false,
         remainingGates: ["#921 remains open until live acceptance is verified"],
-      });
-      return { ok: true, result };
+      }, { runner: hygieneRunner });
+      const validation = validateFinalHygieneResult(result, hygieneRunner.commandEvidence);
+      if (!validation.ok) return validation;
+      return { ok: true, result: validation.result };
     },
   };
 }
@@ -910,8 +941,18 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (!candidate.ok) return candidate;
       const base = readGitSha({ runner, cwd, ref: "origin/main", reasonCode: "existing_pr_batch_fix_base_unreadable" });
       if (!base.ok) return base;
-      const validationPlan = planValidation(changedFiles, laneDecision || { validationProfile: "runner-tests" });
       const targetConfig = { ...config, repoRoot: cwd };
+      const preWorktreeProof = readExactFinalGateWorktreeProof({
+        config: targetConfig,
+        pr,
+        expectedHead: candidate.newHead,
+        expectedBranch: pr.headRefName || pr.branch,
+        expectedRepository: config.repositorySlug,
+        runner,
+        proofType: "source_candidate_pre_validation_review",
+      });
+      if (!preWorktreeProof.ok) return preWorktreeProof;
+      const validationPlan = planValidation(changedFiles, laneDecision || { validationProfile: "runner-tests" });
       const validation = bindValidationEvidence(runValidationPlan(targetConfig, validationPlan), {
         headSha: candidate.newHead,
         baseSha: base.sha,
@@ -927,9 +968,37 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles, validation, externalReview, headSha: candidate.newHead, baseSha: base.sha });
       const verdict = review?.verdict?.verdict || review?.verdict;
       if (verdict !== "approve") return fail("existing_pr_batch_fix_codex_review_failed", review?.reviewFailureReason || "Codex review did not approve", { review });
+      const postWorktreeProof = readExactFinalGateWorktreeProof({
+        config: targetConfig,
+        pr,
+        expectedHead: candidate.newHead,
+        expectedBranch: pr.headRefName || pr.branch,
+        expectedRepository: config.repositorySlug,
+        runner,
+        proofType: "source_candidate_post_validation_review",
+      });
+      if (!postWorktreeProof.ok) return postWorktreeProof;
+      const stable = compareExactWorktreeProofs(preWorktreeProof, postWorktreeProof);
+      if (!stable.ok) return stable;
+      const provenValidation = {
+        ...validation,
+        treeSha: preWorktreeProof.treeSha,
+        canonicalWorktreePath: preWorktreeProof.worktreePath,
+        preWorktreeProof: preWorktreeProof.proof,
+        postWorktreeProof: postWorktreeProof.proof,
+        preWorktreeProofDigest: preWorktreeProof.proofDigest,
+        postWorktreeProofDigest: postWorktreeProof.proofDigest,
+      };
+      const validationCheck = validateValidationEvidenceObject(provenValidation, {
+        expectedHead: candidate.newHead,
+        expectedBase: base.sha,
+        changedFiles,
+        requireWorktreeProof: true,
+      });
+      if (!validationCheck.ok) return validationCheck;
       return {
         ok: true,
-        validation,
+        validation: validationCheck.validation,
         externalReview,
         review,
         localCandidate: candidate,
@@ -2954,17 +3023,34 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
   if (!repositoryContext.ok) return repositoryContext;
   const prereq = await collectFinalGatePrerequisites({ config, state, pr, runner, repositoryContext: repositoryContext.context, reasonPrefix: "exact_head_gate" });
   if (!prereq.ok) return prereq;
+  const preWorktreeProof = readExactFinalGateWorktreeProof({
+    config,
+    pr: { ...pr, ...(prereq.inspection.pr || {}) },
+    expectedHead: prereq.currentHead,
+    expectedBranch: pr.headRefName,
+    expectedRepository: repositoryContext.context.configuredRepositorySlug,
+    runner,
+    proofType: "pre_validation_review",
+  });
+  if (!preWorktreeProof.ok) return preWorktreeProof;
   const validationPlan = planValidation(prereq.changedFiles, prereq.laneProof.laneDecision || { validationProfile: "runner-tests" });
   const validation = bindValidationEvidence(runValidation(config, validationPlan), {
     headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha,
     changedFiles: prereq.changedFiles,
     profile: prereq.laneProof.laneDecision?.validationProfile || validationPlan.profile,
+    treeSha: preWorktreeProof.treeSha,
+    canonicalWorktreePath: preWorktreeProof.worktreePath,
+    worktreeProof: preWorktreeProof.proof,
+    preWorktreeProofDigest: preWorktreeProof.proofDigest,
+    rawDiffDigest: prereq.changed.ownDelta.rawDiffHash,
+    packageDigest: prereq.changed.ownDelta.normalizedPatchDigest,
   });
   const validationCheck = validateValidationEvidenceObject(validation, {
     expectedHead: prereq.currentHead,
     expectedBase: prereq.currentOriginMainSha,
     changedFiles: prereq.changedFiles,
+    requireWorktreeProof: false,
   });
   if (!validationCheck.ok) return validationCheck;
   const strongReview = await runStrongReview({
@@ -3000,10 +3086,40 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
     requireIndependent: false,
   });
   if (!codexCheck.ok) return codexCheck;
+  const postWorktreeProof = readExactFinalGateWorktreeProof({
+    config,
+    pr: { ...pr, ...(prereq.inspection.pr || {}) },
+    expectedHead: prereq.currentHead,
+    expectedBranch: pr.headRefName,
+    expectedRepository: repositoryContext.context.configuredRepositorySlug,
+    runner,
+    proofType: "post_validation_review",
+  });
+  if (!postWorktreeProof.ok) return postWorktreeProof;
+  const stable = compareExactWorktreeProofs(preWorktreeProof, postWorktreeProof);
+  if (!stable.ok) return stable;
+  const provenValidation = {
+    ...validationCheck.validation,
+    treeSha: preWorktreeProof.treeSha,
+    canonicalWorktreePath: preWorktreeProof.worktreePath,
+    preWorktreeProof: preWorktreeProof.proof,
+    postWorktreeProof: postWorktreeProof.proof,
+    preWorktreeProofDigest: preWorktreeProof.proofDigest,
+    postWorktreeProofDigest: postWorktreeProof.proofDigest,
+    rawDiffDigest: prereq.changed.ownDelta.rawDiffHash,
+    packageDigest: prereq.changed.ownDelta.normalizedPatchDigest,
+  };
+  const provenValidationCheck = validateValidationEvidenceObject(provenValidation, {
+    expectedHead: prereq.currentHead,
+    expectedBase: prereq.currentOriginMainSha,
+    changedFiles: prereq.changedFiles,
+    requireWorktreeProof: true,
+  });
+  if (!provenValidationCheck.ok) return provenValidationCheck;
   return {
     ok: true,
     evidencePatch: {
-      validation: { [pr.number]: validationCheck.validation },
+      validation: { [pr.number]: provenValidationCheck.validation },
       strongReview: { [pr.number]: strongCheck.review },
       codexReview: { [pr.number]: codexCheck.review },
     },
@@ -3019,6 +3135,7 @@ async function collectFinalGateEvidence({ config, state, pr, runner, adapter = n
     expectedHead: currentHead,
     expectedBase: currentOriginMainSha,
     changedFiles: changed.ownDelta.fileSet,
+    requireWorktreeProof: true,
   });
   if (!validation.ok) return validation;
   const reviewEvidence = buildFinalGateReviewEvidence({
@@ -3141,7 +3258,7 @@ function validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHea
   };
 }
 
-function validateValidationEvidenceObject(validation, { expectedHead, expectedBase, changedFiles }) {
+function validateValidationEvidenceObject(validation, { expectedHead, expectedBase, changedFiles, requireWorktreeProof = false }) {
   if (!validation || typeof validation !== "object" || Array.isArray(validation)) {
     return fail("source_rebound_validation_missing", "source rebound validation evidence is required");
   }
@@ -3152,6 +3269,31 @@ function validateValidationEvidenceObject(validation, { expectedHead, expectedBa
   if (!validation.completedAt) return fail("source_rebound_validation_completed_at_missing", "source rebound validation completion time is missing");
   if (!sameStringSet(validation.changedFiles || [], changedFiles)) return fail("source_rebound_validation_files_mismatch", "source rebound validation file set does not match");
   if (validation.changedFilesDigest !== digestStringSet(changedFiles)) return fail("source_rebound_validation_file_digest_mismatch", "source rebound validation file digest does not match");
+  if (requireWorktreeProof) {
+    const pre = validation.preWorktreeProof;
+    const post = validation.postWorktreeProof;
+    if (!pre || !post || typeof pre !== "object" || typeof post !== "object") {
+      return fail("source_rebound_validation_worktree_proof_missing", "exact validation evidence requires pre/post worktree proof");
+    }
+    if (!validation.preWorktreeProofDigest || validation.preWorktreeProofDigest !== digestJson(pre)) {
+      return fail("source_rebound_validation_pre_worktree_digest_mismatch", "pre-validation worktree proof digest is missing or invalid");
+    }
+    if (!validation.postWorktreeProofDigest || validation.postWorktreeProofDigest !== digestJson(post)) {
+      return fail("source_rebound_validation_post_worktree_digest_mismatch", "post-validation worktree proof digest is missing or invalid");
+    }
+    if (pre.expectedHead !== expectedHead || post.expectedHead !== expectedHead || pre.actualHead !== expectedHead || post.actualHead !== expectedHead) {
+      return fail("source_rebound_validation_worktree_head_mismatch", "validation worktree proof is not bound to the exact PR head");
+    }
+    if (validation.treeSha !== pre.treeSha || post.treeSha !== pre.treeSha) {
+      return fail("source_rebound_validation_worktree_tree_mismatch", "validation worktree tree proof changed or is missing");
+    }
+    if (validation.canonicalWorktreePath !== pre.worktreePath || post.worktreePath !== pre.worktreePath) {
+      return fail("source_rebound_validation_worktree_path_mismatch", "validation worktree path proof changed or is missing");
+    }
+    if (pre.clean !== true || post.clean !== true || pre.activeOperation === true || post.activeOperation === true) {
+      return fail("source_rebound_validation_worktree_dirty", "validation worktree proof must be clean with no active git operation");
+    }
+  }
   return { ok: true, validation };
 }
 
@@ -3221,6 +3363,88 @@ function readMergeWorktreeCleanProof({ config, expectedHead, runner }) {
     statusPorcelain: statusText,
     checkedAt: new Date().toISOString(),
   };
+}
+
+function readExactFinalGateWorktreeProof({ config, pr = {}, expectedHead, expectedBranch, expectedRepository, runner, proofType }) {
+  const cwd = path.resolve(config.repoRoot || process.cwd());
+  const worktree = runner("git", ["rev-parse", "--show-toplevel"], { cwd });
+  if (worktree.status !== 0 || worktree.error) return fail("exact_worktree_root_unreadable", boundedText(worktree.stderr || worktree.error || worktree.stdout));
+  const worktreePath = path.resolve(String(worktree.stdout || "").trim() || cwd);
+  if (worktreePath !== cwd) return fail("exact_worktree_path_mismatch", "configured repoRoot does not match canonical worktree path");
+  const origin = readOriginRepositoryProof({ config, runner });
+  if (!origin.ok) return origin;
+  const configuredRepository = canonicalRepositorySlug(expectedRepository || config.repositorySlug || "tommytang213/Settleora");
+  if (origin.repositorySlug !== configuredRepository) return fail("exact_worktree_origin_mismatch", "worktree origin does not match configured repository");
+  const branch = runner("git", ["branch", "--show-current"], { cwd });
+  if (branch.status !== 0 || branch.error) return fail("exact_worktree_branch_unreadable", boundedText(branch.stderr || branch.error || branch.stdout));
+  const branchName = String(branch.stdout || "").trim();
+  const detached = branchName === "";
+  if (!detached && expectedBranch && branchName !== expectedBranch) return fail("exact_worktree_branch_mismatch", "worktree branch does not match expected PR branch");
+  const head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "exact_worktree_head_unreadable" });
+  if (!head.ok) return head;
+  if (head.sha !== expectedHead) return fail("exact_worktree_head_mismatch", "worktree HEAD does not match expected PR head", { expectedHead, actualHead: head.sha });
+  const tree = readGitSha({ runner, cwd, ref: "HEAD^{tree}", reasonCode: "exact_worktree_tree_unreadable" });
+  if (!tree.ok) return tree;
+  const staged = runner("git", ["diff", "--cached", "--name-only"], { cwd });
+  if (staged.status !== 0 || staged.error) return fail("exact_worktree_staged_unreadable", boundedText(staged.stderr || staged.error || staged.stdout));
+  const tracked = runner("git", ["diff", "--name-only"], { cwd });
+  if (tracked.status !== 0 || tracked.error) return fail("exact_worktree_tracked_unreadable", boundedText(tracked.stderr || tracked.error || tracked.stdout));
+  const status = runner("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd });
+  if (status.status !== 0 || status.error) return fail("exact_worktree_status_unreadable", boundedText(status.stderr || status.error || status.stdout));
+  const stagedFiles = normalizeChangedFiles(String(staged.stdout || "").split(/\r?\n/));
+  const trackedFiles = normalizeChangedFiles(String(tracked.stdout || "").split(/\r?\n/));
+  const statusPorcelain = String(status.stdout || "").trim();
+  if (stagedFiles.length) return fail("exact_worktree_staged_changes", "worktree has staged changes", { stagedFiles });
+  if (trackedFiles.length) return fail("exact_worktree_tracked_dirty", "worktree has tracked changes", { trackedFiles });
+  if (statusPorcelain) return fail("exact_worktree_status_dirty", "worktree has uncommitted or non-ignored untracked changes", { statusPorcelain });
+  const activeGitOperations = readActiveGitOperations({ runner, cwd });
+  if (!activeGitOperations.ok) return activeGitOperations;
+  if (activeGitOperations.activeOperation) return fail("exact_worktree_active_git_operation", "worktree has an active merge/rebase/cherry-pick/revert/bisect operation", activeGitOperations);
+  const proof = sanitizeState({
+    schemaVersion: 1,
+    proofType,
+    worktreePath,
+    configuredRepository,
+    originRepositorySlug: origin.repositorySlug,
+    expectedPrNumber: pr.number,
+    expectedHeadBranch: expectedBranch || pr.headRefName || null,
+    branchName,
+    detachedHead: detached,
+    expectedHead,
+    actualHead: head.sha,
+    treeSha: tree.sha,
+    cleanIndex: true,
+    cleanTrackedWorktree: true,
+    clean: true,
+    noStagedChanges: true,
+    noNonIgnoredUntrackedFiles: true,
+    statusPorcelain: "",
+    activeOperation: false,
+    activeGitOperations,
+    provedAt: new Date().toISOString(),
+  });
+  return { ok: true, ...proof, proof, proofDigest: digestJson(proof) };
+}
+
+function readActiveGitOperations({ runner, cwd }) {
+  const refs = ["MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"];
+  const states = {};
+  for (const ref of refs) {
+    const result = runner("git", ["rev-parse", "--verify", "-q", ref], { cwd });
+    if (result.error) return fail("exact_worktree_active_operation_unreadable", boundedText(result.stderr || result.error || result.stdout));
+    states[ref] = result.status === 0;
+  }
+  return { ok: true, ...states, activeOperation: Object.values(states).some(Boolean) };
+}
+
+function compareExactWorktreeProofs(pre, post) {
+  for (const field of ["worktreePath", "configuredRepository", "originRepositorySlug", "expectedHead", "actualHead", "treeSha", "branchName"]) {
+    if (pre[field] !== post[field]) return fail("exact_worktree_post_proof_changed", `worktree proof changed after validation/review: ${field}`);
+  }
+  if (pre.clean !== true || post.clean !== true || pre.activeOperation === true || post.activeOperation === true) {
+    return fail("exact_worktree_post_proof_dirty", "worktree became dirty or entered an active git operation during validation/review");
+  }
+  return { ok: true };
 }
 
 function finalGateIssue(config = {}, state = {}, pr = {}) {
@@ -3379,6 +3603,69 @@ function patchApplyCheck({ patchText, cwd, reverse, runner }) {
   if (reverse) args.push("--reverse");
   const result = runner("git", args, { cwd, input: patchText });
   return result.status === 0 && !result.error;
+}
+
+function createFinalHygieneRunner(runner, repositoryContext = {}) {
+  const commandEvidence = [];
+  const repo = repositoryContext.argvRepository || repositoryContext.configuredRepositorySlug || "tommytang213/Settleora";
+  const wrapped = (command, args = [], options = {}) => {
+    const finalArgs = command === "gh" && (args[0] === "issue" || args[0] === "pr") && !args.includes("--repo") && !args.includes("-R")
+      ? [...args.slice(0, 2), ...args.slice(2, 3), "--repo", repo, ...args.slice(3)]
+      : args;
+    const result = runner(command, finalArgs, options);
+    commandEvidence.push({
+      command,
+      args: sanitizeArgv(finalArgs),
+      status: result?.status ?? null,
+      ok: result?.status === 0 && !result?.error,
+      stderr: boundedText(result?.stderr || result?.error || ""),
+    });
+    return result;
+  };
+  wrapped.commandEvidence = commandEvidence;
+  return wrapped;
+}
+
+function sanitizeArgv(args = []) {
+  return args.map((arg) => {
+    const text = String(arg || "");
+    if (text.length > 120) return `${text.slice(0, 120)}[truncated]`;
+    return text.replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
+  });
+}
+
+function validateFinalHygieneResult(result, commandEvidence = []) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return fail("final_hygiene_result_missing", "final hygiene did not return canonical evidence");
+  if (result.status !== "merged") return fail("final_hygiene_status_not_merged", "final hygiene did not report merged status");
+  if (!validSha(result.mergeSha)) return fail("final_hygiene_merge_sha_missing", "final hygiene result is missing merge SHA proof");
+  if (!validSha(result.sourceHeadSha)) return fail("final_hygiene_source_head_missing", "final hygiene result is missing source head proof");
+  const components = {
+    comment: result.comment,
+    closure: result.closure,
+    labelCleanup: result.labelCleanup,
+    parentProgress: result.parentProgress,
+    project: result.project,
+    ledger: result.ledger,
+  };
+  for (const [name, component] of Object.entries(components)) {
+    if (!isSuccessfulOrIdempotentHygieneComponent(component)) {
+      return fail("final_hygiene_component_failed", `final hygiene component failed: ${name}`, { component: name, result: sanitizeState(component) });
+    }
+  }
+  const actualCalls = commandEvidence.filter((entry) => entry.command === "gh" || entry.command === "git");
+  if (actualCalls.length === 0) return fail("final_hygiene_command_evidence_missing", "final hygiene success requires actual runner command evidence");
+  return { ok: true, result: sanitizeState({ ...result, commandEvidence: actualCalls }) };
+}
+
+function isSuccessfulOrIdempotentHygieneComponent(component = {}) {
+  if (!component || typeof component !== "object") return false;
+  if (component.status === "updated" || component.status === "created" || component.status === "reused" || component.status === "not_updated" || component.status === "preview") return true;
+  if (component.status === "skipped") {
+    return /already_present|already_closed|no_transient_labels|mapping_not_configured|mapping_incomplete|missing|not_required|remaining_gates_present|umbrella_or_tracker_keep_open|close_rule_not_satisfied/.test(String(component.reason || ""));
+  }
+  if (component.skipped === true) return true;
+  if (component.ok === true && component.skipped !== false) return true;
+  return false;
 }
 
 function defaultRunner(command, args, options = {}) {
