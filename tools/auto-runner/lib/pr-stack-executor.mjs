@@ -60,6 +60,7 @@ const forbiddenStackCapabilities = Object.freeze([
 ]);
 
 const acceptedStrongReviewTiers = new Set(["strong_independent", "tie_breaker"]);
+const protectedBranchNames = new Set(["main", "master"]);
 
 export function normalizePrStackExecutionConfig(config = {}) {
   const raw = config.prStackExecution || {};
@@ -175,6 +176,9 @@ export function validateExecutableStackPlan(config = {}, plan = {}, { stackConfi
     if (numbers.has(pr.number)) return fail("stack_duplicate_pr_number", "duplicate PR number in stack");
     numbers.add(pr.number);
     if (!safeBranch(pr.baseRefName) || !safeBranch(pr.headRefName)) return fail("stack_branch_invalid", "PR branch refs must be bounded safe branch names");
+    if (!safeSourceBranchTarget(pr.headRefName, { baseRefName: pr.baseRefName, defaultBranch: "main" })) {
+      return fail("stack_source_branch_forbidden", "PR head branch cannot be a protected, base, detached, remote-qualified, tag, SHA-like, option-looking, or path-like ref");
+    }
     if (!validSha(pr.headRefOid)) return fail("stack_pr_head_invalid", "PR head SHA is missing or malformed");
     if (pr.state && !["OPEN", "MERGED", "CLOSED", "UNKNOWN"].includes(String(pr.state))) return fail("stack_pr_state_invalid", "PR state is unsupported");
   }
@@ -546,6 +550,11 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       const allowedPathProofValid = allowedPathProofMatchesGate(gateEvidence, changedFiles, expectedHead);
       const expectedBase = gateEvidence.baseSha || gateEvidence.expectedOriginMainSha || null;
       if (!validSha(expectedBase)) return fail("final_gate_base_missing", "final gate evidence must be bound to origin/main");
+      const baseRefresh = fetchAndReadOriginMain({ config: cfg || config, runner: runner || defaultRunner, reasonPrefix: "merge_base" });
+      if (!baseRefresh.ok) return baseRefresh;
+      if (baseRefresh.currentOriginMainSha !== expectedBase) {
+        return fail("merge_base_advanced_requires_final_gate_refresh", `origin/main moved from ${expectedBase} to ${baseRefresh.currentOriginMainSha}`);
+      }
       const reviewEvidence = finalGateReviewEvidenceForMerge(gateEvidence, {
         expectedHead,
         expectedBase,
@@ -650,6 +659,11 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
   const cwd = config.repoRoot || process.cwd();
   return {
     async runCodexBatchFix({ fixTask, pr }) {
+      const proof = proveTargetBatchFixWorktree({ config, pr, runner });
+      if (!proof.ok) return proof;
+      if (proof.localCandidateHead && proof.localCandidateHead !== proof.expectedHead) {
+        return { ok: true, skippedCodex: true, reason: "existing_unpushed_local_candidate", targetWorktreeProof: proof };
+      }
       const promptPath = path.join(
         config.logsRoot || "/workspace/logs/settleora-auto-runner",
         "review-fix",
@@ -658,7 +672,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       mkdirSync(path.dirname(promptPath), { recursive: true, mode: 0o700 });
       writeFileSync(promptPath, `${fixTask?.prompt || ""}\n`, { mode: 0o600 });
       const codex = runCodexPrompt(
-        config,
+        { ...config, repoRoot: proof.worktreePath },
         {
           branchName: pr?.headRefName || pr?.branch || "unknown",
           prompt: fixTask?.prompt || "",
@@ -671,23 +685,39 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       }
       return { ok: true, codex, promptPath };
     },
-    async listChangedFiles() {
+    async listChangedFiles({ exactHead }) {
+      const head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_head_unreadable" });
+      if (!head.ok) throw new Error(head.reason);
+      if (exactHead && head.sha !== exactHead) {
+        const committed = runner("git", ["diff", "--name-only", `${exactHead}..HEAD`], { cwd });
+        if (committed.status !== 0 || committed.error) throw new Error(`git diff exactHead..HEAD failed: ${boundedText(committed.stderr || committed.error || committed.stdout)}`);
+        const dirty = readWorktreeCleanProof({ runner, cwd });
+        if (!dirty.ok || dirty.clean !== true) throw new Error("existing local candidate has additional dirty changes");
+        return normalizeChangedFiles(committed.stdout.split(/\r?\n/));
+      }
       const diff = runner("git", ["diff", "--name-only"], { cwd });
       if (diff.status !== 0 || diff.error) throw new Error(`git diff failed: ${boundedText(diff.stderr || diff.error || diff.stdout)}`);
       const staged = runner("git", ["diff", "--cached", "--name-only"], { cwd });
       if (staged.status !== 0 || staged.error) throw new Error(`git diff --cached failed: ${boundedText(staged.stderr || staged.error || staged.stdout)}`);
       return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}`.split(/\r?\n/));
     },
-    async validateAndReview({ changedFiles, laneDecision, pr }) {
-      const head = runner("git", ["rev-parse", "HEAD"], { cwd });
-      const base = runner("git", ["rev-parse", "origin/main"], { cwd });
-      if (head.status !== 0 || head.error || base.status !== 0 || base.error) {
-        return fail("existing_pr_batch_fix_source_identity_unreadable", boundedText(head.stderr || base.stderr || head.error || base.error || ""));
-      }
+    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest }) {
+      const candidate = createOrReuseLocalCandidateCommit({
+        config,
+        runner,
+        cwd,
+        exactHead,
+        changedFiles,
+        message: "Auto-runner stack review-fix batch",
+      });
+      if (!candidate.ok) return candidate;
+      const base = readGitSha({ runner, cwd, ref: "origin/main", reasonCode: "existing_pr_batch_fix_base_unreadable" });
+      if (!base.ok) return base;
       const validationPlan = planValidation(changedFiles, laneDecision || { validationProfile: "runner-tests" });
-      const validation = bindValidationEvidence(runValidationPlan(config, validationPlan), {
-        headSha: String(head.stdout || "").trim(),
-        baseSha: String(base.stdout || "").trim(),
+      const targetConfig = { ...config, repoRoot: cwd };
+      const validation = bindValidationEvidence(runValidationPlan(targetConfig, validationPlan), {
+        headSha: candidate.newHead,
+        baseSha: base.sha,
         changedFiles,
         profile: laneDecision?.validationProfile || validationPlan.profile,
       });
@@ -695,29 +725,71 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (typeof options.runStrongReview !== "function" || typeof options.runCodexReview !== "function") {
         return fail("existing_pr_batch_fix_review_adapter_unconfigured", "strong and Codex review adapters are required before push");
       }
-      const externalReview = await options.runStrongReview({ config, pr, changedFiles, validation, headSha: validation.headSha, baseSha: validation.baseSha });
+      const externalReview = await options.runStrongReview({ config: targetConfig, pr, changedFiles, validation, headSha: candidate.newHead, baseSha: base.sha });
       if (externalReview?.status !== "pass") return fail("existing_pr_batch_fix_strong_review_failed", externalReview?.reason || "strong review did not pass", { externalReview });
-      const review = await options.runCodexReview({ config, pr, changedFiles, validation, externalReview, headSha: validation.headSha, baseSha: validation.baseSha });
+      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles, validation, externalReview, headSha: candidate.newHead, baseSha: base.sha });
       const verdict = review?.verdict?.verdict || review?.verdict;
       if (verdict !== "approve") return fail("existing_pr_batch_fix_codex_review_failed", review?.reviewFailureReason || "Codex review did not approve", { review });
-      return { ok: true, validation, externalReview, review, sourceIdentity: { headSha: validation.headSha, baseSha: validation.baseSha } };
+      return {
+        ok: true,
+        validation,
+        externalReview,
+        review,
+        localCandidate: candidate,
+        sourceIdentity: {
+          oldHead: exactHead,
+          headSha: candidate.newHead,
+          newHead: candidate.newHead,
+          parent: candidate.parent,
+          tree: candidate.tree,
+          baseSha: base.sha,
+          changedFilesDigest: digestStringSet(changedFiles),
+          findingFingerprints,
+          fingerprintDigest,
+        },
+      };
     },
-    async commitAndPush({ changedFiles, reviewed, pr }) {
-      for (const file of normalizeChangedFiles(changedFiles)) {
-        const add = runner("git", ["add", "--", file], { cwd });
-        if (add.status !== 0 || add.error) return fail("existing_pr_batch_fix_git_add_failed", boundedText(add.stderr || add.error || add.stdout));
-      }
-      const commit = runner("git", ["commit", "-m", "Auto-runner stack review-fix batch"], { cwd });
-      if (commit.status !== 0 || commit.error) return fail("existing_pr_batch_fix_commit_failed", boundedText(commit.stderr || commit.error || commit.stdout));
-      const head = runner("git", ["rev-parse", "HEAD"], { cwd });
-      const newHead = String(head.stdout || "").trim();
-      if (head.status !== 0 || head.error || !validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", boundedText(head.stderr || head.error || head.stdout));
+    async commitAndPush({ exactHead, changedFiles, reviewed, pr, fingerprintDigest, markerKey }) {
+      const newHead = reviewed?.localCandidate?.newHead || reviewed?.sourceIdentity?.newHead || null;
+      if (!validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", "validated local candidate head is missing");
       const branch = pr?.headRefName || pr?.branch || "";
-      if (!safeBranch(branch)) return fail("existing_pr_batch_fix_branch_invalid", "PR head branch is invalid");
-      const push = runner("git", ["push", "origin", `HEAD:${branch}`], { cwd });
+      const live = readLivePrProof({ config, pr, expectedHead: exactHead, runner });
+      if (!live.ok) return live;
+      const targetValidation = validatePushTargetBranch({
+        branch,
+        liveHeadRefName: live.proof.headRefName,
+        baseRefName: live.proof.baseRefName,
+        defaultBranch: "main",
+      });
+      if (!targetValidation.ok) return targetValidation;
+      const local = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_candidate_head_unreadable" });
+      if (!local.ok || local.sha !== newHead) return fail("existing_pr_batch_fix_candidate_head_mismatch", "validated local candidate is not checked out");
+      const clean = readWorktreeCleanProof({ runner, cwd });
+      if (!clean.ok || clean.clean !== true) return fail("existing_pr_batch_fix_candidate_worktree_dirty", "candidate worktree must be clean before push", { worktree: clean });
+      const intent = persistPushIntent({
+        config,
+        markerKey,
+        pr,
+        branch,
+        oldHead: exactHead,
+        newHead,
+        changedFiles,
+        fingerprintDigest,
+        reviewed,
+        pushTarget: `origin ${newHead}:${branch}`,
+      });
+      const reconciledIntent = reconcilePushIntent({ config, pr, intent, runner });
+      if (reconciledIntent.ok && reconciledIntent.finalized === true) {
+        return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead }, pushedAt: reconciledIntent.confirmedAt, pushIntent: intent, pushConfirmation: reconciledIntent };
+      }
+      if (!reconciledIntent.ok && reconciledIntent.reasonCode !== "push_intent_not_completed") return reconciledIntent;
+      const push = runner("git", ["push", "origin", `${newHead}:${branch}`], { cwd });
       if (push.status !== 0 || push.error) return fail("existing_pr_batch_fix_push_failed", boundedText(push.stderr || push.error || push.stdout));
-      return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead }, pushedAt: new Date().toISOString() };
+      const confirmation = reconcilePushIntent({ config, pr, intent, runner, requireCandidate: true });
+      if (!confirmation.ok) return confirmation;
+      return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead }, pushedAt: confirmation.confirmedAt, pushIntent: intent, pushConfirmation: confirmation };
     },
+    async persistMutationMarker() {},
   };
 }
 
@@ -999,7 +1071,262 @@ function validSha(value) {
 }
 
 function safeBranch(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= 240 && !value.includes("..") && !value.startsWith("/") && !value.endsWith("/");
+  const branch = String(value || "");
+  return typeof value === "string" &&
+    branch.trim() === branch &&
+    branch.length > 0 &&
+    branch.length <= 240 &&
+    !branch.includes("..") &&
+    !branch.startsWith("/") &&
+    !branch.endsWith("/");
+}
+
+function safeSourceBranchTarget(value, { baseRefName = null, defaultBranch = "main" } = {}) {
+  const branch = String(value || "");
+  if (!safeBranch(value)) return false;
+  if (protectedBranchNames.has(branch) || branch === defaultBranch || (baseRefName && branch === baseRefName)) return false;
+  if (branch === "HEAD" || branch.startsWith("HEAD") || branch.includes("@{")) return false;
+  if (branch.startsWith("origin/") || branch.startsWith("refs/") || branch.startsWith("tags/")) return false;
+  if (branch.startsWith("-")) return false;
+  if (validSha(branch)) return false;
+  if (branch.includes("\\") || branch.includes("//")) return false;
+  if (branch.split("/").some((part) => part === "." || part === ".." || part === "")) return false;
+  return true;
+}
+
+function validatePushTargetBranch({ branch, liveHeadRefName, baseRefName, defaultBranch }) {
+  if (!safeSourceBranchTarget(branch, { baseRefName, defaultBranch })) {
+    return fail("existing_pr_batch_fix_branch_forbidden", "batch-fix push target is protected, base, detached/head-like, remote-qualified, tag, SHA-like, option-looking, or path-like");
+  }
+  if (branch !== liveHeadRefName) {
+    return fail("existing_pr_batch_fix_push_target_mismatch", "push target must exactly equal the fresh live PR headRefName");
+  }
+  return { ok: true };
+}
+
+function proveTargetBatchFixWorktree({ config, pr, runner }) {
+  const cwd = config.repoRoot || process.cwd();
+  const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
+  const worktreePath = path.resolve(cwd);
+  if (worktreePath === protectedRoot) return fail("existing_pr_batch_fix_protected_root_refused", "protected root cannot be used as a source-mutation worktree");
+  const expectedHead = pr?.headRefOid || pr?.exactHead || null;
+  const branch = pr?.headRefName || pr?.branch || "";
+  if (!validSha(expectedHead)) return fail("existing_pr_batch_fix_expected_head_invalid", "target PR head SHA is invalid");
+  const live = readLivePrProof({ config, pr, expectedHead, runner });
+  if (!live.ok) return live;
+  const branchValidation = validatePushTargetBranch({
+    branch,
+    liveHeadRefName: live.proof.headRefName,
+    baseRefName: live.proof.baseRefName,
+    defaultBranch: "main",
+  });
+  if (!branchValidation.ok) return branchValidation;
+  const clean = readWorktreeCleanProof({ runner, cwd });
+  if (!clean.ok) return clean;
+  if (clean.clean !== true) return fail("existing_pr_batch_fix_worktree_dirty", "target worktree/index must be clean before checkout or Codex", clean);
+  const fetch = runner("git", ["fetch", "origin", branch], { cwd });
+  if (fetch.status !== 0 || fetch.error) return fail("existing_pr_batch_fix_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
+  const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "existing_pr_batch_fix_remote_head_unreadable" });
+  if (!remote.ok) return remote;
+  if (remote.sha !== expectedHead) return fail("existing_pr_batch_fix_remote_head_stale", "remote branch no longer matches expected PR head");
+  const currentBranch = runner("git", ["branch", "--show-current"], { cwd });
+  if (currentBranch.status !== 0 || currentBranch.error) return fail("existing_pr_batch_fix_branch_unreadable", boundedText(currentBranch.stderr || currentBranch.error || currentBranch.stdout));
+  const currentBranchName = String(currentBranch.stdout || "").trim();
+  const currentHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_head_unreadable" });
+  if (!currentHead.ok) return currentHead;
+  if (currentHead.sha !== expectedHead) {
+    if (currentBranchName === branch && remote.sha === expectedHead) {
+      const candidateAncestor = runner("git", ["merge-base", "--is-ancestor", expectedHead, currentHead.sha], { cwd });
+      if (candidateAncestor.status === 0 && !candidateAncestor.error) {
+        return {
+          ok: true,
+          worktreePath,
+          branch,
+          expectedHead,
+          actualHead: currentHead.sha,
+          remoteHead: remote.sha,
+          livePr: live.proof,
+          localCandidateHead: currentHead.sha,
+          reusedLocalCandidate: true,
+          provenAt: new Date().toISOString(),
+        };
+      }
+    }
+    if (currentBranchName !== branch) {
+      return fail("existing_pr_batch_fix_wrong_branch_before_codex", "target worktree is not on the live PR branch before Codex");
+    }
+    const ancestor = runner("git", ["merge-base", "--is-ancestor", currentHead.sha, `origin/${branch}`], { cwd });
+    if (ancestor.status !== 0 || ancestor.error) {
+      return fail("existing_pr_batch_fix_remote_advanced_before_mutation", "remote branch advanced or diverged before mutation");
+    }
+    const ff = runner("git", ["merge", "--ff-only", `origin/${branch}`], { cwd });
+    if (ff.status !== 0 || ff.error) return fail("existing_pr_batch_fix_ff_failed", boundedText(ff.stderr || ff.error || ff.stdout));
+  } else if (currentBranchName !== branch) {
+    const checkout = runner("git", ["switch", branch], { cwd });
+    if (checkout.status !== 0 || checkout.error) return fail("existing_pr_batch_fix_checkout_failed", boundedText(checkout.stderr || checkout.error || checkout.stdout));
+  }
+  const afterBranch = runner("git", ["branch", "--show-current"], { cwd });
+  const afterHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_post_checkout_head_unreadable" });
+  if (afterBranch.status !== 0 || afterBranch.error || String(afterBranch.stdout || "").trim() !== branch) {
+    return fail("existing_pr_batch_fix_branch_identity_failed", "target worktree branch identity was not proven before Codex");
+  }
+  if (!afterHead.ok || afterHead.sha !== expectedHead) {
+    return fail("existing_pr_batch_fix_head_identity_failed", "target worktree HEAD was not proven before Codex");
+  }
+  return {
+    ok: true,
+    worktreePath,
+    branch,
+    expectedHead,
+    actualHead: afterHead.sha,
+    remoteHead: remote.sha,
+    livePr: live.proof,
+    localCandidateHead: afterHead.sha,
+    provenAt: new Date().toISOString(),
+  };
+}
+
+function readLivePrProof({ config, pr, expectedHead, runner }) {
+  const result = runner(
+    "gh",
+    ["pr", "view", String(pr?.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid"],
+    { cwd: config.repoRoot || process.cwd() },
+  );
+  if (result.status !== 0 || result.error) return fail("existing_pr_batch_fix_pr_read_failed", boundedText(result.stderr || result.error || result.stdout));
+  let proof;
+  try {
+    proof = JSON.parse(result.stdout || "{}");
+  } catch (error) {
+    return fail("existing_pr_batch_fix_pr_read_parse_failed", error.message);
+  }
+  if (proof.number !== pr?.number) return fail("existing_pr_batch_fix_pr_number_mismatch", "fresh PR number did not match");
+  if (proof.state !== "OPEN") return fail("existing_pr_batch_fix_pr_not_open", "target PR must be open");
+  if (proof.isDraft) return fail("existing_pr_batch_fix_pr_is_draft", "target PR must be non-draft");
+  if (proof.headRefName !== (pr?.headRefName || pr?.branch)) return fail("existing_pr_batch_fix_pr_branch_mismatch", "fresh PR head branch did not match");
+  if (expectedHead && proof.headRefOid !== expectedHead) return fail("existing_pr_batch_fix_pr_head_stale", "fresh PR head changed");
+  if (!proof.baseRefName || proof.baseRefName === proof.headRefName) return fail("existing_pr_batch_fix_pr_base_invalid", "fresh PR base is invalid");
+  return { ok: true, proof };
+}
+
+function readWorktreeCleanProof({ runner, cwd }) {
+  const status = runner("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd });
+  if (status.status !== 0 || status.error) return fail("existing_pr_batch_fix_status_failed", boundedText(status.stderr || status.error || status.stdout), { clean: false });
+  const statusPorcelain = String(status.stdout || "").trim();
+  return { ok: true, clean: statusPorcelain === "", statusPorcelain, checkedAt: new Date().toISOString() };
+}
+
+function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, changedFiles, message }) {
+  const before = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_head_unreadable" });
+  if (!before.ok) return before;
+  if (before.sha !== exactHead) {
+    const clean = readWorktreeCleanProof({ runner, cwd });
+    if (!clean.ok || clean.clean !== true) return fail("existing_pr_batch_fix_candidate_dirty", "existing local candidate has additional source changes");
+    const ancestry = runner("git", ["merge-base", "--is-ancestor", exactHead, before.sha], { cwd });
+    if (ancestry.status !== 0 || ancestry.error) return fail("existing_pr_batch_fix_candidate_not_descendant", "existing local candidate is not descended from the expected old head");
+    const parent = readGitSha({ runner, cwd, ref: "HEAD^", reasonCode: "existing_pr_batch_fix_candidate_parent_unreadable" });
+    const tree = readGitSha({ runner, cwd, ref: "HEAD^{tree}", reasonCode: "existing_pr_batch_fix_candidate_tree_unreadable" });
+    return { ok: true, reused: true, oldHead: exactHead, parent: parent.sha || null, newHead: before.sha, tree: tree.sha || null, committedAt: new Date().toISOString() };
+  }
+  for (const file of normalizeChangedFiles(changedFiles)) {
+    const add = runner("git", ["add", "--", file], { cwd });
+    if (add.status !== 0 || add.error) return fail("existing_pr_batch_fix_git_add_failed", boundedText(add.stderr || add.error || add.stdout));
+  }
+  const commit = runner("git", ["commit", "-m", message], { cwd });
+  if (commit.status !== 0 || commit.error) return fail("existing_pr_batch_fix_commit_failed", boundedText(commit.stderr || commit.error || commit.stdout));
+  const head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_new_head_unreadable" });
+  const parent = readGitSha({ runner, cwd, ref: "HEAD^", reasonCode: "existing_pr_batch_fix_candidate_parent_unreadable" });
+  const tree = readGitSha({ runner, cwd, ref: "HEAD^{tree}", reasonCode: "existing_pr_batch_fix_candidate_tree_unreadable" });
+  if (!head.ok || !parent.ok || !tree.ok) return head.ok ? parent.ok ? tree : parent : head;
+  if (head.sha === exactHead) return fail("existing_pr_batch_fix_new_head_required", "candidate commit did not advance HEAD");
+  return { ok: true, reused: false, oldHead: exactHead, parent: parent.sha, newHead: head.sha, tree: tree.sha, committedAt: new Date().toISOString() };
+}
+
+function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fingerprintDigest, reviewed, pushTarget }) {
+  const root = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-intents");
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const intentPath = path.join(root, `${digestJson({ markerKey, prNumber: pr?.number, oldHead, newHead })}.json`);
+  const sourceIdentity = reviewed?.sourceIdentity || {};
+  const intent = sanitizeState({
+    status: "push_intent",
+    markerKey,
+    prNumber: pr?.number || null,
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    sourceBranch: branch,
+    oldHead,
+    candidateNewHead: newHead,
+    candidateParent: sourceIdentity.parent || null,
+    candidateTree: sourceIdentity.tree || null,
+    findingInventoryDigest: fingerprintDigest || null,
+    changedFiles,
+    changedFilesDigest: digestStringSet(changedFiles),
+    patchDigest: sourceIdentity.patchDigest || null,
+    sourceCycleEpoch: sourceIdentity.epoch || 1,
+    nextSourceCycleCount: sourceIdentity.nextSourceCycleCount || null,
+    taskKey: config.taskKey || null,
+    runId: config.runId || null,
+    supervisorRunId: config.supervisorRunId || null,
+    validationHead: reviewed?.validation?.headSha || null,
+    strongReviewHead: reviewed?.externalReview?.reviewedHead || reviewed?.externalReview?.headSha || null,
+    pushTarget,
+    intentPath,
+    timestamp: new Date().toISOString(),
+  });
+  const tmp = `${intentPath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(intent, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, intentPath);
+  return intent;
+}
+
+function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = false }) {
+  const branch = intent.sourceBranch;
+  const fetch = runner("git", ["fetch", "origin", branch], { cwd: config.repoRoot || process.cwd() });
+  if (fetch.status !== 0 || fetch.error) return fail("push_intent_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
+  const remote = readGitSha({ runner, cwd: config.repoRoot || process.cwd(), ref: `origin/${branch}`, reasonCode: "push_intent_remote_unreadable" });
+  const live = readLivePrProof({ config, pr, expectedHead: null, runner });
+  const remoteHead = remote.ok ? remote.sha : null;
+  const liveHead = live.ok ? live.proof.headRefOid : null;
+  if (remoteHead === intent.candidateNewHead && liveHead === intent.candidateNewHead) {
+    return finalizePushIntent({ intent, remoteHead, liveHead });
+  }
+  if (!requireCandidate && remoteHead === intent.oldHead && (!liveHead || liveHead === intent.oldHead)) {
+    return fail("push_intent_not_completed", "push intent exists but remote/live heads remain at old head");
+  }
+  if (requireCandidate && (remoteHead !== intent.candidateNewHead || liveHead !== intent.candidateNewHead)) {
+    return fail("push_confirmation_head_mismatch", "push completed without remote/live candidate equality", { remoteHead, liveHead });
+  }
+  return fail("push_intent_conflicting_head", "remote/live head conflicts with durable push intent", { remoteHead, liveHead });
+}
+
+function finalizePushIntent({ intent, remoteHead, liveHead }) {
+  const confirmed = sanitizeState({
+    ...intent,
+    status: "push_confirmed",
+    remoteHead,
+    liveHead,
+    finalizedAt: new Date().toISOString(),
+  });
+  const tmp = `${intent.intentPath}.${process.pid}.${Date.now()}.confirmed.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(confirmed, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, intent.intentPath);
+  return { ok: true, finalized: true, confirmedAt: confirmed.finalizedAt, marker: confirmed };
+}
+
+function readGitSha({ runner, cwd, ref, reasonCode }) {
+  const result = runner("git", ["rev-parse", ref], { cwd });
+  const sha = String(result.stdout || "").trim();
+  if (result.status !== 0 || result.error || !validSha(sha)) {
+    return fail(reasonCode, boundedText(result.stderr || result.error || result.stdout || `${ref} did not resolve`));
+  }
+  return { ok: true, sha };
+}
+
+function fetchAndReadOriginMain({ config, runner, reasonPrefix }) {
+  const cwd = config.repoRoot || process.cwd();
+  const fetch = runner("git", ["fetch", "origin", "main"], { cwd });
+  if (fetch.status !== 0 || fetch.error) return fail(`${reasonPrefix}_base_fetch_failed`, boundedText(fetch.stderr || fetch.error || fetch.stdout));
+  const base = readGitSha({ runner, cwd, ref: "origin/main", reasonCode: `${reasonPrefix}_base_unreadable` });
+  if (!base.ok) return base;
+  return { ok: true, currentOriginMainSha: base.sha, fetchedAt: new Date().toISOString() };
 }
 
 function isInside(candidate, root) {
@@ -1102,14 +1429,17 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
   if (!inspection?.pr) return fail("final_gate_pr_read_failed", "PR state could not be read");
   const currentHead = inspection.pr.headRefOid || pr.headRefOid;
   if (currentHead !== pr.headRefOid) return fail("final_gate_pr_head_stale", `PR #${pr.number} head changed before final gates`);
+  if (inspection.pr.baseRefName !== pr.baseRefName) return fail("final_gate_pr_base_stale", `PR #${pr.number} base changed before final gates`);
+  if (inspection.pr.state !== "OPEN") return fail("final_gate_pr_state_not_open", `PR #${pr.number} is not open`);
+  if (inspection.pr.isDraft) return fail("final_gate_pr_is_draft", `PR #${pr.number} is draft`);
   const changed = readCurrentPrOwnDelta({ config, pr, runner });
   if (!changed.ok) return changed;
   const laneProof = buildAllowedPathProof({ issue: inspection.issue, changedFiles: changed.ownDelta.fileSet, exactHead: currentHead });
   if (!laneProof.ok) return laneProof;
   const status = finalExternalGateStatus({ ...inspection, config });
-  const base = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
-  const currentOriginMainSha = base.status === 0 && !base.error ? String(base.stdout || "").trim() : null;
-  if (!validSha(currentOriginMainSha)) return fail("final_gate_base_unreadable", "origin/main could not be read for final gate evidence");
+  const base = fetchAndReadOriginMain({ config, runner, reasonPrefix: "final_gate" });
+  if (!base.ok) return base;
+  const currentOriginMainSha = base.currentOriginMainSha;
   const reviewEvidence = buildFinalGateReviewEvidence({
     state,
     prNumber: pr.number,
@@ -1145,6 +1475,7 @@ function collectFinalGateEvidence({ config, state, pr, runner }) {
     currentOriginMainSha,
     expectedOriginMainSha: currentOriginMainSha,
     baseSha: currentOriginMainSha,
+    originMainFetchedAt: base.fetchedAt,
     worktreeClean: worktree.clean === true,
     worktreeCleanProof: worktree,
     collectedAt: new Date().toISOString(),
@@ -1432,3 +1763,14 @@ function fail(reasonCode, reason = reasonCode, extra = {}) {
 export function digestStackPlan(plan) {
   return createHash("sha256").update(JSON.stringify(plan || {})).digest("hex");
 }
+
+export const prStackExecutorTestInternals = Object.freeze({
+  createOrReuseLocalCandidateCommit,
+  fetchAndReadOriginMain,
+  persistPushIntent,
+  proveTargetBatchFixWorktree,
+  reconcilePushIntent,
+  readWorktreeCleanProof,
+  safeSourceBranchTarget,
+  validatePushTargetBranch,
+});

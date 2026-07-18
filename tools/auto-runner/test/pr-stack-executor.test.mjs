@@ -11,6 +11,7 @@ import {
   createProductionPrStackAdapter,
   finalExternalGateStatus,
   loadExecutableStackPlan,
+  prStackExecutorTestInternals,
   runPrStackExecution,
   validateExecutableStackPlan,
   validatePrStackState,
@@ -137,6 +138,202 @@ test("production stack convergence invokes shared batch-fix callback with comple
   assert.equal(calls.length, 1);
   assert.equal(calls[0].convergence.findingInventory.length, 2);
   assert.equal(calls[0].fixTask.findingFingerprints.length, 2);
+});
+
+test("batch-fix source target rejects protected base remote tag sha option and path-like refs", () => {
+  const forbidden = [
+    "main",
+    "master",
+    "feature/auto-913-parent",
+    "origin/feature/auto-913-child",
+    "refs/heads/feature/auto-913-child",
+    "tags/v1",
+    sha("a"),
+    "-feature",
+    "feature//bad",
+    "feature/../bad",
+    " HEAD",
+    "HEAD",
+  ];
+  for (const branch of forbidden) {
+    assert.equal(
+      prStackExecutorTestInternals.safeSourceBranchTarget(branch, { baseRefName: "feature/auto-913-parent", defaultBranch: "main" }),
+      false,
+      branch,
+    );
+  }
+  assert.equal(
+    prStackExecutorTestInternals.safeSourceBranchTarget("feature/auto-913-child", { baseRefName: "feature/auto-913-parent", defaultBranch: "main" }),
+    true,
+  );
+});
+
+test("target PR worktree proof fetches fixed argv and proves branch head and live PR identity before Codex", () => {
+  const fixture = stackFixture();
+  const calls = [];
+  const runner = targetWorktreeRunner(calls, { branch: "feature/auto-913-parent", head: sha("a"), remoteHead: sha("a") });
+  const proof = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
+    config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: path.join(fixture.root, "protected") },
+    pr: fixture.plan.orderedPrs[0],
+    runner,
+  });
+  assert.equal(proof.ok, true, proof.reasonCode);
+  assert.equal(proof.worktreePath, fixture.root);
+  assert.equal(proof.actualHead, sha("a"));
+  assert.deepEqual(calls, [
+    "gh pr view 919 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid",
+    "git status --porcelain=v1 --untracked-files=all",
+    "git fetch origin feature/auto-913-parent",
+    "git rev-parse origin/feature/auto-913-parent",
+    "git branch --show-current",
+    "git rev-parse HEAD",
+    "git branch --show-current",
+    "git rev-parse HEAD",
+  ]);
+});
+
+test("target PR worktree proof rejects protected root dirty worktree wrong branch and remote advance before Codex", () => {
+  const fixture = stackFixture();
+  const pr = fixture.plan.orderedPrs[0];
+  const protectedResult = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
+    config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: fixture.root },
+    pr,
+    runner: targetWorktreeRunner([], {}),
+  });
+  assert.equal(protectedResult.reasonCode, "existing_pr_batch_fix_protected_root_refused");
+
+  const dirty = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
+    config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: path.join(fixture.root, "protected") },
+    pr,
+    runner: targetWorktreeRunner([], { statusPorcelain: " M tools/auto-runner/lib/pr-stack-executor.mjs" }),
+  });
+  assert.equal(dirty.reasonCode, "existing_pr_batch_fix_worktree_dirty");
+
+  const wrongBranch = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
+    config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: path.join(fixture.root, "protected") },
+    pr,
+    runner: targetWorktreeRunner([], { branch: "feature/other", head: sha("b"), remoteHead: sha("a") }),
+  });
+  assert.equal(wrongBranch.reasonCode, "existing_pr_batch_fix_wrong_branch_before_codex");
+
+  const advanced = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
+    config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: path.join(fixture.root, "protected") },
+    pr,
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("a"), remoteHead: sha("c"), liveHead: sha("a") }),
+  });
+  assert.equal(advanced.reasonCode, "existing_pr_batch_fix_remote_head_stale");
+});
+
+test("local candidate commit is created before validation evidence can bind to the candidate head", () => {
+  const fixture = stackFixture();
+  const calls = [];
+  let committed = false;
+  const runner = (command, args) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
+      return { status: 0, stdout: `${committed ? sha("c") : sha("a")}\n`, stderr: "", error: null };
+    }
+    if (command === "git" && args[0] === "commit") {
+      committed = true;
+      return fakeRunner(command, args);
+    }
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD^") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD^{tree}") return { status: 0, stdout: `${sha("d")}\n`, stderr: "", error: null };
+    return fakeRunner(command, args);
+  };
+  const candidate = prStackExecutorTestInternals.createOrReuseLocalCandidateCommit({
+    config: fixture.config,
+    runner,
+    cwd: fixture.root,
+    exactHead: sha("a"),
+    changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
+    message: "Auto-runner stack review-fix batch",
+  });
+  assert.equal(candidate.ok, true, candidate.reasonCode);
+  assert.equal(candidate.parent, sha("a"));
+  assert.equal(candidate.newHead, sha("c"));
+  assert.ok(calls.indexOf("git commit -m Auto-runner stack review-fix batch") < calls.lastIndexOf("git rev-parse HEAD"));
+});
+
+test("validation or review failure can preserve and reuse an unpushed local candidate without recreating it", () => {
+  const fixture = stackFixture();
+  let commitCalls = 0;
+  const runner = (command, args) => {
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("c")}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD^") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD^{tree}") return { status: 0, stdout: `${sha("d")}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "status") return { status: 0, stdout: "", stderr: "", error: null };
+    if (command === "git" && args[0] === "commit") commitCalls += 1;
+    return fakeRunner(command, args);
+  };
+  const candidate = prStackExecutorTestInternals.createOrReuseLocalCandidateCommit({
+    config: fixture.config,
+    runner,
+    cwd: fixture.root,
+    exactHead: sha("a"),
+    changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
+    message: "Auto-runner stack review-fix batch",
+  });
+  assert.equal(candidate.ok, true, candidate.reasonCode);
+  assert.equal(candidate.reused, true);
+  assert.equal(candidate.newHead, sha("c"));
+  assert.equal(commitCalls, 0);
+});
+
+test("push intent is durable before push and crash-after-push reconciliation finalizes without replay", () => {
+  const fixture = stackFixture();
+  const reviewed = {
+    sourceIdentity: { parent: sha("a"), tree: sha("d") },
+    validation: { headSha: sha("c") },
+    externalReview: { reviewedHead: sha("c") },
+  };
+  const intent = prStackExecutorTestInternals.persistPushIntent({
+    config: fixture.config,
+    markerKey: "existing_pr_batch_fix:919:a:d",
+    pr: fixture.plan.orderedPrs[0],
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
+    fingerprintDigest: sha("d"),
+    reviewed,
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+  });
+  assert.equal(JSON.parse(readFileSync(intent.intentPath, "utf8")).status, "push_intent");
+  const runner = targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") });
+  const reconciled = prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...fixture.config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent,
+    runner,
+    requireCandidate: true,
+  });
+  assert.equal(reconciled.ok, true, reconciled.reasonCode);
+  assert.equal(JSON.parse(readFileSync(intent.intentPath, "utf8")).status, "push_confirmed");
+});
+
+test("push intent reconciliation fails closed on conflicting remote or live head and does not replay push", () => {
+  const fixture = stackFixture();
+  const intent = prStackExecutorTestInternals.persistPushIntent({
+    config: fixture.config,
+    markerKey: "existing_pr_batch_fix:919:a:d",
+    pr: fixture.plan.orderedPrs[0],
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
+    fingerprintDigest: sha("d"),
+    reviewed: {},
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+  });
+  const runner = targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("z"), remoteHead: sha("z"), liveHead: sha("z") });
+  const result = prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...fixture.config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent,
+    runner,
+  });
+  assert.equal(result.reasonCode, "push_intent_conflicting_head");
 });
 
 test("new source head consumes one parent cycle and waits do not consume cycles", async () => {
@@ -750,7 +947,7 @@ test("merge reads actual clean worktree state and dirty or unreadable status blo
   assert.equal(unreadable.reasonCode, "merge_worktree_status_unreadable");
 
   const wrongHead = await run((command, args, options) => {
-    if (command === "git" && args[0] === "rev-parse") return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
     return fakeRunner(command, args, options);
   });
   assert.equal(wrongHead.ok, false);
@@ -1205,6 +1402,44 @@ function digestStrings(items) {
 
 function digestJson(value) {
   return createHash("sha256").update(JSON.stringify(value || {})).digest("hex");
+}
+
+function targetWorktreeRunner(calls, options = {}) {
+  const branch = options.branch ?? "feature/auto-913-parent";
+  const liveBranch = options.liveBranch ?? "feature/auto-913-parent";
+  const head = options.head ?? sha("a");
+  const remoteHead = options.remoteHead ?? sha("a");
+  const liveHead = options.liveHead ?? remoteHead;
+  const base = options.base ?? "main";
+  return (command, args = []) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          number: Number(args[2]),
+          state: "OPEN",
+          isDraft: false,
+          baseRefName: base,
+          headRefName: liveBranch,
+          headRefOid: liveHead,
+        }),
+        stderr: "",
+        error: null,
+      };
+    }
+    if (command === "git" && args[0] === "status") return { status: 0, stdout: options.statusPorcelain || "", stderr: "", error: null };
+    if (command === "git" && args[0] === "fetch") return fakeRunner(command, args);
+    if (command === "git" && args[0] === "branch") return { status: 0, stdout: `${branch}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && String(args[1]).startsWith("origin/")) return { status: 0, stdout: `${remoteHead}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${head}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "merge-base") {
+      return options.mergeBaseFails ? { status: 1, stdout: "", stderr: "not ancestor", error: null } : fakeRunner(command, args);
+    }
+    if (command === "git" && args[0] === "merge") return fakeRunner(command, args);
+    if (command === "git" && args[0] === "switch") return fakeRunner(command, args);
+    return fakeRunner(command, args);
+  };
 }
 
 function fakeRunner(command, args = []) {
