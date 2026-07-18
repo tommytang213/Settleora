@@ -180,8 +180,10 @@ test("target PR worktree proof fetches fixed argv and proves branch head and liv
   assert.equal(proof.ok, true, proof.reasonCode);
   assert.equal(proof.worktreePath, fixture.root);
   assert.equal(proof.actualHead, sha("a"));
+  assert.equal(proof.repositoryIdentity.headRepositorySlug, "tommytang213/Settleora");
   assert.deepEqual(calls, [
-    "gh pr view 919 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid",
+    "gh pr view 919 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository",
+    "git remote get-url --push origin",
     "git status --porcelain=v1 --untracked-files=all",
     "git fetch origin feature/auto-913-parent",
     "git rev-parse origin/feature/auto-913-parent",
@@ -222,6 +224,77 @@ test("target PR worktree proof rejects protected root dirty worktree wrong branc
     runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("a"), remoteHead: sha("c"), liveHead: sha("a") }),
   });
   assert.equal(advanced.reasonCode, "existing_pr_batch_fix_remote_head_stale");
+});
+
+test("repository identity gate rejects fork and mismatched live PR repositories before Codex mutation", () => {
+  const fixture = stackFixture();
+  const pr = fixture.plan.orderedPrs[0];
+  const cases = [
+    {
+      name: "same repository",
+      options: {},
+      ok: true,
+    },
+    {
+      name: "fork with colliding branch",
+      options: { headRepositorySlug: "other/Settleora", isCrossRepository: true },
+      reasonCode: "pr_head_repository_mismatch",
+    },
+    {
+      name: "head repository mismatch",
+      options: { headRepositorySlug: "tommytang213/Other" },
+      reasonCode: "pr_head_repository_mismatch",
+    },
+    {
+      name: "base repository mismatch",
+      options: { baseRepositorySlug: "other/Settleora" },
+      reasonCode: "pr_base_repository_mismatch",
+    },
+    {
+      name: "missing head repository",
+      options: { headRepositorySlug: null },
+      reasonCode: "pr_head_repository_missing",
+    },
+    {
+      name: "repository name without owner",
+      options: { headRepositoryNameOnly: true },
+      reasonCode: "pr_head_repository_missing",
+    },
+    {
+      name: "wrong owner same repo name",
+      options: { headRepositorySlug: "other/Settleora" },
+      reasonCode: "pr_head_repository_mismatch",
+    },
+    {
+      name: "same owner wrong repo name",
+      options: { headRepositorySlug: "tommytang213/Other" },
+      reasonCode: "pr_head_repository_mismatch",
+    },
+  ];
+  for (const testCase of cases) {
+    const calls = [];
+    const result = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
+      config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: path.join(fixture.root, "protected") },
+      pr,
+      runner: targetWorktreeRunner(calls, { branch: "feature/auto-913-parent", head: sha("a"), remoteHead: sha("a"), ...testCase.options }),
+    });
+    if (testCase.ok) assert.equal(result.ok, true, testCase.name);
+    else {
+      assert.equal(result.reasonCode, testCase.reasonCode, testCase.name);
+      assert.equal(calls.some((call) => call.startsWith("git fetch origin")), false, testCase.name);
+      assert.equal(calls.some((call) => call.startsWith("git push origin")), false, testCase.name);
+    }
+  }
+});
+
+test("canonical origin repository parsing accepts safe GitHub origins and rejects credentials or unsupported hosts", () => {
+  assert.equal(prStackExecutorTestInternals.canonicalRepositoryFromOriginUrl("https://github.com/tommytang213/Settleora.git", { expectedRepositorySlug: "tommytang213/Settleora" }).repositorySlug, "tommytang213/Settleora");
+  assert.equal(prStackExecutorTestInternals.canonicalRepositoryFromOriginUrl("git@github.com:tommytang213/Settleora.git", { expectedRepositorySlug: "tommytang213/Settleora" }).repositorySlug, "tommytang213/Settleora");
+  assert.equal(prStackExecutorTestInternals.canonicalRepositoryFromOriginUrl("git@github.com-settleora:tommytang213/Settleora.git", { expectedRepositorySlug: "tommytang213/Settleora" }).repositorySlug, "tommytang213/Settleora");
+  const credentialBearing = prStackExecutorTestInternals.canonicalRepositoryFromOriginUrl("https://user:secret@github.com/tommytang213/Settleora.git", { expectedRepositorySlug: "tommytang213/Settleora" });
+  assert.equal(credentialBearing.reasonCode, "origin_repository_credentials_refused");
+  assert.equal(JSON.stringify(credentialBearing).includes("secret"), false);
+  assert.equal(prStackExecutorTestInternals.canonicalRepositoryFromOriginUrl("https://example.com/tommytang213/Settleora.git", { expectedRepositorySlug: "tommytang213/Settleora" }).reasonCode, "origin_repository_unsupported");
 });
 
 test("local candidate commit is created before validation evidence can bind to the candidate head", () => {
@@ -296,6 +369,11 @@ test("push intent is durable before push and crash-after-push reconciliation fin
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
   });
   assert.equal(JSON.parse(readFileSync(intent.intentPath, "utf8")).status, "push_intent");
+  const persisted = JSON.parse(readFileSync(intent.intentPath, "utf8"));
+  assert.equal(persisted.configuredRepositorySlug, "tommytang213/Settleora");
+  assert.equal(persisted.baseRepositorySlug, "tommytang213/Settleora");
+  assert.equal(persisted.headRepositorySlug, "tommytang213/Settleora");
+  assert.equal(persisted.originRepositorySlug, "tommytang213/Settleora");
   const runner = targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") });
   const reconciled = prStackExecutorTestInternals.reconcilePushIntent({
     config: { ...fixture.config, repoRoot: fixture.root },
@@ -306,6 +384,119 @@ test("push intent is durable before push and crash-after-push reconciliation fin
   });
   assert.equal(reconciled.ok, true, reconciled.reasonCode);
   assert.equal(JSON.parse(readFileSync(intent.intentPath, "utf8")).status, "push_confirmed");
+});
+
+test("push intent supports preserved multi-commit chains from remote parent to candidate", () => {
+  const fixture = stackFixture();
+  const reviewed = sourceChangingConvergenceResult({
+    prNumber: 919,
+    oldHead: sha("a"),
+    newHead: sha("d"),
+    overrides: {
+      sourceIdentity: {
+        parent: sha("c"),
+        tree: sha("e"),
+        commitChain: [sha("a"), sha("b"), sha("c"), sha("d")],
+      },
+    },
+  }).result;
+  const intent = prStackExecutorTestInternals.persistPushIntent({
+    config: fixture.config,
+    markerKey: "existing_pr_batch_fix:919:a:f",
+    pr: fixture.plan.orderedPrs[0],
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("d"),
+    changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
+    fingerprintDigest: sha("f"),
+    reviewed,
+    pushTarget: `origin ${sha("d")}:feature/auto-913-parent`,
+  });
+  assert.deepEqual(intent.commitChain, [sha("a"), sha("b"), sha("c"), sha("d")]);
+  const reconciled = prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...fixture.config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent,
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("d"), remoteHead: sha("d"), liveHead: sha("d") }),
+    requireCandidate: true,
+  });
+  assert.equal(reconciled.ok, true, reconciled.reasonCode);
+  const badChain = prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...fixture.config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent: { ...intent, commitChain: [sha("a"), sha("b"), sha("d")] },
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("d"), remoteHead: sha("d"), liveHead: sha("d") }),
+  });
+  assert.equal(badChain.reasonCode, "push_intent_candidate_parent_mismatch");
+});
+
+test("push intent repository identity validator rejects mismatches before push confirmation", () => {
+  const fixture = stackFixture();
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  const intent = prStackExecutorTestInternals.persistPushIntent({
+    config: fixture.config,
+    markerKey: "existing_pr_batch_fix:919:a:d",
+    pr: fixture.plan.orderedPrs[0],
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
+    fingerprintDigest: sha("d"),
+    reviewed,
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+  });
+  assert.equal(prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...fixture.config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent: { ...intent, headRepositorySlug: "other/Settleora" },
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") }),
+  }).reasonCode, "push_intent_head_repository_mismatch");
+  const originMismatchCalls = [];
+  assert.equal(prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...fixture.config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent,
+    runner: targetWorktreeRunner(originMismatchCalls, { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c"), originUrl: "https://github.com/other/Settleora.git" }),
+  }).reasonCode, "origin_repository_mismatch");
+  assert.equal(originMismatchCalls.some((call) => call.startsWith("git push origin")), false);
+  assert.equal(prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...fixture.config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent,
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c"), headRepositorySlug: "other/Settleora", isCrossRepository: true }),
+  }).reasonCode, "pr_head_repository_mismatch");
+});
+
+test("startup push-intent reconciliation rejects fork repositories even with matching branch and SHA", () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" };
+  const pr = fixture.plan.orderedPrs[0];
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  prStackExecutorTestInternals.persistPushIntent({
+    config,
+    markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+    pr,
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("f"),
+    reviewed,
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+  });
+  const result = prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({
+    config,
+    state: createInitialPrStackState({ plan: fixture.plan }),
+    pr,
+    livePr: {
+      headRefOid: sha("c"),
+      baseRepositorySlug: "tommytang213/Settleora",
+      headRepositorySlug: "other/Settleora",
+      originRepositorySlug: "tommytang213/Settleora",
+      isCrossRepository: true,
+    },
+  });
+  assert.equal(result.reasonCode, "pr_head_repository_mismatch");
 });
 
 test("push intent reconciliation fails closed on conflicting remote or live head and does not replay push", () => {
@@ -1685,6 +1876,11 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
       tree,
       baseSha,
       changedFilesDigest,
+      configuredRepositorySlug: "tommytang213/Settleora",
+      baseRepositorySlug: "tommytang213/Settleora",
+      headRepositorySlug: "tommytang213/Settleora",
+      originRepositorySlug: "tommytang213/Settleora",
+      repositoryIds: { baseRepositoryId: "repo-1", headRepositoryId: "repo-1" },
       ...(overrides.sourceIdentity || {}),
     },
     pushedAt: "2026-07-18T00:00:03.000Z",
@@ -1736,9 +1932,18 @@ function targetWorktreeRunner(calls, options = {}) {
   const remoteHead = options.remoteHead ?? sha("a");
   const liveHead = options.liveHead ?? remoteHead;
   const base = options.base ?? "main";
+  const originUrl = options.originUrl ?? "git@github.com:tommytang213/Settleora.git";
   return (command, args = []) => {
     calls.push(`${command} ${args.join(" ")}`);
     if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      const configuredSlug = options.baseRepositorySlug ?? "tommytang213/Settleora";
+      const headSlug = options.headRepositorySlug === undefined ? "tommytang213/Settleora" : options.headRepositorySlug;
+      const [headOwner, headName] = String(headSlug || "").split("/");
+      const headRepository = options.headRepositoryNameOnly
+        ? { id: "repo-1", name: "Settleora" }
+        : headSlug
+          ? { id: options.headRepositoryId ?? "repo-1", name: headName, nameWithOwner: headSlug }
+          : null;
       return {
         status: 0,
         stdout: JSON.stringify({
@@ -1748,11 +1953,17 @@ function targetWorktreeRunner(calls, options = {}) {
           baseRefName: base,
           headRefName: liveBranch,
           headRefOid: liveHead,
+          baseRepositorySlug: configuredSlug,
+          baseRepositoryId: options.baseRepositoryId ?? "repo-1",
+          headRepository,
+          headRepositoryOwner: options.headRepositoryNameOnly ? null : headOwner ? { login: headOwner } : null,
+          isCrossRepository: options.isCrossRepository ?? false,
         }),
         stderr: "",
         error: null,
       };
     }
+    if (command === "git" && args[0] === "remote" && args[1] === "get-url") return { status: 0, stdout: `${originUrl}\n`, stderr: "", error: null };
     if (command === "git" && args[0] === "status") return { status: 0, stdout: options.statusPorcelain || "", stderr: "", error: null };
     if (command === "git" && args[0] === "fetch") return fakeRunner(command, args);
     if (command === "git" && args[0] === "branch") return { status: 0, stdout: `${branch}\n`, stderr: "", error: null };

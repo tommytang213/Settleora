@@ -61,6 +61,7 @@ const forbiddenStackCapabilities = Object.freeze([
 
 const acceptedStrongReviewTiers = new Set(["strong_independent", "tie_breaker"]);
 const protectedBranchNames = new Set(["main", "master"]);
+const githubSshAliasPattern = /^github\.com(?:[-_.][A-Za-z0-9_.-]+)?$/;
 
 export function normalizePrStackExecutionConfig(config = {}) {
   const raw = config.prStackExecution || {};
@@ -822,6 +823,8 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         fingerprintDigest,
         reviewed,
         pushTarget: `origin ${newHead}:${branch}`,
+        liveProof: live.proof,
+        repositoryIdentity: live.repositoryIdentity,
       });
       const reconciledIntent = reconcilePushIntent({ config, pr, intent, runner });
       if (reconciledIntent.ok && reconciledIntent.finalized === true) {
@@ -1243,6 +1246,123 @@ function validatePushTargetBranch({ branch, liveHeadRefName, baseRefName, defaul
   return { ok: true };
 }
 
+function canonicalRepositorySlug(value) {
+  if (!value || typeof value !== "string") return null;
+  const slug = value.trim().replace(/\.git$/i, "");
+  if (slug !== value.trim()) return canonicalRepositorySlug(slug);
+  const parts = slug.split("/");
+  if (parts.length !== 2) return null;
+  const [owner, name] = parts;
+  const safe = /^[A-Za-z0-9_.-]+$/;
+  if (!safe.test(owner) || !safe.test(name)) return null;
+  if (owner.startsWith("-") || name.startsWith("-")) return null;
+  return `${owner}/${name}`;
+}
+
+function canonicalRepositoryFromProvider(value) {
+  if (!value || typeof value !== "object") return { slug: null, id: null };
+  const fullName = value.full_name || value.nameWithOwner || value.name_with_owner || null;
+  const slug = canonicalRepositorySlug(fullName);
+  const id = typeof value.id === "string" && value.id.trim() ? value.id.trim() : null;
+  return { slug, id };
+}
+
+function originUrlHasCredentials(value) {
+  const url = String(value || "");
+  return /^[a-z][a-z0-9+.-]*:\/\/[^/\s@]+:[^/\s@]+@/i.test(url);
+}
+
+function sanitizedOriginDescriptor(value) {
+  const url = String(value || "");
+  if (!url) return "<empty>";
+  if (originUrlHasCredentials(url)) return "<credential-bearing-origin-url>";
+  return boundedText(url.replace(/\/\/([^@\s/]+)@/g, "//<redacted>@"), 240);
+}
+
+function canonicalRepositoryFromOriginUrl(value, { expectedRepositorySlug = null } = {}) {
+  const raw = String(value || "").trim();
+  if (!raw) return fail("origin_repository_missing", "origin URL is missing");
+  if (raw.startsWith("-")) return fail("origin_repository_unsupported", "origin URL is option-looking");
+  if (originUrlHasCredentials(raw)) return fail("origin_repository_credentials_refused", "origin URL contains credentials", { sanitizedOrigin: sanitizedOriginDescriptor(raw) });
+  const expected = canonicalRepositorySlug(expectedRepositorySlug);
+  let owner = null;
+  let name = null;
+  try {
+    const parsed = new URL(raw);
+    if (!["https:", "ssh:"].includes(parsed.protocol)) return fail("origin_repository_unsupported", "origin URL protocol is unsupported", { sanitizedOrigin: sanitizedOriginDescriptor(raw) });
+    if (parsed.username && parsed.username !== "git") return fail("origin_repository_unsupported", "origin URL user is unsupported", { sanitizedOrigin: sanitizedOriginDescriptor(raw) });
+    if (parsed.password) return fail("origin_repository_credentials_refused", "origin URL contains credentials", { sanitizedOrigin: sanitizedOriginDescriptor(raw) });
+    if (parsed.hostname !== "github.com") return fail("origin_repository_unsupported", "origin host is not github.com", { sanitizedOrigin: sanitizedOriginDescriptor(raw) });
+    const parts = parsed.pathname.replace(/^\/+/, "").split("/");
+    [owner, name] = parts;
+  } catch {
+    const match = raw.match(/^(?:git@)?([^:\s]+):([^/\s]+)\/([^/\s]+?)(?:\.git)?$/);
+    if (!match) return fail("origin_repository_unsupported", "origin URL is not a supported GitHub origin", { sanitizedOrigin: sanitizedOriginDescriptor(raw) });
+    const [, host, matchOwner, matchName] = match;
+    if (!githubSshAliasPattern.test(host)) return fail("origin_repository_unsupported", "origin SSH host is not an approved GitHub host or alias", { sanitizedOrigin: sanitizedOriginDescriptor(raw) });
+    owner = matchOwner;
+    name = matchName;
+  }
+  const slug = canonicalRepositorySlug(`${owner}/${name}`);
+  if (!slug) return fail("origin_repository_slug_invalid", "origin repository slug is invalid", { sanitizedOrigin: sanitizedOriginDescriptor(raw) });
+  if (expected && slug !== expected) return fail("origin_repository_mismatch", "origin repository does not match configured repository", { originRepositorySlug: slug, expectedRepositorySlug: expected });
+  return { ok: true, repositorySlug: slug };
+}
+
+function readOriginRepositoryProof({ config = {}, runner = defaultRunner } = {}) {
+  const cwd = config.repoRoot || process.cwd();
+  const expectedRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (!expectedRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
+  const result = runner("git", ["remote", "get-url", "--push", "origin"], { cwd });
+  if (result.status !== 0 || result.error) return fail("origin_repository_unreadable", boundedText(result.stderr || result.error || result.stdout));
+  const parsed = canonicalRepositoryFromOriginUrl(result.stdout, { expectedRepositorySlug });
+  if (!parsed.ok) return parsed;
+  return { ok: true, repositorySlug: parsed.repositorySlug, checkedAt: new Date().toISOString() };
+}
+
+function validateRepositoryIdentityProof({ config = {}, liveProof = {}, originProof = null, intent = null } = {}) {
+  const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (!configuredRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
+  const baseRepositorySlug = canonicalRepositorySlug(liveProof.baseRepositorySlug || configuredRepositorySlug);
+  const headRepositorySlug = canonicalRepositorySlug(liveProof.headRepositorySlug);
+  const originRepositorySlug = canonicalRepositorySlug(originProof?.repositorySlug || liveProof.originRepositorySlug);
+  if (!baseRepositorySlug) return fail("pr_base_repository_missing", "fresh PR base repository identity is missing");
+  if (!headRepositorySlug) return fail("pr_head_repository_missing", "fresh PR head repository identity is missing");
+  if (!originRepositorySlug) return fail("origin_repository_missing", "origin repository identity is missing");
+  if (baseRepositorySlug !== configuredRepositorySlug) return fail("pr_base_repository_mismatch", "fresh PR base repository does not match configured repository", { baseRepositorySlug, configuredRepositorySlug });
+  if (headRepositorySlug !== configuredRepositorySlug) return fail("pr_head_repository_mismatch", "fresh PR head repository does not match configured repository", { headRepositorySlug, configuredRepositorySlug });
+  if (originRepositorySlug !== configuredRepositorySlug) return fail("origin_repository_mismatch", "origin repository does not match configured repository", { originRepositorySlug, configuredRepositorySlug });
+  if (headRepositorySlug !== originRepositorySlug) return fail("pr_head_origin_repository_mismatch", "fresh PR head repository does not match origin repository", { headRepositorySlug, originRepositorySlug });
+  if (liveProof.isCrossRepository === true) return fail("pr_head_repository_mismatch", "fork PRs are not supported by production stack source mutation", { headRepositorySlug, configuredRepositorySlug });
+  if (liveProof.baseRepositoryId && liveProof.headRepositoryId && liveProof.baseRepositoryId !== liveProof.headRepositoryId) {
+    return fail("pr_repository_id_mismatch", "fresh PR base/head repository IDs differ", { baseRepositoryId: liveProof.baseRepositoryId, headRepositoryId: liveProof.headRepositoryId });
+  }
+  if (intent) {
+    const expectedIds = intent.repositoryIds || {};
+    const intentConfigured = canonicalRepositorySlug(intent.configuredRepositorySlug || intent.repository);
+    const intentBase = canonicalRepositorySlug(intent.baseRepositorySlug);
+    const intentHead = canonicalRepositorySlug(intent.headRepositorySlug);
+    const intentOrigin = canonicalRepositorySlug(intent.originRepositorySlug);
+    if (intentConfigured !== configuredRepositorySlug) return fail("push_intent_repository_mismatch", "push intent configured repository does not match");
+    if (intentBase !== baseRepositorySlug) return fail("push_intent_base_repository_mismatch", "push intent base repository does not match fresh PR proof");
+    if (intentHead !== headRepositorySlug) return fail("push_intent_head_repository_mismatch", "push intent head repository does not match fresh PR proof");
+    if (intentOrigin !== originRepositorySlug) return fail("push_intent_origin_repository_mismatch", "push intent origin repository does not match fresh origin proof");
+    if (expectedIds.baseRepositoryId && liveProof.baseRepositoryId && expectedIds.baseRepositoryId !== liveProof.baseRepositoryId) return fail("push_intent_base_repository_id_mismatch", "push intent base repository ID does not match fresh PR proof");
+    if (expectedIds.headRepositoryId && liveProof.headRepositoryId && expectedIds.headRepositoryId !== liveProof.headRepositoryId) return fail("push_intent_head_repository_id_mismatch", "push intent head repository ID does not match fresh PR proof");
+  }
+  return {
+    ok: true,
+    configuredRepositorySlug,
+    baseRepositorySlug,
+    headRepositorySlug,
+    originRepositorySlug,
+    repositoryIds: {
+      baseRepositoryId: liveProof.baseRepositoryId || null,
+      headRepositoryId: liveProof.headRepositoryId || null,
+    },
+  };
+}
+
 function proveTargetBatchFixWorktree({ config, pr, runner }) {
   const cwd = config.repoRoot || process.cwd();
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
@@ -1285,6 +1405,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner }) {
           actualHead: currentHead.sha,
           remoteHead: remote.sha,
           livePr: live.proof,
+          repositoryIdentity: live.repositoryIdentity,
           localCandidateHead: currentHead.sha,
           reusedLocalCandidate: true,
           provenAt: new Date().toISOString(),
@@ -1320,6 +1441,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner }) {
     actualHead: afterHead.sha,
     remoteHead: remote.sha,
     livePr: live.proof,
+    repositoryIdentity: live.repositoryIdentity,
     localCandidateHead: afterHead.sha,
     provenAt: new Date().toISOString(),
   };
@@ -1328,7 +1450,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner }) {
 function readLivePrProof({ config, pr, expectedHead, runner }) {
   const result = runner(
     "gh",
-    ["pr", "view", String(pr?.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid"],
+    ["pr", "view", String(pr?.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository"],
     { cwd: config.repoRoot || process.cwd() },
   );
   if (result.status !== 0 || result.error) return fail("existing_pr_batch_fix_pr_read_failed", boundedText(result.stderr || result.error || result.stdout));
@@ -1338,13 +1460,28 @@ function readLivePrProof({ config, pr, expectedHead, runner }) {
   } catch (error) {
     return fail("existing_pr_batch_fix_pr_read_parse_failed", error.message);
   }
+  const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (!configuredRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
+  const baseRepository = canonicalRepositoryFromProvider(proof.baseRepository || {});
+  const headRepository = canonicalRepositoryFromProvider(proof.headRepository || {});
+  const headOwner = proof.headRepositoryOwner?.login || proof.headRepository?.owner?.login || null;
+  const headName = proof.headRepository?.name || null;
+  proof.baseRepositorySlug = canonicalRepositorySlug(proof.baseRepositorySlug) || baseRepository.slug || configuredRepositorySlug;
+  proof.baseRepositoryId = proof.baseRepositoryId || baseRepository.id || (proof.isCrossRepository === false && headRepository.slug === configuredRepositorySlug ? headRepository.id : null);
+  proof.headRepositorySlug = headRepository.slug || canonicalRepositorySlug(headOwner && headName ? `${headOwner}/${headName}` : null);
+  proof.headRepositoryId = headRepository.id || null;
+  const origin = readOriginRepositoryProof({ config, runner });
+  if (!origin.ok) return origin;
+  proof.originRepositorySlug = origin.repositorySlug;
   if (proof.number !== pr?.number) return fail("existing_pr_batch_fix_pr_number_mismatch", "fresh PR number did not match");
   if (proof.state !== "OPEN") return fail("existing_pr_batch_fix_pr_not_open", "target PR must be open");
   if (proof.isDraft) return fail("existing_pr_batch_fix_pr_is_draft", "target PR must be non-draft");
   if (proof.headRefName !== (pr?.headRefName || pr?.branch)) return fail("existing_pr_batch_fix_pr_branch_mismatch", "fresh PR head branch did not match");
   if (expectedHead && proof.headRefOid !== expectedHead) return fail("existing_pr_batch_fix_pr_head_stale", "fresh PR head changed");
   if (!proof.baseRefName || proof.baseRefName === proof.headRefName) return fail("existing_pr_batch_fix_pr_base_invalid", "fresh PR base is invalid");
-  return { ok: true, proof };
+  const repositoryIdentity = validateRepositoryIdentityProof({ config, liveProof: proof, originProof: origin });
+  if (!repositoryIdentity.ok) return repositoryIdentity;
+  return { ok: true, proof, repositoryIdentity };
 }
 
 function readWorktreeCleanProof({ runner, cwd }) {
@@ -1380,7 +1517,7 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
   return { ok: true, reused: false, oldHead: exactHead, parent: parent.sha, newHead: head.sha, tree: tree.sha, committedAt: new Date().toISOString() };
 }
 
-function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fingerprintDigest, reviewed, pushTarget }) {
+function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null }) {
   const root = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-intents");
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const intentPath = path.join(root, `${digestJson({ markerKey, prNumber: pr?.number, oldHead, newHead })}.json`);
@@ -1390,11 +1527,20 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
     markerKey,
     prNumber: pr?.number || null,
     repository: config.repositorySlug || "tommytang213/Settleora",
+    configuredRepositorySlug: repositoryIdentity?.configuredRepositorySlug || sourceIdentity.configuredRepositorySlug || config.repositorySlug || "tommytang213/Settleora",
+    baseRepositorySlug: repositoryIdentity?.baseRepositorySlug || liveProof?.baseRepositorySlug || sourceIdentity.baseRepositorySlug || null,
+    headRepositorySlug: repositoryIdentity?.headRepositorySlug || liveProof?.headRepositorySlug || sourceIdentity.headRepositorySlug || null,
+    originRepositorySlug: repositoryIdentity?.originRepositorySlug || liveProof?.originRepositorySlug || sourceIdentity.originRepositorySlug || null,
+    repositoryIds: {
+      baseRepositoryId: repositoryIdentity?.repositoryIds?.baseRepositoryId || liveProof?.baseRepositoryId || sourceIdentity.repositoryIds?.baseRepositoryId || null,
+      headRepositoryId: repositoryIdentity?.repositoryIds?.headRepositoryId || liveProof?.headRepositoryId || sourceIdentity.repositoryIds?.headRepositoryId || null,
+    },
     sourceBranch: branch,
     oldHead,
     candidateNewHead: newHead,
     candidateParent: sourceIdentity.parent || null,
     candidateTree: sourceIdentity.tree || null,
+    commitChain: normalizeCommitChain(sourceIdentity.commitChain || [oldHead, sourceIdentity.parent, newHead]),
     findingInventoryDigest: fingerprintDigest || null,
     findingFingerprints: reviewed?.sourceIdentity?.findingFingerprints || [],
     changedFiles,
@@ -1433,9 +1579,12 @@ function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = fa
   const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "push_intent_remote_unreadable" });
   const local = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "push_intent_local_head_unreadable" });
   const live = readLivePrProof({ config, pr, expectedHead: null, runner });
+  if (!live.ok) return live;
+  const repositoryIdentity = validateRepositoryIdentityProof({ config, liveProof: live.proof, originProof: { repositorySlug: live.proof.originRepositorySlug }, intent });
+  if (!repositoryIdentity.ok) return repositoryIdentity;
   const remoteHead = remote.ok ? remote.sha : null;
   const localHead = local.ok ? local.sha : null;
-  const liveHead = live.ok ? live.proof.headRefOid : null;
+  const liveHead = live.proof.headRefOid;
   if (remoteHead === intent.candidateNewHead && liveHead === intent.candidateNewHead) {
     return finalizePushIntent({ intent, remoteHead, liveHead, localHead });
   }
@@ -1461,6 +1610,13 @@ function finalizePushIntent({ intent, remoteHead, liveHead, localHead = null }) 
     localHead,
     remoteHead,
     liveHead,
+    confirmedRepositoryIdentity: {
+      configuredRepositorySlug: intent.configuredRepositorySlug || intent.repository || null,
+      baseRepositorySlug: intent.baseRepositorySlug || null,
+      headRepositorySlug: intent.headRepositorySlug || null,
+      originRepositorySlug: intent.originRepositorySlug || null,
+      repositoryIds: intent.repositoryIds || {},
+    },
     finalizedAt: new Date().toISOString(),
   });
   const tmp = `${intent.intentPath}.${process.pid}.${Date.now()}.confirmed.tmp`;
@@ -1505,7 +1661,7 @@ function discoverTaskScopedPendingPushIntents({ config = {}, state = {}, pr = {}
     if (intent.status !== "push_intent") continue;
     const matched = intentMatchesStalePr({ config, state, pr, livePr, intent });
     if (matched.ok) intents.push(intent);
-    else if (matched.reasonCode === "push_intent_malformed") return { ...matched, intentPath };
+    else if (matched.reasonCode) return { ...matched, intentPath };
   }
   return { ok: true, intents };
 }
@@ -1515,6 +1671,10 @@ function intentMatchesStalePr({ config = {}, state = {}, pr = {}, livePr = {}, i
   if (!validation.ok) return validation.reasonCode === "push_intent_malformed" ? validation : { ok: false, ignored: true };
   if (intent.oldHead !== pr.headRefOid) return { ok: false, ignored: true };
   if (livePr?.headRefOid && livePr.headRefOid !== intent.candidateNewHead) return { ok: false, ignored: true };
+  if (livePr?.headRepositorySlug || livePr?.baseRepositorySlug || livePr?.originRepositorySlug) {
+    const repositoryIdentity = validateRepositoryIdentityProof({ config, liveProof: livePr, originProof: { repositorySlug: livePr.originRepositorySlug || intent.originRepositorySlug }, intent });
+    if (!repositoryIdentity.ok) return repositoryIdentity;
+  }
   if (intent.markerKey && !String(intent.markerKey).startsWith(`existing_pr_batch_fix:${pr.number}:${pr.headRefOid}:`)) return { ok: false, ignored: true };
   const expectedNext = (state.sourceCycles?.[pr.number] || 0) + 1;
   if (intent.nextSourceCycleCount != null && intent.nextSourceCycleCount !== expectedNext) return { ok: false, ignored: true };
@@ -1523,12 +1683,22 @@ function intentMatchesStalePr({ config = {}, state = {}, pr = {}, livePr = {}, i
 
 function validatePushIntentShape({ config = {}, pr = {}, intent = {} } = {}) {
   if (!intent || typeof intent !== "object" || Array.isArray(intent)) return fail("push_intent_malformed", "push intent must be an object");
-  if (intent.repository !== (config.repositorySlug || "tommytang213/Settleora")) return fail("push_intent_repository_mismatch", "push intent repository does not match");
+  const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (!configuredRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
+  if (intent.repository !== configuredRepositorySlug) return fail("push_intent_repository_mismatch", "push intent repository does not match");
+  if (canonicalRepositorySlug(intent.configuredRepositorySlug) !== configuredRepositorySlug) return fail("push_intent_repository_mismatch", "push intent configured repository does not match");
+  if (canonicalRepositorySlug(intent.baseRepositorySlug) !== configuredRepositorySlug) return fail("push_intent_base_repository_mismatch", "push intent base repository does not match");
+  if (canonicalRepositorySlug(intent.headRepositorySlug) !== configuredRepositorySlug) return fail("push_intent_head_repository_mismatch", "push intent head repository does not match");
+  if (canonicalRepositorySlug(intent.originRepositorySlug) !== configuredRepositorySlug) return fail("push_intent_origin_repository_mismatch", "push intent origin repository does not match");
   if (intent.prNumber !== pr.number) return fail("push_intent_pr_mismatch", "push intent PR number does not match");
   if (intent.sourceBranch !== pr.headRefName) return fail("push_intent_branch_mismatch", "push intent source branch does not match");
   if (!validSha(intent.oldHead) || !validSha(intent.candidateNewHead)) return fail("push_intent_malformed", "push intent head identity is invalid");
   if (!validSha(intent.candidateParent) || !validSha(intent.candidateTree)) return fail("push_intent_malformed", "push intent candidate parent/tree identity is invalid");
-  if (intent.candidateParent !== intent.oldHead) return fail("push_intent_candidate_parent_mismatch", "push intent candidate parent does not match old head");
+  const commitChain = normalizeCommitChain(intent.commitChain || []);
+  if (commitChain.length < 2 || commitChain[0] !== intent.oldHead || commitChain.at(-1) !== intent.candidateNewHead) {
+    return fail("push_intent_commit_chain_mismatch", "push intent commit chain must run from old head to candidate head");
+  }
+  if (commitChain.at(-2) !== intent.candidateParent) return fail("push_intent_candidate_parent_mismatch", "push intent candidate parent must be the penultimate commit in the commit chain");
   const changedFiles = normalizeChangedFiles(intent.changedFiles || []);
   if (changedFiles.length === 0 || intent.changedFilesDigest !== digestStringSet(changedFiles)) return fail("push_intent_changed_files_mismatch", "push intent changed-file digest does not match");
   if (!intent.findingInventoryDigest) return fail("push_intent_finding_digest_missing", "push intent finding inventory digest is missing");
@@ -1570,6 +1740,7 @@ function validatePushIntentShape({ config = {}, pr = {}, intent = {} } = {}) {
 function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {}) {
   const markerKey = intent.markerKey || `existing_pr_batch_fix:${intent.prNumber}:${intent.oldHead}:${intent.findingInventoryDigest}`;
   const changedFiles = normalizeChangedFiles(intent.changedFiles || []);
+  const commitChain = normalizeCommitChain(intent.commitChain || [intent.oldHead, intent.candidateParent, intent.candidateNewHead]);
   const marker = sanitizeState({
     markerKey,
     prNumber: intent.prNumber,
@@ -1584,11 +1755,17 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
     review: intent.review,
     sourceIdentity: {
       ...(intent.sourceIdentity || {}),
+      configuredRepositorySlug: intent.configuredRepositorySlug || intent.repository || null,
+      baseRepositorySlug: intent.baseRepositorySlug || null,
+      headRepositorySlug: intent.headRepositorySlug || null,
+      originRepositorySlug: intent.originRepositorySlug || null,
+      repositoryIds: intent.repositoryIds || {},
       oldHead: intent.oldHead,
       headSha: intent.candidateNewHead,
       newHead: intent.candidateNewHead,
       parent: intent.candidateParent,
       tree: intent.candidateTree,
+      commitChain,
       baseSha: intent.sourceIdentity?.baseSha || intent.validation?.baseSha || intent.externalReview?.baseSha || intent.review?.baseSha || null,
       changedFilesDigest: intent.changedFilesDigest,
     },
@@ -1624,6 +1801,16 @@ function readGitSha({ runner, cwd, ref, reasonCode }) {
     return fail(reasonCode, boundedText(result.stderr || result.error || result.stdout || `${ref} did not resolve`));
   }
   return { ok: true, sha };
+}
+
+function normalizeCommitChain(values = []) {
+  const normalized = [];
+  for (const value of Array.isArray(values) ? values : []) {
+    const sha = String(value || "").trim();
+    if (!validSha(sha)) continue;
+    if (normalized.at(-1) !== sha) normalized.push(sha);
+  }
+  return normalized;
 }
 
 function fetchAndReadOriginMain({ config, runner, reasonPrefix }) {
@@ -2178,6 +2365,8 @@ export function digestStackPlan(plan) {
 }
 
 export const prStackExecutorTestInternals = Object.freeze({
+  canonicalRepositoryFromOriginUrl,
+  canonicalRepositorySlug,
   createOrReuseLocalCandidateCommit,
   discoverTaskScopedPendingPushIntents,
   fetchAndReadOriginMain,
@@ -2187,8 +2376,11 @@ export const prStackExecutorTestInternals = Object.freeze({
   proveTargetBatchFixWorktree,
   reconcileTaskScopedPendingPushIntent,
   reconcilePushIntent,
+  readLivePrProof,
+  readOriginRepositoryProof,
   readWorktreeCleanProof,
   sourceChangingResultFromIntent,
   safeSourceBranchTarget,
+  validateRepositoryIdentityProof,
   validatePushTargetBranch,
 });
