@@ -4776,6 +4776,129 @@ test("auto-merge waits through blocked merge state after checks and then merges 
   }
 });
 
+test("auto-merge merge readback is bound to the configured repository", () => {
+  for (const repositorySlug of ["tommytang213/Settleora", "example-owner/nondefault-repo"]) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-readback-repo-"));
+    try {
+      const calls = [];
+      const result = executeAutoMerge(
+        { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug },
+        autoMergeContext({ config: { repositorySlug }, pr: { headRepository: { id: "repo-1", nameWithOwner: repositorySlug } } }),
+        {
+          runner: mergeReadbackRunner(calls, { repositorySlug }),
+          inspectState: () => ({
+            pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+            requiredChecks: autoMergeRequiredChecks(),
+            reviewThreads: [],
+            codeScanningAlerts: [],
+            blockingMarkers: [],
+          }),
+        },
+      );
+      assert.equal(result.result, "merged");
+      assert.equal(result.mergeReadback.configuredRepositorySlug, repositorySlug);
+      assert.equal(result.mergeReadback.headRepositorySlug, repositorySlug);
+      assert.ok(calls.includes(`gh pr merge 1 --repo ${repositorySlug} --merge --match-head-commit head123`));
+      assert.ok(calls.includes(`gh pr view 1 --repo ${repositorySlug} --json number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository`));
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("auto-merge readMergeSha no longer contains the default repository literal", () => {
+  const source = readFileSync(new URL("../lib/auto-merge-policy.mjs", import.meta.url), "utf8");
+  const match = source.match(/function readMergeSha[\s\S]*?\n}\n\nfunction mergeReadbackFailure/);
+  assert.ok(match);
+  assert.doesNotMatch(match[0], /tommytang213\/Settleora/);
+});
+
+test("auto-merge merge readback rejects missing malformed and unsupported repository context before gh", () => {
+  const invalidSlugs = [
+    undefined,
+    "tommytang213",
+    "Settleora",
+    "tommytang213/Settleora/extra",
+    "--repo/tommytang213",
+    "tommytang213/Settle ora",
+    "tommytang213/Settleora\n",
+    "https://github.com/tommytang213/Settleora",
+    "user:secret@github.com/tommytang213/Settleora",
+    "github.com/owner",
+  ];
+  for (const repositorySlug of invalidSlugs) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-readback-invalid-"));
+    try {
+      const calls = [];
+      const result = executeAutoMerge(
+        { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug },
+        autoMergeContext({ config: { repositorySlug } }),
+        {
+          runner: (command, args) => {
+            calls.push(`${command} ${args.join(" ")}`);
+            if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+            return fail(`unexpected ${command} ${args.join(" ")}`);
+          },
+          inspectState: () => ({ pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" }, requiredChecks: autoMergeRequiredChecks(), reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [] }),
+        },
+      );
+      assert.equal(result.result, "merge_failed", String(repositorySlug));
+      assert.equal(result.reason, "configured_repository_invalid", String(repositorySlug));
+      assert.equal(calls.some((call) => call.startsWith("gh ")), false, String(repositorySlug));
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("auto-merge merge readback rejects mismatched or incomplete PR proof", () => {
+  const cases = [
+    ["wrong source head", { headRefOid: "other-head" }, "merge_readback_failed:merge_readback_source_head_mismatch"],
+    ["wrong base", { baseRefName: "develop" }, "merge_readback_failed:merge_readback_base_mismatch"],
+    ["unmerged", { state: "OPEN" }, "merge_readback_failed:merge_readback_pr_not_merged"],
+    ["missing merge sha", { mergeCommit: { oid: null } }, "merge_readback_failed:merge_readback_merge_sha_invalid"],
+    ["wrong repository", { headRepository: { id: "repo-2", name: "other", nameWithOwner: "other-owner/other" }, headRepositoryOwner: { login: "other-owner" } }, "merge_readback_failed:merge_readback_head_repository_mismatch"],
+    ["cross repository", { isCrossRepository: true }, "merge_readback_failed:merge_readback_cross_repository"],
+  ];
+  for (const [name, readbackOverrides, reason] of cases) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-readback-reject-"));
+    try {
+      const result = executeAutoMerge(
+        { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+        autoMergeContext(),
+        {
+          runner: mergeReadbackRunner([], { repositorySlug: "tommytang213/Settleora", readbackOverrides }),
+          inspectState: () => ({ pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" }, requiredChecks: autoMergeRequiredChecks(), reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [] }),
+        },
+      );
+      assert.equal(result.result, "merge_failed", name);
+      assert.equal(result.reason, reason, name);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("auto-merge merge readback rejects unsupported GitHub host context", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-readback-host-"));
+  try {
+    const calls = [];
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora", githubHost: "github.example.invalid" },
+      autoMergeContext(),
+      {
+        runner: mergeReadbackRunner(calls, { repositorySlug: "tommytang213/Settleora" }),
+        inspectState: () => ({ pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" }, requiredChecks: autoMergeRequiredChecks(), reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [] }),
+      },
+    );
+    assert.equal(result.result, "merge_failed");
+    assert.equal(result.reason, "merge_readback_failed:configured_repository_host_unsupported");
+    assert.equal(calls.some((call) => call.startsWith("gh pr view")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("auto-merge wait expires when merge state never becomes clean and writes evidence", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-wait-expire-"));
   try {
@@ -5256,7 +5379,7 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
     const runner = (command, args) => {
       calls.push(`${command} ${args.join(" ")}`);
       if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-      if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+      if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
       if (command === "git" && args[0] === "ls-remote") return ok("");
       if (command === "git" && args[0] === "push") return ok("");
       if (command === "gh" && args[0] === "issue" && args[1] === "view") {
@@ -5270,7 +5393,7 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
     };
     const result = executeAutoMerge({ repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false }, autoMergeContext(), { runner });
     assert.equal(result.result, "merged");
-    assert.equal(result.mergeSha, "merge123");
+    assert.equal(result.mergeSha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     assert.equal(result.sourceBranchRestoration.executed, true);
     assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
   } finally {
@@ -5336,7 +5459,7 @@ test("label cleanup records view and removal failures without changing merge suc
       {
         runner: (command, args) => {
           if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
           if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
           if (command === "gh" && args[0] === "issue" && args[1] === "view") {
             return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }] }));
@@ -5368,7 +5491,7 @@ test("issue close failure and label cleanup failure are independently represente
       {
         runner: (command, args) => {
           if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
           if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
           if (command === "gh" && args[0] === "issue" && args[1] === "view") {
             return ok(JSON.stringify({ labels: [{ name: "auto-running" }] }));
@@ -6313,6 +6436,7 @@ function autoMergeContext(overrides = {}) {
   };
   return {
     config: {
+      repositorySlug: "tommytang213/Settleora",
       allowAutoMerge: true,
       autoMergePolicy: {
         approvedLanes: [laneDecision.canonicalLane || laneDecision.lane],
@@ -6486,6 +6610,19 @@ function createAutoMergeRunner(calls) {
   return (command, args) => {
     calls.push(`${command} ${args.join(" ")}`);
     if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json") && String(args[args.indexOf("--json") + 1] || "").includes("mergeCommit")) {
+      return ok(JSON.stringify({
+        number: 1,
+        state: "MERGED",
+        baseRefName: "main",
+        headRefOid: "head123",
+        mergeCommit: { oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        mergedAt: "2026-07-18T00:00:00Z",
+        headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: "tommytang213/Settleora" },
+        headRepositoryOwner: { login: "tommytang213" },
+        isCrossRepository: false,
+      }));
+    }
     if (command === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
       return ok(JSON.stringify({
         number: 1,
@@ -6520,6 +6657,50 @@ function createAutoMergeRunner(calls) {
     if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
     return fail(`unexpected ${command} ${args.join(" ")}`);
   };
+}
+
+function mergeReadbackRunner(calls, { repositorySlug, readbackOverrides = {} } = {}) {
+  return (command, args) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      return ok(JSON.stringify({
+        number: 1,
+        state: "MERGED",
+        baseRefName: "main",
+        headRefOid: "head123",
+        mergeCommit: { oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        mergedAt: "2026-07-18T00:00:00Z",
+        headRepository: { id: "repo-1", name: repositorySlug.split("/")[1], nameWithOwner: repositorySlug },
+        headRepositoryOwner: { login: repositorySlug.split("/")[0] },
+        isCrossRepository: false,
+        ...readbackOverrides,
+      }));
+    }
+    if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
+    if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") return ok(JSON.stringify({ labels: [] }));
+    if (command === "gh" && args[0] === "issue" && args[1] === "edit") return ok("");
+    if (command === "gh" && args[0] === "issue" && args[1] === "close") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "comment") return ok("");
+    if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
+    return fail(`unexpected ${command} ${args.join(" ")}`);
+  };
+}
+
+function mergeReadbackJson(repositorySlug, overrides = {}) {
+  return JSON.stringify({
+    number: 1,
+    state: "MERGED",
+    baseRefName: "main",
+    headRefOid: "head123",
+    mergeCommit: { oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    mergedAt: "2026-07-18T00:00:00Z",
+    headRepository: { id: "repo-1", name: repositorySlug.split("/")[1], nameWithOwner: repositorySlug },
+    headRepositoryOwner: { login: repositorySlug.split("/")[0] },
+    isCrossRepository: false,
+    ...overrides,
+  });
 }
 
 function git(cwd, args) {

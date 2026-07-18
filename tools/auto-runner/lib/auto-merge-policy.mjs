@@ -356,13 +356,34 @@ export function executeAutoMerge(config, context, options = {}) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
     return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
   }
-  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", config.repositorySlug || "tommytang213/Settleora", "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+  const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug || context.config?.repositorySlug);
+  if (!repositorySlug) {
+    const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
+    return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
   if (merge.error || merge.status !== 0) {
     const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
 
-  const mergeSha = context.mergeSha || readMergeSha(runner, config.repoRoot, prNumber);
+  const mergeProof = context.mergeSha
+    ? { ok: true, mergeSha: context.mergeSha, configuredRepositorySlug: repositorySlug, prNumber: Number(prNumber), sourceHeadSha: finalDecision.expectedHeadSha, baseRefName: finalContext.pr?.baseRefName || finalContext.baseRefName || null }
+    : readMergeSha({
+        runner,
+        cwd: config.repoRoot,
+        repositorySlug,
+        expectedGithubHost: config.githubHost || "github.com",
+        prNumber,
+        expectedBaseBranch: finalContext.pr?.baseRefName || finalContext.baseRefName || "main",
+        expectedSourceHeadSha: finalDecision.expectedHeadSha,
+        expectedRepositoryId: finalContext.pr?.repositoryProof?.repositoryId || finalContext.pr?.repositoryProof?.baseRepositoryId || finalContext.pr?.repositoryId || null,
+      });
+  if (!mergeProof.ok) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `merge_readback_failed:${mergeProof.reasonCode || "invalid_merge_readback"}` };
+    return { ...failed, mergeReadback: mergeProof, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const mergeSha = mergeProof.mergeSha;
   const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
   const hygiene = completeMergedIssueHygiene(
     config,
@@ -378,13 +399,14 @@ export function executeAutoMerge(config, context, options = {}) {
       runner: (command, args) => runner(command, args, { cwd: config.repoRoot }),
     },
   );
-  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--repo", config.repositorySlug || "tommytang213/Settleora", "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
+  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
   const merged = {
     ...finalDecision,
     attempted: true,
     result: "merged",
     reason: "github_merge_commit_completed",
     mergeSha,
+    mergeReadback: mergeProof,
     sourceBranchRestoration: branchRestore,
     completionHygiene: hygiene,
     issueLabelCleanupResult: legacyLabelCleanupResult(hygiene.labelCleanup),
@@ -920,9 +942,112 @@ function restoreSourceBranchIfDeleted(config, context, runner) {
   return { planned: true, executed: push.status === 0 && !push.error, status: push.status, stderr: bounded(push.stderr || push.error || "") };
 }
 
-function readMergeSha(runner, cwd, prNumber) {
-  const result = runner("gh", ["pr", "view", String(prNumber), "--repo", "tommytang213/Settleora", "--json", "mergeCommit", "-q", ".mergeCommit.oid"], { cwd });
-  return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : null;
+function readMergeSha({
+  runner,
+  cwd,
+  repositorySlug,
+  expectedGithubHost = "github.com",
+  prNumber,
+  expectedBaseBranch,
+  expectedSourceHeadSha,
+  expectedRepositoryId = null,
+} = {}) {
+  const configuredRepositorySlug = normalizeMergeReadbackRepositorySlug(repositorySlug);
+  if (!configuredRepositorySlug) return mergeReadbackFailure("configured_repository_invalid");
+  const host = normalizeMergeReadbackHost(expectedGithubHost);
+  if (host !== "github.com") return mergeReadbackFailure("configured_repository_host_unsupported", { configuredRepositorySlug });
+  const number = Number(prNumber);
+  if (!Number.isSafeInteger(number) || number <= 0) return mergeReadbackFailure("merge_readback_pr_number_invalid", { configuredRepositorySlug });
+  if (!expectedSourceHeadSha || /[\s\x00-\x1F\x7F]/.test(String(expectedSourceHeadSha))) return mergeReadbackFailure("merge_readback_expected_source_head_invalid", { configuredRepositorySlug, prNumber: number });
+  if (!expectedBaseBranch || /[\s\x00-\x1F\x7F]/.test(String(expectedBaseBranch))) return mergeReadbackFailure("merge_readback_expected_base_invalid", { configuredRepositorySlug, prNumber: number });
+
+  const readbackStartedAt = new Date().toISOString();
+  const result = runner(
+    "gh",
+    [
+      "pr",
+      "view",
+      String(number),
+      "--repo",
+      configuredRepositorySlug,
+      "--json",
+      "number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository",
+    ],
+    { cwd },
+  );
+  if (result.error || result.status !== 0) {
+    return mergeReadbackFailure("merge_readback_command_failed", { configuredRepositorySlug, prNumber: number, status: result.status });
+  }
+  let pr;
+  try {
+    pr = JSON.parse(result.stdout || "{}");
+  } catch {
+    return mergeReadbackFailure("merge_readback_json_invalid", { configuredRepositorySlug, prNumber: number });
+  }
+
+  const headRepositorySlug = mergeReadbackRepositoryFromPr(pr);
+  const repositoryId = pr.headRepository?.id || null;
+  const mergeSha = pr.mergeCommit?.oid || pr.mergeCommitOid || pr.mergeSha || null;
+  const proof = {
+    ok: true,
+    configuredRepositorySlug,
+    githubHost: host,
+    prNumber: pr.number,
+    state: pr.state || null,
+    mergeSha,
+    mergedAt: pr.mergedAt || null,
+    sourceHeadSha: pr.headRefOid || null,
+    baseRefName: pr.baseRefName || null,
+    headRepositorySlug,
+    headRepositoryId: repositoryId,
+    isCrossRepository: pr.isCrossRepository === true,
+    readbackStartedAt,
+    readbackCompletedAt: new Date().toISOString(),
+  };
+  if (Number(proof.prNumber) !== number) return mergeReadbackFailure("merge_readback_pr_number_mismatch", proof);
+  if (proof.state !== "MERGED") return mergeReadbackFailure("merge_readback_pr_not_merged", proof);
+  if (proof.sourceHeadSha !== expectedSourceHeadSha) return mergeReadbackFailure("merge_readback_source_head_mismatch", proof);
+  if (proof.baseRefName !== expectedBaseBranch) return mergeReadbackFailure("merge_readback_base_mismatch", proof);
+  if (!validSha(proof.mergeSha)) return mergeReadbackFailure("merge_readback_merge_sha_invalid", proof);
+  if (!proof.mergedAt) return mergeReadbackFailure("merge_readback_merged_timestamp_missing", proof);
+  if (proof.isCrossRepository) return mergeReadbackFailure("merge_readback_cross_repository", proof);
+  if (headRepositorySlug && headRepositorySlug !== configuredRepositorySlug) return mergeReadbackFailure("merge_readback_head_repository_mismatch", proof);
+  if (expectedRepositoryId && repositoryId && repositoryId !== expectedRepositoryId) return mergeReadbackFailure("merge_readback_repository_id_mismatch", proof);
+  return proof;
+}
+
+function mergeReadbackFailure(reasonCode, proof = {}) {
+  return { ...proof, ok: false, reasonCode };
+}
+
+function normalizeMergeReadbackHost(value) {
+  const host = String(value || "").trim().toLowerCase();
+  if (!host || /[\s\x00-\x1F\x7F]/.test(host) || host.includes("/") || host.includes("@") || host.startsWith("-")) return null;
+  return host;
+}
+
+function normalizeMergeReadbackRepositorySlug(value) {
+  const slug = String(value || "");
+  if (!slug || slug !== slug.trim()) return null;
+  if (/[\s\x00-\x1F\x7F]/.test(slug) || slug.startsWith("-") || slug.includes("://") || slug.includes("@") || slug.includes(":")) return null;
+  const parts = slug.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const [owner, name] = parts;
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$/.test(owner)) return null;
+  if (!/^[A-Za-z0-9_.-]+$/.test(name) || name === "." || name === ".." || name.startsWith("-")) return null;
+  return `${owner}/${name}`;
+}
+
+function mergeReadbackRepositoryFromPr(pr = {}) {
+  const direct = normalizeMergeReadbackRepositorySlug(pr.headRepository?.nameWithOwner || pr.headRepository?.full_name || pr.headRepositorySlug || "");
+  if (direct) return direct;
+  const owner = pr.headRepositoryOwner?.login || pr.headRepository?.owner?.login || null;
+  const name = pr.headRepository?.name || null;
+  return normalizeMergeReadbackRepositorySlug(owner && name ? `${owner}/${name}` : "");
+}
+
+function validSha(value) {
+  return /^[a-f0-9]{40}$/i.test(String(value || ""));
 }
 
 function mergeSummaryBody(context, mergeSha) {
