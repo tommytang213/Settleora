@@ -972,8 +972,27 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         message: "Auto-runner stack review-fix batch",
       });
       if (!candidate.ok) return candidate;
-      const base = readGitSha({ runner, cwd, ref: "origin/main", reasonCode: "existing_pr_batch_fix_base_unreadable" });
+      const baseFetch = runner("git", ["fetch", "origin", pr?.baseRefName || pr?.base || "main"], { cwd });
+      if (baseFetch.status !== 0 || baseFetch.error) return fail("existing_pr_batch_fix_base_fetch_failed", boundedText(baseFetch.stderr || baseFetch.error || baseFetch.stdout));
+      const live = readLivePrProof({ config, pr, expectedHead: exactHead, runner });
+      if (!live.ok) return live;
+      const base = readGitSha({ runner, cwd, ref: `origin/${live.proof.baseRefName}`, reasonCode: "existing_pr_batch_fix_base_unreadable" });
       if (!base.ok) return base;
+      const fullCandidatePrDelta = buildCanonicalCandidatePrDelta({
+        config,
+        runner,
+        cwd,
+        pr: { ...pr, ...(live.proof || {}) },
+        baseSha: base.sha,
+        candidate,
+        repositoryIdentity: live.repositoryIdentity,
+        laneDecision,
+      });
+      if (!fullCandidatePrDelta.ok) return fullCandidatePrDelta;
+      if (!fullCandidatePrDelta.delta.allowedPathResult?.ok) {
+        return fail("full_candidate_delta_allowed_path_failed", `full candidate delta changed forbidden paths: ${fullCandidatePrDelta.delta.allowedPathResult.rejectedPaths.join(",")}`, { fullCandidatePrDelta: fullCandidatePrDelta.delta });
+      }
+      const reviewChangedFiles = fullCandidatePrDelta.delta.changedFiles;
       const targetConfig = { ...config, repoRoot: cwd };
       const preWorktreeProof = readExactFinalGateWorktreeProof({
         config: targetConfig,
@@ -985,22 +1004,29 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         proofType: "source_candidate_pre_validation_review",
       });
       if (!preWorktreeProof.ok) return preWorktreeProof;
-      const validationPlan = planValidation(changedFiles, laneDecision || { validationProfile: "runner-tests" });
-      const validation = bindValidationEvidence(runValidationPlan(targetConfig, validationPlan), {
+      const validationPlan = planValidation(reviewChangedFiles, laneDecision || { validationProfile: "runner-tests" });
+      const validation = {
+        ...bindValidationEvidence(runValidationPlan(targetConfig, validationPlan), {
         headSha: candidate.newHead,
         baseSha: base.sha,
-        changedFiles,
+        changedFiles: reviewChangedFiles,
         profile: laneDecision?.validationProfile || validationPlan.profile,
-      });
+        }),
+        rawDiffDigest: fullCandidatePrDelta.delta.rawDiffSha256,
+        packageDigest: fullCandidatePrDelta.delta.normalizedPatchDigest,
+        fullCandidatePrDelta: fullCandidatePrDelta.delta,
+      };
       if (!validation.passed) return fail("existing_pr_batch_fix_validation_failed", "batch fix validation failed", { validation });
       if (typeof options.runStrongReview !== "function" || typeof options.runCodexReview !== "function") {
         return fail("existing_pr_batch_fix_review_adapter_unconfigured", "strong and Codex review adapters are required before push");
       }
-      const externalReview = await options.runStrongReview({ config: targetConfig, pr, changedFiles, validation, headSha: candidate.newHead, baseSha: base.sha });
+      const externalReview = await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha });
       if (externalReview?.status !== "pass") return fail("existing_pr_batch_fix_strong_review_failed", externalReview?.reason || "strong review did not pass", { externalReview });
-      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles, validation, externalReview, headSha: candidate.newHead, baseSha: base.sha });
+      const fullDeltaExternalReview = { ...externalReview, fullCandidatePrDelta: externalReview?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
+      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha });
       const verdict = review?.verdict?.verdict || review?.verdict;
       if (verdict !== "approve") return fail("existing_pr_batch_fix_codex_review_failed", review?.reviewFailureReason || "Codex review did not approve", { review });
+      const fullDeltaCodexReview = { ...review, fullCandidatePrDelta: review?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       const postWorktreeProof = readExactFinalGateWorktreeProof({
         config: targetConfig,
         pr,
@@ -1021,20 +1047,51 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         postWorktreeProof: postWorktreeProof.proof,
         preWorktreeProofDigest: preWorktreeProof.proofDigest,
         postWorktreeProofDigest: postWorktreeProof.proofDigest,
+        fixDeltaFiles: changedFiles,
+        fixDeltaFilesDigest: digestStringSet(changedFiles),
+        fullCandidatePrDelta: fullCandidatePrDelta.delta,
       };
       const validationCheck = validateValidationEvidenceObject(provenValidation, {
         expectedHead: candidate.newHead,
         expectedBase: base.sha,
-        changedFiles,
+        changedFiles: reviewChangedFiles,
+        expectedCandidateDelta: fullCandidatePrDelta.delta,
         requireWorktreeProof: true,
       });
       if (!validationCheck.ok) return validationCheck;
+      const strongCheck = validateReviewEvidenceObject(fullDeltaExternalReview, {
+        name: "existing_pr_batch_fix_strong_review",
+        expectedHead: candidate.newHead,
+        expectedBase: base.sha,
+        changedFiles: reviewChangedFiles,
+        expectedCandidateDelta: fullCandidatePrDelta.delta,
+        requireIndependent: true,
+      });
+      if (!strongCheck.ok) return strongCheck;
+      const codexCheck = validateReviewEvidenceObject(fullDeltaCodexReview, {
+        name: "existing_pr_batch_fix_codex_review",
+        expectedHead: candidate.newHead,
+        expectedBase: base.sha,
+        changedFiles: reviewChangedFiles,
+        expectedCandidateDelta: fullCandidatePrDelta.delta,
+        requireIndependent: false,
+      });
+      if (!codexCheck.ok) return codexCheck;
       return {
         ok: true,
         validation: validationCheck.validation,
-        externalReview,
-        review,
+        externalReview: strongCheck.review,
+        review: codexCheck.review,
         localCandidate: candidate,
+        fixDelta: {
+          changedFiles,
+          changedFilesDigest: digestStringSet(changedFiles),
+          oldHead: exactHead,
+          candidateHead: candidate.newHead,
+          findingFingerprints,
+          fingerprintDigest,
+        },
+        fullCandidatePrDelta: fullCandidatePrDelta.delta,
         sourceIdentity: {
           oldHead: exactHead,
           headSha: candidate.newHead,
@@ -1044,13 +1101,16 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           commitChain: candidate.commitChain,
           commitChainDigest: candidate.commitChainDigest,
           baseSha: base.sha,
-          changedFilesDigest: digestStringSet(changedFiles),
+          changedFilesDigest: fullCandidatePrDelta.delta.fileSetDigest,
+          fullCandidatePrDelta: fullCandidatePrDelta.delta,
+          fixDeltaFiles: changedFiles,
+          fixDeltaFilesDigest: digestStringSet(changedFiles),
           findingFingerprints,
           fingerprintDigest,
         },
       };
     },
-    async commitAndPush({ exactHead, changedFiles, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null }) {
+    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null }) {
       const newHead = reviewed?.localCandidate?.newHead || reviewed?.sourceIdentity?.newHead || null;
       if (!validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", "validated local candidate head is missing");
       const branch = pr?.headRefName || pr?.branch || "";
@@ -1088,6 +1148,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         oldHead: exactHead,
         newHead,
         changedFiles,
+        fixDelta,
         fingerprintDigest,
         reviewed,
         liveProof: live.proof,
@@ -1102,6 +1163,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         oldHead: exactHead,
         newHead,
         changedFiles,
+        fixDelta,
         fingerprintDigest,
         reviewed,
         pushTarget: `origin ${newHead}:${branch}`,
@@ -1564,6 +1626,14 @@ function validateSourceCycleOperationContext({ config = {}, plan = null, context
   if (!validSha(sourceIdentity.tree)) return fail("source_cycle_operation_candidate_mismatch", "source-cycle operation context candidate tree is missing");
   const normalizedChangedFiles = normalizeChangedFiles(changedFiles);
   if (normalizedChangedFiles.length === 0 || sourceIdentity.changedFilesDigest !== digestStringSet(normalizedChangedFiles)) return fail("source_cycle_operation_files_mismatch", "source-cycle operation context changed-file digest does not match");
+  const delta = validateCandidateDeltaEvidence(sourceIdentity.fullCandidatePrDelta || reviewed.fullCandidatePrDelta, {
+    expectedHead: newHead,
+    expectedBase: sourceIdentity.baseSha || reviewed.validation?.baseSha || reviewed.externalReview?.baseSha || reviewed.review?.baseSha || null,
+    expectedTree: sourceIdentity.tree,
+    changedFiles: normalizedChangedFiles,
+    name: "source_cycle_operation_candidate_delta",
+  });
+  if (!delta.ok) return delta;
   if (fingerprintDigest && reviewed?.sourceIdentity?.fingerprintDigest && reviewed.sourceIdentity.fingerprintDigest !== fingerprintDigest) return fail("source_cycle_operation_finding_mismatch", "source-cycle operation context finding digest does not match");
   if (config.taskKey !== undefined && context.taskKey !== (config.taskKey || null)) return fail("source_cycle_operation_task_mismatch", "source-cycle operation context task key does not match");
   if (config.runId !== undefined && context.runId !== (config.runId || null)) return fail("source_cycle_operation_run_mismatch", "source-cycle operation context run ID does not match");
@@ -1582,7 +1652,7 @@ function sourceCycleReservationRoot(config = {}) {
   return path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-reservations");
 }
 
-function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budget = null, oldHead, newHead, changedFiles = [], fingerprintDigest = null, reviewed = {}, liveProof = null, repositoryIdentity = null } = {}) {
+function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budget = null, oldHead, newHead, changedFiles = [], fixDelta = null, fingerprintDigest = null, reviewed = {}, liveProof = null, repositoryIdentity = null } = {}) {
   if (!budget?.ok) return fail(budget?.reasonCode || "source_cycle_reservation_budget_missing", budget?.reason || "valid source-cycle budget is required before reservation");
   const sourceIdentity = reviewed?.sourceIdentity || {};
   const maxAtReservation = budget.max;
@@ -1634,6 +1704,8 @@ function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budge
     findingFingerprints: sourceIdentity.findingFingerprints || reviewed?.findingFingerprints || [],
     changedFiles,
     changedFilesDigest,
+    fixDelta: fixDelta || reviewed.fixDelta || null,
+    fullCandidatePrDelta: reviewed.fullCandidatePrDelta || sourceIdentity.fullCandidatePrDelta || null,
     validationHead: reviewed?.validation?.headSha || null,
     strongReviewHead: reviewed?.externalReview?.reviewedHead || reviewed?.externalReview?.headSha || null,
     codexReviewHead: reviewed?.review?.reviewedHead || reviewed?.review?.headSha || null,
@@ -1843,6 +1915,8 @@ function rebindStateToNewHead(state, prNumber, newHead, sourceCycles, result) {
     sourceIdentity: canonical.sourceIdentity,
     changedFiles: canonical.changedFiles,
     changedFilesDigest: canonical.changedFilesDigest,
+    fixDelta: canonical.fixDelta,
+    fullCandidatePrDelta: canonical.fullCandidatePrDelta,
     findingFingerprints: canonical.findingFingerprints,
     fingerprintDigest: canonical.fingerprintDigest,
     completedAt: canonical.completedAt,
@@ -1857,6 +1931,8 @@ function rebindStateToNewHead(state, prNumber, newHead, sourceCycles, result) {
     sourceIdentity: canonical.sourceIdentity,
     changedFiles: canonical.changedFiles,
     changedFilesDigest: canonical.changedFilesDigest,
+    fixDelta: canonical.fixDelta,
+    fullCandidatePrDelta: canonical.fullCandidatePrDelta,
     reviewPackageDigest: canonical.reviewPackageDigest,
     diffDigest: canonical.diffDigest,
     mutationMarkers: canonical.durableMutationMarkers,
@@ -1902,13 +1978,23 @@ function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHe
   if (!validSha(expectedBase)) return fail("source_rebound_base_missing", "candidate base evidence is missing");
   if (changedFiles.length === 0) return fail("source_rebound_changed_files_missing", "candidate changed-file evidence is missing");
   if (changedFilesDigest !== digestStringSet(changedFiles)) return fail("source_rebound_changed_file_digest_mismatch", "candidate changed-file digest does not match");
-  const validation = validateValidationEvidenceObject(nested.validation, { expectedHead: newHead, expectedBase, changedFiles });
+  const candidateDelta = sourceIdentity.fullCandidatePrDelta || nested.fullCandidatePrDelta || null;
+  const candidateDeltaCheck = validateCandidateDeltaEvidence(candidateDelta, {
+    expectedHead: newHead,
+    expectedBase,
+    expectedTree: sourceIdentity.tree,
+    changedFiles,
+    name: "source_rebound_candidate_delta",
+  });
+  if (!candidateDeltaCheck.ok) return candidateDeltaCheck;
+  const validation = validateValidationEvidenceObject(nested.validation, { expectedHead: newHead, expectedBase, changedFiles, expectedCandidateDelta: candidateDeltaCheck.delta });
   if (!validation.ok) return validation;
   const strongReview = validateReviewEvidenceObject(nested.externalReview, {
     name: "source_rebound_strong_review",
     expectedHead: newHead,
     expectedBase,
     changedFiles,
+    expectedCandidateDelta: candidateDeltaCheck.delta,
     requireIndependent: true,
   });
   if (!strongReview.ok) return strongReview;
@@ -1917,6 +2003,7 @@ function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHe
     expectedHead: newHead,
     expectedBase,
     changedFiles,
+    expectedCandidateDelta: candidateDeltaCheck.delta,
     requireIndependent: false,
   });
   if (!codexReview.ok) return codexReview;
@@ -1932,6 +2019,16 @@ function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHe
   if (!sameStringSet(marker.changedFiles || [], changedFiles) || marker.changedFilesDigest !== changedFilesDigest) {
     return fail("source_rebound_marker_files_mismatch", "durable mutation marker file evidence does not match");
   }
+  const markerDelta = marker.fullCandidatePrDelta || marker.sourceIdentity?.fullCandidatePrDelta || null;
+  const markerDeltaCheck = validateCandidateDeltaEvidence(markerDelta, {
+    expectedHead: newHead,
+    expectedBase,
+    expectedTree: sourceIdentity.tree,
+    changedFiles,
+    expectedCandidateDelta: candidateDeltaCheck.delta,
+    name: "source_rebound_marker_candidate_delta",
+  });
+  if (!markerDeltaCheck.ok) return markerDeltaCheck;
   const fingerprintDigest = nested.fingerprintDigest || marker.fingerprintDigest || null;
   if (!fingerprintDigest || (marker.fingerprintDigest && marker.fingerprintDigest !== fingerprintDigest)) {
     return fail("source_rebound_finding_digest_mismatch", "finding inventory digest is missing or inconsistent");
@@ -1951,9 +2048,11 @@ function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHe
     validation: { ...validation.validation, exactHead: newHead },
     strongReview: strongReview.review,
     codexReview: codexReview.review,
-    sourceIdentity: { ...sourceIdentity, parent: chain.parent, commitChain: chain.chain, commitChainDigest: chain.digest },
+    sourceIdentity: { ...sourceIdentity, parent: chain.parent, commitChain: chain.chain, commitChainDigest: chain.digest, fullCandidatePrDelta: candidateDeltaCheck.delta },
     changedFiles,
     changedFilesDigest,
+    fixDelta: nested.fixDelta || marker.fixDelta || sourceIdentity.fixDelta || null,
+    fullCandidatePrDelta: candidateDeltaCheck.delta,
     reviewPackageDigest: nested.reviewPackageDigest || nested.reviewPackage?.digest || null,
     diffDigest: nested.diffDigest || sourceIdentity.patchDigest || null,
     durableMutationMarkers,
@@ -2551,7 +2650,7 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
   return { ok: true, reused: false, oldHead: exactHead, parent: parent.sha, newHead: head.sha, tree: tree.sha, commitChain: chain.chain, commitChainDigest: chain.digest, committedAt: new Date().toISOString() };
 }
 
-function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null, sourceCycleReservation = null }) {
+function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fixDelta = null, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null, sourceCycleReservation = null }) {
   const root = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-intents");
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const intentPath = path.join(root, `${digestJson({ markerKey, prNumber: pr?.number, oldHead, newHead })}.json`);
@@ -2582,6 +2681,8 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
     findingFingerprints: reviewed?.sourceIdentity?.findingFingerprints || [],
     changedFiles,
     changedFilesDigest: digestStringSet(changedFiles),
+    fixDelta: fixDelta || reviewed?.fixDelta || null,
+    fullCandidatePrDelta: reviewed?.fullCandidatePrDelta || sourceIdentity.fullCandidatePrDelta || null,
     patchDigest: sourceIdentity.patchDigest || null,
     sourceCycleEpoch: sourceIdentity.epoch || 1,
     nextSourceCycleCount: sourceIdentity.nextSourceCycleCount || null,
@@ -2844,6 +2945,8 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
     fingerprintDigest: intent.findingInventoryDigest,
     changedFiles,
     changedFilesDigest: intent.changedFilesDigest,
+    fixDelta: intent.fixDelta || null,
+    fullCandidatePrDelta: intent.fullCandidatePrDelta || intent.sourceIdentity?.fullCandidatePrDelta || null,
     validation: intent.validation,
     externalReview: intent.externalReview,
     review: intent.review,
@@ -2863,6 +2966,8 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
       commitChainDigest: intent.commitChainDigest || digestStringList(commitChain),
       baseSha: intent.sourceIdentity?.baseSha || intent.validation?.baseSha || intent.externalReview?.baseSha || intent.review?.baseSha || null,
       changedFilesDigest: intent.changedFilesDigest,
+      fullCandidatePrDelta: intent.fullCandidatePrDelta || intent.sourceIdentity?.fullCandidatePrDelta || null,
+      fixDelta: intent.fixDelta || null,
       sourceCycleReservation: confirmation.sourceCycleReservation || confirmation.marker?.sourceCycleReservation || intent.sourceCycleReservation || null,
     },
     pushedAt: confirmation.confirmedAt || confirmation.marker?.finalizedAt || new Date().toISOString(),
@@ -2874,6 +2979,8 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
     fingerprintDigest: marker.fingerprintDigest,
     changedFiles,
     changedFilesDigest: intent.changedFilesDigest,
+    fixDelta: marker.fixDelta,
+    fullCandidatePrDelta: marker.fullCandidatePrDelta,
     validation: marker.validation,
     externalReview: marker.externalReview,
     review: marker.review,
@@ -3107,19 +3214,23 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
     proofType: "pre_validation_review",
   });
   if (!preWorktreeProof.ok) return preWorktreeProof;
+  const candidateDelta = { ...prereq.changed.candidateDelta, candidateTree: preWorktreeProof.treeSha };
   const validationPlan = planValidation(prereq.changedFiles, prereq.laneProof.laneDecision || { validationProfile: "runner-tests" });
-  const validation = bindValidationEvidence(runValidation(config, validationPlan), {
+  const validation = {
+    ...bindValidationEvidence(runValidation(config, validationPlan), {
     headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha,
     changedFiles: prereq.changedFiles,
     profile: prereq.laneProof.laneDecision?.validationProfile || validationPlan.profile,
+    }),
     treeSha: preWorktreeProof.treeSha,
     canonicalWorktreePath: preWorktreeProof.worktreePath,
     worktreeProof: preWorktreeProof.proof,
     preWorktreeProofDigest: preWorktreeProof.proofDigest,
     rawDiffDigest: prereq.changed.ownDelta.rawDiffHash,
     packageDigest: prereq.changed.ownDelta.normalizedPatchDigest,
-  });
+    fullCandidatePrDelta: candidateDelta,
+  };
   const validationCheck = validateValidationEvidenceObject(validation, {
     expectedHead: prereq.currentHead,
     expectedBase: prereq.currentOriginMainSha,
@@ -3134,12 +3245,15 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
     validation,
     headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha,
+    fullCandidatePrDelta: candidateDelta,
   });
-  const strongCheck = validateReviewEvidenceObject(strongReview, {
+  const fullDeltaStrongReview = { ...strongReview, fullCandidatePrDelta: strongReview?.fullCandidatePrDelta || candidateDelta };
+  const strongCheck = validateReviewEvidenceObject(fullDeltaStrongReview, {
     name: "strong_review",
     expectedHead: prereq.currentHead,
     expectedBase: prereq.currentOriginMainSha,
     changedFiles: prereq.changedFiles,
+    expectedCandidateDelta: candidateDelta,
     requireIndependent: true,
   });
   if (!strongCheck.ok) return strongCheck;
@@ -3151,12 +3265,15 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
     externalReview: strongCheck.review,
     headSha: prereq.currentHead,
     baseSha: prereq.currentOriginMainSha,
+    fullCandidatePrDelta: candidateDelta,
   });
-  const codexCheck = validateReviewEvidenceObject(codexReview, {
+  const fullDeltaCodexReview = { ...codexReview, fullCandidatePrDelta: codexReview?.fullCandidatePrDelta || candidateDelta };
+  const codexCheck = validateReviewEvidenceObject(fullDeltaCodexReview, {
     name: "codex_review",
     expectedHead: prereq.currentHead,
     expectedBase: prereq.currentOriginMainSha,
     changedFiles: prereq.changedFiles,
+    expectedCandidateDelta: candidateDelta,
     requireIndependent: false,
   });
   if (!codexCheck.ok) return codexCheck;
@@ -3182,11 +3299,13 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
     postWorktreeProofDigest: postWorktreeProof.proofDigest,
     rawDiffDigest: prereq.changed.ownDelta.rawDiffHash,
     packageDigest: prereq.changed.ownDelta.normalizedPatchDigest,
+    fullCandidatePrDelta: candidateDelta,
   };
   const provenValidationCheck = validateValidationEvidenceObject(provenValidation, {
     expectedHead: prereq.currentHead,
     expectedBase: prereq.currentOriginMainSha,
     changedFiles: prereq.changedFiles,
+    expectedCandidateDelta: candidateDelta,
     requireWorktreeProof: true,
   });
   if (!provenValidationCheck.ok) return provenValidationCheck;
@@ -3215,10 +3334,12 @@ async function collectFinalGateEvidence({ config, state, pr, runner, adapter = n
     proofType: "final_gate_merge_entry",
   });
   if (!worktree.ok) return worktree;
+  const candidateDelta = { ...changed.candidateDelta, candidateTree: worktree.treeSha };
   const validation = validateValidationEvidenceObject(validationEvidence, {
     expectedHead: currentHead,
     expectedBase: currentOriginMainSha,
     changedFiles: changed.ownDelta.fileSet,
+    expectedCandidateDelta: candidateDelta,
     requireWorktreeProof: true,
     expectedWorktreePath: worktree.worktreePath,
     expectedRepository: worktree.configuredRepository,
@@ -3231,6 +3352,7 @@ async function collectFinalGateEvidence({ config, state, pr, runner, adapter = n
     expectedHead: currentHead,
     expectedBase: currentOriginMainSha,
     changedFiles: changed.ownDelta.fileSet,
+    expectedCandidateDelta: candidateDelta,
   });
   if (!reviewEvidence.ok) return reviewEvidence;
   const evidence = {
@@ -3245,6 +3367,7 @@ async function collectFinalGateEvidence({ config, state, pr, runner, adapter = n
     laneDecision: laneProof.laneDecision,
     canonicalDigest: changed.ownDelta.normalizedPatchDigest,
     ownDelta: changed.ownDelta,
+    fullCandidatePrDelta: candidateDelta,
     requiredChecks: inspection.requiredChecks || [],
     reviewThreads: inspection.reviewThreads || [],
     codeScanningAlerts: inspection.codeScanningAlerts || [],
@@ -3293,38 +3416,47 @@ async function collectFinalGatePrerequisites({ config, state, pr, runner, adapte
   const status = finalExternalGateStatus({ ...inspection, config });
   const base = fetchAndReadOriginMain({ config, runner, reasonPrefix });
   if (!base.ok) return base;
+  const candidateDelta = canonicalCandidateDeltaFromOwnDelta({
+    config,
+    pr: { ...pr, ...(inspection.pr || {}) },
+    ownDelta: changed.ownDelta,
+    baseSha: base.currentOriginMainSha,
+    candidateHead: currentHead,
+    candidateTree: null,
+  });
   return {
     ok: true,
     inspection,
     currentHead,
     currentOriginMainSha: base.currentOriginMainSha,
     originMainFetchedAt: base.fetchedAt,
-    changed,
+    changed: { ...changed, candidateDelta },
     changedFiles: changed.ownDelta.fileSet,
     laneProof,
     status,
   };
 }
 
-function buildFinalGateReviewEvidence({ state, prNumber, expectedHead, expectedBase, changedFiles }) {
+function buildFinalGateReviewEvidence({ state, prNumber, expectedHead, expectedBase, changedFiles, expectedCandidateDelta = null }) {
   const gate = state?.evidence?.gatesPassed?.[prNumber] || {};
   const strongIndependent = state?.evidence?.strongReview?.[prNumber] || gate.reviewEvidence?.strongIndependent || gate.strongReview || gate.externalReview || null;
   const codex = state?.evidence?.codexReview?.[prNumber] || gate.reviewEvidence?.codex || gate.codexReview || gate.review || null;
-  return validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles });
+  return validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles, expectedCandidateDelta });
 }
 
 function finalGateReviewEvidenceForMerge(gateEvidence, { expectedHead, expectedBase, changedFiles }) {
   const strongIndependent = gateEvidence.reviewEvidence?.strongIndependent || gateEvidence.strongReview || gateEvidence.externalReview || null;
   const codex = gateEvidence.reviewEvidence?.codex || gateEvidence.codexReview || gateEvidence.review || null;
-  return validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles });
+  return validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles, expectedCandidateDelta: gateEvidence.fullCandidatePrDelta || null });
 }
 
-function validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles }) {
+function validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHead, expectedBase, changedFiles, expectedCandidateDelta = null }) {
   const strong = validateReviewEvidenceObject(strongIndependent, {
     name: "strong_review",
     expectedHead,
     expectedBase,
     changedFiles,
+    expectedCandidateDelta,
     requireIndependent: true,
   });
   if (!strong.ok) return strong;
@@ -3333,6 +3465,7 @@ function validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHea
     expectedHead,
     expectedBase,
     changedFiles,
+    expectedCandidateDelta,
     requireIndependent: false,
   });
   if (!codexReview.ok) return codexReview;
@@ -3344,7 +3477,7 @@ function validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHea
   };
 }
 
-function validateValidationEvidenceObject(validation, { expectedHead, expectedBase, changedFiles, requireWorktreeProof = false, expectedWorktreePath = null, expectedRepository = null, expectedTree = null }) {
+function validateValidationEvidenceObject(validation, { expectedHead, expectedBase, changedFiles, expectedCandidateDelta = null, requireWorktreeProof = false, expectedWorktreePath = null, expectedRepository = null, expectedTree = null }) {
   if (!validation || typeof validation !== "object" || Array.isArray(validation)) {
     return fail("source_rebound_validation_missing", "source rebound validation evidence is required");
   }
@@ -3355,6 +3488,15 @@ function validateValidationEvidenceObject(validation, { expectedHead, expectedBa
   if (!validation.completedAt) return fail("source_rebound_validation_completed_at_missing", "source rebound validation completion time is missing");
   if (!sameStringSet(validation.changedFiles || [], changedFiles)) return fail("source_rebound_validation_files_mismatch", "source rebound validation file set does not match");
   if (validation.changedFilesDigest !== digestStringSet(changedFiles)) return fail("source_rebound_validation_file_digest_mismatch", "source rebound validation file digest does not match");
+  const delta = validateCandidateDeltaEvidence(validation.fullCandidatePrDelta, {
+    expectedHead,
+    expectedBase,
+    expectedTree,
+    changedFiles,
+    expectedCandidateDelta,
+    name: "source_rebound_validation_candidate_delta",
+  });
+  if (!delta.ok) return delta;
   if (requireWorktreeProof) {
     const pre = validation.preWorktreeProof;
     const post = validation.postWorktreeProof;
@@ -3392,7 +3534,7 @@ function validateValidationEvidenceObject(validation, { expectedHead, expectedBa
   return { ok: true, validation };
 }
 
-function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase, changedFiles, requireIndependent }) {
+function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase, changedFiles, expectedCandidateDelta = null, requireIndependent }) {
   if (!review || typeof review !== "object" || Array.isArray(review)) {
     return fail(`${name}_missing`, `${name} evidence is required`);
   }
@@ -3402,6 +3544,14 @@ function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase
   if (!Array.isArray(review.changedFiles)) return fail(`${name}_files_missing`, `${name} changed files are required`);
   if (!sameStringSet(review.changedFiles, changedFiles)) return fail(`${name}_files_mismatch`, `${name} changed files do not match final gate files`);
   if (review.changedFilesDigest !== digestStringSet(changedFiles)) return fail(`${name}_file_digest_mismatch`, `${name} changed-file digest does not match final gate files`);
+  const delta = validateCandidateDeltaEvidence(review.fullCandidatePrDelta, {
+    expectedHead,
+    expectedBase,
+    changedFiles,
+    expectedCandidateDelta,
+    name: `${name}_candidate_delta`,
+  });
+  if (!delta.ok) return delta;
   if (!review.completedAt && !review.finishedAt) return fail(`${name}_timestamp_missing`, `${name} timestamp is required`);
   if (requireIndependent) {
     if (!acceptedStrongReviewTiers.has(review.tier)) return fail(`${name}_tier_unapproved`, `${name} must be strong_independent or tie_breaker`);
@@ -3636,8 +3786,12 @@ function readCurrentPrOwnDelta({ config, pr, runner }) {
   return {
     ok: true,
     ownDelta: {
+      schemaVersion: 1,
       fileSet,
       fileSetDigest: digestJson(fileSet),
+      changedFiles: fileSet,
+      changedFileCount: fileSet.length,
+      changedFilesDigest: digestStringSet(fileSet),
       diffstat: { files: fileSet.length, additions: patchStats.additions, deletions: patchStats.deletions },
       diffstatDigest: digestJson({ files: fileSet.length, additions: patchStats.additions, deletions: patchStats.deletions }),
       numstat: patchStats.numstat,
@@ -3645,10 +3799,135 @@ function readCurrentPrOwnDelta({ config, pr, runner }) {
       stablePatchId,
       normalizedPatchDigest: digestJson(normalizePatchForDigest(patchText)),
       rawDiffHash: createHash("sha256").update(patchText).digest("hex"),
+      rawDiffSha256: createHash("sha256").update(patchText).digest("hex"),
       forwardPatchApplies,
       reversePatchApplies,
     },
   };
+}
+
+function buildCanonicalCandidatePrDelta({ config = {}, runner, cwd, pr = {}, baseSha, candidate = {}, repositoryIdentity = null, laneDecision = null } = {}) {
+  if (!validSha(baseSha)) return fail("full_candidate_delta_base_missing", "full candidate PR delta requires a valid base SHA");
+  if (!validSha(candidate.newHead) || !validSha(candidate.tree)) return fail("full_candidate_delta_candidate_missing", "full candidate PR delta requires candidate head and tree");
+  const fileResult = runner("git", ["diff", "--name-only", `${baseSha}...${candidate.newHead}`], { cwd });
+  if (fileResult.status !== 0 || fileResult.error) return fail("full_candidate_delta_files_unavailable", boundedText(fileResult.stderr || fileResult.error || fileResult.stdout));
+  const raw = runner("git", ["diff", "--binary", `${baseSha}...${candidate.newHead}`], { cwd });
+  if (raw.status !== 0 || raw.error) return fail("full_candidate_delta_diff_unavailable", boundedText(raw.stderr || raw.error || raw.stdout));
+  const numstatResult = runner("git", ["diff", "--numstat", `${baseSha}...${candidate.newHead}`], { cwd });
+  if (numstatResult.status !== 0 || numstatResult.error) return fail("full_candidate_delta_numstat_unavailable", boundedText(numstatResult.stderr || numstatResult.error || numstatResult.stdout));
+  const statResult = runner("git", ["diff", "--stat", `${baseSha}...${candidate.newHead}`], { cwd });
+  if (statResult.status !== 0 || statResult.error) return fail("full_candidate_delta_diffstat_unavailable", boundedText(statResult.stderr || statResult.error || statResult.stdout));
+  const patchText = String(raw.stdout || "");
+  const changedFiles = normalizeChangedFiles(String(fileResult.stdout || "").split(/\r?\n/));
+  if (changedFiles.length === 0) return fail("full_candidate_delta_files_missing", "full candidate PR delta contains no changed files");
+  const stablePatchId = computeStablePatchId(patchText, cwd);
+  if (!stablePatchId) return fail("full_candidate_delta_patch_id_unavailable", "full candidate PR delta stable patch ID could not be computed");
+  const patchStats = summarizePatch(patchText);
+  const allowedRejected = filterForbiddenChangedFiles(changedFiles, laneDecision || {});
+  const delta = sanitizeState({
+    schemaVersion: 1,
+    authority: "full_candidate_pr_delta",
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    configuredRepositorySlug: repositoryIdentity?.configuredRepositorySlug || config.repositorySlug || "tommytang213/Settleora",
+    baseRepositorySlug: repositoryIdentity?.baseRepositorySlug || config.repositorySlug || "tommytang213/Settleora",
+    headRepositorySlug: repositoryIdentity?.headRepositorySlug || config.repositorySlug || "tommytang213/Settleora",
+    originRepositorySlug: repositoryIdentity?.originRepositorySlug || config.repositorySlug || "tommytang213/Settleora",
+    prNumber: pr.number || null,
+    baseBranch: pr.baseRefName || pr.base || "main",
+    baseSha,
+    sourceBranch: pr.headRefName || pr.branch || null,
+    candidateHead: candidate.newHead,
+    candidateTree: candidate.tree,
+    candidateParent: candidate.parent || null,
+    changedFiles,
+    changedFileCount: changedFiles.length,
+    fileSetDigest: digestStringSet(changedFiles),
+    changedFilesDigest: digestStringSet(changedFiles),
+    rawDiffSha256: createHash("sha256").update(patchText).digest("hex"),
+    rawDiffHash: createHash("sha256").update(patchText).digest("hex"),
+    normalizedPatchDigest: digestJson(normalizePatchForDigest(patchText)),
+    stablePatchId,
+    diffstat: { files: changedFiles.length, additions: patchStats.additions, deletions: patchStats.deletions, text: boundedText(statResult.stdout || "", 4000) },
+    diffstatDigest: digestJson({ files: changedFiles.length, additions: patchStats.additions, deletions: patchStats.deletions }),
+    numstat: parseNumstat(numstatResult.stdout),
+    numstatDigest: digestJson(parseNumstat(numstatResult.stdout)),
+    allowedPathResult: {
+      ok: allowedRejected.length === 0,
+      changedFiles,
+      rejectedPaths: allowedRejected,
+      changedFilesExactlyMatchAllowedPaths: allowedRejected.length === 0,
+      changedFilesDigest: digestJson(changedFiles),
+    },
+    generatedAt: new Date().toISOString(),
+  });
+  return { ok: true, delta };
+}
+
+function validateCandidateDeltaEvidence(delta, { expectedHead, expectedBase, expectedTree = null, changedFiles = [], expectedCandidateDelta = null, name = "candidate_delta" } = {}) {
+  if (!delta || typeof delta !== "object" || Array.isArray(delta)) return fail(`${name}_missing`, "full candidate PR delta evidence is required");
+  if (delta.authority !== "full_candidate_pr_delta") return fail(`${name}_authority_mismatch`, "full candidate PR delta authority is invalid");
+  if (delta.candidateHead !== expectedHead) return fail(`${name}_head_mismatch`, "full candidate PR delta head does not match");
+  if (expectedBase && delta.baseSha !== expectedBase) return fail(`${name}_base_mismatch`, "full candidate PR delta base does not match");
+  if (expectedTree && delta.candidateTree !== expectedTree) return fail(`${name}_tree_mismatch`, "full candidate PR delta tree does not match");
+  if (!Array.isArray(delta.changedFiles) || delta.changedFiles.length === 0) return fail(`${name}_files_missing`, "full candidate PR delta changed files are missing");
+  if (!sameStringSet(delta.changedFiles, changedFiles)) return fail(`${name}_files_mismatch`, "full candidate PR delta files do not match expected files");
+  if (delta.fileSetDigest !== digestStringSet(changedFiles) || delta.changedFilesDigest !== digestStringSet(changedFiles)) return fail(`${name}_file_digest_mismatch`, "full candidate PR delta file digest does not match");
+  if (!delta.rawDiffSha256 && !delta.rawDiffHash) return fail(`${name}_raw_diff_digest_missing`, "full candidate PR delta raw diff digest is missing");
+  if (!delta.normalizedPatchDigest && !delta.stablePatchId) return fail(`${name}_patch_digest_missing`, "full candidate PR delta normalized patch identity is missing");
+  if (expectedCandidateDelta) {
+    const fields = ["repository", "prNumber", "baseSha", "candidateHead", "candidateTree", "fileSetDigest", "rawDiffSha256", "normalizedPatchDigest"];
+    for (const field of fields) {
+      if ((delta[field] || null) !== (expectedCandidateDelta[field] || null)) return fail(`${name}_${field}_mismatch`, "full candidate PR delta does not match canonical authority");
+    }
+  }
+  return { ok: true, delta: sanitizeState(delta) };
+}
+
+function canonicalCandidateDeltaFromOwnDelta({ config = {}, pr = {}, ownDelta = {}, baseSha = null, candidateHead = null, candidateTree = null } = {}) {
+  const changedFiles = normalizeChangedFiles(ownDelta.fileSet || ownDelta.changedFiles || []);
+  return sanitizeState({
+    schemaVersion: 1,
+    authority: "full_candidate_pr_delta",
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    configuredRepositorySlug: config.repositorySlug || "tommytang213/Settleora",
+    baseRepositorySlug: config.repositorySlug || "tommytang213/Settleora",
+    headRepositorySlug: config.repositorySlug || "tommytang213/Settleora",
+    originRepositorySlug: config.repositorySlug || "tommytang213/Settleora",
+    prNumber: pr.number || null,
+    baseBranch: pr.baseRefName || pr.base || "main",
+    baseSha,
+    sourceBranch: pr.headRefName || pr.branch || null,
+    candidateHead,
+    candidateTree,
+    changedFiles,
+    changedFileCount: changedFiles.length,
+    fileSetDigest: digestStringSet(changedFiles),
+    changedFilesDigest: digestStringSet(changedFiles),
+    rawDiffSha256: ownDelta.rawDiffSha256 || ownDelta.rawDiffHash || null,
+    rawDiffHash: ownDelta.rawDiffHash || ownDelta.rawDiffSha256 || null,
+    normalizedPatchDigest: ownDelta.normalizedPatchDigest || null,
+    stablePatchId: ownDelta.stablePatchId || null,
+    diffstat: ownDelta.diffstat || null,
+    diffstatDigest: ownDelta.diffstatDigest || null,
+    numstat: ownDelta.numstat || null,
+    numstatDigest: ownDelta.numstatDigest || null,
+    allowedPathResult: null,
+    generatedAt: new Date().toISOString(),
+  });
+}
+
+function parseNumstat(value) {
+  const entries = {};
+  for (const line of String(value || "").split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [added, deleted, file] = line.split(/\t/);
+    if (!file) continue;
+    entries[file] = {
+      added: added === "-" ? null : Number(added),
+      deleted: deleted === "-" ? null : Number(deleted),
+    };
+  }
+  return entries;
 }
 
 function summarizePatch(patchText) {
@@ -3790,6 +4069,7 @@ export function digestStackPlan(plan) {
 export const prStackExecutorTestInternals = Object.freeze({
   canonicalRepositoryFromOriginUrl,
   canonicalRepositorySlug,
+  buildCanonicalCandidatePrDelta,
   createProductionBatchFixAdapters,
   createOrReuseLocalCandidateCommit,
   createSourceCycleOperationContext,
@@ -3800,6 +4080,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   finalizePushIntent,
   normalizeSourceChangingConvergenceResult,
   validateCanonicalCommitChain,
+  validateCandidateDeltaEvidence,
   persistPushIntent,
   persistSourceCycleReservation,
   proveTargetBatchFixWorktree,

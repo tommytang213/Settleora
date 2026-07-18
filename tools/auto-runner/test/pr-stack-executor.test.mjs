@@ -834,6 +834,91 @@ test("production commitAndPush binds reservation to exact durable state and push
   assert.equal(calls.filter((call) => call === `git push origin ${sha("c")}:feature/auto-913-parent`).length, 1);
 });
 
+test("source-changing evidence separates narrow fix delta from full candidate PR delta", () => {
+  const oldHead = sha("a");
+  const newHead = sha("c");
+  const fixFiles = [
+    "tools/auto-runner/lib/review-convergence-controller.mjs",
+    "tools/auto-runner/test/review-convergence.test.mjs",
+  ];
+  const fullFiles = [
+    "tools/auto-runner/lib/pr-stack-executor.mjs",
+    "tools/auto-runner/lib/review-convergence-controller.mjs",
+    "tools/auto-runner/test/pr-stack-executor.test.mjs",
+    "tools/auto-runner/test/review-convergence.test.mjs",
+  ];
+  const result = sourceChangingConvergenceResult({
+    prNumber: 919,
+    oldHead,
+    newHead,
+    changedFiles: fullFiles,
+    overrides: {
+      fixDelta: {
+        changedFiles: fixFiles,
+        changedFilesDigest: digestStrings(fixFiles),
+        oldHead,
+        candidateHead: newHead,
+        findingFingerprints: ["finding-a"],
+        fingerprintDigest: sha("f"),
+      },
+    },
+  });
+  const normalized = prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(result, { prNumber: 919, oldHead, newHead });
+  assert.equal(normalized.ok, true, normalized.reasonCode);
+  assert.deepEqual(normalized.fixDelta.changedFiles, fixFiles);
+  assert.deepEqual(normalized.fullCandidatePrDelta.changedFiles, fullFiles);
+  assert.equal(normalized.validation.changedFilesDigest, digestStrings(fullFiles));
+  assert.equal(normalized.strongReview.changedFilesDigest, digestStrings(fullFiles));
+  assert.equal(normalized.codexReview.changedFilesDigest, digestStrings(fullFiles));
+  assert.equal(normalized.fullCandidatePrDelta.fileSetDigest, normalized.changedFilesDigest);
+  assert.equal(normalized.fullCandidatePrDelta.rawDiffSha256, result.result.fullCandidatePrDelta.rawDiffSha256);
+});
+
+test("legacy fix-delta-only source-changing validation and reviews are rejected", () => {
+  const oldHead = sha("a");
+  const newHead = sha("c");
+  const fullFiles = [
+    "tools/auto-runner/lib/pr-stack-executor.mjs",
+    "tools/auto-runner/lib/review-convergence-controller.mjs",
+  ];
+  const legacy = sourceChangingConvergenceResult({
+    prNumber: 919,
+    oldHead,
+    newHead,
+    changedFiles: fullFiles,
+  });
+  delete legacy.result.validation.fullCandidatePrDelta;
+  assert.equal(
+    prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(legacy, { prNumber: 919, oldHead, newHead }).reasonCode,
+    "source_rebound_validation_candidate_delta_missing",
+  );
+
+  const compactOnly = sourceChangingConvergenceResult({ prNumber: 919, oldHead, newHead, changedFiles: fullFiles });
+  compactOnly.result.review.changedFiles = ["tools/auto-runner/lib/review-convergence-controller.mjs"];
+  compactOnly.result.review.changedFilesDigest = digestStrings(compactOnly.result.review.changedFiles);
+  assert.equal(
+    prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(compactOnly, { prNumber: 919, oldHead, newHead }).reasonCode,
+    "source_rebound_codex_review_files_mismatch",
+  );
+
+  const strongOnly = sourceChangingConvergenceResult({ prNumber: 919, oldHead, newHead, changedFiles: fullFiles });
+  delete strongOnly.result.externalReview.fullCandidatePrDelta;
+  assert.equal(
+    prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(strongOnly, { prNumber: 919, oldHead, newHead }).reasonCode,
+    "source_rebound_strong_review_candidate_delta_missing",
+  );
+});
+
+test("full candidate delta identity rejects stale base head tree and file changes", () => {
+  const files = ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/test/review-convergence.test.mjs"];
+  const delta = testFullCandidateDelta({ baseSha: sha("e"), candidateHead: sha("c"), candidateTree: sha("d"), changedFiles: files });
+  assert.equal(prStackExecutorTestInternals.validateCandidateDeltaEvidence(delta, { expectedHead: sha("c"), expectedBase: sha("e"), expectedTree: sha("d"), changedFiles: files }).ok, true);
+  assert.equal(prStackExecutorTestInternals.validateCandidateDeltaEvidence({ ...delta, baseSha: sha("f") }, { expectedHead: sha("c"), expectedBase: sha("e"), expectedTree: sha("d"), changedFiles: files }).reasonCode, "candidate_delta_base_mismatch");
+  assert.equal(prStackExecutorTestInternals.validateCandidateDeltaEvidence({ ...delta, candidateHead: sha("b") }, { expectedHead: sha("c"), expectedBase: sha("e"), expectedTree: sha("d"), changedFiles: files }).reasonCode, "candidate_delta_head_mismatch");
+  assert.equal(prStackExecutorTestInternals.validateCandidateDeltaEvidence({ ...delta, candidateTree: sha("f") }, { expectedHead: sha("c"), expectedBase: sha("e"), expectedTree: sha("d"), changedFiles: files }).reasonCode, "candidate_delta_tree_mismatch");
+  assert.equal(prStackExecutorTestInternals.validateCandidateDeltaEvidence({ ...delta, changedFiles: [files[0]], fileSetDigest: digestStrings([files[0]]), changedFilesDigest: digestStrings([files[0]]) }, { expectedHead: sha("c"), expectedBase: sha("e"), expectedTree: sha("d"), changedFiles: files }).reasonCode, "candidate_delta_files_mismatch");
+});
+
 test("source-cycle operation context rejects malformed stale or foreign state before reservation", () => {
   const fixture = stackFixture();
   const pr = fixture.plan.orderedPrs[0];
@@ -1731,51 +1816,7 @@ test("final gates prove changed files against the real lane contract and reject 
 test("merge revalidates exact-head allowed-path proof before consuming gate evidence", async () => {
   const fixture = stackFixture();
   const changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"];
-  const digest = digestStrings(changedFiles);
-  const baseGate = {
-    ok: true,
-    changedFiles,
-    changedFilesExactlyMatchAllowedPaths: true,
-    allowedPathProof: {
-      ok: true,
-      exactHead: sha("a"),
-      changedFiles,
-      changedFilesDigest: digestJson(changedFiles),
-      rejectedPaths: [],
-      changedFilesExactlyMatchAllowedPaths: true,
-    },
-    laneDecision: {
-      lane: "workflow-docs-tooling",
-      canonicalLane: "workflow-docs-tooling",
-      branchStrategy: "normal",
-      validationProfile: "runner-tests",
-      reviewerTier: "strong_independent",
-      allowedToImplement: true,
-      autoMergeEligible: true,
-      manualMergeRequired: false,
-      contract: { autoMergeEligible: true, manualMergeRequired: false },
-      laneManifest: { decisionType: "runnable", autoMergeAllowed: true },
-      allowedPaths: ["tools/auto-runner/**"],
-    },
-    validation: { passed: true, results: [{ command: "test", status: 0 }], completedAt: new Date().toISOString(), headSha: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, profile: "runner-tests" },
-    externalReview: { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, independent: true, provider: "gemini", providerProfile: "gemini-strong", evidencePath: "/workspace/logs/settleora-auto-runner/reviews/strong.json", completedAt: new Date().toISOString() },
-    review: { reviewedHead: sha("a"), baseSha: sha("e"), changedFiles, changedFilesDigest: digest, verdict: { verdict: "approve" }, completedAt: new Date().toISOString() },
-    codexMechanicsReviewApproved: true,
-    baseSha: sha("e"),
-    expectedOriginMainSha: sha("e"),
-    requiredChecks: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
-    issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
-  };
-  const proof = exactWorktreeProof();
-  baseGate.validation = {
-    ...baseGate.validation,
-    treeSha: proof.treeSha,
-    canonicalWorktreePath: proof.worktreePath,
-    preWorktreeProof: { ...proof },
-    postWorktreeProof: { ...proof },
-    preWorktreeProofDigest: digestJson({ ...proof }),
-    postWorktreeProofDigest: digestJson({ ...proof }),
-  };
+  const baseGate = gateEvidence({ changedFiles });
   const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
   const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
   const state = createInitialPrStackState({ plan: fixture.plan });
@@ -2354,6 +2395,13 @@ function check(name) {
 function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"], strongReview = {}, codexReview = {} } = {}) {
   const digest = digestStrings(changedFiles);
   const worktreeProof = exactWorktreeProof();
+  const fullCandidatePrDelta = testFullCandidateDelta({
+    prNumber: 919,
+    baseSha: sha("e"),
+    candidateHead: sha("a"),
+    candidateTree: worktreeProof.treeSha,
+    changedFiles,
+  });
   const strongIndependent = {
     status: "pass",
     tier: "strong_independent",
@@ -2362,6 +2410,7 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
     baseSha: sha("e"),
     changedFiles,
     changedFilesDigest: digest,
+    fullCandidatePrDelta,
     independent: true,
     provider: "gemini",
     providerProfile: "gemini-strong",
@@ -2374,6 +2423,7 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
     baseSha: sha("e"),
     changedFiles,
     changedFilesDigest: digest,
+    fullCandidatePrDelta,
     verdict: { verdict: "approve" },
     completedAt: "2026-07-17T00:00:01.000Z",
     ...codexReview,
@@ -2383,6 +2433,7 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
     exactHead: sha("a"),
     changedFiles,
     changedFilesDigest: digest,
+    fullCandidatePrDelta,
     changedFilesExactlyMatchAllowedPaths: true,
     allowedPathProof: {
       ok: true,
@@ -2422,6 +2473,7 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
       postWorktreeProofDigest: digestJson({ ...worktreeProof }),
       rawDiffDigest: sha("r"),
       packageDigest: sha("p"),
+      fullCandidatePrDelta,
     },
     reviewEvidence: { strongIndependent, codex },
     strongReview: strongIndependent,
@@ -2432,8 +2484,55 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
     baseSha: sha("e"),
     expectedOriginMainSha: sha("e"),
     currentOriginMainSha: sha("e"),
+    fullCandidatePrDelta,
     requiredChecks: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
     issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
+  };
+}
+
+function testPatchTextForFiles(files) {
+  return files.map((file) => `diff --git a/${file} b/${file}\n`).join("");
+}
+
+function testFullCandidateDelta({ prNumber = 919, baseSha = sha("e"), candidateHead = sha("a"), candidateTree = sha("d"), changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"], rawDiffSha256 = null, normalizedPatchDigest = null, stablePatchId = sha("d") } = {}) {
+  const files = [...changedFiles].sort();
+  const patchText = testPatchTextForFiles(files);
+  const rawDigest = rawDiffSha256 || createHash("sha256").update(patchText).digest("hex");
+  const normalizedDigest = normalizedPatchDigest || digestJson(String(patchText || "").replace(/^index [0-9a-f]+\.\.[0-9a-f]+.*$/gim, "index <normalized>").replace(/\r\n/g, "\n").trim());
+  return {
+    schemaVersion: 1,
+    authority: "full_candidate_pr_delta",
+    repository: "tommytang213/Settleora",
+    configuredRepositorySlug: "tommytang213/Settleora",
+    baseRepositorySlug: "tommytang213/Settleora",
+    headRepositorySlug: "tommytang213/Settleora",
+    originRepositorySlug: "tommytang213/Settleora",
+    prNumber,
+    baseBranch: "main",
+    baseSha,
+    sourceBranch: prNumber === 920 ? "feature/auto-913-child" : "feature/auto-913-parent",
+    candidateHead,
+    candidateTree,
+    changedFiles: files,
+    changedFileCount: files.length,
+    fileSetDigest: digestStrings(files),
+    changedFilesDigest: digestStrings(files),
+    rawDiffSha256: rawDigest,
+    rawDiffHash: rawDigest,
+    normalizedPatchDigest: normalizedDigest,
+    stablePatchId,
+    diffstat: { files: files.length, additions: files.length, deletions: 0 },
+    diffstatDigest: digestJson({ files: files.length, additions: files.length, deletions: 0 }),
+    numstat: Object.fromEntries(files.map((file) => [file, { added: 1, deleted: 0 }])),
+    numstatDigest: digestJson(Object.fromEntries(files.map((file) => [file, { added: 1, deleted: 0 }]))),
+    allowedPathResult: {
+      ok: true,
+      changedFiles: files,
+      rejectedPaths: [],
+      changedFilesExactlyMatchAllowedPaths: true,
+      changedFilesDigest: digestJson(files),
+    },
+    generatedAt: "2026-07-18T00:00:00.000Z",
   };
 }
 
@@ -2466,6 +2565,21 @@ function exactWorktreeProof(overrides = {}) {
 
 function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha = sha("e"), changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"], tree = sha("d"), fingerprintDigest = sha("f"), overrides = {} } = {}) {
   const changedFilesDigest = digestStrings(changedFiles);
+  const fullCandidatePrDelta = overrides.fullCandidatePrDelta || testFullCandidateDelta({
+    prNumber,
+    baseSha,
+    candidateHead: newHead,
+    candidateTree: tree,
+    changedFiles,
+  });
+  const fixDelta = overrides.fixDelta || {
+    changedFiles,
+    changedFilesDigest,
+    oldHead,
+    candidateHead: newHead,
+    findingFingerprints: [`${prNumber}:finding`],
+    fingerprintDigest,
+  };
   const commitChain = overrides.sourceIdentity?.commitChain || [oldHead, newHead];
   const commitChainDigest = digestStringList(commitChain);
   const sourceCycleReservation = overrides.sourceCycleReservation || testSourceCycleReservation({
@@ -2487,6 +2601,7 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
     baseSha,
     changedFiles,
     changedFilesDigest,
+    fullCandidatePrDelta,
     profile: "runner-tests",
     evidencePath: "/workspace/logs/validation.json",
     ...(overrides.validation || {}),
@@ -2499,6 +2614,7 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
     baseSha,
     changedFiles,
     changedFilesDigest,
+    fullCandidatePrDelta,
     independent: true,
     provider: "gemini",
     providerProfile: "gemini-strong",
@@ -2511,6 +2627,7 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
     baseSha,
     changedFiles,
     changedFilesDigest,
+    fullCandidatePrDelta,
     verdict: { verdict: "approve" },
     evidencePath: "/workspace/logs/compact.json",
     completedAt: "2026-07-18T00:00:02.000Z",
@@ -2526,6 +2643,8 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
     fingerprintDigest,
     changedFiles,
     changedFilesDigest,
+    fixDelta,
+    fullCandidatePrDelta,
     validation,
     externalReview,
     review,
@@ -2539,6 +2658,8 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
       commitChainDigest,
       baseSha,
       changedFilesDigest,
+      fullCandidatePrDelta,
+      fixDelta,
       configuredRepositorySlug: "tommytang213/Settleora",
       baseRepositorySlug: "tommytang213/Settleora",
       headRepositorySlug: "tommytang213/Settleora",
@@ -2557,6 +2678,8 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
     fingerprintDigest,
     changedFiles,
     changedFilesDigest,
+    fixDelta,
+    fullCandidatePrDelta,
     validation,
     externalReview,
     review,

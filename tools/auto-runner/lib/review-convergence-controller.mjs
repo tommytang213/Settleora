@@ -634,10 +634,18 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
   }
   const reviewed = await adapters.validateAndReview({ ...input, exactHead, changedFiles, codex, inventory, findingFingerprints: fingerprints, fingerprintDigest });
   if (!reviewed?.ok) return reviewed || { ok: false, reasonCode: "existing_pr_batch_fix_validation_review_failed", reason: "validation/review failed" };
+  const fixDelta = reviewed.fixDelta || {
+    changedFiles,
+    changedFilesDigest: digestStringSet(changedFiles),
+    oldHead: exactHead,
+    findingFingerprints: fingerprints,
+    fingerprintDigest,
+  };
+  const candidateChangedFiles = normalizeChangedFiles(reviewed.fullCandidatePrDelta?.changedFiles || reviewed.sourceIdentity?.fullCandidatePrDelta?.changedFiles || changedFiles);
   if (typeof adapters.commitAndPush !== "function") {
     return { ok: false, reasonCode: "existing_pr_batch_fix_commit_push_adapter_unconfigured", reason: "commit/push adapter is required for a source-changing cycle" };
   }
-  const pushed = await adapters.commitAndPush({ ...input, exactHead, changedFiles, codex, reviewed, inventory, findingFingerprints: fingerprints, fingerprintDigest, markerKey });
+  const pushed = await adapters.commitAndPush({ ...input, exactHead, changedFiles: candidateChangedFiles, fixDelta, codex, reviewed, inventory, findingFingerprints: fingerprints, fingerprintDigest, markerKey });
   if (!pushed?.ok || !pushed.newHead || pushed.newHead === exactHead) {
     return pushed?.ok === false
       ? pushed
@@ -650,8 +658,10 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
     newHead: pushed.newHead,
     findingFingerprints: fingerprints,
     fingerprintDigest,
-    changedFiles,
-    changedFilesDigest: digestStringSet(changedFiles),
+    changedFiles: candidateChangedFiles,
+    changedFilesDigest: digestStringSet(candidateChangedFiles),
+    fixDelta,
+    fullCandidatePrDelta: reviewed.fullCandidatePrDelta || reviewed.sourceIdentity?.fullCandidatePrDelta || null,
     validation: reviewed.validation || null,
     externalReview: reviewed.externalReview || null,
     review: reviewed.review || null,
@@ -666,8 +676,10 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
     newHead: pushed.newHead,
     findingFingerprints: fingerprints,
     fingerprintDigest,
-    changedFiles,
+    changedFiles: candidateChangedFiles,
     changedFilesDigest: marker.changedFilesDigest,
+    fixDelta: marker.fixDelta,
+    fullCandidatePrDelta: marker.fullCandidatePrDelta,
     validation: marker.validation,
     externalReview: marker.externalReview,
     review: marker.review,
