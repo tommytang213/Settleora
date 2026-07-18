@@ -36,8 +36,11 @@ test("stack mode loads as pr-stack-run and cannot be enabled by default config",
   const logsRoot = path.join(root, "logs");
   mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
   const configPath = path.join(logsRoot, "config.json");
-  writeFileSync(configPath, JSON.stringify({ logsRoot, repoRoot: process.cwd(), repositorySlug: "tommytang213/Settleora" }), { mode: 0o600 });
-  const config = loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "plan.json")]));
+  writeFileSync(configPath, JSON.stringify({ logsRoot, trustedControlRoot: logsRoot, repoRoot: process.cwd(), repositorySlug: "tommytang213/Settleora" }), { mode: 0o600 });
+  const config = loadConfig(
+    parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "plan.json")]),
+    { prStackTrustedRoot: logsRoot },
+  );
   assert.equal(config.mode, "pr-stack-run");
   assert.equal(config.prStackExecution.enabled, false);
 });
@@ -60,6 +63,36 @@ test("read-only live fixture remains non executable and PR 917 is refused", () =
   assert.equal(validateExecutableStackPlan(config, readOnly.plan, { source: readOnly }).reasonCode, "readonly_stack_fixture_not_executable");
   const bad = makePlan({ prs: [pr(917, "main", "feature/auto-913-bad", sha("a")), pr(920, "feature/auto-913-bad", "feature/auto-913-child", sha("b"))] });
   assert.equal(validateExecutableStackPlan(config, bad).reasonCode, "stack_pr_917_refused");
+});
+
+test("protected live plans require exact future authorization and ordinary plans still validate", () => {
+  const { config, plan, logsRoot } = stackFixture();
+  const noAuthorization = { ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: null } };
+  assert.equal(validateExecutableStackPlan(noAuthorization, plan).reasonCode, "protected_stack_plan_authorization_missing");
+  assert.equal(validateExecutableStackPlan(noAuthorization, makePlan({ prs: [pr(919, "main", "feature/auto-913-parent", sha("a")), pr(921, "feature/auto-913-parent", "feature/auto-913-other", sha("b"))] })).reasonCode, "protected_stack_plan_unauthorized");
+  assert.equal(validateExecutableStackPlan(noAuthorization, makePlan({ prs: [pr(930, "main", "feature/auto-930-parent", sha("a")), pr(920, "feature/auto-930-parent", "feature/auto-913-child", sha("b"))] })).reasonCode, "protected_stack_plan_unauthorized");
+  const ordinary = makePlan({ prs: [pr(930, "main", "feature/auto-930-parent", sha("a")), pr(931, "feature/auto-930-parent", "feature/auto-931-child", sha("b"))] });
+  assert.equal(validateExecutableStackPlan(noAuthorization, ordinary).ok, true);
+
+  const cases = [
+    ["wrong-repo.json", { repositorySlug: "other/repo" }, "protected_stack_plan_authorization_repository_mismatch"],
+    ["wrong-order.json", { orderedPrNumbers: [920, 919] }, "protected_stack_plan_authorization_pr_order_mismatch"],
+    ["wrong-digest.json", { planDigest: sha("0") }, "protected_stack_plan_authorization_digest_mismatch"],
+    ["expired.json", { expiresAt: "2000-01-01T00:00:00Z" }, "protected_stack_plan_authorization_expired"],
+    ["consumed.json", { consumedAt: "2026-07-18T00:00:00Z" }, "protected_stack_plan_authorization_consumed"],
+    ["unsigned.json", { manualGateApproved: false }, "protected_stack_plan_authorization_policy_invalid"],
+  ];
+  for (const [name, overrides, reasonCode] of cases) {
+    const authPath = path.join(logsRoot, name);
+    writeProtectedPlanAuthorization(authPath, plan, overrides);
+    const candidateConfig = { ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: authPath } };
+    assert.equal(validateExecutableStackPlan(candidateConfig, plan).reasonCode, reasonCode);
+  }
+  const taskPlan = { ...plan, taskKey: "20260719-0137" };
+  assert.equal(validateExecutableStackPlan(config, taskPlan).reasonCode, "protected_stack_plan_authorization_correlation_mismatch");
+  const taskAuth = path.join(logsRoot, "task-auth.json");
+  writeProtectedPlanAuthorization(taskAuth, taskPlan, { taskKey: "20260719-0137" });
+  assert.equal(validateExecutableStackPlan({ ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: taskAuth } }, taskPlan).ok, true);
 });
 
 test("malformed state blocks before any adapter call", async () => {
@@ -1332,13 +1365,13 @@ test("production final hygiene requires the injected live runner and records com
   assert.equal(missing.ok, false);
   assert.equal(missing.reasonCode, "final_hygiene_runner_missing");
 
-  const dryRunAdapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, { runner: finalHygieneRunner([]) });
+  const dryRunAdapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, { runner: liveFixedArgvRunner(finalHygieneRunner([])) });
   const dryRun = await dryRunAdapter.runFinalHygiene({ config: { ...fixture.config, dryRun: true }, plan: fixture.plan, state });
   assert.equal(dryRun.ok, false);
   assert.equal(dryRun.reasonCode, "final_hygiene_dry_run_cannot_complete_stack");
 
   const calls = [];
-  const adapter = createProductionPrStackAdapter(fixture.config, { runner: finalHygieneRunner(calls) });
+  const adapter = createProductionPrStackAdapter(fixture.config, { runner: liveFixedArgvRunner(finalHygieneRunner(calls)) });
   const result = await adapter.runFinalHygiene({ config: fixture.config, plan: fixture.plan, state });
   assert.equal(result.ok, true, result.reasonCode);
   assert.equal(result.result.commandEvidence.some((entry) => entry.command === "gh" && entry.args.includes("--repo") && entry.args.includes("tommytang213/Settleora")), true);
@@ -1405,7 +1438,7 @@ test("production final hygiene rejects claimed success when a required component
   state.evidence.merged["919"] = { ok: true, mergeSha: sha("c") };
   state.evidence.merged["920"] = { ok: true, mergeSha: sha("d") };
   const adapter = createProductionPrStackAdapter(fixture.config, {
-    runner: finalHygieneRunner([], { failFirstIssueComment: true }),
+	    runner: liveFixedArgvRunner(finalHygieneRunner([], { failFirstIssueComment: true })),
   });
   const result = await adapter.runFinalHygiene({ config: fixture.config, plan: fixture.plan, state });
   assert.equal(result.ok, false);
@@ -2329,18 +2362,23 @@ test("full [919, 920] sequence advances across a post-ready source-head change",
 function stackFixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-"));
   const logsRoot = path.join(root, "logs");
-  mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
-  const configPath = path.join(logsRoot, "config.json");
-  const configJson = {
-    repoRoot: process.cwd(),
-    logsRoot,
-    repositorySlug: "tommytang213/Settleora",
-    prStackIssue: autoRunnerIssue(["tools/auto-runner/**"]),
-    prStackExecution: {
-      enabled: true,
-      allowRun: true,
-      maxStackSize: 4,
-      capabilities: {
+	  mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
+	  const configPath = path.join(logsRoot, "config.json");
+	  const plan = makePlan();
+	  const authorizationPath = path.join(logsRoot, "protected-plan-authorization.json");
+	  writeProtectedPlanAuthorization(authorizationPath, plan);
+	  const configJson = {
+	    repoRoot: process.cwd(),
+	    logsRoot,
+	    trustedControlRoot: logsRoot,
+	    repositorySlug: "tommytang213/Settleora",
+	    prStackIssue: autoRunnerIssue(["tools/auto-runner/**"]),
+	    prStackExecution: {
+	      enabled: true,
+	      allowRun: true,
+	      maxStackSize: 4,
+	      protectedPlanAuthorizationPath: authorizationPath,
+	      capabilities: {
         existingPrConvergence: true,
         exactHeadReviewRequest: true,
         ciScannerPolling: true,
@@ -2351,15 +2389,34 @@ function stackFixture() {
         finalHygiene: true,
       },
     },
-  };
-  writeFileSync(configPath, JSON.stringify(configJson), { mode: 0o600 });
-  const config = loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "stack", "plan.json")]));
-  const plan = makePlan();
+	  };
+	  writeFileSync(configPath, JSON.stringify(configJson), { mode: 0o600 });
+	  const config = loadConfig(
+	    parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "stack", "plan.json")]),
+	    { prStackTrustedRoot: logsRoot },
+	  );
   const planPath = path.join(logsRoot, "stack", "plan.json");
   mkdirSync(path.dirname(planPath), { recursive: true, mode: 0o700 });
   chmodSync(path.dirname(planPath), 0o700);
   writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, { mode: 0o600 });
-  return { root, logsRoot, config, plan, planPath };
+	  return { root, logsRoot, config, plan, planPath };
+	}
+
+function writeProtectedPlanAuthorization(filePath, plan, overrides = {}) {
+  writeFileSync(filePath, `${JSON.stringify({
+    schemaVersion: 1,
+    purpose: "live_stack_acceptance",
+    repositorySlug: "tommytang213/Settleora",
+    orderedPrNumbers: [919, 920],
+    planDigest: prStackExecutorTestInternals.digestStackPlan(plan),
+    baseBranch: "main",
+    expectedHeads: Object.fromEntries(plan.orderedPrs.map((pr) => [String(pr.number), pr.headRefOid])),
+    manualGateApproved: true,
+    approvedBy: "manual-gate-test-fixture",
+    expiresAt: "2999-01-01T00:00:00Z",
+    consumedAt: null,
+    ...overrides,
+  }, null, 2)}\n`, { mode: 0o600 });
 }
 
 function autoRunnerIssue(allowedPaths = ["tools/auto-runner/**"]) {
@@ -2891,17 +2948,45 @@ function finalHygieneRunner(calls, options = {}) {
 }
 
 function liveFixedArgvRunner(runner, { mode = "live" } = {}) {
-  runner.settleoraFixedArgvRunner = true;
-  runner.settleoraRunnerMode = mode;
-  runner.settleoraNoopRunner = mode === "noop";
-  runner.settleoraRunnerIdentity = {
+  const wrapped = (command, args = [], options = {}) => {
+    const startedAt = new Date().toISOString();
+    const result = runner(command, args, options);
+    if (!result) return result;
+    const stdout = String(result.stdout || "");
+    const stderr = String(result.stderr || "");
+    return {
+      ...result,
+      commandEvidence: result.commandEvidence || {
+        runnerIdentity: wrapped.settleoraRunnerIdentity,
+        command,
+        args,
+        cwd: options.cwd || process.cwd(),
+        repositorySlug: wrapped.settleoraRunnerIdentity.repositorySlug,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        timeoutMs: options.timeoutMs || wrapped.settleoraRunnerIdentity.timeoutMs,
+        maxOutputBytes: wrapped.settleoraRunnerIdentity.maxOutputBytes,
+        status: result.status ?? null,
+        signal: result.signal || null,
+        error: result.error || null,
+        stdoutSha256: createHash("sha256").update(stdout).digest("hex"),
+        stderrSha256: createHash("sha256").update(stderr).digest("hex"),
+        stdoutExcerpt: stdout.slice(0, 1000),
+        stderrExcerpt: stderr.slice(0, 1000),
+      },
+    };
+  };
+  wrapped.settleoraFixedArgvRunner = true;
+  wrapped.settleoraRunnerMode = mode;
+  wrapped.settleoraNoopRunner = mode === "noop";
+  wrapped.settleoraRunnerIdentity = {
     kind: "live-fixed-argv",
     repositorySlug: "tommytang213/Settleora",
     repoRoot: process.cwd(),
     timeoutMs: 30000,
     maxOutputBytes: 131072,
   };
-  return runner;
+  return wrapped;
 }
 
 function targetWorktreeRunner(calls, options = {}) {

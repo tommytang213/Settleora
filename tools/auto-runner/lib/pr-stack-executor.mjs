@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   nextStackAction,
@@ -62,6 +62,8 @@ const forbiddenStackCapabilities = Object.freeze([
 
 const acceptedStrongReviewTiers = new Set(["strong_independent", "tie_breaker"]);
 const protectedBranchNames = new Set(["main", "master"]);
+const protectedLivePlanPrs = Object.freeze([917, 919, 920]);
+const authorizableLiveAcceptancePrs = Object.freeze([919, 920]);
 const githubSshAliasPattern = /^github\.com(?:[-_.][A-Za-z0-9_.-]+)?$/;
 
 export function normalizePrStackExecutionConfig(config = {}) {
@@ -72,12 +74,13 @@ export function normalizePrStackExecutionConfig(config = {}) {
   return Object.freeze({
     enabled: raw.enabled === true,
     allowRun: raw.allowRun === true,
-    productionProfileActive: raw.productionProfileActive === true,
-    maxStackSize: normalizePositiveInt(raw.maxStackSize, 4),
-    capabilities: Object.freeze(capabilities),
-    statePath: typeof raw.statePath === "string" ? raw.statePath : null,
-  });
-}
+	    productionProfileActive: raw.productionProfileActive === true,
+	    maxStackSize: normalizePositiveInt(raw.maxStackSize, 4),
+	    capabilities: Object.freeze(capabilities),
+	    statePath: typeof raw.statePath === "string" ? raw.statePath : null,
+	    protectedPlanAuthorizationPath: typeof raw.protectedPlanAuthorizationPath === "string" ? raw.protectedPlanAuthorizationPath : null,
+	  });
+	}
 
 export async function runPrStackExecution(config = {}, cliArgs = {}, options = {}) {
   const stackConfig = normalizePrStackExecutionConfig(config);
@@ -192,11 +195,13 @@ export function validateExecutableStackPlan(config = {}, plan = {}, { stackConfi
   if (plan.orderedPrs.length < 2 || plan.orderedPrs.length > Math.min(stackConfig.maxStackSize, 4)) {
     return fail("stack_size_invalid", "executable stack must contain 2-4 PR entries");
   }
-  const numbers = new Set();
-  for (const pr of plan.orderedPrs) {
-    if (!Number.isInteger(pr.number)) return fail("stack_pr_number_invalid", "PR numbers must be integers");
-    if (pr.number === 917) return fail("stack_pr_917_refused", "PR #917 cannot enter executable live-stack work");
-    if (numbers.has(pr.number)) return fail("stack_duplicate_pr_number", "duplicate PR number in stack");
+	  const numbers = new Set();
+	  const protectedNumbers = [];
+	  for (const pr of plan.orderedPrs) {
+	    if (!Number.isInteger(pr.number)) return fail("stack_pr_number_invalid", "PR numbers must be integers");
+	    if (pr.number === 917) return fail("stack_pr_917_refused", "PR #917 cannot enter executable live-stack work");
+	    if (protectedLivePlanPrs.includes(pr.number)) protectedNumbers.push(pr.number);
+	    if (numbers.has(pr.number)) return fail("stack_duplicate_pr_number", "duplicate PR number in stack");
     numbers.add(pr.number);
     if (!safeBranch(pr.baseRefName) || !safeBranch(pr.headRefName)) return fail("stack_branch_invalid", "PR branch refs must be bounded safe branch names");
     if (!safeSourceBranchTarget(pr.headRefName, { baseRefName: pr.baseRefName, defaultBranch: "main" })) {
@@ -205,9 +210,74 @@ export function validateExecutableStackPlan(config = {}, plan = {}, { stackConfi
     if (!validSha(pr.headRefOid)) return fail("stack_pr_head_invalid", "PR head SHA is missing or malformed");
     if (pr.state && !["OPEN", "MERGED", "CLOSED", "UNKNOWN"].includes(String(pr.state))) return fail("stack_pr_state_invalid", "PR state is unsupported");
   }
-  const relation = validateStackRelationships(plan);
-  if (!relation.ok) return fail("stack_relationship_invalid", relation.reason);
+	  const relation = validateStackRelationships(plan);
+	  if (!relation.ok) return fail("stack_relationship_invalid", relation.reason);
+  const authorization = validateProtectedLivePlanAuthorization(config, plan, { stackConfig, protectedNumbers });
+  if (!authorization.ok) return authorization;
   return { ok: true };
+}
+
+function validateProtectedLivePlanAuthorization(config = {}, plan = {}, { stackConfig = normalizePrStackExecutionConfig(config), protectedNumbers = [] } = {}) {
+  const protectedPlan = [...new Set(protectedNumbers)].sort((a, b) => a - b);
+  if (protectedPlan.length === 0) return { ok: true, protectedPlan: false };
+  const orderedNumbers = (plan.orderedPrs || []).map((pr) => pr.number);
+  if (JSON.stringify(orderedNumbers) !== JSON.stringify(authorizableLiveAcceptancePrs)) {
+    return fail("protected_stack_plan_unauthorized", "protected live stack plans are refused by default unless exact live acceptance authorization is present");
+  }
+	  const authorizationPath = stackConfig.protectedPlanAuthorizationPath;
+	  if (!authorizationPath) return fail("protected_stack_plan_authorization_missing", "protected live stack plan requires explicit live acceptance authorization");
+	  if (!path.isAbsolute(authorizationPath)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization path must be absolute");
+	  const trustedRoot = path.resolve(config.trustedControlRoot || config.logsRoot || "/workspace/logs/settleora-auto-runner");
+	  if (!isInside(path.resolve(authorizationPath), trustedRoot)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be under the trusted control root");
+	  const loaded = readProtectedPlanAuthorizationFile(authorizationPath);
+  if (!loaded.ok) return loaded;
+  const authorization = loaded.authorization || {};
+  const repo = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (authorization.purpose !== "live_stack_acceptance") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization purpose is invalid");
+  if (canonicalRepositorySlug(authorization.repositorySlug) !== repo) return fail("protected_stack_plan_authorization_repository_mismatch", "protected plan authorization repository does not match");
+  if (JSON.stringify(authorization.orderedPrNumbers || []) !== JSON.stringify(authorizableLiveAcceptancePrs)) {
+    return fail("protected_stack_plan_authorization_pr_order_mismatch", "protected plan authorization PR order/set does not match");
+  }
+  const expectedTaskKey = plan.taskKey || plan.correlationId || null;
+  if (expectedTaskKey && authorization.taskKey !== expectedTaskKey) return fail("protected_stack_plan_authorization_correlation_mismatch", "protected plan authorization task correlation does not match");
+  if (authorization.planDigest !== digestStackPlan(plan)) return fail("protected_stack_plan_authorization_digest_mismatch", "protected plan authorization digest does not match");
+  if (authorization.baseBranch && authorization.baseBranch !== "main") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization base branch is invalid");
+  const expectedHeads = Object.fromEntries((plan.orderedPrs || []).map((pr) => [String(pr.number), pr.headRefOid]));
+  if (authorization.expectedHeads && digestJson(authorization.expectedHeads) !== digestJson(expectedHeads)) {
+    return fail("protected_stack_plan_authorization_head_mismatch", "protected plan authorization source-head expectations do not match");
+  }
+  if (authorization.consumedAt || authorization.consumed === true) return fail("protected_stack_plan_authorization_consumed", "protected plan authorization was already consumed");
+  if (!authorization.expiresAt || Number.isNaN(Date.parse(authorization.expiresAt)) || Date.parse(authorization.expiresAt) <= Date.now()) {
+    return fail("protected_stack_plan_authorization_expired", "protected plan authorization is expired or missing expiry");
+  }
+  if (authorization.manualGateApproved !== true || typeof authorization.approvedBy !== "string" || authorization.approvedBy.trim().length === 0) {
+    return fail("protected_stack_plan_authorization_policy_invalid", "protected plan authorization lacks accepted manual-gate approval");
+  }
+  return { ok: true, protectedPlan: true, authorizationEvidence: { path: loaded.path, digest: digestJson(authorization), checkedAt: new Date().toISOString() } };
+}
+
+function readProtectedPlanAuthorizationFile(authorizationPath) {
+  let linkStat;
+  try {
+    linkStat = lstatSync(authorizationPath);
+  } catch {
+    return fail("protected_stack_plan_authorization_missing", "protected plan authorization file is missing");
+  }
+  if (linkStat.isSymbolicLink()) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must not be a symlink");
+  const real = realpathSync(authorizationPath);
+  if (real !== path.resolve(authorizationPath)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization realpath must match its canonical path");
+  const fileTrust = validateOwnerOnlyFile(real);
+  if (!fileTrust.ok) return fail("protected_stack_plan_authorization_malformed", fileTrust.reason);
+  let authorization;
+  try {
+    authorization = JSON.parse(readFileSync(real, "utf8"));
+  } catch {
+    return fail("protected_stack_plan_authorization_malformed", "protected plan authorization JSON is malformed");
+  }
+  if (!authorization || typeof authorization !== "object" || Array.isArray(authorization)) {
+    return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be an object");
+  }
+  return { ok: true, authorization, path: real };
 }
 
 export function createInitialPrStackState({ plan, adapter = null } = {}) {
@@ -703,7 +773,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       const context = repositoryContext || (await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber, adapter: this })).context;
       if (!context) return fail("repository_operation_context_missing", "repository operation context is required");
       const repo = context.argvRepository || targetConfig.repositorySlug || "tommytang213/Settleora";
-      const raw = run(
+	      const raw = run(
         "gh",
         [
           "pr",
@@ -715,17 +785,20 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
           "number,url,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,mergeable,mergeStateStatus,title,body,statusCheckRollup,comments,reviews,mergeCommit,mergedAt",
         ],
         { cwd: targetConfig.repoRoot },
-      );
-      if (raw.status !== 0 || raw.error) return fail("inspect_pr_read_failed", boundedText(raw.stderr || raw.error || raw.stdout));
+	      );
+	      if (!isRunnerResult(raw)) return fail("inspect_pr_runner_malformed", "PR inspection runner did not return fixed-argv command evidence");
+	      if (raw.status !== 0 || raw.error) return fail("inspect_pr_read_failed", boundedText(raw.stderr || raw.error || raw.stdout));
       let pr;
       try {
         pr = JSON.parse(raw.stdout || "{}");
       } catch (error) {
         return fail("inspect_pr_parse_failed", error.message);
       }
-      const proof = normalizeBoundLivePrProof({ config: targetConfig, pr, repositoryContext: context });
-      if (!proof.ok) return proof;
-      const stateSnapshot = inspectAutoMergeGithubState({ ...targetConfig, repositorySlug: repo }, { issue: {}, prUrlOrNumber: prNumber }, { runner: run });
+	      const proof = normalizeBoundLivePrProof({ config: targetConfig, pr, repositoryContext: context });
+	      if (!proof.ok) return proof;
+	      const commandEvidence = normalizeLiveInspectCommandEvidence({ result: raw, runner: run, repositorySlug: repo, prNumber, parsed: pr, cwd: targetConfig.repoRoot });
+	      if (!commandEvidence.ok && run.settleoraRunnerMode === "live") return commandEvidence;
+	      const stateSnapshot = inspectAutoMergeGithubState({ ...targetConfig, repositorySlug: repo }, { issue: {}, prUrlOrNumber: prNumber }, { runner: run });
       const reviewThreads = stateSnapshot.reviewThreads || [];
       if (!pr?.number) return fail("inspect_pr_missing", "PR inspection did not return a PR");
       return {
@@ -734,11 +807,12 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         headRefOid: pr.headRefOid,
         requiredChecks: stackFlattenCheckRollup(pr.statusCheckRollup || []),
         reviewThreads,
-        codeScanningAlerts: stateSnapshot.codeScanningAlerts || [],
-        findings: unresolvedThreadsAsFindings(reviewThreads),
-        repositoryContext: context,
-      };
-    },
+	        codeScanningAlerts: stateSnapshot.codeScanningAlerts || [],
+	        findings: unresolvedThreadsAsFindings(reviewThreads),
+	        repositoryContext: context,
+	        commandEvidence: commandEvidence.ok ? commandEvidence.evidence : null,
+	      };
+	    },
     async convergeExistingPr({ pr, findings = [], state = null, plan = null, sourceCycleBudget = null }) {
       const durableBudget = sourceCycleBudget || evaluateSourceCycleBudget({ config, state, pr, findings });
       if (!durableBudget.ok) return durableBudget;
@@ -3840,18 +3914,22 @@ async function proveFreshLiveMergedStackState({ config = {}, plan = {}, state = 
     if (livePr.baseRefName !== "main") return fail("final_hygiene_live_merge_proof_missing", `PR #${pr.number} live base is not main`, { prNumber: pr.number, baseRefName: livePr.baseRefName || null });
     const configured = repositoryContext.configuredRepositorySlug || config.repositorySlug || "tommytang213/Settleora";
     if (baseRepositorySlug !== configured || headRepositorySlug !== configured) return fail("final_hygiene_live_merge_proof_missing", `PR #${pr.number} live repository identity mismatch`, { prNumber: pr.number });
-    proofs.push(sanitizeState({
-      prNumber: pr.number,
-      state: livePr.state,
-      expectedHead: pr.headRefOid,
-      sourceHeadSha: livePr.headRefOid,
-      expectedMergeSha,
-      liveMergeSha,
-      baseRefName: livePr.baseRefName,
-      repositorySlug: configured,
-      commandEvidence: live.commandEvidence || null,
-      provenAt: new Date().toISOString(),
-    }));
+	    const commandEvidence = validateFreshMergeCommandEvidence(live.commandEvidence, { prNumber: pr.number, repositorySlug: configured });
+	    if (!commandEvidence.ok) return commandEvidence;
+	    proofs.push(sanitizeState({
+	      prNumber: pr.number,
+	      laneIdentity: { stackId: plan.stackId || null, prNumber: pr.number, headRefName: pr.headRefName },
+	      state: livePr.state,
+	      expectedHead: pr.headRefOid,
+	      sourceHeadSha: livePr.headRefOid,
+	      expectedMergeSha,
+	      liveMergeSha,
+	      baseRefName: livePr.baseRefName,
+	      repositorySlug: configured,
+	      commandEvidence: commandEvidence.evidence,
+	      commandEvidenceDigest: digestJson(commandEvidence.evidence),
+	      provenAt: new Date().toISOString(),
+	    }));
   }
   return { ok: true, proofType: "fresh_live_merged_stack_state", repositoryContext, proofs, provenAt: new Date().toISOString() };
 }
@@ -4214,6 +4292,82 @@ function sanitizeArgv(args = []) {
   });
 }
 
+function normalizeLiveInspectCommandEvidence({ result = {}, runner, repositorySlug, prNumber, parsed = {}, cwd = null } = {}) {
+  const rawEvidence = result.commandEvidence || null;
+  if (!rawEvidence || typeof rawEvidence !== "object" || Array.isArray(rawEvidence)) {
+    return fail("inspect_pr_command_evidence_missing", "live PR inspection must return sanitized command evidence");
+  }
+  const args = sanitizeArgv(rawEvidence.args || []);
+  if (rawEvidence.command !== "gh") return fail("inspect_pr_command_evidence_incomplete", "live PR inspection command evidence must use gh");
+  if (args[0] !== "pr" || args[1] !== "view" || String(args[2]) !== String(prNumber)) {
+    return fail("inspect_pr_command_evidence_pr_mismatch", "live PR inspection command evidence PR number does not match");
+  }
+  const repoIndex = args.indexOf("--repo");
+  if (repoIndex < 0 || args[repoIndex + 1] !== repositorySlug) {
+    return fail("inspect_pr_command_evidence_repository_mismatch", "live PR inspection command evidence must include the explicit repository");
+  }
+  const runnerIdentity = sanitizeState(rawEvidence.runnerIdentity || runner?.settleoraRunnerIdentity || null);
+  if (!runnerIdentity || runnerIdentity.kind !== "live-fixed-argv") {
+    return fail("inspect_pr_command_evidence_runner_mismatch", "live PR inspection command evidence must include live runner identity");
+  }
+  const status = rawEvidence.status ?? result.status;
+  if (status !== 0) return fail("inspect_pr_command_evidence_exit_mismatch", "live PR inspection command evidence must record successful exit status");
+  const stdout = String(result.stdout || "");
+  const stderr = String(result.stderr || "");
+  const evidence = sanitizeState({
+    schemaVersion: 1,
+    runnerIdentity,
+    command: rawEvidence.command,
+    args,
+    repositorySlug,
+    prNumber,
+    cwd: rawEvidence.cwd || cwd || null,
+    startedAt: rawEvidence.startedAt || null,
+    completedAt: rawEvidence.completedAt || new Date().toISOString(),
+    timeoutMs: rawEvidence.timeoutMs ?? runnerIdentity.timeoutMs ?? null,
+    maxOutputBytes: rawEvidence.maxOutputBytes ?? runnerIdentity.maxOutputBytes ?? null,
+    status,
+    signal: rawEvidence.signal || null,
+    error: rawEvidence.error || result.error || null,
+    stdoutSha256: rawEvidence.stdoutSha256 || createHash("sha256").update(stdout).digest("hex"),
+    stderrSha256: rawEvidence.stderrSha256 || createHash("sha256").update(stderr).digest("hex"),
+    stdoutExcerpt: boundedText(rawEvidence.stdoutExcerpt || stdout, 1000),
+    stderrExcerpt: boundedText(rawEvidence.stderrExcerpt || stderr, 1000),
+    parsedResponseDigest: digestJson(parsed),
+  });
+  for (const field of ["cwd", "startedAt", "completedAt", "timeoutMs", "maxOutputBytes", "stdoutSha256", "stderrSha256", "parsedResponseDigest"]) {
+    if (evidence[field] === null || evidence[field] === undefined || evidence[field] === "") {
+      return fail("inspect_pr_command_evidence_incomplete", `live PR inspection command evidence missing ${field}`);
+    }
+  }
+  return { ok: true, evidence };
+}
+
+function validateFreshMergeCommandEvidence(evidence, { prNumber, repositorySlug } = {}) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
+    return fail("final_hygiene_live_command_evidence_missing", "fresh merged-state proof requires live command evidence");
+  }
+  if (evidence.runnerIdentity?.kind !== "live-fixed-argv") {
+    return fail("final_hygiene_live_command_evidence_missing", "fresh merged-state proof requires live runner identity");
+  }
+  if (evidence.repositorySlug !== repositorySlug) {
+    return fail("final_hygiene_live_command_evidence_repository_mismatch", "fresh merged-state command evidence repository mismatch");
+  }
+  if (evidence.prNumber !== prNumber) {
+    return fail("final_hygiene_live_command_evidence_pr_mismatch", "fresh merged-state command evidence PR mismatch");
+  }
+  if (evidence.command !== "gh" || !Array.isArray(evidence.args) || evidence.args[0] !== "pr" || evidence.args[1] !== "view" || !evidence.args.includes("--repo")) {
+    return fail("final_hygiene_live_command_evidence_incomplete", "fresh merged-state command evidence must use fixed gh pr view --repo argv");
+  }
+  for (const field of ["cwd", "startedAt", "completedAt", "status", "stdoutSha256", "stderrSha256", "parsedResponseDigest"]) {
+    if (evidence[field] === null || evidence[field] === undefined || evidence[field] === "") {
+      return fail("final_hygiene_live_command_evidence_incomplete", `fresh merged-state command evidence missing ${field}`);
+    }
+  }
+  if (evidence.status !== 0) return fail("final_hygiene_live_command_evidence_exit_mismatch", "fresh merged-state command evidence did not record success");
+  return { ok: true, evidence: sanitizeState(evidence) };
+}
+
 function validateFinalHygieneResult(result, commandEvidence = []) {
   if (!result || typeof result !== "object" || Array.isArray(result)) return fail("final_hygiene_result_missing", "final hygiene did not return canonical evidence");
   if (result.status !== "merged") return fail("final_hygiene_status_not_merged", "final hygiene did not report merged status");
@@ -4269,6 +4423,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   createOrReuseLocalCandidateCommit,
   createSourceCycleOperationContext,
   deriveCanonicalCommitChain,
+  digestStackPlan,
   discoverTaskScopedPendingPushIntents,
   evaluateSourceCycleBudget,
   fetchAndReadOriginMain,

@@ -99,11 +99,12 @@ test("stack config trust boundary accepts owner-only config under logsRoot", () 
     mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
     const configPath = path.join(logsRoot, "runner-config.json");
     const planPath = path.join(logsRoot, "stack", "plan.json");
-    writeFileSync(configPath, `${JSON.stringify({ logsRoot, repoRoot: "/workspace/repos/Settleora", repositorySlug: "tommytang213/Settleora" })}\n`, { mode: 0o600 });
-    const config = loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath]));
-    assert.equal(config.mode, "pr-stack-run");
-    assert.equal(config.configPath, configPath);
-  } finally {
+	    writeFileSync(configPath, `${JSON.stringify({ logsRoot, trustedControlRoot: logsRoot, repoRoot: "/workspace/repos/Settleora", repositorySlug: "tommytang213/Settleora" })}\n`, { mode: 0o600 });
+	    const config = loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot });
+	    assert.equal(config.mode, "pr-stack-run");
+	    assert.equal(config.configPath, configPath);
+	    assert.equal(config.logsRoot, logsRoot);
+	  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -116,42 +117,57 @@ test("stack config trust boundary rejects outside symlink writable directory ove
     mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
     mkdirSync(outsideRoot, { recursive: true, mode: 0o700 });
     const planPath = path.join(logsRoot, "stack", "plan.json");
-    const validBody = { logsRoot, repoRoot: "/workspace/repos/Settleora", repositorySlug: "tommytang213/Settleora" };
-    const outsideConfig = path.join(outsideRoot, "runner-config.json");
-    writeFileSync(outsideConfig, `${JSON.stringify(validBody)}\n`, { mode: 0o600 });
-    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", outsideConfig, "--stack-plan", planPath])), /under configured logsRoot/);
+	    const validBody = { logsRoot, trustedControlRoot: logsRoot, repoRoot: "/workspace/repos/Settleora", repositorySlug: "tommytang213/Settleora" };
+	    const outsideConfig = path.join(outsideRoot, "runner-config.json");
+	    writeFileSync(outsideConfig, `${JSON.stringify({ ...validBody, logsRoot: outsideRoot, trustedControlRoot: outsideRoot })}\n`, { mode: 0o600 });
+	    assert.throws(
+	      () => loadConfig(parseCliArgs(["--run-pr-stack", "--config", outsideConfig, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }),
+	      /externally anchored trusted control root/,
+	    );
+	    const selfDeclaringLogs = path.join(logsRoot, "self-declared-outside-logs.json");
+	    writeFileSync(selfDeclaringLogs, `${JSON.stringify({ ...validBody, logsRoot: outsideRoot })}\n`, { mode: 0o600 });
+	    assert.throws(
+	      () => loadConfig(parseCliArgs(["--run-pr-stack", "--config", selfDeclaringLogs, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }),
+	      /logsRoot must remain under the externally anchored trusted control root/,
+	    );
+	    const selfDeclaringTrusted = path.join(logsRoot, "self-declared-outside-trusted.json");
+	    writeFileSync(selfDeclaringTrusted, `${JSON.stringify({ ...validBody, trustedControlRoot: outsideRoot })}\n`, { mode: 0o600 });
+	    assert.throws(
+	      () => loadConfig(parseCliArgs(["--run-pr-stack", "--config", selfDeclaringTrusted, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }),
+	      /trustedControlRoot must remain under the externally anchored trusted control root/,
+	    );
 
     const target = path.join(logsRoot, "target.json");
     const link = path.join(logsRoot, "link.json");
     writeFileSync(target, `${JSON.stringify(validBody)}\n`, { mode: 0o600 });
     symlinkSync(target, link);
-    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", link, "--stack-plan", planPath])), /must not be a symlink/);
+	    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", link, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }), /must not be a symlink/);
 
     const writable = path.join(logsRoot, "writable.json");
     writeFileSync(writable, `${JSON.stringify(validBody)}\n`, { mode: 0o600 });
     chmodSync(writable, 0o620);
-    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", writable, "--stack-plan", planPath])), /group\/world writable/);
+	    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", writable, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }), /group\/world writable/);
 
     const directory = path.join(logsRoot, "directory-config.json");
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", directory, "--stack-plan", planPath])), /regular file/);
+	    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", directory, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }), /regular file/);
 
     const oversized = path.join(logsRoot, "oversized.json");
     writeFileSync(oversized, `{ "logsRoot": ${JSON.stringify(logsRoot)}, "padding": "${"x".repeat(1024 * 1024)}" }\n`, { mode: 0o600 });
-    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", oversized, "--stack-plan", planPath])), /bounded size/);
+	    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", oversized, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }), /bounded size/);
 
     const invalidUtf8 = path.join(logsRoot, "invalid-utf8.json");
     writeFileSync(invalidUtf8, Buffer.from([0xff, 0xfe, 0xfd]), { mode: 0o600 });
-    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", invalidUtf8, "--stack-plan", planPath])), /valid UTF-8/);
+	    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", invalidUtf8, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }), /valid UTF-8/);
 
     const invalidJson = path.join(logsRoot, "invalid-json.json");
     writeFileSync(invalidJson, "{bad", { mode: 0o600 });
-    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", invalidJson, "--stack-plan", planPath])), /JSON is malformed/);
+	    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", invalidJson, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }), /JSON is malformed/);
 
     const mismatch = path.join(logsRoot, "mismatch.json");
-    writeFileSync(mismatch, `${JSON.stringify({ logsRoot, repoRoot: "/workspace/repos/Settleora", repositorySlug: "other/Settleora" })}\n`, { mode: 0o600 });
-    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", mismatch, "--stack-plan", planPath])), /approved repository identity/);
-  } finally {
+	    writeFileSync(mismatch, `${JSON.stringify({ logsRoot, trustedControlRoot: logsRoot, repoRoot: "/workspace/repos/Settleora", repositorySlug: "other/Settleora" })}\n`, { mode: 0o600 });
+	    assert.throws(() => loadConfig(parseCliArgs(["--run-pr-stack", "--config", mismatch, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }), /approved repository identity/);
+	  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

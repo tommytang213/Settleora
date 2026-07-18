@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -1764,9 +1765,10 @@ function createLiveFixedArgvRunner(config = {}) {
   const timeoutMs = Number.isInteger(config.prStackExecution?.runnerTimeoutMs)
     ? Math.max(1000, Math.min(config.prStackExecution.runnerTimeoutMs, 120000))
     : 30000;
-  const runner = (command, args = [], options = {}) => {
-    if (typeof command !== "string" || command.trim() !== command || command.length === 0 || /\s/.test(command)) {
-      return { status: 1, stdout: "", stderr: "fixed_argv_command_required", error: "fixed_argv_command_required" };
+	  const runner = (command, args = [], options = {}) => {
+	    const startedAt = new Date().toISOString();
+	    if (typeof command !== "string" || command.trim() !== command || command.length === 0 || /\s/.test(command)) {
+	      return { status: 1, stdout: "", stderr: "fixed_argv_command_required", error: "fixed_argv_command_required" };
     }
     if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
       return { status: 1, stdout: "", stderr: "fixed_argv_args_required", error: "fixed_argv_args_required" };
@@ -1775,29 +1777,44 @@ function createLiveFixedArgvRunner(config = {}) {
       return { status: 1, stdout: "", stderr: "shell_execution_refused", error: "shell_execution_refused" };
     }
     const cwd = path.resolve(options.cwd || repoRoot);
-    const result = spawnSync(command, args, {
+	    const result = spawnSync(command, args, {
       cwd,
       input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
       encoding: "utf8",
       windowsHide: true,
       shell: false,
       timeout: options.timeoutMs || timeoutMs,
-      maxBuffer: maxOutputBytes,
-    });
-    return {
-      status: result.status ?? (result.error ? 1 : 0),
-      stdout: boundRunnerOutput(result.stdout || "", maxOutputBytes),
-      stderr: boundRunnerOutput(result.stderr || "", maxOutputBytes),
-      error: result.error?.message ? boundRunnerOutput(result.error.message, 2000) : null,
-      commandEvidence: {
-        command,
-        args: args.map((arg) => sanitizeRunnerArg(arg)),
-        cwd,
-        repositorySlug,
-        status: result.status ?? (result.error ? 1 : 0),
-      },
-    };
-  };
+	      maxBuffer: maxOutputBytes,
+	    });
+	    const stdout = boundRunnerOutput(result.stdout || "", maxOutputBytes);
+	    const stderr = boundRunnerOutput(result.stderr || "", maxOutputBytes);
+	    const error = result.error?.message ? boundRunnerOutput(result.error.message, 2000) : null;
+	    const completedAt = new Date().toISOString();
+	    return {
+	      status: result.status ?? (result.error ? 1 : 0),
+	      stdout,
+	      stderr,
+	      error,
+	      commandEvidence: {
+	        runnerIdentity: runner.settleoraRunnerIdentity,
+	        command,
+	        args: args.map((arg) => sanitizeRunnerArg(arg)),
+	        cwd,
+	        repositorySlug,
+	        startedAt,
+	        completedAt,
+	        timeoutMs: options.timeoutMs || timeoutMs,
+	        maxOutputBytes,
+	        status: result.status ?? (result.error ? 1 : 0),
+	        signal: result.signal || null,
+	        error,
+	        stdoutSha256: createHash("sha256").update(stdout).digest("hex"),
+	        stderrSha256: createHash("sha256").update(stderr).digest("hex"),
+	        stdoutExcerpt: boundRunnerOutput(stdout, 1000),
+	        stderrExcerpt: boundRunnerOutput(stderr, 1000),
+	      },
+	    };
+	  };
   runner.settleoraFixedArgvRunner = true;
   runner.settleoraRunnerMode = "live";
   runner.settleoraRunnerIdentity = {

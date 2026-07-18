@@ -11,6 +11,7 @@ import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } fr
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
+const defaultTrustedControlRoot = path.join(defaultLogsRoot, "trusted-control");
 
 export const defaultConfig = Object.freeze({
   repoRoot: "/workspace/repos/Settleora",
@@ -51,12 +52,13 @@ export const defaultConfig = Object.freeze({
   },
   allowExistingPrRecovery: false,
   outageResubmission: defaultOutageResubmissionConfig,
-  prStackExecution: {
-    enabled: false,
-    allowRun: false,
-    productionProfileActive: false,
-    maxStackSize: 4,
-    statePath: null,
+	  prStackExecution: {
+	    enabled: false,
+	    allowRun: false,
+	    productionProfileActive: false,
+	    maxStackSize: 4,
+	    statePath: null,
+	    protectedPlanAuthorizationPath: null,
     capabilities: {
       existingPrConvergence: false,
       exactHeadReviewRequest: false,
@@ -369,7 +371,10 @@ function readValue(argv, index, name) {
 export function loadConfig(cliArgs, trustedCapabilities = {}) {
   let fileConfig = {};
   if (cliArgs.configPath) {
-    const loaded = readTrustedConfigFile(cliArgs.configPath, { runPrStack: cliArgs.runPrStack });
+    const loaded = readTrustedConfigFile(cliArgs.configPath, {
+      runPrStack: cliArgs.runPrStack,
+      bootstrapTrustedRoot: trustedCapabilities?.prStackTrustedRoot,
+    });
     fileConfig = loaded.config;
   }
   const config = {
@@ -466,16 +471,22 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   return config;
 }
 
-function readTrustedConfigFile(configPath, { runPrStack = false } = {}) {
+function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null } = {}) {
   const resolved = path.resolve(configPath);
   if (!runPrStack) {
     return { config: JSON.parse(readFileSync(resolved, "utf8")), evidence: null };
   }
   if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("Config path must be absolute and canonical.");
+  const trustRoot = resolveExternalConfigTrustRoot({ bootstrapTrustedRoot });
+  const trustedRootProof = validateTrustedRootDirectory(trustRoot);
+  if (!trustedRootProof.ok) throw new Error(trustedRootProof.reason);
   const linkStat = lstatSync(resolved);
   if (linkStat.isSymbolicLink()) throw new Error("Config path must not be a symlink.");
   const real = realpathSync(resolved);
   if (real !== resolved) throw new Error("Config path realpath must match the canonical path.");
+  if (!isInsidePath(real, trustedRootProof.realpath)) {
+    throw new Error("--run-pr-stack config path must be under externally anchored trusted control root.");
+  }
   const stat = statSync(real);
   if (!stat.isFile()) throw new Error("Config path must be a regular file.");
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
@@ -491,13 +502,13 @@ function readTrustedConfigFile(configPath, { runPrStack = false } = {}) {
     throw new Error(`Config JSON is malformed: ${error.message}`);
   }
   if (runPrStack) {
-    const logsRoot = path.resolve(parsed.logsRoot || defaultConfig.logsRoot);
-    const trustedControlRoot = path.resolve(parsed.trustedControlRoot || path.join(defaultConfig.logsRoot, "trusted-control"));
-    if (!isInsidePath(real, logsRoot) && !isInsidePath(real, trustedControlRoot)) {
-      throw new Error("--run-pr-stack config path must be under configured logsRoot or trusted control root.");
-    }
     if (parsed.repositorySlug && parsed.repositorySlug !== defaultConfig.repositorySlug) {
       throw new Error("--run-pr-stack config repository must match the approved repository identity.");
+    }
+    for (const [field, value] of [["logsRoot", parsed.logsRoot], ["trustedControlRoot", parsed.trustedControlRoot]]) {
+      if (value !== undefined && value !== null && !isInsidePath(path.resolve(value), trustedRootProof.realpath)) {
+        throw new Error(`--run-pr-stack config ${field} must remain under the externally anchored trusted control root.`);
+      }
     }
   }
   return {
@@ -505,12 +516,39 @@ function readTrustedConfigFile(configPath, { runPrStack = false } = {}) {
     evidence: {
       path: resolved,
       realpath: real,
+      trustedRoot: trustedRootProof.realpath,
       size: stat.size,
       mode: stat.mode & 0o777,
       uid: stat.uid,
       loadedAt: new Date().toISOString(),
     },
   };
+}
+
+function resolveExternalConfigTrustRoot({ bootstrapTrustedRoot = null } = {}) {
+  const raw = bootstrapTrustedRoot || process.env.SETTLEORA_STACK_TRUST_ROOT || defaultTrustedControlRoot;
+  if (!raw || typeof raw !== "string" || !path.isAbsolute(raw)) {
+    throw new Error("--run-pr-stack requires an externally anchored trusted control root.");
+  }
+  return path.resolve(raw);
+}
+
+function validateTrustedRootDirectory(root) {
+  let linkStat;
+  try {
+    linkStat = lstatSync(root);
+  } catch {
+    return { ok: false, reason: "--run-pr-stack trusted control root is missing." };
+  }
+  if (linkStat.isSymbolicLink()) return { ok: false, reason: "--run-pr-stack trusted control root must not be a symlink." };
+  const real = realpathSync(root);
+  if (real !== root) return { ok: false, reason: "--run-pr-stack trusted control root realpath must match the canonical path." };
+  const stat = statSync(real);
+  if (!stat.isDirectory()) return { ok: false, reason: "--run-pr-stack trusted control root must be a directory." };
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) return { ok: false, reason: "--run-pr-stack trusted control root owner must match the current operator." };
+  if ((stat.mode & 0o022) !== 0) return { ok: false, reason: "--run-pr-stack trusted control root must not be group/world writable." };
+  return { ok: true, realpath: real };
 }
 
 function isInsidePath(candidate, root) {
@@ -597,22 +635,26 @@ export function normalizePrStackExecutionConfig(raw = {}) {
   if (raw && typeof raw !== "object") throw new Error("prStackExecution must be an object");
   const capabilities = {};
   for (const key of [...required, ...forbidden]) capabilities[key] = raw.capabilities?.[key] === true;
-  const maxStackSize = raw.maxStackSize ?? 4;
+	  const maxStackSize = raw.maxStackSize ?? 4;
   if (!Number.isInteger(maxStackSize) || maxStackSize < 2 || maxStackSize > 4) {
     throw new Error("prStackExecution.maxStackSize must be an integer between 2 and 4");
   }
-  if (raw.statePath !== null && raw.statePath !== undefined && (typeof raw.statePath !== "string" || !path.isAbsolute(raw.statePath))) {
-    throw new Error("prStackExecution.statePath must be an absolute path when set");
-  }
-  return Object.freeze({
-    enabled: raw.enabled === true,
-    allowRun: raw.allowRun === true,
-    productionProfileActive: raw.productionProfileActive === true,
-    maxStackSize,
-    statePath: raw.statePath || null,
-    capabilities: Object.freeze(capabilities),
-  });
-}
+	  if (raw.statePath !== null && raw.statePath !== undefined && (typeof raw.statePath !== "string" || !path.isAbsolute(raw.statePath))) {
+	    throw new Error("prStackExecution.statePath must be an absolute path when set");
+	  }
+	  if (raw.protectedPlanAuthorizationPath !== null && raw.protectedPlanAuthorizationPath !== undefined && (typeof raw.protectedPlanAuthorizationPath !== "string" || !path.isAbsolute(raw.protectedPlanAuthorizationPath))) {
+	    throw new Error("prStackExecution.protectedPlanAuthorizationPath must be an absolute path when set");
+	  }
+	  return Object.freeze({
+	    enabled: raw.enabled === true,
+	    allowRun: raw.allowRun === true,
+	    productionProfileActive: raw.productionProfileActive === true,
+	    maxStackSize,
+	    statePath: raw.statePath || null,
+	    protectedPlanAuthorizationPath: raw.protectedPlanAuthorizationPath || null,
+	    capabilities: Object.freeze(capabilities),
+	  });
+	}
 
 function normalizeStringList(value, fieldName) {
   if (!Array.isArray(value)) throw new Error(`${fieldName} must be an array`);
