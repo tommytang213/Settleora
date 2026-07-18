@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   nextStackAction,
@@ -349,7 +349,30 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   }
   const before = await adapter.inspectPr({ config, plan, state, prNumber: pr.number });
   if (!before?.ok) return waitOrFail(before, "pr_inspection_failed");
-  if (before.headRefOid && before.headRefOid !== pr.headRefOid) return fail("stack_pr_head_stale", `PR #${pr.number} head changed`);
+  if (before.headRefOid && before.headRefOid !== pr.headRefOid) {
+    const reconciled = typeof adapter.reconcilePendingPushIntent === "function"
+      ? await adapter.reconcilePendingPushIntent({ config, plan, state, pr, livePr: before })
+      : null;
+    if (reconciled?.ok && reconciled.finalized === true) {
+      const newHead = reconciled.newHead;
+      const sourceCycles = { ...(state.sourceCycles || {}), [pr.number]: (state.sourceCycles?.[pr.number] || 0) + 1 };
+      const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, reconciled);
+      if (!rebound.ok) return rebound;
+      return {
+        ok: true,
+        evidence: rebound.evidence,
+        mutationMarkers: rebound.mutationMarkers,
+        sourceCycles,
+        exactHeads: rebound.exactHeads,
+        orderedPrs: rebound.orderedPrs,
+        summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, pushIntentReconciledBeforeStale: true },
+      };
+    }
+    if (reconciled?.ok === false && reconciled.reasonCode !== "push_intent_not_completed" && reconciled.reasonCode !== "push_intent_unpushed_candidate") {
+      return reconciled;
+    }
+    return fail("stack_pr_head_stale", `PR #${pr.number} head changed`);
+  }
   const result = await adapter.convergeExistingPr({ config, plan, state, pr, findings: before.findings || [] });
   if (!result?.ok) return waitOrFail(result, "pr_convergence_failed");
   const newHead = result.newHead || result.headRefOid || pr.headRefOid;
@@ -357,6 +380,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   if (newHead !== pr.headRefOid) {
     sourceCycles[pr.number] = (sourceCycles[pr.number] || 0) + 1;
     const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, result);
+    if (!rebound.ok) return rebound;
     return {
       ok: true,
       evidence: rebound.evidence,
@@ -638,6 +662,9 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     async updatePrStatusEvidence() {
       return { ok: true, reason: "status_update_not_required" };
     },
+    async reconcilePendingPushIntent({ config: cfg, state, pr, livePr }) {
+      return reconcileTaskScopedPendingPushIntent({ config: cfg || config, state, pr, livePr, runner: runner || defaultRunner });
+    },
     async runFinalHygiene({ config: cfg, plan, state }) {
       const finalPr = plan.orderedPrs.at(-1);
       const mergeProof = state.evidence?.merged?.[finalPr.number] || {};
@@ -830,35 +857,129 @@ function rebindPlanToStateHeads(plan, state) {
 
 function rebindStateToNewHead(state, prNumber, newHead, sourceCycles, result) {
   const oldHead = state.exactHeads?.[prNumber] || state.orderedPrs?.find((pr) => pr.number === prNumber)?.headRefOid || null;
+  const canonical = normalizeSourceChangingConvergenceResult(result, { prNumber, oldHead, newHead });
+  if (!canonical.ok) return canonical;
   let evidence = putEvidence(invalidateHeadBoundEvidence(state.evidence, prNumber), "reviewConverged", prNumber, {
     ...result,
     ok: true,
     oldHead,
     newHead,
     reboundExactHead: true,
+    sourceIdentity: canonical.sourceIdentity,
+    changedFiles: canonical.changedFiles,
+    changedFilesDigest: canonical.changedFilesDigest,
+    findingFingerprints: canonical.findingFingerprints,
+    fingerprintDigest: canonical.fingerprintDigest,
+    completedAt: canonical.completedAt,
   });
-  if (result?.validation) evidence = putEvidence(evidence, "validation", prNumber, { ...result.validation, exactHead: newHead });
-  if (result?.externalReview) evidence = putEvidence(evidence, "strongReview", prNumber, result.externalReview);
-  if (result?.review) evidence = putEvidence(evidence, "codexReview", prNumber, result.review);
-  if (result?.durableMutationMarkers && typeof result.durableMutationMarkers === "object") {
-    evidence = putEvidence(evidence, "batchFix", prNumber, {
-      ok: true,
-      newHead,
-      mutationMarkers: result.durableMutationMarkers,
-      findingFingerprints: result.findingFingerprints || [],
-      fingerprintDigest: result.fingerprintDigest || null,
-    });
-  }
+  evidence = putEvidence(evidence, "validation", prNumber, canonical.validation);
+  evidence = putEvidence(evidence, "strongReview", prNumber, canonical.strongReview);
+  evidence = putEvidence(evidence, "codexReview", prNumber, canonical.codexReview);
+  evidence = putEvidence(evidence, "batchFix", prNumber, {
+    ok: true,
+    oldHead,
+    newHead,
+    sourceIdentity: canonical.sourceIdentity,
+    changedFiles: canonical.changedFiles,
+    changedFilesDigest: canonical.changedFilesDigest,
+    reviewPackageDigest: canonical.reviewPackageDigest,
+    diffDigest: canonical.diffDigest,
+    mutationMarkers: canonical.durableMutationMarkers,
+    findingFingerprints: canonical.findingFingerprints,
+    fingerprintDigest: canonical.fingerprintDigest,
+    evidencePaths: canonical.evidencePaths,
+    completedAt: canonical.completedAt,
+  });
   const mutationMarkers = {
     ...pruneHeadBoundMutationMarkers(state.mutationMarkers, prNumber, oldHead),
-    ...(result?.durableMutationMarkers || {}),
+    ...canonical.durableMutationMarkers,
   };
   return {
+    ok: true,
     evidence,
     sourceCycles,
     exactHeads: { ...(state.exactHeads || {}), [prNumber]: newHead },
     orderedPrs: rebindOrderedPrToNewHead(state, prNumber, newHead),
     mutationMarkers,
+  };
+}
+
+function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHead, newHead } = {}) {
+  const nested = result?.result;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) {
+    return fail("source_rebound_result_shape_invalid", "source-changing convergence result must contain the canonical nested result object");
+  }
+  if (nested.ok !== true) return fail("source_rebound_result_not_ok", "canonical nested source-changing result did not pass");
+  if (nested.newHead !== newHead) return fail("source_rebound_nested_head_mismatch", "nested source-changing result does not match returned new head");
+  if (newHead === oldHead) return fail("source_rebound_new_head_required", "source-changing convergence result did not advance the head");
+  const sourceIdentity = nested.sourceIdentity || {};
+  const changedFiles = normalizeChangedFiles(nested.changedFiles || sourceIdentity.changedFiles || []);
+  const changedFilesDigest = nested.changedFilesDigest || sourceIdentity.changedFilesDigest || null;
+  const expectedBase = sourceIdentity.baseSha || nested.baseSha || null;
+  if (!validSha(oldHead) || !validSha(newHead)) return fail("source_rebound_head_invalid", "source rebound head identity is invalid");
+  if (sourceIdentity.oldHead && sourceIdentity.oldHead !== oldHead) return fail("source_rebound_old_head_mismatch", "source identity old head does not match");
+  if ((sourceIdentity.newHead || sourceIdentity.headSha) !== newHead) return fail("source_rebound_source_head_mismatch", "source identity new head does not match");
+  if (sourceIdentity.parent && sourceIdentity.parent !== oldHead) return fail("source_rebound_parent_mismatch", "candidate parent does not match pre-fix head");
+  if (!validSha(sourceIdentity.tree)) return fail("source_rebound_tree_missing", "candidate tree evidence is missing");
+  if (!validSha(expectedBase)) return fail("source_rebound_base_missing", "candidate base evidence is missing");
+  if (changedFiles.length === 0) return fail("source_rebound_changed_files_missing", "candidate changed-file evidence is missing");
+  if (changedFilesDigest !== digestStringSet(changedFiles)) return fail("source_rebound_changed_file_digest_mismatch", "candidate changed-file digest does not match");
+  const validation = validateValidationEvidenceObject(nested.validation, { expectedHead: newHead, expectedBase, changedFiles });
+  if (!validation.ok) return validation;
+  const strongReview = validateReviewEvidenceObject(nested.externalReview, {
+    name: "source_rebound_strong_review",
+    expectedHead: newHead,
+    expectedBase,
+    changedFiles,
+    requireIndependent: true,
+  });
+  if (!strongReview.ok) return strongReview;
+  const codexReview = validateReviewEvidenceObject(nested.review, {
+    name: "source_rebound_codex_review",
+    expectedHead: newHead,
+    expectedBase,
+    changedFiles,
+    requireIndependent: false,
+  });
+  if (!codexReview.ok) return codexReview;
+  const durableMutationMarkers = nested.durableMutationMarkers || {};
+  const markerEntries = Object.entries(durableMutationMarkers);
+  if (markerEntries.length !== 1) return fail("source_rebound_mutation_marker_ambiguous", "source-changing convergence must provide exactly one durable mutation marker");
+  const [, marker] = markerEntries[0];
+  if (marker?.prNumber !== prNumber) return fail("source_rebound_marker_pr_mismatch", "durable mutation marker PR number does not match");
+  if (marker.oldHead !== oldHead || marker.newHead !== newHead) return fail("source_rebound_marker_head_mismatch", "durable mutation marker head identity does not match");
+  if (!sameStringSet(marker.changedFiles || [], changedFiles) || marker.changedFilesDigest !== changedFilesDigest) {
+    return fail("source_rebound_marker_files_mismatch", "durable mutation marker file evidence does not match");
+  }
+  const fingerprintDigest = nested.fingerprintDigest || marker.fingerprintDigest || null;
+  if (!fingerprintDigest || (marker.fingerprintDigest && marker.fingerprintDigest !== fingerprintDigest)) {
+    return fail("source_rebound_finding_digest_mismatch", "finding inventory digest is missing or inconsistent");
+  }
+  const findingFingerprints = normalizeChangedFiles(nested.findingFingerprints || marker.findingFingerprints || []);
+  const evidencePaths = normalizeChangedFiles([
+    nested.validation?.evidencePath,
+    nested.validation?.evidencePaths,
+    nested.externalReview?.evidencePath,
+    nested.externalReview?.providerEvidencePath,
+    nested.review?.evidencePath,
+    nested.review?.logPath,
+    nested.reviewPackagePath,
+  ].flat().filter(Boolean));
+  return {
+    ok: true,
+    validation: { ...validation.validation, exactHead: newHead },
+    strongReview: strongReview.review,
+    codexReview: codexReview.review,
+    sourceIdentity,
+    changedFiles,
+    changedFilesDigest,
+    reviewPackageDigest: nested.reviewPackageDigest || nested.reviewPackage?.digest || null,
+    diffDigest: nested.diffDigest || sourceIdentity.patchDigest || null,
+    durableMutationMarkers,
+    findingFingerprints,
+    fingerprintDigest,
+    evidencePaths,
+    completedAt: nested.completedAt || marker.pushedAt || new Date().toISOString(),
   };
 }
 
@@ -1257,6 +1378,7 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
     candidateParent: sourceIdentity.parent || null,
     candidateTree: sourceIdentity.tree || null,
     findingInventoryDigest: fingerprintDigest || null,
+    findingFingerprints: reviewed?.sourceIdentity?.findingFingerprints || [],
     changedFiles,
     changedFilesDigest: digestStringSet(changedFiles),
     patchDigest: sourceIdentity.patchDigest || null,
@@ -1267,6 +1389,10 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
     supervisorRunId: config.supervisorRunId || null,
     validationHead: reviewed?.validation?.headSha || null,
     strongReviewHead: reviewed?.externalReview?.reviewedHead || reviewed?.externalReview?.headSha || null,
+    validation: reviewed?.validation || null,
+    externalReview: reviewed?.externalReview || null,
+    review: reviewed?.review || null,
+    sourceIdentity,
     pushTarget,
     intentPath,
     timestamp: new Date().toISOString(),
@@ -1278,29 +1404,43 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
 }
 
 function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = false }) {
+  const validation = validatePushIntentShape({ config, pr, intent });
+  if (!validation.ok) return validation;
   const branch = intent.sourceBranch;
-  const fetch = runner("git", ["fetch", "origin", branch], { cwd: config.repoRoot || process.cwd() });
+  const cwd = config.repoRoot || process.cwd();
+  const fetch = runner("git", ["fetch", "origin", branch], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("push_intent_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
-  const remote = readGitSha({ runner, cwd: config.repoRoot || process.cwd(), ref: `origin/${branch}`, reasonCode: "push_intent_remote_unreadable" });
+  const baseFetch = runner("git", ["fetch", "origin", "main"], { cwd });
+  if (baseFetch.status !== 0 || baseFetch.error) return fail("push_intent_base_fetch_failed", boundedText(baseFetch.stderr || baseFetch.error || baseFetch.stdout));
+  const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "push_intent_remote_unreadable" });
+  const local = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "push_intent_local_head_unreadable" });
   const live = readLivePrProof({ config, pr, expectedHead: null, runner });
   const remoteHead = remote.ok ? remote.sha : null;
+  const localHead = local.ok ? local.sha : null;
   const liveHead = live.ok ? live.proof.headRefOid : null;
   if (remoteHead === intent.candidateNewHead && liveHead === intent.candidateNewHead) {
-    return finalizePushIntent({ intent, remoteHead, liveHead });
+    return finalizePushIntent({ intent, remoteHead, liveHead, localHead });
   }
   if (!requireCandidate && remoteHead === intent.oldHead && (!liveHead || liveHead === intent.oldHead)) {
-    return fail("push_intent_not_completed", "push intent exists but remote/live heads remain at old head");
+    if (localHead === intent.candidateNewHead) {
+      return fail("push_intent_unpushed_candidate", "push intent has a recoverable unpushed local candidate", { localHead, remoteHead, liveHead });
+    }
+    return fail("push_intent_not_completed", "push intent exists but remote/live heads remain at old head", { localHead, remoteHead, liveHead });
   }
   if (requireCandidate && (remoteHead !== intent.candidateNewHead || liveHead !== intent.candidateNewHead)) {
-    return fail("push_confirmation_head_mismatch", "push completed without remote/live candidate equality", { remoteHead, liveHead });
+    return fail("push_confirmation_head_mismatch", "push completed without remote/live candidate equality", { localHead, remoteHead, liveHead });
   }
-  return fail("push_intent_conflicting_head", "remote/live head conflicts with durable push intent", { remoteHead, liveHead });
+  return fail("push_intent_conflicting_head", "remote/live head conflicts with durable push intent", { localHead, remoteHead, liveHead });
 }
 
-function finalizePushIntent({ intent, remoteHead, liveHead }) {
+function finalizePushIntent({ intent, remoteHead, liveHead, localHead = null }) {
+  if (intent.status === "push_confirmed") {
+    return { ok: true, finalized: true, idempotent: true, confirmedAt: intent.finalizedAt || null, marker: intent };
+  }
   const confirmed = sanitizeState({
     ...intent,
     status: "push_confirmed",
+    localHead,
     remoteHead,
     liveHead,
     finalizedAt: new Date().toISOString(),
@@ -1309,6 +1449,154 @@ function finalizePushIntent({ intent, remoteHead, liveHead }) {
   writeFileSync(tmp, `${JSON.stringify(confirmed, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, intent.intentPath);
   return { ok: true, finalized: true, confirmedAt: confirmed.finalizedAt, marker: confirmed };
+}
+
+function reconcileTaskScopedPendingPushIntent({ config = {}, state = {}, pr = {}, livePr = {}, runner = defaultRunner } = {}) {
+  const discovered = discoverTaskScopedPendingPushIntents({ config, state, pr, livePr });
+  if (!discovered.ok) return discovered;
+  if (discovered.intents.length === 0) return fail("push_intent_not_found", "no task-scoped pending push intent matches stale PR head");
+  if (discovered.intents.length > 1) return fail("push_intent_ambiguous", "multiple task-scoped pending push intents match stale PR head");
+  const intent = discovered.intents[0];
+  const reconciled = reconcilePushIntent({ config, pr, intent, runner });
+  if (!reconciled.ok) return reconciled;
+  const sourceResult = sourceChangingResultFromIntent({ intent, confirmation: reconciled });
+  if (!sourceResult.ok) return sourceResult;
+  return { ok: true, finalized: true, newHead: intent.candidateNewHead, result: sourceResult.result, pushConfirmation: reconciled.marker };
+}
+
+function discoverTaskScopedPendingPushIntents({ config = {}, state = {}, pr = {}, livePr = {} } = {}) {
+  const root = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-intents");
+  if (!existsSync(root)) return { ok: true, intents: [] };
+  let entries;
+  try {
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch (error) {
+    return fail("push_intent_inventory_unreadable", error.message);
+  }
+  const intents = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const intentPath = path.join(root, entry.name);
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(intentPath, "utf8"));
+    } catch {
+      return fail("push_intent_malformed", "task-scoped push intent JSON could not be parsed", { intentPath });
+    }
+    const intent = { ...parsed, intentPath: parsed.intentPath || intentPath };
+    if (intent.status !== "push_intent") continue;
+    const matched = intentMatchesStalePr({ config, state, pr, livePr, intent });
+    if (matched.ok) intents.push(intent);
+    else if (matched.reasonCode === "push_intent_malformed") return { ...matched, intentPath };
+  }
+  return { ok: true, intents };
+}
+
+function intentMatchesStalePr({ config = {}, state = {}, pr = {}, livePr = {}, intent = {} } = {}) {
+  const validation = validatePushIntentShape({ config, pr, intent });
+  if (!validation.ok) return validation.reasonCode === "push_intent_malformed" ? validation : { ok: false, ignored: true };
+  if (intent.oldHead !== pr.headRefOid) return { ok: false, ignored: true };
+  if (livePr?.headRefOid && livePr.headRefOid !== intent.candidateNewHead) return { ok: false, ignored: true };
+  if (intent.markerKey && !String(intent.markerKey).startsWith(`existing_pr_batch_fix:${pr.number}:${pr.headRefOid}:`)) return { ok: false, ignored: true };
+  const expectedNext = (state.sourceCycles?.[pr.number] || 0) + 1;
+  if (intent.nextSourceCycleCount != null && intent.nextSourceCycleCount !== expectedNext) return { ok: false, ignored: true };
+  return { ok: true };
+}
+
+function validatePushIntentShape({ config = {}, pr = {}, intent = {} } = {}) {
+  if (!intent || typeof intent !== "object" || Array.isArray(intent)) return fail("push_intent_malformed", "push intent must be an object");
+  if (intent.repository !== (config.repositorySlug || "tommytang213/Settleora")) return fail("push_intent_repository_mismatch", "push intent repository does not match");
+  if (intent.prNumber !== pr.number) return fail("push_intent_pr_mismatch", "push intent PR number does not match");
+  if (intent.sourceBranch !== pr.headRefName) return fail("push_intent_branch_mismatch", "push intent source branch does not match");
+  if (!validSha(intent.oldHead) || !validSha(intent.candidateNewHead)) return fail("push_intent_malformed", "push intent head identity is invalid");
+  if (!validSha(intent.candidateParent) || !validSha(intent.candidateTree)) return fail("push_intent_malformed", "push intent candidate parent/tree identity is invalid");
+  if (intent.candidateParent !== intent.oldHead) return fail("push_intent_candidate_parent_mismatch", "push intent candidate parent does not match old head");
+  const changedFiles = normalizeChangedFiles(intent.changedFiles || []);
+  if (changedFiles.length === 0 || intent.changedFilesDigest !== digestStringSet(changedFiles)) return fail("push_intent_changed_files_mismatch", "push intent changed-file digest does not match");
+  if (!intent.findingInventoryDigest) return fail("push_intent_finding_digest_missing", "push intent finding inventory digest is missing");
+  if (intent.validationHead !== intent.candidateNewHead || intent.strongReviewHead !== intent.candidateNewHead) {
+    return fail("push_intent_evidence_head_mismatch", "push intent validation/review identity is not bound to candidate head");
+  }
+  const expectedBase = intent.sourceIdentity?.baseSha || intent.validation?.baseSha || intent.externalReview?.baseSha || intent.review?.baseSha || null;
+  if (!validSha(expectedBase)) return fail("push_intent_evidence_base_missing", "push intent validation/review base identity is missing");
+  const validation = validateValidationEvidenceObject(intent.validation, {
+    expectedHead: intent.candidateNewHead,
+    expectedBase,
+    changedFiles,
+  });
+  if (!validation.ok) return validation;
+  const strong = validateReviewEvidenceObject(intent.externalReview, {
+    name: "push_intent_strong_review",
+    expectedHead: intent.candidateNewHead,
+    expectedBase,
+    changedFiles,
+    requireIndependent: true,
+  });
+  if (!strong.ok) return strong;
+  const codex = validateReviewEvidenceObject(intent.review, {
+    name: "push_intent_codex_review",
+    expectedHead: intent.candidateNewHead,
+    expectedBase,
+    changedFiles,
+    requireIndependent: false,
+  });
+  if (!codex.ok) return codex;
+  if (config.taskKey !== undefined && intent.taskKey !== (config.taskKey || null)) return fail("push_intent_task_mismatch", "push intent task key does not match");
+  if (config.runId !== undefined && intent.runId !== (config.runId || null)) return fail("push_intent_run_mismatch", "push intent run ID does not match");
+  if (config.supervisorRunId !== undefined && intent.supervisorRunId !== (config.supervisorRunId || null)) return fail("push_intent_supervisor_mismatch", "push intent supervisor run ID does not match");
+  const expectedTarget = `origin ${intent.candidateNewHead}:${intent.sourceBranch}`;
+  if (intent.pushTarget !== expectedTarget) return fail("push_intent_target_mismatch", "push intent push target does not match candidate/source branch");
+  return { ok: true };
+}
+
+function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {}) {
+  const markerKey = intent.markerKey || `existing_pr_batch_fix:${intent.prNumber}:${intent.oldHead}:${intent.findingInventoryDigest}`;
+  const changedFiles = normalizeChangedFiles(intent.changedFiles || []);
+  const marker = sanitizeState({
+    markerKey,
+    prNumber: intent.prNumber,
+    oldHead: intent.oldHead,
+    newHead: intent.candidateNewHead,
+    findingFingerprints: intent.findingFingerprints || [],
+    fingerprintDigest: intent.findingInventoryDigest,
+    changedFiles,
+    changedFilesDigest: intent.changedFilesDigest,
+    validation: intent.validation,
+    externalReview: intent.externalReview,
+    review: intent.review,
+    sourceIdentity: {
+      ...(intent.sourceIdentity || {}),
+      oldHead: intent.oldHead,
+      headSha: intent.candidateNewHead,
+      newHead: intent.candidateNewHead,
+      parent: intent.candidateParent,
+      tree: intent.candidateTree,
+      baseSha: intent.sourceIdentity?.baseSha || intent.validation?.baseSha || intent.externalReview?.baseSha || intent.review?.baseSha || null,
+      changedFilesDigest: intent.changedFilesDigest,
+    },
+    pushedAt: confirmation.confirmedAt || confirmation.marker?.finalizedAt || new Date().toISOString(),
+  });
+  const result = {
+    ok: true,
+    newHead: intent.candidateNewHead,
+    findingFingerprints: marker.findingFingerprints,
+    fingerprintDigest: marker.fingerprintDigest,
+    changedFiles,
+    changedFilesDigest: intent.changedFilesDigest,
+    validation: marker.validation,
+    externalReview: marker.externalReview,
+    review: marker.review,
+    sourceIdentity: marker.sourceIdentity,
+    durableMutationMarkers: { [markerKey]: marker },
+    completedAt: marker.pushedAt,
+  };
+  const normalized = normalizeSourceChangingConvergenceResult({ ok: true, newHead: intent.candidateNewHead, result }, {
+    prNumber: intent.prNumber,
+    oldHead: intent.oldHead,
+    newHead: intent.candidateNewHead,
+  });
+  if (!normalized.ok) return normalized;
+  return { ok: true, result };
 }
 
 function readGitSha({ runner, cwd, ref, reasonCode }) {
@@ -1524,6 +1812,20 @@ function validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHea
     codex: codexReview.review,
     codexMechanicsReviewApproved: true,
   };
+}
+
+function validateValidationEvidenceObject(validation, { expectedHead, expectedBase, changedFiles }) {
+  if (!validation || typeof validation !== "object" || Array.isArray(validation)) {
+    return fail("source_rebound_validation_missing", "source rebound validation evidence is required");
+  }
+  if (validation.passed !== true) return fail("source_rebound_validation_not_passed", "source rebound validation did not pass");
+  if (validation.headSha !== expectedHead) return fail("source_rebound_validation_head_mismatch", "source rebound validation is not bound to the candidate head");
+  if (expectedBase && validation.baseSha !== expectedBase) return fail("source_rebound_validation_base_mismatch", "source rebound validation is not bound to the candidate base");
+  if (!Array.isArray(validation.results) || validation.results.length === 0) return fail("source_rebound_validation_results_missing", "source rebound validation results are missing");
+  if (!validation.completedAt) return fail("source_rebound_validation_completed_at_missing", "source rebound validation completion time is missing");
+  if (!sameStringSet(validation.changedFiles || [], changedFiles)) return fail("source_rebound_validation_files_mismatch", "source rebound validation file set does not match");
+  if (validation.changedFilesDigest !== digestStringSet(changedFiles)) return fail("source_rebound_validation_file_digest_mismatch", "source rebound validation file digest does not match");
+  return { ok: true, validation };
 }
 
 function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase, changedFiles, requireIndependent }) {
@@ -1766,11 +2068,16 @@ export function digestStackPlan(plan) {
 
 export const prStackExecutorTestInternals = Object.freeze({
   createOrReuseLocalCandidateCommit,
+  discoverTaskScopedPendingPushIntents,
   fetchAndReadOriginMain,
+  finalizePushIntent,
+  normalizeSourceChangingConvergenceResult,
   persistPushIntent,
   proveTargetBatchFixWorktree,
+  reconcileTaskScopedPendingPushIntent,
   reconcilePushIntent,
   readWorktreeCleanProof,
+  sourceChangingResultFromIntent,
   safeSourceBranchTarget,
   validatePushTargetBranch,
 });

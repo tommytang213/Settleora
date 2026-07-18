@@ -282,11 +282,7 @@ test("validation or review failure can preserve and reuse an unpushed local cand
 
 test("push intent is durable before push and crash-after-push reconciliation finalizes without replay", () => {
   const fixture = stackFixture();
-  const reviewed = {
-    sourceIdentity: { parent: sha("a"), tree: sha("d") },
-    validation: { headSha: sha("c") },
-    externalReview: { reviewedHead: sha("c") },
-  };
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
   const intent = prStackExecutorTestInternals.persistPushIntent({
     config: fixture.config,
     markerKey: "existing_pr_batch_fix:919:a:d",
@@ -314,6 +310,7 @@ test("push intent is durable before push and crash-after-push reconciliation fin
 
 test("push intent reconciliation fails closed on conflicting remote or live head and does not replay push", () => {
   const fixture = stackFixture();
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
   const intent = prStackExecutorTestInternals.persistPushIntent({
     config: fixture.config,
     markerKey: "existing_pr_batch_fix:919:a:d",
@@ -323,7 +320,7 @@ test("push intent reconciliation fails closed on conflicting remote or live head
     newHead: sha("c"),
     changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
     fingerprintDigest: sha("d"),
-    reviewed: {},
+    reviewed,
     pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
   });
   const runner = targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("z"), remoteHead: sha("z"), liveHead: sha("z") });
@@ -336,12 +333,188 @@ test("push intent reconciliation fails closed on conflicting remote or live head
   assert.equal(result.reasonCode, "push_intent_conflicting_head");
 });
 
+test("canonical nested source-changing result preserves exact validation strong review and compact Codex evidence", async () => {
+  const fixture = stackFixture();
+  const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
+    adapter: {
+      inspectPr: async () => ({ ok: true, headRefOid: sha("a"), findings: [{ title: "finding" }] }),
+      convergeExistingPr: async () => ({
+        ...sourceChangingConvergenceResult({
+          prNumber: 919,
+          oldHead: sha("a"),
+          newHead: sha("c"),
+          changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs", "tools/auto-runner/test/pr-stack-executor.test.mjs"],
+          overrides: {
+            outer: {
+              validation: { headSha: sha("a"), passed: true },
+              externalReview: { reviewedHead: sha("a"), status: "pass" },
+              review: { reviewedHead: sha("a"), verdict: { verdict: "approve" } },
+            },
+          },
+        }),
+      }),
+    },
+  });
+  assert.equal(result.ok, true, result.reasonCode);
+  const state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
+  assert.equal(state.evidence.validation["919"].headSha, sha("c"));
+  assert.equal(state.evidence.strongReview["919"].reviewedHead, sha("c"));
+  assert.equal(state.evidence.codexReview["919"].reviewedHead, sha("c"));
+  assert.equal(state.evidence.batchFix["919"].changedFilesDigest, digestStrings(["tools/auto-runner/lib/pr-stack-executor.mjs", "tools/auto-runner/test/pr-stack-executor.test.mjs"]));
+  assert.equal(state.evidence.gatesPassed["919"], undefined);
+  assert.equal(state.evidence.merged["919"], undefined);
+});
+
+test("source rebound rejects top-level field drift old heads mismatched base files digest tree and ambiguous markers", () => {
+  const valid = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") });
+  assert.equal(prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult({ ok: true, newHead: sha("c"), validation: valid.result.validation }, { prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_rebound_result_shape_invalid");
+  assert.equal(prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c"), overrides: { validation: { headSha: sha("a") } } }), { prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_rebound_validation_head_mismatch");
+  assert.equal(prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c"), overrides: { externalReview: { baseSha: sha("b") } } }), { prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_rebound_strong_review_base_mismatch");
+  assert.equal(prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c"), overrides: { validation: { changedFilesDigest: sha("b") } } }), { prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_rebound_validation_file_digest_mismatch");
+  assert.equal(prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c"), overrides: { sourceIdentity: { tree: null } } }), { prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_rebound_tree_missing");
+  const ambiguous = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") });
+  ambiguous.result.durableMutationMarkers.extra = { ...Object.values(ambiguous.result.durableMutationMarkers)[0] };
+  assert.equal(prStackExecutorTestInternals.normalizeSourceChangingConvergenceResult(ambiguous, { prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).reasonCode, "source_rebound_mutation_marker_ambiguous");
+});
+
+test("task-scoped pending push intent is reconciled before stale-head blocking and does not dispatch convergence", async () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" };
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  const intent = prStackExecutorTestInternals.persistPushIntent({
+    config,
+    markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+    pr: fixture.plan.orderedPrs[0],
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("f"),
+    reviewed,
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+  });
+  let convergenceCalls = 0;
+  const calls = [];
+  const result = await runPrStackExecution(config, { stackPlanPath: fixture.planPath }, {
+    adapter: {
+      inspectPr: async () => ({ ok: true, headRefOid: sha("c"), findings: [] }),
+      reconcilePendingPushIntent: async ({ config: cfg, state, pr, livePr }) => prStackExecutorTestInternals.reconcileTaskScopedPendingPushIntent({
+        config: { ...cfg, repoRoot: fixture.root },
+        state,
+        pr,
+        livePr,
+        runner: targetWorktreeRunner(calls, { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") }),
+      }),
+      convergeExistingPr: async () => {
+        convergenceCalls += 1;
+        return { ok: true };
+      },
+    },
+  });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(convergenceCalls, 0);
+  assert.equal(JSON.parse(readFileSync(intent.intentPath, "utf8")).status, "push_confirmed");
+  const state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
+  assert.equal(state.sourceCycles["919"], 1);
+  assert.equal(state.exactHeads["919"], sha("c"));
+  assert.equal(state.evidence.validation["919"].headSha, sha("c"));
+  assert.equal(calls.includes(`git push origin ${sha("c")}:feature/auto-913-parent`), false);
+});
+
+test("push intent discovery ignores unrelated intents and fails closed on malformed or multiple matching intents", () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" };
+  const pr = fixture.plan.orderedPrs[0];
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  prStackExecutorTestInternals.persistPushIntent({
+    config: { ...config, taskKey: "other" },
+    markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+    pr,
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("f"),
+    reviewed,
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+  });
+  assert.equal(prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({ config, state: createInitialPrStackState({ plan: fixture.plan }), pr, livePr: { headRefOid: sha("c") } }).intents.length, 0);
+  writeFileSync(path.join(config.logsRoot, "source-cycle-intents", "bad.json"), "{bad", { mode: 0o600 });
+  assert.equal(prStackExecutorTestInternals.discoverTaskScopedPendingPushIntents({ config, state: createInitialPrStackState({ plan: fixture.plan }), pr, livePr: { headRefOid: sha("c") } }).reasonCode, "push_intent_malformed");
+
+  const second = stackFixture();
+  const secondConfig = { ...second.config, taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" };
+  for (const suffix of ["one", "two"]) {
+    const intent = prStackExecutorTestInternals.persistPushIntent({
+      config: secondConfig,
+      markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+      pr: second.plan.orderedPrs[0],
+      branch: "feature/auto-913-parent",
+      oldHead: sha("a"),
+      newHead: sha("c"),
+      changedFiles: reviewed.changedFiles,
+      fingerprintDigest: sha("f"),
+      reviewed,
+      pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+    });
+    const copyPath = path.join(secondConfig.logsRoot, "source-cycle-intents", `${suffix}.json`);
+    writeFileSync(copyPath, JSON.stringify({ ...JSON.parse(readFileSync(intent.intentPath, "utf8")), intentPath: copyPath }, null, 2), { mode: 0o600 });
+  }
+  assert.equal(prStackExecutorTestInternals.reconcileTaskScopedPendingPushIntent({
+    config: { ...secondConfig, repoRoot: second.root },
+    state: createInitialPrStackState({ plan: second.plan }),
+    pr: second.plan.orderedPrs[0],
+    livePr: { headRefOid: sha("c") },
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("c"), liveHead: sha("c") }),
+  }).reasonCode, "push_intent_ambiguous");
+});
+
+test("push intent classifications cover not completed unpushed candidate confirmed fetchable local and idempotence", () => {
+  const fixture = stackFixture();
+  const config = { ...fixture.config, taskKey: "task-1", runId: "run-1", supervisorRunId: "supervisor-1" };
+  const reviewed = sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }).result;
+  const intent = prStackExecutorTestInternals.persistPushIntent({
+    config,
+    markerKey: `existing_pr_batch_fix:919:${sha("a")}:${sha("f")}`,
+    pr: fixture.plan.orderedPrs[0],
+    branch: "feature/auto-913-parent",
+    oldHead: sha("a"),
+    newHead: sha("c"),
+    changedFiles: reviewed.changedFiles,
+    fingerprintDigest: sha("f"),
+    reviewed,
+    pushTarget: `origin ${sha("c")}:feature/auto-913-parent`,
+  });
+  assert.equal(prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent,
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("a"), remoteHead: sha("a"), liveHead: sha("a") }),
+  }).reasonCode, "push_intent_not_completed");
+  assert.equal(prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent,
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("c"), remoteHead: sha("a"), liveHead: sha("a") }),
+  }).reasonCode, "push_intent_unpushed_candidate");
+  const confirmed = prStackExecutorTestInternals.reconcilePushIntent({
+    config: { ...config, repoRoot: fixture.root },
+    pr: fixture.plan.orderedPrs[0],
+    intent,
+    runner: targetWorktreeRunner([], { branch: "feature/auto-913-parent", head: sha("a"), remoteHead: sha("c"), liveHead: sha("c") }),
+  });
+  assert.equal(confirmed.ok, true, confirmed.reasonCode);
+  const idempotent = prStackExecutorTestInternals.finalizePushIntent({ intent: JSON.parse(readFileSync(intent.intentPath, "utf8")), remoteHead: sha("c"), liveHead: sha("c") });
+  assert.equal(idempotent.ok, true);
+  assert.equal(idempotent.idempotent, true);
+});
+
 test("new source head consumes one parent cycle and waits do not consume cycles", async () => {
   const fixture = stackFixture();
   let result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
     adapter: {
       inspectPr: async () => ({ ok: true, headRefOid: sha("a"), findings: [] }),
-      convergeExistingPr: async () => ({ ok: true, newHead: sha("c") }),
+      convergeExistingPr: async () => sourceChangingConvergenceResult({ prNumber: 919, oldHead: sha("a"), newHead: sha("c") }),
     },
   });
     assert.equal(result.ok, true, result.reasonCode);
@@ -1081,7 +1254,7 @@ test("retarget and ready durable proof survives a source-head change and restart
   let result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
     adapter: {
       inspectPr: async () => ({ ok: true, headRefOid: sha("b"), findings: [] }),
-      convergeExistingPr: async () => ({ ok: true, newHead: sha("c") }),
+      convergeExistingPr: async () => sourceChangingConvergenceResult({ prNumber: 920, oldHead: sha("b"), newHead: sha("c") }),
     },
   });
   assert.equal(result.ok, true);
@@ -1095,9 +1268,9 @@ test("retarget and ready durable proof survives a source-head change and restart
   assert.equal(state.evidence.ready["920"].after.isDraft, false);
   assert.equal(state.evidence.ownDeltaPreserved["920"], undefined);
   assert.equal(state.evidence.gatesPassed["920"], undefined);
-  assert.equal(state.evidence.validation["920"], undefined);
-  assert.equal(state.evidence.strongReview["920"], undefined);
-  assert.equal(state.evidence.codexReview["920"], undefined);
+  assert.equal(state.evidence.validation["920"].headSha, sha("c"));
+  assert.equal(state.evidence.strongReview["920"].reviewedHead, sha("c"));
+  assert.equal(state.evidence.codexReview["920"].reviewedHead, sha("c"));
 
   const calls = [];
   result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
@@ -1181,7 +1354,7 @@ test("full [919, 920] sequence advances across a post-ready source-head change",
     ...scriptedAdapter(calls),
     convergeExistingPr: async ({ pr }) => {
       calls.push(`converge:${pr.number}`);
-      return pr.number === 920 ? { ok: true, newHead: sha("c") } : { ok: true, headRefOid: pr.headRefOid };
+      return pr.number === 920 ? sourceChangingConvergenceResult({ prNumber: 920, oldHead: sha("b"), newHead: sha("c") }) : { ok: true, headRefOid: pr.headRefOid };
     },
   };
   for (let i = 0; i < 7; i += 1) {
@@ -1394,6 +1567,89 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
     requiredChecks: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
     issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
   };
+}
+
+function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha = sha("e"), changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"], tree = sha("d"), fingerprintDigest = sha("f"), overrides = {} } = {}) {
+  const changedFilesDigest = digestStrings(changedFiles);
+  const validation = {
+    passed: true,
+    results: [{ command: "node --test tools/auto-runner/test/pr-stack-executor.test.mjs", status: 0 }],
+    completedAt: "2026-07-18T00:00:00.000Z",
+    headSha: newHead,
+    baseSha,
+    changedFiles,
+    changedFilesDigest,
+    profile: "runner-tests",
+    evidencePath: "/workspace/logs/validation.json",
+    ...(overrides.validation || {}),
+  };
+  const externalReview = {
+    status: "pass",
+    tier: "strong_independent",
+    verdict: "pass",
+    reviewedHead: newHead,
+    baseSha,
+    changedFiles,
+    changedFilesDigest,
+    independent: true,
+    provider: "gemini",
+    providerProfile: "gemini-strong",
+    evidencePath: "/workspace/logs/strong.json",
+    completedAt: "2026-07-18T00:00:01.000Z",
+    ...(overrides.externalReview || {}),
+  };
+  const review = {
+    reviewedHead: newHead,
+    baseSha,
+    changedFiles,
+    changedFilesDigest,
+    verdict: { verdict: "approve" },
+    evidencePath: "/workspace/logs/compact.json",
+    completedAt: "2026-07-18T00:00:02.000Z",
+    ...(overrides.review || {}),
+  };
+  const markerKey = `existing_pr_batch_fix:${prNumber}:${oldHead}:${fingerprintDigest}`;
+  const marker = {
+    markerKey,
+    prNumber,
+    oldHead,
+    newHead,
+    findingFingerprints: [`${prNumber}:finding`],
+    fingerprintDigest,
+    changedFiles,
+    changedFilesDigest,
+    validation,
+    externalReview,
+    review,
+    sourceIdentity: {
+      oldHead,
+      headSha: newHead,
+      newHead,
+      parent: oldHead,
+      tree,
+      baseSha,
+      changedFilesDigest,
+      ...(overrides.sourceIdentity || {}),
+    },
+    pushedAt: "2026-07-18T00:00:03.000Z",
+    ...(overrides.marker || {}),
+  };
+  const nested = {
+    ok: true,
+    newHead,
+    findingFingerprints: marker.findingFingerprints,
+    fingerprintDigest,
+    changedFiles,
+    changedFilesDigest,
+    validation,
+    externalReview,
+    review,
+    sourceIdentity: marker.sourceIdentity,
+    durableMutationMarkers: { [markerKey]: marker },
+    completedAt: "2026-07-18T00:00:04.000Z",
+    ...(overrides.nested || {}),
+  };
+  return { ok: true, newHead, result: nested, ...overrides.outer };
 }
 
 function digestStrings(items) {
