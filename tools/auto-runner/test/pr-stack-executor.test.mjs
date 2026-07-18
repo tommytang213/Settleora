@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { loadConfig, parseCliArgs } from "../lib/config.mjs";
-import { buildReadOnlyLiveStackFixturePlan, createDependentPrStackPlan } from "../lib/pr-stack-controller.mjs";
+import { buildReadOnlyLiveStackFixturePlan, createDependentPrStackPlan, nextStackAction } from "../lib/pr-stack-controller.mjs";
 import {
   createInitialPrStackState,
   createProductionPrStackAdapter,
@@ -1232,7 +1232,7 @@ test("final hygiene occurs only after every PR has merge proof", async () => {
   let result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter: { mergePr: async () => ({ ok: true, mergeSha: sha("d") }) } });
   assert.equal(result.ok, true, result.reasonCode);
   result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter: { runFinalHygiene: async () => { hygiene += 1; return { ok: true }; } } });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.reasonCode);
   assert.equal(hygiene, 1);
 });
 
@@ -1277,100 +1277,8 @@ test("production final hygiene rejects claimed success when a required component
 test("production merge adapter carries real gate changed-file evidence", async () => {
   const fixture = stackFixture();
   const changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"];
-  const digest = digestStrings(changedFiles);
   const state = createInitialPrStackState({ plan: fixture.plan });
-  state.evidence.gatesPassed["919"] = {
-    ok: true,
-    changedFiles,
-    changedFilesExactlyMatchAllowedPaths: true,
-    allowedPathProof: {
-      ok: true,
-      exactHead: sha("a"),
-      changedFiles,
-      changedFilesDigest: digestJson(changedFiles),
-      rejectedPaths: [],
-      changedFilesExactlyMatchAllowedPaths: true,
-    },
-    laneDecision: {
-      lane: "workflow-docs-tooling",
-      canonicalLane: "workflow-docs-tooling",
-      branchStrategy: "normal",
-      validationProfile: "runner-tests",
-      reviewerTier: "strong_independent",
-      allowedToImplement: true,
-      autoMergeEligible: true,
-      manualMergeRequired: false,
-      contract: { autoMergeEligible: true, manualMergeRequired: false },
-      laneManifest: { decisionType: "runnable", autoMergeAllowed: true },
-      allowedPaths: ["tools/auto-runner/**"],
-    },
-    validation: {
-      passed: true,
-      results: [{ command: "node --test tools/auto-runner/test/pr-stack-executor.test.mjs", status: 0 }],
-      completedAt: new Date().toISOString(),
-      headSha: sha("a"),
-      baseSha: sha("e"),
-      changedFiles,
-      changedFilesDigest: digest,
-      profile: "runner-tests",
-    },
-    externalReview: {
-      status: "pass",
-      tier: "strong_independent",
-      verdict: "pass",
-      reviewedHead: sha("a"),
-      baseSha: sha("e"),
-      changedFiles,
-      changedFilesDigest: digest,
-      independent: true,
-      provider: "gemini",
-      providerProfile: "gemini-strong",
-      evidencePath: "/workspace/logs/settleora-auto-runner/reviews/strong.json",
-      completedAt: new Date().toISOString(),
-    },
-    review: {
-      reviewedHead: sha("a"),
-      baseSha: sha("e"),
-      changedFiles,
-      changedFilesDigest: digest,
-      verdict: { verdict: "approve" },
-      completedAt: new Date().toISOString(),
-    },
-    reviewEvidence: {
-      strongIndependent: {
-        status: "pass",
-        tier: "strong_independent",
-        verdict: "pass",
-        reviewedHead: sha("a"),
-        baseSha: sha("e"),
-        changedFiles,
-        changedFilesDigest: digest,
-        independent: true,
-        provider: "gemini",
-        providerProfile: "gemini-strong",
-        evidencePath: "/workspace/logs/settleora-auto-runner/reviews/strong.json",
-        completedAt: new Date().toISOString(),
-      },
-      codex: {
-        reviewedHead: sha("a"),
-        baseSha: sha("e"),
-        changedFiles,
-        changedFilesDigest: digest,
-        verdict: { verdict: "approve" },
-        completedAt: new Date().toISOString(),
-      },
-    },
-    codexMechanicsReviewApproved: true,
-    baseSha: sha("e"),
-    expectedOriginMainSha: sha("e"),
-    requiredChecks: [
-      check("Validate scaffold"),
-      check("CodeQL"),
-      check("Semgrep CE scan"),
-      check("Trivy repository scan"),
-    ],
-    issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
-  };
+  state.evidence.gatesPassed["919"] = gateEvidence({ changedFiles });
   const config = {
     ...fixture.config,
     dryRun: true,
@@ -1379,7 +1287,7 @@ test("production merge adapter carries real gate changed-file evidence", async (
   };
   const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
   const result = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.reasonCode);
   assert.equal(result.result.result, "dry_run_eligible");
 });
 
@@ -1687,6 +1595,7 @@ test("production final gates collect real evidence and wait on pending checks or
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
       if (args.includes("apply")) return fakeRunner(_command, args);
       if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
+      if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return { status: 0, stdout: `${fixture.config.repoRoot}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
       if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
@@ -1777,6 +1686,7 @@ test("final gates prove changed files against the real lane contract and reject 
       if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
       if (args.includes("apply")) return fakeRunner(_command, args);
       if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
+      if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return { status: 0, stdout: `${fixture.config.repoRoot}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
       if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
@@ -1818,7 +1728,7 @@ test("final gates prove changed files against the real lane contract and reject 
   assert.equal(blocked.reasonCode, "changed_files_do_not_match_allowed_paths");
 });
 
-test("merge consumes the exact-head allowed-path proof and invalidates stale head or file-set changes", async () => {
+test("merge revalidates exact-head allowed-path proof before consuming gate evidence", async () => {
   const fixture = stackFixture();
   const changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"];
   const digest = digestStrings(changedFiles);
@@ -1856,6 +1766,16 @@ test("merge consumes the exact-head allowed-path proof and invalidates stale hea
     requiredChecks: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
     issueLinkageEvidence: { available: true, linked: true, matchedSources: ["stack-plan"] },
   };
+  const proof = exactWorktreeProof();
+  baseGate.validation = {
+    ...baseGate.validation,
+    treeSha: proof.treeSha,
+    canonicalWorktreePath: proof.worktreePath,
+    preWorktreeProof: { ...proof },
+    postWorktreeProof: { ...proof },
+    preWorktreeProofDigest: digestJson({ ...proof }),
+    postWorktreeProofDigest: digestJson({ ...proof }),
+  };
   const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
   const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
   const state = createInitialPrStackState({ plan: fixture.plan });
@@ -1864,13 +1784,86 @@ test("merge consumes the exact-head allowed-path proof and invalidates stale hea
 
   state.evidence.gatesPassed["919"] = { ...baseGate, allowedPathProof: { ...baseGate.allowedPathProof, exactHead: sha("b") } };
   const staleHead = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
-  assert.equal(staleHead.ok, false);
-  assert.equal(staleHead.reasonCode, "changed_files_do_not_match_allowed_paths");
+  assert.equal(staleHead.ok, true, staleHead.reasonCode);
 
   state.evidence.gatesPassed["919"] = { ...baseGate, allowedPathProof: { ...baseGate.allowedPathProof, changedFiles: ["docs/workflow/x.md"], changedFilesDigest: digestJson(["docs/workflow/x.md"]) } };
   const staleFiles = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
-  assert.equal(staleFiles.ok, false);
-  assert.equal(staleFiles.reasonCode, "changed_files_do_not_match_allowed_paths");
+  assert.equal(staleFiles.ok, true, staleFiles.reasonCode);
+});
+
+test("merge entry revalidates exact validation worktree proof before intent or merge", async () => {
+  const cases = [
+    ["missing pre-proof", (gate) => { delete gate.validation.preWorktreeProof; }, "source_rebound_validation_worktree_proof_missing"],
+    ["missing post-proof", (gate) => { delete gate.validation.postWorktreeProof; }, "source_rebound_validation_worktree_proof_missing"],
+    ["missing proof digest", (gate) => { delete gate.validation.preWorktreeProofDigest; }, "source_rebound_validation_pre_worktree_digest_mismatch"],
+    ["wrong worktree path", (gate) => { gate.validation.preWorktreeProof.worktreePath = "/tmp/other"; gate.validation.preWorktreeProofDigest = digestJson(gate.validation.preWorktreeProof); }, "source_rebound_validation_worktree_path_mismatch"],
+    ["wrong repository", (gate) => { gate.validation.preWorktreeProof.originRepositorySlug = "other/repo"; gate.validation.preWorktreeProofDigest = digestJson(gate.validation.preWorktreeProof); }, "source_rebound_validation_worktree_origin_mismatch"],
+    ["wrong head", (gate) => { gate.validation.preWorktreeProof.actualHead = sha("b"); gate.validation.preWorktreeProofDigest = digestJson(gate.validation.preWorktreeProof); }, "source_rebound_validation_worktree_head_mismatch"],
+    ["wrong tree", (gate) => { gate.validation.postWorktreeProof.treeSha = sha("f"); gate.validation.postWorktreeProofDigest = digestJson(gate.validation.postWorktreeProof); }, "source_rebound_validation_worktree_tree_mismatch"],
+    ["wrong base", (gate) => { gate.validation.baseSha = sha("f"); }, "source_rebound_validation_base_mismatch"],
+    ["wrong changed-file digest", (gate) => { gate.validation.changedFilesDigest = digestStrings(["other.mjs"]); }, "source_rebound_validation_file_digest_mismatch"],
+    ["dirty proof", (gate) => { gate.validation.postWorktreeProof.clean = false; gate.validation.postWorktreeProofDigest = digestJson(gate.validation.postWorktreeProof); }, "source_rebound_validation_worktree_dirty"],
+    ["active git operation", (gate) => { gate.validation.postWorktreeProof.activeOperation = true; gate.validation.postWorktreeProofDigest = digestJson(gate.validation.postWorktreeProof); }, "source_rebound_validation_worktree_dirty"],
+  ];
+  for (const [name, mutate, reasonCode] of cases) {
+    const fixture = stackFixture();
+    const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
+    const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
+    const state = createInitialPrStackState({ plan: fixture.plan });
+    const gate = gateEvidence();
+    mutate(gate);
+    state.evidence.gatesPassed["919"] = gate;
+    const result = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
+    assert.equal(result.reasonCode, reasonCode, name);
+  }
+});
+
+test("legacy gatesPassed is atomically invalidated and returns to complete_gates without source-cycle use", async () => {
+  const fixture = stackFixture();
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.reviewConverged["919"] = { ok: true };
+  state.evidence.gatesPassed["919"] = gateEvidence();
+  state.evidence.finalGateSnapshots = {};
+  delete state.evidence.gatesPassed["919"].validation.preWorktreeProof;
+  state.evidence.finalGateSnapshots["919"] = { stale: true };
+  state.evidence.retargeted["919"] = { ok: true, durable: true };
+  state.sourceCycles["919"] = 0;
+  writePrStackState(statePath, state);
+  let mergeCommands = 0;
+  const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } }, {
+    runner: (command, args = [], options = {}) => {
+      if (command === "gh" && args[0] === "pr" && args[1] === "merge") mergeCommands += 1;
+      return fakeRunner(command, args, options);
+    },
+  });
+  const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(mergeCommands, 0);
+  const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(persisted.evidence.gatesPassed["919"], undefined);
+  assert.equal(persisted.evidence.finalGateSnapshots["919"], undefined);
+  assert.equal(persisted.evidence.retargeted["919"].durable, true);
+  assert.equal(persisted.sourceCycles["919"], 0);
+  assert.equal(nextStackAction(fixture.plan, persisted.evidence).action, "complete_gates");
+});
+
+test("merge operation intent binds gate and validation proof digests", async () => {
+  const fixture = stackFixture();
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.reviewConverged["919"] = { ok: true };
+  state.evidence.gatesPassed["919"] = gateEvidence();
+  writePrStackState(statePath, state);
+  const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
+  const adapter = createProductionPrStackAdapter(config, { runner: fakeRunner });
+  const result = await runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter });
+  assert.equal(result.ok, true, result.reasonCode);
+  const intentRoot = path.join(fixture.config.logsRoot, "stack-operation-intents");
+  const intent = JSON.parse(readFileSync(path.join(intentRoot, readdirSync(intentRoot).find((name) => name.endsWith(".json"))), "utf8"));
+  assert.ok(intent.operationEvidence.gateEvidenceDigest);
+  assert.equal(intent.operationEvidence.validationPreWorktreeProofDigest, state.evidence.gatesPassed["919"].validation.preWorktreeProofDigest);
+  assert.equal(intent.operationEvidence.validationPostWorktreeProofDigest, state.evidence.gatesPassed["919"].validation.postWorktreeProofDigest);
 });
 
 test("head, base, digest mismatch, and partial final-gate review evidence block merge", async () => {
@@ -1958,7 +1951,7 @@ test("merge reads actual clean worktree state and dirty or unreadable status blo
       return fakeRunner(command, args, options);
     });
     assert.equal(result.ok, false);
-    assert.equal(result.reasonCode, "worktree_not_clean");
+    assert.equal(result.reasonCode, "exact_worktree_status_dirty");
   }
 
   const unreadable = await run((command, args, options) => {
@@ -1966,14 +1959,14 @@ test("merge reads actual clean worktree state and dirty or unreadable status blo
     return fakeRunner(command, args, options);
   });
   assert.equal(unreadable.ok, false);
-  assert.equal(unreadable.reasonCode, "merge_worktree_status_unreadable");
+  assert.equal(unreadable.reasonCode, "exact_worktree_status_unreadable");
 
   const wrongHead = await run((command, args, options) => {
     if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
     return fakeRunner(command, args, options);
   });
   assert.equal(wrongHead.ok, false);
-  assert.equal(wrongHead.reasonCode, "merge_worktree_head_mismatch");
+  assert.equal(wrongHead.reasonCode, "exact_worktree_head_mismatch");
 });
 
 test("gate wait evidence patches preserve existing maps, are idempotent, and malformed patches fail closed", async () => {
@@ -2423,10 +2416,10 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
       profile: "runner-tests",
       treeSha: worktreeProof.treeSha,
       canonicalWorktreePath: worktreeProof.worktreePath,
-      preWorktreeProof: worktreeProof,
-      postWorktreeProof: worktreeProof,
-      preWorktreeProofDigest: digestJson(worktreeProof),
-      postWorktreeProofDigest: digestJson(worktreeProof),
+      preWorktreeProof: { ...worktreeProof },
+      postWorktreeProof: { ...worktreeProof },
+      preWorktreeProofDigest: digestJson({ ...worktreeProof }),
+      postWorktreeProofDigest: digestJson({ ...worktreeProof }),
       rawDiffDigest: sha("r"),
       packageDigest: sha("p"),
     },
@@ -2817,7 +2810,19 @@ function fakeRunner(command, args = []) {
   if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
     return { status: 0, stdout: "git@github.com:tommytang213/Settleora.git\n", stderr: "", error: null };
   }
+  if (command === "gh" && args.includes("--name-only")) {
+    return { status: 0, stdout: "tools/auto-runner/lib/pr-stack-executor.mjs\n", stderr: "", error: null };
+  }
+  if (command === "gh" && args.includes("--patch")) {
+    return { status: 0, stdout: "diff --git a/tools/auto-runner/lib/pr-stack-executor.mjs b/tools/auto-runner/lib/pr-stack-executor.mjs\n", stderr: "", error: null };
+  }
   if (command === "git" && args[0] === "rev-list") return fakeRevList(args);
+  if (command === "git" && args[0] === "branch" && args[1] === "--show-current") {
+    return { status: 0, stdout: "feature/auto-913-parent\n", stderr: "", error: null };
+  }
+  if (command === "git" && args[0] === "rev-parse" && args[1] === "--verify") {
+    return { status: 1, stdout: "", stderr: "", error: null };
+  }
   if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") {
     return { status: 0, stdout: `${process.cwd()}\n`, stderr: "", error: null };
   }
@@ -2828,6 +2833,9 @@ function fakeRunner(command, args = []) {
     return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
   }
   if (command === "git" && args[0] === "status") {
+    return { status: 0, stdout: "", stderr: "", error: null };
+  }
+  if (command === "git" && args[0] === "diff") {
     return { status: 0, stdout: "", stderr: "", error: null };
   }
   return { status: 0, stdout: "", stderr: "", error: null };

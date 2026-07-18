@@ -433,6 +433,27 @@ async function dispatchCompleteGates({ config, state, action, pr, adapter }) {
 
 async function dispatchMergePr({ config, plan, state, action, pr, adapter }) {
   if (!state.evidence?.gatesPassed?.[pr.number]) return fail("merge_without_gates_refused", "merge requires final gate evidence");
+  let mergeEntryEvidence = null;
+  if (typeof adapter.validateMergeEntryGateEvidence === "function") {
+    const validation = await adapter.validateMergeEntryGateEvidence({ config, plan, state, pr, expectedHead: action.expectedHead || pr.headRefOid });
+    if (!validation.ok) {
+      if (isStaleMergeEntryGateEvidence(validation)) {
+        return {
+          ok: true,
+          evidence: invalidateFinalGateEvidence(state.evidence, pr.number),
+          summary: {
+            action: action.action,
+            prNumber: pr.number,
+            invalidatedFinalGateEvidence: true,
+            reasonCode: validation.reasonCode,
+          },
+        };
+      }
+      return validation;
+    }
+    mergeEntryEvidence = validation.mergeEntryEvidence;
+    state = { ...state, evidence: putEvidence(state.evidence, "gatesPassed", pr.number, validation.evidence) };
+  }
   const markerKey = markerKeyFor("merge_pr", pr.number, pr.headRefOid);
   if (state.mutationMarkers[markerKey]) {
     return { ok: true, evidence: putEvidence(state.evidence, "merged", pr.number, state.mutationMarkers[markerKey].result || { ok: true, merged: true }), mutationMarkers: state.mutationMarkers, summary: { action: action.action, duplicate: true } };
@@ -446,6 +467,7 @@ async function dispatchMergePr({ config, plan, state, action, pr, adapter }) {
     operationType: "merge_pr",
     expectedPreState: expectedMergePreState({ pr, state, expectedHead: action.expectedHead || pr.headRefOid }),
     intendedPostState: intendedMergePostState({ pr, expectedHead: action.expectedHead || pr.headRefOid }),
+    operationEvidence: mergeEntryEvidence,
   });
   if (!intent.ok) return intent;
   if (intent.observedComplete) {
@@ -727,9 +749,20 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (!gate.ok) return gate;
       return gate.evidence;
     },
-    async mergePr({ config: cfg, plan = null, state, pr, expectedHead }) {
-      const gateEvidence = state.evidence?.gatesPassed?.[pr.number] || {};
+    async validateMergeEntryGateEvidence({ config: cfg, plan = null, state, pr, expectedHead }) {
       const targetConfig = cfg || config;
+      const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
+      if (!repositoryContext.ok) return repositoryContext;
+      const gate = await collectFinalGateEvidence({ config: targetConfig, state, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
+      if (!gate.ok) return gate;
+      if (expectedHead && gate.evidence?.exactHead !== expectedHead) return fail("merge_entry_gate_head_mismatch", "merge-entry gate evidence is not bound to the expected head");
+      return bindMergeEntryEvidence(gate.evidence);
+    },
+    async mergePr({ config: cfg, plan = null, state, pr, expectedHead }) {
+      const targetConfig = cfg || config;
+      const mergeEntry = await this.validateMergeEntryGateEvidence({ config: targetConfig, plan, state, pr, expectedHead });
+      if (!mergeEntry.ok) return mergeEntry;
+      const gateEvidence = mergeEntry.evidence;
       const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
       if (!repositoryContext.ok) return repositoryContext;
       const inspection = await this.inspectPr({ config: targetConfig, plan, state, prNumber: pr.number, repositoryContext: repositoryContext.context });
@@ -1161,12 +1194,12 @@ async function buildRepositoryOperationContext({ config = {}, plan = null, state
   };
 }
 
-async function prepareStackMutationIntent({ config = {}, plan = null, state = {}, pr = {}, adapter = null, operationType, expectedPreState, intendedPostState } = {}) {
+async function prepareStackMutationIntent({ config = {}, plan = null, state = {}, pr = {}, adapter = null, operationType, expectedPreState, intendedPostState, operationEvidence = null } = {}) {
   const repositoryContext = await buildRepositoryOperationContext({ config, plan, state, prNumber: pr.number, adapter });
   if (!repositoryContext.ok) return repositoryContext;
-  const discovered = discoverStackOperationRecords({ config, plan, state, pr, operationType, expectedPreState, intendedPostState, repositoryContext: repositoryContext.context });
+  const discovered = discoverStackOperationRecords({ config, plan, state, pr, operationType, expectedPreState, intendedPostState, repositoryContext: repositoryContext.context, operationEvidence });
   if (!discovered.ok) return discovered;
-  const intent = discovered.intent || persistStackOperationIntent({ config, plan, state, pr, operationType, expectedPreState, intendedPostState, repositoryContext: repositoryContext.context });
+  const intent = discovered.intent || persistStackOperationIntent({ config, plan, state, pr, operationType, expectedPreState, intendedPostState, repositoryContext: repositoryContext.context, operationEvidence });
   if (!intent.ok) return intent;
   if (adapter.capabilities?.repositoryBoundOperations !== true || typeof adapter.inspectPr !== "function") {
     return { ok: true, intent: intent.intent, repositoryContext: repositoryContext.context, observedComplete: false, inspectionSkipped: "adapter_without_repository_bound_inspectPr" };
@@ -1189,7 +1222,7 @@ function stackOperationRoot(config = {}) {
   return path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "stack-operation-intents");
 }
 
-function persistStackOperationIntent({ config = {}, plan = null, state = {}, pr = {}, operationType, expectedPreState, intendedPostState, repositoryContext } = {}) {
+function persistStackOperationIntent({ config = {}, plan = null, state = {}, pr = {}, operationType, expectedPreState, intendedPostState, repositoryContext, operationEvidence = null } = {}) {
   const operationId = digestJson({
     repository: repositoryContext.configuredRepositorySlug,
     stackId: plan?.stackId || state.stackId,
@@ -1218,6 +1251,7 @@ function persistStackOperationIntent({ config = {}, plan = null, state = {}, pr 
     supervisorRunId: config.supervisorRunId || null,
     expectedPreState,
     intendedPostState,
+    operationEvidence: operationEvidence ? sanitizeState(operationEvidence) : null,
     repositoryContext,
     priorMutationMarkerDigest: digestJson(state.mutationMarkers || {}),
     priorEvidenceDigest: digestJson(state.evidence || {}),
@@ -1229,7 +1263,7 @@ function persistStackOperationIntent({ config = {}, plan = null, state = {}, pr 
   renameSync(tmp, intentPath);
   const readBack = readStackOperationIntent(intentPath);
   if (!readBack.ok) return readBack;
-  const validation = validateStackOperationIntent({ config, plan, state, pr, intent: readBack.intent, operationType, expectedPreState, intendedPostState, repositoryContext });
+  const validation = validateStackOperationIntent({ config, plan, state, pr, intent: readBack.intent, operationType, expectedPreState, intendedPostState, repositoryContext, operationEvidence });
   if (!validation.ok) return validation;
   return { ok: true, intent: readBack.intent };
 }
@@ -1242,7 +1276,7 @@ function readStackOperationIntent(intentPath) {
   }
 }
 
-function discoverStackOperationRecords({ config = {}, plan = null, state = {}, pr = {}, operationType, expectedPreState, intendedPostState, repositoryContext } = {}) {
+function discoverStackOperationRecords({ config = {}, plan = null, state = {}, pr = {}, operationType, expectedPreState, intendedPostState, repositoryContext, operationEvidence = null } = {}) {
   const root = stackOperationRoot(config);
   if (!existsSync(root)) return { ok: true, intent: null };
   const matches = [];
@@ -1255,7 +1289,7 @@ function discoverStackOperationRecords({ config = {}, plan = null, state = {}, p
     if (!["mutation_intent", "mutation_observed_complete", "mutation_evidence_finalized"].includes(String(intent.status || ""))) {
       return fail("stack_operation_intent_status_unknown", "stack operation intent status is not recoverable");
     }
-    const validation = validateStackOperationIntent({ config, plan, state, pr, intent, operationType, expectedPreState, intendedPostState, repositoryContext });
+    const validation = validateStackOperationIntent({ config, plan, state, pr, intent, operationType, expectedPreState, intendedPostState, repositoryContext, operationEvidence });
     if (validation.ok) matches.push(intent);
     else if (sameStackOperationEnvelope({ intent, pr, operationType })) return validation;
   }
@@ -1267,7 +1301,7 @@ function sameStackOperationEnvelope({ intent = {}, pr = {}, operationType } = {}
   return intent.prNumber === pr.number && intent.operationType === operationType && intent.expectedPreState?.headRefOid === pr.headRefOid;
 }
 
-function validateStackOperationIntent({ config = {}, plan = null, state = {}, pr = {}, intent = {}, operationType, expectedPreState, intendedPostState, repositoryContext } = {}) {
+function validateStackOperationIntent({ config = {}, plan = null, state = {}, pr = {}, intent = {}, operationType, expectedPreState, intendedPostState, repositoryContext, operationEvidence = null } = {}) {
   if (!intent || typeof intent !== "object" || Array.isArray(intent)) return fail("stack_operation_intent_malformed", "stack operation intent must be an object");
   const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || plan?.repository || state.repository || "tommytang213/Settleora");
   if (intent.schemaVersion !== 1) return fail("stack_operation_intent_malformed", "stack operation intent schema is unsupported");
@@ -1277,6 +1311,10 @@ function validateStackOperationIntent({ config = {}, plan = null, state = {}, pr
   if (intent.prNumber !== pr.number || intent.operationType !== operationType) return fail("stack_operation_intent_mismatch", "stack operation intent action identity does not match");
   if (digestJson(intent.expectedPreState) !== digestJson(expectedPreState) || digestJson(intent.intendedPostState) !== digestJson(intendedPostState)) return fail("stack_operation_state_mismatch", "stack operation intent pre/post state does not match");
   if (intent.repositoryContext?.argvRepository !== repositoryContext.argvRepository) return fail("stack_operation_repository_context_mismatch", "stack operation repository argv proof does not match");
+  if (operationType === "merge_pr" && operationEvidence) {
+    if (!intent.operationEvidence) return fail("stack_operation_gate_evidence_missing", "merge operation intent is missing gate evidence bindings");
+    if (digestJson(intent.operationEvidence) !== digestJson(operationEvidence)) return fail("stack_operation_gate_evidence_mismatch", "merge operation intent gate evidence binding does not match current proof");
+  }
   if (config.taskKey !== undefined && intent.taskKey !== (config.taskKey || null)) return fail("stack_operation_task_mismatch", "stack operation task key does not match");
   if (config.runId !== undefined && intent.runId !== (config.runId || null)) return fail("stack_operation_run_mismatch", "stack operation run ID does not match");
   if (config.supervisorRunId !== undefined && intent.supervisorRunId !== (config.supervisorRunId || null)) return fail("stack_operation_supervisor_mismatch", "stack operation supervisor run ID does not match");
@@ -1929,6 +1967,17 @@ function normalizeSourceChangingConvergenceResult(result = {}, { prNumber, oldHe
 function invalidateHeadBoundEvidence(evidence = {}, prNumber) {
   const next = { ...(evidence || {}) };
   for (const key of ["gatesPassed", "merged", "currentMainProof", "currentMainProven", "mergedCurrentMain", "ownDeltaPreserved", "validation", "strongReview", "codexReview", "review"]) {
+    if (next[key]?.[prNumber]) {
+      next[key] = { ...next[key] };
+      delete next[key][prNumber];
+    }
+  }
+  return next;
+}
+
+function invalidateFinalGateEvidence(evidence = {}, prNumber) {
+  const next = { ...(evidence || {}) };
+  for (const key of ["gatesPassed", "finalGateSnapshots", "validation", "strongReview", "codexReview", "review"]) {
     if (next[key]?.[prNumber]) {
       next[key] = { ...next[key] };
       delete next[key][prNumber];
@@ -3015,6 +3064,31 @@ function isFinalGateExactHeadEvidenceMissing(result) {
   return /^(source_rebound_validation|strong_review|codex_review)_/.test(String(result.reasonCode || ""));
 }
 
+function isStaleMergeEntryGateEvidence(result) {
+  if (!result || result.ok !== false) return false;
+  return /^(source_rebound_validation|strong_review|codex_review|changed_files_do_not_match_allowed_paths|merge_entry_gate)_/.test(String(result.reasonCode || ""));
+}
+
+function bindMergeEntryEvidence(evidence = {}) {
+  const validation = evidence.validation || {};
+  const binding = {
+    schemaVersion: 1,
+    gateEvidenceDigest: digestJson(evidence),
+    validationPreWorktreeProofDigest: validation.preWorktreeProofDigest || null,
+    validationPostWorktreeProofDigest: validation.postWorktreeProofDigest || null,
+    validationHead: validation.headSha || null,
+    validationTree: validation.treeSha || null,
+    exactHead: evidence.exactHead || null,
+    baseSha: evidence.baseSha || evidence.expectedOriginMainSha || null,
+    changedFilesDigest: evidence.changedFilesDigest || null,
+    boundAt: new Date().toISOString(),
+  };
+  if (!binding.validationPreWorktreeProofDigest || !binding.validationPostWorktreeProofDigest) {
+    return fail("merge_entry_validation_worktree_digest_missing", "merge-entry validation proof digests are required");
+  }
+  return { ok: true, evidence, mergeEntryEvidence: binding };
+}
+
 async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, runStrongReview, runCodexReview, runValidation = runValidationPlan }) {
   if (typeof runStrongReview !== "function" || typeof runCodexReview !== "function") {
     return fail("exact_head_review_adapter_unconfigured", "strong and Codex exact-head review adapters are required before final gates");
@@ -3131,11 +3205,24 @@ async function collectFinalGateEvidence({ config, state, pr, runner, adapter = n
   if (!prereq.ok) return prereq;
   const { inspection, currentHead, currentOriginMainSha, originMainFetchedAt, changed, laneProof, status } = prereq;
   const validationEvidence = state?.evidence?.validation?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.validation || null;
+  const worktree = readExactFinalGateWorktreeProof({
+    config,
+    pr: { ...pr, ...(inspection.pr || {}) },
+    expectedHead: currentHead,
+    expectedBranch: pr.headRefName,
+    expectedRepository: config.repositorySlug || "tommytang213/Settleora",
+    runner,
+    proofType: "final_gate_merge_entry",
+  });
+  if (!worktree.ok) return worktree;
   const validation = validateValidationEvidenceObject(validationEvidence, {
     expectedHead: currentHead,
     expectedBase: currentOriginMainSha,
     changedFiles: changed.ownDelta.fileSet,
     requireWorktreeProof: true,
+    expectedWorktreePath: worktree.worktreePath,
+    expectedRepository: worktree.configuredRepository,
+    expectedTree: worktree.treeSha,
   });
   if (!validation.ok) return validation;
   const reviewEvidence = buildFinalGateReviewEvidence({
@@ -3146,7 +3233,6 @@ async function collectFinalGateEvidence({ config, state, pr, runner, adapter = n
     changedFiles: changed.ownDelta.fileSet,
   });
   if (!reviewEvidence.ok) return reviewEvidence;
-  const worktree = readMergeWorktreeCleanProof({ config, expectedHead: currentHead, runner });
   const evidence = {
     ok: status.ok && worktree.ok && worktree.clean === true,
     exactHead: currentHead,
@@ -3258,7 +3344,7 @@ function validateFinalGateReviewEvidence({ strongIndependent, codex, expectedHea
   };
 }
 
-function validateValidationEvidenceObject(validation, { expectedHead, expectedBase, changedFiles, requireWorktreeProof = false }) {
+function validateValidationEvidenceObject(validation, { expectedHead, expectedBase, changedFiles, requireWorktreeProof = false, expectedWorktreePath = null, expectedRepository = null, expectedTree = null }) {
   if (!validation || typeof validation !== "object" || Array.isArray(validation)) {
     return fail("source_rebound_validation_missing", "source rebound validation evidence is required");
   }
@@ -3287,8 +3373,17 @@ function validateValidationEvidenceObject(validation, { expectedHead, expectedBa
     if (validation.treeSha !== pre.treeSha || post.treeSha !== pre.treeSha) {
       return fail("source_rebound_validation_worktree_tree_mismatch", "validation worktree tree proof changed or is missing");
     }
+    if (expectedTree && pre.treeSha !== expectedTree) {
+      return fail("source_rebound_validation_worktree_tree_mismatch", "validation worktree proof is not bound to the current tree");
+    }
     if (validation.canonicalWorktreePath !== pre.worktreePath || post.worktreePath !== pre.worktreePath) {
       return fail("source_rebound_validation_worktree_path_mismatch", "validation worktree path proof changed or is missing");
+    }
+    if (expectedWorktreePath && pre.worktreePath !== expectedWorktreePath) {
+      return fail("source_rebound_validation_worktree_path_mismatch", "validation worktree proof is not bound to the current worktree");
+    }
+    if (expectedRepository && (pre.configuredRepository !== expectedRepository || post.configuredRepository !== expectedRepository || pre.originRepositorySlug !== expectedRepository || post.originRepositorySlug !== expectedRepository)) {
+      return fail("source_rebound_validation_worktree_origin_mismatch", "validation worktree proof is not bound to the configured repository");
     }
     if (pre.clean !== true || post.clean !== true || pre.activeOperation === true || post.activeOperation === true) {
       return fail("source_rebound_validation_worktree_dirty", "validation worktree proof must be clean with no active git operation");
