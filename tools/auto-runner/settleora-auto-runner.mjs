@@ -1895,26 +1895,30 @@ function createLiveFixedArgvRunner(config = {}) {
 function createLivePrStackReviewAdapters(config) {
   const buildPackage = async ({ reviewPhase, pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview = null }) => {
     const mechanicsPhase = reviewPhase === "pr-stack-final-codex-exact-head";
+    const incomingLaneDecision = fullCandidatePrDelta?.laneDecision || validation?.laneDecision || { lane: "workflow-docs-tooling" };
+    const incomingContract = incomingLaneDecision.contract || {};
+    const manualMergeRequired = incomingContract.manualMergeRequired ?? incomingLaneDecision.manualMergeRequired ?? true;
+    const autoMergeEligible = incomingContract.autoMergeEligible ?? incomingLaneDecision.autoMergeEligible ?? false;
     return writeReviewPackage(config, {
     reviewPhase,
     issue: pr?.issue || config.prStackIssue || { number: pr?.issueNumber || pr?.number || 921, title: pr?.title || `PR #${pr?.number || "unknown"}`, labels: [] },
     promptInfo: { promptPath: `pr-stack:${reviewPhase}:pr-${pr?.number || "unknown"}:${headSha || "unknown"}` },
     laneDecision: {
-      ...(fullCandidatePrDelta?.laneDecision || validation?.laneDecision || { lane: "workflow-docs-tooling" }),
+      ...incomingLaneDecision,
       validationProfile: validation?.profile || fullCandidatePrDelta?.laneDecision?.validationProfile || validation?.laneDecision?.validationProfile || "runner-tests",
       reviewerTier: "strong_independent",
-      manualMergeRequired: !mechanicsPhase,
-      autoMergeEligible: mechanicsPhase,
+      manualMergeRequired,
+      autoMergeEligible,
       contract: {
-        ...(fullCandidatePrDelta?.laneDecision?.contract || validation?.laneDecision?.contract || {}),
-        manualMergeRequired: !mechanicsPhase,
-        autoMergeEligible: mechanicsPhase,
+        ...incomingContract,
+        manualMergeRequired,
+        autoMergeEligible,
       },
     },
     changedFiles,
     validation,
-    manualMergeRequired: !mechanicsPhase,
-    autoMergeEligible: mechanicsPhase,
+    manualMergeRequired,
+    autoMergeEligible,
     report: { found: true, expectedPath: `pr-stack:${reviewPhase}` },
     headSha,
     baseSha,
@@ -1936,8 +1940,6 @@ function createLivePrStackReviewAdapters(config) {
     reviewFixMechanicsContext: mechanicsPhase ? {
       objective: "Converge and merge the exact-head PR #919 -> PR #920 development-stage stack through protected controller gates while PR #917 remains frozen.",
       humanDirectedMergeGate: true,
-      manualGateSatisfied: true,
-      approvedBy: "human-directed task authorization",
       taskKey: config.taskKey || null,
       exactHead: headSha,
       exactBase: baseSha,

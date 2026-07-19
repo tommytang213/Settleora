@@ -6842,6 +6842,12 @@ test("stack CLI constructs and injects one live fixed-argv runner", () => {
   assert.match(source, /runStrongReview: async/);
   assert.match(source, /runCodexReview: async/);
   assert.match(source, /reviewerTier: "strong_independent"/);
+  const reviewAdapterBody = source.slice(reviewAdaptersIndex, source.indexOf("function boundRunnerOutput", reviewAdaptersIndex));
+  assert.match(reviewAdapterBody, /incomingContract\.manualMergeRequired \?\? incomingLaneDecision\.manualMergeRequired \?\? true/);
+  assert.match(reviewAdapterBody, /incomingContract\.autoMergeEligible \?\? incomingLaneDecision\.autoMergeEligible \?\? false/);
+  assert.doesNotMatch(reviewAdapterBody, /manualGateSatisfied/);
+  assert.doesNotMatch(reviewAdapterBody, /manualMergeRequired: !mechanicsPhase/);
+  assert.doesNotMatch(reviewAdapterBody, /autoMergeEligible: mechanicsPhase/);
 });
 
 test("live fixed-argv runner preserves machine stdout while sanitizing persisted excerpts", () => {
