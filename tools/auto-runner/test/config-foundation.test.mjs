@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, chownSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, chownSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadConfig, parseCliArgs } from "../lib/config.mjs";
@@ -286,6 +286,51 @@ test("stack config trust boundary rejects invalid file and parsed identity cases
         assert.equal(config.configTrustEvidence.uid, process.getuid());
       }
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("stack config trust descriptor read binds bytes and closes descriptors", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-descriptor-"));
+  try {
+    const logsRoot = path.join(root, "logs");
+    const { configPath, planPath } = writeStackConfig(logsRoot, "20260718-0010", { marker: "opened" });
+    const replacement = { ...validStackConfig(logsRoot), marker: "replacement" };
+
+    const fdsBefore = readdirSync("/proc/self/fd").length;
+    const config = loadConfig(
+      parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath]),
+      {
+        prStackTrustedRoot: logsRoot,
+        configTrustHooks: {
+          beforeRead: ({ configPath: openedPath }) => {
+            rmSync(openedPath);
+            writeConfigFile(openedPath, replacement);
+          },
+        },
+      },
+    );
+    assert.equal(config.marker, "opened");
+    assert.notEqual(JSON.parse(readFileSync(configPath, "utf8")).marker, config.marker);
+    assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
+
+    writeConfigFile(configPath, { ...validStackConfig(logsRoot), marker: "opened-again" });
+    assert.throws(
+      () => loadConfig(
+        parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath]),
+        {
+          prStackTrustedRoot: logsRoot,
+          configTrustHooks: {
+            afterOpen: ({ configPath: openedPath }) => {
+              rmSync(openedPath);
+            },
+          },
+        },
+      ),
+      /config_missing|config_identity_mismatch/,
+    );
+    assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -285,6 +285,56 @@ test("protected authorization identity is stable and exact claim is atomic", () 
   assert.equal(second.evidence.stateDigest, first.evidence.stateDigest);
 });
 
+test("protected authorization descriptor read binds bytes and closes descriptors", () => {
+  const { config, plan, logsRoot } = stackFixture();
+  const authPath = path.join(logsRoot, "descriptor-authorization.json");
+  writeProtectedPlanAuthorization(authPath, plan, { approvedBy: "opened-approval", authorizationId: "descriptor-auth-fixture" });
+  const replacement = {
+    schemaVersion: 1,
+    purpose: "live_stack_acceptance",
+    repositorySlug: "tommytang213/Settleora",
+    orderedPrNumbers: [919, 920],
+    planDigest: prStackExecutorTestInternals.digestStackPlan(plan),
+    baseBranch: "main",
+    expectedHeads: Object.fromEntries(plan.orderedPrs.map((pr) => [String(pr.number), pr.headRefOid])),
+    manualGateApproved: true,
+    approvedBy: "replacement-approval",
+    authorizationId: "descriptor-auth-fixture",
+    taskKey: plan.taskKey || "protected-auth-fixture",
+    expiresAt: "2999-01-01T00:00:00Z",
+    consumedAt: null,
+  };
+
+  const fdsBefore = readdirSync("/proc/self/fd").length;
+  const loaded = prStackExecutorTestInternals.readProtectedPlanAuthorizationFile(authPath, {
+    config,
+    hooks: {
+      beforeRead: ({ authorizationPath }) => {
+        rmSync(authorizationPath);
+        writeFileSync(authorizationPath, `${JSON.stringify(replacement, null, 2)}\n`, { mode: 0o600 });
+      },
+    },
+  });
+  assert.equal(loaded.ok, true, loaded.reasonCode);
+  assert.equal(loaded.authorization.approvedBy, "opened-approval");
+  assert.equal(JSON.parse(readFileSync(authPath, "utf8")).approvedBy, "replacement-approval");
+  assert.match(loaded.digestSha256, /^[a-f0-9]{64}$/);
+  assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
+
+  writeProtectedPlanAuthorization(authPath, plan, { approvedBy: "opened-approval", authorizationId: "descriptor-auth-fixture" });
+  const failed = prStackExecutorTestInternals.readProtectedPlanAuthorizationFile(authPath, {
+    config,
+    hooks: {
+      afterOpen: ({ authorizationPath }) => {
+        rmSync(authorizationPath);
+      },
+    },
+  });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reasonCode, "protected_stack_plan_authorization_missing");
+  assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
+});
+
 test("protected authorization rejects different operation repository order digest and expiry", () => {
   const { config, plan, logsRoot } = stackFixture();
   const state = createInitialPrStackState({ plan });

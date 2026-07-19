@@ -487,7 +487,7 @@ function validateProtectedLivePlanAuthorization(config = {}, plan = {}, { stackC
 	  if (!path.isAbsolute(authorizationPath)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization path must be absolute");
 	  const trustedRoot = path.resolve(config.trustedControlRoot || config.logsRoot || "/workspace/logs/settleora-auto-runner");
 	  if (!isInside(path.resolve(authorizationPath), trustedRoot)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be under the trusted control root");
-	  const loaded = readProtectedPlanAuthorizationFile(authorizationPath);
+	  const loaded = readProtectedPlanAuthorizationFile(authorizationPath, { config });
   if (!loaded.ok) return loaded;
   const authorization = loaded.authorization || {};
   const repo = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
@@ -511,33 +511,173 @@ function validateProtectedLivePlanAuthorization(config = {}, plan = {}, { stackC
   if (authorization.manualGateApproved !== true || typeof authorization.approvedBy !== "string" || authorization.approvedBy.trim().length === 0) {
     return fail("protected_stack_plan_authorization_policy_invalid", "protected plan authorization lacks accepted manual-gate approval");
   }
-  const identity = protectedPlanAuthorizationIdentity({ config, plan, authorization, authorizationPath: loaded.path });
+  const identity = protectedPlanAuthorizationIdentity({ config, plan, authorization, authorizationPath: loaded.path, authorizationArtifactDigestSha256: loaded.digestSha256 });
   if (!identity.ok) return identity;
-  return { ok: true, protectedPlan: true, authorizationEvidence: { path: loaded.path, digest: identity.identity.authorizationDigest, identity: identity.identity, checkedAt: new Date().toISOString() } };
+  return { ok: true, protectedPlan: true, authorizationEvidence: { path: loaded.path, digest: identity.identity.authorizationDigest, artifactDigestSha256: loaded.digestSha256, identity: identity.identity, checkedAt: new Date().toISOString() } };
 }
 
-function readProtectedPlanAuthorizationFile(authorizationPath) {
-  let linkStat;
-  try {
-    linkStat = lstatSync(authorizationPath);
-  } catch {
-    return fail("protected_stack_plan_authorization_missing", "protected plan authorization file is missing");
+function readProtectedPlanAuthorizationFile(authorizationPath, { config = {}, hooks = null } = {}) {
+  const rootTrust = validateProtectedPlanAuthorizationTrustedRoot(config);
+  if (!rootTrust.ok) return rootTrust;
+  const lexicalPath = path.resolve(authorizationPath);
+  if (lexicalPath !== authorizationPath) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization path must be absolute and canonical");
+  if (!isInside(lexicalPath, rootTrust.lexicalRoot)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be under the trusted control root");
+  const relative = path.relative(rootTrust.lexicalRoot, lexicalPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative) || relative.split(path.sep).includes("..")) {
+    return fail("protected_stack_plan_authorization_malformed", "protected plan authorization path must not traverse outside trusted control root");
   }
-  if (linkStat.isSymbolicLink()) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must not be a symlink");
-  const real = realpathSync(authorizationPath);
-  if (real !== path.resolve(authorizationPath)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization realpath must match its canonical path");
-  const fileTrust = validateOwnerOnlyFile(real);
-  if (!fileTrust.ok) return fail("protected_stack_plan_authorization_malformed", fileTrust.reason);
+  const walked = validateProtectedPlanAuthorizationPathComponents(rootTrust, lexicalPath, relative);
+  if (!walked.ok) return walked;
+  let real;
+  try {
+    real = realpathSync(lexicalPath);
+  } catch (error) {
+    return fail(error?.code === "ELOOP" ? "protected_stack_plan_authorization_malformed" : "protected_stack_plan_authorization_missing", error.message || "protected plan authorization canonical path could not be resolved");
+  }
+  if (real !== lexicalPath) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization realpath must match its canonical path");
+  if (!isInside(real, rootTrust.canonicalRoot)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization canonical target escaped trusted control root");
+  hooks?.beforeOpen?.({ authorizationPath: lexicalPath, canonicalAuthorizationPath: real, rootTrust, walked });
+  const noFollow = openProtectedPlanAuthorizationNoFollow(lexicalPath, hooks);
+  if (!noFollow.ok) return noFollow;
+  const { fd, strategy } = noFollow;
+  let openedStat;
+  let bytes;
+  try {
+    hooks?.afterOpen?.({ fd, authorizationPath: lexicalPath, canonicalAuthorizationPath: real, rootTrust, walked });
+    openedStat = fstatSync(fd);
+    if (!sameFileIdentity(walked.terminalStat, openedStat)) {
+      return fail("protected_stack_plan_authorization_malformed", "protected plan authorization identity changed between validation and descriptor open");
+    }
+    const descriptorTrust = validateProtectedPlanAuthorizationRegularFile(openedStat);
+    if (!descriptorTrust.ok) return descriptorTrust;
+    const postOpenLstat = lstatSync(lexicalPath);
+    if (!sameFileIdentity(postOpenLstat, openedStat)) {
+      return fail("protected_stack_plan_authorization_malformed", "protected plan authorization identity changed after descriptor open");
+    }
+    const postOpenCanonical = realpathSync(lexicalPath);
+    if (postOpenCanonical !== real || !isInside(postOpenCanonical, rootTrust.canonicalRoot)) {
+      return fail("protected_stack_plan_authorization_malformed", "protected plan authorization canonical target changed during validation");
+    }
+    hooks?.beforeRead?.({ fd, authorizationPath: lexicalPath, canonicalAuthorizationPath: real, rootTrust, openedStat });
+    bytes = readFileSync(fd);
+    if (bytes.length !== openedStat.size) {
+      return fail("protected_stack_plan_authorization_malformed", "protected plan authorization size changed during descriptor read");
+    }
+  } catch (error) {
+    if (error?.code === "ELOOP") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization symlink was refused");
+    if (error?.code === "ENOENT") return fail("protected_stack_plan_authorization_missing", "protected plan authorization disappeared during validation");
+    return fail("protected_stack_plan_authorization_malformed", error.message || "protected plan authorization could not be read safely");
+  } finally {
+    closeSync(fd);
+  }
+  if (!isUtf8(bytes)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be valid UTF-8");
   let authorization;
   try {
-    authorization = JSON.parse(readFileSync(real, "utf8"));
-  } catch {
-    return fail("protected_stack_plan_authorization_malformed", "protected plan authorization JSON is malformed");
+    authorization = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    return fail("protected_stack_plan_authorization_malformed", `protected plan authorization JSON is malformed: ${error.message}`);
   }
   if (!authorization || typeof authorization !== "object" || Array.isArray(authorization)) {
     return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be an object");
   }
-  return { ok: true, authorization, path: real };
+  return {
+    ok: true,
+    authorization,
+    path: real,
+    digestSha256: createHash("sha256").update(bytes).digest("hex"),
+    evidence: sanitizeState({
+      canonicalTrustedRoot: rootTrust.canonicalRoot,
+      path: real,
+      relativePath: relative.split(path.sep).join("/"),
+      owner: openedStat.uid,
+      mode: openedStat.mode & 0o777,
+      type: "regular_file",
+      size: openedStat.size,
+      identity: fileIdentity(openedStat),
+      noFollowStrategy: strategy,
+      digestSha256: createHash("sha256").update(bytes).digest("hex"),
+      checkedAt: new Date().toISOString(),
+    }),
+  };
+}
+
+function validateProtectedPlanAuthorizationTrustedRoot(config = {}) {
+  const lexicalRoot = path.resolve(config.trustedControlRoot || config.logsRoot || "/workspace/logs/settleora-auto-runner");
+  let linkStat;
+  try {
+    linkStat = lstatSync(lexicalRoot);
+  } catch {
+    return fail("protected_stack_plan_authorization_malformed", "trusted control root is missing");
+  }
+  if (linkStat.isSymbolicLink()) return fail("protected_stack_plan_authorization_malformed", "trusted control root must not be a symlink");
+  let canonicalRoot;
+  try {
+    canonicalRoot = realpathSync(lexicalRoot);
+  } catch (error) {
+    return fail("protected_stack_plan_authorization_malformed", error.message || "trusted control root canonicalization failed");
+  }
+  if (canonicalRoot !== lexicalRoot) return fail("protected_stack_plan_authorization_malformed", "trusted control root realpath must match its lexical path");
+  const stat = statSync(canonicalRoot);
+  if (!stat.isDirectory()) return fail("protected_stack_plan_authorization_malformed", "trusted control root must be a directory");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) return fail("protected_stack_plan_authorization_malformed", "trusted control root owner must match current operator");
+  if ((stat.mode & 0o002) !== 0) return fail("protected_stack_plan_authorization_malformed", "trusted control root must not be world-writable");
+  return { ok: true, lexicalRoot, canonicalRoot, rootStat: stat };
+}
+
+function validateProtectedPlanAuthorizationPathComponents(rootTrust, lexicalPath, relative) {
+  const parts = relative.split(path.sep).filter(Boolean);
+  let current = rootTrust.lexicalRoot;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = path.join(current, parts[index]);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ELOOP") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization path contains a symlink loop");
+      return fail("protected_stack_plan_authorization_missing", "protected plan authorization path component is missing");
+    }
+    if (stat.isSymbolicLink()) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization path must not contain symlinks");
+    if (index < parts.length - 1) {
+      const directoryTrust = validateProtectedPlanAuthorizationTrustedDirectory(stat);
+      if (!directoryTrust.ok) return directoryTrust;
+    } else {
+      const terminalTrust = validateProtectedPlanAuthorizationRegularFile(stat);
+      if (!terminalTrust.ok) return terminalTrust;
+    }
+  }
+  return { ok: true, terminalStat: lstatSync(lexicalPath) };
+}
+
+function validateProtectedPlanAuthorizationTrustedDirectory(stat) {
+  if (!stat.isDirectory()) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization parent path must be a directory");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization parent owner must match current operator");
+  if ((stat.mode & 0o077) !== 0) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization parent directories must be owner-only");
+  return { ok: true };
+}
+
+function validateProtectedPlanAuthorizationRegularFile(stat) {
+  if (!stat.isFile()) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be a regular file");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization owner must match current operator");
+  if ((stat.mode & 0o077) !== 0) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization file must be owner-only");
+  if (stat.size > 1024 * 1024) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization exceeds the bounded size limit");
+  return { ok: true };
+}
+
+function openProtectedPlanAuthorizationNoFollow(filePath, hooks = null) {
+  const constants = hooks?.fsConstants || fsConstants;
+  if (typeof constants.O_NOFOLLOW !== "number") {
+    return fail("protected_stack_plan_authorization_malformed", "O_NOFOLLOW is unavailable for protected plan authorization open");
+  }
+  try {
+    return { ok: true, fd: openSync(filePath, constants.O_RDONLY | constants.O_NOFOLLOW), strategy: "openSync:O_RDONLY|O_NOFOLLOW" };
+  } catch (error) {
+    if (error?.code === "ELOOP") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization symlink was refused by no-follow open");
+    if (error?.code === "ENOENT") return fail("protected_stack_plan_authorization_missing", "protected plan authorization disappeared before open");
+    return fail("protected_stack_plan_authorization_malformed", error.message || "protected plan authorization could not be opened safely");
+  }
 }
 
 function prepareProtectedPlanAuthorizationLifecycle({ config = {}, plan = {}, authorizationPlan = plan, stackConfig = normalizePrStackExecutionConfig(config), state = {}, runnerIdentity = null, lifecycle = "claim", operationIntent = null } = {}) {
@@ -553,7 +693,7 @@ function prepareProtectedPlanAuthorizationLifecycle({ config = {}, plan = {}, au
   if (!path.isAbsolute(authorizationPath)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization path must be absolute");
   const trustedRoot = path.resolve(config.trustedControlRoot || config.logsRoot || "/workspace/logs/settleora-auto-runner");
   if (!isInside(path.resolve(authorizationPath), trustedRoot)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be under the trusted control root");
-  const loaded = readProtectedPlanAuthorizationFile(authorizationPath);
+  const loaded = readProtectedPlanAuthorizationFile(authorizationPath, { config });
   if (!loaded.ok) return loaded;
   const authorization = loaded.authorization || {};
   const repo = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
@@ -569,7 +709,7 @@ function prepareProtectedPlanAuthorizationLifecycle({ config = {}, plan = {}, au
   if (authorization.manualGateApproved !== true || typeof authorization.approvedBy !== "string" || authorization.approvedBy.trim().length === 0) {
     return fail("protected_stack_plan_authorization_policy_invalid", "protected plan authorization lacks accepted manual-gate approval");
   }
-  const identityResult = protectedPlanAuthorizationIdentity({ config, plan: authorizationPlan, authorization, authorizationPath: loaded.path });
+  const identityResult = protectedPlanAuthorizationIdentity({ config, plan: authorizationPlan, authorization, authorizationPath: loaded.path, authorizationArtifactDigestSha256: loaded.digestSha256 });
   if (!identityResult.ok) return identityResult;
   const identity = identityResult.identity;
   const statePath = protectedAuthorizationStatePath(config, identity);
@@ -630,7 +770,7 @@ function prepareProtectedPlanAuthorizationLifecycle({ config = {}, plan = {}, au
   return fail("protected_stack_authz_lifecycle_unknown", "protected authorization lifecycle phase is unsupported");
 }
 
-function protectedPlanAuthorizationIdentity({ config = {}, plan = {}, authorization = {}, authorizationPath = null } = {}) {
+function protectedPlanAuthorizationIdentity({ config = {}, plan = {}, authorization = {}, authorizationPath = null, authorizationArtifactDigestSha256 = null } = {}) {
   const orderedPrNumbers = (plan.orderedPrs || []).map((pr) => pr.number);
   if (authorization.authorizationId !== undefined && typeof authorization.authorizationId !== "string") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization ID is invalid");
   const operationCorrelation = plan.taskKey || plan.correlationId || authorization.taskKey || authorization.correlationId || null;
@@ -655,6 +795,7 @@ function protectedPlanAuthorizationIdentity({ config = {}, plan = {}, authorizat
     taskKey: plan.taskKey || authorization.taskKey || null,
     authorizationPath,
     authorizationDigest: digestJson(authorization),
+    authorizationArtifactDigestSha256,
   });
   return { ok: true, identity, identityDigest: digestJson(identity) };
 }
@@ -4936,6 +5077,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   prepareProtectedPlanAuthorizationLifecycle,
   protectedAuthorizationStatePath,
   protectedPlanAuthorizationIdentity,
+  readProtectedPlanAuthorizationFile,
   discoverTaskScopedPendingPushIntents,
   evaluateSourceCycleBudget,
   fetchAndReadOriginMain,

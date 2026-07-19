@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isUtf8 } from "node:buffer";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
@@ -380,6 +380,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     const loaded = readTrustedConfigFile(cliArgs.configPath, {
       runPrStack: cliArgs.runPrStack,
       bootstrapTrustedRoot: trustedCapabilities?.prStackTrustedRoot,
+      trustHooks: trustedCapabilities?.configTrustHooks || null,
     });
     fileConfig = loaded.config;
     configTrustEvidence = loaded.evidence;
@@ -479,7 +480,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   return config;
 }
 
-function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null } = {}) {
+function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null, trustHooks = null } = {}) {
   const resolved = path.resolve(configPath);
   if (!runPrStack) {
     return { config: JSON.parse(readFileSync(resolved, "utf8")), evidence: null };
@@ -487,19 +488,32 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
   if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("config_path_not_canonical: Config path must be absolute and canonical.");
   const trustedRootProof = validateTrustedRootDirectory(resolveExternalConfigTrustRoot({ bootstrapTrustedRoot }));
   const layoutProof = validateLiveStackAcceptanceConfigPath(resolved, trustedRootProof);
-  const linkStat = lstatSync(resolved);
-  if (linkStat.isSymbolicLink()) throw new Error("config_symlink_escape: Config path must not be a symlink.");
-  const real = realpathSync(resolved);
-  if (real !== resolved) throw new Error("config_canonical_alias_mismatch: Config path realpath must match the canonical path.");
-  if (!isInsidePath(real, trustedRootProof.realpath)) throw new Error("config_outside_bootstrap_root: --run-pr-stack config path must be under externally anchored bootstrap logs root.");
-  const stat = statSync(real);
-  if (!stat.isFile()) throw new Error("config_file_type_invalid: Config path must be a regular file.");
-  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
-  if (currentUid !== null && stat.uid !== currentUid) throw new Error("config_owner_invalid: Config file owner must match the current operator.");
-  if ((stat.mode & 0o022) !== 0) throw new Error("config_mode_group_world_writable: Config file must not be group/world writable.");
-  if ((stat.mode & 0o077) !== 0) throw new Error("config_mode_not_restrictive: Config file must be owner-only.");
-  if (stat.size > maxTrustedConfigBytes) throw new Error("config_size_exceeded: Config file exceeds the bounded size limit.");
-  const buffer = readFileSync(real);
+  const walked = validateTrustedConfigPathComponents(trustedRootProof, resolved, layoutProof.relativePath);
+  const real = resolveTrustedConfigRealpath(resolved, trustedRootProof);
+  trustHooks?.beforeOpen?.({ configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, walked });
+  const opened = openTrustedConfigNoFollow(resolved, trustHooks);
+  const { fd, strategy } = opened;
+  let stat;
+  let buffer;
+  try {
+    trustHooks?.afterOpen?.({ fd, configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, walked });
+    stat = fstatSync(fd);
+    if (!sameFileIdentity(walked.terminalStat, stat)) throw new Error("config_identity_mismatch: Config file identity changed between validation and descriptor open.");
+    validateTrustedConfigRegularFile(stat);
+    const postOpenLstat = lstatSync(resolved);
+    if (!sameFileIdentity(postOpenLstat, stat)) throw new Error("config_identity_mismatch: Config file identity changed after descriptor open.");
+    const postOpenReal = resolveTrustedConfigRealpath(resolved, trustedRootProof);
+    if (postOpenReal !== real) throw new Error("config_identity_mismatch: Config file canonical path changed during validation.");
+    trustHooks?.beforeRead?.({ fd, configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, stat });
+    buffer = readFileSync(fd);
+    if (buffer.length !== stat.size) throw new Error("config_identity_mismatch: Config file size changed during descriptor read.");
+  } catch (error) {
+    if (error?.code === "ELOOP") throw new Error("config_symlink_escape: Config symlink was refused by no-follow open.");
+    if (error?.code === "ENOENT") throw new Error("config_missing: Config file disappeared during trusted read.");
+    throw error;
+  } finally {
+    closeSync(fd);
+  }
   if (!isUtf8(buffer)) throw new Error("config_utf8_invalid: Config file must be valid UTF-8.");
   let parsed;
   try {
@@ -525,6 +539,10 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
       mode: stat.mode & 0o777,
       uid: stat.uid,
       type: "regular_file",
+      device: stat.dev,
+      inode: stat.ino,
+      identity: fileIdentity(stat),
+      noFollowStrategy: strategy,
       digestSha256: createHash("sha256").update(buffer).digest("hex"),
       repositorySlug: parsed.repositorySlug || parsed.repository || defaultConfig.repositorySlug,
       repoRoot: parsed.repoRoot || parsed.protectedRoot || defaultConfig.repoRoot,
@@ -562,6 +580,7 @@ function validateTrustedRootDirectory({ root, source }) {
   if (!stat.isDirectory()) throw new Error("bootstrap_root_type_invalid: --run-pr-stack bootstrap logs root must be a directory.");
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
   if (currentUid !== null && stat.uid !== currentUid) throw new Error("bootstrap_root_owner_invalid: --run-pr-stack bootstrap logs root owner must match the current operator.");
+  if ((stat.mode & 0o002) !== 0) throw new Error("bootstrap_root_mode_untrusted: --run-pr-stack bootstrap logs root must not be world-writable.");
   return { realpath: real, mode: stat.mode & 0o777, uid: stat.uid, source };
 }
 
@@ -584,6 +603,76 @@ function validateLiveStackAcceptanceConfigPath(configPath, trustedRootProof) {
     throw new Error("config_invalid_correlation_segment: --run-pr-stack live-stack-acceptance correlation segment is invalid.");
   }
   return { relativePath: relative.split(path.sep).join("/"), taskCorrelation };
+}
+
+function validateTrustedConfigPathComponents(trustedRootProof, configPath, relativePath) {
+  const parts = relativePath.split("/").filter(Boolean);
+  let current = trustedRootProof.realpath;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = path.join(current, parts[index]);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ELOOP") throw new Error("config_symlink_escape: Config path contains a symlink loop.");
+      throw new Error("config_missing: Config path component is missing.");
+    }
+    if (stat.isSymbolicLink()) throw new Error("config_symlink_escape: Config path must not contain symlinks.");
+    if (index < parts.length - 1) {
+      if (!stat.isDirectory()) throw new Error("config_parent_type_invalid: Config parent path must contain only directories.");
+      validateTrustedConfigDirectory(stat);
+    } else {
+      validateTrustedConfigRegularFile(stat);
+    }
+  }
+  return { terminalStat: lstatSync(configPath) };
+}
+
+function validateTrustedConfigDirectory(stat) {
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) throw new Error("config_parent_owner_invalid: Config parent owner must match the current operator.");
+  if ((stat.mode & 0o077) !== 0) throw new Error("config_parent_mode_untrusted: Config parent directories must be owner-only.");
+}
+
+function validateTrustedConfigRegularFile(stat) {
+  if (!stat.isFile()) throw new Error("config_file_type_invalid: Config path must be a regular file.");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) throw new Error("config_owner_invalid: Config file owner must match the current operator.");
+  if ((stat.mode & 0o022) !== 0) throw new Error("config_mode_group_world_writable: Config file must not be group/world writable.");
+  if ((stat.mode & 0o077) !== 0) throw new Error("config_mode_not_restrictive: Config file must be owner-only.");
+  if (stat.size > maxTrustedConfigBytes) throw new Error("config_size_exceeded: Config file exceeds the bounded size limit.");
+}
+
+function resolveTrustedConfigRealpath(configPath, trustedRootProof) {
+  const real = realpathSync(configPath);
+  if (real !== configPath) throw new Error("config_canonical_alias_mismatch: Config path realpath must match the canonical path.");
+  if (!isInsidePath(real, trustedRootProof.realpath)) throw new Error("config_outside_bootstrap_root: --run-pr-stack config path must be under externally anchored bootstrap logs root.");
+  return real;
+}
+
+function openTrustedConfigNoFollow(configPath, hooks = null) {
+  const constants = hooks?.fsConstants || fsConstants;
+  if (typeof constants.O_NOFOLLOW !== "number") {
+    throw new Error("config_no_follow_unavailable: O_NOFOLLOW is unavailable for trusted config open.");
+  }
+  try {
+    return {
+      fd: openSync(configPath, constants.O_RDONLY | constants.O_NOFOLLOW),
+      strategy: "openSync:O_RDONLY|O_NOFOLLOW",
+    };
+  } catch (error) {
+    if (error?.code === "ELOOP") throw new Error("config_symlink_escape: Config symlink was refused by no-follow open.");
+    if (error?.code === "ENOENT") throw new Error("config_missing: Config disappeared before descriptor open.");
+    throw new Error(`config_open_failed: Config could not be opened safely: ${error.message}`);
+  }
+}
+
+function fileIdentity(stat) {
+  return `${stat.dev}:${stat.ino}`;
+}
+
+function sameFileIdentity(left, right) {
+  return Boolean(left && right && left.dev === right.dev && left.ino === right.ino);
 }
 
 function validateParsedPrStackConfigIdentity(parsed, trustedRootProof) {
