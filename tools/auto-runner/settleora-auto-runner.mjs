@@ -1863,6 +1863,7 @@ function createLivePrStackReviewAdapters(config) {
       return {
         ...review,
         reviewedHead: review.reviewedHead || headSha,
+        reviewedBaseSha: review.reviewedBaseSha,
         baseSha: review.baseSha || baseSha,
         changedFiles: review.changedFiles || changedFiles,
         changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
@@ -1875,6 +1876,7 @@ function createLivePrStackReviewAdapters(config) {
       return {
         ...review,
         reviewedHead: review.reviewedHead || headSha,
+        reviewedBaseSha: review.reviewedBaseSha,
         baseSha: review.baseSha || baseSha,
         changedFiles: review.changedFiles || changedFiles,
         changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
