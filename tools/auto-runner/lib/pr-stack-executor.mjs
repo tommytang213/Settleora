@@ -3311,7 +3311,7 @@ function digestJson(value) {
 }
 
 function digestStringSet(values = []) {
-  return createHash("sha256").update(normalizeChangedFiles(values).join("\n")).digest("hex");
+  return createHash("sha256").update(JSON.stringify(normalizeChangedFiles(values))).digest("hex");
 }
 
 function digestStringList(values = []) {

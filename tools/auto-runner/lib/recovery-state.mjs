@@ -686,7 +686,7 @@ function staleEvidenceKinds(state, currentHeadSha) {
 }
 
 export function digestChangedFiles(values) {
-  return createHash("sha256").update(normalizeChangedFiles(values).join("\n")).digest("hex");
+  return createHash("sha256").update(JSON.stringify(normalizeChangedFiles(values))).digest("hex");
 }
 
 function digestStringArray(values) {

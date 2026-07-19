@@ -3828,7 +3828,7 @@ function testSourceCycleReservation({ prNumber = 919, oldHead = sha("a"), newHea
 }
 
 function digestStrings(items) {
-  return createHash("sha256").update([...items].sort().join("\n")).digest("hex");
+  return createHash("sha256").update(JSON.stringify([...items].sort())).digest("hex");
 }
 
 function digestJson(value) {
