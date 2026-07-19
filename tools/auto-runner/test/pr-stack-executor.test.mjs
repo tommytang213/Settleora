@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { defaultLogsRoot, loadConfig, parseCliArgs } from "../lib/config.mjs";
+import { sanitizePersistedEvidence } from "../lib/evidence-sanitizer.mjs";
 import { buildReadOnlyLiveStackFixturePlan, createDependentPrStackPlan, nextStackAction } from "../lib/pr-stack-controller.mjs";
 import {
   createInitialPrStackState,
@@ -2393,7 +2394,7 @@ test("production final gates run exact-head validation and reviews when converge
     runCodexReview: async ({ headSha, baseSha, changedFiles: files, externalReview }) => {
       calls.push("codex");
       assert.equal(externalReview.reviewedHead, sha("a"));
-      return { reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" };
+      return { reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" };
     },
   });
   const state = createInitialPrStackState({ plan: fixture.plan });
@@ -2431,7 +2432,7 @@ test("production child final gates prepare the active PR checkout before exact-h
     },
     runCodexReview: async ({ headSha, baseSha, changedFiles: files }) => {
       calls.push("codex");
-      return { reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" };
+      return { reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" };
     },
   });
   const state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
@@ -2519,7 +2520,7 @@ test("final gates carry plan-level lane contract through exact-head preparation 
       assert.equal(validation.profile, "runner-tests");
       return { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, independent: true, provider: "gemini", providerProfile: "gemini-strong", evidencePath: "/workspace/logs/strong.json", completedAt: "2026-07-18T00:00:01.000Z" };
     },
-    runCodexReview: async ({ headSha, baseSha, changedFiles: files }) => ({ reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" }),
+    runCodexReview: async ({ headSha, baseSha, changedFiles: files }) => ({ reviewedHead: headSha, reviewedBaseSha: baseSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" }),
   });
   const state = createInitialPrStackState({ plan });
   state.evidence.reviewConverged["919"] = { ok: true, headRefOid: sha("a"), findings: [] };
@@ -2554,7 +2555,7 @@ test("production final gates fail closed when exact-head review adapters or boun
     runner: finalGateRunner(changedFiles),
     runValidationPlan: (_config, plan) => ({ passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-18T00:00:00.000Z", profile: plan.profile }),
     runStrongReview: async ({ headSha, baseSha, changedFiles: files }) => ({ status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digestStrings(files), independent: true, provider: "gemini", providerProfile: "gemini-strong", evidencePath: "/workspace/logs/strong.json", completedAt: "2026-07-18T00:00:01.000Z" }),
-    runCodexReview: async ({ baseSha, changedFiles: files }) => ({ reviewedHead: sha("b"), baseSha, changedFiles: files, changedFilesDigest: digestStrings(files), verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" }),
+    runCodexReview: async ({ baseSha, changedFiles: files }) => ({ reviewedHead: sha("b"), reviewedBaseSha: baseSha, baseSha, changedFiles: files, changedFilesDigest: digestStrings(files), verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" }),
   });
   const stale = await staleCodex.completeFinalGates({ config: { ...fixture.config, dryRun: true }, state, pr: { ...fixture.plan.orderedPrs[0], issue: autoRunnerIssue() } });
   assert.equal(stale.ok, false);
@@ -2770,8 +2771,28 @@ test("head, base, digest mismatch, and partial final-gate review evidence block 
   state.evidence.gatesPassed["919"] = gateEvidence({ strongReview: { reviewedHead: sha("b") } });
   assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "strong_review_head_mismatch");
 
-  state.evidence.gatesPassed["919"] = gateEvidence({ codexReview: { baseSha: sha("f") } });
-  assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "codex_review_base_mismatch");
+  state.evidence.gatesPassed["919"] = gateEvidence({ codexReview: { reviewedBaseSha: sha("f"), baseSha: sha("f") } });
+  const wrongBase = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
+  assert.equal(wrongBase.reasonCode, "codex_review_base_mismatch");
+  assert.deepEqual(wrongBase.baseBinding, {
+    expectedBaseSha: sha("e"),
+    actualReviewedBaseSha: sha("f"),
+    actualReviewedBaseKind: "sha",
+  });
+
+  state.evidence.gatesPassed["919"] = gateEvidence({ codexReview: { reviewedBaseSha: undefined, baseSha: sha("e") } });
+  const missingBase = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
+  assert.equal(missingBase.reasonCode, "codex_review_base_mismatch");
+  assert.equal(missingBase.baseBinding.actualReviewedBaseKind, "missing");
+
+  state.evidence.gatesPassed["919"] = gateEvidence({ codexReview: { reviewedBaseSha: "main", baseSha: sha("e") } });
+  const branchLabel = await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
+  assert.equal(branchLabel.reasonCode, "codex_review_base_mismatch");
+  assert.deepEqual(branchLabel.baseBinding, {
+    expectedBaseSha: sha("e"),
+    actualReviewedBaseSha: null,
+    actualReviewedBaseKind: "invalid",
+  });
 
   state.evidence.gatesPassed["919"] = gateEvidence({ strongReview: { changedFilesDigest: digestStrings(["other.mjs"]) } });
   assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "strong_review_file_digest_mismatch");
@@ -2782,6 +2803,28 @@ test("head, base, digest mismatch, and partial final-gate review evidence block 
   delete partial.codexReview;
   state.evidence.gatesPassed["919"] = partial;
   assert.equal((await adapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") })).reasonCode, "codex_review_missing");
+});
+
+test("Codex review normalization preserves reviewer base binding and bounded candidate identity", () => {
+  const changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"];
+  const review = {
+    reviewStatus: "passed",
+    attempts: [],
+    rawOutput: "provider response body should not persist",
+    reviewedHead: sha("a"),
+    reviewedBaseSha: sha("e"),
+    baseSha: sha("e"),
+    changedFiles,
+    changedFilesDigest: digestStrings(changedFiles),
+    fullCandidatePrDelta: testFullCandidateDelta({ changedFiles }),
+    verdict: { verdict: "approve" },
+  };
+  const sanitized = sanitizePersistedEvidence(review);
+  assert.equal(sanitized.reviewedBaseSha, sha("e"));
+  assert.equal(sanitized.baseSha, sha("e"));
+  assert.equal(sanitized.changedFilesDigest, digestStrings(changedFiles));
+  assert.equal(sanitized.fullCandidatePrDelta.baseSha, sha("e"));
+  assert.equal(Object.hasOwn(sanitized, "rawOutput"), false);
 });
 
 test("strong final gate rejects cheap, stale, malformed, self, and Codex independent evidence", async () => {
@@ -3500,6 +3543,7 @@ function gateEvidence({ changedFiles = ["tools/auto-runner/lib/pr-stack-executor
   };
   const codex = {
     reviewedHead: sha("a"),
+    reviewedBaseSha: sha("e"),
     baseSha: sha("e"),
     changedFiles,
     changedFilesDigest: digest,
@@ -3704,6 +3748,7 @@ function sourceChangingConvergenceResult({ prNumber, oldHead, newHead, baseSha =
   };
   const review = {
     reviewedHead: newHead,
+    reviewedBaseSha: baseSha,
     baseSha,
     changedFiles,
     changedFilesDigest,

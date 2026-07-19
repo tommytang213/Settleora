@@ -4797,7 +4797,16 @@ function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase
   }
   const reviewedHead = review.reviewedHead || review.headSha || review.prHeadSha || null;
   if (reviewedHead !== expectedHead) return fail(`${name}_head_mismatch`, `${name} evidence is not bound to the exact head`);
-  if (expectedBase && review.baseSha !== expectedBase) return fail(`${name}_base_mismatch`, `${name} evidence is not bound to the exact base`);
+  const actualReviewedBase = requireIndependent ? review.baseSha : review.reviewedBaseSha;
+  if (expectedBase && actualReviewedBase !== expectedBase) {
+    return fail(`${name}_base_mismatch`, `${name} evidence is not bound to the exact base`, {
+      baseBinding: {
+        expectedBaseSha: validSha(expectedBase) ? expectedBase : null,
+        actualReviewedBaseSha: validSha(actualReviewedBase) ? actualReviewedBase : null,
+        actualReviewedBaseKind: validSha(actualReviewedBase) ? "sha" : actualReviewedBase ? "invalid" : "missing",
+      },
+    });
+  }
   if (!Array.isArray(review.changedFiles)) return fail(`${name}_files_missing`, `${name} changed files are required`);
   if (!sameStringSet(review.changedFiles, changedFiles)) return fail(`${name}_files_mismatch`, `${name} changed files do not match final gate files`);
   if (review.changedFilesDigest !== digestStringSet(changedFiles)) return fail(`${name}_file_digest_mismatch`, `${name} changed-file digest does not match final gate files`);

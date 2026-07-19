@@ -76,7 +76,12 @@ function sanitizeReviewResult(review) {
     attempts: sanitizeValue(review.attempts || []),
     attemptCount: numberOrNull(review.attemptCount ?? (Array.isArray(review.attempts) ? review.attempts.length : null)),
     reviewedHead: stringOrNull(review.reviewedHead),
+    reviewedBaseSha: stringOrNull(review.reviewedBaseSha),
+    baseSha: stringOrNull(review.baseSha),
     changedFiles: sanitizeStringArray(review.changedFiles),
+    changedFilesDigest: stringOrNull(review.changedFilesDigest),
+    fullCandidatePrDelta: sanitizeValue(review.fullCandidatePrDelta ?? null),
+    evidenceBinding: sanitizeValue(review.evidenceBinding ?? null),
     verdict: sanitizeReviewVerdict(review.verdict),
     rawEvidence,
   });
