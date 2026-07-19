@@ -465,6 +465,93 @@ export function executeAutoMerge(config, context, options = {}) {
   return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
 }
 
+export function executeAutoMergeMergeOnly(config, context, options = {}) {
+  const runner = options.runner || defaultRunner;
+  const decision = evaluateAutoMergeDecision(context);
+  const wait = normalizeAutoMergeWait(config.autoMergeWait);
+  if (!decision.eligible && shouldWaitForAutoMergeDecision(decision) && wait.maxAttempts > 1) {
+    return executeAutoMergeWithWait(config, context, { ...options, runner, wait, firstDecision: decision, mergeOnly: true });
+  }
+  if (!decision.eligible) {
+    return { ...decision, evidence: writeAutoMergeEvidence(config, decision, context) };
+  }
+  if (config.dryRun) {
+    const dryRun = {
+      ...decision,
+      attempted: false,
+      result: "dry_run_eligible",
+      reason: "dry_run_no_merge",
+      completionHygiene: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+      issueLabelCleanupResult: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    };
+    return { ...dryRun, evidence: writeAutoMergeEvidence(config, dryRun, context) };
+  }
+
+  const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
+  const defaultInspectState = (cfg, ctx) => inspectAutoMergeGithubState(
+    { ...(ctx.config || {}), ...cfg, repositorySlug: cfg.repositorySlug || ctx.config?.repositorySlug },
+    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber },
+    { runner },
+  );
+  const refreshed = (options.inspectState || defaultInspectState)(config, context);
+  const finalContext = mergeAutoMergeContext(context, refreshed);
+  if (!config.dryRun && finalContext.expectedOriginMainSha) {
+    const origin = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
+    finalContext.currentOriginMainSha = origin.status === 0 && !origin.error ? origin.stdout.trim() : finalContext.currentOriginMainSha;
+  }
+  const finalDecision = evaluateAutoMergeDecision(finalContext);
+  if (!finalDecision.eligible) {
+    const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
+    return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
+  }
+  const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug || context.config?.repositorySlug);
+  if (!repositorySlug) {
+    const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
+    return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+  if (merge.error || merge.status !== 0) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
+    return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+
+  const mergeProof = context.mergeSha
+    ? { ok: true, mergeSha: context.mergeSha, configuredRepositorySlug: repositorySlug, prNumber: Number(prNumber), sourceHeadSha: finalDecision.expectedHeadSha, baseRefName: finalContext.pr?.baseRefName || finalContext.baseRefName || null }
+    : readMergeSha({
+        runner,
+        cwd: config.repoRoot,
+        repositorySlug,
+        expectedGithubHost: config.githubHost || "github.com",
+        prNumber,
+        expectedBaseBranch: finalContext.pr?.baseRefName || finalContext.baseRefName || "main",
+        expectedSourceHeadSha: finalDecision.expectedHeadSha,
+        expectedRepositoryId: finalContext.pr?.repositoryProof?.repositoryId || finalContext.pr?.repositoryProof?.baseRepositoryId || finalContext.pr?.repositoryId || null,
+      });
+  if (!mergeProof.ok) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `merge_readback_failed:${mergeProof.reasonCode || "invalid_merge_readback"}` };
+    return { ...failed, mergeReadback: mergeProof, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const mergeSha = mergeProof.mergeSha;
+  const merged = {
+    ...finalDecision,
+    attempted: true,
+    result: "merged",
+    reason: "github_merge_commit_completed",
+    mergeSha,
+    mergeReadback: mergeProof,
+    sourceBranchRestoration: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    completionHygiene: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    issueLabelCleanupResult: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    issueClosureResult: "skipped:stack_merge_only_final_hygiene_authoritative",
+    comments: {
+      pr: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+      issue: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+      parent: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    },
+  };
+  return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
+}
+
 function executeAutoMergeWithWait(config, initialContext, options) {
   const runner = options.runner || defaultRunner;
   const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber }, { runner }));
@@ -481,7 +568,8 @@ function executeAutoMergeWithWait(config, initialContext, options) {
     attempts.push(attemptSnapshot);
     previousAttempt = attemptSnapshot;
     if (decision.eligible) {
-      const result = executeAutoMerge(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
+      const execute = options.mergeOnly === true ? executeAutoMergeMergeOnly : executeAutoMerge;
+      const result = execute(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
       return { ...result, waitAttempts: attempts };
     }
     if (!shouldWaitForAutoMergeDecision(decision) || attempt === wait.maxAttempts) break;

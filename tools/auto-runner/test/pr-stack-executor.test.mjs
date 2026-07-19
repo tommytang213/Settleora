@@ -2282,6 +2282,45 @@ test("final gates prove changed files against the real lane contract and reject 
   assert.equal(blocked.reasonCode, "changed_files_do_not_match_allowed_paths");
 });
 
+test("final gates use carried stack lane contract when inspected issue body is unavailable", async () => {
+  const fixture = stackFixture();
+  const changedFiles = ["tools/auto-runner/919.mjs"];
+  const adapter = createProductionPrStackAdapter(
+    { ...fixture.config, dryRun: true, prStackIssue: { number: 921, state: "OPEN", labels: [], body: "" } },
+    { runner: finalGateRunner(changedFiles) },
+  );
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  const evidence = gateEvidence({ changedFiles });
+  state.evidence.gatesPassed["919"] = { ...evidence, laneDecision: null };
+  const carriedLaneDecision = {
+    lane: "workflow-docs-tooling",
+    canonicalLane: "workflow-docs-tooling",
+    allowedToImplement: true,
+    allowedPaths: ["tools/auto-runner/**"],
+    validationProfile: "runner-tests",
+    reviewerTier: "strong_independent",
+    autoMergeEligible: true,
+    manualMergeRequired: false,
+    contract: {
+      contractVersion: 1,
+      lane: "workflow-docs-tooling",
+      allowedPaths: ["tools/auto-runner/**"],
+      validationProfile: "runner-tests",
+      autoMergeEligible: true,
+      manualMergeRequired: false,
+    },
+  };
+  const result = await adapter.completeFinalGates({
+    config: { ...fixture.config, dryRun: true, prStackIssue: { number: 921, state: "OPEN", labels: [], body: "" } },
+    state,
+    pr: { ...fixture.plan.orderedPrs[0], issue: { number: 921, labels: [], body: "" }, laneDecision: carriedLaneDecision },
+  });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.deepEqual(result.allowedPathProof.changedFiles, changedFiles);
+  assert.deepEqual(result.allowedPathProof.contractAllowedPaths, ["tools/auto-runner/**"]);
+  assert.equal(result.allowedPathProof.laneDecision.contract.contractVersion, 1);
+});
+
 test("merge revalidates exact-head allowed-path proof before consuming gate evidence", async () => {
   const fixture = stackFixture();
   const changedFiles = ["tools/auto-runner/lib/pr-stack-executor.mjs"];

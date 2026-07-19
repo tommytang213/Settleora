@@ -10,7 +10,7 @@ import {
   validateStackRelationships,
 } from "./pr-stack-controller.mjs";
 import {
-  executeAutoMerge,
+  executeAutoMergeMergeOnly,
   inspectAutoMergeGithubState,
   mandatoryAutoMergeCheckNames,
   summarizeCheckStatus,
@@ -1632,7 +1632,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         issueLinkageEvidence: gateEvidence.issueLinkageEvidence || { available: true, linked: true, matchedSources: ["stack-plan"] },
       };
       const mergeRunner = repositoryBoundGhRunner(run, repositoryContext.context);
-      const result = executeAutoMerge(targetConfig, context, { runner: mergeRunner, inspectState: () => ({ pr: inspection.pr, requiredChecks: inspection.requiredChecks, reviewThreads: inspection.reviewThreads, codeScanningAlerts: inspection.codeScanningAlerts, blockingMarkers: inspection.blockingMarkers || [] }) });
+      const result = executeAutoMergeMergeOnly(targetConfig, context, { runner: mergeRunner, inspectState: () => ({ pr: inspection.pr, requiredChecks: inspection.requiredChecks, reviewThreads: inspection.reviewThreads, codeScanningAlerts: inspection.codeScanningAlerts, blockingMarkers: inspection.blockingMarkers || [] }) });
       return result.result === "merged" || result.result === "dry_run_eligible"
         ? { ok: true, merged: result.result === "merged", mergeSha: result.mergeSha || null, result }
         : fail(result.reason || "merge_blocked", result.reason || "merge blocked");
@@ -4213,7 +4213,9 @@ async function collectFinalGatePrerequisites({ config, state, pr, runner, adapte
   if (inspection.pr.isDraft) return fail(`${reasonPrefix}_pr_is_draft`, `PR #${pr.number} is draft`);
   const changed = readCurrentPrOwnDelta({ config, pr, runner });
   if (!changed.ok) return changed;
-  const laneProof = buildAllowedPathProof({ issue: inspection.issue, changedFiles: changed.ownDelta.fileSet, exactHead: currentHead });
+  const laneDecisionProof = resolveFinalGateLaneDecision({ config, state, pr, inspection });
+  if (!laneDecisionProof.ok) return laneDecisionProof;
+  const laneProof = buildAllowedPathProof({ issue: laneDecisionProof.issue, changedFiles: changed.ownDelta.fileSet, exactHead: currentHead, laneDecision: laneDecisionProof.laneDecision });
   if (!laneProof.ok) return laneProof;
   if (!laneProof.changedFilesExactlyMatchAllowedPaths) {
     return fail("changed_files_do_not_match_allowed_paths", `changed files outside allowed contract: ${laneProof.rejectedPaths.join(",")}`);
@@ -4240,6 +4242,102 @@ async function collectFinalGatePrerequisites({ config, state, pr, runner, adapte
     laneProof,
     status,
   };
+}
+
+function resolveFinalGateLaneDecision({ config = {}, state = {}, pr = {}, inspection = {} } = {}) {
+  const actualIssue = inspection.issue || pr.issue || config.prStackIssue || state.issue || null;
+  if (actualIssue && String(actualIssue.body || "").trim()) {
+    const laneDecision = classifyIssueLane(actualIssue);
+    if (!laneDecision.allowedToImplement) {
+      return fail("allowed_path_contract_unavailable", laneDecision.reason || "lane contract did not authorize implementation");
+    }
+    return { ok: true, laneDecision, issue: actualIssue };
+  }
+
+  const candidates = [
+    inspection.laneDecision,
+    inspection.pr?.laneDecision,
+    pr.laneDecision,
+    state.evidence?.gatesPassed?.[pr.number]?.laneDecision,
+    state.evidence?.reviewConverged?.[pr.number]?.laneDecision,
+    pr.stackLaneContract ? { ...pr, stackLaneContract: pr.stackLaneContract } : null,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeCarriedLaneDecision(candidate);
+    if (normalized.ok) return normalized;
+  }
+
+  const contract = pr.laneContract || state.laneContract || config.prStackExecution?.laneContract || null;
+  const allowedPaths = normalizeChangedFiles(
+    pr.allowedPaths ||
+    contract?.allowedPaths ||
+    state.allowedPaths ||
+    config.prStackExecution?.allowedPaths ||
+    [],
+  );
+  if (allowedPaths.length > 0) {
+    const lane = contract?.lane || pr.lane || "workflow-docs-tooling";
+    return normalizeCarriedLaneDecision({
+      lane,
+      canonicalLane: lane,
+      allowedToImplement: true,
+      allowedPaths,
+      laneManifestAllowedPaths: allowedPaths,
+      validationProfile: contract?.validationProfile || pr.validationProfile || "runner-tests",
+      reviewerTier: "strong_independent",
+      autoMergeEligible: contract?.autoMergeEligible !== false,
+      manualMergeRequired: contract?.manualMergeRequired === true,
+      contract: {
+        contractVersion: contract?.contractVersion || 1,
+        lane,
+        allowedPaths,
+        validationProfile: contract?.validationProfile || pr.validationProfile || "runner-tests",
+        autoMergeEligible: contract?.autoMergeEligible !== false,
+        manualMergeRequired: contract?.manualMergeRequired === true,
+      },
+      laneManifest: { decisionType: "runnable", autoMergeAllowed: contract?.autoMergeEligible !== false, allowedPaths },
+    });
+  }
+
+  return fail("allowed_path_contract_unavailable", "final gate requires a carried lane contract or actual issue body contract before allowed path evaluation");
+}
+
+function normalizeCarriedLaneDecision(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return fail("lane_decision_missing", "lane decision missing");
+  const allowedPaths = normalizeChangedFiles(candidate.allowedPaths || candidate.contract?.allowedPaths || candidate.stackLaneContract?.allowedPaths || []);
+  if (allowedPaths.length === 0) return fail("lane_decision_allowed_paths_missing", "lane decision allowed paths missing");
+  const lane = candidate.lane || candidate.canonicalLane || candidate.stackLaneContract?.laneId || "workflow-docs-tooling";
+  const normalized = {
+    ...candidate,
+    lane,
+    canonicalLane: candidate.canonicalLane || lane,
+    allowedToImplement: candidate.allowedToImplement !== false,
+    allowedPaths,
+    laneManifestAllowedPaths: normalizeChangedFiles(candidate.laneManifestAllowedPaths || candidate.laneManifest?.allowedPaths || allowedPaths),
+    validationProfile: candidate.validationProfile || candidate.contract?.validationProfile || "runner-tests",
+    reviewerTier: candidate.reviewerTier || "strong_independent",
+    autoMergeEligible: candidate.autoMergeEligible !== false && candidate.contract?.autoMergeEligible !== false,
+    manualMergeRequired: candidate.manualMergeRequired === true || candidate.contract?.manualMergeRequired === true,
+    contract: {
+      ...(candidate.contract || {}),
+      contractVersion: candidate.contract?.contractVersion || 1,
+      lane,
+      allowedPaths,
+      validationProfile: candidate.contract?.validationProfile || candidate.validationProfile || "runner-tests",
+      autoMergeEligible: candidate.autoMergeEligible !== false && candidate.contract?.autoMergeEligible !== false,
+      manualMergeRequired: candidate.manualMergeRequired === true || candidate.contract?.manualMergeRequired === true,
+    },
+    laneManifest: {
+      ...(candidate.laneManifest || {}),
+      decisionType: candidate.laneManifest?.decisionType || "runnable",
+      autoMergeAllowed: candidate.laneManifest?.autoMergeAllowed !== false,
+      allowedPaths: normalizeChangedFiles(candidate.laneManifest?.allowedPaths || allowedPaths),
+    },
+  };
+  if (!normalized.allowedToImplement || normalized.manualMergeRequired || !normalized.autoMergeEligible) {
+    return fail("allowed_path_contract_unavailable", "carried lane contract did not authorize implementation");
+  }
+  return { ok: true, laneDecision: sanitizeState(normalized), issue: { number: candidate.issueNumber || null, labels: [], body: "" } };
 }
 
 function buildFinalGateReviewEvidence({ state, prNumber, expectedHead, expectedBase, changedFiles, expectedCandidateDelta = null }) {
@@ -4618,9 +4716,9 @@ async function proveFreshLiveMergedStackState({ config = {}, plan = {}, state = 
   return { ok: true, proofType: "fresh_live_merged_stack_state", repositoryContext, proofs, provenAt: new Date().toISOString() };
 }
 
-function buildAllowedPathProof({ issue, changedFiles, exactHead }) {
+function buildAllowedPathProof({ issue, changedFiles, exactHead, laneDecision: carriedLaneDecision = null }) {
   const normalized = normalizeChangedFiles(changedFiles);
-  const laneDecision = classifyIssueLane(issue || {});
+  const laneDecision = carriedLaneDecision || classifyIssueLane(issue || {});
   if (!laneDecision.allowedToImplement) {
     return fail("allowed_path_contract_unavailable", laneDecision.reason || "lane contract did not authorize implementation");
   }

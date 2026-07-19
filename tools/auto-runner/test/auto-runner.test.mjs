@@ -70,6 +70,7 @@ import {
   evaluatePrePushReviewGate,
   shouldGenerateExistingPrRecoveryEvidence,
   executeAutoMerge,
+  executeAutoMergeMergeOnly,
   normalizeAutoMergeWait,
   writeAutoMergeEvidence,
 } from "../lib/auto-merge-policy.mjs";
@@ -4803,6 +4804,36 @@ test("auto-merge merge readback is bound to the configured repository", () => {
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }
+  }
+});
+
+test("merge-only auto-merge does not run per-PR issue hygiene or PR summary comments", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-"));
+  try {
+    const calls = [];
+    const result = executeAutoMergeMergeOnly(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+      autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
+      {
+        runner: mergeReadbackRunner(calls, { repositorySlug: "tommytang213/Settleora" }),
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: autoMergeRequiredChecks(),
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.mergeSha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    assert.equal(result.completionHygiene.reason, "stack_merge_only_final_hygiene_authoritative");
+    assert.ok(calls.includes("gh pr merge 1 --repo tommytang213/Settleora --merge --match-head-commit head123"));
+    assert.ok(calls.includes("gh pr view 1 --repo tommytang213/Settleora --json number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository"));
+    assert.equal(calls.some((call) => call.startsWith("gh issue ")), false);
+    assert.equal(calls.some((call) => call.startsWith("gh pr comment ")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 
