@@ -2779,6 +2779,28 @@ test("resume from blocker state path advances without changing immutable identit
   assert.notEqual(after.terminal?.reasonCode, "controller_wiring_missing");
 });
 
+test("explicit stack state path rejects symlinked parent components before writing", async () => {
+  const fixture = stackFixture();
+  const outsideRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-state-outside-"));
+  chmodSync(outsideRoot, 0o700);
+  const symlinkedParent = path.join(fixture.logsRoot, "stack", "state-parent");
+  symlinkSync(outsideRoot, symlinkedParent);
+  const externalStatePath = path.join(outsideRoot, "stack-state.json");
+  const config = {
+    ...fixture.config,
+    prStackExecution: {
+      ...fixture.config.prStackExecution,
+      statePath: path.join(symlinkedParent, "stack-state.json"),
+    },
+  };
+
+  await assert.rejects(
+    () => runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter: scriptedAdapter([]) }),
+    /prStackExecution\.statePath must not contain symlinks/,
+  );
+  assert.equal(existsSync(externalStatePath), false);
+});
+
 test("exact [919, 920] fixture produces complete expected production sequence without live GitHub mutation", async () => {
   const fixture = stackFixture();
   const calls = [];

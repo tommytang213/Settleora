@@ -2924,10 +2924,57 @@ function resolveStackStatePath(config, stackConfig, planPath) {
   if (stackConfig.statePath) {
     if (!path.isAbsolute(stackConfig.statePath)) throw new Error("prStackExecution.statePath must be absolute");
     const resolved = path.resolve(stackConfig.statePath);
-    if (!isInside(resolved, path.resolve(config.logsRoot))) throw new Error("prStackExecution.statePath must be under logsRoot");
+    if (resolved !== stackConfig.statePath) throw new Error("prStackExecution.statePath must be an absolute canonical path");
+    validateExplicitStackStatePath(resolved, config.logsRoot);
     return resolved;
   }
   return path.join(path.dirname(planPath), "stack-state.json");
+}
+
+function validateExplicitStackStatePath(statePath, logsRoot) {
+  const lexicalRoot = path.resolve(logsRoot || "/workspace/logs/settleora-auto-runner");
+  let rootLstat;
+  try {
+    rootLstat = lstatSync(lexicalRoot);
+  } catch {
+    throw new Error("prStackExecution.statePath logsRoot must exist");
+  }
+  if (rootLstat.isSymbolicLink()) throw new Error("prStackExecution.statePath logsRoot must not be a symlink");
+  let canonicalRoot;
+  try {
+    canonicalRoot = realpathSync(lexicalRoot);
+  } catch {
+    throw new Error("prStackExecution.statePath logsRoot could not be canonicalized");
+  }
+  if (canonicalRoot !== lexicalRoot) throw new Error("prStackExecution.statePath logsRoot realpath must match its lexical path");
+  const rootStat = statSync(canonicalRoot);
+  if (!rootStat.isDirectory()) throw new Error("prStackExecution.statePath logsRoot must be a directory");
+  const relative = path.relative(lexicalRoot, statePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative) || relative.split(path.sep).includes("..")) {
+    throw new Error("prStackExecution.statePath must be under logsRoot");
+  }
+  let current = lexicalRoot;
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    let componentStat;
+    try {
+      componentStat = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ELOOP") throw new Error("prStackExecution.statePath must not contain symlinks");
+      if (error?.code === "ENOENT") break;
+      throw new Error("prStackExecution.statePath component could not be validated");
+    }
+    if (componentStat.isSymbolicLink()) throw new Error("prStackExecution.statePath must not contain symlinks");
+    let componentReal;
+    try {
+      componentReal = realpathSync(current);
+    } catch {
+      throw new Error("prStackExecution.statePath component could not be canonicalized");
+    }
+    if (componentReal !== current || !isInside(componentReal, canonicalRoot)) {
+      throw new Error("prStackExecution.statePath component must stay under logsRoot");
+    }
+  }
 }
 
 function normalizePlanContainer(parsed = {}) {
