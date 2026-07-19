@@ -60,6 +60,7 @@ const forbiddenStackCapabilities = Object.freeze([
   "directMainPush",
   "productAuthorityChanges",
 ]);
+const maxStackPlanBytes = 1024 * 1024;
 const maxProtectedPlanAuthorizationBytes = 1024 * 1024;
 
 const acceptedStrongReviewTiers = new Set(["strong_independent", "tie_breaker"]);
@@ -310,9 +311,11 @@ function readTrustedExecutableStackPlanBytes(config = {}, stackPlanPath, hooks =
       return fail("stack_plan_identity_changed", "stack plan canonical target changed during validation");
     }
     hooks?.beforeRead?.({ fd, lexicalPlanPath, canonicalPlanPath, rootTrust, openedStat });
-    const bytes = readFileSync(fd);
-    if (bytes.length !== openedStat.size) {
-      return fail("stack_plan_identity_changed", "stack plan size changed during descriptor read");
+    const bytes = readBoundedStackPlanBytes(fd, openedStat, maxStackPlanBytes);
+    hooks?.afterRead?.({ fd, lexicalPlanPath, canonicalPlanPath, rootTrust, openedStat, bytesRead: bytes.length });
+    const postReadStat = fstatSync(fd);
+    if (!sameFileIdentity(openedStat, postReadStat) || postReadStat.size !== openedStat.size) {
+      return fail("stack_plan_identity_changed", "stack plan identity or size changed during descriptor read");
     }
     if (!isUtf8(bytes)) return fail("stack_plan_utf8_invalid", "stack plan must be valid UTF-8");
     const evidence = sanitizeState({
@@ -408,8 +411,22 @@ function validateStackPlanRegularFile(stat) {
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
   if (currentUid !== null && stat.uid !== currentUid) return fail("stack_plan_invalid_file", "stack plan owner must match current operator");
   if ((stat.mode & 0o077) !== 0) return fail("stack_plan_invalid_file", "stack plan file must be owner-only");
-  if (stat.size > 1024 * 1024) return fail("stack_plan_invalid_file", "stack plan exceeds the bounded size limit");
+  if (stat.size > maxStackPlanBytes) return fail("stack_plan_invalid_file", "stack plan exceeds the bounded size limit");
   return { ok: true };
+}
+
+function readBoundedStackPlanBytes(fd, stat, maxBytes) {
+  if (stat.size > maxBytes) {
+    throw new Error("stack plan exceeds the bounded size limit");
+  }
+  const buffer = Buffer.allocUnsafe(stat.size);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const bytesRead = readSync(fd, buffer, offset, buffer.length - offset, offset);
+    if (bytesRead === 0) throw new Error("stack plan size changed during descriptor read");
+    offset += bytesRead;
+  }
+  return buffer;
 }
 
 function openStackPlanNoFollow(filePath, hooks = null) {

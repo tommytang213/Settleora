@@ -177,6 +177,28 @@ test("stack plan descriptor trust uses no-follow, descriptor reads, identity che
   assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
 });
 
+test("stack plan descriptor read rejects growth after fstat without unbounded read", () => {
+  const { config, planPath } = stackFixture();
+  const originalSize = readFileSync(planPath).length;
+  let boundedBytes = null;
+
+  const fdsBefore = readdirSync("/proc/self/fd").length;
+  const failed = prStackExecutorTestInternals.readTrustedExecutableStackPlanBytes(config, planPath, {
+    beforeRead: ({ lexicalPlanPath }) => {
+      const grownPlan = makePlan({ stackId: "settleora-stack-grown" });
+      writeFileSync(lexicalPlanPath, `${JSON.stringify(grownPlan, null, 2)}\n${"x".repeat(1024 * 1024 + 1)}`, { mode: 0o600 });
+    },
+    afterRead: ({ bytesRead }) => {
+      boundedBytes = bytesRead;
+    },
+  });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reasonCode, "stack_plan_identity_changed");
+  assert.match(failed.reason, /identity or size changed during descriptor read/);
+  assert.equal(boundedBytes, originalSize);
+  assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
+});
+
 test("stack plan trust rejects invalid file type mode size UTF-8 and JSON with stable reasons", () => {
   const { config, logsRoot } = stackFixture();
   const directoryPlan = path.join(logsRoot, "stack", "directory-plan");
