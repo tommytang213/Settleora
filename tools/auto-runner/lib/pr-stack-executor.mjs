@@ -4348,7 +4348,18 @@ async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr,
     proofType: "pre_validation_review",
   });
   if (!preWorktreeProof.ok) return preWorktreeProof;
-  const candidateDelta = { ...prereq.changed.candidateDelta, candidateTree: preWorktreeProof.treeSha };
+  const candidateDeltaResult = buildCanonicalCandidatePrDelta({
+    config,
+    runner,
+    cwd: config.repoRoot,
+    pr: { ...pr, ...(prereq.inspection.pr || {}) },
+    baseSha: prereq.currentOriginMainSha,
+    candidate: { newHead: prereq.currentHead, tree: preWorktreeProof.treeSha },
+    repositoryIdentity: prereq.inspection.pr?.repositoryProof || null,
+    laneDecision: prereq.laneProof.laneDecision,
+  });
+  if (!candidateDeltaResult.ok) return candidateDeltaResult;
+  const candidateDelta = candidateDeltaResult.delta;
   const validationPlan = planValidation(prereq.changedFiles, prereq.laneProof.laneDecision || { validationProfile: "runner-tests" });
   const validation = {
     ...bindValidationEvidence(runValidation(config, validationPlan), {
@@ -4468,7 +4479,18 @@ async function collectFinalGateEvidence({ config, plan = {}, state, pr, runner, 
     proofType: "final_gate_merge_entry",
   });
   if (!worktree.ok) return worktree;
-  const candidateDelta = { ...changed.candidateDelta, candidateTree: worktree.treeSha };
+  const candidateDeltaResult = buildCanonicalCandidatePrDelta({
+    config,
+    runner,
+    cwd: config.repoRoot,
+    pr: { ...pr, ...(inspection.pr || {}) },
+    baseSha: currentOriginMainSha,
+    candidate: { newHead: currentHead, tree: worktree.treeSha },
+    repositoryIdentity: inspection.pr?.repositoryProof || null,
+    laneDecision: laneProof.laneDecision,
+  });
+  if (!candidateDeltaResult.ok) return candidateDeltaResult;
+  const candidateDelta = candidateDeltaResult.delta;
   const validation = validateValidationEvidenceObject(validationEvidence, {
     expectedHead: currentHead,
     expectedBase: currentOriginMainSha,
