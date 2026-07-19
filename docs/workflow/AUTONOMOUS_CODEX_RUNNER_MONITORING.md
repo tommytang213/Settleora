@@ -207,6 +207,11 @@ Return HTTP `503` for:
 - runner disappearance while supervisor state remains active;
 - malformed, symlinked, group/world-writable, out-of-root, or otherwise
   untrusted state;
+- corrupt, schema-invalid, symlinked, group/world-writable, or otherwise
+  untrusted canonical outage resubmission state under
+  `recovery/outage-resubmission/`; the outage inventory is surfaced as
+  operator-action-required with total, valid, and invalid record counts instead
+  of being treated as zero records;
 - unreadable required state where fail-closed behavior is safer;
 - any other fail-closed inconsistency.
 
@@ -245,6 +250,36 @@ Repository implementation constraints:
   with restrictive permissions;
 - rollback is stopping/disabling the health unit and removing the Uptime Kuma
   monitor without changing runner state.
+
+Outage resubmission observability reuses local sanitized state and events. The
+controller may record local owner-only events for prolonged outage detection,
+resubmission planned/deferred, circuit open, half-open probe, child submission
+confirmed, recovery succeeded, attempts or wall-clock exhausted, terminal
+nonretryable block, operator pause/stop, and uncertain submission
+reconciliation. The event schema remains bounded JSONL under the supervisor
+run directory; raw provider bodies, prompts, source snippets, arbitrary paths,
+webhook URLs, tokens, secrets, and full diffs are not stored.
+
+The health endpoint remains read-only. It exposes only a bounded
+`outageResubmission` summary: enabled/default-off posture, active source run,
+attempt count/budget, next eligible time, deadline, circuit state, last
+sanitized reason, child run ID, terminal outcome, record count, inventory read
+status, operator-action requirement, valid record count, and invalid/untrusted
+record count. Terminal `recovered`, `exhausted`, and `blocked` outage markers
+are not reported as active source runs. Invalid canonical outage state
+suppresses trustworthy active-source readout and returns HTTP 503 with bounded
+`malformed_state` or `untrusted_state` taxonomy; it never emits raw JSON, parse
+text, provider payloads, secrets, arbitrary filesystem paths, or file
+contents. Reading health never plans, submits, retries, pauses, resumes,
+relabels, comments, branches, merges, deletes locks, repairs state, or writes
+notifier dedupe state.
+
+The terminal notifier remains a separate one-shot activity notifier. Outage
+notifications are local sanitized intent until an existing notifier path later
+confirms provider delivery; the controller itself does not call webhook URLs
+or create notification credentials. Dedupe is by immutable run/terminal event
+identity, so prolonged-outage, recovery, exhaustion, and terminal-block
+messages are sent at most once after confirmed delivery.
 
 The 2026-07-12 #880 deployment attempt for task `20260712-1609` installed the
 repository health and terminal-notifier templates, then rolled back after both

@@ -237,6 +237,56 @@ does not invent a report path. If the child exits nonzero but a trusted
 summary pair exists, the mapped report is retained while the child-derived
 terminal state remains authoritative.
 
+## Bounded Outage Resubmission
+
+The bounded outage resubmission controller is supervisor-side and outside the
+runner mutation worker. It remains default-off in repository defaults and
+example config. It does not restart itself forever, poll unrelated issues
+first, call GitHub issue/PR/branch/merge mutations, bypass recovery state, or
+execute shell commands from persisted/provider input.
+
+Each controller iteration is recovery-first, where reconciling an already
+submitted or uncertain outage child is part of recovering the same source run:
+
+1. read operator pause/stop control;
+2. verify locks and active state through existing lock policy;
+3. load and strictly validate persisted outage state;
+4. reconcile uncertain, submitted, confirmed-running, and planned-with-child
+   outage markers against exact existing child supervisor runs;
+5. preserve terminal outage markers;
+6. validate that exactly one safe recoverable source state matches the outage
+   target;
+7. only then consider a new bounded child resubmission.
+
+Source-run eligibility requires terminal or proven inactive source state,
+exact task/run/supervisor/issue/branch/base/head/PR/profile/config/spec
+correlation, a recognized prolonged transient outage, no stale head-bound
+evidence, no manual/authority/destructive gate, no active child, available
+attempt/wall-clock budget, closed or eligible half-open circuit, and explicit
+capability enablement. A new child spec carries bounded parent/source/outage
+metadata plus a recovery-only target derived from validated recovery/source
+evidence. Missing, mismatched, completed, unsafe, ambiguous, stale, or
+capability-disabled targets block before child spec write, supervisor-state
+write, or systemd start. The outage child spec persists the immutable task key,
+current head SHA, and paired PR number/head SHA when a PR exists, and creation
+fails if the live profile config digest no longer matches the source run's
+recorded digest. Later reconciliation uses the persisted child spec and state
+only; incomplete historical child artifacts remain fail-closed operator-
+reconciliation evidence and are not backfilled from mutable source state.
+Recovery-only child launch uses fixed scalar runner arguments and never polls
+unrelated eligible issues. Dry-run/fixture mode plans the child spec and
+exposes mutation-call counters while making zero systemd, GitHub, or live
+supervisor submission calls. Attempt or wall-clock exhaustion transitions the outage marker
+to terminal `exhausted`, reports no active source run in status/health, and is
+idempotent on later controller passes. Operator pause/stop remains higher
+priority and defers terminalization until a later allowed pass.
+
+Rollback is disabling `outageResubmission.allowBoundedOutageResubmission` in
+the external profile. Existing sanitized state is preserved for operator
+inspection; no branch/history rewrite, state deletion, systemd change, or
+production deployment is required. #912 remains the separate manual activation
+and live-configuration acceptance gate.
+
 ## State And Heartbeat
 
 Supervisor state lives under:

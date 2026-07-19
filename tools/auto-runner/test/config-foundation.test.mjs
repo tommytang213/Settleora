@@ -80,6 +80,16 @@ test("external profile cannot spoof trusted outage controller capability", () =>
   );
 });
 
+test("trusted outage controller capability alone does not enable bounded resubmission", () => {
+  withProfile({ outageResubmission: { allowBoundedOutageResubmission: false } }, ({ configPath }) => {
+    const config = loadConfig(
+      { ...parseCliArgs(["--preflight", "--config", configPath]) },
+      { outageResubmissionControllerAvailable: true },
+    );
+    assert.equal(config.outageResubmission.allowBoundedOutageResubmission, false);
+  });
+});
+
 test("environment and CLI do not grant trusted outage controller capability", () => {
   withProfile({ outageResubmission: { allowBoundedOutageResubmission: true } }, ({ configPath }) => {
     const previous = process.env.OUTAGE_RESUBMISSION_CONTROLLER_AVAILABLE;

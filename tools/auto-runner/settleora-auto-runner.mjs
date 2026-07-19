@@ -215,7 +215,9 @@ async function main() {
     return;
   }
 
-  const config = loadConfig(cliArgs);
+  const config = loadConfig(cliArgs, {
+    outageResubmissionControllerAvailable: true,
+  });
   const trustPolicy = evaluateTrustPolicy(config);
   if (!trustPolicy.allowed) {
     throw new Error(`Trusted real-run refused: ${trustPolicy.reason}`);

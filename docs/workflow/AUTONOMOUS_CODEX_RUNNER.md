@@ -148,6 +148,35 @@ artifacts live under `/workspace/logs/settleora-auto-runner/`:
   idempotent mutation markers, stop reason, next safe action, timestamps, and
   schema version. It never stores raw prompts, provider responses, full diffs,
   secrets, environment dumps, tokens, credentials, or unbounded logs.
+- `recovery/outage-resubmission/` stores sanitized bounded outage
+  resubmission state linked to the authoritative recovery record. The
+  controller is supervisor-side, default-off, recovery-first, and finite. It
+  persists exact task/run/supervisor/issue/branch/base/head/PR/profile/config/
+  spec-digest correlation, sanitized outage class/fingerprint, attempt,
+  deadline, next eligible time, circuit state, child supervisor run ID, and an
+  `outage_resubmission` marker. It never stores raw provider bodies, prompts,
+  arbitrary commands, config paths, secrets, tokens, source snippets, or full
+  diffs.
+  Outage child specs also persist the task key, current head SHA, and paired
+  PR number/head SHA plus an exact recovery-only target required by later
+  reconciliation; incomplete historical child specs remain fail-closed
+  operator evidence and are not repaired with mutable source values. Canonical
+  corrupt, schema-invalid, symlinked, group/world-writable, or otherwise
+  untrusted outage-state files are counted as operator-action inventory and
+  make health fail closed instead of disappearing from status.
+
+Bounded outage resubmission is eligible only for recognized prolonged
+transient infrastructure/provider failures: trusted GitHub API/Actions
+rate-limit, 5xx, timeout, or transport evidence; Codex/reviewer/scanner
+429/5xx/timeout/transport evidence; or explicit DevBox DNS/routing/TLS/
+connection failures. It is not eligible for 401, ordinary 403, 404,
+missing/invalid secrets or config, dirty worktrees, corrupt state, stale
+evidence, identity drift, merge conflicts, failed tests or validation, code
+defects, review/scanner findings, policy/manual/destructive gates,
+unsupported sources, unknown failures, or terminal application failures.
+Minimum outage age, backoff, jitter, max attempts, wall-clock deadline, and
+provider/global circuit breaker are explicit config values. Production
+activation remains separate/manual under #912.
 - `pr-stacks/` and task-scoped live-stack directories store sanitized durable
   dependent-PR stack state. Stack execution is available only through the
   explicit `--run-pr-stack --config <absolute-path> --stack-plan
