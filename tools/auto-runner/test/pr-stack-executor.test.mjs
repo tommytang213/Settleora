@@ -1563,6 +1563,46 @@ test("new source head consumes one parent cycle and waits do not consume cycles"
   assert.equal(state.sourceCycles["919"], 0);
 });
 
+test("production complete_gates uses carried PR lane contract from normalized stack state", async () => {
+  const fixture = stackFixture();
+  const laneContract = {
+    contractVersion: 1,
+    lane: "workflow-docs-tooling",
+    allowedPaths: ["tools/auto-runner/**"],
+    validationProfile: "runner-tests",
+    manualMergeRequired: false,
+    autoMergeEligible: true,
+  };
+  const plan = makePlan({
+    prs: [
+      pr(930, "main", "feature/auto-913-parent", sha("a")),
+      pr(931, "feature/auto-913-parent", "feature/auto-913-child", sha("b")),
+    ],
+    stackId: "settleora-stack-carried-lane-contract",
+  });
+  plan.orderedPrs = plan.orderedPrs.map((entry) => ({ ...entry, allowedPaths: laneContract.allowedPaths, laneContract }));
+  writePlan(fixture.planPath, plan);
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = createInitialPrStackState({ plan });
+  state.evidence.reviewConverged["930"] = { ok: true };
+  writePrStackState(statePath, state);
+
+  const config = {
+    ...fixture.config,
+    prStackIssue: null,
+    prStackExecution: { ...fixture.config.prStackExecution, protectedPlanAuthorizationPath: null },
+  };
+  const adapter = createProductionPrStackAdapter(config, { runner: liveFixedArgvRunner(fakeRunner) });
+  const result = await runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "exact_head_review_adapter_unconfigured");
+
+  const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.deepEqual(persisted.orderedPrs[0].allowedPaths, laneContract.allowedPaths);
+  assert.deepEqual(persisted.orderedPrs[0].laneContract.allowedPaths, laneContract.allowedPaths);
+  assert.notEqual(persisted.terminal.reasonCode, "allowed_path_contract_unavailable");
+});
+
 test("source-changing cycles are independently available up to 50 per PR", () => {
   const plan = makePlan();
   const state = createInitialPrStackState({ plan });

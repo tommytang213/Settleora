@@ -1088,7 +1088,7 @@ async function dispatchStackAction({ config, stackConfig, plan, state, action, a
     case "converge_pr":
       return dispatchConvergePr({ config, plan, state, action, pr, adapter });
     case "complete_gates":
-      return dispatchCompleteGates({ config, state, action, pr, adapter });
+      return dispatchCompleteGates({ config, plan, state, action, pr, adapter });
     case "merge_pr":
       return dispatchMergePr({ config, plan, state, action, pr, adapter });
     case "retarget_pr":
@@ -1193,8 +1193,8 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   };
 }
 
-async function dispatchCompleteGates({ config, state, action, pr, adapter }) {
-  const result = await adapter.completeFinalGates({ config, state, pr });
+async function dispatchCompleteGates({ config, plan, state, action, pr, adapter }) {
+  const result = await adapter.completeFinalGates({ config, plan, state, pr });
   if (!result?.ok) {
     if (result?.waiting && result.evidencePatch) {
       const patchValidation = validateEvidencePatch(result.evidencePatch);
@@ -1518,11 +1518,11 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         ? { ...result, headRefOid: result.newHead || pr.headRefOid }
         : result;
     },
-    async completeFinalGates({ config: cfg, state, pr }) {
+    async completeFinalGates({ config: cfg, plan, state, pr }) {
       const targetConfig = cfg || config;
-      const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, state, prNumber: pr.number, adapter: this });
+      const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
       if (!repositoryContext.ok) return repositoryContext;
-      let gate = await collectFinalGateEvidence({ config: targetConfig, state, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
+      let gate = await collectFinalGateEvidence({ config: targetConfig, plan, state, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
       if (isFinalGateExactHeadEvidenceMissing(gate)) {
         const prepared = await prepareExactHeadFinalGateEvidence({
           config: targetConfig,
@@ -2702,6 +2702,7 @@ function rebindPlanToStateHeads(plan, state) {
         baseRefName: statePr.baseRefName || pr.baseRefName,
         isDraft: statePr.isDraft ?? pr.isDraft,
         headRefOid: exactHeads[pr.number] || statePr.headRefOid || pr.headRefOid,
+        ...optionalCarriedLaneFields({ ...pr, ...optionalCarriedLaneFields(statePr) }),
       };
     }),
   };
@@ -2945,6 +2946,7 @@ function normalizePlanContainer(parsed = {}) {
       isDraft: Boolean(pr.isDraft),
       state: pr.state || "OPEN",
       ownDelta: pr.ownDelta || {},
+      ...optionalCarriedLaneFields(pr),
       expectedParentPr: pr.expectedParentPr ?? (index === 0 ? null : all[index - 1]?.number),
       expectedParentBranch: pr.expectedParentBranch ?? (index === 0 ? null : (all[index - 1]?.headRefName || all[index - 1]?.branch)),
     })),
@@ -2964,9 +2966,19 @@ function immutablePrIdentity(pr) {
     isDraft: Boolean(pr.isDraft),
     state: pr.state || "OPEN",
     ownDelta: pr.ownDelta || {},
+    ...optionalCarriedLaneFields(pr),
     expectedParentPr: pr.expectedParentPr ?? null,
     expectedParentBranch: pr.expectedParentBranch ?? null,
   };
+}
+
+function optionalCarriedLaneFields(pr = {}) {
+  const fields = {};
+  if (pr.laneDecision) fields.laneDecision = pr.laneDecision;
+  if (pr.laneContract) fields.laneContract = pr.laneContract;
+  if (pr.allowedPaths) fields.allowedPaths = pr.allowedPaths;
+  if (pr.stackLaneContract) fields.stackLaneContract = pr.stackLaneContract;
+  return fields;
 }
 
 function putEvidence(evidence, kind, key, value) {
@@ -4124,8 +4136,8 @@ async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, ru
   };
 }
 
-async function collectFinalGateEvidence({ config, state, pr, runner, adapter = null, repositoryContext = null }) {
-  const prereq = await collectFinalGatePrerequisites({ config, state, pr, runner, adapter, repositoryContext, reasonPrefix: "final_gate" });
+async function collectFinalGateEvidence({ config, plan = {}, state, pr, runner, adapter = null, repositoryContext = null }) {
+  const prereq = await collectFinalGatePrerequisites({ config, plan, state, pr, runner, adapter, repositoryContext, reasonPrefix: "final_gate" });
   if (!prereq.ok) return prereq;
   const { inspection, currentHead, currentOriginMainSha, originMainFetchedAt, changed, laneProof, status } = prereq;
   const validationEvidence = state?.evidence?.validation?.[pr.number] || state?.evidence?.gatesPassed?.[pr.number]?.validation || null;
@@ -4200,7 +4212,7 @@ async function collectFinalGateEvidence({ config, state, pr, runner, adapter = n
   return { ok: true, evidence };
 }
 
-async function collectFinalGatePrerequisites({ config, state, pr, runner, adapter = null, repositoryContext = null, reasonPrefix }) {
+async function collectFinalGatePrerequisites({ config, plan = {}, state, pr, runner, adapter = null, repositoryContext = null, reasonPrefix }) {
   const inspection = adapter?.inspectPr
     ? await adapter.inspectPr({ config, state, prNumber: pr.number, repositoryContext })
     : inspectAutoMergeGithubState(config, { issue: finalGateIssue(config, state, pr), prUrlOrNumber: pr.number }, { runner });
@@ -4213,7 +4225,7 @@ async function collectFinalGatePrerequisites({ config, state, pr, runner, adapte
   if (inspection.pr.isDraft) return fail(`${reasonPrefix}_pr_is_draft`, `PR #${pr.number} is draft`);
   const changed = readCurrentPrOwnDelta({ config, pr, runner });
   if (!changed.ok) return changed;
-  const laneDecisionProof = resolveFinalGateLaneDecision({ config, state, pr, inspection });
+  const laneDecisionProof = resolveFinalGateLaneDecision({ config, plan, state, pr, inspection });
   if (!laneDecisionProof.ok) return laneDecisionProof;
   const laneProof = buildAllowedPathProof({ issue: laneDecisionProof.issue, changedFiles: changed.ownDelta.fileSet, exactHead: currentHead, laneDecision: laneDecisionProof.laneDecision });
   if (!laneProof.ok) return laneProof;
@@ -4244,7 +4256,7 @@ async function collectFinalGatePrerequisites({ config, state, pr, runner, adapte
   };
 }
 
-function resolveFinalGateLaneDecision({ config = {}, state = {}, pr = {}, inspection = {} } = {}) {
+function resolveFinalGateLaneDecision({ config = {}, plan = {}, state = {}, pr = {}, inspection = {} } = {}) {
   const actualIssue = inspection.issue || pr.issue || config.prStackIssue || state.issue || null;
   if (actualIssue && String(actualIssue.body || "").trim()) {
     const laneDecision = classifyIssueLane(actualIssue);
@@ -4258,6 +4270,10 @@ function resolveFinalGateLaneDecision({ config = {}, state = {}, pr = {}, inspec
     inspection.laneDecision,
     inspection.pr?.laneDecision,
     pr.laneDecision,
+    pr.laneContract ? { ...pr, laneContract: pr.laneContract } : null,
+    plan.laneDecision,
+    plan.laneContract ? { ...plan.laneContract, stackLaneContract: plan.stackLaneContract } : null,
+    plan.stackLaneContract ? { ...plan, stackLaneContract: plan.stackLaneContract } : null,
     state.evidence?.gatesPassed?.[pr.number]?.laneDecision,
     state.evidence?.reviewConverged?.[pr.number]?.laneDecision,
     pr.stackLaneContract ? { ...pr, stackLaneContract: pr.stackLaneContract } : null,
@@ -4267,9 +4283,10 @@ function resolveFinalGateLaneDecision({ config = {}, state = {}, pr = {}, inspec
     if (normalized.ok) return normalized;
   }
 
-  const contract = pr.laneContract || state.laneContract || config.prStackExecution?.laneContract || null;
+  const contract = pr.laneContract || plan.laneContract || state.laneContract || config.prStackExecution?.laneContract || null;
   const allowedPaths = normalizeChangedFiles(
     pr.allowedPaths ||
+    plan.allowedPaths ||
     contract?.allowedPaths ||
     state.allowedPaths ||
     config.prStackExecution?.allowedPaths ||
