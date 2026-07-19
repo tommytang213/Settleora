@@ -773,10 +773,47 @@ function validateParsedPrStackConfigIdentity(parsed, trustedRootProof) {
     throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
   }
   for (const [field, value] of [["logsRoot", parsed.logsRoot], ["trustedControlRoot", parsed.trustedControlRoot]]) {
-    if (value !== undefined && value !== null && path.resolve(value) !== trustedRootProof.realpath && !isInsidePath(path.resolve(value), trustedRootProof.realpath)) {
-      throw new Error(`config_root_incompatible: --run-pr-stack config ${field} must remain compatible with the externally anchored bootstrap logs root.`);
+    const canonical = validateParsedPrStackConfigRoot(field, value, trustedRootProof);
+    if (canonical !== null) parsed[field] = canonical;
+  }
+}
+
+function validateParsedPrStackConfigRoot(field, value, trustedRootProof) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`config_root_incompatible: --run-pr-stack config ${field} must remain compatible with the externally anchored bootstrap logs root.`);
+  }
+  const candidate = path.resolve(value);
+  const trustedRoot = trustedRootProof.realpath;
+  if (candidate !== trustedRoot && !isInsidePath(candidate, trustedRoot)) {
+    throw new Error(`config_root_incompatible: --run-pr-stack config ${field} must remain compatible with the externally anchored bootstrap logs root.`);
+  }
+
+  const relative = path.relative(trustedRoot, candidate);
+  const parts = relative ? relative.split(path.sep) : [];
+  let current = trustedRoot;
+  for (const segment of parts) {
+    current = path.join(current, segment);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ENOENT") return candidate;
+      if (error?.code === "ELOOP") throw new Error(`config_root_symlink_escape: --run-pr-stack config ${field} root path contains a symlink loop.`);
+      throw error;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`config_root_symlink_escape: --run-pr-stack config ${field} root path must not contain symlinks.`);
+    }
+    if (!stat.isDirectory()) {
+      throw new Error(`config_root_type_invalid: --run-pr-stack config ${field} root path components must be directories.`);
+    }
+    const real = realpathSync(current);
+    if (real !== current || (real !== trustedRoot && !isInsidePath(real, trustedRoot))) {
+      throw new Error(`config_root_incompatible: --run-pr-stack config ${field} root realpath must remain under the externally anchored bootstrap logs root.`);
     }
   }
+  return parts.length === 0 ? trustedRoot : candidate;
 }
 
 function isInsidePath(candidate, root) {

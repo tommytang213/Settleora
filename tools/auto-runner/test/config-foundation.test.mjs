@@ -305,6 +305,26 @@ test("stack config trust boundary rejects invalid file and parsed identity cases
       /config_root_incompatible/,
     );
 
+    const escapingLogsLink = path.join(logsRoot, "escaping-logs-root");
+    symlinkSync(outsideRoot, escapingLogsLink);
+    const symlinkedLogs = liveConfigPath(logsRoot, "20260717-2363");
+    writeConfigFile(symlinkedLogs, { ...body, logsRoot: escapingLogsLink });
+    assert.throws(
+      () => loadConfig(parseCliArgs(["--run-pr-stack", "--config", symlinkedLogs, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }),
+      /config_root_symlink_escape/,
+    );
+    assert.deepEqual(readdirSync(outsideRoot), []);
+
+    const escapingTrustedLink = path.join(logsRoot, "escaping-trusted-control-root");
+    symlinkSync(outsideRoot, escapingTrustedLink);
+    const symlinkedTrusted = liveConfigPath(logsRoot, "20260717-2364");
+    writeConfigFile(symlinkedTrusted, { ...body, trustedControlRoot: escapingTrustedLink });
+    assert.throws(
+      () => loadConfig(parseCliArgs(["--run-pr-stack", "--config", symlinkedTrusted, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }),
+      /config_root_symlink_escape/,
+    );
+    assert.deepEqual(readdirSync(outsideRoot), []);
+
     const previous = process.env.SETTLEORA_STACK_TRUST_ROOT;
     process.env.SETTLEORA_STACK_TRUST_ROOT = outsideRoot;
     try {
