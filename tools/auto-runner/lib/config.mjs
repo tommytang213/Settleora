@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isUtf8 } from "node:buffer";
 import path from "node:path";
@@ -12,6 +13,10 @@ import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } fr
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
 const defaultTrustedControlRoot = path.join(defaultLogsRoot, "trusted-control");
+const liveStackAcceptanceRootName = "live-stack-acceptance";
+const liveStackAcceptanceConfigName = "config.json";
+const liveStackCorrelationPattern = /^[0-9]{8}-[0-9]{4}(?:-[a-z0-9][a-z0-9-]{0,48})?$/;
+const maxTrustedConfigBytes = 1024 * 1024;
 
 export const defaultConfig = Object.freeze({
   repoRoot: "/workspace/repos/Settleora",
@@ -370,12 +375,14 @@ function readValue(argv, index, name) {
 
 export function loadConfig(cliArgs, trustedCapabilities = {}) {
   let fileConfig = {};
+  let configTrustEvidence = null;
   if (cliArgs.configPath) {
     const loaded = readTrustedConfigFile(cliArgs.configPath, {
       runPrStack: cliArgs.runPrStack,
       bootstrapTrustedRoot: trustedCapabilities?.prStackTrustedRoot,
     });
     fileConfig = loaded.config;
+    configTrustEvidence = loaded.evidence;
   }
   const config = {
     ...defaultConfig,
@@ -418,6 +425,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     };
   }
   config.configPath = cliArgs.configPath || null;
+  config.configTrustEvidence = configTrustEvidence;
   if (config.canary) {
     config.mode = config.run ? "canary-run" : "canary-dry-run";
     config.maxIterations = Math.min(config.maxIterations, config.trustedRealRunCanaryMaxIterations);
@@ -476,79 +484,126 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
   if (!runPrStack) {
     return { config: JSON.parse(readFileSync(resolved, "utf8")), evidence: null };
   }
-  if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("Config path must be absolute and canonical.");
-  const trustRoot = resolveExternalConfigTrustRoot({ bootstrapTrustedRoot });
-  const trustedRootProof = validateTrustedRootDirectory(trustRoot);
-  if (!trustedRootProof.ok) throw new Error(trustedRootProof.reason);
+  if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("config_path_not_canonical: Config path must be absolute and canonical.");
+  const trustedRootProof = validateTrustedRootDirectory(resolveExternalConfigTrustRoot({ bootstrapTrustedRoot }));
+  const layoutProof = validateLiveStackAcceptanceConfigPath(resolved, trustedRootProof);
   const linkStat = lstatSync(resolved);
-  if (linkStat.isSymbolicLink()) throw new Error("Config path must not be a symlink.");
+  if (linkStat.isSymbolicLink()) throw new Error("config_symlink_escape: Config path must not be a symlink.");
   const real = realpathSync(resolved);
-  if (real !== resolved) throw new Error("Config path realpath must match the canonical path.");
-  if (!isInsidePath(real, trustedRootProof.realpath)) {
-    throw new Error("--run-pr-stack config path must be under externally anchored trusted control root.");
-  }
+  if (real !== resolved) throw new Error("config_canonical_alias_mismatch: Config path realpath must match the canonical path.");
+  if (!isInsidePath(real, trustedRootProof.realpath)) throw new Error("config_outside_bootstrap_root: --run-pr-stack config path must be under externally anchored bootstrap logs root.");
   const stat = statSync(real);
-  if (!stat.isFile()) throw new Error("Config path must be a regular file.");
+  if (!stat.isFile()) throw new Error("config_file_type_invalid: Config path must be a regular file.");
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
-  if (currentUid !== null && stat.uid !== currentUid) throw new Error("Config file owner must match the current operator.");
-  if ((stat.mode & 0o022) !== 0) throw new Error("Config file must not be group/world writable.");
-  if (stat.size > 1024 * 1024) throw new Error("Config file exceeds the bounded size limit.");
+  if (currentUid !== null && stat.uid !== currentUid) throw new Error("config_owner_invalid: Config file owner must match the current operator.");
+  if ((stat.mode & 0o022) !== 0) throw new Error("config_mode_group_world_writable: Config file must not be group/world writable.");
+  if ((stat.mode & 0o077) !== 0) throw new Error("config_mode_not_restrictive: Config file must be owner-only.");
+  if (stat.size > maxTrustedConfigBytes) throw new Error("config_size_exceeded: Config file exceeds the bounded size limit.");
   const buffer = readFileSync(real);
-  if (!isUtf8(buffer)) throw new Error("Config file must be valid UTF-8.");
+  if (!isUtf8(buffer)) throw new Error("config_utf8_invalid: Config file must be valid UTF-8.");
   let parsed;
   try {
     parsed = JSON.parse(buffer.toString("utf8"));
   } catch (error) {
-    throw new Error(`Config JSON is malformed: ${error.message}`);
+    throw new Error(`config_json_invalid: Config JSON is malformed: ${error.message}`);
   }
   if (runPrStack) {
-    if (parsed.repositorySlug && parsed.repositorySlug !== defaultConfig.repositorySlug) {
-      throw new Error("--run-pr-stack config repository must match the approved repository identity.");
-    }
-    for (const [field, value] of [["logsRoot", parsed.logsRoot], ["trustedControlRoot", parsed.trustedControlRoot]]) {
-      if (value !== undefined && value !== null && !isInsidePath(path.resolve(value), trustedRootProof.realpath)) {
-        throw new Error(`--run-pr-stack config ${field} must remain under the externally anchored trusted control root.`);
-      }
-    }
+    validateParsedPrStackConfigIdentity(parsed, trustedRootProof);
   }
   return {
     config: parsed,
     evidence: {
+      externalRootSource: trustedRootProof.source,
+      canonicalRoot: trustedRootProof.realpath,
       path: resolved,
       realpath: real,
+      canonicalConfigPath: real,
       trustedRoot: trustedRootProof.realpath,
+      relativePurposePath: layoutProof.relativePath,
+      taskCorrelation: layoutProof.taskCorrelation,
       size: stat.size,
       mode: stat.mode & 0o777,
       uid: stat.uid,
+      type: "regular_file",
+      digestSha256: createHash("sha256").update(buffer).digest("hex"),
+      repositorySlug: parsed.repositorySlug || parsed.repository || defaultConfig.repositorySlug,
+      repoRoot: parsed.repoRoot || parsed.protectedRoot || defaultConfig.repoRoot,
+      worktreeRoot: parsed.worktreeRoot || parsed.controlPlaneWorktree || null,
       loadedAt: new Date().toISOString(),
     },
   };
 }
 
 function resolveExternalConfigTrustRoot({ bootstrapTrustedRoot = null } = {}) {
-  const raw = bootstrapTrustedRoot || process.env.SETTLEORA_STACK_TRUST_ROOT || defaultTrustedControlRoot;
-  if (!raw || typeof raw !== "string" || !path.isAbsolute(raw)) {
-    throw new Error("--run-pr-stack requires an externally anchored trusted control root.");
+  const explicit = bootstrapTrustedRoot || null;
+  const configured = process.env.SETTLEORA_STACK_TRUST_ROOT || null;
+  if (explicit && configured && path.resolve(explicit) !== path.resolve(configured)) {
+    throw new Error("bootstrap_root_conflict: explicit and configured bootstrap logs roots conflict.");
   }
-  return path.resolve(raw);
+  const raw = explicit || configured || defaultLogsRoot;
+  const source = explicit ? "trusted_capability" : configured ? "process_env" : "repository_default";
+  if (!raw || typeof raw !== "string" || !path.isAbsolute(raw)) {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
+  }
+  return { root: path.resolve(raw), source };
 }
 
-function validateTrustedRootDirectory(root) {
+function validateTrustedRootDirectory({ root, source }) {
   let linkStat;
   try {
     linkStat = lstatSync(root);
   } catch {
-    return { ok: false, reason: "--run-pr-stack trusted control root is missing." };
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack bootstrap logs root is missing.");
   }
-  if (linkStat.isSymbolicLink()) return { ok: false, reason: "--run-pr-stack trusted control root must not be a symlink." };
+  if (linkStat.isSymbolicLink()) throw new Error("bootstrap_root_symlink: --run-pr-stack bootstrap logs root must not be a symlink.");
   const real = realpathSync(root);
-  if (real !== root) return { ok: false, reason: "--run-pr-stack trusted control root realpath must match the canonical path." };
+  if (real !== root) throw new Error("bootstrap_root_canonical_alias_mismatch: --run-pr-stack bootstrap logs root realpath must match the canonical path.");
   const stat = statSync(real);
-  if (!stat.isDirectory()) return { ok: false, reason: "--run-pr-stack trusted control root must be a directory." };
+  if (!stat.isDirectory()) throw new Error("bootstrap_root_type_invalid: --run-pr-stack bootstrap logs root must be a directory.");
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
-  if (currentUid !== null && stat.uid !== currentUid) return { ok: false, reason: "--run-pr-stack trusted control root owner must match the current operator." };
-  if ((stat.mode & 0o022) !== 0) return { ok: false, reason: "--run-pr-stack trusted control root must not be group/world writable." };
-  return { ok: true, realpath: real };
+  if (currentUid !== null && stat.uid !== currentUid) throw new Error("bootstrap_root_owner_invalid: --run-pr-stack bootstrap logs root owner must match the current operator.");
+  return { realpath: real, mode: stat.mode & 0o777, uid: stat.uid, source };
+}
+
+function validateLiveStackAcceptanceConfigPath(configPath, trustedRootProof) {
+  const root = trustedRootProof.realpath;
+  if (!isInsidePath(configPath, root)) {
+    throw new Error("config_outside_bootstrap_root: --run-pr-stack config path must be under externally anchored bootstrap logs root.");
+  }
+  const relative = path.relative(root, configPath);
+  const parts = relative.split(path.sep);
+  if (
+    parts.length !== 3 ||
+    parts[0] !== liveStackAcceptanceRootName ||
+    parts[2] !== liveStackAcceptanceConfigName
+  ) {
+    throw new Error("config_wrong_purpose_layout: --run-pr-stack config path must be live-stack-acceptance/<task-correlation>/config.json.");
+  }
+  const taskCorrelation = parts[1];
+  if (!liveStackCorrelationPattern.test(taskCorrelation)) {
+    throw new Error("config_invalid_correlation_segment: --run-pr-stack live-stack-acceptance correlation segment is invalid.");
+  }
+  return { relativePath: relative.split(path.sep).join("/"), taskCorrelation };
+}
+
+function validateParsedPrStackConfigIdentity(parsed, trustedRootProof) {
+  const repository = parsed.repositorySlug || parsed.repository || defaultConfig.repositorySlug;
+  if (repository !== defaultConfig.repositorySlug) {
+    throw new Error("config_identity_mismatch: --run-pr-stack config repository must match the approved repository identity.");
+  }
+  const repoRoot = parsed.repoRoot || parsed.protectedRoot || defaultConfig.repoRoot;
+  if (repoRoot && path.resolve(repoRoot) !== path.resolve(defaultConfig.repoRoot) && path.resolve(repoRoot) !== process.cwd()) {
+    throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
+  }
+  const worktree = parsed.worktreeRoot || parsed.worktree || null;
+  if (worktree && path.resolve(worktree) !== path.resolve(defaultConfig.repoRoot) && path.resolve(worktree) !== process.cwd()) {
+    throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
+  }
+  for (const [field, value] of [["logsRoot", parsed.logsRoot], ["trustedControlRoot", parsed.trustedControlRoot]]) {
+    if (value !== undefined && value !== null && path.resolve(value) !== trustedRootProof.realpath && !isInsidePath(path.resolve(value), trustedRootProof.realpath)) {
+      throw new Error(`config_root_incompatible: --run-pr-stack config ${field} must remain compatible with the externally anchored bootstrap logs root.`);
+    }
+  }
 }
 
 function isInsidePath(candidate, root) {

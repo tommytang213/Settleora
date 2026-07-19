@@ -35,7 +35,10 @@ test("stack mode loads as pr-stack-run and cannot be enabled by default config",
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-config-"));
   const logsRoot = path.join(root, "logs");
   mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
-  const configPath = path.join(logsRoot, "config.json");
+  chmodSync(logsRoot, 0o700);
+  const configPath = path.join(logsRoot, "live-stack-acceptance", "20260717-2347", "config.json");
+  mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 });
+  chmodSync(path.dirname(configPath), 0o700);
   writeFileSync(configPath, JSON.stringify({ logsRoot, trustedControlRoot: logsRoot, repoRoot: process.cwd(), repositorySlug: "tommytang213/Settleora" }), { mode: 0o600 });
   const config = loadConfig(
     parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "plan.json")]),
@@ -2460,7 +2463,8 @@ function stackFixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-"));
   const logsRoot = path.join(root, "logs");
 	  mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
-	  const configPath = path.join(logsRoot, "config.json");
+	  chmodSync(logsRoot, 0o700);
+	  const configPath = path.join(logsRoot, "live-stack-acceptance", "20260717-2347", "config.json");
 	  const plan = makePlan();
 	  const authorizationPath = path.join(logsRoot, "protected-plan-authorization.json");
 	  writeProtectedPlanAuthorization(authorizationPath, plan);
@@ -2485,8 +2489,10 @@ function stackFixture() {
         semanticProof: true,
         finalHygiene: true,
       },
-    },
+	    },
 	  };
+	  mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 });
+	  chmodSync(path.dirname(configPath), 0o700);
 	  writeFileSync(configPath, JSON.stringify(configJson), { mode: 0o600 });
 	  const config = loadConfig(
 	    parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "stack", "plan.json")]),
