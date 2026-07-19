@@ -104,6 +104,7 @@ export function runReviewPrompt(config, packageInfo) {
       reviewFailureReason: "dry-run",
       attempts: [],
       reviewedHead: packageInfo.summary?.currentHead || packageInfo.summary?.headSha || null,
+      reviewedBaseSha: null,
       baseSha: packageInfo.summary?.baseSha || packageInfo.summary?.baseOriginMainSha || null,
       changedFiles: packageInfo.summary?.changedFiles || [],
       changedFilesDigest: digestChangedFiles(packageInfo.summary?.changedFiles || []),
@@ -140,6 +141,7 @@ export function runReviewPrompt(config, packageInfo) {
     attempts,
     attemptCount: attempts.length,
     reviewedHead: packageInfo.summary?.currentHead || packageInfo.summary?.headSha || null,
+    reviewedBaseSha: selected.verdict?.reviewed_base_sha || null,
     baseSha: packageInfo.summary?.baseSha || packageInfo.summary?.baseOriginMainSha || null,
     changedFiles: packageInfo.summary?.changedFiles || [],
     changedFilesDigest: digestChangedFiles(packageInfo.summary?.changedFiles || []),
@@ -441,6 +443,7 @@ const maxReviewVerdictJsonCandidateBytes = 128 * 1024;
 
 const reviewVerdictFields = new Set([
   "verdict",
+  "reviewed_base_sha",
   "confidence",
   "requirement_match",
   "code_quality",
@@ -484,6 +487,9 @@ function validateReviewVerdictObject(parsed) {
       return { ok: false, reason: `Reviewer verdict field ${field} is invalid: ${String(value || "missing")}.` };
     }
   }
+  if (!/^[a-f0-9]{40}$/.test(parsed.reviewed_base_sha || "")) {
+    return { ok: false, reason: "Reviewer verdict field reviewed_base_sha must be a lowercase 40-character SHA." };
+  }
   if (!Array.isArray(parsed.blocking_findings) || !Array.isArray(parsed.non_blocking_findings)) {
     return { ok: false, reason: "Reviewer verdict findings fields must be arrays." };
   }
@@ -491,6 +497,7 @@ function validateReviewVerdictObject(parsed) {
     ok: true,
     verdict: {
       verdict: parsed.verdict,
+      reviewed_base_sha: parsed.reviewed_base_sha,
       confidence: parsed.confidence,
       requirement_match: parsed.requirement_match,
       code_quality: parsed.code_quality,
@@ -569,6 +576,7 @@ Required JSON shape:
 
 {
   "verdict": "approve | changes_requested | needs_tommy | danger_gate | unable_to_review",
+  "reviewed_base_sha": "exact lowercase 40-character base SHA from the package you actually reviewed",
   "confidence": "low | medium | high",
   "requirement_match": "pass | partial | fail | unclear",
   "code_quality": "pass | partial | fail | unclear",
@@ -591,6 +599,7 @@ ${JSON.stringify(packageInfo.summary, null, 2)}
 function dryRunReviewVerdict() {
   return {
     verdict: "unable_to_review",
+    reviewed_base_sha: null,
     confidence: "low",
     requirement_match: "unclear",
     code_quality: "unclear",
@@ -605,6 +614,7 @@ function dryRunReviewVerdict() {
 function unableToReview(reason, diagnostics = null) {
   return {
     verdict: "unable_to_review",
+    reviewed_base_sha: null,
     confidence: "low",
     requirement_match: "unclear",
     code_quality: "unclear",
