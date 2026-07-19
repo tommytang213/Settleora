@@ -6118,6 +6118,7 @@ test("contract path matcher rejects malformed changed paths and no longer constr
 test("review verdict parsing approves valid verdict JSON surrounded by prose", () => {
   const approve = parseReviewVerdict(`notes\n${reviewVerdictJson()}\nextra review notes`);
   assert.equal(approve.verdict, "approve");
+  assert.equal(approve.reviewed_base_sha, "e".repeat(40));
   assert.equal(approve.json_source, "extracted_surrounded_json");
   assert.deepEqual(approve.review_json_diagnostics, {
     valid_verdict_count: 1,
@@ -6174,6 +6175,14 @@ test("review verdict parsing fails closed for invalid or ambiguous verdict contr
   assert.equal(unknown.verdict, "unable_to_review");
   assert.match(unknown.blocking_findings[0], /unsupported field/);
   assert.equal(unknown.review_json_diagnostics.invalid_candidate_count, 1);
+
+  const missingReviewedBase = parseReviewVerdict(reviewVerdictJson({ reviewed_base_sha: undefined }));
+  assert.equal(missingReviewedBase.verdict, "unable_to_review");
+  assert.match(missingReviewedBase.blocking_findings[0], /reviewed_base_sha/);
+
+  const branchReviewedBase = parseReviewVerdict(reviewVerdictJson({ reviewed_base_sha: "main" }));
+  assert.equal(branchReviewedBase.verdict, "unable_to_review");
+  assert.match(branchReviewedBase.blocking_findings[0], /40-character SHA/);
 
   const malformed = parseReviewVerdict(`\`\`\`json\n{"verdict":"approve",\n\`\`\`\n${reviewVerdictJson()}`);
   assert.equal(malformed.verdict, "unable_to_review");
@@ -6287,6 +6296,7 @@ test("review prompt falls back to stderr only when stdout is empty and stderr ha
     );
 
     assert.equal(result.verdict.verdict, "approve");
+    assert.equal(result.reviewedBaseSha, "e".repeat(40));
     assert.equal(result.responsePayloadSource, "stderr");
     assert.equal(result.responsePayloadBoundary, "process.stderr:fallback_single_verdict_stdout_empty");
     assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 1);
@@ -7595,6 +7605,7 @@ Docs/workflow canary only. Add one short non-sensitive checkpoint entry to \`doc
 function reviewVerdictJson(overrides = {}) {
   return JSON.stringify({
     verdict: "approve",
+    reviewed_base_sha: "e".repeat(40),
     confidence: "high",
     requirement_match: "pass",
     code_quality: "pass",

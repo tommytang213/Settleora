@@ -91,6 +91,7 @@ function sanitizeReviewVerdict(verdict) {
   if (!isPlainObject(verdict)) return verdict === null || verdict === undefined ? null : sanitizeValue(verdict);
   return omitNullish({
     verdict: stringOrNull(verdict.verdict),
+    reviewed_base_sha: stringOrNull(verdict.reviewed_base_sha),
     confidence: stringOrNull(verdict.confidence),
     requirement_match: stringOrNull(verdict.requirement_match),
     code_quality: stringOrNull(verdict.code_quality),
