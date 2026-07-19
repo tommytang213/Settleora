@@ -9,10 +9,23 @@ import {
   defaultLogsRoot,
   digestChangedFiles,
   loadConfig,
+  normalizePrStackExecutionConfig,
   parseCliArgs,
   validateRecoveryOnlyExistingPrTarget,
   validateRecoveryOnlyExactHeadEvidence,
 } from "../lib/config.mjs";
+
+test("PR stack execution preserves bounded live-runner controls", () => {
+  const normalized = normalizePrStackExecutionConfig({
+    maxDispatchActions: 1,
+    runnerTimeoutMs: 120000,
+    runnerMaxOutputBytes: 1048576,
+  });
+  assert.equal(normalized.maxDispatchActions, 1);
+  assert.equal(normalized.runnerTimeoutMs, 120000);
+  assert.equal(normalized.runnerMaxOutputBytes, 1048576);
+  assert.throws(() => normalizePrStackExecutionConfig({ runnerMaxOutputBytes: 1048577 }), /between 1024 and 1048576/);
+});
 
 function withProfile(profile, fn) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-config-foundation-"));

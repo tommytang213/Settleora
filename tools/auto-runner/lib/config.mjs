@@ -1136,11 +1136,21 @@ export function normalizePrStackExecutionConfig(raw = {}) {
 	  if (raw.protectedPlanAuthorizationPath !== null && raw.protectedPlanAuthorizationPath !== undefined && (typeof raw.protectedPlanAuthorizationPath !== "string" || !path.isAbsolute(raw.protectedPlanAuthorizationPath))) {
 	    throw new Error("prStackExecution.protectedPlanAuthorizationPath must be an absolute path when set");
 	  }
+	  const boundedOptionalInteger = (value, name, minimum, maximum) => {
+	    if (value === null || value === undefined) return null;
+	    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+	      throw new Error(`prStackExecution.${name} must be an integer between ${minimum} and ${maximum}`);
+	    }
+	    return value;
+	  };
 	  return Object.freeze({
 	    enabled: raw.enabled === true,
 	    allowRun: raw.allowRun === true,
 	    productionProfileActive: raw.productionProfileActive === true,
 	    maxStackSize,
+	    maxDispatchActions: boundedOptionalInteger(raw.maxDispatchActions, "maxDispatchActions", 1, 100),
+	    runnerTimeoutMs: boundedOptionalInteger(raw.runnerTimeoutMs, "runnerTimeoutMs", 1000, 120000),
+	    runnerMaxOutputBytes: boundedOptionalInteger(raw.runnerMaxOutputBytes, "runnerMaxOutputBytes", 1024, 1048576),
 	    statePath: raw.statePath || null,
 	    protectedPlanAuthorizationPath: raw.protectedPlanAuthorizationPath || null,
 	    capabilities: Object.freeze(capabilities),
