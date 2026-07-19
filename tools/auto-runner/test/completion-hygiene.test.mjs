@@ -12,6 +12,7 @@ import {
   renderParentProgressComment,
 } from "../lib/completion-hygiene.mjs";
 import { executeAutoMerge } from "../lib/auto-merge-policy.mjs";
+import { digestChangedFiles } from "../lib/config.mjs";
 
 const headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const baseSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -192,7 +193,7 @@ test("historical summaries/status/events remain readable and sanitized in commen
 
 test("ordinary merge path invokes the completion pipeline safely", () => {
   const changedFiles = ["tools/auto-runner/lib/example.mjs"];
-  const digest = "18241bec16277a702d8fbc0bf037adcd214d3b804d200586c011fa1614b026ce";
+  const digest = digestChangedFiles(changedFiles);
   const contextBase = {
     config: {
       allowAutoMerge: true,

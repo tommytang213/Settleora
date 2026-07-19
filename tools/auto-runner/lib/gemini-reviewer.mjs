@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { digestChangedFiles } from "./config.mjs";
 import { safeTimestamp } from "./logger.mjs";
 import {
   estimateReviewerCostUsd,
@@ -58,7 +59,7 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     diffTruncated: Boolean(summary.diffTruncated),
   });
   const effectiveDiffStats = normalizeReviewDiffStats(summary.diffStats, secretBoundary.diffStats);
-  const changedFilesDigest = digestStrings(changedFiles);
+  const changedFilesDigest = digestChangedFiles(changedFiles);
   const rawDiffSha256 = secretBoundary.rawDiffSha256;
   const providerBoundDiffSha256 = providerBoundReviewDigest(diff);
   const reviewedHead = summary.currentHead || summary.headSha || summary.runnerCreatedCommitSha || null;
@@ -989,7 +990,7 @@ function sanitizeBoundaryForEvidence(boundary) {
     allowedReferences: boundary?.allowedReferences || [],
     sanitizedDiagnostics: boundary?.sanitizedDiagnostics || [],
     diffStats: boundary?.diffStats || null,
-    parsedFilesDigest: digestStrings(boundary?.parsedFiles || []),
+    parsedFilesDigest: digestChangedFiles(boundary?.parsedFiles || []),
   };
 }
 
@@ -1080,7 +1081,7 @@ function sha256Text(text) {
 }
 
 function digestStrings(values = []) {
-  return sha256Text(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n"));
+  return digestChangedFiles(values);
 }
 
 function stableJson(value) {

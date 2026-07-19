@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { digestChangedFiles } from "./config.mjs";
 import { getValidationProfile } from "./lane-policy.mjs";
 
 export const mobileBuildPlatformChecks = Object.freeze({
@@ -68,6 +68,7 @@ export function runValidationPlan(config, plan) {
 
 export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile }) {
   const files = [...(changedFiles || [])].map(String).sort();
+  const changedFilesDigest = digestChangedFiles(files);
   const requirements = inferMobileBuildPlatformRequirements(files);
   const localChecks = (validation?.results || [])
     .filter((result) => result.platformBuildCheckId)
@@ -83,11 +84,11 @@ export function bindValidationEvidence(validation, { headSha, baseSha, changedFi
     headSha: headSha || null,
     baseSha: baseSha || null,
     changedFiles: files,
-    changedFilesDigest: createHash("sha256").update(files.join("\n")).digest("hex"),
+    changedFilesDigest,
     mobileBuildPlatformEvidence: {
       headSha: headSha || null,
       baseSha: baseSha || null,
-      changedFilesDigest: createHash("sha256").update(files.join("\n")).digest("hex"),
+      changedFilesDigest,
       platforms: requirements.platforms,
       localCheckIds: requirements.localCheckIds,
       externalCheckIds: requirements.externalCheckIds,

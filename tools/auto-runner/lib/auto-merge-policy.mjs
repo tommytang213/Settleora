@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { safeTimestamp } from "./logger.mjs";
 import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
+import { digestChangedFiles } from "./config.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
@@ -551,7 +551,7 @@ function evaluateValidationEvidence(input, { expectedHeadSha, expectedBaseSha, c
   if (expectedBaseSha && validation.baseSha !== expectedBaseSha) return { ok: false, reason: "validation_base_mismatch" };
   if (!Array.isArray(validation.changedFiles)) return { ok: false, reason: "validation_files_missing" };
   if (!sameStringSet(validation.changedFiles, changedFiles)) return { ok: false, reason: "validation_files_mismatch" };
-  if (validation.changedFilesDigest !== digestStrings(changedFiles)) return { ok: false, reason: "validation_file_digest_mismatch" };
+  if (validation.changedFilesDigest !== digestChangedFiles(changedFiles)) return { ok: false, reason: "validation_file_digest_mismatch" };
   if (validation.profile !== laneDecision.validationProfile) return { ok: false, reason: "validation_profile_mismatch" };
   return { ok: true };
 }
@@ -564,7 +564,7 @@ function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedB
   const validationEvidence = input.validation?.mobileBuildPlatformEvidence || {};
   if (validationEvidence.headSha !== expectedHeadSha) return { ok: false, reason: "mobile_platform_validation_head_mismatch" };
   if (expectedBaseSha && validationEvidence.baseSha !== expectedBaseSha) return { ok: false, reason: "mobile_platform_validation_base_mismatch" };
-  if (validationEvidence.changedFilesDigest !== digestStrings(changedFiles)) {
+  if (validationEvidence.changedFilesDigest !== digestChangedFiles(changedFiles)) {
     return { ok: false, reason: "mobile_platform_validation_file_digest_mismatch" };
   }
   if (!sameStringSet(validationEvidence.platforms || [], requirements.platforms)) {
@@ -593,7 +593,7 @@ function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedB
     if (expectedBaseSha && check.baseSha !== expectedBaseSha) {
       return { ok: false, reason: `mobile_platform_external_check_base_mismatch:${checkId}` };
     }
-    if (check.changedFilesDigest !== digestStrings(changedFiles)) {
+    if (check.changedFilesDigest !== digestChangedFiles(changedFiles)) {
       return { ok: false, reason: `mobile_platform_external_check_file_digest_mismatch:${checkId}` };
     }
     if (!sameStringSet(check.platforms || [], requirements.platforms)) {
@@ -632,7 +632,7 @@ function evaluateIndependentReviewEvidence(input) {
     return { ok: false, reason: "independent_review_files_mismatch" };
   }
   if (!review.changedFilesDigest) return { ok: false, reason: "independent_review_file_digest_missing" };
-  if (review.changedFilesDigest !== digestStrings(input.changedFiles || [])) {
+  if (review.changedFilesDigest !== digestChangedFiles(input.changedFiles || [])) {
     return { ok: false, reason: "independent_review_file_digest_mismatch" };
   }
   if (review.baseSha && input.expectedOriginMainSha && review.baseSha !== input.expectedOriginMainSha) {
@@ -655,7 +655,7 @@ function evaluateCodexReviewEvidence(input, { expectedHeadSha, expectedBaseSha, 
   if (expectedBaseSha && review.baseSha && review.baseSha !== expectedBaseSha) return { ok: false, reason: "codex_mechanics_review_base_mismatch" };
   if (!Array.isArray(review.changedFiles)) return { ok: false, reason: "codex_mechanics_review_files_missing" };
   if (!sameStringSet(review.changedFiles, changedFiles)) return { ok: false, reason: "codex_mechanics_review_files_mismatch" };
-  if (review.changedFilesDigest && review.changedFilesDigest !== digestStrings(changedFiles)) return { ok: false, reason: "codex_mechanics_review_file_digest_mismatch" };
+  if (review.changedFilesDigest && review.changedFilesDigest !== digestChangedFiles(changedFiles)) return { ok: false, reason: "codex_mechanics_review_file_digest_mismatch" };
   if (review.mutationDetected === true || review.checkoutMutationDetected === true) return { ok: false, reason: "codex_mechanics_review_mutated_checkout" };
   if (Array.isArray(review.blockingFindings) && review.blockingFindings.length > 0) return { ok: false, reason: "codex_mechanics_review_blocking_findings" };
   if (!review.completedAt && !review.finishedAt) return { ok: false, reason: "codex_mechanics_review_timestamp_missing" };
@@ -818,10 +818,6 @@ function summarizeCheckStatus(checks, policy = {}) {
 function sameStringSet(left = [], right = []) {
   const normalize = (items) => items.map((item) => String(item || "")).filter(Boolean).sort();
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
-}
-
-function digestStrings(values = []) {
-  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
 }
 
 function uniqueStrings(values = []) {

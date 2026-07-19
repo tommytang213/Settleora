@@ -6582,7 +6582,11 @@ function autoMergePolicyFixture(overrides = {}) {
 }
 
 function sha256Strings(values = []) {
-  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+  return canonicalChangedFilesDigest(values);
+}
+
+function canonicalChangedFilesDigest(values = []) {
+  return createHash("sha256").update(JSON.stringify([...new Set(values || [])].sort())).digest("hex");
 }
 
 function existingPrRecoveryContext(overrides = {}) {
@@ -6630,17 +6634,36 @@ function existingPrRecoveryContext(overrides = {}) {
     blockingMarkers: overrides.blockingMarkers || [],
     requiredChecks: overrides.requiredChecks,
   });
+  const recoveryDigest = canonicalChangedFilesDigest(changedFiles);
   return {
     ...context,
+    validation: {
+      ...context.validation,
+      changedFilesDigest: recoveryDigest,
+    },
+    externalReview: context.externalReview
+      ? {
+          ...context.externalReview,
+          changedFilesDigest: recoveryDigest,
+        }
+      : context.externalReview,
+    review: context.review
+      ? {
+          ...context.review,
+          changedFilesDigest: recoveryDigest,
+        }
+      : context.review,
     exactHeadEvidence: overrides.exactHeadEvidence ?? {
       headSha: "head123",
+      changedFiles,
+      changedFilesDigest: recoveryDigest,
       validationPassed: true,
       validationResults: [{ command: "npm run validate:docs", status: 0 }],
       validationCompletedAt: "2026-07-12T00:00:00.000Z",
       geminiPass: true,
       geminiHeadSha: "head123",
       geminiChangedFiles: changedFiles,
-      geminiChangedFilesDigest: sha256Strings(changedFiles),
+      geminiChangedFilesDigest: recoveryDigest,
       geminiTier: "cheap_independent",
       geminiProvider: "gemini",
       geminiCompletedAt: "2026-07-12T00:00:00.000Z",
@@ -6648,7 +6671,7 @@ function existingPrRecoveryContext(overrides = {}) {
       codexMechanicsApproved: true,
       codexMechanicsHeadSha: "head123",
       codexMechanicsChangedFiles: changedFiles,
-      codexMechanicsChangedFilesDigest: sha256Strings(changedFiles),
+      codexMechanicsChangedFilesDigest: recoveryDigest,
       codexMechanicsCompletedAt: "2026-07-12T00:00:00.000Z",
     },
   };

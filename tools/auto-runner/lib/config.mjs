@@ -6,7 +6,7 @@ import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig 
 import { normalizeLargeBundleReviewApprovalConfig } from "./reviewer-policy.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
-import { validateSupervisorRunId } from "./run-correlation.mjs";
+import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.mjs";
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
@@ -522,8 +522,22 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   if (!target?.prNumber || !target?.prHeadSha || headSha !== target.prHeadSha || evidence.headSha !== target.prHeadSha) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
-  const changedFilesDigest = Array.isArray(changedFiles) ? sha256Strings(changedFiles) : null;
+  let canonicalChangedFiles;
+  try {
+    canonicalChangedFiles = canonicalizeChangedFiles(changedFiles || evidence.changedFiles);
+  } catch {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  const canonicalChangedFilesDigest = digestChangedFiles(canonicalChangedFiles);
   const requiredChecks = [
+    evidence.prNumber === target.prNumber,
+    evidence.taskKey === target.taskKey,
+    evidence.runnerRunId === target.runnerRunId,
+    evidence.supervisorRunId === target.supervisorRunId,
+    validRunnerRunId(evidence.runnerRunId),
+    validSupervisorRunId(evidence.supervisorRunId),
+    Array.isArray(evidence.changedFiles),
+    evidence.changedFilesDigest === canonicalChangedFilesDigest,
     evidence.validationPassed === true,
     Array.isArray(evidence.validationResults),
     isNonEmptyString(evidence.validationCompletedAt || evidence.completedAt),
@@ -543,32 +557,21 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   if (requiredChecks.some((ok) => !ok)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
   }
-  if (!sameStringSet(evidence.geminiChangedFiles, changedFiles || evidence.codexMechanicsChangedFiles)) {
+  if (!sameCanonicalChangedFiles(evidence.changedFiles, canonicalChangedFiles)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
-  if (!sameStringSet(evidence.codexMechanicsChangedFiles, changedFiles || evidence.geminiChangedFiles)) {
+  if (!sameCanonicalChangedFiles(evidence.geminiChangedFiles, canonicalChangedFiles)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
-  if (changedFilesDigest) {
-    for (const digest of [
-      evidence.changedFilesDigest,
-      evidence.geminiChangedFilesDigest,
-      evidence.codexMechanicsChangedFilesDigest,
-    ].filter(Boolean)) {
-      if (digest !== changedFilesDigest) return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
-    }
-  }
-  if (evidence.prNumber !== undefined && evidence.prNumber !== target.prNumber) {
+  if (!sameCanonicalChangedFiles(evidence.codexMechanicsChangedFiles, canonicalChangedFiles)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
-  if (evidence.taskKey !== undefined && evidence.taskKey !== target.taskKey) {
-    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
-  }
-  if (evidence.runnerRunId !== undefined && evidence.runnerRunId !== target.runnerRunId) {
-    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
-  }
-  if (evidence.supervisorRunId !== undefined && evidence.supervisorRunId !== target.supervisorRunId) {
-    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  for (const digest of [
+    evidence.changedFilesDigest,
+    evidence.geminiChangedFilesDigest,
+    evidence.codexMechanicsChangedFilesDigest,
+  ]) {
+    if (digest !== canonicalChangedFilesDigest) return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
   return { ok: true };
 }
@@ -577,16 +580,62 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function sameStringSet(left = [], right = []) {
-  if (!Array.isArray(left) || !Array.isArray(right)) return false;
-  const normalize = (values) => values.map((value) => String(value || "").trim()).filter(Boolean).sort();
-  const a = normalize(left);
-  const b = normalize(right);
+function sameCanonicalChangedFiles(left = [], right = []) {
+  let a;
+  let b;
+  try {
+    a = canonicalizeChangedFiles(left);
+    b = canonicalizeChangedFiles(right);
+  } catch {
+    return false;
+  }
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-function sha256Strings(values = []) {
-  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+export function canonicalizeChangedFiles(values = []) {
+  if (!Array.isArray(values)) {
+    throw new Error("changedFiles must be an array");
+  }
+  const normalized = [];
+  const seen = new Set();
+  for (const raw of values) {
+    if (typeof raw !== "string") throw new Error("changedFiles entries must be strings");
+    const value = raw.trim().replaceAll("\\", "/");
+    if (!value) throw new Error("changedFiles entries must be non-empty");
+    if (path.isAbsolute(value) || /^[A-Za-z]:\//.test(value) || value.startsWith("//")) {
+      throw new Error("changedFiles entries must be repository-relative");
+    }
+    const segments = value.split("/");
+    if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+      throw new Error("changedFiles entries must not contain empty or traversal segments");
+    }
+    if (seen.has(value)) throw new Error("changedFiles entries must not contain duplicates");
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized.sort();
+}
+
+export function digestChangedFiles(values = []) {
+  return createHash("sha256").update(JSON.stringify(canonicalizeChangedFiles(values))).digest("hex");
+}
+
+function validRunnerRunId(value) {
+  try {
+    validateRunnerRunId(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validSupervisorRunId(value) {
+  try {
+    validateSupervisorRunId(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function normalizeAutoMergePolicy(policy = {}) {

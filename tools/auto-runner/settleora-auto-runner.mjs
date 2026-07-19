@@ -4,7 +4,15 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { parseCliArgs, loadConfig, defaultLogsRoot, validateRecoveryOnlyExistingPrTarget, validateRecoveryOnlyExactHeadEvidence } from "./lib/config.mjs";
+import {
+  canonicalizeChangedFiles,
+  digestChangedFiles,
+  parseCliArgs,
+  loadConfig,
+  defaultLogsRoot,
+  validateRecoveryOnlyExistingPrTarget,
+  validateRecoveryOnlyExactHeadEvidence,
+} from "./lib/config.mjs";
 import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
@@ -1181,6 +1189,14 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
     ? recoveryConfig.changedFiles
     : readPrChangedFiles(config, prNumber);
+  let canonicalChangedFiles = changedFiles;
+  let canonicalChangedFilesDigest = null;
+  try {
+    canonicalChangedFiles = canonicalizeChangedFiles(changedFiles);
+    canonicalChangedFilesDigest = digestChangedFiles(canonicalChangedFiles);
+  } catch {
+    canonicalChangedFiles = changedFiles;
+  }
   const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
   let exactHeadEvidence = recoveryConfig.exactHeadEvidence || {};
   const expectedHeadSha = recoveryConfig.expectedHeadSha || exactHeadEvidence.headSha || githubState.pr?.headRefOid || null;
@@ -1215,11 +1231,16 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     });
     exactHeadEvidence = {
       ...exactHeadEvidence,
+      prNumber: recoveryConfig.prNumber,
+      taskKey: config.outageRecoveryTarget?.taskKey || exactHeadEvidence.taskKey || null,
+      runnerRunId: config.outageRecoveryTarget?.runnerRunId || exactHeadEvidence.runnerRunId || null,
+      supervisorRunId: config.outageRecoveryTarget?.supervisorRunId || exactHeadEvidence.supervisorRunId || null,
       headSha: expectedHeadSha,
+      changedFiles: canonicalChangedFiles,
       validationPassed: generatedRecoveryEvidence.validation?.passed === true,
       geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
       geminiHeadSha: expectedHeadSha,
-      geminiChangedFiles: changedFiles,
+      geminiChangedFiles: canonicalChangedFiles,
       geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
       geminiProvider: generatedRecoveryEvidence.externalReview?.provider || exactHeadEvidence.geminiProvider || null,
       geminiTier: generatedRecoveryEvidence.externalReview?.tier || exactHeadEvidence.geminiTier || null,
@@ -1232,7 +1253,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
         null,
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
-      codexMechanicsChangedFiles: changedFiles,
+      codexMechanicsChangedFiles: canonicalChangedFiles,
       codexMechanicsChangedFilesDigest: generatedRecoveryEvidence.review?.changedFilesDigest || null,
       codexMechanicsCompletedAt: generatedRecoveryEvidence.review?.completedAt || null,
       codexMechanicsEvidencePath: generatedRecoveryEvidence.review?.logPath || generatedRecoveryEvidence.review?.promptPath || null,

@@ -4,7 +4,14 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loadConfig, parseCliArgs, validateRecoveryOnlyExistingPrTarget, validateRecoveryOnlyExactHeadEvidence } from "../lib/config.mjs";
+import {
+  canonicalizeChangedFiles,
+  digestChangedFiles,
+  loadConfig,
+  parseCliArgs,
+  validateRecoveryOnlyExistingPrTarget,
+  validateRecoveryOnlyExactHeadEvidence,
+} from "../lib/config.mjs";
 
 function withProfile(profile, fn) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-config-foundation-"));
@@ -190,14 +197,16 @@ test("recovery-only exact-head evidence must be complete and bound before genera
     outageFingerprint: "e".repeat(64),
     attemptNumber: 1,
   };
-  const changedFiles = ["tools/auto-runner/settleora-auto-runner.mjs"];
-  const digest = sha256Strings(changedFiles);
+  const changedFiles = ["tools/auto-runner/test/config-foundation.test.mjs", "tools/auto-runner/settleora-auto-runner.mjs"];
+  const canonicalChangedFiles = canonicalizeChangedFiles(changedFiles);
+  const digest = digestChangedFiles(changedFiles);
   const exactHeadEvidence = {
     headSha: target.prHeadSha,
     prNumber: target.prNumber,
     taskKey: target.taskKey,
     runnerRunId: target.runnerRunId,
     supervisorRunId: target.supervisorRunId,
+    changedFiles: canonicalChangedFiles,
     validationPassed: true,
     validationResults: [{ command: "node --test tools/auto-runner/test/auto-runner.test.mjs", status: 0 }],
     validationCompletedAt: "2026-07-16T12:00:00.000Z",
@@ -230,7 +239,25 @@ test("recovery-only exact-head evidence must be complete and bound before genera
     ["wrong head", { ...exactHeadEvidence, headSha: "f".repeat(40) }],
     ["wrong PR", { ...exactHeadEvidence, prNumber: 920 }],
     ["wrong task", { ...exactHeadEvidence, taskKey: "other-task" }],
+    ["missing runner", { ...exactHeadEvidence, runnerRunId: undefined }],
+    ["missing supervisor", { ...exactHeadEvidence, supervisorRunId: undefined }],
+    ["null runner", { ...exactHeadEvidence, runnerRunId: null }],
+    ["null supervisor", { ...exactHeadEvidence, supervisorRunId: null }],
+    ["malformed runner", { ...exactHeadEvidence, runnerRunId: "run-not-valid" }],
+    ["malformed supervisor", { ...exactHeadEvidence, supervisorRunId: "supervised-not-valid" }],
     ["stale digest", { ...exactHeadEvidence, changedFilesDigest: "f".repeat(64) }],
+    ["legacy newline digest", {
+      ...exactHeadEvidence,
+      changedFilesDigest: legacySha256Strings(changedFiles),
+      geminiChangedFilesDigest: legacySha256Strings(changedFiles),
+      codexMechanicsChangedFilesDigest: legacySha256Strings(changedFiles),
+    }],
+    ["duplicate changed file", { ...exactHeadEvidence, changedFiles: [canonicalChangedFiles[0], canonicalChangedFiles[0]] }],
+    ["empty changed file", { ...exactHeadEvidence, changedFiles: [""] }],
+    ["absolute changed file", { ...exactHeadEvidence, changedFiles: ["/tmp/file.mjs"] }],
+    ["traversal changed file", { ...exactHeadEvidence, changedFiles: ["tools/../secret.mjs"] }],
+    ["wrong supervisor", { ...exactHeadEvidence, supervisorRunId: "supervised-20260716T130000Z-abcdefabcdef" }],
+    ["swapped IDs", { ...exactHeadEvidence, runnerRunId: target.supervisorRunId, supervisorRunId: target.runnerRunId }],
     ["foreign run", { ...exactHeadEvidence, runnerRunId: "run-2026-07-16T130000Z" }],
   ]) {
     const result = validateRecoveryOnlyExactHeadEvidence(
@@ -241,9 +268,134 @@ test("recovery-only exact-head evidence must be complete and bound before genera
     assert.equal(result.ok, false, name);
     assert.match(result.reason, /^outage_recovery_exact_head_evidence_/);
   }
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence(
+      config,
+      {
+        prNumber: 919,
+        expectedHeadSha: target.prHeadSha,
+        exactHeadEvidence: {
+          ...exactHeadEvidence,
+          changedFiles: [...canonicalChangedFiles].reverse(),
+          geminiChangedFiles: [...canonicalChangedFiles].reverse(),
+          codexMechanicsChangedFiles: [...canonicalChangedFiles].reverse(),
+        },
+      },
+      { expectedHeadSha: target.prHeadSha, changedFiles: [...changedFiles].reverse() },
+    ),
+    { ok: true },
+  );
   assert.deepEqual(validateRecoveryOnlyExactHeadEvidence({ outageRecoveryOnly: false }, { exactHeadEvidence: null }), { ok: true });
 });
 
-function sha256Strings(values = []) {
+test("canonical changed-files digest uses JSON array and rejects newline legacy digest", () => {
+  const files = ["b/path.mjs", "a/path.mjs"];
+  const canonical = digestChangedFiles(files);
+  assert.equal(canonical, createHash("sha256").update(JSON.stringify(["a/path.mjs", "b/path.mjs"])).digest("hex"));
+  assert.notEqual(canonical, legacySha256Strings(files));
+});
+
+test("canonical changed-files list normalizes separators sorts and rejects unsafe entries", () => {
+  assert.deepEqual(canonicalizeChangedFiles(["tools\\auto-runner\\b.mjs", "tools/auto-runner/a.mjs"]), [
+    "tools/auto-runner/a.mjs",
+    "tools/auto-runner/b.mjs",
+  ]);
+  for (const files of [
+    ["tools/auto-runner/a.mjs", "tools/auto-runner/a.mjs"],
+    [""],
+    ["/tmp/a.mjs"],
+    ["C:\\tmp\\a.mjs"],
+    ["tools/../a.mjs"],
+    ["tools//a.mjs"],
+  ]) {
+    assert.throws(() => canonicalizeChangedFiles(files));
+  }
+});
+
+test("recovery-only exact evidence rejects copied packages with missing or wrong run identities", () => {
+  const target = recoveryOnlyTargetFixture();
+  const changedFiles = ["tools/auto-runner/lib/config.mjs"];
+  const evidence = exactHeadEvidenceFixture(target, changedFiles);
+  const config = { outageRecoveryOnly: true, outageRecoveryTarget: target };
+  for (const patch of [
+    { runnerRunId: undefined },
+    { supervisorRunId: undefined },
+    { runnerRunId: null },
+    { supervisorRunId: null },
+    { runnerRunId: "run-2026-07-16T130000Z" },
+    { supervisorRunId: "supervised-20260716T130000Z-abcdefabcdef" },
+  ]) {
+    const result = validateRecoveryOnlyExactHeadEvidence(
+      config,
+      { prNumber: target.prNumber, expectedHeadSha: target.prHeadSha, exactHeadEvidence: { ...evidence, ...patch } },
+      { expectedHeadSha: target.prHeadSha, changedFiles },
+    );
+    assert.equal(result.ok, false);
+  }
+});
+
+test("recovery-only exact evidence accepted by startup has strict-gate canonical digest", () => {
+  const target = recoveryOnlyTargetFixture();
+  const changedFiles = ["tools/auto-runner/lib/recovery-orchestrator.mjs", "tools/auto-runner/lib/config.mjs"];
+  const evidence = exactHeadEvidenceFixture(target, changedFiles);
+  const config = { outageRecoveryOnly: true, outageRecoveryTarget: target };
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence(
+      config,
+      { prNumber: target.prNumber, expectedHeadSha: target.prHeadSha, exactHeadEvidence: evidence },
+      { expectedHeadSha: target.prHeadSha, changedFiles: [...changedFiles].reverse() },
+    ),
+    { ok: true },
+  );
+});
+
+function recoveryOnlyTargetFixture() {
+  return {
+    taskKey: "20260716-2322",
+    issueNumber: 913,
+    branchName: "feature/auto-913-targeted-recovery-child-supervisor-20260716-1213",
+    baseSha: "a".repeat(40),
+    currentHeadSha: "b".repeat(40),
+    prNumber: 919,
+    prHeadSha: "b".repeat(40),
+    runnerRunId: "run-2026-07-16T120000Z",
+    supervisorRunId: "supervised-20260716T120000Z-abcdefabcdef",
+    originalSupervisorSpecDigest: "c".repeat(64),
+    markerKey: "d".repeat(64),
+    outageFingerprint: "e".repeat(64),
+    attemptNumber: 1,
+  };
+}
+
+function exactHeadEvidenceFixture(target, changedFiles) {
+  const canonicalFiles = canonicalizeChangedFiles(changedFiles);
+  const digest = digestChangedFiles(canonicalFiles);
+  return {
+    headSha: target.prHeadSha,
+    prNumber: target.prNumber,
+    taskKey: target.taskKey,
+    runnerRunId: target.runnerRunId,
+    supervisorRunId: target.supervisorRunId,
+    changedFiles: canonicalFiles,
+    changedFilesDigest: digest,
+    validationPassed: true,
+    validationResults: [{ command: "node --test tools/auto-runner/test/config-foundation.test.mjs", status: 0 }],
+    validationCompletedAt: "2026-07-16T12:00:00.000Z",
+    geminiPass: true,
+    geminiHeadSha: target.prHeadSha,
+    geminiChangedFiles: canonicalFiles,
+    geminiChangedFilesDigest: digest,
+    geminiProvider: "gemini",
+    geminiTier: "cheap_independent",
+    geminiCompletedAt: "2026-07-16T12:01:00.000Z",
+    codexMechanicsApproved: true,
+    codexMechanicsHeadSha: target.prHeadSha,
+    codexMechanicsChangedFiles: canonicalFiles,
+    codexMechanicsChangedFilesDigest: digest,
+    codexMechanicsCompletedAt: "2026-07-16T12:02:00.000Z",
+  };
+}
+
+function legacySha256Strings(values = []) {
   return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
 }
