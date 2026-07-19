@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { digestChangedFiles } from "../lib/config.mjs";
 import { createInitialRecoveryState, bindRecoveryEvidence, invalidateEvidenceForHeadChange } from "../lib/recovery-state.mjs";
 import {
   classifyCiFailure,
@@ -14,6 +15,7 @@ import {
 const branchName = "feature/auto-893-recovery-20260713t112700";
 const headSha = "c".repeat(40);
 const changedFiles = ["tools/auto-runner/lib/recovery-orchestrator.mjs"];
+const changedFilesDigest = digestChangedFiles(changedFiles);
 const laneDecision = {
   lane: "workflow-docs-tooling",
   allowedToImplement: true,
@@ -49,15 +51,15 @@ function state() {
     baseSha: "b".repeat(40),
     currentHeadSha: headSha,
   });
-  recovery = bindRecoveryEvidence(recovery, "localValidation", { status: "passed", headSha, changedFiles });
+  recovery = bindRecoveryEvidence(recovery, "localValidation", { status: "passed", headSha, changedFiles, changedFilesDigest });
   return recovery;
 }
 
 function evidence(overrides = {}) {
   return {
-    validation: { status: "passed", headSha },
-    externalReview: { status: "passed", headSha, tier: "cheap_independent" },
-    codexReview: { status: "passed", headSha },
+    validation: { status: "passed", headSha, changedFilesDigest },
+    externalReview: { status: "passed", headSha, changedFilesDigest, tier: "cheap_independent" },
+    codexReview: { status: "passed", headSha, changedFilesDigest },
     ...overrides,
   };
 }
@@ -254,8 +256,8 @@ test("baseline-aware scanners block closure until current-main evidence clears",
 
 test("scanner fix head change invalidates every prior evidence binding", () => {
   let recovery = state();
-  recovery = bindRecoveryEvidence(recovery, "ciChecks", { status: "passed", headSha, changedFiles });
-  recovery = bindRecoveryEvidence(recovery, "codeScanning", { status: "passed", headSha, changedFiles });
+  recovery = bindRecoveryEvidence(recovery, "ciChecks", { status: "passed", headSha, changedFiles, changedFilesDigest });
+  recovery = bindRecoveryEvidence(recovery, "codeScanning", { status: "passed", headSha, changedFiles, changedFilesDigest });
   recovery = invalidateEvidenceForHeadChange(recovery, { newHeadSha: "d".repeat(40), reasonCode: "scanner_fix_committed" });
   assert.equal(recovery.evidence.localValidation.stale, true);
   assert.equal(recovery.evidence.ciChecks.stale, true);

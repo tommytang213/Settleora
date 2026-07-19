@@ -1,13 +1,13 @@
+import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
 import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { isUtf8 } from "node:buffer";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
 import { normalizeLargeBundleReviewApprovalConfig } from "./reviewer-policy.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
-import { validateSupervisorRunId } from "./run-correlation.mjs";
+import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.mjs";
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
@@ -193,6 +193,17 @@ export function parseDurationExtension(value) {
   return durationMs;
 }
 
+function parseOutageTargetPositiveInteger(raw, optionName) {
+  if (!/^[1-9][0-9]*$/.test(String(raw))) {
+    throw new Error(`Invalid positive integer for ${optionName}`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`Invalid positive integer for ${optionName}`);
+  }
+  return value;
+}
+
 export function parseCliArgs(argv) {
   const args = {
     dryRun: false,
@@ -221,6 +232,8 @@ export function parseCliArgs(argv) {
     configPath: null,
     fixtureIssuesPath: null,
     supervisorRunId: null,
+    outageRecoveryOnly: false,
+    outageRecoveryTarget: null,
     securityFindingsDryRun: false,
     securityFindingsDispositionDryRun: false,
     runPrStack: false,
@@ -260,6 +273,20 @@ export function parseCliArgs(argv) {
     else if (arg === "--config") args.configPath = readValue(argv, ++index, arg);
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
+    else if (arg === "--outage-recovery-only") args.outageRecoveryOnly = true;
+    else if (arg === "--outage-target-task-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), taskKey: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-issue") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), issueNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
+    else if (arg === "--outage-target-branch") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), branchName: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-base-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), baseSha: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-head-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), currentHeadSha: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-pr") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
+    else if (arg === "--outage-target-pr-head-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prHeadSha: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-runner-run-id") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), runnerRunId: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-supervisor-run-id") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), supervisorRunId: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-original-spec-digest") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), originalSupervisorSpecDigest: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-marker-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), markerKey: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-fingerprint") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), outageFingerprint: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-attempt") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), attemptNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
     else if (arg === "--security-findings-dry-run") args.securityFindingsDryRun = true;
     else if (arg === "--security-findings-disposition-dry-run") {
       args.securityFindingsDryRun = true;
@@ -310,6 +337,16 @@ export function parseCliArgs(argv) {
   }
   if (args.supervisorRunId && (!args.run || args.dryRun || specialMode)) {
     throw new Error("--supervisor-run-id is only valid with a normal real --run");
+  }
+  if (args.outageRecoveryOnly && (!args.run || args.dryRun || specialMode || args.canary || !args.supervisorRunId)) {
+    throw new Error("--outage-recovery-only is only valid for supervised non-canary real --run");
+  }
+  if (!args.outageRecoveryOnly && args.outageRecoveryTarget) {
+    throw new Error("--outage-target-* arguments require --outage-recovery-only");
+  }
+  if (args.outageRecoveryOnly) {
+    args.outageRecoveryTarget = normalizeOutageRecoveryCliTarget(args.outageRecoveryTarget || {});
+    args.maxIterations = 1;
   }
   if (args.securityFindingsDryRun && (args.dryRun || args.run || args.preflight || args.canary || args.reviewerSmokeTest || args.writeSummary || args.reviewPackage || controlMode)) {
     throw new Error("--security-findings-dry-run runs as its own non-mutating mode");
@@ -397,6 +434,8 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     maxRuntimeMs: cliArgs.maxRuntimeMs ?? fileConfig.maxRuntimeMs ?? defaultConfig.maxRuntimeMs,
     requirePrePrReview: cliArgs.requirePrePrReview,
     supervisorRunId: cliArgs.supervisorRunId || null,
+    outageRecoveryOnly: Boolean(cliArgs.outageRecoveryOnly),
+    outageRecoveryTarget: cliArgs.outageRecoveryTarget || null,
   };
   if (cliArgs.preflight) {
     config.mode = cliArgs.readiness ? "readiness" : "preflight";
@@ -446,6 +485,11 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
+  if (config.outageRecoveryOnly) {
+    config.outageRecoveryTarget = normalizeOutageRecoveryCliTarget(config.outageRecoveryTarget || {});
+    config.maxIterations = 1;
+    config.requestedMaxIterations = 1;
+  }
   config.prStackExecution = normalizePrStackExecutionConfig(config.prStackExecution);
   if (
     config.outageResubmission.allowBoundedOutageResubmission === true &&
@@ -478,6 +522,191 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+function normalizeOutageRecoveryCliTarget(value = {}) {
+  const target = {
+    taskKey: String(value.taskKey || "").trim(),
+    issueNumber: value.issueNumber,
+    branchName: String(value.branchName || "").trim(),
+    baseSha: String(value.baseSha || "").trim(),
+    currentHeadSha: String(value.currentHeadSha || "").trim(),
+    prNumber: value.prNumber ?? null,
+    prHeadSha: value.prHeadSha === null || value.prHeadSha === undefined ? null : String(value.prHeadSha || "").trim(),
+    runnerRunId: String(value.runnerRunId || "").trim(),
+    supervisorRunId: String(value.supervisorRunId || "").trim(),
+    originalSupervisorSpecDigest: String(value.originalSupervisorSpecDigest || "").trim(),
+    markerKey: String(value.markerKey || "").trim(),
+    outageFingerprint: String(value.outageFingerprint || "").trim(),
+    attemptNumber: value.attemptNumber,
+  };
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(target.taskKey) || target.taskKey.includes("..")) throw new Error("Invalid outage target task key");
+  if (!Number.isSafeInteger(target.issueNumber) || target.issueNumber < 1 || target.issueNumber > 9999999) throw new Error("Invalid outage target issue");
+  if (!/^(feature|focused|feature-bundle|tools)\/[A-Za-z0-9._/-]{1,180}$/.test(target.branchName) || target.branchName.includes("..")) throw new Error("Invalid outage target branch");
+  if (!/^[a-f0-9]{40}$/.test(target.baseSha)) throw new Error("Invalid outage target base SHA");
+  if (!/^[a-f0-9]{40}$/.test(target.currentHeadSha)) throw new Error("Invalid outage target head SHA");
+  if ((target.prNumber === null) !== (target.prHeadSha === null)) throw new Error("Outage target PR number/head SHA must be paired");
+  if (target.prNumber === null || target.prHeadSha === null) throw new Error("Outage recovery-only target requires PR number/head SHA");
+  if (target.prNumber !== null && (!Number.isSafeInteger(target.prNumber) || target.prNumber < 1 || target.prNumber > 9999999)) throw new Error("Invalid outage target PR number");
+  if (target.prHeadSha !== null && !/^[a-f0-9]{40}$/.test(target.prHeadSha)) throw new Error("Invalid outage target PR head SHA");
+  if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(target.runnerRunId)) throw new Error("Invalid outage target runner run ID");
+  validateSupervisorRunId(target.supervisorRunId);
+  for (const [label, digest] of [
+    ["original spec digest", target.originalSupervisorSpecDigest],
+    ["marker key", target.markerKey],
+    ["fingerprint", target.outageFingerprint],
+  ]) {
+    if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`Invalid outage target ${label}`);
+  }
+  if (!Number.isSafeInteger(target.attemptNumber) || target.attemptNumber < 1 || target.attemptNumber > 20) throw new Error("Invalid outage target attempt");
+  return target;
+}
+
+export function validateRecoveryOnlyExistingPrTarget(config = {}, recoveryConfig = {}) {
+  if (!config.outageRecoveryOnly) return { ok: true };
+  const target = config.outageRecoveryTarget || null;
+  if (!target?.prNumber || !target?.prHeadSha) {
+    return { ok: false, reason: "outage_recovery_existing_pr_target_missing" };
+  }
+  const configuredPrNumber = recoveryConfig.prNumber;
+  const configuredHeadSha = recoveryConfig.expectedHeadSha || recoveryConfig.exactHeadEvidence?.headSha || null;
+  if (!Number.isSafeInteger(configuredPrNumber) || configuredPrNumber !== target.prNumber) {
+    return { ok: false, reason: "outage_recovery_existing_pr_target_mismatch" };
+  }
+  if (configuredHeadSha !== target.prHeadSha) {
+    return { ok: false, reason: "outage_recovery_existing_pr_target_mismatch" };
+  }
+  return { ok: true };
+}
+
+export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfig = {}, { expectedHeadSha = null, changedFiles = null } = {}) {
+  if (!config.outageRecoveryOnly) return { ok: true };
+  const target = config.outageRecoveryTarget || null;
+  const evidence = recoveryConfig?.exactHeadEvidence;
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
+  }
+  const headSha = expectedHeadSha || recoveryConfig.expectedHeadSha || evidence.headSha || null;
+  if (!target?.prNumber || !target?.prHeadSha || headSha !== target.prHeadSha || evidence.headSha !== target.prHeadSha) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  let canonicalChangedFiles;
+  try {
+    canonicalChangedFiles = canonicalizeChangedFiles(changedFiles || evidence.changedFiles);
+  } catch {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  const canonicalChangedFilesDigest = digestChangedFiles(canonicalChangedFiles);
+  const requiredChecks = [
+    evidence.repositorySlug === (config.repositorySlug || defaultConfig.repositorySlug),
+    evidence.issueNumber === target.issueNumber,
+    evidence.prNumber === target.prNumber,
+    evidence.baseSha === target.baseSha,
+    evidence.taskKey === target.taskKey,
+    evidence.runnerRunId === target.runnerRunId,
+    evidence.supervisorRunId === target.supervisorRunId,
+    validRunnerRunId(evidence.runnerRunId),
+    validSupervisorRunId(evidence.supervisorRunId),
+    Array.isArray(evidence.changedFiles),
+    evidence.changedFilesDigest === canonicalChangedFilesDigest,
+    evidence.validationPassed === true,
+    Array.isArray(evidence.validationResults),
+    isNonEmptyString(evidence.validationCompletedAt || evidence.completedAt),
+    evidence.geminiPass === true,
+    evidence.geminiHeadSha === target.prHeadSha,
+    Array.isArray(evidence.geminiChangedFiles),
+    isNonEmptyString(evidence.geminiChangedFilesDigest || evidence.changedFilesDigest),
+    isNonEmptyString(evidence.geminiProvider),
+    isNonEmptyString(evidence.geminiTier),
+    isNonEmptyString(evidence.geminiCompletedAt || evidence.completedAt),
+    evidence.codexMechanicsApproved === true,
+    evidence.codexMechanicsHeadSha === target.prHeadSha,
+    Array.isArray(evidence.codexMechanicsChangedFiles),
+    isNonEmptyString(evidence.codexMechanicsChangedFilesDigest || evidence.changedFilesDigest),
+    isNonEmptyString(evidence.codexMechanicsCompletedAt || evidence.completedAt),
+  ];
+  if (requiredChecks.some((ok) => !ok)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
+  }
+  if (!sameCanonicalChangedFiles(evidence.changedFiles, canonicalChangedFiles)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  if (!sameCanonicalChangedFiles(evidence.geminiChangedFiles, canonicalChangedFiles)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  if (!sameCanonicalChangedFiles(evidence.codexMechanicsChangedFiles, canonicalChangedFiles)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  for (const digest of [
+    evidence.changedFilesDigest,
+    evidence.geminiChangedFilesDigest,
+    evidence.codexMechanicsChangedFilesDigest,
+  ]) {
+    if (digest !== canonicalChangedFilesDigest) return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  return { ok: true };
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function sameCanonicalChangedFiles(left = [], right = []) {
+  let a;
+  let b;
+  try {
+    a = canonicalizeChangedFiles(left);
+    b = canonicalizeChangedFiles(right);
+  } catch {
+    return false;
+  }
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+export function canonicalizeChangedFiles(values = []) {
+  if (!Array.isArray(values)) {
+    throw new Error("changedFiles must be an array");
+  }
+  const normalized = [];
+  const seen = new Set();
+  for (const raw of values) {
+    if (typeof raw !== "string") throw new Error("changedFiles entries must be strings");
+    const value = raw.trim().replaceAll("\\", "/");
+    if (!value) throw new Error("changedFiles entries must be non-empty");
+    if (path.isAbsolute(value) || /^[A-Za-z]:\//.test(value) || value.startsWith("//")) {
+      throw new Error("changedFiles entries must be repository-relative");
+    }
+    const segments = value.split("/");
+    if (segments.some((segment) => !segment || segment === "." || segment === "..")) {
+      throw new Error("changedFiles entries must not contain empty or traversal segments");
+    }
+    if (seen.has(value)) throw new Error("changedFiles entries must not contain duplicates");
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized.sort();
+}
+
+export function digestChangedFiles(values = []) {
+  return createHash("sha256").update(JSON.stringify(canonicalizeChangedFiles(values))).digest("hex");
+}
+
+function validRunnerRunId(value) {
+  try {
+    validateRunnerRunId(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validSupervisorRunId(value) {
+  try {
+    validateSupervisorRunId(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null, trustHooks = null } = {}) {
@@ -910,11 +1139,21 @@ export function normalizePrStackExecutionConfig(raw = {}) {
 	  if (raw.protectedPlanAuthorizationPath !== null && raw.protectedPlanAuthorizationPath !== undefined && (typeof raw.protectedPlanAuthorizationPath !== "string" || !path.isAbsolute(raw.protectedPlanAuthorizationPath))) {
 	    throw new Error("prStackExecution.protectedPlanAuthorizationPath must be an absolute path when set");
 	  }
+	  const boundedOptionalInteger = (value, name, minimum, maximum) => {
+	    if (value === null || value === undefined) return null;
+	    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+	      throw new Error(`prStackExecution.${name} must be an integer between ${minimum} and ${maximum}`);
+	    }
+	    return value;
+	  };
 	  return Object.freeze({
 	    enabled: raw.enabled === true,
 	    allowRun: raw.allowRun === true,
 	    productionProfileActive: raw.productionProfileActive === true,
 	    maxStackSize,
+	    maxDispatchActions: boundedOptionalInteger(raw.maxDispatchActions, "maxDispatchActions", 1, 100),
+	    runnerTimeoutMs: boundedOptionalInteger(raw.runnerTimeoutMs, "runnerTimeoutMs", 1000, 120000),
+	    runnerMaxOutputBytes: boundedOptionalInteger(raw.runnerMaxOutputBytes, "runnerMaxOutputBytes", 1024, 1048576),
 	    statePath: raw.statePath || null,
 	    protectedPlanAuthorizationPath: raw.protectedPlanAuthorizationPath || null,
 	    capabilities: Object.freeze(capabilities),

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { digestChangedFiles } from "./config.mjs";
 import { getValidationProfile } from "./lane-policy.mjs";
 
 export const mobileBuildPlatformChecks = Object.freeze({
@@ -41,8 +41,9 @@ export function planValidation(changedFiles, laneDecision) {
 export function runValidationPlan(config, plan) {
   const results = [];
   for (const item of plan) {
+    const cwd = validationCommandCwd(config, item);
     const result = spawnSync(item.command, item.args, {
-      cwd: config.repoRoot,
+      cwd,
       encoding: "utf8",
       windowsHide: true,
     });
@@ -66,8 +67,21 @@ export function runValidationPlan(config, plan) {
   };
 }
 
+export function validationCommandCwd(config = {}, item = {}) {
+  const isRunnerReadinessPreflight =
+    item.command === "node" &&
+    Array.isArray(item.args) &&
+    item.args[0] === "tools/auto-runner/settleora-auto-runner.mjs" &&
+    item.args[1] === "--preflight";
+  if (isRunnerReadinessPreflight && typeof config.protectedRoot === "string" && config.protectedRoot.length > 0) {
+    return config.protectedRoot;
+  }
+  return config.repoRoot;
+}
+
 export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile }) {
   const files = [...(changedFiles || [])].map(String).sort();
+  const changedFilesDigest = digestChangedFiles(files);
   const requirements = inferMobileBuildPlatformRequirements(files);
   const localChecks = (validation?.results || [])
     .filter((result) => result.platformBuildCheckId)
@@ -83,11 +97,11 @@ export function bindValidationEvidence(validation, { headSha, baseSha, changedFi
     headSha: headSha || null,
     baseSha: baseSha || null,
     changedFiles: files,
-    changedFilesDigest: createHash("sha256").update(files.join("\n")).digest("hex"),
+    changedFilesDigest,
     mobileBuildPlatformEvidence: {
       headSha: headSha || null,
       baseSha: baseSha || null,
-      changedFilesDigest: createHash("sha256").update(files.join("\n")).digest("hex"),
+      changedFilesDigest,
       platforms: requirements.platforms,
       localCheckIds: requirements.localCheckIds,
       externalCheckIds: requirements.externalCheckIds,

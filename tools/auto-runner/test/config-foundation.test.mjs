@@ -1,9 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { chmodSync, chownSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { defaultLogsRoot, loadConfig, parseCliArgs } from "../lib/config.mjs";
+import {
+  canonicalizeChangedFiles,
+  defaultLogsRoot,
+  digestChangedFiles,
+  loadConfig,
+  normalizePrStackExecutionConfig,
+  parseCliArgs,
+  validateRecoveryOnlyExistingPrTarget,
+  validateRecoveryOnlyExactHeadEvidence,
+} from "../lib/config.mjs";
+
+test("PR stack execution preserves bounded live-runner controls", () => {
+  const normalized = normalizePrStackExecutionConfig({
+    maxDispatchActions: 1,
+    runnerTimeoutMs: 120000,
+    runnerMaxOutputBytes: 1048576,
+  });
+  assert.equal(normalized.maxDispatchActions, 1);
+  assert.equal(normalized.runnerTimeoutMs, 120000);
+  assert.equal(normalized.runnerMaxOutputBytes, 1048576);
+  assert.throws(() => normalizePrStackExecutionConfig({ runnerMaxOutputBytes: 1048577 }), /between 1024 and 1048576/);
+});
 
 function withProfile(profile, fn) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-config-foundation-"));
@@ -87,10 +109,319 @@ test("malformed outage resubmission profile remains rejected by policy normaliza
   });
 });
 
-test("PR A config parser does not own targeted recovery CLI", () => {
-  assert.throws(() => parseCliArgs(["--run", "--outage-recovery-only"]), /Unknown argument: --outage-recovery-only/);
-  assert.throws(() => parseCliArgs(["--run", "--outage-target-task-key", "20260716-1428"]), /Unknown argument: --outage-target-task-key/);
+test("PR B config parser owns targeted recovery CLI without granting outage controller capability", () => {
+  const args = [
+    "--run",
+    "--supervisor-run-id",
+    "supervised-20260716T120000Z-abcdefabcdef",
+    "--outage-recovery-only",
+    "--outage-target-task-key",
+    "20260716-1428",
+    "--outage-target-issue",
+    "913",
+    "--outage-target-branch",
+    "feature/auto-913-targeted-recovery-child-supervisor-20260716-1213",
+    "--outage-target-base-sha",
+    "3b3212c43c702db3cabdaff1c28d089f39c54441",
+    "--outage-target-head-sha",
+    "ecd314629ac5a07cc40abdfaac1d12a1d3b13335",
+    "--outage-target-pr",
+    "919",
+    "--outage-target-pr-head-sha",
+    "ecd314629ac5a07cc40abdfaac1d12a1d3b13335",
+    "--outage-target-runner-run-id",
+    "run-2026-07-16T120000Z",
+    "--outage-target-supervisor-run-id",
+    "supervised-20260716T120000Z-abcdefabcdef",
+    "--outage-target-original-spec-digest",
+    "a".repeat(64),
+    "--outage-target-marker-key",
+    "b".repeat(64),
+    "--outage-target-fingerprint",
+    "c".repeat(64),
+    "--outage-target-attempt",
+    "1",
+  ];
+  const parsed = parseCliArgs(args);
+  assert.equal(parsed.outageRecoveryOnly, true);
+  assert.equal(parsed.maxIterations, 1);
+
+  const config = loadConfig({ ...parsed, configPath: null });
+  assert.equal(config.outageRecoveryOnly, true);
+  assert.equal(config.requestedMaxIterations, 1);
+  assert.equal(config.outageRecoveryTarget.issueNumber, 913);
+  assert.equal(config.outageResubmission.allowBoundedOutageResubmission, false);
+
+  const without = (...options) => args.filter((value, index) => {
+    const previous = args[index - 1];
+    return !options.includes(value) && !options.includes(previous);
+  });
+  assert.throws(() => parseCliArgs(without("--outage-target-pr", "--outage-target-pr-head-sha")), /requires PR number\/head SHA/);
+  assert.throws(() => parseCliArgs(without("--outage-target-pr")), /must be paired/);
+  assert.throws(() => parseCliArgs(without("--outage-target-pr-head-sha")), /must be paired/);
+  assert.throws(
+    () => loadConfig({
+      ...parsed,
+      outageRecoveryTarget: { ...parsed.outageRecoveryTarget, prNumber: null, prHeadSha: null },
+      configPath: null,
+    }),
+    /requires PR number\/head SHA/,
+  );
 });
+
+test("recovery-only existing PR config must match authoritative target pair", () => {
+  const target = {
+    taskKey: "20260716-1428",
+    issueNumber: 913,
+    branchName: "feature/auto-913-targeted-recovery-child-supervisor-20260716-1213",
+    baseSha: "a".repeat(40),
+    currentHeadSha: "b".repeat(40),
+    prNumber: 919,
+    prHeadSha: "b".repeat(40),
+    runnerRunId: "run-2026-07-16T120000Z",
+    supervisorRunId: "supervised-20260716T120000Z-abcdefabcdef",
+    originalSupervisorSpecDigest: "c".repeat(64),
+    markerKey: "d".repeat(64),
+    outageFingerprint: "e".repeat(64),
+    attemptNumber: 1,
+  };
+  const config = { outageRecoveryOnly: true, outageRecoveryTarget: target };
+  assert.deepEqual(validateRecoveryOnlyExistingPrTarget(config, { prNumber: 919, expectedHeadSha: "b".repeat(40) }), { ok: true });
+  assert.deepEqual(validateRecoveryOnlyExistingPrTarget(config, { prNumber: 919, exactHeadEvidence: { headSha: "b".repeat(40) } }), { ok: true });
+  assert.equal(validateRecoveryOnlyExistingPrTarget(config, { prNumber: 920, expectedHeadSha: "b".repeat(40) }).reason, "outage_recovery_existing_pr_target_mismatch");
+  assert.equal(validateRecoveryOnlyExistingPrTarget(config, { prNumber: 919, expectedHeadSha: "f".repeat(40) }).reason, "outage_recovery_existing_pr_target_mismatch");
+  assert.equal(validateRecoveryOnlyExistingPrTarget(config, { prUrl: "https://example.invalid/pull/919", expectedHeadSha: "b".repeat(40) }).reason, "outage_recovery_existing_pr_target_mismatch");
+  assert.equal(validateRecoveryOnlyExistingPrTarget({ outageRecoveryOnly: true, outageRecoveryTarget: { ...target, prNumber: null, prHeadSha: null } }, { prNumber: 919, expectedHeadSha: "b".repeat(40) }).reason, "outage_recovery_existing_pr_target_missing");
+  assert.deepEqual(validateRecoveryOnlyExistingPrTarget({ outageRecoveryOnly: false }, { prUrl: "https://example.invalid/pull/919" }), { ok: true });
+});
+
+test("recovery-only exact-head evidence must be complete and bound before generation", () => {
+  const target = {
+    taskKey: "20260716-2158",
+    issueNumber: 913,
+    branchName: "feature/auto-913-targeted-recovery-child-supervisor-20260716-1213",
+    baseSha: "a".repeat(40),
+    currentHeadSha: "b".repeat(40),
+    prNumber: 919,
+    prHeadSha: "b".repeat(40),
+    runnerRunId: "run-2026-07-16T120000Z",
+    supervisorRunId: "supervised-20260716T120000Z-abcdefabcdef",
+    originalSupervisorSpecDigest: "c".repeat(64),
+    markerKey: "d".repeat(64),
+    outageFingerprint: "e".repeat(64),
+    attemptNumber: 1,
+  };
+  const changedFiles = ["tools/auto-runner/test/config-foundation.test.mjs", "tools/auto-runner/settleora-auto-runner.mjs"];
+  const canonicalChangedFiles = canonicalizeChangedFiles(changedFiles);
+  const digest = digestChangedFiles(changedFiles);
+  const exactHeadEvidence = {
+    repositorySlug: "tommytang213/Settleora",
+    issueNumber: target.issueNumber,
+    headSha: target.prHeadSha,
+    prNumber: target.prNumber,
+    baseSha: target.baseSha,
+    taskKey: target.taskKey,
+    runnerRunId: target.runnerRunId,
+    supervisorRunId: target.supervisorRunId,
+    changedFiles: canonicalChangedFiles,
+    validationPassed: true,
+    validationResults: [{ command: "node --test tools/auto-runner/test/auto-runner.test.mjs", status: 0 }],
+    validationCompletedAt: "2026-07-16T12:00:00.000Z",
+    changedFilesDigest: digest,
+    geminiPass: true,
+    geminiHeadSha: target.prHeadSha,
+    geminiChangedFiles: changedFiles,
+    geminiChangedFilesDigest: digest,
+    geminiProvider: "gemini",
+    geminiTier: "cheap_independent",
+    geminiCompletedAt: "2026-07-16T12:01:00.000Z",
+    codexMechanicsApproved: true,
+    codexMechanicsHeadSha: target.prHeadSha,
+    codexMechanicsChangedFiles: changedFiles,
+    codexMechanicsChangedFilesDigest: digest,
+    codexMechanicsCompletedAt: "2026-07-16T12:02:00.000Z",
+  };
+  const config = { outageRecoveryOnly: true, outageRecoveryTarget: target };
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence(config, { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence }, { expectedHeadSha: target.prHeadSha, changedFiles }),
+    { ok: true },
+  );
+  for (const [name, evidence] of [
+    ["omitted", undefined],
+    ["explicit null", null],
+    ["malformed", "not-object"],
+    ["missing validation", { ...exactHeadEvidence, validationPassed: false }],
+    ["missing gemini files", { ...exactHeadEvidence, geminiChangedFiles: undefined }],
+    ["missing codex approval", { ...exactHeadEvidence, codexMechanicsApproved: false }],
+    ["wrong head", { ...exactHeadEvidence, headSha: "f".repeat(40) }],
+    ["wrong repository", { ...exactHeadEvidence, repositorySlug: "other/repository" }],
+    ["wrong issue", { ...exactHeadEvidence, issueNumber: 914 }],
+    ["wrong PR", { ...exactHeadEvidence, prNumber: 920 }],
+    ["wrong base", { ...exactHeadEvidence, baseSha: "f".repeat(40) }],
+    ["wrong task", { ...exactHeadEvidence, taskKey: "other-task" }],
+    ["missing runner", { ...exactHeadEvidence, runnerRunId: undefined }],
+    ["missing supervisor", { ...exactHeadEvidence, supervisorRunId: undefined }],
+    ["null runner", { ...exactHeadEvidence, runnerRunId: null }],
+    ["null supervisor", { ...exactHeadEvidence, supervisorRunId: null }],
+    ["malformed runner", { ...exactHeadEvidence, runnerRunId: "run-not-valid" }],
+    ["malformed supervisor", { ...exactHeadEvidence, supervisorRunId: "supervised-not-valid" }],
+    ["stale digest", { ...exactHeadEvidence, changedFilesDigest: "f".repeat(64) }],
+    ["legacy newline digest", {
+      ...exactHeadEvidence,
+      changedFilesDigest: legacySha256Strings(changedFiles),
+      geminiChangedFilesDigest: legacySha256Strings(changedFiles),
+      codexMechanicsChangedFilesDigest: legacySha256Strings(changedFiles),
+    }],
+    ["duplicate changed file", { ...exactHeadEvidence, changedFiles: [canonicalChangedFiles[0], canonicalChangedFiles[0]] }],
+    ["empty changed file", { ...exactHeadEvidence, changedFiles: [""] }],
+    ["absolute changed file", { ...exactHeadEvidence, changedFiles: ["/tmp/file.mjs"] }],
+    ["traversal changed file", { ...exactHeadEvidence, changedFiles: ["tools/../secret.mjs"] }],
+    ["wrong supervisor", { ...exactHeadEvidence, supervisorRunId: "supervised-20260716T130000Z-abcdefabcdef" }],
+    ["swapped IDs", { ...exactHeadEvidence, runnerRunId: target.supervisorRunId, supervisorRunId: target.runnerRunId }],
+    ["foreign run", { ...exactHeadEvidence, runnerRunId: "run-2026-07-16T130000Z" }],
+  ]) {
+    const result = validateRecoveryOnlyExactHeadEvidence(
+      config,
+      { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence: evidence },
+      { expectedHeadSha: target.prHeadSha, changedFiles },
+    );
+    assert.equal(result.ok, false, name);
+    assert.match(result.reason, /^outage_recovery_exact_head_evidence_/);
+  }
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence(
+      config,
+      {
+        prNumber: 919,
+        expectedHeadSha: target.prHeadSha,
+        exactHeadEvidence: {
+          ...exactHeadEvidence,
+          changedFiles: [...canonicalChangedFiles].reverse(),
+          geminiChangedFiles: [...canonicalChangedFiles].reverse(),
+          codexMechanicsChangedFiles: [...canonicalChangedFiles].reverse(),
+        },
+      },
+      { expectedHeadSha: target.prHeadSha, changedFiles: [...changedFiles].reverse() },
+    ),
+    { ok: true },
+  );
+  assert.deepEqual(validateRecoveryOnlyExactHeadEvidence({ outageRecoveryOnly: false }, { exactHeadEvidence: null }), { ok: true });
+});
+
+test("canonical changed-files digest uses JSON array and rejects newline legacy digest", () => {
+  const files = ["b/path.mjs", "a/path.mjs"];
+  const canonical = digestChangedFiles(files);
+  assert.equal(canonical, createHash("sha256").update(JSON.stringify(["a/path.mjs", "b/path.mjs"])).digest("hex"));
+  assert.notEqual(canonical, legacySha256Strings(files));
+});
+
+test("canonical changed-files list normalizes separators sorts and rejects unsafe entries", () => {
+  assert.deepEqual(canonicalizeChangedFiles(["tools\\auto-runner\\b.mjs", "tools/auto-runner/a.mjs"]), [
+    "tools/auto-runner/a.mjs",
+    "tools/auto-runner/b.mjs",
+  ]);
+  for (const files of [
+    ["tools/auto-runner/a.mjs", "tools/auto-runner/a.mjs"],
+    [""],
+    ["/tmp/a.mjs"],
+    ["C:\\tmp\\a.mjs"],
+    ["tools/../a.mjs"],
+    ["tools//a.mjs"],
+  ]) {
+    assert.throws(() => canonicalizeChangedFiles(files));
+  }
+});
+
+test("recovery-only exact evidence rejects copied packages with missing or wrong run identities", () => {
+  const target = recoveryOnlyTargetFixture();
+  const changedFiles = ["tools/auto-runner/lib/config.mjs"];
+  const evidence = exactHeadEvidenceFixture(target, changedFiles);
+  const config = { outageRecoveryOnly: true, outageRecoveryTarget: target };
+  for (const patch of [
+    { runnerRunId: undefined },
+    { supervisorRunId: undefined },
+    { runnerRunId: null },
+    { supervisorRunId: null },
+    { runnerRunId: "run-2026-07-16T130000Z" },
+    { supervisorRunId: "supervised-20260716T130000Z-abcdefabcdef" },
+  ]) {
+    const result = validateRecoveryOnlyExactHeadEvidence(
+      config,
+      { prNumber: target.prNumber, expectedHeadSha: target.prHeadSha, exactHeadEvidence: { ...evidence, ...patch } },
+      { expectedHeadSha: target.prHeadSha, changedFiles },
+    );
+    assert.equal(result.ok, false);
+  }
+});
+
+test("recovery-only exact evidence accepted by startup has strict-gate canonical digest", () => {
+  const target = recoveryOnlyTargetFixture();
+  const changedFiles = ["tools/auto-runner/lib/recovery-orchestrator.mjs", "tools/auto-runner/lib/config.mjs"];
+  const evidence = exactHeadEvidenceFixture(target, changedFiles);
+  const config = { outageRecoveryOnly: true, outageRecoveryTarget: target };
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence(
+      config,
+      { prNumber: target.prNumber, expectedHeadSha: target.prHeadSha, exactHeadEvidence: evidence },
+      { expectedHeadSha: target.prHeadSha, changedFiles: [...changedFiles].reverse() },
+    ),
+    { ok: true },
+  );
+});
+
+function recoveryOnlyTargetFixture() {
+  return {
+    taskKey: "20260716-2322",
+    issueNumber: 913,
+    branchName: "feature/auto-913-targeted-recovery-child-supervisor-20260716-1213",
+    baseSha: "a".repeat(40),
+    currentHeadSha: "b".repeat(40),
+    prNumber: 919,
+    prHeadSha: "b".repeat(40),
+    runnerRunId: "run-2026-07-16T120000Z",
+    supervisorRunId: "supervised-20260716T120000Z-abcdefabcdef",
+    originalSupervisorSpecDigest: "c".repeat(64),
+    markerKey: "d".repeat(64),
+    outageFingerprint: "e".repeat(64),
+    attemptNumber: 1,
+  };
+}
+
+function exactHeadEvidenceFixture(target, changedFiles) {
+  const canonicalFiles = canonicalizeChangedFiles(changedFiles);
+  const digest = digestChangedFiles(canonicalFiles);
+  return {
+    repositorySlug: "tommytang213/Settleora",
+    issueNumber: target.issueNumber,
+    headSha: target.prHeadSha,
+    prNumber: target.prNumber,
+    baseSha: target.baseSha,
+    taskKey: target.taskKey,
+    runnerRunId: target.runnerRunId,
+    supervisorRunId: target.supervisorRunId,
+    changedFiles: canonicalFiles,
+    changedFilesDigest: digest,
+    validationPassed: true,
+    validationResults: [{ command: "node --test tools/auto-runner/test/config-foundation.test.mjs", status: 0 }],
+    validationCompletedAt: "2026-07-16T12:00:00.000Z",
+    geminiPass: true,
+    geminiHeadSha: target.prHeadSha,
+    geminiChangedFiles: canonicalFiles,
+    geminiChangedFilesDigest: digest,
+    geminiProvider: "gemini",
+    geminiTier: "cheap_independent",
+    geminiCompletedAt: "2026-07-16T12:01:00.000Z",
+    codexMechanicsApproved: true,
+    codexMechanicsHeadSha: target.prHeadSha,
+    codexMechanicsChangedFiles: canonicalFiles,
+    codexMechanicsChangedFilesDigest: digest,
+    codexMechanicsCompletedAt: "2026-07-16T12:02:00.000Z",
+  };
+}
+
+function legacySha256Strings(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+}
 
 test("stack config trust boundary accepts documented live acceptance config layout", () => {
   const root = makeTrustedTestRoot("settleora-stack-config-trust-");

@@ -5,7 +5,15 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { parseCliArgs, loadConfig, defaultLogsRoot } from "./lib/config.mjs";
+import {
+  canonicalizeChangedFiles,
+  digestChangedFiles,
+  parseCliArgs,
+  loadConfig,
+  defaultLogsRoot,
+  validateRecoveryOnlyExistingPrTarget,
+  validateRecoveryOnlyExactHeadEvidence,
+} from "./lib/config.mjs";
 import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
@@ -88,7 +96,7 @@ import {
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
-import { discoverStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary } from "./lib/recovery-continuation.mjs";
+import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary } from "./lib/recovery-continuation.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -214,6 +222,10 @@ async function main() {
   }
   const runId = `run-${safeTimestamp()}`;
   const logger = createLogger(config.logsRoot, runId);
+  const recoveryOnlyStartupDiscovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : null;
+  const recoveryOnlyStartupEvidenceCheck = recoveryOnlyStartupDiscovery?.found && recoveryOnlyStartupDiscovery.allowed
+    ? validateRecoveryOnlyStartupEvidence(config, { issue: { number: config.outageRecoveryTarget?.issueNumber } })
+    : { ok: true };
   let lockPath = null;
   const summary = {
     runId,
@@ -240,6 +252,19 @@ async function main() {
       maxIterations: config.maxIterations,
       maxRuntimeMs: config.maxRuntimeMs,
     });
+    if (!recoveryOnlyStartupEvidenceCheck.ok) {
+      summary.iterations.push({
+        runId,
+        index: 1,
+        startedAt: summary.startedAt,
+        finishedAt: new Date().toISOString(),
+        issue: null,
+        outcome: "blocked_recovery_state",
+        systemicStop: `recoverable-work-blocked:${recoveryOnlyStartupEvidenceCheck.reason}`,
+        recovery: { reasonCode: recoveryOnlyStartupEvidenceCheck.reason },
+      });
+      summary.stopReason = `recoverable-work-blocked:${recoveryOnlyStartupEvidenceCheck.reason}`;
+    } else {
     summary.baseOriginMainSha = getRefSha("origin/main");
     ensureLaunchWorkspace(config, logger);
     summary.maxIterations = config.maxIterations;
@@ -291,6 +316,7 @@ async function main() {
     if (!summary.stopReason) {
       summary.stopReason = "max-iterations-reached";
     }
+    }
   } finally {
     releaseRunnerLock(lockPath);
     summary.finishedAt = new Date().toISOString();
@@ -298,6 +324,13 @@ async function main() {
     clearActiveRunState(config, paths.jsonPath);
     logger.info(`Settleora auto-runner finished: ${paths.markdownPath}`);
   }
+  if (isFatalRunStopReason(summary.stopReason)) {
+    process.exitCode = 2;
+  }
+}
+
+function isFatalRunStopReason(stopReason) {
+  return typeof stopReason === "string" && stopReason.startsWith("recoverable-work-blocked:");
 }
 
 async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker()) {
@@ -312,11 +345,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     runIssueState: trackerSnapshot(issueTracker),
   };
 
-  const startupRecovery = discoverStartupRecovery(config);
+  const startupRecovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
   if (startupRecovery.found) {
     const continuation = startupRecovery.allowed
       ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
-      : { outcome: "blocked_recovery_state", reasonCode: startupRecovery.reasonCode, recovery: startupRecovery };
+      : await executeStartupContinuation(config, startupRecovery);
     iteration.recovery = continuation.recovery || startupRecovery;
     iteration.existingPrRecovery = continuation.result?.existingPrRecovery || null;
     iteration.bundle = continuation.result?.bundle || null;
@@ -340,6 +373,15 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         ? `Recoverable auto-runner state for issue #${startupRecovery.state?.issueNumber} executed phase ${iteration.recovery?.executedPhase || "unknown"}.`
         : `Recoverable auto-runner state blocked polling: ${startupRecovery.reasonCode}`,
     );
+    return iteration;
+  }
+
+  if (config.outageRecoveryOnly) {
+    iteration.recovery = startupRecovery;
+    iteration.outcome = "blocked_recovery_state";
+    iteration.systemicStop = "recoverable-work-blocked:outage_recovery_target_missing";
+    iteration.finishedAt = new Date().toISOString();
+    logger.info("Recovery-only outage child found no exact recoverable target; polling is disabled.");
     return iteration;
   }
 
@@ -1386,6 +1428,15 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   return executeStartupContinuation(config, startupRecovery, {
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
     default: async ({ state, boundary }) => {
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      if (!startupEvidenceCheck.ok) {
+        return {
+          ok: false,
+          outcome: "blocked_recovery_state",
+          reasonCode: startupEvidenceCheck.reason,
+          state,
+        };
+      }
       const live = readIssueLive(config, state.issue.number);
       if (!live.ok) {
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: live.reason || "recovery_issue_read_failed", state };
@@ -1440,10 +1491,30 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   });
 }
 
+function validateRecoveryOnlyStartupEvidence(config, state) {
+  if (!config.outageRecoveryOnly) return { ok: true };
+  const issueNumber = state?.issue?.number;
+  const recoveryConfig = config.existingPrRecovery?.[issueNumber] || config.existingPrRecovery?.[String(issueNumber)] || null;
+  if (!recoveryConfig) {
+    return { ok: false, reason: "recovery_existing_pr_context_missing" };
+  }
+  const targetCheck = validateRecoveryOnlyExistingPrTarget(config, recoveryConfig);
+  if (!targetCheck.ok) return targetCheck;
+  const exactHeadEvidence = recoveryConfig.exactHeadEvidence;
+  return validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, {
+    expectedHeadSha: recoveryConfig.expectedHeadSha || exactHeadEvidence?.headSha || null,
+    changedFiles: exactHeadEvidence?.changedFiles || null,
+  });
+}
+
 async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null) {
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
   if (!recoveryConfig) return null;
+  const targetCheck = validateRecoveryOnlyExistingPrTarget(config, recoveryConfig);
+  if (!targetCheck.ok) {
+    return { reason: targetCheck.reason, autoMerge: { result: "blocked", reason: targetCheck.reason } };
+  }
   logger.info(`Issue #${issue.number}: evaluating configured existing-PR recovery for PR ${recoveryConfig.prNumber || recoveryConfig.prUrl}.`);
   if (!config.allowAutoMerge) {
     return { reason: "existing_pr_recovery_requires_allow_auto_merge", autoMerge: { result: "blocked", reason: "auto_merge_disabled_by_config" } };
@@ -1456,6 +1527,14 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
     ? recoveryConfig.changedFiles
     : readPrChangedFiles(config, prNumber);
+  let canonicalChangedFiles = changedFiles;
+  let canonicalChangedFilesDigest = null;
+  try {
+    canonicalChangedFiles = canonicalizeChangedFiles(changedFiles);
+    canonicalChangedFilesDigest = digestChangedFiles(canonicalChangedFiles);
+  } catch {
+    canonicalChangedFiles = changedFiles;
+  }
   const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
   let exactHeadEvidence = recoveryConfig.exactHeadEvidence || {};
   const expectedHeadSha = recoveryConfig.expectedHeadSha || exactHeadEvidence.headSha || githubState.pr?.headRefOid || null;
@@ -1464,6 +1543,21 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     body: recoveryConfig.prBody ?? githubState.pr?.body,
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
+  const exactEvidenceCheck = validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, { expectedHeadSha, changedFiles });
+  if (!exactEvidenceCheck.ok) {
+    return {
+      reason: exactEvidenceCheck.reason,
+      pr: prMetadata,
+      changedFiles,
+      validation: { passed: false, recovered: true, reason: exactEvidenceCheck.reason },
+      review: null,
+      externalReview: { status: "blocked", reason: exactEvidenceCheck.reason },
+      generatedRecoveryEvidence: null,
+      baseOriginMainSha,
+      expectedHeadSha,
+      autoMerge: { result: "blocked", reason: exactEvidenceCheck.reason, recovery: true },
+    };
+  }
   let generatedRecoveryEvidence = null;
   if (shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)) {
     generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {
@@ -1475,11 +1569,19 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     });
     exactHeadEvidence = {
       ...exactHeadEvidence,
+      repositorySlug: config.repositorySlug,
+      issueNumber: issue.number,
+      prNumber: recoveryConfig.prNumber,
+      baseSha: config.outageRecoveryTarget?.baseSha || exactHeadEvidence.baseSha || null,
+      taskKey: config.outageRecoveryTarget?.taskKey || exactHeadEvidence.taskKey || null,
+      runnerRunId: config.outageRecoveryTarget?.runnerRunId || exactHeadEvidence.runnerRunId || null,
+      supervisorRunId: config.outageRecoveryTarget?.supervisorRunId || exactHeadEvidence.supervisorRunId || null,
       headSha: expectedHeadSha,
+      changedFiles: canonicalChangedFiles,
       validationPassed: generatedRecoveryEvidence.validation?.passed === true,
       geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
       geminiHeadSha: expectedHeadSha,
-      geminiChangedFiles: changedFiles,
+      geminiChangedFiles: canonicalChangedFiles,
       geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
       geminiProvider: generatedRecoveryEvidence.externalReview?.provider || exactHeadEvidence.geminiProvider || null,
       geminiTier: generatedRecoveryEvidence.externalReview?.tier || exactHeadEvidence.geminiTier || null,
@@ -1492,7 +1594,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
         null,
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
-      codexMechanicsChangedFiles: changedFiles,
+      codexMechanicsChangedFiles: canonicalChangedFiles,
       codexMechanicsChangedFilesDigest: generatedRecoveryEvidence.review?.changedFilesDigest || null,
       codexMechanicsCompletedAt: generatedRecoveryEvidence.review?.completedAt || null,
       codexMechanicsEvidencePath: generatedRecoveryEvidence.review?.logPath || generatedRecoveryEvidence.review?.promptPath || null,
@@ -1837,25 +1939,65 @@ function createLiveFixedArgvRunner(config = {}) {
 }
 
 function createLivePrStackReviewAdapters(config) {
-  const buildPackage = async ({ reviewPhase, pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview = null }) => writeReviewPackage(config, {
+  const buildPackage = async ({ reviewPhase, pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview = null }) => {
+    const mechanicsPhase = reviewPhase === "pr-stack-final-codex-exact-head";
+    const incomingLaneDecision = fullCandidatePrDelta?.laneDecision || validation?.laneDecision || { lane: "workflow-docs-tooling" };
+    const incomingContract = incomingLaneDecision.contract || {};
+    const manualMergeRequired = incomingContract.manualMergeRequired ?? incomingLaneDecision.manualMergeRequired ?? true;
+    const autoMergeEligible = incomingContract.autoMergeEligible ?? incomingLaneDecision.autoMergeEligible ?? false;
+    return writeReviewPackage(config, {
     reviewPhase,
     issue: pr?.issue || config.prStackIssue || { number: pr?.issueNumber || pr?.number || 921, title: pr?.title || `PR #${pr?.number || "unknown"}`, labels: [] },
     promptInfo: { promptPath: `pr-stack:${reviewPhase}:pr-${pr?.number || "unknown"}:${headSha || "unknown"}` },
     laneDecision: {
-      ...(fullCandidatePrDelta?.laneDecision || validation?.laneDecision || { lane: "workflow-docs-tooling" }),
+      ...incomingLaneDecision,
       validationProfile: validation?.profile || fullCandidatePrDelta?.laneDecision?.validationProfile || validation?.laneDecision?.validationProfile || "runner-tests",
       reviewerTier: "strong_independent",
+      manualMergeRequired,
+      autoMergeEligible,
+      contract: {
+        ...incomingContract,
+        manualMergeRequired,
+        autoMergeEligible,
+      },
     },
     changedFiles,
     validation,
+    manualMergeRequired,
+    autoMergeEligible,
     report: { found: true, expectedPath: `pr-stack:${reviewPhase}` },
     headSha,
     baseSha,
-    externalReview,
+    externalReview: mechanicsPhase && externalReview ? {
+      status: externalReview.status,
+      verdict: externalReview.verdict,
+      tier: externalReview.tier,
+      provider: externalReview.provider,
+      providerProfile: externalReview.providerProfile,
+      model: externalReview.model,
+      reviewedHead: externalReview.reviewedHead,
+      baseSha: externalReview.baseSha,
+      changedFilesDigest: externalReview.changedFilesDigest,
+      reportPath: externalReview.reportPath,
+      completedAt: externalReview.completedAt,
+      independent: externalReview.independent,
+    } : externalReview,
     fullCandidatePrDelta,
+    reviewFixMechanicsContext: mechanicsPhase ? {
+      objective: "Converge and merge the exact-head PR #919 -> PR #920 development-stage stack through protected controller gates while PR #917 remains frozen.",
+      humanDirectedMergeGate: true,
+      taskKey: config.taskKey || null,
+      exactHead: headSha,
+      exactBase: baseSha,
+      currentTaskSupersedesOlderShaProse: true,
+      githubChecksAndScannersAreSubsequentOuterControllerGates: true,
+      reportFinalizationOccursAfterLiveReadback: true,
+      forbiddenScope: "product runtime/API/auth/security/money/schema/deployment/storage/client/secrets",
+    } : null,
     diffBaseRef: baseSha,
     diffHeadRef: headSha,
-  });
+    });
+  };
   return {
     runStrongReview: async ({ pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta }) => {
       const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-strong-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta });
@@ -2445,6 +2587,10 @@ async function writeReviewPackage(config, payload) {
   );
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
+    taskKey: config.taskKey || null,
+    repository: config.repositorySlug || null,
+    manualMergeRequired: payload.manualMergeRequired ?? payload.laneDecision?.manualMergeRequired ?? null,
+    autoMergeEligible: payload.autoMergeEligible ?? payload.laneDecision?.autoMergeEligible ?? null,
     issue: {
       number: payload.issue.number,
       title: payload.issue.title,

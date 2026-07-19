@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { buildIssueLinkageEvidence } from "./auto-merge-policy.mjs";
+import { digestChangedFiles } from "./config.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import {
   classifyRecoveryOutcome,
@@ -344,12 +345,19 @@ function evaluateRecoveryStateCompatibility({ state, pr, issue, input }) {
 }
 
 function evaluateExactHeadEvidence({ evidence, expectedHeadSha, changedFiles, laneDecision }) {
+  let changedFilesDigest;
+  try {
+    changedFilesDigest = digestChangedFiles(changedFiles);
+  } catch {
+    return { ok: false, reasonCode: "changed_files_invalid" };
+  }
   const requiredKinds = ["validation", "externalReview", "codexReview"];
   for (const kind of requiredKinds) {
     const item = evidence[kind];
     if (!item || item.status !== "passed") return { ok: false, reasonCode: `missing_${kind}_evidence` };
     if (item.headSha !== expectedHeadSha) return { ok: false, reasonCode: `stale_${kind}_evidence` };
-    if (item.changedFilesDigest && item.changedFilesDigest !== digestStringArray(changedFiles)) {
+    if (!item.changedFilesDigest) return { ok: false, reasonCode: `${kind}_changed_files_digest_missing` };
+    if (item.changedFilesDigest !== changedFilesDigest) {
       return { ok: false, reasonCode: `${kind}_changed_files_mismatch` };
     }
   }
@@ -390,10 +398,6 @@ function pathAllowedByContract(filePath, allowedPaths) {
     if (normalized.endsWith("/**")) return filePath.startsWith(normalized.slice(0, -3));
     return filePath === normalized || filePath.startsWith(`${normalized.replace(/\/$/, "")}/`);
   });
-}
-
-function digestStringArray(values) {
-  return createHash("sha256").update(JSON.stringify([...new Set(values || [])].sort())).digest("hex");
 }
 
 function labelNames(labels) {
