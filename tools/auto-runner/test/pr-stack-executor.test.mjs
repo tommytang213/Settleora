@@ -3320,6 +3320,7 @@ function stackFixture() {
   writeProtectedPlanAuthorization(authorizationPath, plan);
   const configJson = {
     repoRoot: process.cwd(),
+    protectedRoot: path.join(root, "protected-root"),
     logsRoot,
     trustedControlRoot: logsRoot,
     repositorySlug: "tommytang213/Settleora",
