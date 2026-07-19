@@ -1913,6 +1913,8 @@ function createLivePrStackReviewAdapters(config) {
     },
     changedFiles,
     validation,
+    manualMergeRequired: !mechanicsPhase,
+    autoMergeEligible: mechanicsPhase,
     report: { found: true, expectedPath: `pr-stack:${reviewPhase}` },
     headSha,
     baseSha,
@@ -2516,6 +2518,10 @@ async function writeReviewPackage(config, payload) {
   );
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
+    taskKey: config.taskKey || null,
+    repository: config.repositorySlug || null,
+    manualMergeRequired: payload.manualMergeRequired ?? payload.laneDecision?.manualMergeRequired ?? null,
+    autoMergeEligible: payload.autoMergeEligible ?? payload.laneDecision?.autoMergeEligible ?? null,
     issue: {
       number: payload.issue.number,
       title: payload.issue.title,
