@@ -89,7 +89,7 @@ import {
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
-import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation } from "../lib/validation-planner.mjs";
+import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
@@ -3135,6 +3135,15 @@ Change auth session behavior, storage privacy checks, money settlement calculati
   assert.ok(positiveScope.dangerReasons.includes("openapi_generated_client"));
   assert.ok(positiveScope.dangerReasons.includes("schema_migration"));
   assert.ok(positiveScope.dangerReasons.includes("docker_ci_deploy"));
+});
+
+test("validation readiness preflight uses the configured protected root", () => {
+  const config = { repoRoot: "/tmp/control-worktree", protectedRoot: "/tmp/protected-root" };
+  assert.equal(validationCommandCwd(config, {
+    command: "node",
+    args: ["tools/auto-runner/settleora-auto-runner.mjs", "--preflight"],
+  }), "/tmp/protected-root");
+  assert.equal(validationCommandCwd(config, { command: "npm", args: ["run", "validate:docs"] }), "/tmp/control-worktree");
 });
 
 test("client-ui-low-risk validation profile uses bounded Flutter mobile UI checks", () => {

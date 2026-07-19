@@ -41,8 +41,9 @@ export function planValidation(changedFiles, laneDecision) {
 export function runValidationPlan(config, plan) {
   const results = [];
   for (const item of plan) {
+    const cwd = validationCommandCwd(config, item);
     const result = spawnSync(item.command, item.args, {
-      cwd: config.repoRoot,
+      cwd,
       encoding: "utf8",
       windowsHide: true,
     });
@@ -64,6 +65,18 @@ export function runValidationPlan(config, plan) {
     profile: plan.profile || null,
     completedAt: new Date().toISOString(),
   };
+}
+
+export function validationCommandCwd(config = {}, item = {}) {
+  const isRunnerReadinessPreflight =
+    item.command === "node" &&
+    Array.isArray(item.args) &&
+    item.args[0] === "tools/auto-runner/settleora-auto-runner.mjs" &&
+    item.args[1] === "--preflight";
+  if (isRunnerReadinessPreflight && typeof config.protectedRoot === "string" && config.protectedRoot.length > 0) {
+    return config.protectedRoot;
+  }
+  return config.repoRoot;
 }
 
 export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile }) {
