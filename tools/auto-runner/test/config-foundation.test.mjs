@@ -336,6 +336,39 @@ test("stack config trust descriptor read binds bytes and closes descriptors", ()
   }
 });
 
+test("stack config trust descriptor read rejects growth after fstat without unbounded read", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-growth-"));
+  try {
+    const logsRoot = path.join(root, "logs");
+    const { configPath, planPath } = writeStackConfig(logsRoot, "20260718-0011", { marker: "opened" });
+    const originalSize = readFileSync(configPath).length;
+    let boundedBytes = null;
+
+    const fdsBefore = readdirSync("/proc/self/fd").length;
+    assert.throws(
+      () => loadConfig(
+        parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath]),
+        {
+          prStackTrustedRoot: logsRoot,
+          configTrustHooks: {
+            beforeRead: ({ configPath: openedPath }) => {
+              writeFileSync(openedPath, `${JSON.stringify({ ...validStackConfig(logsRoot), marker: "grown" })}\n${"x".repeat(1024 * 1024 + 1)}`, { mode: 0o600 });
+            },
+            afterRead: ({ bytesRead }) => {
+              boundedBytes = bytesRead;
+            },
+          },
+        },
+      ),
+      /config_identity_mismatch/,
+    );
+    assert.equal(boundedBytes, originalSize);
+    assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function writeStackConfig(logsRoot, taskCorrelation, overrides = {}) {
   mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
   chmodSync(logsRoot, 0o700);

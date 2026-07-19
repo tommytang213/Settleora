@@ -335,6 +335,47 @@ test("protected authorization descriptor read binds bytes and closes descriptors
   assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
 });
 
+test("protected authorization descriptor read rejects growth after fstat without unbounded read", () => {
+  const { config, plan, logsRoot } = stackFixture();
+  const authPath = path.join(logsRoot, "descriptor-growth-authorization.json");
+  writeProtectedPlanAuthorization(authPath, plan, { approvedBy: "opened-approval", authorizationId: "descriptor-growth-auth-fixture" });
+  const originalSize = readFileSync(authPath).length;
+  let boundedBytes = null;
+
+  const fdsBefore = readdirSync("/proc/self/fd").length;
+  const failed = prStackExecutorTestInternals.readProtectedPlanAuthorizationFile(authPath, {
+    config,
+    hooks: {
+      beforeRead: ({ authorizationPath }) => {
+        const grown = {
+          schemaVersion: 1,
+          purpose: "live_stack_acceptance",
+          repositorySlug: "tommytang213/Settleora",
+          orderedPrNumbers: [919, 920],
+          planDigest: prStackExecutorTestInternals.digestStackPlan(plan),
+          baseBranch: "main",
+          expectedHeads: Object.fromEntries(plan.orderedPrs.map((pr) => [String(pr.number), pr.headRefOid])),
+          manualGateApproved: true,
+          approvedBy: "grown-approval",
+          authorizationId: "descriptor-growth-auth-fixture",
+          taskKey: plan.taskKey || "protected-auth-fixture",
+          expiresAt: "2999-01-01T00:00:00Z",
+          consumedAt: null,
+        };
+        writeFileSync(authorizationPath, `${JSON.stringify(grown, null, 2)}\n${"x".repeat(1024 * 1024 + 1)}`, { mode: 0o600 });
+      },
+      afterRead: ({ bytesRead }) => {
+        boundedBytes = bytesRead;
+      },
+    },
+  });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reasonCode, "protected_stack_plan_authorization_malformed");
+  assert.match(failed.reason, /identity or size changed during descriptor read/);
+  assert.equal(boundedBytes, originalSize);
+  assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
+});
+
 test("protected authorization rejects different operation repository order digest and expiry", () => {
   const { config, plan, logsRoot } = stackFixture();
   const state = createInitialPrStackState({ plan });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { isUtf8 } from "node:buffer";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
@@ -505,8 +505,12 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
     const postOpenReal = resolveTrustedConfigRealpath(resolved, trustedRootProof);
     if (postOpenReal !== real) throw new Error("config_identity_mismatch: Config file canonical path changed during validation.");
     trustHooks?.beforeRead?.({ fd, configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, stat });
-    buffer = readFileSync(fd);
-    if (buffer.length !== stat.size) throw new Error("config_identity_mismatch: Config file size changed during descriptor read.");
+    buffer = readBoundedTrustedDescriptorBytes(fd, stat, maxTrustedConfigBytes);
+    trustHooks?.afterRead?.({ fd, configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, stat, bytesRead: buffer.length });
+    const postReadStat = fstatSync(fd);
+    if (!sameFileIdentity(stat, postReadStat) || postReadStat.size !== stat.size) {
+      throw new Error("config_identity_mismatch: Config file identity or size changed during descriptor read.");
+    }
   } catch (error) {
     if (error?.code === "ELOOP") throw new Error("config_symlink_escape: Config symlink was refused by no-follow open.");
     if (error?.code === "ENOENT") throw new Error("config_missing: Config file disappeared during trusted read.");
@@ -641,6 +645,18 @@ function validateTrustedConfigRegularFile(stat) {
   if ((stat.mode & 0o022) !== 0) throw new Error("config_mode_group_world_writable: Config file must not be group/world writable.");
   if ((stat.mode & 0o077) !== 0) throw new Error("config_mode_not_restrictive: Config file must be owner-only.");
   if (stat.size > maxTrustedConfigBytes) throw new Error("config_size_exceeded: Config file exceeds the bounded size limit.");
+}
+
+function readBoundedTrustedDescriptorBytes(fd, stat, maxBytes) {
+  if (stat.size > maxBytes) throw new Error("config_size_exceeded: Config file exceeds the bounded size limit.");
+  const buffer = Buffer.allocUnsafe(stat.size);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const bytesRead = readSync(fd, buffer, offset, buffer.length - offset, offset);
+    if (bytesRead === 0) throw new Error("config_identity_mismatch: Config file size changed during descriptor read.");
+    offset += bytesRead;
+  }
+  return buffer;
 }
 
 function resolveTrustedConfigRealpath(configPath, trustedRootProof) {

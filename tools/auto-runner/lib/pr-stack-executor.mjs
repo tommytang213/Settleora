@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { isUtf8 } from "node:buffer";
-import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   nextStackAction,
@@ -60,6 +60,7 @@ const forbiddenStackCapabilities = Object.freeze([
   "directMainPush",
   "productAuthorityChanges",
 ]);
+const maxProtectedPlanAuthorizationBytes = 1024 * 1024;
 
 const acceptedStrongReviewTiers = new Set(["strong_independent", "tie_breaker"]);
 const protectedBranchNames = new Set(["main", "master"]);
@@ -559,9 +560,11 @@ function readProtectedPlanAuthorizationFile(authorizationPath, { config = {}, ho
       return fail("protected_stack_plan_authorization_malformed", "protected plan authorization canonical target changed during validation");
     }
     hooks?.beforeRead?.({ fd, authorizationPath: lexicalPath, canonicalAuthorizationPath: real, rootTrust, openedStat });
-    bytes = readFileSync(fd);
-    if (bytes.length !== openedStat.size) {
-      return fail("protected_stack_plan_authorization_malformed", "protected plan authorization size changed during descriptor read");
+    bytes = readBoundedProtectedPlanAuthorizationBytes(fd, openedStat, maxProtectedPlanAuthorizationBytes);
+    hooks?.afterRead?.({ fd, authorizationPath: lexicalPath, canonicalAuthorizationPath: real, rootTrust, openedStat, bytesRead: bytes.length });
+    const postReadStat = fstatSync(fd);
+    if (!sameFileIdentity(openedStat, postReadStat) || postReadStat.size !== openedStat.size) {
+      return fail("protected_stack_plan_authorization_malformed", "protected plan authorization identity or size changed during descriptor read");
     }
   } catch (error) {
     if (error?.code === "ELOOP") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization symlink was refused");
@@ -662,8 +665,22 @@ function validateProtectedPlanAuthorizationRegularFile(stat) {
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
   if (currentUid !== null && stat.uid !== currentUid) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization owner must match current operator");
   if ((stat.mode & 0o077) !== 0) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization file must be owner-only");
-  if (stat.size > 1024 * 1024) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization exceeds the bounded size limit");
+  if (stat.size > maxProtectedPlanAuthorizationBytes) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization exceeds the bounded size limit");
   return { ok: true };
+}
+
+function readBoundedProtectedPlanAuthorizationBytes(fd, stat, maxBytes) {
+  if (stat.size > maxBytes) {
+    throw new Error("protected plan authorization exceeds the bounded size limit");
+  }
+  const buffer = Buffer.allocUnsafe(stat.size);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const bytesRead = readSync(fd, buffer, offset, buffer.length - offset, offset);
+    if (bytesRead === 0) throw new Error("protected plan authorization size changed during descriptor read");
+    offset += bytesRead;
+  }
+  return buffer;
 }
 
 function openProtectedPlanAuthorizationNoFollow(filePath, hooks = null) {
