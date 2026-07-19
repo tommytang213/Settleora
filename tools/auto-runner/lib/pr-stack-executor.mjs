@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { isUtf8 } from "node:buffer";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   nextStackAction,
@@ -243,23 +244,195 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   return { ok: true, outcome: dispatch.complete ? "complete" : "advanced", action, statePath, state: summarizeStackState(nextState), result: dispatch.result || null };
 }
 
-export function loadExecutableStackPlan(config = {}, stackPlanPath, { stackConfig = normalizePrStackExecutionConfig(config) } = {}) {
+export function loadExecutableStackPlan(config = {}, stackPlanPath, { stackConfig = normalizePrStackExecutionConfig(config), trustHooks = null } = {}) {
   if (!stackPlanPath || !path.isAbsolute(stackPlanPath)) return fail("stack_plan_path_required", "--stack-plan must be an absolute path");
-  const logsRoot = path.resolve(config.logsRoot || "/workspace/logs/settleora-auto-runner");
-  const resolved = path.resolve(stackPlanPath);
-  if (!isInside(resolved, logsRoot)) return fail("stack_plan_outside_logs_root", "stack plan must be under configured logsRoot");
-  const fileTrust = validateOwnerOnlyFile(resolved);
+  const fileTrust = readTrustedExecutableStackPlanBytes(config, stackPlanPath, trustHooks);
   if (!fileTrust.ok) return fileTrust;
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync(resolved, "utf8"));
-  } catch {
-    return fail("stack_plan_corrupt", "stack plan JSON could not be parsed");
+    parsed = JSON.parse(fileTrust.bytes.toString("utf8"));
+  } catch (error) {
+    return fail("stack_plan_json_invalid", `stack plan JSON could not be parsed: ${error.message}`, { evidence: fileTrust.evidence });
   }
   const plan = normalizePlanContainer(parsed);
   const validation = validateExecutableStackPlan(config, plan, { stackConfig, source: parsed });
   if (!validation.ok) return validation;
-  return { ok: true, plan, planPath: resolved };
+  return { ok: true, plan, planPath: fileTrust.evidence.canonicalPlanPath, planTrustEvidence: { ...fileTrust.evidence, parsedDigestSha256: digestJson(parsed) } };
+}
+
+function readTrustedExecutableStackPlanBytes(config = {}, stackPlanPath, hooks = null) {
+  const rootTrust = validateStackPlanTrustedRoot(config);
+  if (!rootTrust.ok) return rootTrust;
+  const lexicalPlanPath = path.resolve(stackPlanPath);
+  if (lexicalPlanPath !== stackPlanPath) {
+    return fail("stack_plan_path_required", "--stack-plan must be an absolute canonical path");
+  }
+  if (!isInside(lexicalPlanPath, rootTrust.lexicalRoot)) {
+    return fail("stack_plan_outside_logs_root", "stack plan must be under configured logsRoot");
+  }
+  const relative = path.relative(rootTrust.lexicalRoot, lexicalPlanPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative) || relative.split(path.sep).includes("..")) {
+    return fail("stack_plan_canonical_escape", "stack plan path must not traverse outside configured logsRoot");
+  }
+  const walked = validateStackPlanPathComponents(rootTrust, lexicalPlanPath, relative);
+  if (!walked.ok) return walked;
+  let canonicalPlanPath;
+  try {
+    canonicalPlanPath = realpathSync(lexicalPlanPath);
+  } catch (error) {
+    return fail(error?.code === "ELOOP" ? "stack_plan_symlink_refused" : "stack_plan_read_failed", error.message || "stack plan canonical path could not be resolved");
+  }
+  if (!isInside(canonicalPlanPath, rootTrust.canonicalRoot)) {
+    return fail("stack_plan_canonical_escape", "stack plan canonical target escaped configured logsRoot");
+  }
+  if (canonicalPlanPath !== lexicalPlanPath) {
+    return fail("stack_plan_canonical_escape", "stack plan lexical path and canonical target differ");
+  }
+  hooks?.beforeOpen?.({ lexicalPlanPath, canonicalPlanPath, rootTrust, walked });
+  const noFollow = openStackPlanNoFollow(lexicalPlanPath, hooks);
+  if (!noFollow.ok) return noFollow;
+  const { fd, strategy } = noFollow;
+  try {
+    hooks?.afterOpen?.({ fd, lexicalPlanPath, canonicalPlanPath, rootTrust, walked });
+    const openedStat = fstatSync(fd);
+    if (!sameFileIdentity(walked.terminalStat, openedStat)) {
+      return fail("stack_plan_identity_changed", "stack plan identity changed between validation and descriptor open");
+    }
+    const descriptorValidation = validateStackPlanRegularFile(openedStat);
+    if (!descriptorValidation.ok) return descriptorValidation;
+    const postOpenLstat = lstatSync(lexicalPlanPath);
+    if (!sameFileIdentity(postOpenLstat, openedStat)) {
+      return fail("stack_plan_identity_changed", "stack plan identity changed after descriptor open");
+    }
+    const postOpenCanonical = realpathSync(lexicalPlanPath);
+    if (postOpenCanonical !== canonicalPlanPath || !isInside(postOpenCanonical, rootTrust.canonicalRoot)) {
+      return fail("stack_plan_identity_changed", "stack plan canonical target changed during validation");
+    }
+    hooks?.beforeRead?.({ fd, lexicalPlanPath, canonicalPlanPath, rootTrust, openedStat });
+    const bytes = readFileSync(fd);
+    if (bytes.length !== openedStat.size) {
+      return fail("stack_plan_identity_changed", "stack plan size changed during descriptor read");
+    }
+    if (!isUtf8(bytes)) return fail("stack_plan_utf8_invalid", "stack plan must be valid UTF-8");
+    const evidence = sanitizeState({
+      lexicalTrustedRoot: rootTrust.lexicalRoot,
+      canonicalTrustedRoot: rootTrust.canonicalRoot,
+      lexicalPlanPath,
+      canonicalPlanPath,
+      relativePath: relative.split(path.sep).join("/"),
+      owner: openedStat.uid,
+      mode: openedStat.mode & 0o777,
+      type: "regular_file",
+      size: openedStat.size,
+      device: openedStat.dev,
+      inode: openedStat.ino,
+      identity: fileIdentity(openedStat),
+      noFollowStrategy: strategy,
+      digestSha256: createHash("sha256").update(bytes).digest("hex"),
+      validatedAt: new Date().toISOString(),
+      decision: "accepted",
+      reasonCode: "stack_plan_trusted",
+    });
+    return { ok: true, bytes, evidence };
+  } catch (error) {
+    if (error?.code === "ELOOP") return fail("stack_plan_symlink_refused", "stack plan symlink was refused");
+    if (error?.code === "ENOENT") return fail("stack_plan_read_failed", "stack plan disappeared during validation");
+    return fail("stack_plan_read_failed", error.message || "stack plan could not be read safely");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function validateStackPlanTrustedRoot(config = {}) {
+  const lexicalRoot = path.resolve(config.logsRoot || "/workspace/logs/settleora-auto-runner");
+  let linkStat;
+  try {
+    linkStat = lstatSync(lexicalRoot);
+  } catch {
+    return fail("stack_plan_parent_untrusted", "configured logsRoot is missing");
+  }
+  if (linkStat.isSymbolicLink()) return fail("stack_plan_parent_untrusted", "configured logsRoot must not be a symlink");
+  let canonicalRoot;
+  try {
+    canonicalRoot = realpathSync(lexicalRoot);
+  } catch (error) {
+    return fail("stack_plan_parent_untrusted", error.message || "configured logsRoot canonicalization failed");
+  }
+  if (canonicalRoot !== lexicalRoot) return fail("stack_plan_parent_untrusted", "configured logsRoot realpath must match its lexical path");
+  const stat = statSync(canonicalRoot);
+  if (!stat.isDirectory()) return fail("stack_plan_parent_untrusted", "configured logsRoot must be a directory");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) return fail("stack_plan_parent_untrusted", "configured logsRoot owner must match current operator");
+  if ((stat.mode & 0o002) !== 0) return fail("stack_plan_parent_untrusted", "configured logsRoot must not be world-writable");
+  return { ok: true, lexicalRoot, canonicalRoot, rootStat: stat };
+}
+
+function validateStackPlanPathComponents(rootTrust, lexicalPlanPath, relative) {
+  const parts = relative.split(path.sep).filter(Boolean);
+  let current = rootTrust.lexicalRoot;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = path.join(current, parts[index]);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ELOOP") return fail("stack_plan_symlink_refused", "stack plan path contains a symlink loop");
+      return fail("stack_plan_read_failed", "stack plan path component is missing");
+    }
+    if (stat.isSymbolicLink()) return fail("stack_plan_symlink_refused", "stack plan path must not contain symlinks");
+    if (index < parts.length - 1 && !stat.isDirectory()) {
+      return fail("stack_plan_parent_untrusted", "stack plan parent path must contain only directories");
+    }
+    if (index < parts.length - 1) {
+      const directoryTrust = validateStackPlanTrustedDirectory(stat);
+      if (!directoryTrust.ok) return directoryTrust;
+    } else {
+      const terminalTrust = validateStackPlanRegularFile(stat);
+      if (!terminalTrust.ok) return terminalTrust;
+    }
+  }
+  return { ok: true, terminalStat: lstatSync(lexicalPlanPath) };
+}
+
+function validateStackPlanTrustedDirectory(stat) {
+  if (!stat.isDirectory()) return fail("stack_plan_parent_untrusted", "stack plan parent path must be a directory");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) return fail("stack_plan_parent_untrusted", "stack plan parent owner must match current operator");
+  if ((stat.mode & 0o077) !== 0) return fail("stack_plan_parent_untrusted", "stack plan parent directories must be owner-only");
+  return { ok: true };
+}
+
+function validateStackPlanRegularFile(stat) {
+  if (!stat.isFile()) return fail("stack_plan_invalid_file", "stack plan must be a regular file");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) return fail("stack_plan_invalid_file", "stack plan owner must match current operator");
+  if ((stat.mode & 0o077) !== 0) return fail("stack_plan_invalid_file", "stack plan file must be owner-only");
+  if (stat.size > 1024 * 1024) return fail("stack_plan_invalid_file", "stack plan exceeds the bounded size limit");
+  return { ok: true };
+}
+
+function openStackPlanNoFollow(filePath, hooks = null) {
+  const constants = hooks?.fsConstants || fsConstants;
+  if (typeof constants.O_NOFOLLOW !== "number") {
+    return fail("stack_plan_no_follow_unavailable", "O_NOFOLLOW is unavailable for stack plan open");
+  }
+  let fd;
+  try {
+    fd = openSync(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    if (error?.code === "ELOOP") return fail("stack_plan_symlink_refused", "stack plan symlink was refused by no-follow open");
+    if (error?.code === "ENOENT") return fail("stack_plan_read_failed", "stack plan disappeared before open");
+    return fail("stack_plan_read_failed", error.message || "stack plan could not be opened safely");
+  }
+  return { ok: true, fd, strategy: "openSync:O_RDONLY|O_NOFOLLOW" };
+}
+
+function fileIdentity(stat) {
+  return `${stat.dev}:${stat.ino}`;
+}
+
+function sameFileIdentity(left, right) {
+  return Boolean(left && right && left.dev === right.dev && left.ino === right.ino);
 }
 
 export function validateExecutableStackPlan(config = {}, plan = {}, { stackConfig = normalizePrStackExecutionConfig(config), source = {} } = {}) {
@@ -4775,6 +4948,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   proveTargetBatchFixWorktree,
   reconcileTaskScopedPendingPushIntent,
   reconcilePushIntent,
+  readTrustedExecutableStackPlanBytes,
   readLivePrProof,
   readOriginRepositoryProof,
   readWorktreeCleanProof,

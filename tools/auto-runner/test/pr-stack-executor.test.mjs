@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -52,12 +52,181 @@ test("explicit task-scoped config and owner-only plan are required under logs ro
   const { config, planPath } = stackFixture();
   const loaded = loadExecutableStackPlan(config, planPath);
   assert.equal(loaded.ok, true);
+  assert.equal(loaded.planTrustEvidence.lexicalTrustedRoot, config.logsRoot);
+  assert.equal(loaded.planTrustEvidence.canonicalTrustedRoot, config.logsRoot);
+  assert.equal(loaded.planTrustEvidence.relativePath, "stack/plan.json");
+  assert.equal(loaded.planTrustEvidence.type, "regular_file");
+  assert.equal(loaded.planTrustEvidence.mode, 0o600);
+  assert.equal(loaded.planTrustEvidence.noFollowStrategy, "openSync:O_RDONLY|O_NOFOLLOW");
+  assert.equal(loaded.planTrustEvidence.digestSha256, createHash("sha256").update(readFileSync(planPath)).digest("hex"));
+  assert.equal(loaded.planTrustEvidence.parsedDigestSha256, digestJson(makePlan()));
+  assert.doesNotMatch(JSON.stringify(loaded.planTrustEvidence), /orderedPrs|feature\/auto-913|live_stack_acceptance/);
 
   const defaultBlocked = loadExecutableStackPlan({ ...config, prStackExecution: { enabled: false, allowRun: false, capabilities: {} } }, planPath);
   assert.equal(defaultBlocked.reasonCode, "stack_execution_disabled_by_config");
   const outside = path.join(os.tmpdir(), `outside-${Date.now()}.json`);
   writeFileSync(outside, JSON.stringify(makePlan()), { mode: 0o600 });
   assert.equal(loadExecutableStackPlan(config, outside).reasonCode, "stack_plan_outside_logs_root");
+});
+
+test("stack plan trust accepts documented live layout without protected mutation", () => {
+  const { config, logsRoot } = stackFixture();
+  const plan = makePlan({ prs: [pr(930, "main", "feature/auto-930-parent", sha("a")), pr(931, "feature/auto-930-parent", "feature/auto-931-child", sha("b"))] });
+  const planPath = path.join(logsRoot, "live-stack-acceptance", "20260717-2347", "stack-plan.json");
+  mkdirSync(path.join(logsRoot, "live-stack-acceptance"), { recursive: true, mode: 0o700 });
+  chmodSync(path.join(logsRoot, "live-stack-acceptance"), 0o700);
+  writePlan(planPath, plan);
+  const loaded = loadExecutableStackPlan({ ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: null } }, planPath);
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.planTrustEvidence.relativePath, "live-stack-acceptance/20260717-2347/stack-plan.json");
+});
+
+test("stack plan trust rejects terminal and intermediate symlinks", () => {
+  const { config, logsRoot, planPath } = stackFixture();
+  const outsideRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-outside-"));
+  chmodSync(outsideRoot, 0o700);
+  const outsidePlan = path.join(outsideRoot, "outside.json");
+  writePlan(outsidePlan, makePlan());
+  const terminalOutside = path.join(logsRoot, "stack", "terminal-outside.json");
+  symlinkSync(outsidePlan, terminalOutside);
+  assert.equal(loadExecutableStackPlan(config, terminalOutside).reasonCode, "stack_plan_symlink_refused");
+
+  const terminalInside = path.join(logsRoot, "stack", "terminal-inside.json");
+  symlinkSync(planPath, terminalInside);
+  assert.equal(loadExecutableStackPlan(config, terminalInside).reasonCode, "stack_plan_symlink_refused");
+
+  const outsideDir = path.join(outsideRoot, "dir");
+  mkdirSync(outsideDir, { mode: 0o700 });
+  writePlan(path.join(outsideDir, "plan.json"), makePlan());
+  const intermediateOutside = path.join(logsRoot, "stack", "intermediate-outside");
+  symlinkSync(outsideDir, intermediateOutside);
+  assert.equal(loadExecutableStackPlan(config, path.join(intermediateOutside, "plan.json")).reasonCode, "stack_plan_symlink_refused");
+
+  const insideDir = path.join(logsRoot, "inside-dir");
+  mkdirSync(insideDir, { mode: 0o700 });
+  writePlan(path.join(insideDir, "plan.json"), makePlan());
+  const intermediateInside = path.join(logsRoot, "stack", "intermediate-inside");
+  symlinkSync(insideDir, intermediateInside);
+  assert.equal(loadExecutableStackPlan(config, path.join(intermediateInside, "plan.json")).reasonCode, "stack_plan_symlink_refused");
+
+  const dangling = path.join(logsRoot, "stack", "dangling.json");
+  symlinkSync(path.join(logsRoot, "missing.json"), dangling);
+  assert.equal(loadExecutableStackPlan(config, dangling).reasonCode, "stack_plan_symlink_refused");
+
+  const loop = path.join(logsRoot, "stack", "loop");
+  symlinkSync(loop, loop);
+  assert.equal(loadExecutableStackPlan(config, path.join(loop, "plan.json")).reasonCode, "stack_plan_symlink_refused");
+});
+
+test("stack plan trust rejects root symlinks and containment ambiguity", () => {
+  const { config, logsRoot, root, planPath } = stackFixture();
+  const rootAlias = path.join(root, "logs-alias");
+  symlinkSync(logsRoot, rootAlias);
+  assert.equal(loadExecutableStackPlan({ ...config, logsRoot: rootAlias }, path.join(rootAlias, "stack", "plan.json")).reasonCode, "stack_plan_parent_untrusted");
+
+  assert.equal(loadExecutableStackPlan(config, `${logsRoot}/stack/../stack/plan.json`).reasonCode, "stack_plan_path_required");
+
+  const sibling = `${logsRoot}-evil`;
+  mkdirSync(path.join(sibling, "stack"), { recursive: true, mode: 0o700 });
+  chmodSync(sibling, 0o700);
+  chmodSync(path.join(sibling, "stack"), 0o700);
+  const siblingPlan = path.join(sibling, "stack", "plan.json");
+  writePlan(siblingPlan, makePlan());
+  assert.equal(loadExecutableStackPlan(config, siblingPlan).reasonCode, "stack_plan_outside_logs_root");
+
+  const outside = path.join(root, "outside.json");
+  writePlan(outside, makePlan());
+  assert.equal(loadExecutableStackPlan(config, outside).reasonCode, "stack_plan_outside_logs_root");
+  assert.equal(loadExecutableStackPlan(config, "relative-plan.json").reasonCode, "stack_plan_path_required");
+});
+
+test("stack plan descriptor trust uses no-follow, descriptor reads, identity checks, and closes", () => {
+  const { config, planPath } = stackFixture();
+  assert.equal(prStackExecutorTestInternals.readTrustedExecutableStackPlanBytes(config, planPath, { fsConstants: { O_RDONLY: 0 } }).reasonCode, "stack_plan_no_follow_unavailable");
+
+  const racedOpen = prStackExecutorTestInternals.readTrustedExecutableStackPlanBytes(config, planPath, {
+    afterOpen: ({ walked }) => {
+      walked.terminalStat = { dev: -1, ino: -1 };
+    },
+  });
+  assert.equal(racedOpen.reasonCode, "stack_plan_identity_changed");
+
+  const replacementPlan = makePlan({ stackId: "settleora-stack-replacement" });
+  const descriptorRead = loadExecutableStackPlan(config, planPath, {
+    trustHooks: {
+      beforeRead: ({ lexicalPlanPath }) => {
+        rmSync(lexicalPlanPath);
+        writePlan(lexicalPlanPath, replacementPlan);
+      },
+    },
+  });
+  assert.equal(descriptorRead.ok, true);
+  assert.equal(descriptorRead.plan.stackId, makePlan().stackId);
+  assert.notEqual(descriptorRead.plan.stackId, replacementPlan.stackId);
+  writePlan(planPath, makePlan());
+
+  const fdsBefore = readdirSync("/proc/self/fd").length;
+  assert.equal(loadExecutableStackPlan(config, planPath).ok, true);
+  assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
+  const failed = prStackExecutorTestInternals.readTrustedExecutableStackPlanBytes(config, planPath, {
+    afterOpen: ({ lexicalPlanPath }) => {
+      rmSync(lexicalPlanPath);
+    },
+  });
+  assert.equal(failed.reasonCode, "stack_plan_read_failed");
+  assert.equal(readdirSync("/proc/self/fd").length, fdsBefore);
+});
+
+test("stack plan trust rejects invalid file type mode size UTF-8 and JSON with stable reasons", () => {
+  const { config, logsRoot } = stackFixture();
+  const directoryPlan = path.join(logsRoot, "stack", "directory-plan");
+  mkdirSync(directoryPlan, { mode: 0o700 });
+  assert.equal(loadExecutableStackPlan(config, directoryPlan).reasonCode, "stack_plan_invalid_file");
+
+  const writable = path.join(logsRoot, "stack", "writable.json");
+  writePlan(writable, makePlan(), 0o660);
+  assert.equal(loadExecutableStackPlan(config, writable).reasonCode, "stack_plan_invalid_file");
+
+  const oversized = path.join(logsRoot, "stack", "oversized.json");
+  writeFileSync(oversized, `${" ".repeat(1024 * 1024 + 1)}`, { mode: 0o600 });
+  assert.equal(loadExecutableStackPlan(config, oversized).reasonCode, "stack_plan_invalid_file");
+
+  const invalidUtf8 = path.join(logsRoot, "stack", "invalid-utf8.json");
+  writeFileSync(invalidUtf8, Buffer.from([0xff, 0xfe, 0xfd]), { mode: 0o600 });
+  assert.equal(loadExecutableStackPlan(config, invalidUtf8).reasonCode, "stack_plan_utf8_invalid");
+
+  const invalidJson = path.join(logsRoot, "stack", "invalid-json.json");
+  writeFileSync(invalidJson, "{", { mode: 0o600 });
+  assert.equal(loadExecutableStackPlan(config, invalidJson).reasonCode, "stack_plan_json_invalid");
+});
+
+test("invalid stack plan fails before authorization and live runner mutation", async () => {
+  const { config, logsRoot } = stackFixture();
+  const outsideRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-premutation-"));
+  chmodSync(outsideRoot, 0o700);
+  const outsidePlan = path.join(outsideRoot, "plan.json");
+  writePlan(outsidePlan, makePlan());
+  const symlinkPlan = path.join(logsRoot, "stack", "pre-mutation-symlink.json");
+  symlinkSync(outsidePlan, symlinkPlan);
+  let preflightCalls = 0;
+  let inspectCalls = 0;
+  const result = await runPrStackExecution(config, { stackPlanPath: symlinkPlan }, {
+    adapter: {
+      preflightLiveRunner: async () => {
+        preflightCalls += 1;
+        return { ok: true };
+      },
+      inspectPr: async () => {
+        inspectCalls += 1;
+        return { ok: true };
+      },
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "stack_plan_symlink_refused");
+  assert.equal(preflightCalls, 0);
+  assert.equal(inspectCalls, 0);
+  assert.equal(existsSync(path.join(logsRoot, "protected-plan-authz-consumption")), false);
 });
 
 test("read-only live fixture remains non executable and PR 917 is refused", () => {
@@ -2524,6 +2693,13 @@ function writeProtectedPlanAuthorization(filePath, plan, overrides = {}) {
   }, null, 2)}\n`, { mode: 0o600 });
 }
 
+function writePlan(filePath, plan, mode = 0o600) {
+  mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  chmodSync(path.dirname(filePath), 0o700);
+  writeFileSync(filePath, `${JSON.stringify(plan, null, 2)}\n`, { mode });
+  chmodSync(filePath, mode);
+}
+
 function autoRunnerIssue(allowedPaths = ["tools/auto-runner/**"]) {
   return {
     number: 921,
@@ -2573,10 +2749,10 @@ function persistReadyBaseRebound(fixture) {
   writePrStackState(statePath, state);
 }
 
-function makePlan({ prs } = {}) {
+function makePlan({ prs, stackId = "live-acceptance-919-920" } = {}) {
   return createDependentPrStackPlan({
     repository: "tommytang213/Settleora",
-    stackId: "live-acceptance-919-920",
+    stackId,
     issueNumber: 921,
     prs: prs || [
       pr(919, "main", "feature/auto-913-parent", sha("a"), false),
