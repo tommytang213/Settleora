@@ -1042,6 +1042,8 @@ export function writePrStackState(statePath, state) {
   const validation = validatePrStackState(state);
   if (!validation.ok) throw new Error(`Invalid PR stack state: ${validation.reasonCode}`);
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+  const pathTrust = validatePrStackStateWritePath(statePath);
+  if (!pathTrust.ok) throw new Error(pathTrust.reason);
   const next = sanitizeState({ ...state, timestamps: { ...(state.timestamps || {}), updatedAt: new Date().toISOString() } });
   const tmp = `${statePath}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
@@ -2949,12 +2951,17 @@ function validateExplicitStackStatePath(statePath, logsRoot) {
   if (canonicalRoot !== lexicalRoot) throw new Error("prStackExecution.statePath logsRoot realpath must match its lexical path");
   const rootStat = statSync(canonicalRoot);
   if (!rootStat.isDirectory()) throw new Error("prStackExecution.statePath logsRoot must be a directory");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && rootStat.uid !== currentUid) throw new Error("prStackExecution.statePath logsRoot owner must match current operator");
+  if ((rootStat.mode & 0o002) !== 0) throw new Error("prStackExecution.statePath logsRoot must not be world-writable");
   const relative = path.relative(lexicalRoot, statePath);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative) || relative.split(path.sep).includes("..")) {
     throw new Error("prStackExecution.statePath must be under logsRoot");
   }
   let current = lexicalRoot;
-  for (const part of relative.split(path.sep).filter(Boolean)) {
+  const parts = relative.split(path.sep).filter(Boolean);
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
     current = path.join(current, part);
     let componentStat;
     try {
@@ -2965,6 +2972,15 @@ function validateExplicitStackStatePath(statePath, logsRoot) {
       throw new Error("prStackExecution.statePath component could not be validated");
     }
     if (componentStat.isSymbolicLink()) throw new Error("prStackExecution.statePath must not contain symlinks");
+    if (index < parts.length - 1) {
+      if (!componentStat.isDirectory()) throw new Error("prStackExecution.statePath parent components must be directories");
+      if (currentUid !== null && componentStat.uid !== currentUid) throw new Error("prStackExecution.statePath parent owner must match current operator");
+      if ((componentStat.mode & 0o077) !== 0) throw new Error("prStackExecution.statePath parent directories must be owner-only");
+    } else {
+      if (!componentStat.isFile()) throw new Error("prStackExecution.statePath existing state must be a regular file");
+      if (currentUid !== null && componentStat.uid !== currentUid) throw new Error("prStackExecution.statePath existing state owner must match current operator");
+      if ((componentStat.mode & 0o077) !== 0) throw new Error("prStackExecution.statePath existing state file must be owner-only");
+    }
     let componentReal;
     try {
       componentReal = realpathSync(current);
@@ -3931,10 +3947,33 @@ function isInside(candidate, root) {
 
 function validateOwnerOnlyFile(filePath, { missingOk = false } = {}) {
   if (!existsSync(filePath)) return missingOk ? { ok: true } : fail("stack_file_missing", "stack file does not exist");
-  const stat = statSync(filePath);
-  if (!stat.isFile()) return fail("stack_file_not_regular", "stack path must be a regular file");
+  const stat = lstatSync(filePath);
+  if (stat.isSymbolicLink() || !stat.isFile()) return fail("stack_file_not_regular", "stack path must be a regular file");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) return fail("stack_file_owner_unsafe", "stack file owner must match current operator");
   if ((stat.mode & 0o077) !== 0) return fail("stack_file_permissions_unsafe", "stack file must be owner-only");
   return { ok: true };
+}
+
+function validatePrStackStateWritePath(statePath) {
+  const parentPath = path.dirname(statePath);
+  let parentStat;
+  try {
+    parentStat = lstatSync(parentPath);
+  } catch {
+    return fail("stack_state_parent_untrusted", "prStackExecution.statePath parent directory could not be validated");
+  }
+  if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) {
+    return fail("stack_state_parent_untrusted", "prStackExecution.statePath parent must be a trusted directory");
+  }
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && parentStat.uid !== currentUid) {
+    return fail("stack_state_parent_untrusted", "prStackExecution.statePath parent owner must match current operator");
+  }
+  if ((parentStat.mode & 0o077) !== 0) {
+    return fail("stack_state_parent_untrusted", "prStackExecution.statePath parent directories must be owner-only");
+  }
+  return validateOwnerOnlyFile(statePath, { missingOk: true });
 }
 
 function normalizePositiveInt(value, fallback) {

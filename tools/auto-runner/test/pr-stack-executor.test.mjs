@@ -2801,6 +2801,55 @@ test("explicit stack state path rejects symlinked parent components before writi
   assert.equal(existsSync(externalStatePath), false);
 });
 
+test("explicit stack state path rejects unsafe existing parent permissions before writing", async () => {
+  const fixture = stackFixture();
+  const unsafeParent = path.join(fixture.logsRoot, "stack", "unsafe-state-parent");
+  mkdirSync(unsafeParent, { mode: 0o770 });
+  chmodSync(unsafeParent, 0o770);
+  const statePath = path.join(unsafeParent, "stack-state.json");
+  const config = {
+    ...fixture.config,
+    prStackExecution: {
+      ...fixture.config.prStackExecution,
+      statePath,
+    },
+  };
+
+  await assert.rejects(
+    () => runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter: scriptedAdapter([]) }),
+    /prStackExecution\.statePath parent directories must be owner-only/,
+  );
+  assert.equal(existsSync(statePath), false);
+
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  assert.throws(() => writePrStackState(statePath, state), /prStackExecution\.statePath parent directories must be owner-only/);
+  assert.equal(existsSync(statePath), false);
+});
+
+test("explicit stack state path rejects unsafe existing state file before overwrite", async () => {
+  const fixture = stackFixture();
+  const statePath = path.join(fixture.logsRoot, "stack", "unsafe-stack-state.json");
+  writeFileSync(statePath, "unsafe original\n", { mode: 0o660 });
+  chmodSync(statePath, 0o660);
+  const config = {
+    ...fixture.config,
+    prStackExecution: {
+      ...fixture.config.prStackExecution,
+      statePath,
+    },
+  };
+
+  await assert.rejects(
+    () => runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter: scriptedAdapter([]) }),
+    /prStackExecution\.statePath existing state file must be owner-only/,
+  );
+  assert.equal(readFileSync(statePath, "utf8"), "unsafe original\n");
+
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  assert.throws(() => writePrStackState(statePath, state), /stack file must be owner-only/);
+  assert.equal(readFileSync(statePath, "utf8"), "unsafe original\n");
+});
+
 test("exact [919, 920] fixture produces complete expected production sequence without live GitHub mutation", async () => {
   const fixture = stackFixture();
   const calls = [];
