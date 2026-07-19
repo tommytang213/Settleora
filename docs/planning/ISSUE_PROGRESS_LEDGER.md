@@ -20,6 +20,125 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #921 - Live stack acceptance controller wiring corrective checkpoint - 20260718-0022
+
+- Acceptance attempt task: `20260717-2347`.
+- Blocker report:
+  `/workspace/logs/settleora-codex-report-20260717-2347-pr919-pr920-live-stack-acceptance.md`.
+- Terminal status:
+  `LIVE_STACK_ACCEPTANCE_CONTROLLER_WIRING_MISSING`.
+- Verified blocker:
+  `pr-stack-controller.mjs` exposed planning/proof/read-only fixture
+  primitives, but no documented production stack execution entry could dispatch
+  parent convergence, exact-head gates, parent merge, current-main proof, child
+  retarget, semantic own-delta proof, ready transition, child convergence/
+  merge, and exact-once hygiene from durable state.
+- Corrective branch:
+  `feature/auto-921-live-stack-executor-20260718-0022`.
+- Corrective scope:
+  add a default-off `--run-pr-stack --stack-plan <absolute-path> --config
+  <absolute-path>` entry, durable stack state, injectable production adapters,
+  stack config/capability gates, deterministic tests, and documentation.
+- Live stack mutation:
+  none during the blocker attempt and none during this corrective
+  implementation. #919 and #920 remain unchanged until an explicit post-merge
+  acceptance resume uses the durable state under
+  `/workspace/logs/settleora-auto-runner/live-stack-acceptance/20260717-2347/`.
+- Issue state:
+  #921 remains open; #913 remains open pending replacement stack completion;
+  #910 remains open as parent tracker. #912 is inactive/manual-gated.
+- Protected related work:
+  #917 must not enter executable stack work. #923/#924 are untouched and
+  unclaimed. #865/#866 canaries remain protected.
+- Project fields:
+  `not_updated`; no tested mapping was exercised.
+- Next gate:
+  merge the corrective PR only after its validation/review/CI gates pass, then
+  resume the same durable #919 -> #920 acceptance state without production
+  profile activation. Do not claim live acceptance has passed before that
+  resume completes.
+
+### Issue #921 - Bounded review convergence and dependent PR stack loop
+
+- Task key: `20260717-0040`.
+- Parent tracker: #910.
+- Historical context:
+  #800, #893, and #894 remain closed valid foundation records, but current
+  live code before this task still had a one-cycle/two-lane review-fix
+  limitation and no durable dependent-PR stack convergence controller.
+- Focused issue:
+  #921, `Auto-runner bounded review convergence and dependent PR stack loop`,
+  open under #910.
+- Branch:
+  `feature/auto-921-review-convergence-stack-loop-20260717-0040`.
+- PR:
+  #922, `Add bounded review convergence and dependent PR stack loop`,
+  merged to `main`.
+- Final source head:
+  `991c0fd35d1df9843c1463f7a580c39dd9c316b8`.
+- Merge SHA:
+  `cf1ee65aa209243525f3ccbddd4cf46fa698f666`.
+- Merged at:
+  `2026-07-17T15:20:51Z`.
+- PR scope:
+  workflow/tooling only under `tools/auto-runner/**`, the auto-runner workflow
+  docs, this ledger, and
+  `docs/planning/AUTO_RUNNER_REVIEW_CONVERGENCE_STACK_LOOP_921.md`.
+- Completed implementation slices in this branch:
+  durable review-convergence state, 50-cycle exact-head convergence controller,
+  contract-approved review-fix mutation lanes with stronger sensitive gates,
+  and durable dependent-PR stack planning/execution primitives.
+- Final PR #922 evidence:
+  - Source-changing cycle: `26`.
+  - Final patch digest:
+    `6587d2e2e11f394c7967d1efc47e00481e0e79b7dd462900b054903795ede8ee`.
+  - Final changed-path count: `18`.
+  - Full auto-runner suite: `579/579`.
+  - Task-scoped preflight: `24 pass / 4 warn / 0 fail`.
+  - Docs/scaffold validation: pass.
+  - Strong independent review: pass.
+  - Compact mechanics/security review: pass.
+  - Exact-head GitHub Codex result:
+    `Codex Review: Didn't find any major issues.`.
+  - Exact-head CI/scanners: Scaffold Validation, CodeQL, Semgrep CE/OSS, and
+    Trivy passed.
+  - Open code-scanning alerts: `0`.
+- Post-merge issue checkpoints:
+  - #910 checkpoint comment:
+    `https://github.com/tommytang213/Settleora/issues/910#issuecomment-5004765376`.
+  - #921 checkpoint comment:
+    `https://github.com/tommytang213/Settleora/issues/921#issuecomment-5004765360`.
+- Live issue state:
+  #910 remains open. #921 remains open by its close rule until the later
+  task-scoped live #919 -> #920 acceptance completes.
+- First live acceptance stack after merge:
+  #919 -> #920 remains the outstanding acceptance sequence. PR #919 is open
+  and non-draft against `main` at
+  `056638c2a5a798c7b8d78177761d0f218a65c295`; PR #920 is open and draft
+  against `feature/auto-913-targeted-recovery-child-supervisor-20260716-1213`
+  at `5e131211224d5ed8460287bd88321dce181e60e3`. This ledger hygiene task
+  does not claim, execute, retarget, ready, review, merge, or otherwise mutate
+  that stack.
+- Manual gates preserved:
+  production deploy, store release, destructive operations, secrets/auth config
+  mutation, public/admin exposure, Day 1 scope cuts, architecture replacement,
+  force-like history, branch deletion, unresolved product/policy/security/
+  privacy/financial authority choices, and production profile activation.
+- Protected issue state:
+  #912 remains inactive/manual-gated. #913 remains open and unchanged.
+  #923/#924 remain open, untouched, and unclaimed. #865/#866 remain unchanged.
+- Production profile:
+  not activated.
+- Project fields:
+  `not_updated`; no tested mapping was exercised.
+- Close/keep-open recommendation:
+  keep #921 open until the task-scoped live #919 -> #920 acceptance completes.
+  Keep #910 open. Keep #912 open and unactivated. Keep #913/#923/#924/#865/#866
+  unchanged unless a separate task authorizes mutation.
+- Last verified repo SHA:
+  `cf1ee65aa209243525f3ccbddd4cf46fa698f666` on current `main` after PR #922
+  merge.
+
 ### Auto-runner operational readiness plan - 20260714-1010
 
 - Task key: `20260714-1010`.

@@ -1,5 +1,7 @@
 import { deriveIssueProposals } from "./issue-proposals.mjs";
-import { executeIssueMutationPipeline } from "./issue-mutation-pipeline.mjs";
+import { buildIssueOperationContext, executeIssueMutationPipeline } from "./issue-mutation-pipeline.mjs";
+
+export { buildIssueOperationContext };
 
 export const transientRunnerLabels = Object.freeze(["auto-claimed", "auto-running", "auto-pr-opened", "auto-failed"]);
 
@@ -15,23 +17,28 @@ const umbrellaSignals = [
 
 export function completeMergedIssueHygiene(config = {}, context = {}, options = {}) {
   const runner = options.runner || (() => ({ status: 0, stdout: "", stderr: "" }));
-  const refreshed = refreshCompletionState(context, runner);
+  const repositoryContext = buildIssueOperationContext(config, context);
+  if (!repositoryContext.ok) {
+    return failedCompletionHygiene(context, repositoryContext.reason, repositoryContext);
+  }
+  const refreshed = refreshCompletionState(context, runner, repositoryContext);
   const closeDecision = evaluateCloseDecision(refreshed.issue, refreshed);
   const completionBody = renderCompletionComment(refreshed, closeDecision);
   const duplicateComment = hasCompletionComment(refreshed.issue, refreshed);
   const comment = duplicateComment
     ? { status: "skipped", reason: "completion_comment_already_present" }
-    : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--body", completionBody]));
+    : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--body", completionBody]));
   const closure =
     closeDecision.close === true
-      ? commandComponent(runner("gh", ["issue", "close", String(refreshed.issue.number), "--reason", "completed"]))
+      ? commandComponent(runner("gh", ["issue", "close", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--reason", "completed"]))
       : { status: "skipped", reason: closeDecision.reason };
-  const labelCleanup = cleanupTransientLabels(refreshed.issue, runner);
-  const parentProgress = postParentProgress(config, refreshed, runner);
+  const labelCleanup = cleanupTransientLabels(refreshed.issue, runner, repositoryContext);
+  const parentProgress = postParentProgress(config, refreshed, runner, repositoryContext);
   const project = updateProjectStatusIfSupported(config, refreshed, runner);
-  const ledger = reconcileLedger(config, refreshed, runner);
+  const ledger = reconcileLedger(config, refreshed, runner, repositoryContext);
   return {
     status: "merged",
+    repositoryContext,
     mergeSha: refreshed.mergeSha,
     sourceHeadSha: refreshed.sourceHeadSha,
     issue: issueSummary(refreshed.issue),
@@ -56,17 +63,24 @@ export function evaluateCloseDecision(issue = {}, context = {}) {
   return { close: true, reason: "explicit_close_rule_satisfied" };
 }
 
-export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 })) {
+export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 }), repositoryContext = null) {
+  if (!repositoryContext?.repositorySlug) {
+    return { status: "failed", reason: "repository_context_required", removed: [], attemptedRemove: [], preserved: labelNames(issue.labels) };
+  }
   const labels = labelNames(issue.labels);
   const remove = labels.filter((label) => transientRunnerLabels.includes(label));
   const preserve = labels.filter((label) => !transientRunnerLabels.includes(label));
   if (remove.length === 0) return { status: "skipped", reason: "no_transient_labels", removed: [], preserved: preserve };
-  const result = runner("gh", ["issue", "edit", String(issue.number), "--remove-label", remove.join(",")]);
+  const result = runner("gh", ["issue", "edit", String(issue.number), "--repo", repositoryContext.repositorySlug, "--remove-label", remove.join(",")]);
   return {
     ...commandComponent(result),
     removed: result.status === 0 && !result.error ? remove : [],
     attemptedRemove: remove,
     preserved: preserve,
+    repositorySlug: repositoryContext.repositorySlug,
+    repositoryId: repositoryContext.repositoryId || null,
+    operation: "label_remove",
+    completedAt: new Date().toISOString(),
   };
 }
 
@@ -129,9 +143,9 @@ export function buildLedgerReconciliationProposal(context = {}) {
   return { skipped: false, ok: true, proposal: result.proposals[0] };
 }
 
-function refreshCompletionState(context = {}, runner) {
-  const issue = context.issue?.number ? readIssue(context.issue, runner) : context.issue || {};
-  const pr = context.pr?.number || context.pr?.url ? readPr(context.pr, runner) : context.pr || {};
+function refreshCompletionState(context = {}, runner, repositoryContext) {
+  const issue = context.issue?.number ? readIssue(context.issue, runner, repositoryContext) : context.issue || {};
+  const pr = context.pr?.number || context.pr?.url ? readPr(context.pr, runner, repositoryContext) : context.pr || {};
   return {
     ...context,
     issue: { ...(context.issue || {}), ...issue },
@@ -141,8 +155,8 @@ function refreshCompletionState(context = {}, runner) {
   };
 }
 
-function readIssue(issue, runner) {
-  const result = runner("gh", ["issue", "view", String(issue.number), "--json", "number,title,body,state,labels,comments,url"]);
+function readIssue(issue, runner, repositoryContext) {
+  const result = runner("gh", ["issue", "view", String(issue.number), "--repo", repositoryContext.repositorySlug, "--json", "number,title,body,state,labels,comments,url"]);
   if (result.status !== 0 || result.error) return issue;
   try {
     return normalizeIssue(JSON.parse(result.stdout || "{}"));
@@ -151,9 +165,9 @@ function readIssue(issue, runner) {
   }
 }
 
-function readPr(pr, runner) {
+function readPr(pr, runner, repositoryContext) {
   const ref = pr.number || pr.url;
-  const result = runner("gh", ["pr", "view", String(ref), "--json", "number,url,title,body,state,headRefName,headRefOid,baseRefName,mergeCommit,mergedAt"]);
+  const result = runner("gh", ["pr", "view", String(ref), "--repo", repositoryContext.repositorySlug, "--json", "number,url,title,body,state,headRefName,headRefOid,baseRefName,mergeCommit,mergedAt"]);
   if (result.status !== 0 || result.error) return pr;
   try {
     return JSON.parse(result.stdout || "{}");
@@ -194,16 +208,16 @@ function hasCompletionComment(issue = {}, context = {}) {
   return (issue.comments || []).some((comment) => String(comment.body || "").includes(marker));
 }
 
-function postParentProgress(config, context, runner) {
+function postParentProgress(config, context, runner, repositoryContext) {
   const parentIssue = context.parentIssue || context.parent?.number || 800;
   if (!parentIssue) return { status: "skipped", reason: "parent_issue_missing" };
-  const parent = readIssue({ number: parentIssue }, runner);
+  const parent = readIssue({ number: parentIssue }, runner, repositoryContext);
   const body = renderParentProgressComment({ ...context, parentIssue });
   const marker = `settleora-parent-progress:${parentIssue}:${context.mergeSha || "unknown"}:${context.issue?.number || "unknown"}`;
   if ((parent.comments || []).some((comment) => String(comment.body || "").includes(marker))) {
     return { status: "skipped", reason: "parent_progress_already_present", parentIssue };
   }
-  return { ...commandComponent(runner("gh", ["issue", "comment", String(parentIssue), "--body", body])), parentIssue };
+  return { ...commandComponent(runner("gh", ["issue", "comment", String(parentIssue), "--repo", repositoryContext.repositorySlug, "--body", body])), parentIssue, repositorySlug: repositoryContext.repositorySlug };
 }
 
 function updateProjectStatusIfSupported(config, context, runner) {
@@ -227,14 +241,14 @@ function updateProjectStatusIfSupported(config, context, runner) {
   );
 }
 
-function reconcileLedger(config, context, runner) {
+function reconcileLedger(config, context, runner, repositoryContext) {
   const proposalResult = buildLedgerReconciliationProposal(context);
   if (proposalResult.skipped || !proposalResult.ok) return proposalResult;
   const result = executeIssueMutationPipeline(
     { ...config, maxFollowupIssuesPerRun: 1 },
     [proposalResult.proposal],
     context.ledgerEvidence || {},
-    { runner },
+    { runner, repositoryContext, context },
   );
   return {
     status: result.results[0]?.action || "unknown",
@@ -255,7 +269,29 @@ function commandComponent(result = {}) {
 }
 
 function labelNames(labels = []) {
+  if (!Array.isArray(labels)) return [];
   return labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean);
+}
+
+function failedCompletionHygiene(context = {}, reason, repositoryContext = {}) {
+  const component = { status: "failed", reason };
+  return {
+    status: "failed",
+    reason,
+    repositoryContext,
+    mergeSha: context.mergeSha || null,
+    sourceHeadSha: context.sourceHeadSha || context.expectedHeadSha || null,
+    issue: issueSummary(context.issue || {}),
+    closeDecision: { close: false, reason },
+    closure: component,
+    comment: component,
+    labelCleanup: component,
+    parentProgress: component,
+    project: { status: "not_updated", reason },
+    ledger: { skipped: true, reason },
+    generatedFollowups: context.generatedFollowups || [],
+    sourceBranchDeleted: false,
+  };
 }
 
 function issueSummary(issue = {}) {
