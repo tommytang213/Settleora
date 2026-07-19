@@ -2953,7 +2953,7 @@ function validateExplicitStackStatePath(statePath, logsRoot) {
   if (!rootStat.isDirectory()) throw new Error("prStackExecution.statePath logsRoot must be a directory");
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
   if (currentUid !== null && rootStat.uid !== currentUid) throw new Error("prStackExecution.statePath logsRoot owner must match current operator");
-  if ((rootStat.mode & 0o002) !== 0) throw new Error("prStackExecution.statePath logsRoot must not be world-writable");
+  if ((rootStat.mode & 0o077) !== 0) throw new Error("prStackExecution.statePath logsRoot must be owner-only");
   const relative = path.relative(lexicalRoot, statePath);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative) || relative.split(path.sep).includes("..")) {
     throw new Error("prStackExecution.statePath must be under logsRoot");

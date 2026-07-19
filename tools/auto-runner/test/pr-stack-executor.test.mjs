@@ -2826,6 +2826,25 @@ test("explicit stack state path rejects unsafe existing parent permissions befor
   assert.equal(existsSync(statePath), false);
 });
 
+test("explicit stack state path rejects group-writable logsRoot before writing", async () => {
+  const fixture = stackFixture();
+  chmodSync(fixture.logsRoot, 0o770);
+  const statePath = path.join(fixture.logsRoot, "stack", "group-writable-root-state.json");
+  const config = {
+    ...fixture.config,
+    prStackExecution: {
+      ...fixture.config.prStackExecution,
+      statePath,
+    },
+  };
+
+  await assert.rejects(
+    () => runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter: scriptedAdapter([]) }),
+    /prStackExecution\.statePath logsRoot must be owner-only/,
+  );
+  assert.equal(existsSync(statePath), false);
+});
+
 test("explicit stack state path rejects unsafe existing state file before overwrite", async () => {
   const fixture = stackFixture();
   const statePath = path.join(fixture.logsRoot, "stack", "unsafe-stack-state.json");
