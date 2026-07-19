@@ -1,10 +1,19 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { parseCliArgs, loadConfig, defaultLogsRoot, validateRecoveryOnlyExistingPrTarget, validateRecoveryOnlyExactHeadEvidence } from "./lib/config.mjs";
+import {
+  canonicalizeChangedFiles,
+  digestChangedFiles,
+  parseCliArgs,
+  loadConfig,
+  defaultLogsRoot,
+  validateRecoveryOnlyExistingPrTarget,
+  validateRecoveryOnlyExactHeadEvidence,
+} from "./lib/config.mjs";
 import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
@@ -32,6 +41,7 @@ import {
   getStatusShort,
   listChangedFiles,
   listWorkingTreeChangedFiles,
+  sourceStateIdentityForCommit,
   workingTreeDiffHash,
 } from "./lib/git-workspace.mjs";
 import { generateTaskPrompt } from "./lib/task-prompt.mjs";
@@ -43,6 +53,19 @@ import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
+import {
+  accountConvergenceEvent,
+  buildLiveReviewConvergenceContext,
+  claimedReviewFindingFingerprints,
+  evaluateCycleBudget,
+  markDiagnosticReviewFixTerminal,
+  reviewFindingsFromSupportedContainers,
+  reviewFindingFingerprintsFromSupportedContainers,
+} from "./lib/review-convergence-controller.mjs";
+import {
+  loadReviewConvergenceState,
+  writeReviewConvergenceState,
+} from "./lib/review-convergence-state.mjs";
 import {
   buildPostReviewFixMechanicsContext,
   buildReviewFixPrompt,
@@ -79,6 +102,7 @@ import {
   bindRecoveryEvidence,
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
+  persistCompleteHeadEvidence,
   recordIdempotentMutation,
   recordRecoveryAttempt,
   writeRecoveryState,
@@ -86,6 +110,7 @@ import {
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
+import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -169,6 +194,26 @@ async function main() {
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
+  if (cliArgs.runPrStack) {
+    const config = loadConfig(cliArgs);
+    const liveRunner = createLiveFixedArgvRunner(config);
+    const liveReviewAdapters = createLivePrStackReviewAdapters(config);
+    let lockPath = null;
+    try {
+      lockPath = acquireRunnerLock(config, {
+        runId: `pr-stack-${safeTimestamp()}`,
+        mode: config.mode,
+        configPath: config.configPath || null,
+        stackPlanPath: cliArgs.stackPlanPath,
+      });
+      const result = await runPrStackExecution(config, cliArgs, { runner: liveRunner, ...liveReviewAdapters });
+      console.log(JSON.stringify(result, null, 2));
+      process.exitCode = result.ok || result.outcome === "waiting" ? 0 : 1;
+    } finally {
+      releaseRunnerLock(lockPath);
+    }
+    return;
+  }
 
   const config = loadConfig(cliArgs, {
     outageResubmissionControllerAvailable: true,
@@ -179,6 +224,10 @@ async function main() {
   }
   const runId = `run-${safeTimestamp()}`;
   const logger = createLogger(config.logsRoot, runId);
+  const recoveryOnlyStartupDiscovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : null;
+  const recoveryOnlyStartupEvidenceCheck = recoveryOnlyStartupDiscovery?.found && recoveryOnlyStartupDiscovery.allowed
+    ? validateRecoveryOnlyStartupEvidence(config, { issue: { number: config.outageRecoveryTarget?.issueNumber } })
+    : { ok: true };
   let lockPath = null;
   const summary = {
     runId,
@@ -205,6 +254,19 @@ async function main() {
       maxIterations: config.maxIterations,
       maxRuntimeMs: config.maxRuntimeMs,
     });
+    if (!recoveryOnlyStartupEvidenceCheck.ok) {
+      summary.iterations.push({
+        runId,
+        index: 1,
+        startedAt: summary.startedAt,
+        finishedAt: new Date().toISOString(),
+        issue: null,
+        outcome: "blocked_recovery_state",
+        systemicStop: `recoverable-work-blocked:${recoveryOnlyStartupEvidenceCheck.reason}`,
+        recovery: { reasonCode: recoveryOnlyStartupEvidenceCheck.reason },
+      });
+      summary.stopReason = `recoverable-work-blocked:${recoveryOnlyStartupEvidenceCheck.reason}`;
+    } else {
     summary.baseOriginMainSha = getRefSha("origin/main");
     ensureLaunchWorkspace(config, logger);
     summary.maxIterations = config.maxIterations;
@@ -255,6 +317,7 @@ async function main() {
     }
     if (!summary.stopReason) {
       summary.stopReason = "max-iterations-reached";
+    }
     }
   } finally {
     releaseRunnerLock(lockPath);
@@ -446,12 +509,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   if ((issue.labels || []).includes("auto-bundle")) {
+    const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
     const bundleResult = await runFeatureBundleIteration(config, logger, {
       runId,
       index,
       issue,
       laneDecision,
       recoveryState: recoveryRecorder?.state || null,
+      autoMergeRunner,
       controlCheck: () => {
         const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
         return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -723,6 +788,19 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   });
   if (iteration.externalReview.status === "blocked") {
     recoveryRecorder?.advance("review_fix", "run_external_review_fix");
+    if (!config.dryRun) {
+      const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
+        issue,
+        laneDecision,
+        branchName,
+        baseRef: "main",
+        exactHead: iteration.runnerCreatedCommitSha,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        relationships: { parentPr: null, dependentPrs: [] },
+      });
+      if (!budget.ok) return stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder);
+    }
     const fixAttempt = await runReviewFixCycle(config, {
       issue,
       laneDecision,
@@ -734,10 +812,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       report: iteration.report,
       externalReview: iteration.externalReview,
       review: null,
-      attemptCount: iteration.reviewFixAttempts?.length || 0,
+      attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+      reviewConvergenceState: iteration.reviewConvergenceState,
+      diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (!fixAttempt.proceeded) {
+      markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome =
         iteration.externalReview.reason === "blocked_external_reviewer_route_not_eligible" ||
         iteration.externalReview.reason === "blocked_external_reviewer_lane_not_eligible" ||
@@ -766,7 +847,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     forbidden = postFix.forbiddenChangedFiles;
     iteration.changedFiles = changedFiles;
     iteration.forbiddenChangedFiles = forbidden;
-    iteration.validation = postFix.validation;
+    iteration.validation = bindValidationEvidence(postFix.validation, {
+      headSha: postFix.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+      profile: laneDecision.validationProfile,
+    });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
     recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_fix_commit");
@@ -774,10 +860,30 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       target: branchName,
       correlation: runId,
     });
+    accountNormalReviewFixCommit(iteration, iteration.runnerCreatedCommitSha, "review_fix_commit");
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+    if (iteration.reviewMutationGuard?.mutationDetected) {
+      return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_fix_review_mutated_checkout");
+    }
+    const sourceIdentity = normalSourceIdentityForCommit(iteration);
+    appendNormalReviewConvergenceHistory(iteration, {
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      fixAttempt,
+      sourceIdentity,
+    });
+    persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
+    recordPostFixExactHeadEvidence(recoveryRecorder, {
+      validation: iteration.validation,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      headSha: iteration.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+    });
   }
   if (!iteration.review) {
     recoveryRecorder?.advance("codex_mechanics_security_review", "run_codex_mechanics_review");
@@ -808,6 +914,19 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   });
 
   if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
+    if (!config.dryRun) {
+      const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
+        issue,
+        laneDecision,
+        branchName,
+        baseRef: "main",
+        exactHead: iteration.runnerCreatedCommitSha,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        relationships: { parentPr: null, dependentPrs: [] },
+      });
+      if (!budget.ok) return stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder);
+    }
     const fixAttempt = await runReviewFixCycle(config, {
       issue,
       laneDecision,
@@ -819,7 +938,9 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       report: iteration.report,
       externalReview: iteration.externalReview,
       review: iteration.review,
-      attemptCount: iteration.reviewFixAttempts?.length || 0,
+      attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+      reviewConvergenceState: iteration.reviewConvergenceState,
+      diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
     if (fixAttempt.proceeded) {
@@ -834,49 +955,113 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       forbidden = postFix.forbiddenChangedFiles;
       iteration.changedFiles = changedFiles;
       iteration.forbiddenChangedFiles = forbidden;
-      iteration.validation = postFix.validation;
+      iteration.validation = bindValidationEvidence(postFix.validation, {
+        headSha: postFix.runnerCreatedCommitSha,
+        baseSha: iteration.baseOriginMainSha,
+        changedFiles,
+        profile: laneDecision.validationProfile,
+      });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+      recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "codex_review_initial_fix_commit");
+      recoveryRecorder?.marker("checkpoint_commit", `codex-review-initial-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
+        target: branchName,
+        correlation: runId,
+      });
+      accountNormalReviewFixCommit(iteration, iteration.runnerCreatedCommitSha, "codex_review_initial_fix_commit");
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+      if (iteration.reviewMutationGuard?.mutationDetected) {
+        return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_initial_fix_review_mutated_checkout");
+      }
+      const sourceIdentity = normalSourceIdentityForCommit(iteration);
+      appendNormalReviewConvergenceHistory(iteration, {
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        fixAttempt,
+        sourceIdentity,
+      });
+      persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
+      recordPostFixExactHeadEvidence(recoveryRecorder, {
+        validation: iteration.validation,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        headSha: iteration.runnerCreatedCommitSha,
+        baseSha: iteration.baseOriginMainSha,
+        changedFiles,
+      });
+    } else {
+      markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
     }
   }
 
-  if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
+  if (config.requirePrePrReview && config.dryRun && iteration.review.verdict.verdict !== "approve") {
     iteration.outcome =
       iteration.review.verdict.verdict === "danger_gate"
         ? "danger_gate"
         : iteration.review.verdict.verdict === "needs_tommy"
           ? "blocked_needs_tommy"
-        : "review_changes_requested_retry_exhausted";
+          : "review_changes_requested_retry_exhausted";
     iteration.issueComment = finishIssueOutcome(
       config,
       issue,
       iteration.outcome,
       `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
-      );
-      recoveryRecorder?.stop("codex_review_not_approved", iteration.review.verdict.verdict, "run_focused_fix_or_escalate");
-      iteration.finishedAt = new Date().toISOString();
-      return iteration;
-    }
-  if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
-    const fixAttempt = await runReviewFixCycle(config, {
-      issue,
-      laneDecision,
-      branchName,
-      promptInfo,
-      changedFiles,
-      forbiddenChangedFiles: forbidden,
-      validation: iteration.validation,
-      report: iteration.report,
-      externalReview: iteration.externalReview,
-      review: iteration.review,
-      attemptCount: iteration.reviewFixAttempts?.length || 0,
-    });
-    iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
-    if (fixAttempt.proceeded) {
+    );
+    recoveryRecorder?.stop("codex_review_not_approved", iteration.review.verdict.verdict, "run_focused_fix_or_escalate");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+  while (true) {
+    if (!config.dryRun && iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") {
+      recoveryRecorder?.advance("review_fix", "run_bounded_codex_review_convergence");
+      const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
+        issue,
+        laneDecision,
+        branchName,
+        baseRef: "main",
+        exactHead: iteration.runnerCreatedCommitSha,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        relationships: { parentPr: null, dependentPrs: [] },
+      });
+      if (!budget.ok) return stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder);
+      const fixAttempt = await runReviewFixCycle(config, {
+        issue,
+        laneDecision,
+        branchName,
+        promptInfo,
+        changedFiles,
+        forbiddenChangedFiles: forbidden,
+        validation: iteration.validation,
+        report: iteration.report,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+        reviewConvergenceState: iteration.reviewConvergenceState,
+        diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
+      });
+      iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+      if (!fixAttempt.proceeded) {
+        markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
+        iteration.outcome =
+          iteration.review.verdict.verdict === "danger_gate"
+            ? "danger_gate"
+            : iteration.review.verdict.verdict === "needs_tommy"
+              ? "blocked_needs_tommy"
+              : "review_changes_requested_retry_exhausted";
+        iteration.issueComment = finishIssueOutcome(
+          config,
+          issue,
+          iteration.outcome,
+          `Auto-runner did not open a PR for #${issue.number} because bounded Codex review convergence could not safely continue: ${fixAttempt.reason}.`,
+        );
+        recoveryRecorder?.stop("codex_review_convergence_fix_not_proceeded", fixAttempt.reason, "create_or_reuse_followup_or_escalate");
+        iteration.finishedAt = new Date().toISOString();
+        return iteration;
+      }
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
         laneDecision,
@@ -888,43 +1073,168 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       forbidden = postFix.forbiddenChangedFiles;
       iteration.changedFiles = changedFiles;
       iteration.forbiddenChangedFiles = forbidden;
-      iteration.validation = postFix.validation;
+      iteration.validation = bindValidationEvidence(postFix.validation, {
+        headSha: postFix.runnerCreatedCommitSha,
+        baseSha: iteration.baseOriginMainSha,
+        changedFiles,
+        profile: laneDecision.validationProfile,
+      });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+      recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "codex_review_convergence_fix_commit");
+      recoveryRecorder?.marker("checkpoint_commit", `codex-review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
+        target: branchName,
+        correlation: runId,
+      });
+      accountNormalReviewFixCommit(iteration, iteration.runnerCreatedCommitSha, "codex_review_convergence_fix_commit");
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+      if (iteration.reviewMutationGuard?.mutationDetected) {
+        return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_convergence_fix_review_mutated_checkout");
+      }
+      const sourceIdentity = normalSourceIdentityForCommit(iteration);
+      appendNormalReviewConvergenceHistory(iteration, {
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        fixAttempt,
+        sourceIdentity,
+      });
+      persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
+      recordPostFixExactHeadEvidence(recoveryRecorder, {
+        validation: iteration.validation,
+        externalReview: iteration.externalReview,
+        review: iteration.review,
+        headSha: iteration.runnerCreatedCommitSha,
+        baseSha: iteration.baseOriginMainSha,
+        changedFiles,
+      });
+      continue;
     }
-  }
-  if (!config.dryRun && iteration.review.verdict.verdict !== "approve") {
-    iteration.outcome = "review_changes_requested_retry_exhausted";
-    iteration.issueComment = finishIssueOutcome(
+    const reviewConvergence = buildLiveReviewConvergenceContext({
       config,
       issue,
-      iteration.outcome,
-      `Auto-runner did not open a PR for #${issue.number} because pre-PR review returned ${iteration.review.verdict.verdict}.`,
-      );
-      recoveryRecorder?.stop("codex_review_not_approved", iteration.review.verdict.verdict, "run_focused_fix_or_escalate");
-      iteration.finishedAt = new Date().toISOString();
-      return iteration;
-  }
-  const prePushReviewGate = evaluatePrePushReviewGate({
-    laneDecision,
-    externalReview: iteration.externalReview,
-    reviewMutationGuard: iteration.reviewMutationGuard,
-  });
-  if (!prePushReviewGate.ok) {
-    iteration.outcome = prePushReviewGate.outcome;
-    iteration.issueComment = finishIssueOutcome(
-      config,
-      issue,
-      iteration.outcome,
-      `Auto-runner did not open a PR for #${issue.number} because ${prePushReviewGate.message}.`,
+      laneDecision,
+      branchName,
+      baseRef: "main",
+      exactHead: iteration.runnerCreatedCommitSha,
+      reviewConvergenceState: iteration.reviewConvergenceState,
+      reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
+      sourceChangingCycle: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+      relationships: { parentPr: null, dependentPrs: [] },
+    });
+    iteration.reviewConvergence = reviewConvergence.context;
+    iteration.reviewConvergenceState = reviewConvergence.gateInput.reviewConvergenceState;
+    const prePushReviewGate = evaluatePrePushReviewGate({
+      ...reviewConvergence.gateInput,
+      laneDecision,
+      externalReview: iteration.externalReview,
+      reviewMutationGuard: iteration.reviewMutationGuard,
+    });
+    iteration.prePushReviewGate = prePushReviewGate;
+    if (prePushReviewGate.ok) break;
+    if (prePushReviewGate.outcome !== "review_convergence_required") {
+      iteration.outcome = prePushReviewGate.outcome;
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner did not open a PR for #${issue.number} because ${prePushReviewGate.message}.`,
       );
       recoveryRecorder?.stop("pre_push_review_gate_failed", prePushReviewGate.reason || prePushReviewGate.message, "stop_fail_closed");
       iteration.finishedAt = new Date().toISOString();
       return iteration;
+    }
+    recoveryRecorder?.advance("review_fix", "run_bounded_review_convergence");
+    const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
+      issue,
+      laneDecision,
+      branchName,
+      baseRef: "main",
+      exactHead: iteration.runnerCreatedCommitSha,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      relationships: { parentPr: null, dependentPrs: [] },
+    });
+    if (!budget.ok) return stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder);
+    const fixAttempt = await runReviewFixCycle(config, {
+      issue,
+      laneDecision,
+      branchName,
+      promptInfo,
+      changedFiles,
+      forbiddenChangedFiles: forbidden,
+      validation: iteration.validation,
+      report: iteration.report,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      attemptCount: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+      reviewConvergenceState: iteration.reviewConvergenceState,
+      diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
+    });
+    iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (!fixAttempt.proceeded) {
+      markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
+      iteration.outcome = "review_changes_requested_retry_exhausted";
+      iteration.issueComment = finishIssueOutcome(
+        config,
+        issue,
+        iteration.outcome,
+        `Auto-runner did not open a PR for #${issue.number} because bounded review convergence could not safely continue: ${fixAttempt.reason}.`,
+      );
+      recoveryRecorder?.stop("review_convergence_fix_not_proceeded", fixAttempt.reason, "create_or_reuse_followup_or_escalate");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
+      issue,
+      laneDecision,
+      promptInfo,
+      report: iteration.report,
+      fixAttempt,
+    });
+    changedFiles = postFix.changedFiles;
+    forbidden = postFix.forbiddenChangedFiles;
+    iteration.changedFiles = changedFiles;
+    iteration.forbiddenChangedFiles = forbidden;
+    iteration.validation = bindValidationEvidence(postFix.validation, {
+      headSha: postFix.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+      profile: laneDecision.validationProfile,
+    });
+    iteration.commitAfterReviewFix = postFix.commit;
+    iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+    recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_convergence_fix_commit");
+    recoveryRecorder?.marker("checkpoint_commit", `review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
+      target: branchName,
+      correlation: runId,
+    });
+    accountNormalReviewFixCommit(iteration, iteration.runnerCreatedCommitSha, "review_convergence_fix_commit");
+    iteration.reviewPackage = postFix.reviewPackage;
+    iteration.externalReview = postFix.externalReview;
+    iteration.review = postFix.review;
+    iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+    if (iteration.reviewMutationGuard?.mutationDetected) {
+      return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_convergence_fix_review_mutated_checkout");
+    }
+    const sourceIdentity = normalSourceIdentityForCommit(iteration);
+    appendNormalReviewConvergenceHistory(iteration, {
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      fixAttempt,
+      sourceIdentity,
+    });
+    persistNormalReviewConvergenceState(config, iteration, "post_fix_reviewed");
+    recordPostFixExactHeadEvidence(recoveryRecorder, {
+      validation: iteration.validation,
+      externalReview: iteration.externalReview,
+      review: iteration.review,
+      headSha: iteration.runnerCreatedCommitSha,
+      baseSha: iteration.baseOriginMainSha,
+      changedFiles,
+    });
   }
 
   recoveryRecorder?.advance("push", "push_branch");
@@ -1058,6 +1368,14 @@ function createProductionRecoveryRecorder(config, input) {
     evidence(kind, evidence) {
       return persist(bindRecoveryEvidence(state, kind, evidence));
     },
+    completeHeadEvidence(evidenceByKind, identity = {}) {
+      const persisted = persistCompleteHeadEvidence(config, state, evidenceByKind, identity);
+      if (persisted.ok) {
+        state = persisted.state;
+        statePath = persisted.statePath;
+      }
+      return persisted;
+    },
     headChanged(newHeadSha, reasonCode) {
       return persist(invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }));
     },
@@ -1112,6 +1430,15 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   return executeStartupContinuation(config, startupRecovery, {
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
     default: async ({ state, boundary }) => {
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      if (!startupEvidenceCheck.ok) {
+        return {
+          ok: false,
+          outcome: "blocked_recovery_state",
+          reasonCode: startupEvidenceCheck.reason,
+          state,
+        };
+      }
       const live = readIssueLive(config, state.issue.number);
       if (!live.ok) {
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: live.reason || "recovery_issue_read_failed", state };
@@ -1119,6 +1446,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const issue = live.issue || state.issue;
       const laneDecision = classifyIssueLane(issue);
       if (state.featureBundle) {
+        const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
         const bundle = await runFeatureBundleIteration(config, logger, {
           runId,
           index,
@@ -1126,6 +1454,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           laneDecision,
           branchName: state.branch.name,
           recoveryState: state,
+          autoMergeRunner,
           controlCheck: () => {
             const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
             return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -1164,6 +1493,22 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   });
 }
 
+function validateRecoveryOnlyStartupEvidence(config, state) {
+  if (!config.outageRecoveryOnly) return { ok: true };
+  const issueNumber = state?.issue?.number;
+  const recoveryConfig = config.existingPrRecovery?.[issueNumber] || config.existingPrRecovery?.[String(issueNumber)] || null;
+  if (!recoveryConfig) {
+    return { ok: false, reason: "recovery_existing_pr_context_missing" };
+  }
+  const targetCheck = validateRecoveryOnlyExistingPrTarget(config, recoveryConfig);
+  if (!targetCheck.ok) return targetCheck;
+  const exactHeadEvidence = recoveryConfig.exactHeadEvidence;
+  return validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, {
+    expectedHeadSha: recoveryConfig.expectedHeadSha || exactHeadEvidence?.headSha || null,
+    changedFiles: exactHeadEvidence?.changedFiles || null,
+  });
+}
+
 async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null) {
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
@@ -1178,11 +1523,20 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   }
   fetchOriginMain(config);
   const baseOriginMainSha = getRefSha("origin/main");
-  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl });
+  const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
+  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner });
   const prNumber = githubState.pr?.number || recoveryConfig.prNumber || recoveryConfig.prUrl;
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
     ? recoveryConfig.changedFiles
     : readPrChangedFiles(config, prNumber);
+  let canonicalChangedFiles = changedFiles;
+  let canonicalChangedFilesDigest = null;
+  try {
+    canonicalChangedFiles = canonicalizeChangedFiles(changedFiles);
+    canonicalChangedFilesDigest = digestChangedFiles(canonicalChangedFiles);
+  } catch {
+    canonicalChangedFiles = changedFiles;
+  }
   const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
   let exactHeadEvidence = recoveryConfig.exactHeadEvidence || {};
   const expectedHeadSha = recoveryConfig.expectedHeadSha || exactHeadEvidence.headSha || githubState.pr?.headRefOid || null;
@@ -1217,11 +1571,19 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     });
     exactHeadEvidence = {
       ...exactHeadEvidence,
+      repositorySlug: config.repositorySlug,
+      issueNumber: issue.number,
+      prNumber: recoveryConfig.prNumber,
+      baseSha: config.outageRecoveryTarget?.baseSha || exactHeadEvidence.baseSha || null,
+      taskKey: config.outageRecoveryTarget?.taskKey || exactHeadEvidence.taskKey || null,
+      runnerRunId: config.outageRecoveryTarget?.runnerRunId || exactHeadEvidence.runnerRunId || null,
+      supervisorRunId: config.outageRecoveryTarget?.supervisorRunId || exactHeadEvidence.supervisorRunId || null,
       headSha: expectedHeadSha,
+      changedFiles: canonicalChangedFiles,
       validationPassed: generatedRecoveryEvidence.validation?.passed === true,
       geminiPass: generatedRecoveryEvidence.externalReview?.status === "pass",
       geminiHeadSha: expectedHeadSha,
-      geminiChangedFiles: changedFiles,
+      geminiChangedFiles: canonicalChangedFiles,
       geminiChangedFilesDigest: generatedRecoveryEvidence.externalReview?.changedFilesDigest || null,
       geminiProvider: generatedRecoveryEvidence.externalReview?.provider || exactHeadEvidence.geminiProvider || null,
       geminiTier: generatedRecoveryEvidence.externalReview?.tier || exactHeadEvidence.geminiTier || null,
@@ -1234,7 +1596,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
         null,
       codexMechanicsApproved: generatedRecoveryEvidence.review?.verdict?.verdict === "approve",
       codexMechanicsHeadSha: expectedHeadSha,
-      codexMechanicsChangedFiles: changedFiles,
+      codexMechanicsChangedFiles: canonicalChangedFiles,
       codexMechanicsChangedFilesDigest: generatedRecoveryEvidence.review?.changedFilesDigest || null,
       codexMechanicsCompletedAt: generatedRecoveryEvidence.review?.completedAt || null,
       codexMechanicsEvidencePath: generatedRecoveryEvidence.review?.logPath || generatedRecoveryEvidence.review?.promptPath || null,
@@ -1398,7 +1760,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const autoMerge = executeAutoMerge(config, context, {
-    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }),
+    runner: autoMergeRunner,
+    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner }),
   });
   return {
     reason: recoveryDecision.reason,
@@ -1504,6 +1867,189 @@ function spawnLike(command, args, cwd) {
   return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 
+function createLiveFixedArgvRunner(config = {}) {
+  const repositorySlug = String(config.repositorySlug || "");
+  const repoRoot = path.resolve(config.repoRoot || process.cwd());
+  const maxOutputBytes = Number.isInteger(config.prStackExecution?.runnerMaxOutputBytes)
+    ? Math.max(1024, Math.min(config.prStackExecution.runnerMaxOutputBytes, 1024 * 1024))
+    : 128 * 1024;
+  const timeoutMs = Number.isInteger(config.prStackExecution?.runnerTimeoutMs)
+    ? Math.max(1000, Math.min(config.prStackExecution.runnerTimeoutMs, 120000))
+    : 30000;
+	  const runner = (command, args = [], options = {}) => {
+	    const startedAt = new Date().toISOString();
+	    if (typeof command !== "string" || command.trim() !== command || command.length === 0 || /\s/.test(command)) {
+	      return { status: 1, stdout: "", stderr: "fixed_argv_command_required", error: "fixed_argv_command_required" };
+    }
+    if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
+      return { status: 1, stdout: "", stderr: "fixed_argv_args_required", error: "fixed_argv_args_required" };
+    }
+    if (options.shell === true) {
+      return { status: 1, stdout: "", stderr: "shell_execution_refused", error: "shell_execution_refused" };
+    }
+    const cwd = path.resolve(options.cwd || repoRoot);
+	    const result = spawnSync(command, args, {
+      cwd,
+      input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+      timeout: options.timeoutMs || timeoutMs,
+	      maxBuffer: maxOutputBytes,
+	    });
+	    const stdout = boundRunnerOutput(result.stdout || "", maxOutputBytes);
+	    const stderr = boundRunnerOutput(result.stderr || "", maxOutputBytes);
+	    const error = result.error?.message ? sanitizeRunnerOutputEvidence(result.error.message, 2000) : null;
+	    const completedAt = new Date().toISOString();
+	    const stdoutEvidence = sanitizeRunnerOutputEvidence(stdout, 1000);
+	    const stderrEvidence = sanitizeRunnerOutputEvidence(stderr, 1000);
+	    return {
+	      status: result.status ?? (result.error ? 1 : 0),
+	      stdout,
+	      stderr,
+	      error,
+	      commandEvidence: {
+	        runnerIdentity: runner.settleoraRunnerIdentity,
+	        command,
+	        args: args.map((arg) => sanitizeRunnerArg(arg)),
+	        cwd,
+	        repositorySlug,
+	        startedAt,
+	        completedAt,
+	        timeoutMs: options.timeoutMs || timeoutMs,
+	        maxOutputBytes,
+	        status: result.status ?? (result.error ? 1 : 0),
+	        signal: result.signal || null,
+	        error,
+	        stdoutSha256: createHash("sha256").update(stdout).digest("hex"),
+	        stderrSha256: createHash("sha256").update(stderr).digest("hex"),
+	        stdoutExcerpt: stdoutEvidence,
+	        stderrExcerpt: stderrEvidence,
+	      },
+	    };
+	  };
+  runner.settleoraFixedArgvRunner = true;
+  runner.settleoraRunnerMode = "live";
+  runner.settleoraRunnerIdentity = {
+    kind: "live-fixed-argv",
+    repositorySlug,
+    repoRoot,
+    timeoutMs,
+    maxOutputBytes,
+  };
+  return runner;
+}
+
+function createLivePrStackReviewAdapters(config) {
+  const buildPackage = async ({ reviewPhase, pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview = null }) => {
+    const mechanicsPhase = reviewPhase === "pr-stack-final-codex-exact-head";
+    const incomingLaneDecision = fullCandidatePrDelta?.laneDecision || validation?.laneDecision || { lane: "workflow-docs-tooling" };
+    const incomingContract = incomingLaneDecision.contract || {};
+    const manualMergeRequired = incomingContract.manualMergeRequired ?? incomingLaneDecision.manualMergeRequired ?? true;
+    const autoMergeEligible = incomingContract.autoMergeEligible ?? incomingLaneDecision.autoMergeEligible ?? false;
+    return writeReviewPackage(config, {
+    reviewPhase,
+    issue: pr?.issue || config.prStackIssue || { number: pr?.issueNumber || pr?.number || 921, title: pr?.title || `PR #${pr?.number || "unknown"}`, labels: [] },
+    promptInfo: { promptPath: `pr-stack:${reviewPhase}:pr-${pr?.number || "unknown"}:${headSha || "unknown"}` },
+    laneDecision: {
+      ...incomingLaneDecision,
+      validationProfile: validation?.profile || fullCandidatePrDelta?.laneDecision?.validationProfile || validation?.laneDecision?.validationProfile || "runner-tests",
+      reviewerTier: "strong_independent",
+      manualMergeRequired,
+      autoMergeEligible,
+      contract: {
+        ...incomingContract,
+        manualMergeRequired,
+        autoMergeEligible,
+      },
+    },
+    changedFiles,
+    validation,
+    manualMergeRequired,
+    autoMergeEligible,
+    report: { found: true, expectedPath: `pr-stack:${reviewPhase}` },
+    headSha,
+    baseSha,
+    externalReview: mechanicsPhase && externalReview ? {
+      status: externalReview.status,
+      verdict: externalReview.verdict,
+      tier: externalReview.tier,
+      provider: externalReview.provider,
+      providerProfile: externalReview.providerProfile,
+      model: externalReview.model,
+      reviewedHead: externalReview.reviewedHead,
+      baseSha: externalReview.baseSha,
+      changedFilesDigest: externalReview.changedFilesDigest,
+      reportPath: externalReview.reportPath,
+      completedAt: externalReview.completedAt,
+      independent: externalReview.independent,
+    } : externalReview,
+    fullCandidatePrDelta,
+    reviewFixMechanicsContext: mechanicsPhase ? {
+      objective: "Converge and merge the exact-head PR #919 -> PR #920 development-stage stack through protected controller gates while PR #917 remains frozen.",
+      humanDirectedMergeGate: true,
+      taskKey: config.taskKey || null,
+      exactHead: headSha,
+      exactBase: baseSha,
+      currentTaskSupersedesOlderShaProse: true,
+      githubChecksAndScannersAreSubsequentOuterControllerGates: true,
+      reportFinalizationOccursAfterLiveReadback: true,
+      forbiddenScope: "product runtime/API/auth/security/money/schema/deployment/storage/client/secrets",
+    } : null,
+    diffBaseRef: baseSha,
+    diffHeadRef: headSha,
+    });
+  };
+  return {
+    runStrongReview: async ({ pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta }) => {
+      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-strong-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta });
+      const review = await runIntegratedReviewSource(config, reviewPackage, "pr-stack-final-strong-exact-head");
+      return {
+        ...review,
+        reviewedHead: review.reviewedHead || headSha,
+        reviewedBaseSha: review.reviewedBaseSha,
+        baseSha: review.baseSha || baseSha,
+        changedFiles: review.changedFiles || changedFiles,
+        changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
+        fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
+      };
+    },
+    runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta }) => {
+      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview });
+      const review = runReviewPrompt(config, reviewPackage);
+      return {
+        ...review,
+        reviewedHead: review.reviewedHead || headSha,
+        reviewedBaseSha: review.reviewedBaseSha,
+        baseSha: review.baseSha || baseSha,
+        changedFiles: review.changedFiles || changedFiles,
+        changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
+        fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
+      };
+    },
+  };
+}
+
+function boundRunnerOutput(value, max = 128 * 1024) {
+  const text = String(value || "");
+  return text.length > max ? `${text.slice(0, max)}[truncated]` : text;
+}
+
+function sanitizeRunnerOutputEvidence(value, max = 128 * 1024) {
+  const text = boundRunnerOutput(value, max).replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
+  return text.length > max ? `${text.slice(0, max)}[truncated]` : text;
+}
+
+function sanitizeRunnerArg(value) {
+  const text = String(value || "");
+  const bounded = text.length > 240 ? `${text.slice(0, 240)}[truncated]` : text;
+  return bounded.replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
+}
+
+function digestRunnerStringSet(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+}
+
 async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName, changedFiles, forbidden }) {
   const baseContext = {
     config,
@@ -1546,10 +2092,11 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     fetchOriginMain(config);
     baseContext.currentOriginMainSha = getRefSha("origin/main");
   }
+  const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
   const githubState =
     config.dryRun || !iteration.pr?.url
       ? {}
-      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url });
+      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url }, { runner: autoMergeRunner });
   return executeAutoMerge(config, {
     ...baseContext,
     ...githubState,
@@ -1559,7 +2106,7 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     reviewThreads: githubState.reviewThreads || baseContext.reviewThreads,
     codeScanningAlerts: githubState.codeScanningAlerts || baseContext.codeScanningAlerts,
     blockingMarkers: githubState.blockingMarkers || baseContext.blockingMarkers,
-  });
+  }, { runner: autoMergeRunner });
 }
 
 async function runReviewFixCycle(config, context) {
@@ -1841,6 +2388,194 @@ function compareFingerprints(before, after) {
   return { mutationDetected, before, after };
 }
 
+function currentReviewFindingFingerprints({ externalReview, review } = {}) {
+  return reviewFindingFingerprintsFromSupportedContainers({ externalReview, review });
+}
+
+function normalSourceIdentityForCommit(iteration) {
+  if (!iteration.runnerCreatedCommitSha) {
+    return { exactHead: null, treeId: null, patchId: null, patchIdReason: "dry_run_or_missing_head" };
+  }
+  return sourceStateIdentityForCommit({
+    baseRef: iteration.baseOriginMainSha,
+    headRef: iteration.runnerCreatedCommitSha,
+  });
+}
+
+function appendNormalReviewConvergenceHistory(iteration, { externalReview, review, fixAttempt, sourceIdentity = {} }) {
+  iteration.reviewConvergenceHistory = [
+    ...(iteration.reviewConvergenceHistory || []),
+    {
+      findingFingerprints: currentReviewFindingFingerprints({ externalReview, review }),
+      claimedFixedFingerprints: claimedReviewFindingFingerprints({
+        fixAttempt,
+        externalReview,
+        review,
+        source: fixAttempt?.decision?.trigger?.source || fixAttempt?.trigger?.source,
+      }),
+      exactHead: sourceIdentity.exactHead || null,
+      treeId: sourceIdentity.treeId || null,
+      patchId: sourceIdentity.patchId || null,
+      patchIdKind: sourceIdentity.patchId ? "stable_patch_id" : null,
+      patchIdReason: sourceIdentity.patchIdReason || null,
+    },
+  ];
+}
+
+function evaluateNormalReviewConvergenceBudget(config, iteration, context) {
+  const seed = buildLiveReviewConvergenceContext({
+    ...context,
+    config,
+    reviewConvergenceState: iteration.reviewConvergenceState,
+    reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
+    sourceChangingCycle: iteration.reviewConvergenceState?.sourceChangingCycle ?? 0,
+  });
+  if (!iteration.reviewConvergenceState) {
+    const loaded = loadReviewConvergenceState(config, seed.gateInput.reviewConvergenceState);
+    if (loaded.ok) {
+      iteration.reviewConvergenceState = loaded.state;
+      iteration.reviewConvergenceHistory = loaded.state.history || loaded.state.reviewConvergenceHistory || iteration.reviewConvergenceHistory || [];
+    }
+  }
+  const built = buildLiveReviewConvergenceContext({
+    ...context,
+    config,
+    reviewConvergenceState: iteration.reviewConvergenceState || seed.gateInput.reviewConvergenceState,
+    reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
+    sourceChangingCycle: iteration.reviewConvergenceState?.sourceChangingCycle ?? seed.gateInput.reviewConvergenceState.sourceChangingCycle,
+    currentFindings: reviewFindingsFromSupportedContainers({
+      externalReview: context.externalReview,
+      review: context.review,
+    }),
+  });
+  iteration.reviewConvergence = built.context;
+  iteration.reviewConvergenceState = built.gateInput.reviewConvergenceState;
+  iteration.reviewConvergenceHistory = built.gateInput.reviewConvergenceHistory;
+  persistNormalReviewConvergenceState(config, iteration, "budget_evaluated");
+  const decision = evaluateCycleBudget(iteration.reviewConvergenceState, config, iteration.reviewConvergenceHistory);
+  if (decision.transitionedState) {
+    iteration.reviewConvergenceState = decision.transitionedState;
+    persistNormalReviewConvergenceState(config, iteration, "diagnostic_epoch_started");
+    decision.transitionedState = iteration.reviewConvergenceState;
+  }
+  iteration.reviewConvergenceBudget = decision;
+  return decision;
+}
+
+function accountNormalReviewFixCommit(iteration, newHead, reasonCode) {
+  const state = iteration.reviewConvergenceState || buildLiveReviewConvergenceContext({
+    sourceChangingCycle: 0,
+    exactHead: null,
+  }).gateInput.reviewConvergenceState;
+  const accounted = accountConvergenceEvent(state, { kind: "source_changed", newHead, reasonCode });
+  iteration.reviewConvergenceState = accounted.state;
+  return accounted;
+}
+
+function markNormalDiagnosticReviewFixTerminal(config, iteration, reason) {
+  if (iteration.reviewConvergenceState?.diagnosticReviewFix?.status !== "pending") return;
+  iteration.reviewConvergenceState = markDiagnosticReviewFixTerminal(iteration.reviewConvergenceState, reason);
+  persistNormalReviewConvergenceState(config, iteration, "diagnostic_epoch_terminal");
+}
+
+function persistNormalReviewConvergenceState(config, iteration, phase) {
+  if (!iteration.reviewConvergenceState?.pr?.exactHead) return null;
+  const written = writeReviewConvergenceState(config, {
+    ...iteration.reviewConvergenceState,
+    history: iteration.reviewConvergenceHistory || [],
+    reviewConvergenceHistory: iteration.reviewConvergenceHistory || [],
+    phase,
+  });
+  iteration.reviewConvergenceState = written.state;
+  iteration.reviewConvergenceStatePath = written.statePath;
+  return written;
+}
+
+function stopForNormalReviewConvergenceBudget(config, issue, iteration, budget, recoveryRecorder) {
+  iteration.outcome =
+    budget.terminalReason === "MANUAL_DECISION_REQUIRED"
+      ? "blocked_needs_tommy"
+      : budget.terminalReason === "UNSAFE_SCOPE_CHANGE"
+        ? "danger_gate"
+        : "review_changes_requested_retry_exhausted";
+  iteration.issueComment = finishIssueOutcome(
+    config,
+    issue,
+    iteration.outcome,
+    `Auto-runner did not open a PR for #${issue.number} because bounded review convergence stopped: ${budget.reason || budget.terminalReason}.`,
+  );
+  recoveryRecorder?.stop(
+    `normal_review_convergence_${budget.terminalReason || "blocked"}`,
+    budget.reason || budget.terminalReason,
+    "stop_fail_closed",
+  );
+  iteration.finishedAt = new Date().toISOString();
+  return iteration;
+}
+
+function stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, reasonCode) {
+  iteration.outcome = "auto_failed";
+  iteration.issueComment = finishIssueOutcome(
+    config,
+    issue,
+    iteration.outcome,
+    `Auto-runner blocked #${issue.number} because post-fix exact-head review mutated the checkout.`,
+  );
+  recoveryRecorder?.stop(reasonCode, iteration.reviewMutationGuard?.reason || "post-fix exact-head review mutated the checkout", "operator_recovery_required");
+  iteration.finishedAt = new Date().toISOString();
+  return iteration;
+}
+
+function recordPostFixExactHeadEvidence(recoveryRecorder, { validation, externalReview, review, headSha, baseSha, changedFiles }) {
+  if (!recoveryRecorder) return null;
+  const changedFilesDigest = validation?.changedFilesDigest || externalReview?.changedFilesDigest || review?.changedFilesDigest || null;
+  const persisted = recoveryRecorder.completeHeadEvidence?.(
+    {
+      localValidation: {
+        status: validation?.passed ? "passed" : "failed",
+        headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest,
+        evidencePath: validation?.evidencePath || validation?.reportPath,
+        source: "local_validation",
+        profile: validation?.profile,
+        summary: "post-fix exact-head validation",
+      },
+      externalReview: {
+        status: externalReview?.status === "pass" ? "passed" : "blocked",
+        headSha: externalReview?.reviewedHead || headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest: externalReview?.changedFilesDigest,
+        evidencePath: externalReview?.reportPath || externalReview?.evidencePath,
+        source: externalReview?.source || "external_review",
+        provider: externalReview?.provider,
+        tier: externalReview?.tier,
+        resultId: externalReview?.resultId || externalReview?.reviewId,
+        summary: externalReview?.reason || externalReview?.status,
+      },
+      codexReview: {
+        status: review?.verdict?.verdict === "approve" ? "passed" : "blocked",
+        headSha: review?.reviewedHead || headSha,
+        baseSha,
+        changedFiles,
+        changedFilesDigest: review?.changedFilesDigest,
+        evidencePath: review?.logPath || review?.promptPath,
+        source: review?.source || "codex_mechanics_security_review",
+        provider: review?.provider || "codex",
+        resultId: review?.resultId || review?.reviewId,
+        summary: review?.reviewFailureReason || review?.verdict?.verdict,
+      },
+    },
+    { headSha, baseSha, changedFiles, changedFilesDigest },
+  );
+  if (persisted && !persisted.ok) {
+    throw new Error(`Post-fix exact-head evidence persistence failed: ${persisted.reasonCode || "unknown"}`);
+  }
+  return persisted;
+}
+
 async function writeReviewPackage(config, payload) {
   const diff = Object.hasOwn(payload, "diffText")
     ? { text: String(payload.diffText || ""), truncated: false }
@@ -1854,6 +2589,10 @@ async function writeReviewPackage(config, payload) {
   );
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
+    taskKey: config.taskKey || null,
+    repository: config.repositorySlug || null,
+    manualMergeRequired: payload.manualMergeRequired ?? payload.laneDecision?.manualMergeRequired ?? null,
+    autoMergeEligible: payload.autoMergeEligible ?? payload.laneDecision?.autoMergeEligible ?? null,
     issue: {
       number: payload.issue.number,
       title: payload.issue.title,
@@ -1870,10 +2609,12 @@ async function writeReviewPackage(config, payload) {
       estimatedOutputTokens: 0,
     }),
     changedFiles: payload.changedFiles,
-    currentHead: config.dryRun ? null : getRefSha("HEAD"),
+    currentHead: payload.headSha || (config.dryRun ? null : getRefSha("HEAD")),
     baseSha: payload.baseSha || payload.baseRefSha || payload.baseOriginMainSha || (config.dryRun ? null : getRefSha("origin/main")),
     validation: payload.validation,
     report: payload.report,
+    externalReview: payload.externalReview || null,
+    fullCandidatePrDelta: payload.fullCandidatePrDelta || null,
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };

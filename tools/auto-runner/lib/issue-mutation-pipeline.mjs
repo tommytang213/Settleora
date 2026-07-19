@@ -29,6 +29,15 @@ const transientLabels = new Set(["auto-claimed", "auto-running", "auto-pr-opened
 
 export function executeIssueMutationPipeline(config = {}, proposals = [], evidence = {}, options = {}) {
   const runner = options.runner || ghRunner;
+  const repositoryContext = buildIssueOperationContext(
+    config,
+    {
+      ...(options.context || {}),
+      repositoryContext: options.repositoryContext || options.context?.repositoryContext || config.repositoryContext,
+      repositoryOperationProof: options.repositoryOperationProof || options.context?.repositoryOperationProof || config.repositoryOperationProof,
+    },
+    { requireIssueNumber: false },
+  );
   const maxIssues = normalizeMaxIssues(config.maxFollowupIssuesPerRun);
   const results = [];
   let createdOrQueued = 0;
@@ -40,21 +49,58 @@ export function executeIssueMutationPipeline(config = {}, proposals = [], eviden
       generatedAt: startedAt,
       proposal: proposalSummary(proposal),
       capability: mutationCapability(config),
+      repositoryContext,
       validation,
     };
     const beforePath = persistMutationEvidence(config, "intent", proposal, intent);
+    if (!repositoryContext.ok) {
+      results.push(finalize(config, proposal, { action: "blocked", reason: repositoryContext.reason, validation, repositoryContext, beforePath }));
+      continue;
+    }
     if (!validation.ok) {
       results.push(finalize(config, proposal, { action: "blocked", reason: validation.reason, validation, beforePath }));
       continue;
     }
-    const duplicate = searchDuplicateEvidence(validation.proposal, evidence);
+    const duplicate = repositoryBoundDuplicateEvidence(searchDuplicateEvidence(validation.proposal, evidence), repositoryContext);
     if (!duplicate.ok) {
       results.push(finalize(config, proposal, { action: duplicate.action || "blocked", reason: duplicate.reason, duplicate, beforePath }));
       continue;
     }
     if (duplicate.action === "reuse" || duplicate.action === "reuse_completed_evidence") {
-      const reuse = maybeCommentExistingCorrelation(config, validation.proposal, duplicate.matches[0], runner);
-      results.push(finalize(config, proposal, { action: duplicate.action, reason: duplicate.reason, duplicate, reuse, beforePath }));
+      const existingIssue = bindIssueEvidence(duplicate.matches[0], repositoryContext);
+      const completion = completeRequiredIssueComponents(config, validation.proposal, existingIssue, runner, repositoryContext);
+      if (!completion.ok) {
+        results.push(
+          finalize(config, proposal, {
+            action: "blocked",
+            reason: completion.reasonCode,
+            reasonCode: completion.reasonCode,
+            failedComponent: completion.failedComponent,
+            completed: false,
+            success: false,
+            duplicate,
+            issue: existingIssue,
+            components: completion.components,
+            repositoryContext,
+            beforePath,
+          }),
+        );
+        continue;
+      }
+      results.push(
+        finalize(config, proposal, {
+          action: duplicate.action,
+          reason: duplicate.reason,
+          duplicate,
+          reuse: completion.components.comment,
+          components: completion.components,
+          issue: existingIssue,
+          repositoryContext,
+          completed: true,
+          success: true,
+          beforePath,
+        }),
+      );
       continue;
     }
     if (createdOrQueued >= maxIssues) {
@@ -73,17 +119,83 @@ export function executeIssueMutationPipeline(config = {}, proposals = [], eviden
       continue;
     }
 
-    const rereadBefore = findExistingByCorrelation(validation.proposal, evidence, runner);
+    const rereadBefore = findExistingByCorrelation(validation.proposal, evidence, runner, repositoryContext);
     if (rereadBefore.found) {
-      results.push(finalize(config, proposal, { action: "reuse", reason: "reread_before_create_found_existing", duplicate: rereadBefore, beforePath }));
+      const existingIssue = bindIssueEvidence(rereadBefore.matches[0], repositoryContext);
+      const completion = completeRequiredIssueComponents(config, validation.proposal, existingIssue, runner, repositoryContext);
+      if (!completion.ok) {
+        results.push(
+          finalize(config, proposal, {
+            action: "blocked",
+            reason: completion.reasonCode,
+            reasonCode: completion.reasonCode,
+            failedComponent: completion.failedComponent,
+            completed: false,
+            success: false,
+            duplicate: rereadBefore,
+            issue: existingIssue,
+            components: completion.components,
+            repositoryContext,
+            beforePath,
+          }),
+        );
+        continue;
+      }
+      results.push(
+        finalize(config, proposal, {
+          action: "reuse",
+          reason: "reread_before_create_found_existing",
+          duplicate: rereadBefore,
+          components: completion.components,
+          issue: existingIssue,
+          repositoryContext,
+          completed: true,
+          success: true,
+          beforePath,
+        }),
+      );
       continue;
     }
 
-    const created = createIssue(validation.proposal, runner);
+    const created = createIssue(validation.proposal, runner, repositoryContext);
     if (created.uncertain) {
-      const rereadAfter = findExistingByCorrelation(validation.proposal, evidence, runner);
+      const rereadAfter = findExistingByCorrelation(validation.proposal, evidence, runner, repositoryContext);
       if (rereadAfter.found) {
-        results.push(finalize(config, proposal, { action: "reuse", reason: "uncertain_create_response_reused_by_correlation", create: created, duplicate: rereadAfter, beforePath }));
+        const existingIssue = bindIssueEvidence(rereadAfter.matches[0], repositoryContext);
+        const completion = completeRequiredIssueComponents(config, validation.proposal, existingIssue, runner, repositoryContext);
+        if (!completion.ok) {
+          results.push(
+            finalize(config, proposal, {
+              action: "blocked",
+              reason: completion.reasonCode,
+              reasonCode: completion.reasonCode,
+              failedComponent: completion.failedComponent,
+              completed: false,
+              success: false,
+              create: created,
+              duplicate: rereadAfter,
+              issue: existingIssue,
+              components: completion.components,
+              repositoryContext,
+              beforePath,
+            }),
+          );
+          continue;
+        }
+        results.push(
+          finalize(config, proposal, {
+            action: "reuse",
+            reason: "uncertain_create_response_reused_by_correlation",
+            create: created,
+            duplicate: rereadAfter,
+            components: completion.components,
+            issue: existingIssue,
+            repositoryContext,
+            completed: true,
+            success: true,
+            beforePath,
+          }),
+        );
         continue;
       }
     }
@@ -93,18 +205,39 @@ export function executeIssueMutationPipeline(config = {}, proposals = [], eviden
     }
 
     createdOrQueued += 1;
+    const completion = completeRequiredIssueComponents(config, validation.proposal, created.issue, runner, repositoryContext);
+    if (!completion.ok) {
+      results.push(
+        finalize(config, proposal, {
+          action: "blocked",
+          reason: completion.reasonCode,
+          reasonCode: completion.reasonCode,
+          failedComponent: completion.failedComponent,
+          completed: false,
+          success: false,
+          repositoryContext,
+          create: created,
+          components: completion.components,
+          issue: created.issue,
+          beforePath,
+        }),
+      );
+      continue;
+    }
     const components = {
-      comment: addCorrelationComment(validation.proposal, created.issue, runner),
-      labels: ensureQueueLabels(validation.proposal, created.issue, runner),
+      ...completion.components,
       project: updateProjectStatusIfSupported(config, validation.proposal, created.issue, runner),
     };
     results.push(
       finalize(config, proposal, {
         action: "created",
         reason: "issue_created",
+        repositoryContext,
         create: created,
         components,
         issue: created.issue,
+        completed: true,
+        success: true,
         beforePath,
       }),
     );
@@ -163,11 +296,62 @@ export function mutationCapability(config = {}) {
   };
 }
 
-function createIssue(proposal, runner) {
+export function buildIssueOperationContext(config = {}, context = {}, options = {}) {
+  const configured = normalizeRepositorySlug(
+    config.repositorySlug ||
+      context.config?.repositorySlug ||
+      context.repositoryContext?.repositorySlug ||
+      context.repositoryContext?.configuredRepositorySlug ||
+      context.repositoryOperationProof?.repositorySlug ||
+      context.repositoryOperationProof?.configuredRepositorySlug ||
+      repositorySlugFromGithubUrl(context.pr?.url),
+  );
+  if (!configured) return { ok: false, reason: "repository_slug_required" };
+  const host = normalizeGithubHost(config.githubHost || context.repositoryContext?.githubHost || context.repositoryOperationProof?.githubHost || "github.com");
+  if (host !== "github.com") return { ok: false, reason: "unsupported_github_host", repositorySlug: configured };
+  const proof = context.repositoryContext || context.repositoryOperationProof || {};
+  for (const [field, value] of Object.entries({
+    repositorySlug: proof.repositorySlug,
+    configuredRepositorySlug: proof.configuredRepositorySlug,
+    originRepositorySlug: proof.originRepositorySlug,
+    baseRepositorySlug: proof.baseRepositorySlug,
+    headRepositorySlug: proof.headRepositorySlug,
+    argvRepository: proof.argvRepository,
+  })) {
+    const normalized = value ? normalizeRepositorySlug(value) : null;
+    if (value && !normalized) return { ok: false, reason: `repository_${field}_malformed`, repositorySlug: configured };
+    if (normalized && normalized !== configured) return { ok: false, reason: `repository_${field}_mismatch`, repositorySlug: configured, observedRepositorySlug: normalized };
+  }
+  const prRepository = normalizeRepositorySlug(context.pr?.headRepository?.nameWithOwner || context.pr?.headRepositorySlug || "");
+  if (prRepository && prRepository !== configured) return { ok: false, reason: "repository_pr_head_mismatch", repositorySlug: configured, observedRepositorySlug: prRepository };
+  const issueNumber = normalizeIssueNumber(context.issue?.number);
+  if (options.requireIssueNumber !== false && !issueNumber) return { ok: false, reason: "issue_number_required", repositorySlug: configured };
+  return {
+    ok: true,
+    repositorySlug: configured,
+    canonicalRepositorySlug: configured,
+    githubHost: host,
+    repositoryId: proof.repositoryId || proof.baseRepositoryId || proof.headRepositoryId || context.pr?.headRepository?.id || null,
+    worktreeRoot: config.repoRoot || context.worktreePath || proof.worktreePath || proof.worktreeRoot || null,
+    worktreePath: config.repoRoot || context.worktreePath || proof.worktreePath || proof.worktreeRoot || null,
+    stackId: context.stackId || null,
+    taskKey: context.taskKey || config.taskKey || null,
+    runId: context.runId || config.runId || null,
+    supervisorRunId: context.supervisorRunId || config.supervisorRunId || null,
+    issueNumber,
+    mode: config.dryRun ? "dry_run" : config.run ? "production" : "test",
+    dryRun: Boolean(config.dryRun),
+    proof: proof || null,
+  };
+}
+
+function createIssue(proposal, runner, repositoryContext) {
   const body = renderProposalIssueBody(proposal);
   const result = runner("gh", [
     "issue",
     "create",
+    "--repo",
+    repositoryContext.repositorySlug,
     "--title",
     proposal.title,
     "--body",
@@ -186,47 +370,130 @@ function createIssue(proposal, runner) {
     };
   }
   const url = String(result.stdout || "").trim();
-  const number = Number(url.match(/\/issues\/(\d+)/)?.[1] || result.issueNumber || 0) || null;
+  const parsed = parseIssueUrl(url, repositoryContext.repositorySlug);
+  if (!parsed.ok) return { ok: false, uncertain: false, reason: parsed.reason, result: commandStatus(result), repositoryContext };
+  const number = parsed.number;
   return {
     ok: true,
     uncertain: false,
     issue: {
       number,
-      url,
+      url: parsed.canonicalUrl,
+      canonicalUrl: parsed.canonicalUrl,
+      issueUrlParseProof: parsed,
+      repositorySlug: repositoryContext.repositorySlug,
+      repositoryId: repositoryContext.repositoryId || null,
       state: "OPEN",
       labels: proposal.proposedLabels,
       correlationKey: proposal.correlationKey,
       idempotencyKey: proposal.idempotencyKey,
     },
+    repositoryContext,
     result: commandStatus(result),
   };
 }
 
-function maybeCommentExistingCorrelation(config, proposal, match, runner) {
+function maybeCommentExistingCorrelation(config, proposal, match, runner, repositoryContext) {
   if (!mutationCapability(config).allowed) return { skipped: true, reason: "mutation_not_allowed" };
   const text = `${match.body || ""}\n${match.text || ""}\n${match.comment || ""}`;
   if (text.includes(proposal.correlationKey) || text.includes(proposal.idempotencyKey)) {
     return { skipped: true, reason: "correlation_already_present" };
   }
-  return addCorrelationComment(proposal, match, runner);
+  return addCorrelationComment(proposal, match, runner, repositoryContext);
 }
 
-function addCorrelationComment(proposal, issue, runner) {
+function completeRequiredIssueComponents(config, proposal, issue, runner, repositoryContext) {
+  const components = {};
+  if (!mutationCapability(config).allowed) {
+    components.comment = { status: "failed", reason: "mutation_not_allowed", repositorySlug: repositoryContext.repositorySlug, issueNumber: issue?.number || null };
+  } else {
+    components.comment = addCorrelationComment(proposal, issue, runner, repositoryContext);
+  }
+  if (componentFailed(components.comment)) {
+    return requiredComponentFailure("correlation_comment", components.comment, components);
+  }
+  components.labels = ensureQueueLabels(proposal, issue, runner, repositoryContext);
+  if (componentFailed(components.labels)) {
+    return requiredComponentFailure("queue_labels", components.labels, components);
+  }
+  return { ok: true, components };
+}
+
+function componentFailed(component = {}) {
+  return ["failed", "not_updated"].includes(component.status) && component.reason !== "no_queue_labels";
+}
+
+function requiredComponentFailure(failedComponent, component = {}, components = {}) {
+  const reasonCode = component.reason || `${failedComponent}_failed`;
+  return {
+    ok: false,
+    failedComponent,
+    reasonCode,
+    components,
+  };
+}
+
+function addCorrelationComment(proposal, issue, runner, repositoryContext) {
   if (!issue?.number) return { status: "not_updated", reason: "issue_number_missing" };
+  if (!sameRepositoryIssue(issue, repositoryContext)) return { status: "failed", reason: "issue_repository_mismatch", repositorySlug: repositoryContext.repositorySlug };
+  const existing = runner("gh", ["issue", "view", String(issue.number), "--repo", repositoryContext.repositorySlug, "--json", "comments,body,url,number"]);
+  if (existing.status !== 0 || existing.error) return { status: "failed", reason: "correlation_comment_read_failed", result: commandStatus(existing), repositorySlug: repositoryContext.repositorySlug };
+  try {
+    const parsed = JSON.parse(existing.stdout || "{}");
+    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext, { expectedIssueNumber: issue.number, requireEvidence: true, requireIssueNumber: true });
+    if (!repositoryCheck.ok) return { status: "failed", reason: repositoryCheck.reason, repositorySlug: repositoryContext.repositorySlug };
+    const text = `${parsed.body || ""}\n${(Array.isArray(parsed.comments) ? parsed.comments : []).map((comment) => comment.body || "").join("\n")}`;
+    if (text.includes(proposal.correlationKey) || text.includes(proposal.idempotencyKey)) {
+      return { status: "skipped", reason: "correlation_already_present", repositorySlug: repositoryContext.repositorySlug, issueNumber: issue.number };
+    }
+  } catch (error) {
+    return { status: "failed", reason: `correlation_comment_read_parse_failed:${bounded(error.message)}`, repositorySlug: repositoryContext.repositorySlug };
+  }
   const body = [
     "Generated-work correlation recorded.",
     "",
     `Correlation key: \`${proposal.correlationKey}\``,
     `Idempotency key: \`${proposal.idempotencyKey}\``,
   ].join("\n");
-  return commandComponent(runner("gh", ["issue", "comment", String(issue.number), "--body", body]));
+  return {
+    ...commandComponent(runner("gh", ["issue", "comment", String(issue.number), "--repo", repositoryContext.repositorySlug, "--body", body])),
+    repositorySlug: repositoryContext.repositorySlug,
+    repositoryId: repositoryContext.repositoryId || null,
+    issueNumber: issue.number,
+    correlationKey: proposal.correlationKey,
+    idempotencyKey: proposal.idempotencyKey,
+  };
 }
 
-function ensureQueueLabels(proposal, issue, runner) {
+function ensureQueueLabels(proposal, issue, runner, repositoryContext) {
   if (!issue?.number) return { status: "not_updated", reason: "issue_number_missing" };
+  if (!sameRepositoryIssue(issue, repositoryContext)) return { status: "failed", reason: "issue_repository_mismatch", repositorySlug: repositoryContext.repositorySlug };
   const labels = proposal.proposedLabels.filter((label) => durableQueueLabels.has(label) || label === "manual-gate" || label === "needs-tommy");
   if (labels.length === 0) return { status: "not_updated", reason: "no_queue_labels" };
-  return commandComponent(runner("gh", ["issue", "edit", String(issue.number), "--add-label", labels.join(",")]));
+  const view = runner("gh", ["issue", "view", String(issue.number), "--repo", repositoryContext.repositorySlug, "--json", "labels,url,number"]);
+  if (view.status !== 0 || view.error) return { status: "failed", reason: "queue_label_read_failed", result: commandStatus(view), repositorySlug: repositoryContext.repositorySlug };
+  try {
+    const parsed = JSON.parse(view.stdout || "{}");
+    const repositoryCheck = repositoryEvidenceMatches(parsed, repositoryContext, { expectedIssueNumber: issue.number, requireEvidence: true, requireIssueNumber: true });
+    if (!repositoryCheck.ok) return { status: "failed", reason: repositoryCheck.reason, repositorySlug: repositoryContext.repositorySlug };
+    const existing = labelNames(parsed.labels);
+    const missing = labels.filter((label) => !existing.includes(label));
+    if (missing.length === 0) {
+      return { status: "skipped", reason: "queue_labels_already_present", labelsFound: existing, labelsAdded: [], repositorySlug: repositoryContext.repositorySlug, issueNumber: issue.number };
+    }
+    const edit = runner("gh", ["issue", "edit", String(issue.number), "--repo", repositoryContext.repositorySlug, "--add-label", missing.join(",")]);
+    return {
+      ...commandComponent(edit),
+      labelsFound: existing,
+      labelsAdded: edit.status === 0 && !edit.error ? missing : [],
+      labelsAttempted: missing,
+      repositorySlug: repositoryContext.repositorySlug,
+      repositoryId: repositoryContext.repositoryId || null,
+      issueNumber: issue.number,
+    };
+  } catch (error) {
+    return { status: "failed", reason: `queue_label_read_parse_failed:${bounded(error.message)}`, repositorySlug: repositoryContext.repositorySlug };
+  }
 }
 
 function updateProjectStatusIfSupported(config, proposal, issue, runner) {
@@ -251,18 +518,22 @@ function updateProjectStatusIfSupported(config, proposal, issue, runner) {
   return commandComponent(result);
 }
 
-function findExistingByCorrelation(proposal, evidence, runner) {
-  const duplicate = searchDuplicateEvidence(proposal, evidence);
+function findExistingByCorrelation(proposal, evidence, runner, repositoryContext) {
+  const duplicate = repositoryBoundDuplicateEvidence(searchDuplicateEvidence(proposal, evidence), repositoryContext);
   if (duplicate.ok && ["reuse", "reuse_completed_evidence"].includes(duplicate.action)) {
-    return { found: true, source: "evidence", matches: duplicate.matches };
+    return { found: true, source: "evidence", matches: duplicate.matches, repositorySlug: repositoryContext.repositorySlug };
   }
-  const query = `${proposal.correlationKey} repo:tommytang213/Settleora`;
-  const result = runner("gh", ["issue", "list", "--state", "all", "--search", query, "--json", "number,title,state,url,labels,body"]);
+  const query = proposal.correlationKey;
+  const result = runner("gh", ["issue", "list", "--repo", repositoryContext.repositorySlug, "--state", "all", "--search", query, "--json", "number,title,state,url,labels,body"]);
   if (result.status !== 0 || result.error) return { found: false, reason: "correlation_reread_failed", result: commandStatus(result) };
   try {
     const parsed = JSON.parse(result.stdout || "[]");
     const exact = parsed.filter((item) => String(item.body || "").includes(proposal.correlationKey));
-    return exact.length > 0 ? { found: true, source: "github_search", matches: exact } : { found: false, source: "github_search" };
+    const sameRepository = exact.filter((item) => repositoryEvidenceMatches(item, repositoryContext).ok);
+    const otherRepositoryCount = exact.length - sameRepository.length;
+    return sameRepository.length > 0
+      ? { found: true, source: "github_search", matches: sameRepository.map((item) => bindIssueEvidence(item, repositoryContext)), otherRepositoryCount, repositorySlug: repositoryContext.repositorySlug, query }
+      : { found: false, source: "github_search", otherRepositoryCount, repositorySlug: repositoryContext.repositorySlug, query };
   } catch (error) {
     return { found: false, reason: `correlation_reread_parse_failed:${error.message}` };
   }
@@ -313,6 +584,106 @@ function proposalSummary(proposal = {}) {
   };
 }
 
+function repositoryBoundDuplicateEvidence(duplicate = {}, repositoryContext = {}) {
+  if (!duplicate.ok || !Array.isArray(duplicate.matches)) return duplicate;
+  const checkedMatches = duplicate.matches.map((match) => ({ match, check: repositoryEvidenceMatches(match, repositoryContext, { requireEvidence: true }) }));
+  const matches = checkedMatches.filter((entry) => entry.check.ok).map((entry) => bindIssueEvidence(entry.match, repositoryContext));
+  if (matches.length === duplicate.matches.length) return { ...duplicate, matches, repositorySlug: repositoryContext.repositorySlug };
+  if (matches.length > 0) return { ...duplicate, matches, repositorySlug: repositoryContext.repositorySlug, ignoredOtherRepositoryMatches: duplicate.matches.length - matches.length };
+  if (["reuse", "reuse_completed_evidence"].includes(duplicate.action)) {
+    if (checkedMatches.some((entry) => entry.check.reason === "issue_repository_evidence_missing")) {
+      return { ok: false, action: "blocked", reason: "issue_repository_evidence_missing", matches: [], repositorySlug: repositoryContext.repositorySlug };
+    }
+    return { ok: true, action: "none", reason: "repository_scoped_duplicate_not_found", matches: [], ignoredOtherRepositoryMatches: duplicate.matches.length, repositorySlug: repositoryContext.repositorySlug };
+  }
+  return { ...duplicate, matches, repositorySlug: repositoryContext.repositorySlug, ignoredOtherRepositoryMatches: duplicate.matches.length };
+}
+
+function repositoryEvidenceMatches(item = {}, repositoryContext = {}, options = {}) {
+  const evidenceSlug = normalizeRepositorySlug(
+    item.repositorySlug ||
+      item.repository?.nameWithOwner ||
+      item.repository?.slug ||
+      item.repository?.fullName ||
+      item.repository?.full_name ||
+      repositorySlugFromGithubUrl(item.url),
+  );
+  if (options.requireEvidence && !evidenceSlug && !item.repositoryId && !item.repository?.id) return { ok: false, reason: "issue_repository_evidence_missing" };
+  if (evidenceSlug && evidenceSlug !== repositoryContext.repositorySlug) return { ok: false, reason: "issue_repository_mismatch", observedRepositorySlug: evidenceSlug };
+  const evidenceId = item.repositoryId || item.repository?.id || null;
+  if (evidenceId && repositoryContext.repositoryId && evidenceId !== repositoryContext.repositoryId) return { ok: false, reason: "issue_repository_id_mismatch", observedRepositoryId: evidenceId };
+  const observedIssueNumber = normalizeIssueNumber(item.number);
+  const expectedIssueNumber = normalizeIssueNumber(options.expectedIssueNumber);
+  if (options.requireIssueNumber && !observedIssueNumber) return { ok: false, reason: "issue_number_missing" };
+  if (expectedIssueNumber && observedIssueNumber && observedIssueNumber !== expectedIssueNumber) {
+    return { ok: false, reason: "issue_number_mismatch", observedIssueNumber, expectedIssueNumber };
+  }
+  return { ok: true };
+}
+
+function sameRepositoryIssue(issue = {}, repositoryContext = {}) {
+  return repositoryEvidenceMatches(issue, repositoryContext).ok;
+}
+
+function bindIssueEvidence(issue = {}, repositoryContext = {}) {
+  return {
+    ...issue,
+    repositorySlug: issue.repositorySlug || repositoryContext.repositorySlug,
+    repositoryId: issue.repositoryId || repositoryContext.repositoryId || null,
+  };
+}
+
+export function parseIssueUrl(url, repositorySlug) {
+  const canonicalRepositorySlug = normalizeRepositorySlug(repositorySlug);
+  if (!canonicalRepositorySlug) return { ok: false, reason: "issue_url_repository_slug_malformed" };
+  const rawUrl = String(url || "").trim();
+  if (!rawUrl || rawUrl !== String(url || "") || hasControlCharacter(rawUrl)) {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  if (parsed.protocol !== "https:") return { ok: false, reason: "issue_url_protocol_unsupported" };
+  if (parsed.hostname.toLowerCase() !== "github.com") return { ok: false, reason: "issue_url_host_unsupported" };
+  if (parsed.username || parsed.password) return { ok: false, reason: "issue_url_credentials_forbidden" };
+  if (parsed.port) return { ok: false, reason: "issue_url_port_forbidden" };
+  if (parsed.search) return { ok: false, reason: "issue_url_query_forbidden" };
+  if (parsed.hash) return { ok: false, reason: "issue_url_fragment_forbidden" };
+
+  const rawSegments = parsed.pathname.split("/");
+  if (rawSegments.length !== 5 || rawSegments[0] !== "") {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  const [rawOwner, rawRepo, rawType, rawNumber] = rawSegments.slice(1);
+  const decoded = [rawOwner, rawRepo, rawType, rawNumber].map((segment) => decodePathSegment(segment));
+  if (decoded.some((segment) => !segment.ok)) {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  const [owner, repo, type, numberSegment] = decoded.map((segment) => segment.value);
+  const [expectedOwner, expectedRepo] = canonicalRepositorySlug.split("/");
+  if (owner.toLowerCase() !== expectedOwner.toLowerCase() || repo.toLowerCase() !== expectedRepo.toLowerCase()) {
+    return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  }
+  if (type !== "issues") return { ok: false, reason: "issue_create_output_repository_mismatch_or_malformed" };
+  if (rawNumber !== numberSegment) return { ok: false, reason: "issue_create_output_number_malformed" };
+  if (!isDecimalDigits(numberSegment)) return { ok: false, reason: "issue_create_output_number_malformed" };
+  const number = normalizeIssueNumber(numberSegment);
+  if (!number) return { ok: false, reason: "issue_create_output_number_malformed" };
+  return {
+    ok: true,
+    repositorySlug: canonicalRepositorySlug,
+    canonicalRepositorySlug,
+    host: "github.com",
+    number: Number(number),
+    issueNumber: Number(number),
+    canonicalUrl: `https://github.com/${canonicalRepositorySlug}/issues/${Number(number)}`,
+    parsedAt: new Date().toISOString(),
+  };
+}
+
 function normalizeMaxIssues(value) {
   const parsed = Number(value ?? defaultMaxIssuesPerRun);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? Math.min(parsed, 10) : defaultMaxIssuesPerRun;
@@ -331,6 +702,81 @@ function commandStatus(result = {}) {
     stderr: bounded(result.stderr || ""),
     error: result.error || null,
   };
+}
+
+function normalizeGithubHost(value) {
+  const host = String(value || "").trim().toLowerCase();
+  if (!host || /[\s\x00-\x1F\x7F]/.test(host) || host.includes("/") || host.includes("@") || host.startsWith("-")) return null;
+  return host;
+}
+
+function normalizeRepositorySlug(value) {
+  const slug = String(value || "");
+  if (!slug || slug !== slug.trim()) return null;
+  if (/[\s\x00-\x1F\x7F]/.test(slug) || slug.startsWith("-") || slug.includes("://") || slug.includes("@") || slug.includes(":")) return null;
+  const parts = slug.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const [owner, name] = parts;
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$/.test(owner)) return null;
+  if (!/^[A-Za-z0-9_.-]+$/.test(name) || name === "." || name === ".." || name.startsWith("-")) return null;
+  if (/github\.com/i.test(owner) || /github\.com/i.test(name)) return null;
+  return `${owner}/${name}`;
+}
+
+function repositorySlugFromGithubUrl(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/(?:pull|issues)\/\d+(?:[/?#].*)?$/i);
+  if (!match) return null;
+  return normalizeRepositorySlug(`${match[1]}/${match[2]}`);
+}
+
+function decodePathSegment(segment) {
+  if (!segment || hasControlCharacter(segment) || hasEncodedForbiddenPathScalar(segment)) {
+    return { ok: false };
+  }
+  let decoded;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    return { ok: false };
+  }
+  if (!decoded || hasControlCharacter(decoded) || decoded.includes("/") || decoded.includes("\\") || decoded === "." || decoded === "..") {
+    return { ok: false };
+  }
+  return { ok: true, value: decoded };
+}
+
+function hasEncodedForbiddenPathScalar(value) {
+  const lower = String(value || "").toLowerCase();
+  return lower.includes("%2f") || lower.includes("%5c") || lower.includes("%2e");
+}
+
+function hasControlCharacter(value) {
+  for (const char of String(value || "")) {
+    const code = char.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function isDecimalDigits(value) {
+  const text = String(value || "");
+  if (!text) return false;
+  for (const char of text) {
+    if (char < "0" || char > "9") return false;
+  }
+  return true;
+}
+
+function normalizeIssueNumber(issueNumber) {
+  const number = typeof issueNumber === "number" ? issueNumber : Number(issueNumber);
+  if (!Number.isSafeInteger(number) || number <= 0 || number > 999_999_999) return null;
+  return String(number);
+}
+
+function labelNames(labels = []) {
+  if (!Array.isArray(labels)) return [];
+  return labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean);
 }
 
 function bounded(value) {

@@ -14,6 +14,7 @@ import {
   writeCanaryEvidence,
 } from "../lib/canary-policy.mjs";
 import { parseReviewVerdict, runReviewPrompt } from "../lib/codex-runner.mjs";
+import { sanitizePersistedEvidence } from "../lib/evidence-sanitizer.mjs";
 import {
   createTaskBranch,
   ensureLaunchWorkspace,
@@ -70,6 +71,7 @@ import {
   evaluatePrePushReviewGate,
   shouldGenerateExistingPrRecoveryEvidence,
   executeAutoMerge,
+  executeAutoMergeMergeOnly,
   normalizeAutoMergeWait,
   writeAutoMergeEvidence,
 } from "../lib/auto-merge-policy.mjs";
@@ -88,7 +90,7 @@ import {
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
-import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation } from "../lib/validation-planner.mjs";
+import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
@@ -347,6 +349,107 @@ test("outage recovery-only blocked targets exit nonzero after writing summaries 
   }
 });
 
+test("recovery-only mandatory evidence fails before live reads and valid evidence permits continuation", () => {
+  const cases = [
+    ["missing", () => undefined],
+    ["malformed", () => "raw-provider-payload SECRET_TOKEN"],
+    ["stale-head", (e) => ({ ...e, headSha: "f".repeat(40) })],
+    ["wrong-base", (e) => ({ ...e, baseSha: "f".repeat(40) })],
+    ["wrong-task", (e) => ({ ...e, taskKey: "wrong-task" })],
+    ["wrong-run", (e) => ({ ...e, runnerRunId: "run-2026-07-16T130000Z" })],
+    ["wrong-issue", (e) => ({ ...e, issueNumber: 914 })],
+    ["wrong-pr", (e) => ({ ...e, prNumber: 918 })],
+    ["digest-mismatch", (e) => ({ ...e, changedFilesDigest: "f".repeat(64) })],
+    ["files-mismatch", (e) => ({ ...e, changedFiles: ["tools/auto-runner/other.mjs"] })],
+    ["validation-incomplete", (e) => ({ ...e, validationPassed: false })],
+    ["gemini-incomplete", (e) => ({ ...e, geminiPass: false })],
+    ["codex-incomplete", (e) => ({ ...e, codexMechanicsApproved: false })],
+  ];
+  for (const [name, mutate] of cases) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-recovery-evidence-order-${name}-`));
+    try {
+      const repoRoot = path.join(tempRoot, "repo");
+      const logsRoot = path.join(tempRoot, "logs");
+      const binRoot = path.join(tempRoot, "bin");
+      const liveReadMarker = path.join(tempRoot, "live-read.marker");
+      setupCleanRunnerLaunchRepo(repoRoot);
+      mkdirSync(binRoot);
+      writeFileSync(path.join(binRoot, "gh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${liveReadMarker}"\nexit 71\n`);
+      chmodSync(path.join(binRoot, "gh"), 0o700);
+      const recovery = cliRecoveryState();
+      const target = targetForCliRecovery(recovery);
+      const changedFiles = ["tools/auto-runner/settleora-auto-runner.mjs"];
+      const digest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+      const evidence = {
+        repositorySlug: "tommytang213/Settleora",
+        issueNumber: target.issueNumber,
+        prNumber: target.prNumber,
+        baseSha: target.baseSha,
+        headSha: target.prHeadSha,
+        taskKey: target.taskKey,
+        runnerRunId: target.runnerRunId,
+        supervisorRunId: target.supervisorRunId,
+        changedFiles,
+        changedFilesDigest: digest,
+        validationPassed: true,
+        validationResults: [{ command: "node --test", status: 0 }],
+        validationCompletedAt: "2026-07-16T12:00:00.000Z",
+        geminiPass: true,
+        geminiHeadSha: target.prHeadSha,
+        geminiChangedFiles: changedFiles,
+        geminiChangedFilesDigest: digest,
+        geminiProvider: "gemini",
+        geminiTier: "strong_independent",
+        geminiCompletedAt: "2026-07-16T12:01:00.000Z",
+        codexMechanicsApproved: true,
+        codexMechanicsHeadSha: target.prHeadSha,
+        codexMechanicsChangedFiles: changedFiles,
+        codexMechanicsChangedFilesDigest: digest,
+        codexMechanicsCompletedAt: "2026-07-16T12:02:00.000Z",
+      };
+      const config = {
+        repoRoot,
+        logsRoot,
+        trustedRealRunApproved: true,
+        allowExistingPrRecovery: true,
+        existingPrRecovery: {
+          [target.issueNumber]: {
+            prNumber: target.prNumber,
+            expectedHeadSha: target.prHeadSha,
+            changedFiles,
+            exactHeadEvidence: mutate(evidence),
+          },
+        },
+      };
+      writeRecoveryState(config, recovery);
+      const configPath = path.join(tempRoot, "runner-config.json");
+      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      const env = { ...process.env, PATH: `${binRoot}:${process.env.PATH}` };
+
+      const first = spawnOutageRecoveryOnly(configPath, repoRoot, target, { env });
+      const second = spawnOutageRecoveryOnly(configPath, repoRoot, target, { env });
+
+      assert.equal(first.status, 2, name);
+      assert.equal(second.status, 2, `${name}-retry`);
+      assert.equal(existsSync(liveReadMarker), false, name);
+      assert.doesNotMatch(`${first.stdout}\n${first.stderr}`, /SECRET_TOKEN|raw-provider-payload/, name);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const runnerGuard = source.indexOf("const recoveryOnlyStartupEvidenceCheck =");
+  assert.ok(runnerGuard > 0);
+  assert.ok(runnerGuard < source.indexOf('summary.baseOriginMainSha = getRefSha("origin/main")'));
+  assert.ok(runnerGuard < source.indexOf("ensureLaunchWorkspace(config, logger)"));
+  const resume = source.indexOf("async function resumeStartupRecovery");
+  const guard = source.indexOf("validateRecoveryOnlyStartupEvidence(config, state)", resume);
+  for (const prohibited of ["readIssueLive(config", "fetchOriginMain(config)", "inspectAutoMergeGithubState(config", "readPrChangedFiles(config"]) {
+    assert.ok(guard < source.indexOf(prohibited, resume), prohibited);
+  }
+});
+
 test("review package diff helper keeps approved aggregate-sized diffs complete by default", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-diff-bound-"));
   const previousCwd = process.cwd();
@@ -445,7 +548,7 @@ test("canary real-run allows auto-merge only for explicit external max-2 low-ris
   assert.match(tooMany.reason, /maxIterations must be <= 2/);
 });
 
-test("review-fix mutation defaults off and clamps explicit low-risk approval to one attempt", () => {
+test("review-fix mutation defaults off and clamps explicit approval to fifty cycles", () => {
   const defaults = normalizeReviewFixMutationConfig({});
   assert.equal(defaults.enabled, false);
   assert.equal(defaults.maxAttempts, 0);
@@ -465,7 +568,8 @@ test("review-fix mutation defaults off and clamps explicit low-risk approval to 
   };
   const normalized = normalizeReviewFixMutationConfig(approved);
   assert.equal(normalized.enabled, true);
-  assert.equal(normalized.maxAttempts, 1);
+  assert.equal(normalized.maxAttempts, 50);
+  assert.equal(normalized.hardMaxSourceChangingCycles, 50);
   const approval = evaluateReviewFixMutationApproval(approved);
   assert.equal(approval.approved, true);
   assert.equal(approval.mode, "approved_clamped");
@@ -1150,7 +1254,7 @@ test("review-fix mutation decision requires actionable low-risk auto-merge contr
   assert.match(broad.reason, /unsafe_contract_allowed_path/);
 });
 
-test("review-fix mutation blocks stop labels, broad trusted run, and non-actionable reviewer output", () => {
+test("review-fix mutation blocks stop labels and non-actionable reviewer output while allowing trusted approved runs", () => {
   const config = {
     configPath: "/workspace/logs/settleora-auto-runner/local-review-fix.json",
     allowReviewFixMutation: true,
@@ -1176,7 +1280,7 @@ test("review-fix mutation blocks stop labels, broad trusted run, and non-actiona
     },
   };
   assert.match(evaluateReviewFixMutationDecision({ ...common, issue: { ...common.issue, labels: ["blocked"] } }).reason, /issue_stop_label/);
-  assert.equal(evaluateReviewFixMutationDecision({ ...common, config: { ...config, trustedRealRunApproved: true } }).reason, "review_fix_refuses_broad_trusted_real_run");
+  assert.equal(evaluateReviewFixMutationDecision({ ...common, config: { ...config, trustedRealRunApproved: true } }).allowed, true);
   assert.match(
     evaluateReviewFixMutationDecision({
       ...common,
@@ -3135,6 +3239,15 @@ Change auth session behavior, storage privacy checks, money settlement calculati
   assert.ok(positiveScope.dangerReasons.includes("docker_ci_deploy"));
 });
 
+test("validation readiness preflight uses the configured protected root", () => {
+  const config = { repoRoot: "/tmp/control-worktree", protectedRoot: "/tmp/protected-root" };
+  assert.equal(validationCommandCwd(config, {
+    command: "node",
+    args: ["tools/auto-runner/settleora-auto-runner.mjs", "--preflight"],
+  }), "/tmp/protected-root");
+  assert.equal(validationCommandCwd(config, { command: "npm", args: ["run", "validate:docs"] }), "/tmp/control-worktree");
+});
+
 test("client-ui-low-risk validation profile uses bounded Flutter mobile UI checks", () => {
   const lane = classifyIssueLane({
     title: "Mobile shared UI canary",
@@ -4788,6 +4901,40 @@ test("pre-push review gate blocks mutation and required independent-review failu
   );
   assert.deepEqual(
     evaluatePrePushReviewGate({
+      config: { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 },
+      laneDecision: clientUiLane,
+      externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
+      reviewMutationGuard: { mutationDetected: false },
+      reviewConvergenceState: { sourceChangingCycle: 2, pr: { exactHead: "head123" } },
+      reviewConvergenceHistory: [
+        { findingFingerprints: ["a"], patchId: "p1" },
+        { findingFingerprints: ["b"], patchId: "p2" },
+      ],
+    }),
+    {
+      ok: false,
+      outcome: "review_convergence_required",
+      reason: "exact_head_independent_review_not_passed_convergence_required:skipped_external_reviewer_tier_disabled",
+      message: "exact-head independent review returned skipped_external_reviewer_tier_disabled; bounded review convergence remains available",
+      convergence: {
+        ok: true,
+        reason: "bounded_review_convergence_available",
+        budget: {
+          requested: 50,
+          normalized: 50,
+          hardMaximum: 50,
+          enabled: true,
+          malformed: false,
+          policy: "clamp_to_hard_max",
+        },
+        diagnosticEpoch: false,
+        reviewStatus: "skipped",
+        reviewReason: "skipped_external_reviewer_tier_disabled",
+      },
+    },
+  );
+  assert.deepEqual(
+    evaluatePrePushReviewGate({
       laneDecision: clientUiLane,
       externalReview: { status: "skipped", reason: "skipped_external_reviewer_tier_disabled" },
       reviewMutationGuard: { mutationDetected: false },
@@ -4930,7 +5077,278 @@ test("auto-merge waits through blocked merge state after checks and then merges 
     assert.equal(inspections, 2);
     assert.equal(result.result, "merged");
     assert.equal(result.waitAttempts.length, 2);
-    assert.ok(calls.includes("gh pr merge 1 --merge --match-head-commit head123"));
+    assert.ok(calls.includes("gh pr merge 1 --repo tommytang213/Settleora --merge --match-head-commit head123"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("auto-merge merge readback is bound to the configured repository", () => {
+  for (const repositorySlug of ["tommytang213/Settleora", "example-owner/nondefault-repo"]) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-readback-repo-"));
+    try {
+      const calls = [];
+      const result = executeAutoMerge(
+        { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug },
+        autoMergeContext({ config: { repositorySlug }, pr: { headRepository: { id: "repo-1", nameWithOwner: repositorySlug } } }),
+        {
+          runner: mergeReadbackRunner(calls, { repositorySlug }),
+          inspectState: () => ({
+            pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+            requiredChecks: autoMergeRequiredChecks(),
+            reviewThreads: [],
+            codeScanningAlerts: [],
+            blockingMarkers: [],
+          }),
+        },
+      );
+      assert.equal(result.result, "merged");
+      assert.equal(result.mergeReadback.configuredRepositorySlug, repositorySlug);
+      assert.equal(result.mergeReadback.headRepositorySlug, repositorySlug);
+      assert.ok(calls.includes(`gh pr merge 1 --repo ${repositorySlug} --merge --match-head-commit head123`));
+      assert.ok(calls.includes(`gh pr view 1 --repo ${repositorySlug} --json number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository`));
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("merge-only auto-merge does not run per-PR issue hygiene or PR summary comments", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-"));
+  try {
+    const calls = [];
+    const result = executeAutoMergeMergeOnly(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+      autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
+      {
+        runner: mergeReadbackRunner(calls, { repositorySlug: "tommytang213/Settleora" }),
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: autoMergeRequiredChecks(),
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.mergeSha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    assert.equal(result.completionHygiene.reason, "stack_merge_only_final_hygiene_authoritative");
+    assert.ok(calls.includes("gh pr merge 1 --repo tommytang213/Settleora --merge --match-head-commit head123"));
+    assert.ok(calls.includes("gh pr view 1 --repo tommytang213/Settleora --json number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository"));
+    assert.equal(calls.some((call) => call.startsWith("gh issue ")), false);
+    assert.equal(calls.some((call) => call.startsWith("gh pr comment ")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("merge-only auto-merge restores source branch after mocked merge auto-deletes branch", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-"));
+  try {
+    const calls = [];
+    let branchReads = 0;
+    const result = executeAutoMergeMergeOnly(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+      autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
+      {
+        runner: (command, args) => {
+          calls.push(`${command} ${args.join(" ")}`);
+          if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "git" && args[0] === "ls-remote") {
+            branchReads += 1;
+            return branchReads === 1 ? ok("") : ok("head123\trefs/heads/feature/auto-1-test\n");
+          }
+          if (command === "git" && args[0] === "push") return ok("");
+          if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+          return fail(`unexpected ${command} ${args.join(" ")}`);
+        },
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: autoMergeRequiredChecks(),
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.sourceBranchRestoration.planned, true);
+    assert.equal(result.sourceBranchRestoration.executed, true);
+    assert.equal(result.sourceBranchRestoration.confirmed, true);
+    assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
+    assert.equal(calls.some((call) => call.startsWith("gh issue ")), false);
+    assert.equal(calls.some((call) => call.startsWith("gh pr comment ")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("merge-only auto-merge blocks completion when source branch restoration is unconfirmed", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-fail-"));
+  try {
+    const calls = [];
+    const result = executeAutoMergeMergeOnly(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+      autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
+      {
+        runner: (command, args) => {
+          calls.push(`${command} ${args.join(" ")}`);
+          if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "git" && args[0] === "ls-remote") return ok("");
+          if (command === "git" && args[0] === "push") return ok("");
+          if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+          return fail(`unexpected ${command} ${args.join(" ")}`);
+        },
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: autoMergeRequiredChecks(),
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "merge_failed");
+    assert.match(result.reason, /source_branch_restoration_failed:source_branch_restore_unconfirmed/);
+    assert.equal(result.sourceBranchRestoration.confirmed, false);
+    assert.equal(calls.some((call) => call.startsWith("gh issue ")), false);
+    assert.equal(calls.some((call) => call.startsWith("gh pr comment ")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("merge-only auto-merge does not confirm source branch restoration from suffix-matching remote refs", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-suffix-"));
+  try {
+    const calls = [];
+    let branchReads = 0;
+    const result = executeAutoMergeMergeOnly(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+      autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
+      {
+        runner: (command, args) => {
+          calls.push(`${command} ${args.join(" ")}`);
+          if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "git" && args[0] === "ls-remote") {
+            branchReads += 1;
+            assert.equal(args[3], "refs/heads/feature/auto-1-test");
+            return branchReads === 1 ? ok("") : ok("head123\trefs/heads/x/feature/auto-1-test\n");
+          }
+          if (command === "git" && args[0] === "push") return ok("");
+          if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+          return fail(`unexpected ${command} ${args.join(" ")}`);
+        },
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: autoMergeRequiredChecks(),
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "merge_failed");
+    assert.match(result.reason, /source_branch_restoration_failed:source_branch_restore_unconfirmed/);
+    assert.equal(result.sourceBranchRestoration.confirmed, false);
+    assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("auto-merge readMergeSha no longer contains the default repository literal", () => {
+  const source = readFileSync(new URL("../lib/auto-merge-policy.mjs", import.meta.url), "utf8");
+  const match = source.match(/function readMergeSha[\s\S]*?\n}\n\nfunction mergeReadbackFailure/);
+  assert.ok(match);
+  assert.doesNotMatch(match[0], /tommytang213\/Settleora/);
+});
+
+test("auto-merge merge readback rejects missing malformed and unsupported repository context before gh", () => {
+  const invalidSlugs = [
+    undefined,
+    "tommytang213",
+    "Settleora",
+    "tommytang213/Settleora/extra",
+    "--repo/tommytang213",
+    "tommytang213/Settle ora",
+    "tommytang213/Settleora\n",
+    "https://github.com/tommytang213/Settleora",
+    "user:secret@github.com/tommytang213/Settleora",
+    "github.com/owner",
+  ];
+  for (const repositorySlug of invalidSlugs) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-readback-invalid-"));
+    try {
+      const calls = [];
+      const result = executeAutoMerge(
+        { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug },
+        autoMergeContext({ config: { repositorySlug } }),
+        {
+          runner: (command, args) => {
+            calls.push(`${command} ${args.join(" ")}`);
+            if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+            return fail(`unexpected ${command} ${args.join(" ")}`);
+          },
+          inspectState: () => ({ pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" }, requiredChecks: autoMergeRequiredChecks(), reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [] }),
+        },
+      );
+      assert.equal(result.result, "merge_failed", String(repositorySlug));
+      assert.equal(result.reason, "configured_repository_invalid", String(repositorySlug));
+      assert.equal(calls.some((call) => call.startsWith("gh ")), false, String(repositorySlug));
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("auto-merge merge readback rejects mismatched or incomplete PR proof", () => {
+  const cases = [
+    ["wrong source head", { headRefOid: "other-head" }, "merge_readback_failed:merge_readback_source_head_mismatch"],
+    ["wrong base", { baseRefName: "develop" }, "merge_readback_failed:merge_readback_base_mismatch"],
+    ["unmerged", { state: "OPEN" }, "merge_readback_failed:merge_readback_pr_not_merged"],
+    ["missing merge sha", { mergeCommit: { oid: null } }, "merge_readback_failed:merge_readback_merge_sha_invalid"],
+    ["wrong repository", { headRepository: { id: "repo-2", name: "other", nameWithOwner: "other-owner/other" }, headRepositoryOwner: { login: "other-owner" } }, "merge_readback_failed:merge_readback_head_repository_mismatch"],
+    ["cross repository", { isCrossRepository: true }, "merge_readback_failed:merge_readback_cross_repository"],
+  ];
+  for (const [name, readbackOverrides, reason] of cases) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-readback-reject-"));
+    try {
+      const result = executeAutoMerge(
+        { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+        autoMergeContext(),
+        {
+          runner: mergeReadbackRunner([], { repositorySlug: "tommytang213/Settleora", readbackOverrides }),
+          inspectState: () => ({ pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" }, requiredChecks: autoMergeRequiredChecks(), reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [] }),
+        },
+      );
+      assert.equal(result.result, "merge_failed", name);
+      assert.equal(result.reason, reason, name);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("auto-merge merge readback rejects unsupported GitHub host context", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-readback-host-"));
+  try {
+    const calls = [];
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora", githubHost: "github.example.invalid" },
+      autoMergeContext(),
+      {
+        runner: mergeReadbackRunner(calls, { repositorySlug: "tommytang213/Settleora" }),
+        inspectState: () => ({ pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" }, requiredChecks: autoMergeRequiredChecks(), reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [] }),
+      },
+    );
+    assert.equal(result.result, "merge_failed");
+    assert.equal(result.reason, "merge_readback_failed:configured_repository_host_unsupported");
+    assert.equal(calls.some((call) => call.startsWith("gh pr view")), false);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -5425,11 +5843,18 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-"));
   try {
     const calls = [];
+    let branchReads = 0;
     const runner = (command, args) => {
       calls.push(`${command} ${args.join(" ")}`);
       if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-      if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
-      if (command === "git" && args[0] === "ls-remote") return ok("");
+      if (command === "gh" && args[0] === "pr" && args[1] === "view" && String(args[args.indexOf("--json") + 1] || "").includes("mergeCommit")) return ok(mergeReadbackJson("tommytang213/Settleora"));
+      if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(preMergePrJson());
+      if (command === "gh" && args[0] === "api" && args[1] === "graphql") return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+      if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
+      if (command === "git" && args[0] === "ls-remote") {
+        branchReads += 1;
+        return branchReads === 1 ? ok("") : ok("head123\trefs/heads/feature/auto-1-test\n");
+      }
       if (command === "git" && args[0] === "push") return ok("");
       if (command === "gh" && args[0] === "issue" && args[1] === "view") {
         return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }] }));
@@ -5442,8 +5867,9 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
     };
     const result = executeAutoMerge({ repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false }, autoMergeContext(), { runner });
     assert.equal(result.result, "merged");
-    assert.equal(result.mergeSha, "merge123");
+    assert.equal(result.mergeSha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     assert.equal(result.sourceBranchRestoration.executed, true);
+    assert.equal(result.sourceBranchRestoration.confirmed, true);
     assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
@@ -5462,8 +5888,8 @@ test("successful auto-merge removes only present transient issue labels", () => 
     assert.equal(result.result, "merged");
     assert.equal(result.issueLabelCleanupResult.status, "passed");
     assert.deepEqual(result.issueLabelCleanupResult.labelsRemoved, ["auto-running", "auto-claimed"]);
-    const editCall = calls.find((call) => call.startsWith("gh issue edit 1 --remove-label"));
-    assert.equal(editCall, "gh issue edit 1 --remove-label auto-running,auto-claimed");
+    const editCall = calls.find((call) => call.startsWith("gh issue edit 1 --repo"));
+    assert.equal(editCall, "gh issue edit 1 --repo tommytang213/Settleora --remove-label auto-running,auto-claimed");
     assert.doesNotMatch(editCall, /workflow|area:mobile-ui/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
@@ -5486,6 +5912,7 @@ test("label cleanup succeeds as no-op when no transient labels are present", () 
   assert.equal(result.status, "passed_noop");
   assert.deepEqual(result.labelsRemoved, []);
   assert.equal(calls.length, 1);
+  assert.equal(calls[0], "gh issue view 1 --repo tommytang213/Settleora --json labels");
 });
 
 test("label cleanup records view and removal failures without changing merge success", () => {
@@ -5508,7 +5935,10 @@ test("label cleanup records view and removal failures without changing merge suc
       {
         runner: (command, args) => {
           if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view" && String(args[args.indexOf("--json") + 1] || "").includes("mergeCommit")) return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(preMergePrJson());
+          if (command === "gh" && args[0] === "api" && args[1] === "graphql") return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+          if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
           if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
           if (command === "gh" && args[0] === "issue" && args[1] === "view") {
             return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }] }));
@@ -5531,6 +5961,101 @@ test("label cleanup records view and removal failures without changing merge suc
   }
 });
 
+test("label cleanup requires valid repository context before runner invocation", () => {
+  const calls = [];
+  const withoutRepo = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), dryRun: false },
+    { ...autoMergeContext({ config: {} }), config: {}, pr: { number: 1, url: "https://example.invalid/pull/1" } },
+    (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      return ok("");
+    },
+  );
+  assert.equal(withoutRepo.status, "failed");
+  assert.equal(withoutRepo.failureReason, "repository_slug_required");
+  assert.deepEqual(calls, []);
+
+  const malformed = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug: "tommytang213 Settleora", dryRun: false },
+    autoMergeContext(),
+    (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      return ok("");
+    },
+  );
+  assert.equal(malformed.status, "failed");
+  assert.equal(malformed.failureReason, "repository_slug_required");
+  assert.deepEqual(calls, []);
+});
+
+test("label cleanup uses non-default repository and rejects repository mismatch", () => {
+  const repositorySlug = "octo-org/OtherRepo";
+  const calls = [];
+  const result = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug, dryRun: false },
+    autoMergeContext({
+      config: { repositorySlug },
+      pr: { url: `https://github.com/${repositorySlug}/pull/1`, headRepository: { nameWithOwner: repositorySlug, id: "repo-2" } },
+    }),
+    (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      if (command === "gh" && args[0] === "issue" && args[1] === "view") {
+        assert.equal(args[args.indexOf("--repo") + 1], repositorySlug);
+        return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }, { name: "area:infra" }] }));
+      }
+      if (command === "gh" && args[0] === "issue" && args[1] === "edit") {
+        assert.equal(args[args.indexOf("--repo") + 1], repositorySlug);
+        return ok("");
+      }
+      return fail(`unexpected ${command} ${args.join(" ")}`);
+    },
+  );
+  assert.equal(result.status, "passed");
+  assert.deepEqual(result.labelsRemoved, ["auto-running"]);
+  assert.deepEqual(result.labelsRetained, ["workflow", "area:infra"]);
+  assert.deepEqual(calls, [
+    `gh issue view 1 --repo ${repositorySlug} --json labels`,
+    `gh issue edit 1 --repo ${repositorySlug} --remove-label auto-running`,
+  ]);
+
+  const mismatchCalls = [];
+  const mismatch = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug, dryRun: false },
+    autoMergeContext({
+      config: { repositorySlug },
+      pr: { url: `https://github.com/${repositorySlug}/pull/1`, headRepository: { nameWithOwner: "tommytang213/Settleora", id: "repo-1" } },
+    }),
+    (command, args) => {
+      mismatchCalls.push(`${command} ${args.join(" ")}`);
+      return ok("");
+    },
+  );
+  assert.equal(mismatch.status, "failed");
+  assert.equal(mismatch.failureReason, "repository_pr_head_mismatch");
+  assert.deepEqual(mismatchCalls, []);
+});
+
+test("label cleanup fails closed on malformed label readback and sanitizes command failure", () => {
+  const malformed = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug: "tommytang213/Settleora", dryRun: false },
+    autoMergeContext(),
+    () => ok(JSON.stringify({ labels: { name: "auto-running" } })),
+  );
+  assert.equal(malformed.status, "failed");
+  assert.equal(malformed.failureReason, "issue_label_view_malformed_labels");
+
+  const failed = cleanupIssueLifecycleLabels(
+    { repoRoot: process.cwd(), repositorySlug: "tommytang213/Settleora", dryRun: false },
+    autoMergeContext(),
+    (command, args) => {
+      if (command === "gh" && args[0] === "issue" && args[1] === "view") return fail("view denied token ghp_abcdefghijklmnopqrstuvwxyz123456");
+      return ok("");
+    },
+  );
+  assert.equal(failed.status, "failed");
+  assert.doesNotMatch(failed.failureReason, /ghp_abcdefghijklmnopqrstuvwxyz123456/);
+});
+
 test("issue close failure and label cleanup failure are independently represented", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-label-close-independent-"));
   try {
@@ -5540,7 +6065,10 @@ test("issue close failure and label cleanup failure are independently represente
       {
         runner: (command, args) => {
           if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
-          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok("merge123\n");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view" && String(args[args.indexOf("--json") + 1] || "").includes("mergeCommit")) return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(preMergePrJson());
+          if (command === "gh" && args[0] === "api" && args[1] === "graphql") return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
+          if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
           if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
           if (command === "gh" && args[0] === "issue" && args[1] === "view") {
             return ok(JSON.stringify({ labels: [{ name: "auto-running" }] }));
@@ -5908,6 +6436,7 @@ test("contract path matcher rejects malformed changed paths and no longer constr
 test("review verdict parsing approves valid verdict JSON surrounded by prose", () => {
   const approve = parseReviewVerdict(`notes\n${reviewVerdictJson()}\nextra review notes`);
   assert.equal(approve.verdict, "approve");
+  assert.equal(approve.reviewed_base_sha, "e".repeat(40));
   assert.equal(approve.json_source, "extracted_surrounded_json");
   assert.deepEqual(approve.review_json_diagnostics, {
     valid_verdict_count: 1,
@@ -5964,6 +6493,14 @@ test("review verdict parsing fails closed for invalid or ambiguous verdict contr
   assert.equal(unknown.verdict, "unable_to_review");
   assert.match(unknown.blocking_findings[0], /unsupported field/);
   assert.equal(unknown.review_json_diagnostics.invalid_candidate_count, 1);
+
+  const missingReviewedBase = parseReviewVerdict(reviewVerdictJson({ reviewed_base_sha: undefined }));
+  assert.equal(missingReviewedBase.verdict, "unable_to_review");
+  assert.match(missingReviewedBase.blocking_findings[0], /reviewed_base_sha/);
+
+  const branchReviewedBase = parseReviewVerdict(reviewVerdictJson({ reviewed_base_sha: "main" }));
+  assert.equal(branchReviewedBase.verdict, "unable_to_review");
+  assert.match(branchReviewedBase.blocking_findings[0], /40-character SHA/);
 
   const malformed = parseReviewVerdict(`\`\`\`json\n{"verdict":"approve",\n\`\`\`\n${reviewVerdictJson()}`);
   assert.equal(malformed.verdict, "unable_to_review");
@@ -6077,6 +6614,7 @@ test("review prompt falls back to stderr only when stdout is empty and stderr ha
     );
 
     assert.equal(result.verdict.verdict, "approve");
+    assert.equal(result.reviewedBaseSha, "e".repeat(40));
     assert.equal(result.responsePayloadSource, "stderr");
     assert.equal(result.responsePayloadBoundary, "process.stderr:fallback_single_verdict_stdout_empty");
     assert.equal(result.verdict.review_json_diagnostics.valid_verdict_count, 1);
@@ -6085,6 +6623,21 @@ test("review prompt falls back to stderr only when stdout is empty and stderr ha
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("persisted Codex review evidence retains its bounded completion timestamp", () => {
+  const completedAt = "2026-07-19T19:46:04.000Z";
+  const sanitized = sanitizePersistedEvidence({
+    rawOutput: "provider transcript",
+    reviewStatus: "completed",
+    completedAt,
+    reviewedHead: "a".repeat(40),
+    reviewedBaseSha: "e".repeat(40),
+    verdict: { verdict: "approve", reviewed_base_sha: "e".repeat(40) },
+  });
+
+  assert.equal(sanitized.completedAt, completedAt);
+  assert.equal(sanitized.rawOutput, undefined);
 });
 
 test("review prompt rejects conflicting stdout and stderr verdicts without fallback", () => {
@@ -6391,6 +6944,86 @@ test("implementation path verifies mutation workspace after task branch creation
   assert.ok(promptIndex < codexIndex);
 });
 
+test("stack CLI constructs and injects one live fixed-argv runner", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const stackIndex = source.indexOf("if (cliArgs.runPrStack)");
+  const loadIndex = source.indexOf("const config = loadConfig(cliArgs);", stackIndex);
+  const runnerIndex = source.indexOf("const liveRunner = createLiveFixedArgvRunner(config);", stackIndex);
+  const reviewAdaptersIndex = source.indexOf("const liveReviewAdapters = createLivePrStackReviewAdapters(config);", stackIndex);
+  const lockIndex = source.indexOf("acquireRunnerLock(config", stackIndex);
+  const executionIndex = source.indexOf("runPrStackExecution(config, cliArgs, { runner: liveRunner, ...liveReviewAdapters })", stackIndex);
+  assert.notEqual(stackIndex, -1);
+  assert.notEqual(loadIndex, -1);
+  assert.notEqual(runnerIndex, -1);
+  assert.notEqual(reviewAdaptersIndex, -1);
+  assert.notEqual(lockIndex, -1);
+  assert.notEqual(executionIndex, -1);
+  assert.ok(loadIndex < runnerIndex);
+  assert.ok(runnerIndex < reviewAdaptersIndex);
+  assert.ok(reviewAdaptersIndex < lockIndex);
+  assert.ok(lockIndex < executionIndex);
+  assert.match(source, /settleoraFixedArgvRunner = true/);
+  assert.match(source, /settleoraRunnerMode = "live"/);
+  assert.match(source, /shell_execution_refused/);
+  assert.match(source, /spawnSync\(command, args,[\s\S]*shell: false/);
+  assert.match(source, /runStrongReview: async/);
+  assert.match(source, /runCodexReview: async/);
+  assert.match(source, /reviewerTier: "strong_independent"/);
+  const reviewAdapterBody = source.slice(reviewAdaptersIndex, source.indexOf("function boundRunnerOutput", reviewAdaptersIndex));
+  assert.match(reviewAdapterBody, /incomingContract\.manualMergeRequired \?\? incomingLaneDecision\.manualMergeRequired \?\? true/);
+  assert.match(reviewAdapterBody, /incomingContract\.autoMergeEligible \?\? incomingLaneDecision\.autoMergeEligible \?\? false/);
+  assert.doesNotMatch(reviewAdapterBody, /manualGateSatisfied/);
+  assert.doesNotMatch(reviewAdapterBody, /manualMergeRequired: !mechanicsPhase/);
+  assert.doesNotMatch(reviewAdapterBody, /autoMergeEligible: mechanicsPhase/);
+});
+
+test("live fixed-argv runner preserves machine stdout while sanitizing persisted excerpts", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const runnerIndex = source.indexOf("function createLiveFixedArgvRunner");
+  const stdoutIndex = source.indexOf("const stdout = boundRunnerOutput(result.stdout || \"\", maxOutputBytes);", runnerIndex);
+  const returnIndex = source.indexOf("stdout,", stdoutIndex);
+  const evidenceIndex = source.indexOf("stdoutExcerpt: stdoutEvidence", stdoutIndex);
+  const sanitizerIndex = source.indexOf("function sanitizeRunnerOutputEvidence", runnerIndex);
+  assert.notEqual(stdoutIndex, -1);
+  assert.notEqual(returnIndex, -1);
+  assert.notEqual(evidenceIndex, -1);
+  assert.notEqual(sanitizerIndex, -1);
+  assert.ok(stdoutIndex < returnIndex);
+  assert.ok(returnIndex < evidenceIndex);
+  assert.ok(sanitizerIndex > runnerIndex);
+  assert.match(source, /sanitizeRunnerOutputEvidence\(stdout, 1000\)/);
+  assert.match(source, /sanitizeRunnerOutputEvidence\(stderr, 1000\)/);
+  const boundBody = source.slice(source.indexOf("function boundRunnerOutput"), sanitizerIndex);
+  assert.doesNotMatch(boundBody, /replace\(/);
+});
+
+test("production auto-merge inspection callers pass explicit live runner authority", () => {
+  const runnerSource = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const recoveryIndex = runnerSource.indexOf("async function recoverExistingPrIfConfigured");
+  const recoveryRunnerIndex = runnerSource.indexOf("const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);", recoveryIndex);
+  const recoveryInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner })", recoveryIndex);
+  const recoveryWaitIndex = runnerSource.indexOf("inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner })", recoveryIndex);
+  assert.notEqual(recoveryRunnerIndex, -1);
+  assert.notEqual(recoveryInspectIndex, -1);
+  assert.notEqual(recoveryWaitIndex, -1);
+  assert.ok(recoveryRunnerIndex < recoveryInspectIndex);
+  assert.ok(recoveryInspectIndex < recoveryWaitIndex);
+
+  const normalIndex = runnerSource.indexOf("async function evaluateOrExecuteAutoMerge");
+  const normalRunnerIndex = runnerSource.indexOf("const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);", normalIndex);
+  const normalInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url }, { runner: autoMergeRunner })", normalIndex);
+  const normalExecuteIndex = runnerSource.indexOf("}, { runner: autoMergeRunner });", normalInspectIndex);
+  assert.notEqual(normalRunnerIndex, -1);
+  assert.notEqual(normalInspectIndex, -1);
+  assert.notEqual(normalExecuteIndex, -1);
+  assert.ok(normalRunnerIndex < normalInspectIndex);
+  assert.ok(normalInspectIndex < normalExecuteIndex);
+
+  const policySource = readFileSync("tools/auto-runner/lib/auto-merge-policy.mjs", "utf8");
+  const waitIndex = policySource.indexOf("function executeAutoMergeWithWait");
+  assert.match(policySource.slice(waitIndex, waitIndex + 700), /inspectAutoMergeGithubState\(cfg,[\s\S]*\{ runner \}/);
+});
+
 function createTempGitRepo() {
   const repo = mkdtempSync(path.join(tmpdir(), "settleora-auto-runner-git-"));
   mkdirSync(path.join(repo, "docs/workflow"), { recursive: true });
@@ -6485,6 +7118,7 @@ function autoMergeContext(overrides = {}) {
   };
   return {
     config: {
+      repositorySlug: "tommytang213/Settleora",
       allowAutoMerge: true,
       autoMergePolicy: {
         approvedLanes: [laneDecision.canonicalLane || laneDecision.lane],
@@ -6582,7 +7216,11 @@ function autoMergePolicyFixture(overrides = {}) {
 }
 
 function sha256Strings(values = []) {
-  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+  return canonicalChangedFilesDigest(values);
+}
+
+function canonicalChangedFilesDigest(values = []) {
+  return createHash("sha256").update(JSON.stringify([...new Set(values || [])].sort())).digest("hex");
 }
 
 function existingPrRecoveryContext(overrides = {}) {
@@ -6630,17 +7268,36 @@ function existingPrRecoveryContext(overrides = {}) {
     blockingMarkers: overrides.blockingMarkers || [],
     requiredChecks: overrides.requiredChecks,
   });
+  const recoveryDigest = canonicalChangedFilesDigest(changedFiles);
   return {
     ...context,
+    validation: {
+      ...context.validation,
+      changedFilesDigest: recoveryDigest,
+    },
+    externalReview: context.externalReview
+      ? {
+          ...context.externalReview,
+          changedFilesDigest: recoveryDigest,
+        }
+      : context.externalReview,
+    review: context.review
+      ? {
+          ...context.review,
+          changedFilesDigest: recoveryDigest,
+        }
+      : context.review,
     exactHeadEvidence: overrides.exactHeadEvidence ?? {
       headSha: "head123",
+      changedFiles,
+      changedFilesDigest: recoveryDigest,
       validationPassed: true,
       validationResults: [{ command: "npm run validate:docs", status: 0 }],
       validationCompletedAt: "2026-07-12T00:00:00.000Z",
       geminiPass: true,
       geminiHeadSha: "head123",
       geminiChangedFiles: changedFiles,
-      geminiChangedFilesDigest: sha256Strings(changedFiles),
+      geminiChangedFilesDigest: recoveryDigest,
       geminiTier: "cheap_independent",
       geminiProvider: "gemini",
       geminiCompletedAt: "2026-07-12T00:00:00.000Z",
@@ -6648,7 +7305,7 @@ function existingPrRecoveryContext(overrides = {}) {
       codexMechanicsApproved: true,
       codexMechanicsHeadSha: "head123",
       codexMechanicsChangedFiles: changedFiles,
-      codexMechanicsChangedFilesDigest: sha256Strings(changedFiles),
+      codexMechanicsChangedFilesDigest: recoveryDigest,
       codexMechanicsCompletedAt: "2026-07-12T00:00:00.000Z",
     },
   };
@@ -6658,6 +7315,19 @@ function createAutoMergeRunner(calls) {
   return (command, args) => {
     calls.push(`${command} ${args.join(" ")}`);
     if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json") && String(args[args.indexOf("--json") + 1] || "").includes("mergeCommit")) {
+      return ok(JSON.stringify({
+        number: 1,
+        state: "MERGED",
+        baseRefName: "main",
+        headRefOid: "head123",
+        mergeCommit: { oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        mergedAt: "2026-07-18T00:00:00Z",
+        headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: "tommytang213/Settleora" },
+        headRepositoryOwner: { login: "tommytang213" },
+        isCrossRepository: false,
+      }));
+    }
     if (command === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("--json")) {
       return ok(JSON.stringify({
         number: 1,
@@ -6671,7 +7341,7 @@ function createAutoMergeRunner(calls) {
         mergeStateStatus: "CLEAN",
         title: "Auto-runner: #1 Low risk auto merge",
         body: "Closes or updates #1.",
-        statusCheckRollup: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }],
+        statusCheckRollup: autoMergeRequiredChecks(),
         comments: [],
         reviews: [],
       }));
@@ -6692,6 +7362,70 @@ function createAutoMergeRunner(calls) {
     if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
     return fail(`unexpected ${command} ${args.join(" ")}`);
   };
+}
+
+function mergeReadbackRunner(calls, { repositorySlug, readbackOverrides = {} } = {}) {
+  return (command, args) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      return ok(JSON.stringify({
+        number: 1,
+        state: "MERGED",
+        baseRefName: "main",
+        headRefOid: "head123",
+        mergeCommit: { oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        mergedAt: "2026-07-18T00:00:00Z",
+        headRepository: { id: "repo-1", name: repositorySlug.split("/")[1], nameWithOwner: repositorySlug },
+        headRepositoryOwner: { login: repositorySlug.split("/")[0] },
+        isCrossRepository: false,
+        ...readbackOverrides,
+      }));
+    }
+    if (command === "git" && args[0] === "ls-remote") return ok("head123\trefs/heads/feature/auto-1-test\n");
+    if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") return ok(JSON.stringify({ labels: [] }));
+    if (command === "gh" && args[0] === "issue" && args[1] === "edit") return ok("");
+    if (command === "gh" && args[0] === "issue" && args[1] === "close") return ok("");
+    if (command === "gh" && args[0] === "pr" && args[1] === "comment") return ok("");
+    if (command === "gh" && args[0] === "issue" && args[1] === "comment") return ok("");
+    return fail(`unexpected ${command} ${args.join(" ")}`);
+  };
+}
+
+function mergeReadbackJson(repositorySlug, overrides = {}) {
+  return JSON.stringify({
+    number: 1,
+    state: "MERGED",
+    baseRefName: "main",
+    headRefOid: "head123",
+    mergeCommit: { oid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    mergedAt: "2026-07-18T00:00:00Z",
+    headRepository: { id: "repo-1", name: repositorySlug.split("/")[1], nameWithOwner: repositorySlug },
+    headRepositoryOwner: { login: repositorySlug.split("/")[0] },
+    isCrossRepository: false,
+    ...overrides,
+  });
+}
+
+function preMergePrJson(overrides = {}) {
+  return JSON.stringify({
+    number: 1,
+    url: "https://example.invalid/pull/1",
+    state: "OPEN",
+    isDraft: false,
+    baseRefName: "main",
+    headRefName: "feature/auto-1-test",
+    headRefOid: "head123",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    title: "Auto-runner: #1 Low risk auto merge",
+    body: "Closes or updates #1.",
+    statusCheckRollup: autoMergeRequiredChecks(),
+    comments: [],
+    reviews: [],
+    ...overrides,
+  });
 }
 
 function git(cwd, args) {
@@ -7233,6 +7967,7 @@ Docs/workflow canary only. Add one short non-sensitive checkpoint entry to \`doc
 function reviewVerdictJson(overrides = {}) {
   return JSON.stringify({
     verdict: "approve",
+    reviewed_base_sha: "e".repeat(40),
     confidence: "high",
     requirement_match: "pass",
     code_quality: "pass",
@@ -7381,7 +8116,7 @@ function cliOutageBinding(overrides = {}) {
   };
 }
 
-function spawnOutageRecoveryOnly(configPath, cwd, target) {
+function spawnOutageRecoveryOnly(configPath, cwd, target, options = {}) {
   const args = [
     path.join(process.cwd(), "tools/auto-runner/settleora-auto-runner.mjs"),
     "--run",
@@ -7422,7 +8157,7 @@ function spawnOutageRecoveryOnly(configPath, cwd, target) {
   return spawnSync(
     process.execPath,
     args,
-    { cwd, encoding: "utf8" },
+    { cwd, encoding: "utf8", ...options },
   );
 }
 

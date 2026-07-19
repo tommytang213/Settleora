@@ -376,6 +376,8 @@ export function advanceRecoveryPhase(state, { phase, firstIncompleteAction, next
 export function bindRecoveryEvidence(state, kind, evidence) {
   if (!headBoundEvidenceKinds.includes(kind)) throw new Error(`Unknown recovery evidence kind: ${kind}`);
   const headSha = evidence?.headSha || state.branch.currentHeadSha || null;
+  const expectedHeadSha = state.branch.currentHeadSha || null;
+  const stale = Boolean(expectedHeadSha && headSha && expectedHeadSha !== headSha);
   return sanitizeRecoveryState({
     ...state,
     evidence: {
@@ -384,14 +386,79 @@ export function bindRecoveryEvidence(state, kind, evidence) {
         status: evidence?.status || (evidence?.passed === true ? "passed" : "recorded"),
         headSha,
         baseSha: evidence?.baseSha || state.branch.baseSha || null,
-        changedFilesDigest: evidence?.changedFilesDigest || digestStringArray(evidence?.changedFiles || []),
+        changedFilesDigest: evidence?.changedFilesDigest || digestChangedFiles(evidence?.changedFiles || []),
         evidencePath: evidence?.evidencePath || evidence?.reportPath || evidence?.path || null,
+        source: bounded(evidence?.source || "", 120) || null,
+        provider: bounded(evidence?.provider || "", 120) || null,
+        tier: bounded(evidence?.tier || "", 120) || null,
+        profile: bounded(evidence?.profile || "", 120) || null,
+        resultId: bounded(evidence?.resultId || evidence?.reviewId || evidence?.requestId || "", 160) || null,
         completedAt: evidence?.completedAt || new Date().toISOString(),
-        stale: false,
+        stale,
+        ...(stale ? { staleReason: "evidence_head_mismatch", currentHeadSha: expectedHeadSha } : {}),
         summary: bounded(evidence?.summary || evidence?.reason || "", 500),
       }),
     },
   });
+}
+
+export function persistCompleteHeadEvidence(config, state, evidenceByKind = {}, identity = {}) {
+  const validation = validateCompleteHeadEvidence(state, evidenceByKind, identity);
+  if (!validation.ok) return validation;
+  let nextState = state;
+  for (const kind of ["localValidation", "externalReview", "codexReview"]) {
+    nextState = bindRecoveryEvidence(nextState, kind, {
+      ...evidenceByKind[kind],
+      headSha: identity.headSha || state.branch.currentHeadSha || null,
+      baseSha: identity.baseSha || state.branch.baseSha || null,
+      changedFiles: identity.changedFiles || evidenceByKind[kind]?.changedFiles || [],
+      changedFilesDigest: identity.changedFilesDigest,
+    });
+  }
+  const written = writeRecoveryState(config, {
+    ...nextState,
+    nextSafeAction: identity.nextSafeAction || state.nextSafeAction,
+  });
+  return { ok: true, state: written.state, statePath: written.statePath, changedFilesDigest: identity.changedFilesDigest };
+}
+
+export function validateCompleteHeadEvidence(state, evidenceByKind = {}, identity = {}) {
+  if (!state || typeof state !== "object") return failed("recovery_state_missing", "Recovery state is missing.");
+  const headSha = identity.headSha || state.branch?.currentHeadSha || null;
+  const baseSha = identity.baseSha || state.branch?.baseSha || null;
+  const changedFiles = normalizeChangedFiles(identity.changedFiles || []);
+  const changedFilesDigest = identity.changedFilesDigest || digestChangedFiles(changedFiles);
+  if (!isSha(headSha)) return failed("evidence_head_missing", "Exact head SHA is missing or invalid.");
+  if (baseSha && !isSha(baseSha)) return failed("evidence_base_invalid", "Base SHA is invalid.");
+  if (state.branch?.currentHeadSha !== headSha) return failed("evidence_state_head_mismatch", "Recovery state head does not match evidence head.");
+  if (state.branch?.baseSha && baseSha && state.branch.baseSha !== baseSha) {
+    return failed("evidence_state_base_mismatch", "Recovery state base does not match evidence base.");
+  }
+  if (identity.taskKey && state.taskKey !== identity.taskKey) return failed("evidence_task_mismatch", "Evidence task key does not match recovery state.");
+  if (Number.isInteger(identity.issueNumber) && state.issue?.number !== identity.issueNumber) {
+    return failed("evidence_issue_mismatch", "Evidence issue does not match recovery state.");
+  }
+  if (identity.runId && state.run?.runId !== identity.runId) return failed("evidence_run_mismatch", "Evidence run does not match recovery state.");
+  if (identity.branchName && state.branch?.name !== identity.branchName) return failed("evidence_branch_mismatch", "Evidence branch does not match recovery state.");
+  if (Number.isInteger(identity.prNumber) && state.pr?.number && state.pr.number !== identity.prNumber) {
+    return failed("evidence_pr_mismatch", "Evidence PR does not match recovery state.");
+  }
+  for (const kind of ["localValidation", "externalReview", "codexReview"]) {
+    const item = evidenceByKind[kind];
+    if (!item || typeof item !== "object") return failed(`missing_${kind}_evidence`, `${kind} evidence is missing.`);
+    if (!["passed", "pass", "approved", "blocked", "failed", "recorded"].includes(String(item.status || item.verdict || "").toLowerCase())) {
+      return failed(`${kind}_status_invalid`, `${kind} evidence status is invalid.`);
+    }
+    const itemHead = item.headSha || item.reviewedHead || headSha;
+    if (itemHead !== headSha) return failed(`${kind}_head_mismatch`, `${kind} evidence head does not match.`);
+    const itemBase = item.baseSha || baseSha;
+    if (baseSha && itemBase && itemBase !== baseSha) return failed(`${kind}_base_mismatch`, `${kind} evidence base does not match.`);
+    const itemDigest = item.changedFilesDigest || null;
+    if (!itemDigest) return failed(`${kind}_changed_files_digest_missing`, `${kind} changed-file digest is missing.`);
+    if (!isDigest(itemDigest)) return failed(`${kind}_changed_files_digest_invalid`, `${kind} changed-file digest is invalid.`);
+    if (itemDigest !== changedFilesDigest) return failed(`${kind}_changed_files_digest_mismatch`, `${kind} changed-file digest does not match.`);
+  }
+  return { ok: true, changedFilesDigest };
 }
 
 export function invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode = "head_changed" }) {
@@ -618,8 +685,16 @@ function staleEvidenceKinds(state, currentHeadSha) {
   });
 }
 
+export function digestChangedFiles(values) {
+  return createHash("sha256").update(JSON.stringify(normalizeChangedFiles(values))).digest("hex");
+}
+
 function digestStringArray(values) {
-  return createHash("sha256").update(JSON.stringify([...new Set(values || [])].sort())).digest("hex");
+  return digestChangedFiles(values);
+}
+
+function normalizeChangedFiles(values = []) {
+  return [...new Set((values || []).map((value) => String(value || "")).filter(Boolean))].sort();
 }
 
 function isShaOrNull(value) {

@@ -73,10 +73,16 @@ function sanitizeReviewResult(review) {
     reviewStatus: stringOrNull(review.reviewStatus),
     reviewFailureCategory: stringOrNull(review.reviewFailureCategory),
     reviewFailureReason: stringOrNull(review.reviewFailureReason),
+    completedAt: stringOrNull(review.completedAt),
     attempts: sanitizeValue(review.attempts || []),
     attemptCount: numberOrNull(review.attemptCount ?? (Array.isArray(review.attempts) ? review.attempts.length : null)),
     reviewedHead: stringOrNull(review.reviewedHead),
+    reviewedBaseSha: stringOrNull(review.reviewedBaseSha),
+    baseSha: stringOrNull(review.baseSha),
     changedFiles: sanitizeStringArray(review.changedFiles),
+    changedFilesDigest: stringOrNull(review.changedFilesDigest),
+    fullCandidatePrDelta: sanitizeValue(review.fullCandidatePrDelta ?? null),
+    evidenceBinding: sanitizeValue(review.evidenceBinding ?? null),
     verdict: sanitizeReviewVerdict(review.verdict),
     rawEvidence,
   });
@@ -86,6 +92,7 @@ function sanitizeReviewVerdict(verdict) {
   if (!isPlainObject(verdict)) return verdict === null || verdict === undefined ? null : sanitizeValue(verdict);
   return omitNullish({
     verdict: stringOrNull(verdict.verdict),
+    reviewed_base_sha: stringOrNull(verdict.reviewed_base_sha),
     confidence: stringOrNull(verdict.confidence),
     requirement_match: stringOrNull(verdict.requirement_match),
     code_quality: stringOrNull(verdict.code_quality),
