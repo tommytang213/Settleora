@@ -4841,6 +4841,48 @@ test("merge-only auto-merge restores source branch after mocked merge auto-delet
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-"));
   try {
     const calls = [];
+    let branchReads = 0;
+    const result = executeAutoMergeMergeOnly(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+      autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
+      {
+        runner: (command, args) => {
+          calls.push(`${command} ${args.join(" ")}`);
+          if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "git" && args[0] === "ls-remote") {
+            branchReads += 1;
+            return branchReads === 1 ? ok("") : ok("head123\trefs/heads/feature/auto-1-test\n");
+          }
+          if (command === "git" && args[0] === "push") return ok("");
+          if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+          return fail(`unexpected ${command} ${args.join(" ")}`);
+        },
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: autoMergeRequiredChecks(),
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.sourceBranchRestoration.planned, true);
+    assert.equal(result.sourceBranchRestoration.executed, true);
+    assert.equal(result.sourceBranchRestoration.confirmed, true);
+    assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
+    assert.equal(calls.some((call) => call.startsWith("gh issue ")), false);
+    assert.equal(calls.some((call) => call.startsWith("gh pr comment ")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("merge-only auto-merge blocks completion when source branch restoration is unconfirmed", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-fail-"));
+  try {
+    const calls = [];
     const result = executeAutoMergeMergeOnly(
       { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
       autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
@@ -4863,10 +4905,9 @@ test("merge-only auto-merge restores source branch after mocked merge auto-delet
         }),
       },
     );
-    assert.equal(result.result, "merged");
-    assert.equal(result.sourceBranchRestoration.planned, true);
-    assert.equal(result.sourceBranchRestoration.executed, true);
-    assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
+    assert.equal(result.result, "merge_failed");
+    assert.match(result.reason, /source_branch_restoration_failed:source_branch_restore_unconfirmed/);
+    assert.equal(result.sourceBranchRestoration.confirmed, false);
     assert.equal(calls.some((call) => call.startsWith("gh issue ")), false);
     assert.equal(calls.some((call) => call.startsWith("gh pr comment ")), false);
   } finally {
@@ -5444,6 +5485,7 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-"));
   try {
     const calls = [];
+    let branchReads = 0;
     const runner = (command, args) => {
       calls.push(`${command} ${args.join(" ")}`);
       if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
@@ -5451,7 +5493,10 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
       if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(preMergePrJson());
       if (command === "gh" && args[0] === "api" && args[1] === "graphql") return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }));
       if (command === "gh" && args[0] === "api" && String(args[1]).includes("code-scanning/alerts")) return ok("[]");
-      if (command === "git" && args[0] === "ls-remote") return ok("");
+      if (command === "git" && args[0] === "ls-remote") {
+        branchReads += 1;
+        return branchReads === 1 ? ok("") : ok("head123\trefs/heads/feature/auto-1-test\n");
+      }
       if (command === "git" && args[0] === "push") return ok("");
       if (command === "gh" && args[0] === "issue" && args[1] === "view") {
         return ok(JSON.stringify({ labels: [{ name: "workflow" }, { name: "auto-running" }] }));
@@ -5466,6 +5511,7 @@ test("source branch restoration is executed after mocked merge auto-deletes bran
     assert.equal(result.result, "merged");
     assert.equal(result.mergeSha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     assert.equal(result.sourceBranchRestoration.executed, true);
+    assert.equal(result.sourceBranchRestoration.confirmed, true);
     assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });

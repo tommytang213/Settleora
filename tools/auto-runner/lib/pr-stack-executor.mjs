@@ -1041,6 +1041,8 @@ export function loadPrStackState(statePath, plan) {
 export function writePrStackState(statePath, state) {
   const validation = validatePrStackState(state);
   if (!validation.ok) throw new Error(`Invalid PR stack state: ${validation.reasonCode}`);
+  const preMkdirPathTrust = validatePrStackStateWritePath(statePath, { parentMayBeMissing: true });
+  if (!preMkdirPathTrust.ok) throw new Error(preMkdirPathTrust.reason);
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
   const pathTrust = validatePrStackStateWritePath(statePath);
   if (!pathTrust.ok) throw new Error(pathTrust.reason);
@@ -1232,7 +1234,11 @@ async function dispatchMergePr({ config, plan, state, action, pr, adapter }) {
   }
   const markerKey = markerKeyFor("merge_pr", pr.number, pr.headRefOid);
   if (state.mutationMarkers[markerKey]) {
-    return { ok: true, evidence: putEvidence(state.evidence, "merged", pr.number, state.mutationMarkers[markerKey].result || { ok: true, merged: true }), mutationMarkers: state.mutationMarkers, summary: { action: action.action, duplicate: true } };
+    const markerResult = state.mutationMarkers[markerKey].result || { ok: true, merged: true };
+    const restored = await ensurePostMergeSourceBranchRestored({ config, plan, state, pr, adapter, expectedHead: action.expectedHead || pr.headRefOid, mergeResult: markerResult });
+    if (!restored.ok) return restored;
+    const completedResult = { ...markerResult, sourceBranchRestoration: restored.restoration };
+    return { ok: true, evidence: putEvidence(state.evidence, "merged", pr.number, completedResult), mutationMarkers: state.mutationMarkers, summary: { action: action.action, duplicate: true } };
   }
   const intent = await prepareStackMutationIntent({
     config,
@@ -1249,15 +1255,18 @@ async function dispatchMergePr({ config, plan, state, action, pr, adapter }) {
   if (intent.observedComplete) {
     const proof = await finalizeObservedStackMutation({ config, plan, state, pr, adapter, intent: intent.intent });
     if (!proof.ok) return proof;
+    const restored = await ensurePostMergeSourceBranchRestored({ config, plan, state, pr, adapter, expectedHead: action.expectedHead || pr.headRefOid, mergeResult: proof.result, intent: proof.intent });
+    if (!restored.ok) return restored;
+    const completedResult = { ...proof.result, sourceBranchRestoration: restored.restoration };
     const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "merge_pr", key: pr.headRefOid, prNumber: pr.number, exactHead: pr.headRefOid });
     const mutationMarkers = {
       ...marker.plan.mutationMarkers,
-      [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(proof.result) },
+      [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(completedResult) },
     };
-    await finalizeStackOperationEvidence({ config, intent: proof.intent, result: proof.result });
+    await finalizeStackOperationEvidence({ config, intent: proof.intent, result: completedResult });
     return {
       ok: true,
-      evidence: putEvidence(state.evidence, "merged", pr.number, { ...proof.result, ok: true, merged: true }),
+      evidence: putEvidence(state.evidence, "merged", pr.number, { ...completedResult, ok: true, merged: true }),
       mutationMarkers,
       activePrNumber: nextUnmergedPr(plan, state.evidence, pr.number),
       summary: { action: action.action, prNumber: pr.number, mergeSha: proof.result.mergeSha || null, recoveredCompletedMutation: true },
@@ -1265,16 +1274,19 @@ async function dispatchMergePr({ config, plan, state, action, pr, adapter }) {
   }
   const result = await adapter.mergePr({ config, plan, state, pr, expectedHead: action.expectedHead || pr.headRefOid, operationIntent: intent.intent, repositoryContext: intent.repositoryContext });
   if (!result?.ok) return waitOrFail(result, "merge_failed");
-  await markStackOperationObservedComplete({ config, intent: intent.intent, result });
+  const restored = await ensurePostMergeSourceBranchRestored({ config, plan, state, pr, adapter, expectedHead: action.expectedHead || pr.headRefOid, mergeResult: result, intent: intent.intent });
+  if (!restored.ok) return restored;
+  const completedResult = { ...result, sourceBranchRestoration: restored.restoration };
+  await markStackOperationObservedComplete({ config, intent: intent.intent, result: completedResult });
   const marker = recordStackMutationMarker({ mutationMarkers: state.mutationMarkers }, { kind: "merge_pr", key: pr.headRefOid, prNumber: pr.number, exactHead: pr.headRefOid });
   const mutationMarkers = {
     ...marker.plan.mutationMarkers,
-    [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(result) },
+    [markerKey]: { ...(marker.plan.mutationMarkers[markerKey] || {}), result: boundedProof(completedResult) },
   };
-  await finalizeStackOperationEvidence({ config, intent: intent.intent, result });
+  await finalizeStackOperationEvidence({ config, intent: intent.intent, result: completedResult });
   return {
     ok: true,
-    evidence: putEvidence(state.evidence, "merged", pr.number, { ...result, ok: true, merged: true }),
+    evidence: putEvidence(state.evidence, "merged", pr.number, { ...completedResult, ok: true, merged: true }),
     mutationMarkers,
     activePrNumber: nextUnmergedPr(plan, state.evidence, pr.number),
     summary: { action: action.action, prNumber: pr.number, mergeSha: result.mergeSha || null },
@@ -1394,6 +1406,10 @@ async function dispatchOwnDeltaProof({ config, plan, state, action, pr, adapter 
 async function dispatchHygiene({ config, plan, state, adapter }) {
   for (const pr of plan.orderedPrs) {
     if (!state.evidence?.merged?.[pr.number]) return fail("hygiene_before_all_merges_refused", "final hygiene requires every PR merge proof");
+    const restoration = state.evidence.merged[pr.number]?.sourceBranchRestoration || state.evidence.merged[pr.number]?.result?.sourceBranchRestoration || null;
+    if (!sourceBranchRestorationConfirmed(restoration, { branchName: pr.headRefName, headSha: pr.headRefOid })) {
+      return fail("hygiene_before_source_branch_restoration_refused", "final hygiene requires confirmed source branch restoration for every merged PR");
+    }
   }
   const markerKey = markerKeyFor("hygiene", "stack", plan.stackId);
   if (state.mutationMarkers[markerKey]) return { ok: true, complete: true, evidence: state.evidence, mutationMarkers: state.mutationMarkers, summary: { action: "hygiene", duplicate: true } };
@@ -1640,6 +1656,9 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         ? { ok: true, merged: result.result === "merged", mergeSha: result.mergeSha || null, result }
         : fail(result.reason || "merge_blocked", result.reason || "merge blocked");
     },
+    async restoreSourceBranchAfterMerge({ config: cfg, pr, expectedHead }) {
+      return restoreStackSourceBranchIfDeleted({ config: cfg || config, pr, expectedHead, runner: run });
+    },
     async fetchCurrentMain({ config: cfg, state, pr }) {
       return fetchCurrentMainProof({ config: cfg || config, state, pr, runner: run });
     },
@@ -1690,9 +1709,13 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         headRefName: stackPr.headRefName,
         headRefOid: stackPr.headRefOid,
         mergeSha: state.evidence?.merged?.[stackPr.number]?.mergeSha || state.evidence?.merged?.[stackPr.number]?.result?.mergeSha || null,
+        sourceBranchRestoration: state.evidence?.merged?.[stackPr.number]?.sourceBranchRestoration || state.evidence?.merged?.[stackPr.number]?.result?.sourceBranchRestoration || null,
       }));
       if (completedPrs.some((completed) => !completed.number || !validSha(completed.headRefOid) || !validSha(completed.mergeSha))) {
         return fail("final_hygiene_merged_pr_proof_incomplete", "final hygiene requires complete merged PR identity and merge SHA proof");
+      }
+      if (completedPrs.some((completed) => !sourceBranchRestorationConfirmed(completed.sourceBranchRestoration, { branchName: completed.headRefName, headSha: completed.headRefOid }))) {
+        return fail("final_hygiene_source_branch_restoration_unconfirmed", "final hygiene requires confirmed source branch restoration for every merged PR");
       }
       const hygieneRunner = createFinalHygieneRunner(run, repositoryContext.context);
       const result = completeMergedIssueHygiene(targetConfig, {
@@ -2322,6 +2345,67 @@ function defaultMergedPrProof({ pr, live, intent }) {
   const mergeSha = proof.mergeCommitOid || live.mergeSha || null;
   if (!validSha(mergeSha)) return fail("merge_sha_missing", "merged PR proof is missing a merge commit SHA");
   return { ok: true, merged: true, recovered: true, prNumber: pr.number, mergeSha, sourceHeadSha: proof.headRefOid, before: intent.expectedPreState, after: proof, repositoryContext: intent.repositoryContext };
+}
+
+async function ensurePostMergeSourceBranchRestored({ config = {}, plan = null, state = {}, pr = {}, adapter = null, expectedHead = null, mergeResult = {}, intent = {} } = {}) {
+  const existing = mergeResult?.sourceBranchRestoration || mergeResult?.result?.sourceBranchRestoration || null;
+  if (sourceBranchRestorationConfirmed(existing, { branchName: pr.headRefName, headSha: expectedHead })) return { ok: true, restoration: existing };
+  if (typeof adapter?.restoreSourceBranchAfterMerge !== "function") {
+    return fail("merge_source_branch_restoration_unverified", "source branch restoration must be confirmed before merge evidence is completed", { sourceBranchRestoration: existing || null });
+  }
+  const restored = await adapter.restoreSourceBranchAfterMerge({ config, plan, state, pr, expectedHead, intent, mergeResult });
+  if (!sourceBranchRestorationConfirmed(restored, { branchName: pr.headRefName, headSha: expectedHead })) {
+    return fail(
+      restored?.reasonCode || "merge_source_branch_restoration_unconfirmed",
+      restored?.reason || "source branch restoration was not confirmed after merge",
+      { sourceBranchRestoration: restored || existing || null },
+    );
+  }
+  return { ok: true, restoration: restored };
+}
+
+function sourceBranchRestorationConfirmed(restoration = null, { branchName = null, headSha = null } = {}) {
+  if (!restoration || typeof restoration !== "object") return false;
+  if (restoration.ok === false) return false;
+  if (restoration.confirmed !== true || restoration.branchExists !== true) return false;
+  if (branchName && restoration.branchName !== branchName) return false;
+  if (headSha && restoration.headSha !== headSha) return false;
+  return true;
+}
+
+function restoreStackSourceBranchIfDeleted({ config = {}, pr = {}, expectedHead = null, runner } = {}) {
+  const branchName = pr.headRefName || pr.branch || null;
+  const headSha = expectedHead || pr.headRefOid || null;
+  if (!safeSourceBranchTarget(branchName, { baseRefName: pr.baseRefName, defaultBranch: "main" }) || !validSha(headSha)) {
+    return fail("merge_source_branch_restore_identity_invalid", "source branch restoration requires a safe branch and exact head");
+  }
+  const before = readRemoteBranchHead({ config, branchName, runner });
+  if (!before.ok) return before;
+  if (before.exists) {
+    if (before.headSha !== headSha) return fail("merge_source_branch_head_mismatch", "source branch exists at an unexpected head", { branchName, expectedHead: headSha, actualHead: before.headSha });
+    return { ok: true, planned: false, executed: false, confirmed: true, branchExists: true, reason: "source_branch_exists", branchName, headSha };
+  }
+  const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
+  if (push.status !== 0 || push.error) {
+    return fail("merge_source_branch_restore_push_failed", "source branch restoration push failed", { branchName, headSha, status: push.status, stderr: boundedProof(push.stderr || push.error || "") });
+  }
+  const after = readRemoteBranchHead({ config, branchName, runner });
+  if (!after.ok) return after;
+  if (!after.exists) return fail("merge_source_branch_restore_unconfirmed", "source branch restoration did not appear on remote", { branchName, headSha });
+  if (after.headSha !== headSha) return fail("merge_source_branch_head_mismatch", "source branch restored at an unexpected head", { branchName, expectedHead: headSha, actualHead: after.headSha });
+  return { ok: true, planned: true, executed: true, confirmed: true, branchExists: true, branchName, headSha };
+}
+
+function readRemoteBranchHead({ config = {}, branchName, runner } = {}) {
+  const remote = runner("git", ["ls-remote", "--heads", "origin", branchName], { cwd: config.repoRoot });
+  if (remote.status !== 0 || remote.error) {
+    return fail("merge_source_branch_read_failed", "source branch remote read failed", { branchName, status: remote.status, stderr: boundedProof(remote.stderr || remote.error || "") });
+  }
+  const line = String(remote.stdout || "").trim().split(/\r?\n/).find(Boolean);
+  if (!line) return { ok: true, exists: false, branchName, headSha: null };
+  const [headSha] = line.trim().split(/\s+/);
+  if (!validSha(headSha)) return fail("merge_source_branch_read_invalid", "source branch remote read returned an invalid head", { branchName });
+  return { ok: true, exists: true, branchName, headSha };
 }
 
 function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, findings = [] } = {}) {
@@ -3955,12 +4039,15 @@ function validateOwnerOnlyFile(filePath, { missingOk = false } = {}) {
   return { ok: true };
 }
 
-function validatePrStackStateWritePath(statePath) {
+function validatePrStackStateWritePath(statePath, { parentMayBeMissing = false } = {}) {
+  const componentTrust = validateNoSymlinkPathComponents(statePath, { leafMayBeMissing: true });
+  if (!componentTrust.ok) return componentTrust;
   const parentPath = path.dirname(statePath);
   let parentStat;
   try {
     parentStat = lstatSync(parentPath);
-  } catch {
+  } catch (error) {
+    if (parentMayBeMissing && error?.code === "ENOENT") return { ok: true };
     return fail("stack_state_parent_untrusted", "prStackExecution.statePath parent directory could not be validated");
   }
   if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) {
@@ -3974,6 +4061,26 @@ function validatePrStackStateWritePath(statePath) {
     return fail("stack_state_parent_untrusted", "prStackExecution.statePath parent directories must be owner-only");
   }
   return validateOwnerOnlyFile(statePath, { missingOk: true });
+}
+
+function validateNoSymlinkPathComponents(targetPath, { leafMayBeMissing = false } = {}) {
+  const absolutePath = path.resolve(targetPath);
+  const parsed = path.parse(absolutePath);
+  const relativeParts = path.relative(parsed.root, absolutePath).split(path.sep).filter(Boolean);
+  let current = parsed.root;
+  for (let index = 0; index < relativeParts.length; index += 1) {
+    current = path.join(current, relativeParts[index]);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ELOOP") return fail("stack_state_parent_untrusted", "prStackExecution.statePath must not contain symlinks");
+      if (error?.code === "ENOENT" && (leafMayBeMissing || index < relativeParts.length - 1)) break;
+      return fail("stack_state_parent_untrusted", "prStackExecution.statePath component could not be validated");
+    }
+    if (stat.isSymbolicLink()) return fail("stack_state_parent_untrusted", "prStackExecution.statePath must not contain symlinks");
+  }
+  return { ok: true };
 }
 
 function normalizePositiveInt(value, fallback) {

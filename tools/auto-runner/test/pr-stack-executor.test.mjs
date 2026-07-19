@@ -19,6 +19,7 @@ import {
 } from "../lib/pr-stack-executor.mjs";
 
 const sha = (char) => char.repeat(40);
+const confirmedSourceBranchRestoration = (branchName, headSha) => ({ ok: true, confirmed: true, branchExists: true, branchName, headSha });
 
 test("CLI accepts the documented stack mode and rejects incomplete or mixed stack invocations", () => {
   assert.throws(() => parseCliArgs(["--run-pr-stack"]), /requires an explicit --config/);
@@ -1841,7 +1842,12 @@ test("semantic own-delta proof is mandatory and ready transition requires it", a
 test("final hygiene occurs only after every PR has merge proof", async () => {
   const fixture = stackFixtureAtChild({ retargeted: true, ownDelta: true, ready: true, childConverged: true, childGates: true });
   let hygiene = 0;
-  let result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter: { mergePr: async () => ({ ok: true, mergeSha: sha("d") }) } });
+  let result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
+    adapter: {
+      mergePr: async () => ({ ok: true, mergeSha: sha("d") }),
+      restoreSourceBranchAfterMerge: async ({ pr, expectedHead }) => ({ ok: true, planned: false, executed: false, confirmed: true, branchExists: true, branchName: pr.headRefName, headSha: expectedHead || pr.headRefOid, reason: "source_branch_exists" }),
+    },
+  });
   assert.equal(result.ok, true, result.reasonCode);
   result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter: { runFinalHygiene: async () => { hygiene += 1; return { ok: true }; } } });
   assert.equal(result.ok, true, result.reasonCode);
@@ -1851,8 +1857,8 @@ test("final hygiene occurs only after every PR has merge proof", async () => {
 test("production final hygiene requires the injected live runner and records command evidence", async () => {
   const fixture = stackFixture();
   const state = createInitialPrStackState({ plan: fixture.plan });
-  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c") };
-  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d") };
+  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-parent", sha("a")) };
+  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-child", sha("b")) };
 
   const missing = await createProductionPrStackAdapter(fixture.config).runFinalHygiene({ config: fixture.config, plan: fixture.plan, state });
   assert.equal(missing.ok, false);
@@ -1870,6 +1876,51 @@ test("production final hygiene requires the injected live runner and records com
   assert.equal(result.result.commandEvidence.some((entry) => entry.command === "gh" && entry.args.includes("--repo") && entry.args.includes("tommytang213/Settleora")), true);
   assert.equal(calls.some((call) => call.startsWith("gh issue comment 921")), true);
   assert.equal(calls.some((call) => call.startsWith("gh issue comment 800")), true);
+});
+
+test("final hygiene rejects merged evidence without source branch restoration proof", async () => {
+  const fixture = stackFixtureAtChild({ retargeted: true, ownDelta: true, ready: true, childConverged: true, childGates: true });
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  state.evidence.merged["919"] = { ok: true, merged: true, mergeSha: sha("c") };
+  state.evidence.merged["920"] = { ok: true, merged: true, mergeSha: sha("d") };
+  state.activePrNumber = null;
+  writePrStackState(statePath, state);
+
+  const dispatch = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter: { runFinalHygiene: async () => ({ ok: true }) } });
+  assert.equal(dispatch.ok, false);
+  assert.equal(dispatch.reasonCode, "hygiene_before_source_branch_restoration_refused");
+
+  const adapter = createProductionPrStackAdapter(fixture.config, { runner: liveFixedArgvRunner(finalHygieneRunner([])) });
+  const production = await adapter.runFinalHygiene({ config: fixture.config, plan: fixture.plan, state });
+  assert.equal(production.ok, false);
+  assert.equal(production.reasonCode, "final_hygiene_source_branch_restoration_unconfirmed");
+});
+
+test("duplicate merge marker recovery requires source branch restoration proof", async () => {
+  const fixture = stackFixtureAtChild({ retargeted: true, ownDelta: true, ready: true, childConverged: true, childGates: true });
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  const markerKey = `merge_pr:920:${sha("b")}`;
+  state.mutationMarkers[markerKey] = { kind: "merge_pr", prNumber: 920, exactHead: sha("b"), result: { ok: true, merged: true, mergeSha: sha("d") } };
+  writePrStackState(statePath, state);
+
+  let mergeCalls = 0;
+  let restoreCalls = 0;
+  const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, {
+    adapter: {
+      mergePr: async () => { mergeCalls += 1; return { ok: true, mergeSha: sha("d") }; },
+      restoreSourceBranchAfterMerge: async () => {
+        restoreCalls += 1;
+        return { ok: true, planned: true, executed: true, confirmed: true, branchExists: true, branchName: "feature/auto-913-child", headSha: sha("b") };
+      },
+    },
+  });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(mergeCalls, 0);
+  assert.equal(restoreCalls, 1);
+  const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(persisted.evidence.merged["920"].sourceBranchRestoration.confirmed, true);
 });
 
 test("production stack execution preflights live runner before any external mutation", async () => {
@@ -1911,8 +1962,8 @@ test("production stack execution preflights live runner before any external muta
 test("successful production final hygiene uses the same preflighted live runner evidence", async () => {
   const fixture = stackFixture();
   const state = createInitialPrStackState({ plan: fixture.plan });
-  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c") };
-  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d") };
+  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-parent", sha("a")) };
+  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-child", sha("b")) };
   const calls = [];
   const liveRunner = liveFixedArgvRunner(finalHygieneRunner(calls));
   const adapter = createProductionPrStackAdapter(fixture.config, { runner: liveRunner });
@@ -1928,8 +1979,8 @@ test("successful production final hygiene uses the same preflighted live runner 
 test("production final hygiene rejects claimed success when a required component fails", async () => {
   const fixture = stackFixture();
   const state = createInitialPrStackState({ plan: fixture.plan });
-  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c") };
-  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d") };
+  state.evidence.merged["919"] = { ok: true, mergeSha: sha("c"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-parent", sha("a")) };
+  state.evidence.merged["920"] = { ok: true, mergeSha: sha("d"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-child", sha("b")) };
   const adapter = createProductionPrStackAdapter(fixture.config, {
 	    runner: liveFixedArgvRunner(finalHygieneRunner([], { failFirstIssueComment: true })),
   });
@@ -2187,6 +2238,7 @@ test("durable mutation intents persist before retarget ready and merge mutations
         mergeSawIntent = readdirSync(path.join(mergeFixture.config.logsRoot, "stack-operation-intents")).some((name) => name.endsWith(".json"));
         return { ok: true, mergeSha: sha("m") };
       },
+      restoreSourceBranchAfterMerge: async ({ pr, expectedHead }) => ({ ok: true, planned: false, executed: false, confirmed: true, branchExists: true, branchName: pr.headRefName, headSha: expectedHead || pr.headRefOid, reason: "source_branch_exists" }),
     },
   });
   assert.equal(merged.ok, true);
@@ -2235,20 +2287,27 @@ test("completed retarget ready and merge operations recover without duplicate mu
   mergeState.evidence.gatesPassed["919"] = gateEvidence();
   writePrStackState(mergeStatePath, mergeState);
   let mergeCalls = 0;
+  let restoreCalls = 0;
   const merged = await runPrStackExecution(mergeFixture.config, { stackPlanPath: mergeFixture.planPath }, {
     adapter: {
       capabilities: { repositoryBoundOperations: true },
       readRepositoryOperationContext: async () => ({ ok: true, worktreePath: mergeFixture.config.repoRoot, originRepositorySlug: "tommytang213/Settleora" }),
       inspectPr: async () => ({ ok: true, pr: { number: 919, state: "MERGED", isDraft: false, baseRefName: "main", headRefName: "feature/auto-913-parent", headRefOid: sha("a"), headRepositorySlug: "tommytang213/Settleora", baseRepositorySlug: "tommytang213/Settleora", isCrossRepository: false, mergeCommitOid: sha("m"), mergedAt: "2026-07-18T00:00:00Z" }, headRefOid: sha("a") }),
       proveMergedPr: async () => ({ ok: true, merged: true, mergeSha: sha("m"), sourceHeadSha: sha("a") }),
+      restoreSourceBranchAfterMerge: async () => {
+        restoreCalls += 1;
+        return { ok: true, planned: true, executed: true, confirmed: true, branchExists: true, branchName: "feature/auto-913-parent", headSha: sha("a") };
+      },
       mergePr: async () => { mergeCalls += 1; return { ok: true }; },
     },
   });
   assert.equal(merged.ok, true);
   assert.equal(mergeCalls, 0);
+  assert.equal(restoreCalls, 1);
   state = JSON.parse(readFileSync(mergeStatePath, "utf8"));
   assert.equal(state.sourceCycles["919"], 0);
   assert.equal(state.evidence.merged["919"].mergeSha, sha("m"));
+  assert.equal(state.evidence.merged["919"].sourceBranchRestoration.confirmed, true);
 });
 
 test("production final gates collect real evidence and wait on pending checks or scanners", async () => {
@@ -2799,6 +2858,14 @@ test("explicit stack state path rejects symlinked parent components before writi
     /prStackExecution\.statePath must not contain symlinks/,
   );
   assert.equal(existsSync(externalStatePath), false);
+
+  const nestedExternalStatePath = path.join(outsideRoot, "nested", "stack-state.json");
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  assert.throws(
+    () => writePrStackState(path.join(symlinkedParent, "nested", "stack-state.json"), state),
+    /prStackExecution\.statePath must not contain symlinks/,
+  );
+  assert.equal(existsSync(nestedExternalStatePath), false);
 });
 
 test("explicit stack state path rejects unsafe existing parent permissions before writing", async () => {
@@ -3147,7 +3214,7 @@ function stackFixtureAtChild(flags = {}) {
   const state = createInitialPrStackState({ plan: fixture.plan });
   state.evidence.reviewConverged["919"] = { ok: true };
   state.evidence.gatesPassed["919"] = { ok: true };
-  state.evidence.merged["919"] = { ok: true, merged: true, mergeSha: sha("e") };
+  state.evidence.merged["919"] = { ok: true, merged: true, mergeSha: sha("e"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-parent", sha("a")) };
   state.evidence.currentMainProof["919"] = { ok: true, currentMain: sha("e") };
   if (flags.retargeted) state.evidence.retargeted["920"] = { ok: true };
   if (flags.ownDelta) state.evidence.ownDeltaPreserved["920"] = { ok: true };
@@ -3791,6 +3858,11 @@ function fakeRunner(command, args = []) {
   if (command === "git" && args[0] === "remote" && args[1] === "get-url") {
     return { status: 0, stdout: "git@github.com:tommytang213/Settleora.git\n", stderr: "", error: null };
   }
+  if (command === "git" && args[0] === "ls-remote" && args[1] === "--heads") {
+    const branch = String(args[3] || "");
+    const head = branch.includes("child") ? sha("b") : sha("a");
+    return { status: 0, stdout: `${head}\trefs/heads/${branch}\n`, stderr: "", error: null };
+  }
   if (command === "gh" && args.includes("--name-only")) {
     return { status: 0, stdout: "tools/auto-runner/lib/pr-stack-executor.mjs\n", stderr: "", error: null };
   }
@@ -3864,6 +3936,7 @@ function scriptedAdapter(calls) {
       calls.push(`merge:${pr.number}`);
       return { ok: true, mergeSha: pr.number === 919 ? sha("m") : sha("n") };
     },
+    restoreSourceBranchAfterMerge: async ({ pr, expectedHead }) => ({ ok: true, planned: false, executed: false, confirmed: true, branchExists: true, branchName: pr.headRefName, headSha: expectedHead || pr.headRefOid, reason: "source_branch_exists" }),
     fetchCurrentMain: async ({ pr }) => {
       calls.push(`current-main:${pr.number}`);
       return { ok: true, currentMain: sha("m") };

@@ -425,6 +425,10 @@ export function executeAutoMerge(config, context, options = {}) {
   }
   const mergeSha = mergeProof.mergeSha;
   const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
+  if (!sourceBranchRestorationConfirmed(branchRestore, { branchName: finalContext.branchName || finalContext.pr?.headRefName, headSha: finalDecision.expectedHeadSha })) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `source_branch_restoration_failed:${branchRestore.reasonCode || branchRestore.reason || "unconfirmed"}` };
+    return { ...failed, mergeSha, mergeReadback: mergeProof, sourceBranchRestoration: branchRestore, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
   const hygiene = completeMergedIssueHygiene(
     config,
     {
@@ -533,6 +537,10 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
   }
   const mergeSha = mergeProof.mergeSha;
   const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
+  if (!sourceBranchRestorationConfirmed(branchRestore, { branchName: finalContext.branchName || finalContext.pr?.headRefName, headSha: finalDecision.expectedHeadSha })) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `source_branch_restoration_failed:${branchRestore.reasonCode || branchRestore.reason || "unconfirmed"}` };
+    return { ...failed, mergeSha, mergeReadback: mergeProof, sourceBranchRestoration: branchRestore, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
   const merged = {
     ...finalDecision,
     attempted: true,
@@ -1064,11 +1072,34 @@ function sleepSync(delayMs) {
 function restoreSourceBranchIfDeleted(config, context, runner) {
   const branchName = context.branchName || context.pr?.headRefName;
   const headSha = context.expectedHeadSha || context.runnerCreatedCommitSha;
-  if (!branchName || !headSha) return { planned: false, reason: "missing_branch_or_sha" };
+  if (!branchName || !headSha) return { ok: false, planned: false, confirmed: false, reasonCode: "missing_branch_or_sha", reason: "missing_branch_or_sha" };
   const remote = runner("git", ["ls-remote", "--heads", "origin", branchName], { cwd: config.repoRoot });
-  if (remote.status === 0 && remote.stdout.trim()) return { planned: false, executed: false, reason: "source_branch_exists" };
+  if (remote.status !== 0 || remote.error) return { ok: false, planned: false, confirmed: false, reasonCode: "source_branch_read_failed", status: remote.status, stderr: bounded(remote.stderr || remote.error || "") };
+  const existingHead = remoteBranchHead(remote.stdout);
+  if (existingHead) {
+    if (existingHead !== headSha) return { ok: false, planned: false, executed: false, confirmed: false, reasonCode: "source_branch_head_mismatch", reason: "source_branch_head_mismatch" };
+    return { ok: true, planned: false, executed: false, confirmed: true, branchExists: true, reason: "source_branch_exists", branchName, headSha };
+  }
   const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
-  return { planned: true, executed: push.status === 0 && !push.error, status: push.status, stderr: bounded(push.stderr || push.error || "") };
+  if (push.status !== 0 || push.error) return { ok: false, planned: true, executed: false, confirmed: false, reasonCode: "source_branch_restore_push_failed", status: push.status, stderr: bounded(push.stderr || push.error || "") };
+  const confirm = runner("git", ["ls-remote", "--heads", "origin", branchName], { cwd: config.repoRoot });
+  if (confirm.status !== 0 || confirm.error) return { ok: false, planned: true, executed: true, confirmed: false, reasonCode: "source_branch_confirm_failed", status: confirm.status, stderr: bounded(confirm.stderr || confirm.error || "") };
+  const confirmedHead = remoteBranchHead(confirm.stdout);
+  if (confirmedHead !== headSha) return { ok: false, planned: true, executed: true, confirmed: false, reasonCode: confirmedHead ? "source_branch_head_mismatch" : "source_branch_restore_unconfirmed", reason: "source_branch_restore_unconfirmed" };
+  return { ok: true, planned: true, executed: true, confirmed: true, branchExists: true, branchName, headSha, status: push.status, stderr: bounded(push.stderr || push.error || "") };
+}
+
+function sourceBranchRestorationConfirmed(restoration = {}, { branchName = null, headSha = null } = {}) {
+  if (!restoration || restoration.ok === false || restoration.confirmed !== true || restoration.branchExists !== true) return false;
+  if (branchName && restoration.branchName !== branchName) return false;
+  if (headSha && restoration.headSha !== headSha) return false;
+  return true;
+}
+
+function remoteBranchHead(stdout = "") {
+  const line = String(stdout || "").trim().split(/\r?\n/).find(Boolean);
+  if (!line) return null;
+  return line.trim().split(/\s+/)[0] || null;
 }
 
 function readMergeSha({

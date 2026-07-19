@@ -255,6 +255,7 @@ test("ordinary merge path invokes the completion pipeline safely", () => {
   };
   const runner = runnerWith({
     "git rev-parse origin/main": { status: 0, stdout: baseSha },
+    "git ls-remote --heads": { status: 0, stdout: `${headSha}\trefs/heads/feature/auto-891-example\n` },
     pr: {
       number: 100,
       state: "MERGED",
