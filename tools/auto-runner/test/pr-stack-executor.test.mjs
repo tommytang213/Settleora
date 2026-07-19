@@ -2285,8 +2285,15 @@ test("final gates prove changed files against the real lane contract and reject 
 test("final gates use carried stack lane contract when inspected issue body is unavailable", async () => {
   const fixture = stackFixture();
   const changedFiles = ["tools/auto-runner/919.mjs"];
+  const config = {
+    ...fixture.config,
+    dryRun: true,
+    allowAutoMerge: true,
+    autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] },
+    prStackIssue: { number: 921, state: "OPEN", labels: [], body: "" },
+  };
   const adapter = createProductionPrStackAdapter(
-    { ...fixture.config, dryRun: true, prStackIssue: { number: 921, state: "OPEN", labels: [], body: "" } },
+    config,
     { runner: finalGateRunner(changedFiles) },
   );
   const state = createInitialPrStackState({ plan: fixture.plan });
@@ -2311,14 +2318,22 @@ test("final gates use carried stack lane contract when inspected issue body is u
     },
   };
   const result = await adapter.completeFinalGates({
-    config: { ...fixture.config, dryRun: true, prStackIssue: { number: 921, state: "OPEN", labels: [], body: "" } },
+    config,
     state,
     pr: { ...fixture.plan.orderedPrs[0], issue: { number: 921, labels: [], body: "" }, laneDecision: carriedLaneDecision },
   });
   assert.equal(result.ok, true, result.reasonCode);
   assert.deepEqual(result.allowedPathProof.changedFiles, changedFiles);
   assert.deepEqual(result.allowedPathProof.contractAllowedPaths, ["tools/auto-runner/**"]);
+  assert.equal(result.laneDecision.branchStrategy, "normal");
+  assert.equal(result.laneDecision.contract.branchStrategy, "normal");
   assert.equal(result.allowedPathProof.laneDecision.contract.contractVersion, 1);
+
+  state.evidence.gatesPassed["919"] = result;
+  const mergeAdapter = createProductionPrStackAdapter(config, { runner: finalGateRunner(changedFiles) });
+  const merge = await mergeAdapter.mergePr({ config, state, pr: fixture.plan.orderedPrs[0], expectedHead: sha("a") });
+  assert.equal(merge.ok, true, merge.reasonCode);
+  assert.equal(merge.result.result, "dry_run_eligible");
 });
 
 test("merge revalidates exact-head allowed-path proof before consuming gate evidence", async () => {

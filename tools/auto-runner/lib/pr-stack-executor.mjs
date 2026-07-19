@@ -22,7 +22,7 @@ import {
   runExistingPrReviewConvergence,
 } from "./review-convergence-controller.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
-import { classifyIssueLane, filterForbiddenChangedFiles } from "./lane-policy.mjs";
+import { classifyIssueLane, filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
 import { runCodexPrompt } from "./codex-runner.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 
@@ -4285,6 +4285,7 @@ function resolveFinalGateLaneDecision({ config = {}, state = {}, pr = {}, inspec
       laneManifestAllowedPaths: allowedPaths,
       validationProfile: contract?.validationProfile || pr.validationProfile || "runner-tests",
       reviewerTier: "strong_independent",
+      branchStrategy: carriedLaneBranchStrategy({ lane, canonicalLane: lane, contract }),
       autoMergeEligible: contract?.autoMergeEligible !== false,
       manualMergeRequired: contract?.manualMergeRequired === true,
       contract: {
@@ -4292,6 +4293,7 @@ function resolveFinalGateLaneDecision({ config = {}, state = {}, pr = {}, inspec
         lane,
         allowedPaths,
         validationProfile: contract?.validationProfile || pr.validationProfile || "runner-tests",
+        branchStrategy: carriedLaneBranchStrategy({ lane, canonicalLane: lane, contract }),
         autoMergeEligible: contract?.autoMergeEligible !== false,
         manualMergeRequired: contract?.manualMergeRequired === true,
       },
@@ -4307,6 +4309,7 @@ function normalizeCarriedLaneDecision(candidate) {
   const allowedPaths = normalizeChangedFiles(candidate.allowedPaths || candidate.contract?.allowedPaths || candidate.stackLaneContract?.allowedPaths || []);
   if (allowedPaths.length === 0) return fail("lane_decision_allowed_paths_missing", "lane decision allowed paths missing");
   const lane = candidate.lane || candidate.canonicalLane || candidate.stackLaneContract?.laneId || "workflow-docs-tooling";
+  const branchStrategy = carriedLaneBranchStrategy({ ...candidate, lane });
   const normalized = {
     ...candidate,
     lane,
@@ -4316,6 +4319,7 @@ function normalizeCarriedLaneDecision(candidate) {
     laneManifestAllowedPaths: normalizeChangedFiles(candidate.laneManifestAllowedPaths || candidate.laneManifest?.allowedPaths || allowedPaths),
     validationProfile: candidate.validationProfile || candidate.contract?.validationProfile || "runner-tests",
     reviewerTier: candidate.reviewerTier || "strong_independent",
+    branchStrategy,
     autoMergeEligible: candidate.autoMergeEligible !== false && candidate.contract?.autoMergeEligible !== false,
     manualMergeRequired: candidate.manualMergeRequired === true || candidate.contract?.manualMergeRequired === true,
     contract: {
@@ -4324,6 +4328,7 @@ function normalizeCarriedLaneDecision(candidate) {
       lane,
       allowedPaths,
       validationProfile: candidate.contract?.validationProfile || candidate.validationProfile || "runner-tests",
+      branchStrategy,
       autoMergeEligible: candidate.autoMergeEligible !== false && candidate.contract?.autoMergeEligible !== false,
       manualMergeRequired: candidate.manualMergeRequired === true || candidate.contract?.manualMergeRequired === true,
     },
@@ -4338,6 +4343,17 @@ function normalizeCarriedLaneDecision(candidate) {
     return fail("allowed_path_contract_unavailable", "carried lane contract did not authorize implementation");
   }
   return { ok: true, laneDecision: sanitizeState(normalized), issue: { number: candidate.issueNumber || null, labels: [], body: "" } };
+}
+
+function carriedLaneBranchStrategy(candidate = {}) {
+  const strategy =
+    candidate.branchStrategy ||
+    candidate.contract?.branchStrategy ||
+    candidate.stackLaneContract?.branchStrategy ||
+    candidate.laneManifest?.branchStrategy ||
+    laneManifest[candidate.canonicalLane || candidate.lane]?.branchStrategy ||
+    laneManifest[candidate.lane]?.branchStrategy;
+  return strategy === "focused" ? "focused" : "normal";
 }
 
 function buildFinalGateReviewEvidence({ state, prNumber, expectedHead, expectedBase, changedFiles, expectedCandidateDelta = null }) {
