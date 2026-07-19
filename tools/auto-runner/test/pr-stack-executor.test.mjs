@@ -2351,6 +2351,12 @@ test("production final gates collect real evidence and wait on pending checks or
       if (args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-parent")) return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-child")) return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "diff" && String(args.at(-1)).includes("...")) {
+        if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
+        if (args.includes("--binary")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
+        if (args.includes("--numstat")) return { status: 0, stdout: "1\t0\ttools/auto-runner/919.mjs\n", stderr: "", error: null };
+        if (args.includes("--stat")) return { status: 0, stdout: "1 file changed\n", stderr: "", error: null };
+      }
       if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
       if (args[0] === "status") return fakeRunner(_command, args);
       return fakeRunner(_command, args);
@@ -2573,6 +2579,12 @@ test("final gates prove changed files against the real lane contract and reject 
       if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return { status: 0, stdout: `${fixture.config.repoRoot}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
+      if (args[0] === "diff" && String(args.at(-1)).includes("...")) {
+        if (args.includes("--name-only")) return { status: 0, stdout: "tools/auto-runner/919.mjs\n", stderr: "", error: null };
+        if (args.includes("--binary")) return { status: 0, stdout: "diff --git a/tools/auto-runner/919.mjs b/tools/auto-runner/919.mjs\n", stderr: "", error: null };
+        if (args.includes("--numstat")) return { status: 0, stdout: "1\t0\ttools/auto-runner/919.mjs\n", stderr: "", error: null };
+        if (args.includes("--stat")) return { status: 0, stdout: "1 file changed\n", stderr: "", error: null };
+      }
       if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
       if (args[0] === "status") return fakeRunner(_command, args);
       return fakeRunner(_command, args);
@@ -3849,6 +3861,12 @@ function finalGateRunner(changedFiles = ["tools/auto-runner/919.mjs"]) {
     if (command === "gh" && args.includes("--patch")) return { status: 0, stdout: changedFiles.map((file) => `diff --git a/${file} b/${file}\n`).join(""), stderr: "", error: null };
     if (args.includes("patch-id")) return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
     if (args.includes("apply")) return fakeRunner();
+    if (command === "git" && args[0] === "diff" && String(args.at(-1)).includes("...")) {
+      if (args.includes("--name-only")) return { status: 0, stdout: `${changedFiles.join("\n")}\n`, stderr: "", error: null };
+      if (args.includes("--binary")) return { status: 0, stdout: testPatchTextForFiles(changedFiles), stderr: "", error: null };
+      if (args.includes("--numstat")) return { status: 0, stdout: changedFiles.map((file) => `1\t0\t${file}`).join("\n") + "\n", stderr: "", error: null };
+      if (args.includes("--stat")) return { status: 0, stdout: `${changedFiles.length} files changed\n`, stderr: "", error: null };
+    }
     if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
     if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
     if (args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-parent")) return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
@@ -3919,6 +3937,12 @@ function activePrCheckoutRunner(calls, {
     if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${head}\n`, stderr: "", error: null };
     if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD^{tree}") return { status: 0, stdout: `${baseSha}\n`, stderr: "", error: null };
     if (command === "git" && args[0] === "rev-parse") return { status: 0, stdout: `${baseSha}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "diff" && String(args.at(-1)).includes("...")) {
+      if (args.includes("--name-only")) return { status: 0, stdout: `${changedFiles.join("\n")}\n`, stderr: "", error: null };
+      if (args.includes("--binary")) return { status: 0, stdout: changedFiles.map((file) => `diff --git a/${file} b/${file}\n`).join(""), stderr: "", error: null };
+      if (args.includes("--numstat")) return { status: 0, stdout: changedFiles.map((file) => `1\t0\t${file}`).join("\n") + "\n", stderr: "", error: null };
+      if (args.includes("--stat")) return { status: 0, stdout: `${changedFiles.length} files changed\n`, stderr: "", error: null };
+    }
     if (command === "git" && args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
     if (command === "git" && args[0] === "status") return { status: 0, stdout: "", stderr: "", error: null };
     if (command === "gh" && args.includes("--name-only")) return { status: 0, stdout: `${changedFiles.join("\n")}\n`, stderr: "", error: null };
@@ -4070,6 +4094,13 @@ function targetWorktreeRunner(calls, options = {}) {
     if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") return { status: 0, stdout: `${runnerOptions.cwd || process.cwd()}\n`, stderr: "", error: null };
     if (command === "git" && args[0] === "rev-parse" && args[1] === "--verify") return { status: options.activeOperation ? 0 : 1, stdout: options.activeOperation ? `${sha("x")}\n` : "", stderr: "", error: null };
     if (command === "git" && args[0] === "status") return { status: 0, stdout: options.statusPorcelain || "", stderr: "", error: null };
+    if (command === "git" && args[0] === "diff" && String(args.at(-1)).includes("...")) {
+      const file = "tools/auto-runner/lib/pr-stack-executor.mjs";
+      if (args.includes("--name-only")) return { status: 0, stdout: `${file}\n`, stderr: "", error: null };
+      if (args.includes("--binary")) return { status: 0, stdout: `diff --git a/${file} b/${file}\n`, stderr: "", error: null };
+      if (args.includes("--numstat")) return { status: 0, stdout: `1\t0\t${file}\n`, stderr: "", error: null };
+      if (args.includes("--stat")) return { status: 0, stdout: "1 file changed\n", stderr: "", error: null };
+    }
     if (command === "git" && args[0] === "diff") return { status: 0, stdout: options.diffPorcelain || "", stderr: "", error: null };
     if (command === "git" && args[0] === "fetch") return fakeRunner(command, args);
     if (command === "git" && args[0] === "branch") return { status: 0, stdout: `${branch}\n`, stderr: "", error: null };
@@ -4172,6 +4203,11 @@ function fakeRunner(command, args = []) {
     return { status: 0, stdout: "", stderr: "", error: null };
   }
   if (command === "git" && args[0] === "diff") {
+    if (args.includes("--cached")) return { status: 0, stdout: "", stderr: "", error: null };
+    if (args.includes("--name-only") && String(args.at(-1)).includes("...")) return { status: 0, stdout: "tools/auto-runner/lib/pr-stack-executor.mjs\n", stderr: "", error: null };
+    if (args.includes("--binary")) return { status: 0, stdout: "diff --git a/tools/auto-runner/lib/pr-stack-executor.mjs b/tools/auto-runner/lib/pr-stack-executor.mjs\n", stderr: "", error: null };
+    if (args.includes("--numstat")) return { status: 0, stdout: "1\t0\ttools/auto-runner/lib/pr-stack-executor.mjs\n", stderr: "", error: null };
+    if (args.includes("--stat")) return { status: 0, stdout: " tools/auto-runner/lib/pr-stack-executor.mjs | 1 +\n 1 file changed, 1 insertion(+)\n", stderr: "", error: null };
     return { status: 0, stdout: "", stderr: "", error: null };
   }
   return { status: 0, stdout: "", stderr: "", error: null };
