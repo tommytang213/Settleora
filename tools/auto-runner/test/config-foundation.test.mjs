@@ -3,7 +3,7 @@ import test from "node:test";
 import { chmodSync, chownSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { loadConfig, parseCliArgs } from "../lib/config.mjs";
+import { defaultLogsRoot, loadConfig, parseCliArgs } from "../lib/config.mjs";
 
 function withProfile(profile, fn) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-config-foundation-"));
@@ -93,7 +93,7 @@ test("PR A config parser does not own targeted recovery CLI", () => {
 });
 
 test("stack config trust boundary accepts documented live acceptance config layout", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-trust-"));
+  const root = makeTrustedTestRoot("settleora-stack-config-trust-");
   try {
     const logsRoot = path.join(root, "logs");
     const { configPath, planPath } = writeStackConfig(logsRoot, "20260717-2347");
@@ -128,7 +128,7 @@ test("stack config trust boundary accepts documented live acceptance config layo
 });
 
 test("stack config trust boundary accepts the current durable resume path shape", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-trust-"));
+  const root = makeTrustedTestRoot("settleora-stack-config-trust-");
   try {
     const logsRoot = path.join(root, "logs");
     const { configPath, planPath } = writeStackConfig(logsRoot, "20260717-2347", {
@@ -147,8 +147,34 @@ test("stack config trust boundary accepts the current durable resume path shape"
   }
 });
 
+test("stack config trust boundary rejects arbitrary bootstrap roots before filesystem validation", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-untrusted-"));
+  try {
+    const logsRoot = path.join(root, "logs");
+    const configPath = path.join(logsRoot, "live-stack-acceptance", "20260717-2347", "config.json");
+    const planPath = path.join(logsRoot, "live-stack-acceptance", "20260717-2347", "plan.json");
+    assert.throws(
+      () => loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot }),
+      /bootstrap_root_outside_runner_logs/,
+    );
+
+    const previous = process.env.SETTLEORA_STACK_TRUST_ROOT;
+    process.env.SETTLEORA_STACK_TRUST_ROOT = logsRoot;
+    try {
+      assert.throws(
+        () => loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath])),
+        /bootstrap_root_outside_runner_logs/,
+      );
+    } finally {
+      restoreEnv("SETTLEORA_STACK_TRUST_ROOT", previous);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("stack config trust boundary rejects invalid live acceptance layouts before stack lock", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-trust-"));
+  const root = makeTrustedTestRoot("settleora-stack-config-trust-");
   try {
     const logsRoot = path.join(root, "logs");
     const outsideRoot = path.join(root, "outside");
@@ -204,7 +230,7 @@ test("stack config trust boundary rejects invalid live acceptance layouts before
 });
 
 test("stack config trust boundary rejects invalid file and parsed identity cases before stack lock", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-trust-"));
+  const root = makeTrustedTestRoot("settleora-stack-config-trust-");
   try {
     const logsRoot = path.join(root, "logs");
     const outsideRoot = path.join(root, "outside");
@@ -292,7 +318,7 @@ test("stack config trust boundary rejects invalid file and parsed identity cases
 });
 
 test("stack config trust descriptor read binds bytes and closes descriptors", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-descriptor-"));
+  const root = makeTrustedTestRoot("settleora-stack-config-descriptor-");
   try {
     const logsRoot = path.join(root, "logs");
     const { configPath, planPath } = writeStackConfig(logsRoot, "20260718-0010", { marker: "opened" });
@@ -337,7 +363,7 @@ test("stack config trust descriptor read binds bytes and closes descriptors", ()
 });
 
 test("stack config trust descriptor read rejects growth after fstat without unbounded read", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "settleora-stack-config-growth-"));
+  const root = makeTrustedTestRoot("settleora-stack-config-growth-");
   try {
     const logsRoot = path.join(root, "logs");
     const { configPath, planPath } = writeStackConfig(logsRoot, "20260718-0011", { marker: "opened" });
@@ -376,6 +402,11 @@ function writeStackConfig(logsRoot, taskCorrelation, overrides = {}) {
   const planPath = path.join(logsRoot, "live-stack-acceptance", taskCorrelation, "plan.json");
   writeConfigFile(configPath, { ...validStackConfig(logsRoot), ...overrides });
   return { configPath, planPath };
+}
+
+function makeTrustedTestRoot(prefix) {
+  mkdirSync(defaultLogsRoot, { recursive: true, mode: 0o700 });
+  return mkdtempSync(path.join(defaultLogsRoot, prefix));
 }
 
 function liveConfigPath(logsRoot, taskCorrelation) {

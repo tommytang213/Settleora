@@ -567,7 +567,24 @@ function resolveExternalConfigTrustRoot({ bootstrapTrustedRoot = null } = {}) {
   if (!raw || typeof raw !== "string" || !path.isAbsolute(raw)) {
     throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
   }
-  return { root: path.resolve(raw), source };
+  return { root: validateExternalBootstrapRootPath(raw), source };
+}
+
+function validateExternalBootstrapRootPath(raw) {
+  if (typeof raw !== "string" || raw.length === 0 || raw.includes("\0")) {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
+  }
+  if (!path.isAbsolute(raw)) {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
+  }
+  const resolved = path.resolve(raw);
+  if (resolved !== raw) {
+    throw new Error("bootstrap_root_path_not_canonical: --run-pr-stack bootstrap logs root must be an absolute canonical path.");
+  }
+  if (!isInsidePath(resolved, defaultLogsRoot)) {
+    throw new Error("bootstrap_root_outside_runner_logs: --run-pr-stack bootstrap logs root must stay under the runner logs root.");
+  }
+  return resolved;
 }
 
 function validateTrustedRootDirectory({ root, source }) {

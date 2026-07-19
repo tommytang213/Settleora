@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { loadConfig, parseCliArgs } from "../lib/config.mjs";
+import { defaultLogsRoot, loadConfig, parseCliArgs } from "../lib/config.mjs";
 import { buildReadOnlyLiveStackFixturePlan, createDependentPrStackPlan, nextStackAction } from "../lib/pr-stack-controller.mjs";
 import {
   createInitialPrStackState,
@@ -32,7 +32,7 @@ test("CLI accepts the documented stack mode and rejects incomplete or mixed stac
 });
 
 test("stack mode loads as pr-stack-run and cannot be enabled by default config", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-config-"));
+  const root = makeTrustedTestRoot("settleora-stack-config-");
   const logsRoot = path.join(root, "logs");
   mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
   chmodSync(logsRoot, 0o700);
@@ -2742,26 +2742,26 @@ test("full [919, 920] sequence advances across a post-ready source-head change",
 });
 
 function stackFixture() {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-"));
+  const root = makeTrustedTestRoot("settleora-stack-");
   const logsRoot = path.join(root, "logs");
-	  mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
-	  chmodSync(logsRoot, 0o700);
-	  const configPath = path.join(logsRoot, "live-stack-acceptance", "20260717-2347", "config.json");
-	  const plan = makePlan();
-	  const authorizationPath = path.join(logsRoot, "protected-plan-authorization.json");
-	  writeProtectedPlanAuthorization(authorizationPath, plan);
-	  const configJson = {
-	    repoRoot: process.cwd(),
-	    logsRoot,
-	    trustedControlRoot: logsRoot,
-	    repositorySlug: "tommytang213/Settleora",
-	    prStackIssue: autoRunnerIssue(["tools/auto-runner/**"]),
-	    prStackExecution: {
-	      enabled: true,
-	      allowRun: true,
-	      maxStackSize: 4,
-	      protectedPlanAuthorizationPath: authorizationPath,
-	      capabilities: {
+  mkdirSync(logsRoot, { recursive: true, mode: 0o700 });
+  chmodSync(logsRoot, 0o700);
+  const configPath = path.join(logsRoot, "live-stack-acceptance", "20260717-2347", "config.json");
+  const plan = makePlan();
+  const authorizationPath = path.join(logsRoot, "protected-plan-authorization.json");
+  writeProtectedPlanAuthorization(authorizationPath, plan);
+  const configJson = {
+    repoRoot: process.cwd(),
+    logsRoot,
+    trustedControlRoot: logsRoot,
+    repositorySlug: "tommytang213/Settleora",
+    prStackIssue: autoRunnerIssue(["tools/auto-runner/**"]),
+    prStackExecution: {
+      enabled: true,
+      allowRun: true,
+      maxStackSize: 4,
+      protectedPlanAuthorizationPath: authorizationPath,
+      capabilities: {
         existingPrConvergence: true,
         exactHeadReviewRequest: true,
         ciScannerPolling: true,
@@ -2771,21 +2771,26 @@ function stackFixture() {
         semanticProof: true,
         finalHygiene: true,
       },
-	    },
-	  };
-	  mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 });
-	  chmodSync(path.dirname(configPath), 0o700);
-	  writeFileSync(configPath, JSON.stringify(configJson), { mode: 0o600 });
-	  const config = loadConfig(
-	    parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "stack", "plan.json")]),
-	    { prStackTrustedRoot: logsRoot },
-	  );
+    },
+  };
+  mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 });
+  chmodSync(path.dirname(configPath), 0o700);
+  writeFileSync(configPath, JSON.stringify(configJson), { mode: 0o600 });
+  const config = loadConfig(
+    parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", path.join(logsRoot, "stack", "plan.json")]),
+    { prStackTrustedRoot: logsRoot },
+  );
   const planPath = path.join(logsRoot, "stack", "plan.json");
   mkdirSync(path.dirname(planPath), { recursive: true, mode: 0o700 });
   chmodSync(path.dirname(planPath), 0o700);
   writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, { mode: 0o600 });
-	  return { root, logsRoot, config, plan, planPath };
-	}
+  return { root, logsRoot, config, plan, planPath };
+}
+
+function makeTrustedTestRoot(prefix) {
+  mkdirSync(defaultLogsRoot, { recursive: true, mode: 0o700 });
+  return mkdtempSync(path.join(defaultLogsRoot, prefix));
+}
 
 function writeProtectedPlanAuthorization(filePath, plan, overrides = {}) {
   writeFileSync(filePath, `${JSON.stringify({
