@@ -215,8 +215,11 @@ test("recovery-only exact-head evidence must be complete and bound before genera
   const canonicalChangedFiles = canonicalizeChangedFiles(changedFiles);
   const digest = digestChangedFiles(changedFiles);
   const exactHeadEvidence = {
+    repositorySlug: "tommytang213/Settleora",
+    issueNumber: target.issueNumber,
     headSha: target.prHeadSha,
     prNumber: target.prNumber,
+    baseSha: target.baseSha,
     taskKey: target.taskKey,
     runnerRunId: target.runnerRunId,
     supervisorRunId: target.supervisorRunId,
@@ -251,7 +254,10 @@ test("recovery-only exact-head evidence must be complete and bound before genera
     ["missing gemini files", { ...exactHeadEvidence, geminiChangedFiles: undefined }],
     ["missing codex approval", { ...exactHeadEvidence, codexMechanicsApproved: false }],
     ["wrong head", { ...exactHeadEvidence, headSha: "f".repeat(40) }],
+    ["wrong repository", { ...exactHeadEvidence, repositorySlug: "other/repository" }],
+    ["wrong issue", { ...exactHeadEvidence, issueNumber: 914 }],
     ["wrong PR", { ...exactHeadEvidence, prNumber: 920 }],
+    ["wrong base", { ...exactHeadEvidence, baseSha: "f".repeat(40) }],
     ["wrong task", { ...exactHeadEvidence, taskKey: "other-task" }],
     ["missing runner", { ...exactHeadEvidence, runnerRunId: undefined }],
     ["missing supervisor", { ...exactHeadEvidence, supervisorRunId: undefined }],
@@ -385,8 +391,11 @@ function exactHeadEvidenceFixture(target, changedFiles) {
   const canonicalFiles = canonicalizeChangedFiles(changedFiles);
   const digest = digestChangedFiles(canonicalFiles);
   return {
+    repositorySlug: "tommytang213/Settleora",
+    issueNumber: target.issueNumber,
     headSha: target.prHeadSha,
     prNumber: target.prNumber,
+    baseSha: target.baseSha,
     taskKey: target.taskKey,
     runnerRunId: target.runnerRunId,
     supervisorRunId: target.supervisorRunId,

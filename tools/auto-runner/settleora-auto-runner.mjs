@@ -222,6 +222,10 @@ async function main() {
   }
   const runId = `run-${safeTimestamp()}`;
   const logger = createLogger(config.logsRoot, runId);
+  const recoveryOnlyStartupDiscovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : null;
+  const recoveryOnlyStartupEvidenceCheck = recoveryOnlyStartupDiscovery?.found && recoveryOnlyStartupDiscovery.allowed
+    ? validateRecoveryOnlyStartupEvidence(config, { issue: { number: config.outageRecoveryTarget?.issueNumber } })
+    : { ok: true };
   let lockPath = null;
   const summary = {
     runId,
@@ -248,6 +252,19 @@ async function main() {
       maxIterations: config.maxIterations,
       maxRuntimeMs: config.maxRuntimeMs,
     });
+    if (!recoveryOnlyStartupEvidenceCheck.ok) {
+      summary.iterations.push({
+        runId,
+        index: 1,
+        startedAt: summary.startedAt,
+        finishedAt: new Date().toISOString(),
+        issue: null,
+        outcome: "blocked_recovery_state",
+        systemicStop: `recoverable-work-blocked:${recoveryOnlyStartupEvidenceCheck.reason}`,
+        recovery: { reasonCode: recoveryOnlyStartupEvidenceCheck.reason },
+      });
+      summary.stopReason = `recoverable-work-blocked:${recoveryOnlyStartupEvidenceCheck.reason}`;
+    } else {
     summary.baseOriginMainSha = getRefSha("origin/main");
     ensureLaunchWorkspace(config, logger);
     summary.maxIterations = config.maxIterations;
@@ -298,6 +315,7 @@ async function main() {
     }
     if (!summary.stopReason) {
       summary.stopReason = "max-iterations-reached";
+    }
     }
   } finally {
     releaseRunnerLock(lockPath);
@@ -1410,6 +1428,15 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   return executeStartupContinuation(config, startupRecovery, {
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
     default: async ({ state, boundary }) => {
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      if (!startupEvidenceCheck.ok) {
+        return {
+          ok: false,
+          outcome: "blocked_recovery_state",
+          reasonCode: startupEvidenceCheck.reason,
+          state,
+        };
+      }
       const live = readIssueLive(config, state.issue.number);
       if (!live.ok) {
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: live.reason || "recovery_issue_read_failed", state };
@@ -1461,6 +1488,22 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         state,
       };
     },
+  });
+}
+
+function validateRecoveryOnlyStartupEvidence(config, state) {
+  if (!config.outageRecoveryOnly) return { ok: true };
+  const issueNumber = state?.issue?.number;
+  const recoveryConfig = config.existingPrRecovery?.[issueNumber] || config.existingPrRecovery?.[String(issueNumber)] || null;
+  if (!recoveryConfig) {
+    return { ok: false, reason: "recovery_existing_pr_context_missing" };
+  }
+  const targetCheck = validateRecoveryOnlyExistingPrTarget(config, recoveryConfig);
+  if (!targetCheck.ok) return targetCheck;
+  const exactHeadEvidence = recoveryConfig.exactHeadEvidence;
+  return validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, {
+    expectedHeadSha: recoveryConfig.expectedHeadSha || exactHeadEvidence?.headSha || null,
+    changedFiles: exactHeadEvidence?.changedFiles || null,
   });
 }
 
@@ -1526,7 +1569,10 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     });
     exactHeadEvidence = {
       ...exactHeadEvidence,
+      repositorySlug: config.repositorySlug,
+      issueNumber: issue.number,
       prNumber: recoveryConfig.prNumber,
+      baseSha: config.outageRecoveryTarget?.baseSha || exactHeadEvidence.baseSha || null,
       taskKey: config.outageRecoveryTarget?.taskKey || exactHeadEvidence.taskKey || null,
       runnerRunId: config.outageRecoveryTarget?.runnerRunId || exactHeadEvidence.runnerRunId || null,
       supervisorRunId: config.outageRecoveryTarget?.supervisorRunId || exactHeadEvidence.supervisorRunId || null,

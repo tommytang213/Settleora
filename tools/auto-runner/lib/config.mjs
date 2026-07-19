@@ -598,7 +598,10 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   }
   const canonicalChangedFilesDigest = digestChangedFiles(canonicalChangedFiles);
   const requiredChecks = [
+    evidence.repositorySlug === (config.repositorySlug || defaultConfig.repositorySlug),
+    evidence.issueNumber === target.issueNumber,
     evidence.prNumber === target.prNumber,
+    evidence.baseSha === target.baseSha,
     evidence.taskKey === target.taskKey,
     evidence.runnerRunId === target.runnerRunId,
     evidence.supervisorRunId === target.supervisorRunId,

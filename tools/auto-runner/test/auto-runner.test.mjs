@@ -348,6 +348,107 @@ test("outage recovery-only blocked targets exit nonzero after writing summaries 
   }
 });
 
+test("recovery-only mandatory evidence fails before live reads and valid evidence permits continuation", () => {
+  const cases = [
+    ["missing", () => undefined],
+    ["malformed", () => "raw-provider-payload SECRET_TOKEN"],
+    ["stale-head", (e) => ({ ...e, headSha: "f".repeat(40) })],
+    ["wrong-base", (e) => ({ ...e, baseSha: "f".repeat(40) })],
+    ["wrong-task", (e) => ({ ...e, taskKey: "wrong-task" })],
+    ["wrong-run", (e) => ({ ...e, runnerRunId: "run-2026-07-16T130000Z" })],
+    ["wrong-issue", (e) => ({ ...e, issueNumber: 914 })],
+    ["wrong-pr", (e) => ({ ...e, prNumber: 918 })],
+    ["digest-mismatch", (e) => ({ ...e, changedFilesDigest: "f".repeat(64) })],
+    ["files-mismatch", (e) => ({ ...e, changedFiles: ["tools/auto-runner/other.mjs"] })],
+    ["validation-incomplete", (e) => ({ ...e, validationPassed: false })],
+    ["gemini-incomplete", (e) => ({ ...e, geminiPass: false })],
+    ["codex-incomplete", (e) => ({ ...e, codexMechanicsApproved: false })],
+  ];
+  for (const [name, mutate] of cases) {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-recovery-evidence-order-${name}-`));
+    try {
+      const repoRoot = path.join(tempRoot, "repo");
+      const logsRoot = path.join(tempRoot, "logs");
+      const binRoot = path.join(tempRoot, "bin");
+      const liveReadMarker = path.join(tempRoot, "live-read.marker");
+      setupCleanRunnerLaunchRepo(repoRoot);
+      mkdirSync(binRoot);
+      writeFileSync(path.join(binRoot, "gh"), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${liveReadMarker}"\nexit 71\n`);
+      chmodSync(path.join(binRoot, "gh"), 0o700);
+      const recovery = cliRecoveryState();
+      const target = targetForCliRecovery(recovery);
+      const changedFiles = ["tools/auto-runner/settleora-auto-runner.mjs"];
+      const digest = createHash("sha256").update(JSON.stringify(changedFiles)).digest("hex");
+      const evidence = {
+        repositorySlug: "tommytang213/Settleora",
+        issueNumber: target.issueNumber,
+        prNumber: target.prNumber,
+        baseSha: target.baseSha,
+        headSha: target.prHeadSha,
+        taskKey: target.taskKey,
+        runnerRunId: target.runnerRunId,
+        supervisorRunId: target.supervisorRunId,
+        changedFiles,
+        changedFilesDigest: digest,
+        validationPassed: true,
+        validationResults: [{ command: "node --test", status: 0 }],
+        validationCompletedAt: "2026-07-16T12:00:00.000Z",
+        geminiPass: true,
+        geminiHeadSha: target.prHeadSha,
+        geminiChangedFiles: changedFiles,
+        geminiChangedFilesDigest: digest,
+        geminiProvider: "gemini",
+        geminiTier: "strong_independent",
+        geminiCompletedAt: "2026-07-16T12:01:00.000Z",
+        codexMechanicsApproved: true,
+        codexMechanicsHeadSha: target.prHeadSha,
+        codexMechanicsChangedFiles: changedFiles,
+        codexMechanicsChangedFilesDigest: digest,
+        codexMechanicsCompletedAt: "2026-07-16T12:02:00.000Z",
+      };
+      const config = {
+        repoRoot,
+        logsRoot,
+        trustedRealRunApproved: true,
+        allowExistingPrRecovery: true,
+        existingPrRecovery: {
+          [target.issueNumber]: {
+            prNumber: target.prNumber,
+            expectedHeadSha: target.prHeadSha,
+            changedFiles,
+            exactHeadEvidence: mutate(evidence),
+          },
+        },
+      };
+      writeRecoveryState(config, recovery);
+      const configPath = path.join(tempRoot, "runner-config.json");
+      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      const env = { ...process.env, PATH: `${binRoot}:${process.env.PATH}` };
+
+      const first = spawnOutageRecoveryOnly(configPath, repoRoot, target, { env });
+      const second = spawnOutageRecoveryOnly(configPath, repoRoot, target, { env });
+
+      assert.equal(first.status, 2, name);
+      assert.equal(second.status, 2, `${name}-retry`);
+      assert.equal(existsSync(liveReadMarker), false, name);
+      assert.doesNotMatch(`${first.stdout}\n${first.stderr}`, /SECRET_TOKEN|raw-provider-payload/, name);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const runnerGuard = source.indexOf("const recoveryOnlyStartupEvidenceCheck =");
+  assert.ok(runnerGuard > 0);
+  assert.ok(runnerGuard < source.indexOf('summary.baseOriginMainSha = getRefSha("origin/main")'));
+  assert.ok(runnerGuard < source.indexOf("ensureLaunchWorkspace(config, logger)"));
+  const resume = source.indexOf("async function resumeStartupRecovery");
+  const guard = source.indexOf("validateRecoveryOnlyStartupEvidence(config, state)", resume);
+  for (const prohibited of ["readIssueLive(config", "fetchOriginMain(config)", "inspectAutoMergeGithubState(config", "readPrChangedFiles(config"]) {
+    assert.ok(guard < source.indexOf(prohibited, resume), prohibited);
+  }
+});
+
 test("review package diff helper keeps approved aggregate-sized diffs complete by default", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-diff-bound-"));
   const previousCwd = process.cwd();
@@ -7988,7 +8089,7 @@ function cliOutageBinding(overrides = {}) {
   };
 }
 
-function spawnOutageRecoveryOnly(configPath, cwd, target) {
+function spawnOutageRecoveryOnly(configPath, cwd, target, options = {}) {
   const args = [
     path.join(process.cwd(), "tools/auto-runner/settleora-auto-runner.mjs"),
     "--run",
@@ -8029,7 +8130,7 @@ function spawnOutageRecoveryOnly(configPath, cwd, target) {
   return spawnSync(
     process.execPath,
     args,
-    { cwd, encoding: "utf8" },
+    { cwd, encoding: "utf8", ...options },
   );
 }
 
