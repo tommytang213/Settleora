@@ -6452,20 +6452,46 @@ test("stack CLI constructs and injects one live fixed-argv runner", () => {
   const stackIndex = source.indexOf("if (cliArgs.runPrStack)");
   const loadIndex = source.indexOf("const config = loadConfig(cliArgs);", stackIndex);
   const runnerIndex = source.indexOf("const liveRunner = createLiveFixedArgvRunner(config);", stackIndex);
+  const reviewAdaptersIndex = source.indexOf("const liveReviewAdapters = createLivePrStackReviewAdapters(config);", stackIndex);
   const lockIndex = source.indexOf("acquireRunnerLock(config", stackIndex);
-  const executionIndex = source.indexOf("runPrStackExecution(config, cliArgs, { runner: liveRunner })", stackIndex);
+  const executionIndex = source.indexOf("runPrStackExecution(config, cliArgs, { runner: liveRunner, ...liveReviewAdapters })", stackIndex);
   assert.notEqual(stackIndex, -1);
   assert.notEqual(loadIndex, -1);
   assert.notEqual(runnerIndex, -1);
+  assert.notEqual(reviewAdaptersIndex, -1);
   assert.notEqual(lockIndex, -1);
   assert.notEqual(executionIndex, -1);
   assert.ok(loadIndex < runnerIndex);
-  assert.ok(runnerIndex < lockIndex);
+  assert.ok(runnerIndex < reviewAdaptersIndex);
+  assert.ok(reviewAdaptersIndex < lockIndex);
   assert.ok(lockIndex < executionIndex);
   assert.match(source, /settleoraFixedArgvRunner = true/);
   assert.match(source, /settleoraRunnerMode = "live"/);
   assert.match(source, /shell_execution_refused/);
   assert.match(source, /spawnSync\(command, args,[\s\S]*shell: false/);
+  assert.match(source, /runStrongReview: async/);
+  assert.match(source, /runCodexReview: async/);
+  assert.match(source, /reviewerTier: "strong_independent"/);
+});
+
+test("live fixed-argv runner preserves machine stdout while sanitizing persisted excerpts", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const runnerIndex = source.indexOf("function createLiveFixedArgvRunner");
+  const stdoutIndex = source.indexOf("const stdout = boundRunnerOutput(result.stdout || \"\", maxOutputBytes);", runnerIndex);
+  const returnIndex = source.indexOf("stdout,", stdoutIndex);
+  const evidenceIndex = source.indexOf("stdoutExcerpt: stdoutEvidence", stdoutIndex);
+  const sanitizerIndex = source.indexOf("function sanitizeRunnerOutputEvidence", runnerIndex);
+  assert.notEqual(stdoutIndex, -1);
+  assert.notEqual(returnIndex, -1);
+  assert.notEqual(evidenceIndex, -1);
+  assert.notEqual(sanitizerIndex, -1);
+  assert.ok(stdoutIndex < returnIndex);
+  assert.ok(returnIndex < evidenceIndex);
+  assert.ok(sanitizerIndex > runnerIndex);
+  assert.match(source, /sanitizeRunnerOutputEvidence\(stdout, 1000\)/);
+  assert.match(source, /sanitizeRunnerOutputEvidence\(stderr, 1000\)/);
+  const boundBody = source.slice(source.indexOf("function boundRunnerOutput"), sanitizerIndex);
+  assert.doesNotMatch(boundBody, /replace\(/);
 });
 
 test("production auto-merge inspection callers pass explicit live runner authority", () => {

@@ -173,6 +173,22 @@ test("stack config trust boundary rejects arbitrary bootstrap roots before files
   }
 });
 
+test("stack config trust boundary admits only safe bootstrap-root segments under runner logs", () => {
+  mkdirSync(defaultLogsRoot, { recursive: true, mode: 0o700 });
+  const unsafeRoot = path.join(defaultLogsRoot, "settleora stack config unsafe");
+  try {
+    mkdirSync(unsafeRoot, { recursive: true, mode: 0o700 });
+    const configPath = path.join(unsafeRoot, "live-stack-acceptance", "20260717-2347", "config.json");
+    const planPath = path.join(unsafeRoot, "live-stack-acceptance", "20260717-2347", "plan.json");
+    assert.throws(
+      () => loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath]), { prStackTrustedRoot: unsafeRoot }),
+      /bootstrap_root_path_not_canonical/,
+    );
+  } finally {
+    rmSync(unsafeRoot, { recursive: true, force: true });
+  }
+});
+
 test("stack config trust boundary rejects invalid live acceptance layouts before stack lock", () => {
   const root = makeTrustedTestRoot("settleora-stack-config-trust-");
   try {

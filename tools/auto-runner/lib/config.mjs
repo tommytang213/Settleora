@@ -567,7 +567,7 @@ function resolveExternalConfigTrustRoot({ bootstrapTrustedRoot = null } = {}) {
   if (!raw || typeof raw !== "string" || !path.isAbsolute(raw)) {
     throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
   }
-  return { root: validateExternalBootstrapRootPath(raw), source };
+  return { admission: validateExternalBootstrapRootPath(raw), source };
 }
 
 function validateExternalBootstrapRootPath(raw) {
@@ -584,17 +584,46 @@ function validateExternalBootstrapRootPath(raw) {
   if (!isInsidePath(resolved, defaultLogsRoot)) {
     throw new Error("bootstrap_root_outside_runner_logs: --run-pr-stack bootstrap logs root must stay under the runner logs root.");
   }
-  return resolved;
+  const relative = path.relative(defaultLogsRoot, resolved);
+  const relativeSegments = relative ? relative.split(path.sep) : [];
+  if (
+    relativeSegments.some((segment) => (
+      segment === "." ||
+      segment === ".." ||
+      segment.length === 0 ||
+      !/^[A-Za-z0-9._-]+$/.test(segment)
+    ))
+  ) {
+    throw new Error("bootstrap_root_path_not_canonical: --run-pr-stack bootstrap logs root must use safe canonical path segments.");
+  }
+  const admitted = path.join(defaultLogsRoot, ...relativeSegments);
+  if (admitted !== resolved) {
+    throw new Error("bootstrap_root_path_not_canonical: --run-pr-stack bootstrap logs root must be an absolute canonical path.");
+  }
+  return Object.freeze({ root: admitted, relativeSegments });
 }
 
-function validateTrustedRootDirectory({ root, source }) {
-  let linkStat;
+function validateTrustedRootDirectory({ admission, source }) {
+  const root = admitTrustedBootstrapRootFromSafeSegments(admission);
+  let baseStat;
   try {
-    linkStat = lstatSync(root);
+    baseStat = lstatSync(defaultLogsRoot);
   } catch {
     throw new Error("bootstrap_root_missing_invalid: --run-pr-stack bootstrap logs root is missing.");
   }
-  if (linkStat.isSymbolicLink()) throw new Error("bootstrap_root_symlink: --run-pr-stack bootstrap logs root must not be a symlink.");
+  if (baseStat.isSymbolicLink()) throw new Error("bootstrap_root_symlink: --run-pr-stack bootstrap logs root must not be a symlink.");
+  let current = defaultLogsRoot;
+  let linkStat = baseStat;
+  for (const segment of admission.relativeSegments) {
+    current = path.join(current, segment);
+    try {
+      linkStat = lstatSync(current);
+    } catch {
+      throw new Error("bootstrap_root_missing_invalid: --run-pr-stack bootstrap logs root is missing.");
+    }
+    if (linkStat.isSymbolicLink()) throw new Error("bootstrap_root_symlink: --run-pr-stack bootstrap logs root must not be a symlink.");
+    if (!linkStat.isDirectory()) throw new Error("bootstrap_root_type_invalid: --run-pr-stack bootstrap logs root must be a directory.");
+  }
   const real = realpathSync(root);
   if (real !== root) throw new Error("bootstrap_root_canonical_alias_mismatch: --run-pr-stack bootstrap logs root realpath must match the canonical path.");
   const stat = statSync(real);
@@ -603,6 +632,28 @@ function validateTrustedRootDirectory({ root, source }) {
   if (currentUid !== null && stat.uid !== currentUid) throw new Error("bootstrap_root_owner_invalid: --run-pr-stack bootstrap logs root owner must match the current operator.");
   if ((stat.mode & 0o002) !== 0) throw new Error("bootstrap_root_mode_untrusted: --run-pr-stack bootstrap logs root must not be world-writable.");
   return { realpath: real, mode: stat.mode & 0o777, uid: stat.uid, source };
+}
+
+function admitTrustedBootstrapRootFromSafeSegments(admission) {
+  if (!admission || typeof admission !== "object" || !Array.isArray(admission.relativeSegments)) {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
+  }
+  if (
+    admission.relativeSegments.some((segment) => (
+      typeof segment !== "string" ||
+      segment === "." ||
+      segment === ".." ||
+      segment.length === 0 ||
+      !/^[A-Za-z0-9._-]+$/.test(segment)
+    ))
+  ) {
+    throw new Error("bootstrap_root_path_not_canonical: --run-pr-stack bootstrap logs root must use safe canonical path segments.");
+  }
+  const admitted = path.join(defaultLogsRoot, ...admission.relativeSegments);
+  if (admitted !== admission.root || !isInsidePath(admitted, defaultLogsRoot)) {
+    throw new Error("bootstrap_root_outside_runner_logs: --run-pr-stack bootstrap logs root must stay under the runner logs root.");
+  }
+  return admitted;
 }
 
 function validateLiveStackAcceptanceConfigPath(configPath, trustedRootProof) {

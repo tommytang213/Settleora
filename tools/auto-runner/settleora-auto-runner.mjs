@@ -189,6 +189,7 @@ async function main() {
   if (cliArgs.runPrStack) {
     const config = loadConfig(cliArgs);
     const liveRunner = createLiveFixedArgvRunner(config);
+    const liveReviewAdapters = createLivePrStackReviewAdapters(config);
     let lockPath = null;
     try {
       lockPath = acquireRunnerLock(config, {
@@ -197,7 +198,7 @@ async function main() {
         configPath: config.configPath || null,
         stackPlanPath: cliArgs.stackPlanPath,
       });
-      const result = await runPrStackExecution(config, cliArgs, { runner: liveRunner });
+      const result = await runPrStackExecution(config, cliArgs, { runner: liveRunner, ...liveReviewAdapters });
       console.log(JSON.stringify(result, null, 2));
       process.exitCode = result.ok || result.outcome === "waiting" ? 0 : 1;
     } finally {
@@ -1794,8 +1795,10 @@ function createLiveFixedArgvRunner(config = {}) {
 	    });
 	    const stdout = boundRunnerOutput(result.stdout || "", maxOutputBytes);
 	    const stderr = boundRunnerOutput(result.stderr || "", maxOutputBytes);
-	    const error = result.error?.message ? boundRunnerOutput(result.error.message, 2000) : null;
+	    const error = result.error?.message ? sanitizeRunnerOutputEvidence(result.error.message, 2000) : null;
 	    const completedAt = new Date().toISOString();
+	    const stdoutEvidence = sanitizeRunnerOutputEvidence(stdout, 1000);
+	    const stderrEvidence = sanitizeRunnerOutputEvidence(stderr, 1000);
 	    return {
 	      status: result.status ?? (result.error ? 1 : 0),
 	      stdout,
@@ -1816,8 +1819,8 @@ function createLiveFixedArgvRunner(config = {}) {
 	        error,
 	        stdoutSha256: createHash("sha256").update(stdout).digest("hex"),
 	        stderrSha256: createHash("sha256").update(stderr).digest("hex"),
-	        stdoutExcerpt: boundRunnerOutput(stdout, 1000),
-	        stderrExcerpt: boundRunnerOutput(stderr, 1000),
+	        stdoutExcerpt: stdoutEvidence,
+	        stderrExcerpt: stderrEvidence,
 	      },
 	    };
 	  };
@@ -1833,8 +1836,61 @@ function createLiveFixedArgvRunner(config = {}) {
   return runner;
 }
 
+function createLivePrStackReviewAdapters(config) {
+  const buildPackage = async ({ reviewPhase, pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview = null }) => writeReviewPackage(config, {
+    reviewPhase,
+    issue: pr?.issue || config.prStackIssue || { number: pr?.issueNumber || pr?.number || 921, title: pr?.title || `PR #${pr?.number || "unknown"}`, labels: [] },
+    promptInfo: { promptPath: `pr-stack:${reviewPhase}:pr-${pr?.number || "unknown"}:${headSha || "unknown"}` },
+    laneDecision: {
+      ...(fullCandidatePrDelta?.laneDecision || validation?.laneDecision || { lane: "workflow-docs-tooling" }),
+      validationProfile: validation?.profile || fullCandidatePrDelta?.laneDecision?.validationProfile || validation?.laneDecision?.validationProfile || "runner-tests",
+      reviewerTier: "strong_independent",
+    },
+    changedFiles,
+    validation,
+    report: { found: true, expectedPath: `pr-stack:${reviewPhase}` },
+    headSha,
+    baseSha,
+    externalReview,
+    fullCandidatePrDelta,
+    diffBaseRef: baseSha,
+    diffHeadRef: headSha,
+  });
+  return {
+    runStrongReview: async ({ pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta }) => {
+      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-strong-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta });
+      const review = await runIntegratedReviewSource(config, reviewPackage, "pr-stack-final-strong-exact-head");
+      return {
+        ...review,
+        reviewedHead: review.reviewedHead || headSha,
+        baseSha: review.baseSha || baseSha,
+        changedFiles: review.changedFiles || changedFiles,
+        changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
+        fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
+      };
+    },
+    runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta }) => {
+      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview });
+      const review = runReviewPrompt(config, reviewPackage);
+      return {
+        ...review,
+        reviewedHead: review.reviewedHead || headSha,
+        baseSha: review.baseSha || baseSha,
+        changedFiles: review.changedFiles || changedFiles,
+        changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
+        fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
+      };
+    },
+  };
+}
+
 function boundRunnerOutput(value, max = 128 * 1024) {
-  const text = String(value || "").replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
+  const text = String(value || "");
+  return text.length > max ? `${text.slice(0, max)}[truncated]` : text;
+}
+
+function sanitizeRunnerOutputEvidence(value, max = 128 * 1024) {
+  const text = boundRunnerOutput(value, max).replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
   return text.length > max ? `${text.slice(0, max)}[truncated]` : text;
 }
 
@@ -1842,6 +1898,10 @@ function sanitizeRunnerArg(value) {
   const text = String(value || "");
   const bounded = text.length > 240 ? `${text.slice(0, 240)}[truncated]` : text;
   return bounded.replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
+}
+
+function digestRunnerStringSet(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
 }
 
 async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName, changedFiles, forbidden }) {
@@ -2399,10 +2459,12 @@ async function writeReviewPackage(config, payload) {
       estimatedOutputTokens: 0,
     }),
     changedFiles: payload.changedFiles,
-    currentHead: config.dryRun ? null : getRefSha("HEAD"),
+    currentHead: payload.headSha || (config.dryRun ? null : getRefSha("HEAD")),
     baseSha: payload.baseSha || payload.baseRefSha || payload.baseOriginMainSha || (config.dryRun ? null : getRefSha("origin/main")),
     validation: payload.validation,
     report: payload.report,
+    externalReview: payload.externalReview || null,
+    fullCandidatePrDelta: payload.fullCandidatePrDelta || null,
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };
