@@ -73,6 +73,7 @@ function sanitizeReviewResult(review) {
     reviewStatus: stringOrNull(review.reviewStatus),
     reviewFailureCategory: stringOrNull(review.reviewFailureCategory),
     reviewFailureReason: stringOrNull(review.reviewFailureReason),
+    completedAt: stringOrNull(review.completedAt),
     attempts: sanitizeValue(review.attempts || []),
     attemptCount: numberOrNull(review.attemptCount ?? (Array.isArray(review.attempts) ? review.attempts.length : null)),
     reviewedHead: stringOrNull(review.reviewedHead),

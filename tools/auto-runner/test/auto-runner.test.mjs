@@ -14,6 +14,7 @@ import {
   writeCanaryEvidence,
 } from "../lib/canary-policy.mjs";
 import { parseReviewVerdict, runReviewPrompt } from "../lib/codex-runner.mjs";
+import { sanitizePersistedEvidence } from "../lib/evidence-sanitizer.mjs";
 import {
   createTaskBranch,
   ensureLaunchWorkspace,
@@ -6305,6 +6306,21 @@ test("review prompt falls back to stderr only when stdout is empty and stderr ha
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("persisted Codex review evidence retains its bounded completion timestamp", () => {
+  const completedAt = "2026-07-19T19:46:04.000Z";
+  const sanitized = sanitizePersistedEvidence({
+    rawOutput: "provider transcript",
+    reviewStatus: "completed",
+    completedAt,
+    reviewedHead: "a".repeat(40),
+    reviewedBaseSha: "e".repeat(40),
+    verdict: { verdict: "approve", reviewed_base_sha: "e".repeat(40) },
+  });
+
+  assert.equal(sanitized.completedAt, completedAt);
+  assert.equal(sanitized.rawOutput, undefined);
 });
 
 test("review prompt rejects conflicting stdout and stderr verdicts without fallback", () => {
