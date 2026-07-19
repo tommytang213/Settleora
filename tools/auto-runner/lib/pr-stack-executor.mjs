@@ -2397,13 +2397,18 @@ function restoreStackSourceBranchIfDeleted({ config = {}, pr = {}, expectedHead 
 }
 
 function readRemoteBranchHead({ config = {}, branchName, runner } = {}) {
-  const remote = runner("git", ["ls-remote", "--heads", "origin", branchName], { cwd: config.repoRoot });
+  const fullRef = `refs/heads/${branchName}`;
+  const remote = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
   if (remote.status !== 0 || remote.error) {
     return fail("merge_source_branch_read_failed", "source branch remote read failed", { branchName, status: remote.status, stderr: boundedProof(remote.stderr || remote.error || "") });
   }
-  const line = String(remote.stdout || "").trim().split(/\r?\n/).find(Boolean);
+  const line = String(remote.stdout || "").trim().split(/\r?\n/).find((candidate) => {
+    const [, refName] = candidate.trim().split(/\s+/);
+    return refName === fullRef;
+  });
   if (!line) return { ok: true, exists: false, branchName, headSha: null };
-  const [headSha] = line.trim().split(/\s+/);
+  const [headSha, refName] = line.trim().split(/\s+/);
+  if (refName !== fullRef) return fail("merge_source_branch_read_invalid", "source branch remote read returned an unexpected ref", { branchName });
   if (!validSha(headSha)) return fail("merge_source_branch_read_invalid", "source branch remote read returned an invalid head", { branchName });
   return { ok: true, exists: true, branchName, headSha };
 }
@@ -5534,6 +5539,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   readTrustedExecutableStackPlanBytes,
   readLivePrProof,
   readOriginRepositoryProof,
+  restoreStackSourceBranchIfDeleted,
   readWorktreeCleanProof,
   sourceChangingResultFromIntent,
   validateSourceCycleOperationContext,

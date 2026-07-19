@@ -4915,6 +4915,46 @@ test("merge-only auto-merge blocks completion when source branch restoration is 
   }
 });
 
+test("merge-only auto-merge does not confirm source branch restoration from suffix-matching remote refs", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-suffix-"));
+  try {
+    const calls = [];
+    let branchReads = 0;
+    const result = executeAutoMergeMergeOnly(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+      autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
+      {
+        runner: (command, args) => {
+          calls.push(`${command} ${args.join(" ")}`);
+          if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "git" && args[0] === "ls-remote") {
+            branchReads += 1;
+            assert.equal(args[3], "refs/heads/feature/auto-1-test");
+            return branchReads === 1 ? ok("") : ok("head123\trefs/heads/x/feature/auto-1-test\n");
+          }
+          if (command === "git" && args[0] === "push") return ok("");
+          if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+          return fail(`unexpected ${command} ${args.join(" ")}`);
+        },
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: autoMergeRequiredChecks(),
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "merge_failed");
+    assert.match(result.reason, /source_branch_restoration_failed:source_branch_restore_unconfirmed/);
+    assert.equal(result.sourceBranchRestoration.confirmed, false);
+    assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("auto-merge readMergeSha no longer contains the default repository literal", () => {
   const source = readFileSync(new URL("../lib/auto-merge-policy.mjs", import.meta.url), "utf8");
   const match = source.match(/function readMergeSha[\s\S]*?\n}\n\nfunction mergeReadbackFailure/);

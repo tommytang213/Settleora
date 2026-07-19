@@ -585,6 +585,33 @@ test("batch-fix source target rejects protected base remote tag sha option and p
   );
 });
 
+test("stack source branch restoration rejects suffix-matching remote refs", () => {
+  const calls = [];
+  let pushed = false;
+  const branchName = "feature/auto-913-child";
+  const headSha = sha("b");
+  const result = prStackExecutorTestInternals.restoreStackSourceBranchIfDeleted({
+    config: { repoRoot: process.cwd() },
+    pr: { baseRefName: "main", headRefName: branchName, headRefOid: headSha },
+    expectedHead: headSha,
+    runner: (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      if (command === "git" && args[0] === "ls-remote") {
+        assert.equal(args[3], `refs/heads/${branchName}`);
+        return pushed ? { status: 0, stdout: `${headSha}\trefs/heads/x/${branchName}\n`, stderr: "", error: null } : { status: 0, stdout: "", stderr: "", error: null };
+      }
+      if (command === "git" && args[0] === "push") {
+        pushed = true;
+        return { status: 0, stdout: "", stderr: "", error: null };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected ${command} ${args.join(" ")}`, error: null };
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "merge_source_branch_restore_unconfirmed");
+  assert.ok(calls.includes(`git push origin ${headSha}:refs/heads/${branchName}`));
+});
+
 test("target PR worktree proof fetches fixed argv and proves branch head and live PR identity before Codex", () => {
   const fixture = stackFixture();
   const calls = [];
@@ -3861,7 +3888,8 @@ function fakeRunner(command, args = []) {
   if (command === "git" && args[0] === "ls-remote" && args[1] === "--heads") {
     const branch = String(args[3] || "");
     const head = branch.includes("child") ? sha("b") : sha("a");
-    return { status: 0, stdout: `${head}\trefs/heads/${branch}\n`, stderr: "", error: null };
+    const ref = branch.startsWith("refs/heads/") ? branch : `refs/heads/${branch}`;
+    return { status: 0, stdout: `${head}\t${ref}\n`, stderr: "", error: null };
   }
   if (command === "gh" && args.includes("--name-only")) {
     return { status: 0, stdout: "tools/auto-runner/lib/pr-stack-executor.mjs\n", stderr: "", error: null };
