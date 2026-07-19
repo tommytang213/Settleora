@@ -2348,6 +2348,8 @@ test("production final gates collect real evidence and wait on pending checks or
       if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
       if (args[0] === "rev-parse" && args[1] === "--show-toplevel") return { status: 0, stdout: `${fixture.config.repoRoot}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+      if (args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-parent")) return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+      if (args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-child")) return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
       if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
       if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
       if (args[0] === "status") return fakeRunner(_command, args);
@@ -2402,6 +2404,92 @@ test("production final gates run exact-head validation and reviews when converge
   assert.equal(result.validation.headSha, sha("a"));
   assert.equal(result.strongReview.reviewedHead, sha("a"));
   assert.equal(result.codexReview.reviewedHead, sha("a"));
+});
+
+test("production child final gates prepare the active PR checkout before exact-head validation", async () => {
+  const fixture = stackFixtureAtChild({ retargeted: true, ownDelta: true, ready: true, childConverged: true });
+  const changedFiles = ["tools/auto-runner/920.mjs"];
+  const digest = digestStrings(changedFiles);
+  const calls = [];
+  const runner = activePrCheckoutRunner(calls, {
+    activePrNumber: 920,
+    initialBranch: "feature/auto-913-parent",
+    initialHead: sha("a"),
+    targetBranch: "feature/auto-913-child",
+    targetHead: sha("b"),
+  });
+  const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
+    runner,
+    runValidationPlan: (_config, plan) => {
+      calls.push(`validation:${plan.profile}`);
+      return { passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-18T00:00:00.000Z", profile: plan.profile };
+    },
+    runStrongReview: async ({ headSha, baseSha, changedFiles: files, validation }) => {
+      calls.push("strong");
+      assert.equal(validation.headSha, sha("b"));
+      return { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, independent: true, provider: "gemini", providerProfile: "gemini-strong", evidencePath: "/workspace/logs/strong.json", completedAt: "2026-07-18T00:00:01.000Z" };
+    },
+    runCodexReview: async ({ headSha, baseSha, changedFiles: files }) => {
+      calls.push("codex");
+      return { reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" };
+    },
+  });
+  const state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
+  const result = await adapter.completeFinalGates({ config: { ...fixture.config, dryRun: true }, plan: fixture.plan, state, pr: { ...fixture.plan.orderedPrs[1], baseRefName: "main", isDraft: false, issue: autoRunnerIssue() } });
+
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(result.validation.headSha, sha("b"));
+  assert.equal(result.validation.preWorktreeProof.branchName, "feature/auto-913-child");
+  assert.equal(result.validation.preWorktreeProof.actualHead, sha("b"));
+  assert.ok(calls.indexOf("git switch feature/auto-913-child") < calls.indexOf("validation:runner-tests"));
+});
+
+test("production final gates fail closed when active PR checkout cannot prove exact branch/head", async () => {
+  const fixture = stackFixtureAtChild({ retargeted: true, ownDelta: true, ready: true, childConverged: true });
+  let validationCalls = 0;
+  const checkoutFailure = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
+    runner: activePrCheckoutRunner([], {
+      activePrNumber: 920,
+      initialBranch: "feature/auto-913-parent",
+      initialHead: sha("a"),
+      targetBranch: "feature/auto-913-child",
+      targetHead: sha("b"),
+      failSwitch: true,
+    }),
+    runValidationPlan: () => {
+      validationCalls += 1;
+      return { passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-18T00:00:00.000Z" };
+    },
+    runStrongReview: async () => ({ status: "pass" }),
+    runCodexReview: async () => ({ verdict: { verdict: "approve" } }),
+  });
+  const state = JSON.parse(readFileSync(path.join(path.dirname(fixture.planPath), "stack-state.json"), "utf8"));
+  const pr920 = { ...fixture.plan.orderedPrs[1], baseRefName: "main", isDraft: false, issue: autoRunnerIssue() };
+  const failedCheckout = await checkoutFailure.completeFinalGates({ config: { ...fixture.config, dryRun: true }, plan: fixture.plan, state, pr: pr920 });
+  assert.equal(failedCheckout.ok, false);
+  assert.equal(failedCheckout.reasonCode, "exact_head_gate_checkout_failed");
+  assert.equal(validationCalls, 0);
+
+  const staleRemote = createProductionPrStackAdapter({ ...fixture.config, dryRun: true }, {
+    runner: activePrCheckoutRunner([], {
+      activePrNumber: 920,
+      initialBranch: "feature/auto-913-parent",
+      initialHead: sha("a"),
+      targetBranch: "feature/auto-913-child",
+      targetHead: sha("b"),
+      remoteHead: sha("c"),
+    }),
+    runValidationPlan: () => {
+      validationCalls += 1;
+      return { passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-18T00:00:00.000Z" };
+    },
+    runStrongReview: async () => ({ status: "pass" }),
+    runCodexReview: async () => ({ verdict: { verdict: "approve" } }),
+  });
+  const stale = await staleRemote.completeFinalGates({ config: { ...fixture.config, dryRun: true }, plan: fixture.plan, state, pr: pr920 });
+  assert.equal(stale.ok, false);
+  assert.equal(stale.reasonCode, "exact_head_gate_remote_head_stale");
+  assert.equal(validationCalls, 0);
 });
 
 test("final gates carry plan-level lane contract through exact-head preparation and merge-entry validation", async () => {
@@ -2644,7 +2732,7 @@ test("legacy gatesPassed is atomically invalidated and returns to complete_gates
   const adapter = createProductionPrStackAdapter({ ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } }, {
     runner,
   });
-  const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
+  const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter: singleStepStackAdapter(adapter) });
   assert.equal(result.ok, true, result.reasonCode);
   assert.equal(mergeCommands, 0);
   const persisted = JSON.parse(readFileSync(statePath, "utf8"));
@@ -2664,7 +2752,7 @@ test("merge operation intent binds gate and validation proof digests", async () 
   writePrStackState(statePath, state);
   const config = { ...fixture.config, dryRun: true, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] } };
   const adapter = createProductionPrStackAdapter(config, { runner: liveFixedArgvRunner(fakeRunner) });
-  const result = await runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter });
+  const result = await runPrStackExecution(config, { stackPlanPath: fixture.planPath }, { adapter: singleStepStackAdapter(adapter) });
   assert.equal(result.ok, true, result.reasonCode);
   const intentRoot = path.join(fixture.config.logsRoot, "stack-operation-intents");
   const intent = JSON.parse(readFileSync(path.join(intentRoot, readdirSync(intentRoot).find((name) => name.endsWith(".json"))), "utf8"));
@@ -2773,7 +2861,7 @@ test("merge reads actual clean worktree state and dirty or unreadable status blo
     return fakeRunner(command, args, options);
   });
   assert.equal(wrongHead.ok, false);
-  assert.equal(wrongHead.reasonCode, "exact_worktree_head_mismatch");
+  assert.equal(wrongHead.reasonCode, "exact_head_gate_head_mismatch");
 });
 
 test("gate wait evidence patches preserve existing maps, are idempotent, and malformed patches fail closed", async () => {
@@ -2982,6 +3070,92 @@ test("exact [919, 920] fixture produces complete expected production sequence wi
     "merge:920",
     "hygiene",
   ]);
+});
+
+test("production stack dispatch keeps iterating until a wait or complete result", async () => {
+  const fixture = stackFixture();
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.reviewConverged["919"] = { ok: true };
+  state.evidence.gatesPassed["919"] = { ok: true };
+  state.evidence.merged["919"] = { ok: true, merged: true, mergeSha: sha("m"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-parent", sha("a")) };
+  state.evidence.currentMainProof["919"] = { ok: true, currentMain: sha("m") };
+  state.activePrNumber = 920;
+  writePrStackState(statePath, state);
+
+  const calls = [];
+  const adapter = { ...scriptedAdapter(calls), capabilities: { stackDispatchLoop: true } };
+  const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
+
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(result.outcome, "complete");
+  assert.deepEqual(calls, [
+    "retarget:920",
+    "own-delta:920", "ready:920",
+    "inspect:920", "converge:920",
+    "gates:920",
+    "merge:920",
+    "hygiene",
+  ]);
+  assert.equal(result.dispatchCount, 6);
+  const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(persisted.terminal.reasonCode, "stack_complete");
+});
+
+test("production stack dispatch rebinds the plan after source-changing convergence before gates and merge", async () => {
+  const fixture = stackFixture();
+  const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  state.evidence.reviewConverged["919"] = { ok: true, headRefOid: sha("a"), findings: [] };
+  state.evidence.gatesPassed["919"] = { ok: true, exactHead: sha("a") };
+  state.evidence.merged["919"] = { ok: true, merged: true, mergeSha: sha("m"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-parent", sha("a")) };
+  state.evidence.currentMainProof["919"] = { ok: true, currentMain: sha("m") };
+  state.activePrNumber = 920;
+  writePrStackState(statePath, state);
+
+  const calls = [];
+  const adapter = {
+    ...scriptedAdapter(calls),
+    capabilities: { stackDispatchLoop: true },
+    convergeExistingPr: async ({ pr }) => {
+      calls.push(`converge:${pr.number}:${pr.headRefOid}`);
+      return sourceChangingConvergenceResult({ prNumber: 920, oldHead: sha("b"), newHead: sha("c") });
+    },
+    proveSemanticOwnDelta: async ({ pr }) => {
+      calls.push(`own-delta:${pr.number}:${pr.headRefOid}`);
+      return { ok: true, before: pr.ownDelta, after: { ...pr.ownDelta, reversePatchApplies: true } };
+    },
+    completeFinalGates: async ({ pr }) => {
+      calls.push(`gates:${pr.number}:${pr.headRefOid}`);
+      assert.equal(pr.headRefOid, sha("c"));
+      return { ok: true, exactHead: pr.headRefOid };
+    },
+    mergePr: async ({ pr, expectedHead }) => {
+      calls.push(`merge:${pr.number}:${pr.headRefOid}:${expectedHead}`);
+      assert.equal(pr.headRefOid, sha("c"));
+      assert.equal(expectedHead, sha("c"));
+      return { ok: true, mergeSha: sha("n") };
+    },
+  };
+  const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
+
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(result.outcome, "complete");
+  assert.deepEqual(calls, [
+    "retarget:920",
+    `own-delta:920:${sha("b")}`, "ready:920",
+    `inspect:920`, `converge:920:${sha("b")}`,
+    `own-delta:920:${sha("c")}`,
+    `gates:920:${sha("c")}`,
+    `merge:920:${sha("c")}:${sha("c")}`,
+    "hygiene",
+  ]);
+  assert.equal(result.dispatchCount, 7);
+  const persisted = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(persisted.exactHeads["920"], sha("c"));
+  assert.equal(persisted.orderedPrs[1].headRefOid, sha("c"));
+  assert.equal(persisted.evidence.gatesPassed["920"].exactHead, sha("c"));
+  assert.equal(persisted.evidence.merged["920"].sourceBranchRestoration.headSha, sha("c"));
 });
 
 test("retarget and ready durable proof survives a source-head change and restart requires fresh own-delta only", async () => {
@@ -3676,10 +3850,81 @@ function finalGateRunner(changedFiles = ["tools/auto-runner/919.mjs"]) {
     if (args.includes("apply")) return fakeRunner();
     if (args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
     if (args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+    if (args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-parent")) return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+    if (args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-child")) return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
     if (args[0] === "rev-parse") return { status: 0, stdout: `${sha("e")}\n`, stderr: "", error: null };
     if (args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
     if (args[0] === "status") return fakeRunner();
     return fakeRunner();
+  };
+}
+
+function activePrCheckoutRunner(calls, {
+  activePrNumber,
+  initialBranch,
+  initialHead,
+  targetBranch,
+  targetHead,
+  remoteHead = targetHead,
+  failSwitch = false,
+  changedFiles = [`tools/auto-runner/${activePrNumber}.mjs`],
+  baseSha = sha("e"),
+} = {}) {
+  let branch = initialBranch;
+  let head = initialHead;
+  return (command, args = [], options = {}) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "gh" && args[0] === "pr" && args[1] === "view") {
+      const number = Number(args[2]);
+      const isTarget = number === activePrNumber;
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          number,
+          state: "OPEN",
+          isDraft: false,
+          baseRefName: isTarget ? "main" : "main",
+          headRefName: isTarget ? targetBranch : "feature/auto-913-parent",
+          headRefOid: isTarget ? targetHead : sha("a"),
+          mergeable: "MERGEABLE",
+          mergeStateStatus: "CLEAN",
+          headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: "tommytang213/Settleora" },
+          headRepositoryOwner: { login: "tommytang213" },
+          isCrossRepository: false,
+          statusCheckRollup: [check("Validate scaffold"), check("CodeQL"), check("Semgrep CE scan"), check("Trivy repository scan")],
+          comments: [],
+          reviews: [],
+        }),
+        stderr: "",
+        error: null,
+      };
+    }
+    if (command === "git" && args[0] === "remote" && args[1] === "get-url") return fakeRunner(command, args);
+    if (command === "git" && args[0] === "fetch") return fakeRunner(command, args);
+    if (command === "git" && args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: `${branch}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "switch") {
+      if (failSwitch) return { status: 1, stdout: "", stderr: "switch failed", error: null };
+      branch = args[1];
+      if (branch === targetBranch) head = remoteHead;
+      return fakeRunner(command, args);
+    }
+    if (command === "git" && args[0] === "merge") {
+      head = remoteHead;
+      return fakeRunner(command, args);
+    }
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") return { status: 0, stdout: `${options.cwd || process.cwd()}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "--verify") return { status: 1, stdout: "", stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === `origin/${targetBranch}`) return { status: 0, stdout: `${remoteHead}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${head}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD^{tree}") return { status: 0, stdout: `${baseSha}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse") return { status: 0, stdout: `${baseSha}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "diff") return { status: 0, stdout: "", stderr: "", error: null };
+    if (command === "git" && args[0] === "status") return { status: 0, stdout: "", stderr: "", error: null };
+    if (command === "gh" && args.includes("--name-only")) return { status: 0, stdout: `${changedFiles.join("\n")}\n`, stderr: "", error: null };
+    if (command === "gh" && args.includes("--patch")) return { status: 0, stdout: changedFiles.map((file) => `diff --git a/${file} b/${file}\n`).join(""), stderr: "", error: null };
+    if (command === "git" && args[0] === "patch-id") return { status: 0, stdout: `${sha("d")} 0000\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "merge-base") return fakeRunner(command, args);
+    return fakeRunner(command, args);
   };
 }
 
@@ -3910,6 +4155,12 @@ function fakeRunner(command, args = []) {
   if (command === "git" && args[0] === "rev-parse" && args[1] === "--show-toplevel") {
     return { status: 0, stdout: `${process.cwd()}\n`, stderr: "", error: null };
   }
+  if (command === "git" && args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-parent")) {
+    return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+  }
+  if (command === "git" && args[0] === "rev-parse" && String(args[1]).startsWith("origin/feature/auto-913-child")) {
+    return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
+  }
   if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
     return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
   }
@@ -3985,5 +4236,12 @@ function scriptedAdapter(calls) {
       calls.push("hygiene");
       return { ok: true };
     },
+  };
+}
+
+function singleStepStackAdapter(adapter) {
+  return {
+    ...adapter,
+    capabilities: { ...(adapter.capabilities || {}), stackDispatchLoop: false },
   };
 }

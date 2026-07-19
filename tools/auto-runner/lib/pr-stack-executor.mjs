@@ -79,6 +79,7 @@ export function normalizePrStackExecutionConfig(config = {}) {
     allowRun: raw.allowRun === true,
 	    productionProfileActive: raw.productionProfileActive === true,
 	    maxStackSize: normalizePositiveInt(raw.maxStackSize, 4),
+	    maxDispatchActions: normalizePositiveInt(raw.maxDispatchActions, null),
 	    capabilities: Object.freeze(capabilities),
 	    statePath: typeof raw.statePath === "string" ? raw.statePath : null,
 	    protectedPlanAuthorizationPath: typeof raw.protectedPlanAuthorizationPath === "string" ? raw.protectedPlanAuthorizationPath : null,
@@ -153,97 +154,130 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     writePrStackState(statePath, state);
   }
 
-  const action = nextStackAction(plan, state.evidence || {});
-  const consumedAuthorization = prepareProtectedPlanAuthorizationLifecycle({
-    config,
-    plan,
-    authorizationPlan: planLoad.plan,
-    stackConfig,
-    state,
-    runnerIdentity: adapter.capabilities?.liveRunnerIdentity || null,
-    lifecycle: "consume",
-    operationIntent: { action: action.action, prNumber: action.prNumber || null, expectedHead: action.expectedHead || null },
-  });
-  if (!consumedAuthorization.ok) {
-    const blocked = transitionState(state, {
-      phase: "blocked",
-      terminal: { reasonCode: consumedAuthorization.reasonCode, reason: consumedAuthorization.reason },
-      evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, consumedAuthorization),
-      summary: { action: "protected_authorization_consume", result: boundedProof(consumedAuthorization) },
-    });
-    writePrStackState(statePath, blocked);
-    return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
-  }
-  if (consumedAuthorization.protectedPlan) {
-    state = transitionState(state, {
-      phase: "planning",
-      evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, consumedAuthorization.evidence),
-      summary: { action: "protected_authorization_consume", result: boundedProof(consumedAuthorization.evidence) },
-    });
-    writePrStackState(statePath, state);
-  }
-  state = transitionState(state, { phase: "dispatch", currentAction: action });
-  writePrStackState(statePath, state);
-
-  const dispatch = await dispatchStackAction({ config, stackConfig, plan, state, action, adapter });
-  if (!dispatch.ok) {
-    const evidence = dispatch.evidencePatch ? mergeEvidencePatch(state.evidence, dispatch.evidencePatch) : dispatch.evidence || state.evidence;
-    const blocked = transitionState(state, {
-      phase: dispatch.waiting ? "waiting" : "blocked",
-      terminal: dispatch.waiting ? null : { reasonCode: dispatch.reasonCode, reason: dispatch.reason },
-      wait: dispatch.waiting ? { reasonCode: dispatch.reasonCode, action } : null,
-      evidence,
-      sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
-      sourceCycles: dispatch.sourceCycles || state.sourceCycles,
-      exactHeads: dispatch.exactHeads || state.exactHeads,
-      orderedPrs: dispatch.orderedPrs || state.orderedPrs,
-      summary: dispatch.summary || null,
-    });
-    writePrStackState(statePath, blocked);
-    return { ok: false, outcome: dispatch.waiting ? "waiting" : "blocked", reasonCode: dispatch.reasonCode, reason: dispatch.reason, statePath, state: summarizeStackState(blocked) };
-  }
-
-  let completionAuthorization = null;
-  if (dispatch.complete) {
-    completionAuthorization = prepareProtectedPlanAuthorizationLifecycle({
+  const dispatchLimit = stackDispatchLimit({ stackConfig, plan, adapter });
+  let dispatchCount = 0;
+  let lastResult = null;
+  while (true) {
+    plan = rebindPlanToStateHeads(plan, state);
+    if (dispatchCount >= dispatchLimit) {
+      const blocked = transitionState(state, {
+        phase: "blocked",
+        terminal: { reasonCode: "stack_dispatch_limit_exceeded", reason: `stack dispatch exceeded bounded action limit ${dispatchLimit}` },
+        summary: { action: "dispatch_limit", dispatchCount, dispatchLimit },
+      });
+      writePrStackState(statePath, blocked);
+      return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+    }
+    const action = nextStackAction(plan, state.evidence || {});
+    const beforeProgressDigest = stackDispatchProgressDigest(state);
+    const consumedAuthorization = prepareProtectedPlanAuthorizationLifecycle({
       config,
       plan,
       authorizationPlan: planLoad.plan,
       stackConfig,
       state,
       runnerIdentity: adapter.capabilities?.liveRunnerIdentity || null,
-      lifecycle: "complete",
-      operationIntent: { action: "complete", stackId: plan.stackId },
+      lifecycle: "consume",
+      operationIntent: { action: action.action, prNumber: action.prNumber || null, expectedHead: action.expectedHead || null },
     });
-    if (!completionAuthorization.ok) {
+    if (!consumedAuthorization.ok) {
       const blocked = transitionState(state, {
         phase: "blocked",
-        terminal: { reasonCode: completionAuthorization.reasonCode, reason: completionAuthorization.reason },
-        evidence: putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization),
-        summary: { action: "protected_authorization_complete", result: boundedProof(completionAuthorization) },
+        terminal: { reasonCode: consumedAuthorization.reasonCode, reason: consumedAuthorization.reason },
+        evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, consumedAuthorization),
+        summary: { action: "protected_authorization_consume", result: boundedProof(consumedAuthorization) },
       });
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
     }
+    if (consumedAuthorization.protectedPlan) {
+      state = transitionState(state, {
+        phase: "planning",
+        evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, consumedAuthorization.evidence),
+        summary: { action: "protected_authorization_consume", result: boundedProof(consumedAuthorization.evidence) },
+      });
+      writePrStackState(statePath, state);
+    }
+    state = transitionState(state, { phase: "dispatch", currentAction: action });
+    writePrStackState(statePath, state);
+
+    const dispatch = await dispatchStackAction({ config, stackConfig, plan, state, action, adapter });
+    if (!dispatch.ok) {
+      const evidence = dispatch.evidencePatch ? mergeEvidencePatch(state.evidence, dispatch.evidencePatch) : dispatch.evidence || state.evidence;
+      const blocked = transitionState(state, {
+        phase: dispatch.waiting ? "waiting" : "blocked",
+        terminal: dispatch.waiting ? null : { reasonCode: dispatch.reasonCode, reason: dispatch.reason },
+        wait: dispatch.waiting ? { reasonCode: dispatch.reasonCode, action } : null,
+        evidence,
+        sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
+        sourceCycles: dispatch.sourceCycles || state.sourceCycles,
+        exactHeads: dispatch.exactHeads || state.exactHeads,
+        orderedPrs: dispatch.orderedPrs || state.orderedPrs,
+        summary: dispatch.summary || null,
+      });
+      writePrStackState(statePath, blocked);
+      return { ok: false, outcome: dispatch.waiting ? "waiting" : "blocked", reasonCode: dispatch.reasonCode, reason: dispatch.reason, statePath, state: summarizeStackState(blocked) };
+    }
+
+    let completionAuthorization = null;
+    if (dispatch.complete) {
+      completionAuthorization = prepareProtectedPlanAuthorizationLifecycle({
+        config,
+        plan,
+        authorizationPlan: planLoad.plan,
+        stackConfig,
+        state,
+        runnerIdentity: adapter.capabilities?.liveRunnerIdentity || null,
+        lifecycle: "complete",
+        operationIntent: { action: "complete", stackId: plan.stackId },
+      });
+      if (!completionAuthorization.ok) {
+        const blocked = transitionState(state, {
+          phase: "blocked",
+          terminal: { reasonCode: completionAuthorization.reasonCode, reason: completionAuthorization.reason },
+          evidence: putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization),
+          summary: { action: "protected_authorization_complete", result: boundedProof(completionAuthorization) },
+        });
+        writePrStackState(statePath, blocked);
+        return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+      }
+    }
+    const finalEvidence = completionAuthorization?.protectedPlan
+      ? putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization.evidence)
+      : (dispatch.evidence || state.evidence);
+    const nextState = transitionState(state, {
+      phase: dispatch.complete ? "completed" : "advanced",
+      terminal: dispatch.complete ? { reasonCode: "stack_complete", reason: "all_prs_merged_and_hygiene_complete" } : null,
+      wait: null,
+      evidence: finalEvidence,
+      mutationMarkers: dispatch.mutationMarkers || state.mutationMarkers,
+      activePrNumber: dispatch.activePrNumber ?? state.activePrNumber,
+      sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
+      sourceCycles: dispatch.sourceCycles || state.sourceCycles,
+      exactHeads: dispatch.exactHeads || state.exactHeads,
+      orderedPrs: dispatch.orderedPrs || state.orderedPrs,
+      summary: dispatch.summary || null,
+    });
+    state = writePrStackState(statePath, nextState).state;
+    dispatchCount += 1;
+    lastResult = dispatch.result || null;
+    if (dispatch.complete) {
+      return { ok: true, outcome: "complete", action, dispatchCount, statePath, state: summarizeStackState(state), result: lastResult };
+    }
+    if (!shouldContinueStackDispatch({ adapter, dispatchCount })) {
+      return { ok: true, outcome: "advanced", action, dispatchCount, statePath, state: summarizeStackState(state), result: lastResult };
+    }
+    const afterProgressDigest = stackDispatchProgressDigest(state);
+    if (afterProgressDigest === beforeProgressDigest) {
+      const blocked = transitionState(state, {
+        phase: "blocked",
+        terminal: { reasonCode: "stack_dispatch_no_progress", reason: "stack dispatch advanced without durable progress" },
+        summary: { action: "dispatch_no_progress", dispatchCount, lastAction: action },
+      });
+      state = writePrStackState(statePath, blocked).state;
+      return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, action, dispatchCount, statePath, state: summarizeStackState(state) };
+    }
   }
-  const finalEvidence = completionAuthorization?.protectedPlan
-    ? putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization.evidence)
-    : (dispatch.evidence || state.evidence);
-  const nextState = transitionState(state, {
-    phase: dispatch.complete ? "completed" : "advanced",
-    terminal: dispatch.complete ? { reasonCode: "stack_complete", reason: "all_prs_merged_and_hygiene_complete" } : null,
-    wait: null,
-    evidence: finalEvidence,
-    mutationMarkers: dispatch.mutationMarkers || state.mutationMarkers,
-    activePrNumber: dispatch.activePrNumber ?? state.activePrNumber,
-    sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
-    sourceCycles: dispatch.sourceCycles || state.sourceCycles,
-    exactHeads: dispatch.exactHeads || state.exactHeads,
-    orderedPrs: dispatch.orderedPrs || state.orderedPrs,
-    summary: dispatch.summary || null,
-  });
-  writePrStackState(statePath, nextState);
-  return { ok: true, outcome: dispatch.complete ? "complete" : "advanced", action, statePath, state: summarizeStackState(nextState), result: dispatch.result || null };
 }
 
 export function loadExecutableStackPlan(config = {}, stackPlanPath, { stackConfig = normalizePrStackExecutionConfig(config), trustHooks = null } = {}) {
@@ -1429,6 +1463,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
   const run = runner || defaultRunner;
   return {
     capabilities: {
+      stackDispatchLoop: true,
       shellFreeArgv: true,
       usesExistingMergeAuthority: true,
       usesExistingHygieneAuthority: true,
@@ -1540,9 +1575,11 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       const targetConfig = cfg || config;
       const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
       if (!repositoryContext.ok) return repositoryContext;
+      const prepared = prepareExactHeadFinalGateWorktree({ config: targetConfig, pr, expectedHead: pr.headRefOid, runner: run, repositoryContext: repositoryContext.context });
+      if (!prepared.ok) return prepared;
       let gate = await collectFinalGateEvidence({ config: targetConfig, plan, state, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
       if (isFinalGateExactHeadEvidenceMissing(gate)) {
-        const prepared = await prepareExactHeadFinalGateEvidence({
+        const preparedGateEvidence = await prepareExactHeadFinalGateEvidence({
           config: targetConfig,
           plan,
           state,
@@ -1552,11 +1589,11 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
           runCodexReview: options.runCodexReview,
           runValidation: options.runValidationPlan || runValidationPlan,
         });
-        if (!prepared.ok) return prepared;
-        const patchedState = { ...state, evidence: mergeEvidencePatch(state.evidence, prepared.evidencePatch) };
+        if (!preparedGateEvidence.ok) return preparedGateEvidence;
+        const patchedState = { ...state, evidence: mergeEvidencePatch(state.evidence, preparedGateEvidence.evidencePatch) };
         gate = await collectFinalGateEvidence({ config: targetConfig, plan, state: patchedState, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
         if (!gate.ok && gate.waiting) {
-          return { ...gate, evidencePatch: prepared.evidencePatch };
+          return { ...gate, evidencePatch: preparedGateEvidence.evidencePatch };
         }
       }
       if (!gate.ok && gate.waiting && gate.evidence) {
@@ -1575,6 +1612,8 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       const targetConfig = cfg || config;
       const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
       if (!repositoryContext.ok) return repositoryContext;
+      const prepared = prepareExactHeadFinalGateWorktree({ config: targetConfig, pr, expectedHead: expectedHead || pr.headRefOid, runner: run, repositoryContext: repositoryContext.context });
+      if (!prepared.ok) return prepared;
       const gate = await collectFinalGateEvidence({ config: targetConfig, plan, state, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
       if (!gate.ok) return gate;
       if (expectedHead && gate.evidence?.exactHead !== expectedHead) return fail("merge_entry_gate_head_mismatch", "merge-entry gate evidence is not bound to the expected head");
@@ -2033,6 +2072,32 @@ function transitionState(state, patch = {}) {
     terminal: patch.terminal === undefined ? state.terminal : patch.terminal,
     wait: patch.wait === undefined ? state.wait : patch.wait,
     summaries,
+  });
+}
+
+function shouldContinueStackDispatch({ adapter, dispatchCount }) {
+  return adapter?.capabilities?.stackDispatchLoop === true && dispatchCount > 0;
+}
+
+function stackDispatchLimit({ stackConfig = {}, plan = {}, adapter = null } = {}) {
+  if (adapter?.capabilities?.stackDispatchLoop !== true) return 1;
+  const configured = normalizePositiveInt(stackConfig.maxDispatchActions, null);
+  if (configured) return configured;
+  const prCount = Array.isArray(plan.orderedPrs) ? plan.orderedPrs.length : 4;
+  return Math.max(8, prCount * 12);
+}
+
+function stackDispatchProgressDigest(state = {}) {
+  return digestJson({
+    activePrNumber: state.activePrNumber ?? null,
+    evidence: state.evidence || {},
+    mutationMarkers: state.mutationMarkers || {},
+    sourceCycles: state.sourceCycles || {},
+    sourceCycleReservations: state.sourceCycleReservations || {},
+    exactHeads: state.exactHeads || {},
+    orderedPrs: state.orderedPrs || [],
+    terminal: state.terminal || null,
+    wait: state.wait || null,
   });
 }
 
@@ -2787,6 +2852,7 @@ function rebindPlanToStateHeads(plan, state) {
   const statePrs = new Map((state?.orderedPrs || []).map((pr) => [pr.number, pr]));
   return {
     ...plan,
+    activePrNumber: state?.activePrNumber ?? plan.activePrNumber,
     orderedPrs: plan.orderedPrs.map((pr) => {
       const statePr = statePrs.get(pr.number) || {};
       return {
@@ -3546,6 +3612,58 @@ function proveTargetBatchFixWorktree({ config, pr, runner }) {
     localCandidateHead: afterHead.sha,
     provenAt: new Date().toISOString(),
   };
+}
+
+function prepareExactHeadFinalGateWorktree({ config, pr, expectedHead, runner, repositoryContext = null }) {
+  const cwd = config.repoRoot || process.cwd();
+  const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
+  const worktreePath = path.resolve(cwd);
+  if (worktreePath === protectedRoot) return fail("exact_head_gate_protected_root_refused", "protected root cannot be used for exact-head final gates");
+  const branch = pr?.headRefName || pr?.branch || "";
+  if (!validSha(expectedHead)) return fail("exact_head_gate_expected_head_invalid", "active PR head SHA is invalid");
+  const live = readLivePrProof({ config, pr, expectedHead, runner });
+  if (!live.ok) return live;
+  const branchValidation = validatePushTargetBranch({
+    branch,
+    liveHeadRefName: live.proof.headRefName,
+    baseRefName: live.proof.baseRefName,
+    defaultBranch: "main",
+  });
+  if (!branchValidation.ok) return branchValidation;
+  const clean = readWorktreeCleanProof({ runner, cwd });
+  if (!clean.ok) return fail("exact_worktree_status_unreadable", clean.reason, { cleanProof: clean });
+  if (clean.clean !== true) return fail("exact_head_gate_worktree_dirty", "worktree/index must be clean before active PR checkout", clean);
+  const beforeBranch = runner("git", ["branch", "--show-current"], { cwd });
+  if (beforeBranch.status !== 0 || beforeBranch.error) return fail("exact_head_gate_branch_unreadable", boundedText(beforeBranch.stderr || beforeBranch.error || beforeBranch.stdout));
+  const beforeBranchName = String(beforeBranch.stdout || "").trim();
+  let head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "exact_head_gate_head_unreadable" });
+  if (!head.ok) return head;
+  let remote = { ok: true, sha: null };
+  if (beforeBranchName !== branch || head.sha !== expectedHead) {
+    const fetch = runner("git", ["fetch", "origin", branch], { cwd });
+    if (fetch.status !== 0 || fetch.error) return fail("exact_head_gate_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
+    remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "exact_head_gate_remote_head_unreadable" });
+    if (!remote.ok) return remote;
+    if (remote.sha !== expectedHead) return fail("exact_head_gate_remote_head_stale", "remote active PR branch no longer matches expected head", { branch, expectedHead, actualHead: remote.sha });
+  }
+  if (beforeBranchName !== branch) {
+    const checkout = runner("git", ["switch", branch], { cwd });
+    if (checkout.status !== 0 || checkout.error) return fail("exact_head_gate_checkout_failed", boundedText(checkout.stderr || checkout.error || checkout.stdout), { branch, expectedHead });
+    head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "exact_head_gate_head_unreadable" });
+    if (!head.ok) return head;
+  }
+  if (head.sha !== expectedHead) {
+    const ancestor = runner("git", ["merge-base", "--is-ancestor", head.sha, `origin/${branch}`], { cwd });
+    if (ancestor.status !== 0 || ancestor.error) {
+      return fail("exact_head_gate_remote_advanced_before_validation", "active PR branch is not a clean fast-forward to the expected remote head", { branch, expectedHead, actualHead: head.sha });
+    }
+    const ff = runner("git", ["merge", "--ff-only", `origin/${branch}`], { cwd });
+    if (ff.status !== 0 || ff.error) return fail("exact_head_gate_ff_failed", boundedText(ff.stderr || ff.error || ff.stdout), { branch, expectedHead, actualHead: head.sha });
+    head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "exact_head_gate_post_ff_head_unreadable" });
+    if (!head.ok) return head;
+  }
+  if (head.sha !== expectedHead) return fail("exact_head_gate_head_mismatch", "active PR checkout did not reach expected head", { branch, expectedHead, actualHead: head.sha });
+  return { ok: true, branch, expectedHead, actualHead: head.sha, remoteHead: remote.sha, livePr: live.proof, repositoryIdentity: live.repositoryIdentity, repositoryContext, preparedAt: new Date().toISOString() };
 }
 
 function readLivePrProof({ config, pr, expectedHead, runner }) {
