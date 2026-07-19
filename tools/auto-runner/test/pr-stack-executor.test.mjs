@@ -95,6 +95,103 @@ test("protected live plans require exact future authorization and ordinary plans
   assert.equal(validateExecutableStackPlan({ ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: taskAuth } }, taskPlan).ok, true);
 });
 
+test("protected authorization identity is stable and exact claim is atomic", () => {
+  const { config, plan } = stackFixture();
+  const runnerIdentity = { kind: "live-fixed-argv", repositorySlug: "tommytang213/Settleora", repoRoot: process.cwd() };
+  const stackState = createInitialPrStackState({ plan });
+  const first = prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config, plan, state: stackState, runnerIdentity, lifecycle: "claim" });
+  assert.equal(first.ok, true);
+  assert.equal(first.evidence.status, "claimed");
+  const claimed = JSON.parse(readFileSync(first.evidence.statePath, "utf8"));
+  assert.equal(claimed.status, "claimed");
+  assert.equal(claimed.operationCorrelation, "protected-auth-fixture");
+  assert.deepEqual(claimed.orderedPrNumbers, [919, 920]);
+
+  const second = prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config, plan, state: stackState, runnerIdentity, lifecycle: "claim" });
+  assert.equal(second.ok, true);
+  assert.equal(second.evidence.statePath, first.evidence.statePath);
+  assert.equal(second.evidence.stateDigest, first.evidence.stateDigest);
+});
+
+test("protected authorization rejects different operation repository order digest and expiry", () => {
+  const { config, plan, logsRoot } = stackFixture();
+  const state = createInitialPrStackState({ plan });
+  const runnerIdentity = { kind: "live-fixed-argv", repositorySlug: "tommytang213/Settleora", repoRoot: process.cwd() };
+  assert.equal(prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config, plan, state, runnerIdentity, lifecycle: "claim" }).ok, true);
+
+  const otherAuthPath = path.join(logsRoot, "other-operation-auth.json");
+  writeProtectedPlanAuthorization(otherAuthPath, plan, { taskKey: "other-operation", authorizationId: "protected-auth-fixture" });
+  const otherConfig = { ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: otherAuthPath } };
+  assert.equal(prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config: otherConfig, plan, state, runnerIdentity, lifecycle: "claim" }).reasonCode, "protected_stack_authz_mismatched");
+
+  const wrongRepoPath = path.join(logsRoot, "wrong-repo-lifecycle.json");
+  writeProtectedPlanAuthorization(wrongRepoPath, plan, { repositorySlug: "other/repo" });
+  assert.equal(validateExecutableStackPlan({ ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: wrongRepoPath } }, plan).reasonCode, "protected_stack_plan_authorization_repository_mismatch");
+
+  const wrongOrderPath = path.join(logsRoot, "wrong-order-lifecycle.json");
+  writeProtectedPlanAuthorization(wrongOrderPath, plan, { orderedPrNumbers: [920, 919] });
+  assert.equal(validateExecutableStackPlan({ ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: wrongOrderPath } }, plan).reasonCode, "protected_stack_plan_authorization_pr_order_mismatch");
+
+  const wrongDigestPath = path.join(logsRoot, "wrong-digest-lifecycle.json");
+  writeProtectedPlanAuthorization(wrongDigestPath, plan, { planDigest: sha("0") });
+  assert.equal(validateExecutableStackPlan({ ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: wrongDigestPath } }, plan).reasonCode, "protected_stack_plan_authorization_digest_mismatch");
+
+  const expiredPath = path.join(logsRoot, "expired-lifecycle.json");
+  writeProtectedPlanAuthorization(expiredPath, plan, { expiresAt: "2000-01-01T00:00:00Z" });
+  assert.equal(validateExecutableStackPlan({ ...config, prStackExecution: { ...config.prStackExecution, protectedPlanAuthorizationPath: expiredPath } }, plan).reasonCode, "protected_stack_plan_authorization_expired");
+});
+
+test("protected authorization consumes before mutation and completed state is terminal", async () => {
+  const fixture = stackFixture();
+  const calls = [];
+  const runnerIdentity = { kind: "live-fixed-argv", repositorySlug: "tommytang213/Settleora", repoRoot: process.cwd() };
+  const adapter = {
+    capabilities: { liveRunnerIdentity: runnerIdentity },
+    preflightLiveRunner: async () => {
+      calls.push("preflight");
+      return { ok: true, runnerIdentity };
+    },
+    inspectPr: async ({ prNumber }) => {
+      calls.push(`inspect:${prNumber}`);
+      const target = fixture.plan.orderedPrs.find((entry) => entry.number === prNumber);
+      return { ok: true, pr: target, headRefOid: target.headRefOid, findings: [] };
+    },
+    convergeExistingPr: async ({ pr }) => {
+      calls.push(`converge:${pr.number}`);
+      const files = readdirSync(path.join(fixture.logsRoot, "protected-plan-authz-consumption"));
+      const consumed = JSON.parse(readFileSync(path.join(fixture.logsRoot, "protected-plan-authz-consumption", files[0]), "utf8"));
+      assert.equal(consumed.status, "consumed");
+      assert.equal(consumed.operationIntent.action, "converge_pr");
+      return { ok: true, headRefOid: pr.headRefOid };
+    },
+  };
+  const result = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.deepEqual(calls, ["preflight", "inspect:919", "converge:919"]);
+
+  const statePath = path.join(fixture.logsRoot, "protected-plan-authz-consumption", readdirSync(path.join(fixture.logsRoot, "protected-plan-authz-consumption"))[0]);
+  const authorizationState = JSON.parse(readFileSync(statePath, "utf8"));
+  writeFileSync(statePath, `${JSON.stringify({ ...authorizationState, status: "completed", completedAt: "2026-07-18T00:00:00Z" }, null, 2)}\n`, { mode: 0o600 });
+  const blocked = await runPrStackExecution(fixture.config, { stackPlanPath: fixture.planPath }, { adapter });
+  assert.equal(blocked.reasonCode, "protected_stack_authz_completed");
+});
+
+test("protected authorization recovery allows same claimed or consumed operation and blocks corrupt state without cleanup", () => {
+  const { config, plan } = stackFixture();
+  const state = createInitialPrStackState({ plan });
+  const runnerIdentity = { kind: "live-fixed-argv", repositorySlug: "tommytang213/Settleora", repoRoot: process.cwd() };
+  const claimed = prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config, plan, state, runnerIdentity, lifecycle: "claim" });
+  assert.equal(claimed.ok, true);
+  assert.equal(prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config, plan, state, runnerIdentity, lifecycle: "claim" }).ok, true);
+  const consumed = prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config, plan, state, runnerIdentity, lifecycle: "consume", operationIntent: { action: "merge_pr" } });
+  assert.equal(consumed.ok, true);
+  assert.equal(prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config, plan, state, runnerIdentity, lifecycle: "consume", operationIntent: { action: "merge_pr" } }).ok, true);
+  writeFileSync(consumed.evidence.statePath, "{bad", { mode: 0o600 });
+  const corrupt = prStackExecutorTestInternals.prepareProtectedPlanAuthorizationLifecycle({ config, plan, state, runnerIdentity, lifecycle: "claim" });
+  assert.equal(corrupt.reasonCode, "protected_stack_authz_state_corrupt");
+  assert.equal(readFileSync(consumed.evidence.statePath, "utf8"), "{bad");
+});
+
 test("malformed state blocks before any adapter call", async () => {
   const fixture = stackFixture();
   const statePath = path.join(path.dirname(fixture.planPath), "stack-state.json");
@@ -2413,6 +2510,8 @@ function writeProtectedPlanAuthorization(filePath, plan, overrides = {}) {
     expectedHeads: Object.fromEntries(plan.orderedPrs.map((pr) => [String(pr.number), pr.headRefOid])),
     manualGateApproved: true,
     approvedBy: "manual-gate-test-fixture",
+    authorizationId: "protected-auth-fixture",
+    taskKey: plan.taskKey || "protected-auth-fixture",
     expiresAt: "2999-01-01T00:00:00Z",
     consumedAt: null,
     ...overrides,

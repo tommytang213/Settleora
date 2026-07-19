@@ -6468,6 +6468,33 @@ test("stack CLI constructs and injects one live fixed-argv runner", () => {
   assert.match(source, /spawnSync\(command, args,[\s\S]*shell: false/);
 });
 
+test("production auto-merge inspection callers pass explicit live runner authority", () => {
+  const runnerSource = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const recoveryIndex = runnerSource.indexOf("async function recoverExistingPrIfConfigured");
+  const recoveryRunnerIndex = runnerSource.indexOf("const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);", recoveryIndex);
+  const recoveryInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner })", recoveryIndex);
+  const recoveryWaitIndex = runnerSource.indexOf("inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner })", recoveryIndex);
+  assert.notEqual(recoveryRunnerIndex, -1);
+  assert.notEqual(recoveryInspectIndex, -1);
+  assert.notEqual(recoveryWaitIndex, -1);
+  assert.ok(recoveryRunnerIndex < recoveryInspectIndex);
+  assert.ok(recoveryInspectIndex < recoveryWaitIndex);
+
+  const normalIndex = runnerSource.indexOf("async function evaluateOrExecuteAutoMerge");
+  const normalRunnerIndex = runnerSource.indexOf("const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);", normalIndex);
+  const normalInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url }, { runner: autoMergeRunner })", normalIndex);
+  const normalExecuteIndex = runnerSource.indexOf("}, { runner: autoMergeRunner });", normalInspectIndex);
+  assert.notEqual(normalRunnerIndex, -1);
+  assert.notEqual(normalInspectIndex, -1);
+  assert.notEqual(normalExecuteIndex, -1);
+  assert.ok(normalRunnerIndex < normalInspectIndex);
+  assert.ok(normalInspectIndex < normalExecuteIndex);
+
+  const policySource = readFileSync("tools/auto-runner/lib/auto-merge-policy.mjs", "utf8");
+  const waitIndex = policySource.indexOf("function executeAutoMergeWithWait");
+  assert.match(policySource.slice(waitIndex, waitIndex + 700), /inspectAutoMergeGithubState\(cfg,[\s\S]*\{ runner \}/);
+});
+
 function createTempGitRepo() {
   const repo = mkdtempSync(path.join(tmpdir(), "settleora-auto-runner-git-"));
   mkdirSync(path.join(repo, "docs/workflow"), { recursive: true });

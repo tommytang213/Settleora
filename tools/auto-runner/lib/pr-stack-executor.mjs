@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   nextStackAction,
@@ -92,6 +92,9 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   const loadedState = loadOrCreateStackState({ config, plan, statePath, adapter });
   if (!loadedState.ok) return fail(loadedState.reasonCode, loadedState.reason, { statePath });
   let state = loadedState.state;
+  if (state.terminal?.reasonCode === "stack_complete") {
+    return { ok: true, outcome: "complete", statePath, state: summarizeStackState(state), result: { alreadyComplete: true } };
+  }
   plan = rebindPlanToStateHeads(plan, state);
   state = transitionState(state, {
     phase: "planning",
@@ -119,7 +122,63 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     writePrStackState(statePath, state);
   }
 
+  const protectedAuthorization = prepareProtectedPlanAuthorizationLifecycle({
+    config,
+    plan,
+    authorizationPlan: planLoad.plan,
+    stackConfig,
+    state,
+    runnerIdentity: adapter.capabilities?.liveRunnerIdentity || null,
+    lifecycle: "claim",
+  });
+  if (!protectedAuthorization.ok) {
+    const blocked = transitionState(state, {
+      phase: "blocked",
+      terminal: { reasonCode: protectedAuthorization.reasonCode, reason: protectedAuthorization.reason },
+      evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, protectedAuthorization),
+      summary: { action: "protected_authorization_claim", result: boundedProof(protectedAuthorization) },
+    });
+    writePrStackState(statePath, blocked);
+    return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+  }
+  if (protectedAuthorization.protectedPlan) {
+    state = transitionState(state, {
+      phase: "planning",
+      evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, protectedAuthorization.evidence),
+      summary: { action: "protected_authorization_claim", result: boundedProof(protectedAuthorization.evidence) },
+    });
+    writePrStackState(statePath, state);
+  }
+
   const action = nextStackAction(plan, state.evidence || {});
+  const consumedAuthorization = prepareProtectedPlanAuthorizationLifecycle({
+    config,
+    plan,
+    authorizationPlan: planLoad.plan,
+    stackConfig,
+    state,
+    runnerIdentity: adapter.capabilities?.liveRunnerIdentity || null,
+    lifecycle: "consume",
+    operationIntent: { action: action.action, prNumber: action.prNumber || null, expectedHead: action.expectedHead || null },
+  });
+  if (!consumedAuthorization.ok) {
+    const blocked = transitionState(state, {
+      phase: "blocked",
+      terminal: { reasonCode: consumedAuthorization.reasonCode, reason: consumedAuthorization.reason },
+      evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, consumedAuthorization),
+      summary: { action: "protected_authorization_consume", result: boundedProof(consumedAuthorization) },
+    });
+    writePrStackState(statePath, blocked);
+    return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+  }
+  if (consumedAuthorization.protectedPlan) {
+    state = transitionState(state, {
+      phase: "planning",
+      evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, consumedAuthorization.evidence),
+      summary: { action: "protected_authorization_consume", result: boundedProof(consumedAuthorization.evidence) },
+    });
+    writePrStackState(statePath, state);
+  }
   state = transitionState(state, { phase: "dispatch", currentAction: action });
   writePrStackState(statePath, state);
 
@@ -141,11 +200,37 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     return { ok: false, outcome: dispatch.waiting ? "waiting" : "blocked", reasonCode: dispatch.reasonCode, reason: dispatch.reason, statePath, state: summarizeStackState(blocked) };
   }
 
+  let completionAuthorization = null;
+  if (dispatch.complete) {
+    completionAuthorization = prepareProtectedPlanAuthorizationLifecycle({
+      config,
+      plan,
+      authorizationPlan: planLoad.plan,
+      stackConfig,
+      state,
+      runnerIdentity: adapter.capabilities?.liveRunnerIdentity || null,
+      lifecycle: "complete",
+      operationIntent: { action: "complete", stackId: plan.stackId },
+    });
+    if (!completionAuthorization.ok) {
+      const blocked = transitionState(state, {
+        phase: "blocked",
+        terminal: { reasonCode: completionAuthorization.reasonCode, reason: completionAuthorization.reason },
+        evidence: putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization),
+        summary: { action: "protected_authorization_complete", result: boundedProof(completionAuthorization) },
+      });
+      writePrStackState(statePath, blocked);
+      return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+    }
+  }
+  const finalEvidence = completionAuthorization?.protectedPlan
+    ? putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization.evidence)
+    : (dispatch.evidence || state.evidence);
   const nextState = transitionState(state, {
     phase: dispatch.complete ? "completed" : "advanced",
     terminal: dispatch.complete ? { reasonCode: "stack_complete", reason: "all_prs_merged_and_hygiene_complete" } : null,
     wait: null,
-    evidence: dispatch.evidence || state.evidence,
+    evidence: finalEvidence,
     mutationMarkers: dispatch.mutationMarkers || state.mutationMarkers,
     activePrNumber: dispatch.activePrNumber ?? state.activePrNumber,
     sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
@@ -214,7 +299,7 @@ export function validateExecutableStackPlan(config = {}, plan = {}, { stackConfi
 	  if (!relation.ok) return fail("stack_relationship_invalid", relation.reason);
   const authorization = validateProtectedLivePlanAuthorization(config, plan, { stackConfig, protectedNumbers });
   if (!authorization.ok) return authorization;
-  return { ok: true };
+  return { ok: true, protectedAuthorization: authorization.protectedPlan ? authorization : null };
 }
 
 function validateProtectedLivePlanAuthorization(config = {}, plan = {}, { stackConfig = normalizePrStackExecutionConfig(config), protectedNumbers = [] } = {}) {
@@ -253,7 +338,9 @@ function validateProtectedLivePlanAuthorization(config = {}, plan = {}, { stackC
   if (authorization.manualGateApproved !== true || typeof authorization.approvedBy !== "string" || authorization.approvedBy.trim().length === 0) {
     return fail("protected_stack_plan_authorization_policy_invalid", "protected plan authorization lacks accepted manual-gate approval");
   }
-  return { ok: true, protectedPlan: true, authorizationEvidence: { path: loaded.path, digest: digestJson(authorization), checkedAt: new Date().toISOString() } };
+  const identity = protectedPlanAuthorizationIdentity({ config, plan, authorization, authorizationPath: loaded.path });
+  if (!identity.ok) return identity;
+  return { ok: true, protectedPlan: true, authorizationEvidence: { path: loaded.path, digest: identity.identity.authorizationDigest, identity: identity.identity, checkedAt: new Date().toISOString() } };
 }
 
 function readProtectedPlanAuthorizationFile(authorizationPath) {
@@ -278,6 +365,255 @@ function readProtectedPlanAuthorizationFile(authorizationPath) {
     return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be an object");
   }
   return { ok: true, authorization, path: real };
+}
+
+function prepareProtectedPlanAuthorizationLifecycle({ config = {}, plan = {}, authorizationPlan = plan, stackConfig = normalizePrStackExecutionConfig(config), state = {}, runnerIdentity = null, lifecycle = "claim", operationIntent = null } = {}) {
+  const protectedNumbers = (authorizationPlan.orderedPrs || plan.orderedPrs || []).filter((pr) => protectedLivePlanPrs.includes(pr.number)).map((pr) => pr.number);
+  const protectedPlan = [...new Set(protectedNumbers)].sort((a, b) => a - b);
+  if (protectedPlan.length === 0) return { ok: true, protectedPlan: false };
+  const orderedNumbers = (authorizationPlan.orderedPrs || plan.orderedPrs || []).map((pr) => pr.number);
+  if (JSON.stringify(orderedNumbers) !== JSON.stringify(authorizableLiveAcceptancePrs)) {
+    return fail("protected_stack_plan_unauthorized", "protected live stack plans are refused by default unless exact live acceptance authorization is present");
+  }
+  const authorizationPath = stackConfig.protectedPlanAuthorizationPath;
+  if (!authorizationPath) return fail("protected_stack_plan_authorization_missing", "protected live stack plan requires explicit live acceptance authorization");
+  if (!path.isAbsolute(authorizationPath)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization path must be absolute");
+  const trustedRoot = path.resolve(config.trustedControlRoot || config.logsRoot || "/workspace/logs/settleora-auto-runner");
+  if (!isInside(path.resolve(authorizationPath), trustedRoot)) return fail("protected_stack_plan_authorization_malformed", "protected plan authorization must be under the trusted control root");
+  const loaded = readProtectedPlanAuthorizationFile(authorizationPath);
+  if (!loaded.ok) return loaded;
+  const authorization = loaded.authorization || {};
+  const repo = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
+  if (authorization.purpose !== "live_stack_acceptance") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization purpose is invalid");
+  if (canonicalRepositorySlug(authorization.repositorySlug) !== repo) return fail("protected_stack_plan_authorization_repository_mismatch", "protected plan authorization repository does not match");
+  if (JSON.stringify(authorization.orderedPrNumbers || []) !== JSON.stringify(authorizableLiveAcceptancePrs)) {
+    return fail("protected_stack_plan_authorization_pr_order_mismatch", "protected plan authorization PR order/set does not match");
+  }
+  if (authorization.consumedAt || authorization.consumed === true) return fail("protected_stack_plan_authorization_consumed", "protected plan authorization was already consumed");
+  if (!authorization.expiresAt || Number.isNaN(Date.parse(authorization.expiresAt)) || Date.parse(authorization.expiresAt) <= Date.now()) {
+    return fail("protected_stack_plan_authorization_expired", "protected plan authorization is expired or missing expiry");
+  }
+  if (authorization.manualGateApproved !== true || typeof authorization.approvedBy !== "string" || authorization.approvedBy.trim().length === 0) {
+    return fail("protected_stack_plan_authorization_policy_invalid", "protected plan authorization lacks accepted manual-gate approval");
+  }
+  const identityResult = protectedPlanAuthorizationIdentity({ config, plan: authorizationPlan, authorization, authorizationPath: loaded.path });
+  if (!identityResult.ok) return identityResult;
+  const identity = identityResult.identity;
+  const statePath = protectedAuthorizationStatePath(config, identity);
+  const rootTrust = validateProtectedAuthorizationStateRoot(config, statePath);
+  if (!rootTrust.ok) return rootTrust;
+  const expected = protectedAuthorizationStateEnvelope({ config, plan, state, identity, runnerIdentity });
+  let current = readProtectedAuthorizationState(statePath);
+  if (!current.ok && current.reasonCode !== "protected_stack_authz_state_missing") return current;
+  if (lifecycle === "claim" && current.reasonCode === "protected_stack_authz_state_missing") {
+    const strictValidation = validateProtectedLivePlanAuthorization(config, authorizationPlan, { stackConfig, protectedNumbers });
+    if (!strictValidation.ok) return strictValidation;
+    const claim = {
+      ...expected,
+      status: "claimed",
+      claimedAt: new Date().toISOString(),
+      process: processIdentity(),
+      history: [{ status: "claimed", at: new Date().toISOString(), process: processIdentity() }],
+    };
+    const created = createProtectedAuthorizationStateAtomically(statePath, claim);
+    if (!created.ok) return created;
+    current = { ok: true, state: claim };
+  } else if (!current.ok) {
+    return fail("protected_stack_authz_state_missing", "protected authorization state is missing");
+  }
+  const compatibility = validateProtectedAuthorizationStateCompatibility({ current: current.state, expected, lifecycle });
+  if (!compatibility.ok) return compatibility;
+  if (lifecycle === "claim") {
+    return { ok: true, protectedPlan: true, evidence: protectedAuthorizationLifecycleEvidence(current.state, statePath, identity, "claimed") };
+  }
+  if (lifecycle === "consume") {
+    if (current.state.status === "claimed") {
+      const consumed = appendProtectedAuthorizationLifecycle(current.state, {
+        status: "consumed",
+        consumedAt: new Date().toISOString(),
+        operationIntent: sanitizeState(operationIntent || {}),
+      });
+      const written = writeProtectedAuthorizationState(statePath, consumed);
+      if (!written.ok) return written;
+      current = { ok: true, state: written.state };
+    }
+    if (!["consumed", "completed"].includes(current.state.status)) {
+      return fail("protected_stack_authz_state_ambiguous", "protected authorization state is not consumable");
+    }
+    return { ok: true, protectedPlan: true, evidence: protectedAuthorizationLifecycleEvidence(current.state, statePath, identity, "consumed") };
+  }
+  if (lifecycle === "complete") {
+    if (current.state.status === "completed") return { ok: true, protectedPlan: true, evidence: protectedAuthorizationLifecycleEvidence(current.state, statePath, identity, "completed") };
+    if (current.state.status !== "consumed") return fail("protected_stack_authz_state_ambiguous", "protected authorization must be consumed before completion");
+    const completed = appendProtectedAuthorizationLifecycle(current.state, {
+      status: "completed",
+      completedAt: new Date().toISOString(),
+      operationIntent: sanitizeState(operationIntent || {}),
+    });
+    const written = writeProtectedAuthorizationState(statePath, completed);
+    if (!written.ok) return written;
+    return { ok: true, protectedPlan: true, evidence: protectedAuthorizationLifecycleEvidence(written.state, statePath, identity, "completed") };
+  }
+  return fail("protected_stack_authz_lifecycle_unknown", "protected authorization lifecycle phase is unsupported");
+}
+
+function protectedPlanAuthorizationIdentity({ config = {}, plan = {}, authorization = {}, authorizationPath = null } = {}) {
+  const orderedPrNumbers = (plan.orderedPrs || []).map((pr) => pr.number);
+  if (authorization.authorizationId !== undefined && typeof authorization.authorizationId !== "string") return fail("protected_stack_plan_authorization_malformed", "protected plan authorization ID is invalid");
+  const operationCorrelation = plan.taskKey || plan.correlationId || authorization.taskKey || authorization.correlationId || null;
+  if (!operationCorrelation) return fail("protected_stack_plan_authorization_correlation_missing", "protected plan authorization requires an operation correlation");
+  const identity = sanitizeState({
+    schemaVersion: authorization.schemaVersion || 1,
+    repository: canonicalRepositorySlug(config.repositorySlug || plan.repository || "tommytang213/Settleora"),
+    orderedPrNumbers,
+    planDigest: digestStackPlan(plan),
+    expectedHeads: Object.fromEntries((plan.orderedPrs || []).map((pr) => [String(pr.number), pr.headRefOid])),
+    baseBranch: authorization.baseBranch || "main",
+    purpose: "live_stack_acceptance",
+    manualApproval: {
+      approvedBy: authorization.approvedBy || null,
+      approvedAt: authorization.approvedAt || null,
+      reference: authorization.approvalReference || authorization.manualApprovalReference || null,
+    },
+    issuedAt: authorization.issuedAt || null,
+    expiresAt: authorization.expiresAt || null,
+    authorizationId: authorization.authorizationId || digestJson({ authorizationPath, planDigest: digestStackPlan(plan), operationCorrelation }),
+    operationCorrelation,
+    taskKey: plan.taskKey || authorization.taskKey || null,
+    authorizationPath,
+    authorizationDigest: digestJson(authorization),
+  });
+  return { ok: true, identity, identityDigest: digestJson(identity) };
+}
+
+function protectedAuthorizationStatePath(config = {}, identity = {}) {
+  const trustedRoot = path.resolve(config.trustedControlRoot || config.logsRoot || "/workspace/logs/settleora-auto-runner");
+  return path.join(trustedRoot, "protected-plan-authz-consumption", `${digestJson({
+    authorizationId: identity.authorizationId,
+    repository: identity.repository,
+    orderedPrNumbers: identity.orderedPrNumbers,
+  })}.json`);
+}
+
+function validateProtectedAuthorizationStateRoot(config = {}, statePath) {
+  const trustedRoot = path.resolve(config.trustedControlRoot || config.logsRoot || "/workspace/logs/settleora-auto-runner");
+  const root = path.join(trustedRoot, "protected-plan-authz-consumption");
+  if (!isInside(path.resolve(statePath), trustedRoot)) return fail("protected_stack_authz_state_untrusted", "protected authorization state must live under trusted control root");
+  if (existsSync(root)) {
+    const stat = lstatSync(root);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return fail("protected_stack_authz_state_untrusted", "protected authorization state root is not a trusted directory");
+    if ((stat.mode & 0o077) !== 0) return fail("protected_stack_authz_state_untrusted", "protected authorization state root must be owner-only");
+  } else {
+    mkdirSync(root, { recursive: true, mode: 0o700 });
+  }
+  return { ok: true };
+}
+
+function protectedAuthorizationStateEnvelope({ config = {}, plan = {}, state = {}, identity = {}, runnerIdentity = null } = {}) {
+  return sanitizeState({
+    schemaVersion: 1,
+    authorizationId: identity.authorizationId,
+    authorizationDigest: identity.authorizationDigest,
+    identityDigest: digestJson(identity),
+    identity,
+    repository: identity.repository,
+    planDigest: identity.planDigest,
+    orderedPrNumbers: identity.orderedPrNumbers,
+    expectedHeads: identity.expectedHeads,
+    operationCorrelation: identity.operationCorrelation,
+    taskKey: config.taskKey || identity.taskKey || null,
+    stackId: plan.stackId || state.stackId || null,
+    runnerIdentity,
+    runnerIdentityDigest: digestJson(runnerIdentity || {}),
+  });
+}
+
+function createProtectedAuthorizationStateAtomically(statePath, state) {
+  let fd = null;
+  try {
+    fd = openSync(statePath, "wx", 0o600);
+    writeFileSync(fd, `${JSON.stringify(state, null, 2)}\n`);
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      const existing = readProtectedAuthorizationState(statePath);
+      if (!existing.ok) return existing;
+      return fail("protected_stack_authz_already_claimed", "protected authorization was already claimed", { existing: protectedAuthorizationLifecycleEvidence(existing.state, statePath, existing.state.identity || {}, existing.state.status || "unknown") });
+    }
+    return fail("protected_stack_authz_state_ambiguous", error.message || "protected authorization claim could not be created atomically");
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+  const readBack = readProtectedAuthorizationState(statePath);
+  if (!readBack.ok) return readBack;
+  return { ok: true, state: readBack.state };
+}
+
+function readProtectedAuthorizationState(statePath) {
+  if (!existsSync(statePath)) return fail("protected_stack_authz_state_missing", "protected authorization state is missing");
+  const trust = validateOwnerOnlyFile(statePath);
+  if (!trust.ok) return fail("protected_stack_authz_state_untrusted", trust.reason);
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(statePath, "utf8"));
+  } catch {
+    return fail("protected_stack_authz_state_corrupt", "protected authorization state is corrupt");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return fail("protected_stack_authz_state_corrupt", "protected authorization state must be an object");
+  if (!["claimed", "consumed", "completed"].includes(String(parsed.status || ""))) return fail("protected_stack_authz_state_corrupt", "protected authorization state status is unsupported");
+  return { ok: true, state: parsed };
+}
+
+function validateProtectedAuthorizationStateCompatibility({ current = {}, expected = {}, lifecycle = "claim" } = {}) {
+  if (current.schemaVersion !== 1) return fail("protected_stack_authz_state_corrupt", "protected authorization state schema is unsupported");
+  for (const key of ["authorizationId", "authorizationDigest", "repository", "operationCorrelation", "stackId"]) {
+    if (current[key] !== expected[key]) return fail("protected_stack_authz_mismatched", `protected authorization state ${key} does not match this operation`);
+  }
+  if (digestJson(current.orderedPrNumbers || []) !== digestJson(expected.orderedPrNumbers || [])) return fail("protected_stack_authz_mismatched", "protected authorization PR order/set does not match this operation");
+  if (current.runnerIdentityDigest !== expected.runnerIdentityDigest) return fail("protected_stack_authz_mismatched", "protected authorization runner authority does not match this operation");
+  if (current.status === "completed" && lifecycle !== "complete") return fail("protected_stack_authz_completed", "protected authorization is already completed");
+  return { ok: true };
+}
+
+function appendProtectedAuthorizationLifecycle(current = {}, update = {}) {
+  const event = sanitizeState({ status: update.status, at: update.consumedAt || update.completedAt || new Date().toISOString(), operationIntent: update.operationIntent || null, process: processIdentity() });
+  return sanitizeState({
+    ...current,
+    status: update.status,
+    consumedAt: update.consumedAt || current.consumedAt || null,
+    completedAt: update.completedAt || current.completedAt || null,
+    operationIntent: update.operationIntent || current.operationIntent || null,
+    history: [...(Array.isArray(current.history) ? current.history : []), event],
+  });
+}
+
+function writeProtectedAuthorizationState(statePath, state) {
+  const tmp = `${statePath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, statePath);
+  const readBack = readProtectedAuthorizationState(statePath);
+  if (!readBack.ok) return readBack;
+  return { ok: true, state: readBack.state };
+}
+
+function protectedAuthorizationLifecycleEvidence(state = {}, statePath, identity = {}, lifecycle) {
+  return sanitizeState({
+    protectedPlan: true,
+    lifecycle,
+    status: state.status || null,
+    statePath,
+    authorizationId: state.authorizationId || identity.authorizationId || null,
+    authorizationDigest: state.authorizationDigest || identity.authorizationDigest || null,
+    identityDigest: state.identityDigest || digestJson(identity || {}),
+    operationCorrelation: state.operationCorrelation || identity.operationCorrelation || null,
+    claimedAt: state.claimedAt || null,
+    consumedAt: state.consumedAt || null,
+    completedAt: state.completedAt || null,
+    stateDigest: digestJson(state),
+  });
+}
+
+function processIdentity() {
+  return { pid: process.pid, ppid: process.ppid, startedAt: new Date().toISOString() };
 }
 
 export function createInitialPrStackState({ plan, adapter = null } = {}) {
@@ -3519,7 +3855,7 @@ async function collectFinalGateEvidence({ config, state, pr, runner, adapter = n
 async function collectFinalGatePrerequisites({ config, state, pr, runner, adapter = null, repositoryContext = null, reasonPrefix }) {
   const inspection = adapter?.inspectPr
     ? await adapter.inspectPr({ config, state, prNumber: pr.number, repositoryContext })
-    : inspectAutoMergeGithubState(config, { issue: finalGateIssue(config, state, pr), prUrlOrNumber: pr.number });
+    : inspectAutoMergeGithubState(config, { issue: finalGateIssue(config, state, pr), prUrlOrNumber: pr.number }, { runner });
   if (!inspection?.pr) return fail(`${reasonPrefix}_pr_read_failed`, "PR state could not be read");
   inspection.issue = inspection.issue || finalGateIssue(config, state, pr);
   const currentHead = inspection.pr.headRefOid || pr.headRefOid;
@@ -4424,6 +4760,9 @@ export const prStackExecutorTestInternals = Object.freeze({
   createSourceCycleOperationContext,
   deriveCanonicalCommitChain,
   digestStackPlan,
+  prepareProtectedPlanAuthorizationLifecycle,
+  protectedAuthorizationStatePath,
+  protectedPlanAuthorizationIdentity,
   discoverTaskScopedPendingPushIntents,
   evaluateSourceCycleBudget,
   fetchAndReadOriginMain,

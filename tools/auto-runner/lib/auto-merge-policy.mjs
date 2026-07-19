@@ -252,6 +252,7 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
     lane: context.laneDecision?.lane || null,
     changedFiles: context.changedFiles || [],
     autoMerge: decision,
+    autoMergeCommandEvidence: context.autoMergeCommandEvidence || context.commandEvidence || decision.commandEvidence || null,
     issueLinkageEvidence: context.issueLinkageEvidence || decision.issueLinkageEvidence || null,
   });
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
@@ -466,7 +467,7 @@ export function executeAutoMerge(config, context, options = {}) {
 
 function executeAutoMergeWithWait(config, initialContext, options) {
   const runner = options.runner || defaultRunner;
-  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber }));
+  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber }, { runner }));
   const sleep = options.sleep || sleepSync;
   const wait = options.wait;
   const attempts = [];

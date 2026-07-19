@@ -464,12 +464,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   if ((issue.labels || []).includes("auto-bundle")) {
+    const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
     const bundleResult = await runFeatureBundleIteration(config, logger, {
       runId,
       index,
       issue,
       laneDecision,
       recoveryState: recoveryRecorder?.state || null,
+      autoMergeRunner,
       controlCheck: () => {
         const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
         return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -1390,6 +1392,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const issue = live.issue || state.issue;
       const laneDecision = classifyIssueLane(issue);
       if (state.featureBundle) {
+        const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
         const bundle = await runFeatureBundleIteration(config, logger, {
           runId,
           index,
@@ -1397,6 +1400,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           laneDecision,
           branchName: state.branch.name,
           recoveryState: state,
+          autoMergeRunner,
           controlCheck: () => {
             const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
             return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -1445,7 +1449,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   }
   fetchOriginMain(config);
   const baseOriginMainSha = getRefSha("origin/main");
-  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl });
+  const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
+  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner });
   const prNumber = githubState.pr?.number || recoveryConfig.prNumber || recoveryConfig.prUrl;
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
     ? recoveryConfig.changedFiles
@@ -1650,7 +1655,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const autoMerge = executeAutoMerge(config, context, {
-    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }),
+    runner: autoMergeRunner,
+    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner }),
   });
   return {
     reason: recoveryDecision.reason,
@@ -1880,10 +1886,11 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     fetchOriginMain(config);
     baseContext.currentOriginMainSha = getRefSha("origin/main");
   }
+  const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
   const githubState =
     config.dryRun || !iteration.pr?.url
       ? {}
-      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url });
+      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url }, { runner: autoMergeRunner });
   return executeAutoMerge(config, {
     ...baseContext,
     ...githubState,
@@ -1893,7 +1900,7 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     reviewThreads: githubState.reviewThreads || baseContext.reviewThreads,
     codeScanningAlerts: githubState.codeScanningAlerts || baseContext.codeScanningAlerts,
     blockingMarkers: githubState.blockingMarkers || baseContext.blockingMarkers,
-  });
+  }, { runner: autoMergeRunner });
 }
 
 async function runReviewFixCycle(config, context) {
