@@ -1893,7 +1893,9 @@ function createLiveFixedArgvRunner(config = {}) {
 }
 
 function createLivePrStackReviewAdapters(config) {
-  const buildPackage = async ({ reviewPhase, pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview = null }) => writeReviewPackage(config, {
+  const buildPackage = async ({ reviewPhase, pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview = null }) => {
+    const mechanicsPhase = reviewPhase === "pr-stack-final-codex-exact-head";
+    return writeReviewPackage(config, {
     reviewPhase,
     issue: pr?.issue || config.prStackIssue || { number: pr?.issueNumber || pr?.number || 921, title: pr?.title || `PR #${pr?.number || "unknown"}`, labels: [] },
     promptInfo: { promptPath: `pr-stack:${reviewPhase}:pr-${pr?.number || "unknown"}:${headSha || "unknown"}` },
@@ -1901,6 +1903,13 @@ function createLivePrStackReviewAdapters(config) {
       ...(fullCandidatePrDelta?.laneDecision || validation?.laneDecision || { lane: "workflow-docs-tooling" }),
       validationProfile: validation?.profile || fullCandidatePrDelta?.laneDecision?.validationProfile || validation?.laneDecision?.validationProfile || "runner-tests",
       reviewerTier: "strong_independent",
+      manualMergeRequired: !mechanicsPhase,
+      autoMergeEligible: mechanicsPhase,
+      contract: {
+        ...(fullCandidatePrDelta?.laneDecision?.contract || validation?.laneDecision?.contract || {}),
+        manualMergeRequired: !mechanicsPhase,
+        autoMergeEligible: mechanicsPhase,
+      },
     },
     changedFiles,
     validation,
@@ -1909,9 +1918,17 @@ function createLivePrStackReviewAdapters(config) {
     baseSha,
     externalReview,
     fullCandidatePrDelta,
+    reviewFixMechanicsContext: mechanicsPhase ? {
+      objective: "Converge and merge the exact-head PR #919 -> PR #920 development-stage stack through protected controller gates while PR #917 remains frozen.",
+      humanDirectedMergeGate: true,
+      taskKey: config.taskKey || null,
+      reportFinalizationOccursAfterLiveReadback: true,
+      forbiddenScope: "product runtime/API/auth/security/money/schema/deployment/storage/client/secrets",
+    } : null,
     diffBaseRef: baseSha,
     diffHeadRef: headSha,
-  });
+    });
+  };
   return {
     runStrongReview: async ({ pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta }) => {
       const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-strong-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta });
