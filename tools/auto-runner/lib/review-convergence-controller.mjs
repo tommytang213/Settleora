@@ -13,6 +13,7 @@ import {
   recordReviewRequestDedupe,
   validateDiagnosticReviewFixAuthorization,
 } from "./review-convergence-state.mjs";
+import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 
 export function buildLiveReviewConvergenceContext(input = {}) {
   const config = input.config || {};
@@ -489,6 +490,205 @@ export function notificationDecisionForConvergence(event = {}) {
   return { notify: false, reason: "not_operator_relevant" };
 }
 
+export async function runExistingPrReviewConvergence(input = {}) {
+  const findings = Array.isArray(input.findings) ? input.findings : [];
+  const convergence = buildLiveReviewConvergenceContext({
+    ...input,
+    currentFindings: findings,
+    relationships: input.relationships || {
+      parentPr: input.pr?.expectedParentPr ?? null,
+      dependentPrs: input.dependentPrs || [],
+    },
+  });
+  let state = convergence.gateInput.reviewConvergenceState;
+  const history = input.reviewConvergenceHistory || state.history || [];
+  if (findings.length === 0) {
+    return {
+      ok: true,
+      reason: "existing_pr_review_converged",
+      reviewConvergenceState: state,
+      convergence: convergence.context,
+      findingInventory: [],
+      sourceChangingCycle: state.sourceChangingCycle,
+    };
+  }
+  const budget = evaluateCycleBudget(state, input.config || {}, history);
+  if (!budget.ok) {
+    return {
+      ok: false,
+      reasonCode: budget.terminalReason || "review_convergence_budget_blocked",
+      reason: budget.reason,
+      reviewConvergenceState: budget.transitionedState || state,
+      budget,
+    };
+  }
+  if (budget.transitionedState) state = budget.transitionedState;
+  if (typeof input.runBatchFix !== "function") {
+    return {
+      ok: false,
+      reasonCode: "existing_pr_convergence_batch_fix_required",
+      reason: "material findings require the shared bounded review-convergence batch-fix authority",
+      reviewConvergenceState: state,
+      convergence: convergence.context,
+      findingInventory: convergence.context.findingInventory,
+      budget,
+    };
+  }
+  const fixTask = buildBatchFixTask({
+    issue: input.issue,
+    branchName: input.pr?.headRefName || input.pr?.branch || input.branchName,
+    laneDecision: input.laneDecision || {},
+    inventory: convergence.context.findingInventory,
+  });
+  const fixResult = await input.runBatchFix({ ...input, fixTask, reviewConvergenceState: state, convergence: convergence.context });
+  if (!fixResult?.ok) {
+    return {
+      ok: false,
+      reasonCode: fixResult?.reasonCode || "existing_pr_convergence_fix_not_proceeded",
+      reason: fixResult?.reason || fixResult?.reasonCode || "review convergence fix did not proceed",
+      reviewConvergenceState: markDiagnosticReviewFixTerminal(state, fixResult?.reasonCode || "existing_pr_convergence_fix_not_proceeded"),
+      convergence: convergence.context,
+      findingInventory: convergence.context.findingInventory,
+      budget,
+    };
+  }
+  const accounted = accountConvergenceEvent(state, {
+    kind: fixResult.newHead && fixResult.newHead !== state.pr?.exactHead ? "source_changed" : "wait",
+    newHead: fixResult.newHead,
+    reasonCode: "existing_pr_review_convergence_fix",
+  });
+  return {
+    ok: true,
+    reason: "existing_pr_review_convergence_fix_applied",
+    reviewConvergenceState: accounted.state,
+    convergence: convergence.context,
+    findingInventory: convergence.context.findingInventory,
+    consumedSourceCycle: accounted.consumedSourceCycle,
+    newHead: fixResult.newHead || state.pr?.exactHead || null,
+    result: fixResult,
+  };
+}
+
+export async function runExistingPrBatchFix(input = {}, adapters = {}) {
+  const state = input.reviewConvergenceState || input.convergenceState || {};
+  const exactHead = state.pr?.exactHead || input.pr?.headRefOid || input.pr?.exactHead || null;
+  const inventory = Array.isArray(input.convergence?.findingInventory)
+    ? input.convergence.findingInventory
+    : freezeMaterialFindingInventory(input.findings || input.currentFindings || []);
+  const fingerprints = inventory.map((finding) => finding.fingerprint).filter(Boolean).sort();
+  const fingerprintDigest = digestFindingSet(fingerprints);
+  const markerKey = `existing_pr_batch_fix:${state.pr?.number || input.pr?.number || "unknown"}:${exactHead || "unknown"}:${fingerprintDigest}`;
+  const existingMarker = state.mutationMarkers?.[markerKey] || input.mutationMarkers?.[markerKey] || null;
+  if (existingMarker?.newHead) {
+    return {
+      ok: true,
+      duplicate: true,
+      newHead: existingMarker.newHead,
+      findingFingerprints: fingerprints,
+      fingerprintDigest,
+      mutationMarker: markerKey,
+      validation: existingMarker.validation || null,
+      externalReview: existingMarker.externalReview || null,
+      review: existingMarker.review || null,
+      sourceIdentity: existingMarker.sourceIdentity || null,
+    };
+  }
+  if (inventory.length === 0) {
+    return { ok: false, reasonCode: "existing_pr_batch_fix_inventory_missing", reason: "batch fix requires a frozen material finding inventory" };
+  }
+  const manual = inventory.find((finding) => finding.classification === "manual" || finding.manual === true);
+  if (manual) {
+    return { ok: false, reasonCode: "existing_pr_batch_fix_manual_decision_required", reason: "manual-decision findings cannot be mutated automatically", finding: manual.fingerprint || null };
+  }
+  const changedFindingPaths = [...new Set(inventory.map((finding) => finding.path).filter(Boolean))].sort();
+  const forbiddenFindingPaths = filterForbiddenChangedFiles(changedFindingPaths, input.laneDecision || {});
+  if (forbiddenFindingPaths.length > 0) {
+    return {
+      ok: false,
+      reasonCode: "existing_pr_batch_fix_out_of_contract",
+      reason: `finding paths outside lane contract: ${forbiddenFindingPaths.join(",")}`,
+      forbiddenFindingPaths,
+    };
+  }
+  if (typeof adapters.runCodexBatchFix !== "function") {
+    return {
+      ok: false,
+      reasonCode: "existing_pr_batch_fix_adapter_unconfigured",
+      reason: "production batch-fix adapter is required before source mutation",
+      findingFingerprints: fingerprints,
+      fingerprintDigest,
+    };
+  }
+  const codex = await adapters.runCodexBatchFix({ ...input, exactHead, inventory, findingFingerprints: fingerprints, fingerprintDigest, markerKey });
+  if (!codex?.ok) return codex || { ok: false, reasonCode: "existing_pr_batch_fix_codex_failed", reason: "Codex batch fix failed" };
+  const changedFiles = typeof adapters.listChangedFiles === "function"
+    ? normalizeChangedFiles(await adapters.listChangedFiles({ ...input, exactHead, inventory }))
+    : normalizeChangedFiles(codex.changedFiles || []);
+  if (changedFiles.length === 0) return { ok: false, reasonCode: "existing_pr_batch_fix_left_no_changed_files", reason: "batch fix produced no changed files" };
+  const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, input.laneDecision || {});
+  if (forbiddenChangedFiles.length > 0) {
+    return { ok: false, reasonCode: "existing_pr_batch_fix_forbidden_changed_files", reason: `batch fix changed forbidden paths: ${forbiddenChangedFiles.join(",")}`, forbiddenChangedFiles };
+  }
+  if (typeof adapters.validateAndReview !== "function") {
+    return { ok: false, reasonCode: "existing_pr_batch_fix_validation_review_adapter_unconfigured", reason: "exact validation and review adapter is required before push" };
+  }
+  const reviewed = await adapters.validateAndReview({ ...input, exactHead, changedFiles, codex, inventory, findingFingerprints: fingerprints, fingerprintDigest });
+  if (!reviewed?.ok) return reviewed || { ok: false, reasonCode: "existing_pr_batch_fix_validation_review_failed", reason: "validation/review failed" };
+  const fixDelta = reviewed.fixDelta || {
+    changedFiles,
+    changedFilesDigest: digestStringSet(changedFiles),
+    oldHead: exactHead,
+    findingFingerprints: fingerprints,
+    fingerprintDigest,
+  };
+  const candidateChangedFiles = normalizeChangedFiles(reviewed.fullCandidatePrDelta?.changedFiles || reviewed.sourceIdentity?.fullCandidatePrDelta?.changedFiles || changedFiles);
+  if (typeof adapters.commitAndPush !== "function") {
+    return { ok: false, reasonCode: "existing_pr_batch_fix_commit_push_adapter_unconfigured", reason: "commit/push adapter is required for a source-changing cycle" };
+  }
+  const pushed = await adapters.commitAndPush({ ...input, exactHead, changedFiles: candidateChangedFiles, fixDelta, codex, reviewed, inventory, findingFingerprints: fingerprints, fingerprintDigest, markerKey });
+  if (!pushed?.ok || !pushed.newHead || pushed.newHead === exactHead) {
+    return pushed?.ok === false
+      ? pushed
+      : { ok: false, reasonCode: "existing_pr_batch_fix_new_head_required", reason: "batch fix must commit and push one new head" };
+  }
+  const marker = {
+    markerKey,
+    prNumber: state.pr?.number || input.pr?.number || null,
+    oldHead: exactHead,
+    newHead: pushed.newHead,
+    findingFingerprints: fingerprints,
+    fingerprintDigest,
+    changedFiles: candidateChangedFiles,
+    changedFilesDigest: digestStringSet(candidateChangedFiles),
+    fixDelta,
+    fullCandidatePrDelta: reviewed.fullCandidatePrDelta || reviewed.sourceIdentity?.fullCandidatePrDelta || null,
+    validation: reviewed.validation || null,
+    externalReview: reviewed.externalReview || null,
+    review: reviewed.review || null,
+    sourceIdentity: pushed.sourceIdentity || reviewed.sourceIdentity || null,
+    pushedAt: pushed.pushedAt || new Date().toISOString(),
+  };
+  if (typeof adapters.persistMutationMarker === "function") {
+    await adapters.persistMutationMarker({ ...input, markerKey, marker });
+  }
+  return {
+    ok: true,
+    newHead: pushed.newHead,
+    findingFingerprints: fingerprints,
+    fingerprintDigest,
+    changedFiles: candidateChangedFiles,
+    changedFilesDigest: marker.changedFilesDigest,
+    fixDelta: marker.fixDelta,
+    fullCandidatePrDelta: marker.fullCandidatePrDelta,
+    validation: marker.validation,
+    externalReview: marker.externalReview,
+    review: marker.review,
+    sourceIdentity: marker.sourceIdentity,
+    mutationMarker: marker,
+    durableMutationMarkers: { [markerKey]: marker },
+  };
+}
+
 function detectShortOscillation(values) {
   if (values.length < 4) return false;
   const last4 = values.slice(-4);
@@ -682,6 +882,14 @@ function reviewVerdictIsPass(review = {}) {
 
 function digestFindingSet(fingerprints = []) {
   return createHash("sha256").update([...fingerprints].sort().join("\n")).digest("hex");
+}
+
+function normalizeChangedFiles(files = []) {
+  return [...new Set((Array.isArray(files) ? files : []).map((file) => scrub(file)).filter(Boolean))].sort();
+}
+
+function digestStringSet(values = []) {
+  return createHash("sha256").update(normalizeChangedFiles(values).join("\n")).digest("hex");
 }
 
 function normalizeIssue(issue = {}) {

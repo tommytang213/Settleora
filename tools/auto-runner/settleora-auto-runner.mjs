@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -101,6 +102,7 @@ import {
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
+import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -182,6 +184,26 @@ async function main() {
     const result = await runSecurityFindingsDryRun(config, { taskKey: "security-findings-dry-run" });
     console.log(cliArgs.json ? JSON.stringify(result, null, 2) : renderSecurityFindingsDryRunText(result));
     process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
+  if (cliArgs.runPrStack) {
+    const config = loadConfig(cliArgs);
+    const liveRunner = createLiveFixedArgvRunner(config);
+    const liveReviewAdapters = createLivePrStackReviewAdapters(config);
+    let lockPath = null;
+    try {
+      lockPath = acquireRunnerLock(config, {
+        runId: `pr-stack-${safeTimestamp()}`,
+        mode: config.mode,
+        configPath: config.configPath || null,
+        stackPlanPath: cliArgs.stackPlanPath,
+      });
+      const result = await runPrStackExecution(config, cliArgs, { runner: liveRunner, ...liveReviewAdapters });
+      console.log(JSON.stringify(result, null, 2));
+      process.exitCode = result.ok || result.outcome === "waiting" ? 0 : 1;
+    } finally {
+      releaseRunnerLock(lockPath);
+    }
     return;
   }
 
@@ -443,12 +465,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   if ((issue.labels || []).includes("auto-bundle")) {
+    const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
     const bundleResult = await runFeatureBundleIteration(config, logger, {
       runId,
       index,
       issue,
       laneDecision,
       recoveryState: recoveryRecorder?.state || null,
+      autoMergeRunner,
       controlCheck: () => {
         const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
         return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -1369,6 +1393,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const issue = live.issue || state.issue;
       const laneDecision = classifyIssueLane(issue);
       if (state.featureBundle) {
+        const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
         const bundle = await runFeatureBundleIteration(config, logger, {
           runId,
           index,
@@ -1376,6 +1401,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           laneDecision,
           branchName: state.branch.name,
           recoveryState: state,
+          autoMergeRunner,
           controlCheck: () => {
             const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
             return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -1424,7 +1450,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   }
   fetchOriginMain(config);
   const baseOriginMainSha = getRefSha("origin/main");
-  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl });
+  const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
+  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner });
   const prNumber = githubState.pr?.number || recoveryConfig.prNumber || recoveryConfig.prUrl;
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
     ? recoveryConfig.changedFiles
@@ -1629,7 +1656,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const autoMerge = executeAutoMerge(config, context, {
-    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }),
+    runner: autoMergeRunner,
+    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner }),
   });
   return {
     reason: recoveryDecision.reason,
@@ -1735,6 +1763,147 @@ function spawnLike(command, args, cwd) {
   return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 
+function createLiveFixedArgvRunner(config = {}) {
+  const repositorySlug = String(config.repositorySlug || "");
+  const repoRoot = path.resolve(config.repoRoot || process.cwd());
+  const maxOutputBytes = Number.isInteger(config.prStackExecution?.runnerMaxOutputBytes)
+    ? Math.max(1024, Math.min(config.prStackExecution.runnerMaxOutputBytes, 1024 * 1024))
+    : 128 * 1024;
+  const timeoutMs = Number.isInteger(config.prStackExecution?.runnerTimeoutMs)
+    ? Math.max(1000, Math.min(config.prStackExecution.runnerTimeoutMs, 120000))
+    : 30000;
+	  const runner = (command, args = [], options = {}) => {
+	    const startedAt = new Date().toISOString();
+	    if (typeof command !== "string" || command.trim() !== command || command.length === 0 || /\s/.test(command)) {
+	      return { status: 1, stdout: "", stderr: "fixed_argv_command_required", error: "fixed_argv_command_required" };
+    }
+    if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
+      return { status: 1, stdout: "", stderr: "fixed_argv_args_required", error: "fixed_argv_args_required" };
+    }
+    if (options.shell === true) {
+      return { status: 1, stdout: "", stderr: "shell_execution_refused", error: "shell_execution_refused" };
+    }
+    const cwd = path.resolve(options.cwd || repoRoot);
+	    const result = spawnSync(command, args, {
+      cwd,
+      input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+      timeout: options.timeoutMs || timeoutMs,
+	      maxBuffer: maxOutputBytes,
+	    });
+	    const stdout = boundRunnerOutput(result.stdout || "", maxOutputBytes);
+	    const stderr = boundRunnerOutput(result.stderr || "", maxOutputBytes);
+	    const error = result.error?.message ? sanitizeRunnerOutputEvidence(result.error.message, 2000) : null;
+	    const completedAt = new Date().toISOString();
+	    const stdoutEvidence = sanitizeRunnerOutputEvidence(stdout, 1000);
+	    const stderrEvidence = sanitizeRunnerOutputEvidence(stderr, 1000);
+	    return {
+	      status: result.status ?? (result.error ? 1 : 0),
+	      stdout,
+	      stderr,
+	      error,
+	      commandEvidence: {
+	        runnerIdentity: runner.settleoraRunnerIdentity,
+	        command,
+	        args: args.map((arg) => sanitizeRunnerArg(arg)),
+	        cwd,
+	        repositorySlug,
+	        startedAt,
+	        completedAt,
+	        timeoutMs: options.timeoutMs || timeoutMs,
+	        maxOutputBytes,
+	        status: result.status ?? (result.error ? 1 : 0),
+	        signal: result.signal || null,
+	        error,
+	        stdoutSha256: createHash("sha256").update(stdout).digest("hex"),
+	        stderrSha256: createHash("sha256").update(stderr).digest("hex"),
+	        stdoutExcerpt: stdoutEvidence,
+	        stderrExcerpt: stderrEvidence,
+	      },
+	    };
+	  };
+  runner.settleoraFixedArgvRunner = true;
+  runner.settleoraRunnerMode = "live";
+  runner.settleoraRunnerIdentity = {
+    kind: "live-fixed-argv",
+    repositorySlug,
+    repoRoot,
+    timeoutMs,
+    maxOutputBytes,
+  };
+  return runner;
+}
+
+function createLivePrStackReviewAdapters(config) {
+  const buildPackage = async ({ reviewPhase, pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview = null }) => writeReviewPackage(config, {
+    reviewPhase,
+    issue: pr?.issue || config.prStackIssue || { number: pr?.issueNumber || pr?.number || 921, title: pr?.title || `PR #${pr?.number || "unknown"}`, labels: [] },
+    promptInfo: { promptPath: `pr-stack:${reviewPhase}:pr-${pr?.number || "unknown"}:${headSha || "unknown"}` },
+    laneDecision: {
+      ...(fullCandidatePrDelta?.laneDecision || validation?.laneDecision || { lane: "workflow-docs-tooling" }),
+      validationProfile: validation?.profile || fullCandidatePrDelta?.laneDecision?.validationProfile || validation?.laneDecision?.validationProfile || "runner-tests",
+      reviewerTier: "strong_independent",
+    },
+    changedFiles,
+    validation,
+    report: { found: true, expectedPath: `pr-stack:${reviewPhase}` },
+    headSha,
+    baseSha,
+    externalReview,
+    fullCandidatePrDelta,
+    diffBaseRef: baseSha,
+    diffHeadRef: headSha,
+  });
+  return {
+    runStrongReview: async ({ pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta }) => {
+      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-strong-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta });
+      const review = await runIntegratedReviewSource(config, reviewPackage, "pr-stack-final-strong-exact-head");
+      return {
+        ...review,
+        reviewedHead: review.reviewedHead || headSha,
+        baseSha: review.baseSha || baseSha,
+        changedFiles: review.changedFiles || changedFiles,
+        changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
+        fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
+      };
+    },
+    runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta }) => {
+      const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview });
+      const review = runReviewPrompt(config, reviewPackage);
+      return {
+        ...review,
+        reviewedHead: review.reviewedHead || headSha,
+        baseSha: review.baseSha || baseSha,
+        changedFiles: review.changedFiles || changedFiles,
+        changedFilesDigest: review.changedFilesDigest || digestRunnerStringSet(changedFiles),
+        fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
+      };
+    },
+  };
+}
+
+function boundRunnerOutput(value, max = 128 * 1024) {
+  const text = String(value || "");
+  return text.length > max ? `${text.slice(0, max)}[truncated]` : text;
+}
+
+function sanitizeRunnerOutputEvidence(value, max = 128 * 1024) {
+  const text = boundRunnerOutput(value, max).replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
+  return text.length > max ? `${text.slice(0, max)}[truncated]` : text;
+}
+
+function sanitizeRunnerArg(value) {
+  const text = String(value || "");
+  const bounded = text.length > 240 ? `${text.slice(0, 240)}[truncated]` : text;
+  return bounded.replace(/[A-Za-z0-9_=-]{32,}/g, "[redacted]");
+}
+
+function digestRunnerStringSet(values = []) {
+  return createHash("sha256").update(values.map((value) => String(value || "")).filter(Boolean).sort().join("\n")).digest("hex");
+}
+
 async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName, changedFiles, forbidden }) {
   const baseContext = {
     config,
@@ -1777,10 +1946,11 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     fetchOriginMain(config);
     baseContext.currentOriginMainSha = getRefSha("origin/main");
   }
+  const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
   const githubState =
     config.dryRun || !iteration.pr?.url
       ? {}
-      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url });
+      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url }, { runner: autoMergeRunner });
   return executeAutoMerge(config, {
     ...baseContext,
     ...githubState,
@@ -1790,7 +1960,7 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     reviewThreads: githubState.reviewThreads || baseContext.reviewThreads,
     codeScanningAlerts: githubState.codeScanningAlerts || baseContext.codeScanningAlerts,
     blockingMarkers: githubState.blockingMarkers || baseContext.blockingMarkers,
-  });
+  }, { runner: autoMergeRunner });
 }
 
 async function runReviewFixCycle(config, context) {
@@ -2289,10 +2459,12 @@ async function writeReviewPackage(config, payload) {
       estimatedOutputTokens: 0,
     }),
     changedFiles: payload.changedFiles,
-    currentHead: config.dryRun ? null : getRefSha("HEAD"),
+    currentHead: payload.headSha || (config.dryRun ? null : getRefSha("HEAD")),
     baseSha: payload.baseSha || payload.baseRefSha || payload.baseOriginMainSha || (config.dryRun ? null : getRefSha("origin/main")),
     validation: payload.validation,
     report: payload.report,
+    externalReview: payload.externalReview || null,
+    fullCandidatePrDelta: payload.fullCandidatePrDelta || null,
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };

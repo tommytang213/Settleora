@@ -20,6 +20,44 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issue #921 - Live stack acceptance controller wiring corrective checkpoint - 20260718-0022
+
+- Acceptance attempt task: `20260717-2347`.
+- Blocker report:
+  `/workspace/logs/settleora-codex-report-20260717-2347-pr919-pr920-live-stack-acceptance.md`.
+- Terminal status:
+  `LIVE_STACK_ACCEPTANCE_CONTROLLER_WIRING_MISSING`.
+- Verified blocker:
+  `pr-stack-controller.mjs` exposed planning/proof/read-only fixture
+  primitives, but no documented production stack execution entry could dispatch
+  parent convergence, exact-head gates, parent merge, current-main proof, child
+  retarget, semantic own-delta proof, ready transition, child convergence/
+  merge, and exact-once hygiene from durable state.
+- Corrective branch:
+  `feature/auto-921-live-stack-executor-20260718-0022`.
+- Corrective scope:
+  add a default-off `--run-pr-stack --stack-plan <absolute-path> --config
+  <absolute-path>` entry, durable stack state, injectable production adapters,
+  stack config/capability gates, deterministic tests, and documentation.
+- Live stack mutation:
+  none during the blocker attempt and none during this corrective
+  implementation. #919 and #920 remain unchanged until an explicit post-merge
+  acceptance resume uses the durable state under
+  `/workspace/logs/settleora-auto-runner/live-stack-acceptance/20260717-2347/`.
+- Issue state:
+  #921 remains open; #913 remains open pending replacement stack completion;
+  #910 remains open as parent tracker. #912 is inactive/manual-gated.
+- Protected related work:
+  #917 must not enter executable stack work. #923/#924 are untouched and
+  unclaimed. #865/#866 canaries remain protected.
+- Project fields:
+  `not_updated`; no tested mapping was exercised.
+- Next gate:
+  merge the corrective PR only after its validation/review/CI gates pass, then
+  resume the same durable #919 -> #920 acceptance state without production
+  profile activation. Do not claim live acceptance has passed before that
+  resume completes.
+
 ### Issue #921 - Bounded review convergence and dependent PR stack loop
 
 - Task key: `20260717-0040`.

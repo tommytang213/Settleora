@@ -63,7 +63,7 @@ import {
   writeRecoveryState,
 } from "./recovery-state.mjs";
 
-export async function runFeatureBundleIteration(config, logger, { runId, index, issue, laneDecision, branchName = null, controlCheck = null, recoveryState = null }) {
+export async function runFeatureBundleIteration(config, logger, { runId, index, issue, laneDecision, branchName = null, controlCheck = null, recoveryState = null, autoMergeRunner = null }) {
   const planned = planFeatureBundleIssue(issue);
   if (!planned.ok) {
     return {
@@ -438,7 +438,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     recovery?.evidence("ciChecks", { status: "recorded", headSha: finalHead, baseSha: baseOriginMainSha, changedFiles: aggregateFiles });
   }
   recovery?.advance("exact_head_final_refresh", "evaluate_bundle_merge_or_pr_state");
-  result.autoMerge = await evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName: bundleBranchName, changedFiles: aggregateFiles, forbidden: aggregateForbidden, laneDecision: planned.laneDecision });
+  result.autoMerge = await evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName: bundleBranchName, changedFiles: aggregateFiles, forbidden: aggregateForbidden, laneDecision: planned.laneDecision, autoMergeRunner });
   result.outcome = result.autoMerge.result === "merged" ? "auto_merged" : "approved_pr_opened";
   if (result.autoMerge.result === "merged") {
     recovery?.marker("merge", `bundle-pr-${result.pr?.number || result.pr?.url}-${finalHead || "head"}`, {
@@ -918,7 +918,13 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
   return { packagePath, summary, diff: diff.text };
 }
 
-async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName, changedFiles, forbidden, laneDecision }) {
+async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName, changedFiles, forbidden, laneDecision, autoMergeRunner = null }, deps = {}) {
+  const dependencies = {
+    inspectState: deps.inspectState || inspectAutoMergeGithubState,
+    executeMerge: deps.executeMerge || executeAutoMerge,
+    evaluateDecision: deps.evaluateDecision || evaluateAutoMergeDecision,
+    writeEvidence: deps.writeEvidence || writeAutoMergeEvidence,
+  };
   const baseContext = {
     config,
     issue: { number: issue.number, title: issue.title, state: issue.state || "OPEN", labels: issue.labels || [] },
@@ -953,12 +959,24 @@ async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchN
     blockingMarkers: [],
   };
   if (!config.allowAutoMerge) {
-    const decision = evaluateAutoMergeDecision(baseContext);
-    return { ...decision, evidence: writeAutoMergeEvidence(config, decision, baseContext) };
+    const decision = dependencies.evaluateDecision(baseContext);
+    return { ...decision, evidence: dependencies.writeEvidence(config, decision, baseContext) };
+  }
+  const runnerPreflight = validateFeatureBundleAutoMergeRunner({ config, runner: autoMergeRunner });
+  if (!runnerPreflight.ok) {
+    const decision = {
+      eligible: false,
+      result: "blocked",
+      reason: runnerPreflight.reasonCode,
+      reasonCode: runnerPreflight.reasonCode,
+      blockingMarkers: [runnerPreflight.reasonCode],
+      runnerAuthority: runnerPreflight.evidence || null,
+    };
+    return { ...decision, evidence: dependencies.writeEvidence(config, decision, baseContext) };
   }
   const githubState =
-    config.dryRun || !result.pr?.url ? {} : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: result.pr.url });
-  return executeAutoMerge(config, {
+    config.dryRun || !result.pr?.url ? {} : dependencies.inspectState(config, { issue, prUrlOrNumber: result.pr.url }, { runner: autoMergeRunner });
+  const mergeContext = {
     ...baseContext,
     ...githubState,
     issue: githubState.issue || baseContext.issue,
@@ -967,7 +985,42 @@ async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchN
     reviewThreads: githubState.reviewThreads || [],
     codeScanningAlerts: githubState.codeScanningAlerts || [],
     blockingMarkers: githubState.blockingMarkers || [],
-  });
+    autoMergeCommandEvidence: githubState.commandEvidence || [],
+    autoMergeRunnerIdentity: autoMergeRunner?.settleoraRunnerIdentity || null,
+  };
+  return dependencies.executeMerge(config, mergeContext, { runner: autoMergeRunner });
+}
+
+function validateFeatureBundleAutoMergeRunner({ config = {}, runner = null } = {}) {
+  if (config.dryRun) {
+    return { ok: true, dryRun: true, evidence: { dryRun: true, runnerIdentity: runner?.settleoraRunnerIdentity || null } };
+  }
+  if (typeof runner !== "function" || runner.settleoraRunnerMode === "noop" || runner.settleoraNoopRunner === true) {
+    return { ok: false, reasonCode: "feature_bundle_auto_merge_runner_missing", reason: "Feature-bundle auto-merge requires an injected live runner." };
+  }
+  if (runner.settleoraFixedArgvRunner !== true || runner.settleoraRunnerMode !== "live") {
+    return { ok: false, reasonCode: "feature_bundle_auto_merge_runner_malformed", reason: "Feature-bundle auto-merge runner must be live fixed-argv." };
+  }
+  const identity = runner.settleoraRunnerIdentity || {};
+  if (identity.kind !== "live-fixed-argv" || !identity.repositorySlug || !identity.repoRoot) {
+    return { ok: false, reasonCode: "feature_bundle_auto_merge_runner_malformed", reason: "Feature-bundle auto-merge runner identity is incomplete." };
+  }
+  const expectedRepository = String(config.repositorySlug || "");
+  const expectedRoot = path.resolve(config.repoRoot || process.cwd());
+  if (identity.repositorySlug !== expectedRepository || path.resolve(identity.repoRoot) !== expectedRoot) {
+    return {
+      ok: false,
+      reasonCode: "feature_bundle_auto_merge_runner_repository_mismatch",
+      reason: "Feature-bundle auto-merge runner identity does not match configured repository.",
+      evidence: {
+        expectedRepository,
+        actualRepository: identity.repositorySlug,
+        expectedRoot,
+        actualRoot: identity.repoRoot,
+      },
+    };
+  }
+  return { ok: true, evidence: { runnerIdentity: identity } };
 }
 
 function bundlePrSummary({ result, state, plan }) {
@@ -1290,3 +1343,8 @@ function readBundleStateForRecovery(config, plan) {
     return { ok: false, reasonCode: "bundle_state_load_failed", reason: error.message };
   }
 }
+
+export const featureBundleOrchestratorTestInternals = {
+  evaluateOrExecuteBundleAutoMerge,
+  validateFeatureBundleAutoMergeRunner,
+};

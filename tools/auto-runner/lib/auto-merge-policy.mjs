@@ -7,7 +7,7 @@ import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
-import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
+import { buildIssueOperationContext, completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 import { evaluateCycleBudget } from "./review-convergence-controller.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
@@ -50,7 +50,11 @@ const autoMergeWaitDelayBucketsMs = Object.freeze([0, 5000, 15000, 30000]);
 const independentReviewRequiredLanes = new Set(approvedDomainAutoMergeLanes);
 const strongIndependentTiers = new Set(["strong_independent", "tie_breaker"]);
 const umbrellaLabelPatterns = [/umbrella/i, /epic/i, /parent/i, /tracker/i];
-const mandatoryRequiredChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
+export const mandatoryRequiredChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
+
+export function mandatoryAutoMergeCheckNames(policy = {}) {
+  return uniqueStrings([...mandatoryRequiredChecks, ...(policy?.requiredChecks || [])]);
+}
 
 export function evaluateAutoMergeDecision(input) {
   const config = input.config || {};
@@ -248,24 +252,66 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
     lane: context.laneDecision?.lane || null,
     changedFiles: context.changedFiles || [],
     autoMerge: decision,
+    autoMergeCommandEvidence: context.autoMergeCommandEvidence || context.commandEvidence || decision.commandEvidence || null,
     issueLinkageEvidence: context.issueLinkageEvidence || decision.issueLinkageEvidence || null,
   });
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
   return { evidencePath };
 }
 
-export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
-  if (config.dryRun) {
+export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {}, options = {}) {
+  const runner = options.runner || (config.dryRun ? defaultRunner : null);
+  const commandEvidence = [];
+  const run = (command, args, runnerOptions = {}) => {
+    const result = runner(command, args, runnerOptions);
+    commandEvidence.push({
+      command,
+      args: args.map((arg) => String(arg || "")),
+      cwd: runnerOptions.cwd || null,
+      status: result?.status ?? null,
+      ok: result?.status === 0 && !result?.error,
+      runnerIdentity: runner?.settleoraRunnerIdentity || null,
+    });
+    return result;
+  };
+  const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug);
+  if (!repositorySlug) {
     return {
-      pr: { state: "OPEN", isDraft: false, baseRefName: "main", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" },
+      pr: {},
       issue,
       requiredChecks: [],
       reviewThreads: [],
       codeScanningAlerts: [],
-      blockingMarkers: [],
+      blockingMarkers: ["configured_repository_invalid"],
     };
   }
-  const prView = defaultRunner(
+  if (!runner || (!config.dryRun && runner === defaultRunner)) {
+    return {
+      pr: {},
+      issue,
+      requiredChecks: [],
+      reviewThreads: [{ isResolved: false }],
+      codeScanningAlerts: [{ state: "open" }],
+      blockingMarkers: ["auto_merge_inspection_runner_missing"],
+      commandEvidence,
+    };
+  }
+  if (config.dryRun) {
+    return {
+      pr: { state: "OPEN", isDraft: false, baseRefName: "main", mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" },
+      issue,
+      requiredChecks: mandatoryAutoMergeCheckNames(config.autoMergePolicy).map((name) => ({
+        name,
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+      })),
+      reviewThreads: [],
+      codeScanningAlerts: [],
+      blockingMarkers: [],
+      commandEvidence,
+    };
+  }
+  const prView = run(
     "gh",
     [
       "pr",
@@ -273,10 +319,13 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
       String(prUrlOrNumber),
       "--json",
       "number,url,state,isDraft,baseRefName,headRefName,headRefOid,mergeable,mergeStateStatus,title,body,statusCheckRollup,comments,reviews",
+      "--repo",
+      repositorySlug,
     ],
     { cwd: config.repoRoot },
   );
-  const issueView = defaultRunner("gh", ["issue", "view", String(issue.number), "--json", "number,title,state,labels,url"], {
+  const issueNumber = issue?.number || prUrlOrNumber;
+  const issueView = run("gh", ["issue", "view", String(issueNumber), "--repo", repositorySlug, "--json", "number,title,state,labels,url"], {
     cwd: config.repoRoot,
   });
   const blockingMarkers = [];
@@ -295,8 +344,8 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
   if (prView.error || prView.status !== 0) blockingMarkers.push("pr_view_failed");
   if (issueView.error || issueView.status !== 0) blockingMarkers.push("issue_view_failed");
 
-  const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers);
-  const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers);
+  const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers, run);
+  const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers, run);
   blockingMarkers.push(...detectBlockingMarkers(pr.comments || [], pr.reviews || []));
   return {
     pr,
@@ -305,6 +354,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber }) {
     reviewThreads,
     codeScanningAlerts,
     blockingMarkers,
+    commandEvidence,
   };
 }
 
@@ -330,10 +380,11 @@ export function executeAutoMerge(config, context, options = {}) {
   }
 
   const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
-  const defaultInspectState =
-    runner === defaultRunner
-      ? (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber })
-      : () => ({});
+  const defaultInspectState = (cfg, ctx) => inspectAutoMergeGithubState(
+    { ...(ctx.config || {}), ...cfg, repositorySlug: cfg.repositorySlug || ctx.config?.repositorySlug },
+    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber },
+    { runner },
+  );
   const refreshed = (options.inspectState || defaultInspectState)(config, context);
   const finalContext = mergeAutoMergeContext(context, refreshed);
   if (!config.dryRun && finalContext.expectedOriginMainSha) {
@@ -345,14 +396,39 @@ export function executeAutoMerge(config, context, options = {}) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
     return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
   }
-  const merge = runner("gh", ["pr", "merge", String(prNumber), "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+  const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug || context.config?.repositorySlug);
+  if (!repositorySlug) {
+    const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
+    return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
   if (merge.error || merge.status !== 0) {
     const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
 
-  const mergeSha = context.mergeSha || readMergeSha(runner, config.repoRoot, prNumber);
+  const mergeProof = context.mergeSha
+    ? { ok: true, mergeSha: context.mergeSha, configuredRepositorySlug: repositorySlug, prNumber: Number(prNumber), sourceHeadSha: finalDecision.expectedHeadSha, baseRefName: finalContext.pr?.baseRefName || finalContext.baseRefName || null }
+    : readMergeSha({
+        runner,
+        cwd: config.repoRoot,
+        repositorySlug,
+        expectedGithubHost: config.githubHost || "github.com",
+        prNumber,
+        expectedBaseBranch: finalContext.pr?.baseRefName || finalContext.baseRefName || "main",
+        expectedSourceHeadSha: finalDecision.expectedHeadSha,
+        expectedRepositoryId: finalContext.pr?.repositoryProof?.repositoryId || finalContext.pr?.repositoryProof?.baseRepositoryId || finalContext.pr?.repositoryId || null,
+      });
+  if (!mergeProof.ok) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `merge_readback_failed:${mergeProof.reasonCode || "invalid_merge_readback"}` };
+    return { ...failed, mergeReadback: mergeProof, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const mergeSha = mergeProof.mergeSha;
   const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
+  if (!sourceBranchRestorationConfirmed(branchRestore, { branchName: finalContext.branchName || finalContext.pr?.headRefName, headSha: finalDecision.expectedHeadSha })) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `source_branch_restoration_failed:${branchRestore.reasonCode || branchRestore.reason || "unconfirmed"}` };
+    return { ...failed, mergeSha, mergeReadback: mergeProof, sourceBranchRestoration: branchRestore, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
   const hygiene = completeMergedIssueHygiene(
     config,
     {
@@ -367,13 +443,14 @@ export function executeAutoMerge(config, context, options = {}) {
       runner: (command, args) => runner(command, args, { cwd: config.repoRoot }),
     },
   );
-  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
+  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
   const merged = {
     ...finalDecision,
     attempted: true,
     result: "merged",
     reason: "github_merge_commit_completed",
     mergeSha,
+    mergeReadback: mergeProof,
     sourceBranchRestoration: branchRestore,
     completionHygiene: hygiene,
     issueLabelCleanupResult: legacyLabelCleanupResult(hygiene.labelCleanup),
@@ -392,9 +469,101 @@ export function executeAutoMerge(config, context, options = {}) {
   return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
 }
 
+export function executeAutoMergeMergeOnly(config, context, options = {}) {
+  const runner = options.runner || defaultRunner;
+  const decision = evaluateAutoMergeDecision(context);
+  const wait = normalizeAutoMergeWait(config.autoMergeWait);
+  if (!decision.eligible && shouldWaitForAutoMergeDecision(decision) && wait.maxAttempts > 1) {
+    return executeAutoMergeWithWait(config, context, { ...options, runner, wait, firstDecision: decision, mergeOnly: true });
+  }
+  if (!decision.eligible) {
+    return { ...decision, evidence: writeAutoMergeEvidence(config, decision, context) };
+  }
+  if (config.dryRun) {
+    const dryRun = {
+      ...decision,
+      attempted: false,
+      result: "dry_run_eligible",
+      reason: "dry_run_no_merge",
+      completionHygiene: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+      issueLabelCleanupResult: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    };
+    return { ...dryRun, evidence: writeAutoMergeEvidence(config, dryRun, context) };
+  }
+
+  const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
+  const defaultInspectState = (cfg, ctx) => inspectAutoMergeGithubState(
+    { ...(ctx.config || {}), ...cfg, repositorySlug: cfg.repositorySlug || ctx.config?.repositorySlug },
+    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber },
+    { runner },
+  );
+  const refreshed = (options.inspectState || defaultInspectState)(config, context);
+  const finalContext = mergeAutoMergeContext(context, refreshed);
+  if (!config.dryRun && finalContext.expectedOriginMainSha) {
+    const origin = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
+    finalContext.currentOriginMainSha = origin.status === 0 && !origin.error ? origin.stdout.trim() : finalContext.currentOriginMainSha;
+  }
+  const finalDecision = evaluateAutoMergeDecision(finalContext);
+  if (!finalDecision.eligible) {
+    const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
+    return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
+  }
+  const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug || context.config?.repositorySlug);
+  if (!repositorySlug) {
+    const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
+    return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+  if (merge.error || merge.status !== 0) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
+    return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+
+  const mergeProof = context.mergeSha
+    ? { ok: true, mergeSha: context.mergeSha, configuredRepositorySlug: repositorySlug, prNumber: Number(prNumber), sourceHeadSha: finalDecision.expectedHeadSha, baseRefName: finalContext.pr?.baseRefName || finalContext.baseRefName || null }
+    : readMergeSha({
+        runner,
+        cwd: config.repoRoot,
+        repositorySlug,
+        expectedGithubHost: config.githubHost || "github.com",
+        prNumber,
+        expectedBaseBranch: finalContext.pr?.baseRefName || finalContext.baseRefName || "main",
+        expectedSourceHeadSha: finalDecision.expectedHeadSha,
+        expectedRepositoryId: finalContext.pr?.repositoryProof?.repositoryId || finalContext.pr?.repositoryProof?.baseRepositoryId || finalContext.pr?.repositoryId || null,
+      });
+  if (!mergeProof.ok) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `merge_readback_failed:${mergeProof.reasonCode || "invalid_merge_readback"}` };
+    return { ...failed, mergeReadback: mergeProof, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const mergeSha = mergeProof.mergeSha;
+  const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
+  if (!sourceBranchRestorationConfirmed(branchRestore, { branchName: finalContext.branchName || finalContext.pr?.headRefName, headSha: finalDecision.expectedHeadSha })) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `source_branch_restoration_failed:${branchRestore.reasonCode || branchRestore.reason || "unconfirmed"}` };
+    return { ...failed, mergeSha, mergeReadback: mergeProof, sourceBranchRestoration: branchRestore, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
+  }
+  const merged = {
+    ...finalDecision,
+    attempted: true,
+    result: "merged",
+    reason: "github_merge_commit_completed",
+    mergeSha,
+    mergeReadback: mergeProof,
+    sourceBranchRestoration: branchRestore,
+    completionHygiene: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    issueLabelCleanupResult: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    issueClosureResult: "skipped:stack_merge_only_final_hygiene_authoritative",
+    comments: {
+      pr: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+      issue: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+      parent: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    },
+  };
+  return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
+}
+
 function executeAutoMergeWithWait(config, initialContext, options) {
   const runner = options.runner || defaultRunner;
-  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber }));
+  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber }, { runner }));
   const sleep = options.sleep || sleepSync;
   const wait = options.wait;
   const attempts = [];
@@ -408,7 +577,8 @@ function executeAutoMergeWithWait(config, initialContext, options) {
     attempts.push(attemptSnapshot);
     previousAttempt = attemptSnapshot;
     if (decision.eligible) {
-      const result = executeAutoMerge(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
+      const execute = options.mergeOnly === true ? executeAutoMergeMergeOnly : executeAutoMerge;
+      const result = execute(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
       return { ...result, waitAttempts: attempts };
     }
     if (!shouldWaitForAutoMergeDecision(decision) || attempt === wait.maxAttempts) break;
@@ -751,21 +921,22 @@ function nearestDelayBucket(delayMs) {
   return selected;
 }
 
-function inspectReviewThreads(config, prNumber, blockingMarkers) {
+function inspectReviewThreads(config, prNumber, blockingMarkers, runner = defaultRunner) {
   if (!prNumber) {
     blockingMarkers.push("review_thread_inspection_missing_pr_number");
     return [{ isResolved: false }];
   }
+  const [owner, name] = String(config.repositorySlug || "tommytang213/Settleora").split("/");
   const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}}}}}`;
-  const result = defaultRunner(
+  const result = runner(
     "gh",
     [
       "api",
       "graphql",
       "-f",
-      "owner=tommytang213",
+      `owner=${owner}`,
       "-f",
-      "name=Settleora",
+      `name=${name}`,
       "-F",
       `number=${prNumber}`,
       "-f",
@@ -785,14 +956,15 @@ function inspectReviewThreads(config, prNumber, blockingMarkers) {
   }
 }
 
-function inspectCodeScanningAlerts(config, headRefName, blockingMarkers) {
+function inspectCodeScanningAlerts(config, headRefName, blockingMarkers, runner = defaultRunner) {
   if (!headRefName) {
     blockingMarkers.push("code_scanning_ref_missing");
     return [{ state: "open" }];
   }
-  const result = defaultRunner(
+  const repositorySlug = config.repositorySlug || "tommytang213/Settleora";
+  const result = runner(
     "gh",
-    ["api", `/repos/tommytang213/Settleora/code-scanning/alerts?state=open&ref=refs/heads/${encodeURIComponent(headRefName)}`],
+    ["api", `/repos/${repositorySlug}/code-scanning/alerts?state=open&ref=refs/heads/${encodeURIComponent(headRefName)}`],
     { cwd: config.repoRoot },
   );
   if (result.error || result.status !== 0) {
@@ -825,8 +997,8 @@ function detectBlockingMarkers(comments, reviews) {
   return markers;
 }
 
-function summarizeCheckStatus(checks, policy = {}) {
-  const requiredNames = uniqueStrings([...mandatoryRequiredChecks, ...(policy?.requiredChecks || [])]);
+export function summarizeCheckStatus(checks, policy = {}) {
+  const requiredNames = mandatoryAutoMergeCheckNames(policy);
   const allowlistNames = uniqueStrings([
     ...(policy?.allowedSkippedChecks || []),
     ...(policy?.allowedNeutralChecks || []),
@@ -900,16 +1072,150 @@ function sleepSync(delayMs) {
 function restoreSourceBranchIfDeleted(config, context, runner) {
   const branchName = context.branchName || context.pr?.headRefName;
   const headSha = context.expectedHeadSha || context.runnerCreatedCommitSha;
-  if (!branchName || !headSha) return { planned: false, reason: "missing_branch_or_sha" };
-  const remote = runner("git", ["ls-remote", "--heads", "origin", branchName], { cwd: config.repoRoot });
-  if (remote.status === 0 && remote.stdout.trim()) return { planned: false, executed: false, reason: "source_branch_exists" };
+  if (!branchName || !headSha) return { ok: false, planned: false, confirmed: false, reasonCode: "missing_branch_or_sha", reason: "missing_branch_or_sha" };
+  const fullRef = `refs/heads/${branchName}`;
+  const remote = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
+  if (remote.status !== 0 || remote.error) return { ok: false, planned: false, confirmed: false, reasonCode: "source_branch_read_failed", status: remote.status, stderr: bounded(remote.stderr || remote.error || "") };
+  const existingHead = remoteBranchHead(remote.stdout, fullRef);
+  if (existingHead) {
+    if (existingHead !== headSha) return { ok: false, planned: false, executed: false, confirmed: false, reasonCode: "source_branch_head_mismatch", reason: "source_branch_head_mismatch" };
+    return { ok: true, planned: false, executed: false, confirmed: true, branchExists: true, reason: "source_branch_exists", branchName, headSha };
+  }
   const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
-  return { planned: true, executed: push.status === 0 && !push.error, status: push.status, stderr: bounded(push.stderr || push.error || "") };
+  if (push.status !== 0 || push.error) return { ok: false, planned: true, executed: false, confirmed: false, reasonCode: "source_branch_restore_push_failed", status: push.status, stderr: bounded(push.stderr || push.error || "") };
+  const confirm = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
+  if (confirm.status !== 0 || confirm.error) return { ok: false, planned: true, executed: true, confirmed: false, reasonCode: "source_branch_confirm_failed", status: confirm.status, stderr: bounded(confirm.stderr || confirm.error || "") };
+  const confirmedHead = remoteBranchHead(confirm.stdout, fullRef);
+  if (confirmedHead !== headSha) return { ok: false, planned: true, executed: true, confirmed: false, reasonCode: confirmedHead ? "source_branch_head_mismatch" : "source_branch_restore_unconfirmed", reason: "source_branch_restore_unconfirmed" };
+  return { ok: true, planned: true, executed: true, confirmed: true, branchExists: true, branchName, headSha, status: push.status, stderr: bounded(push.stderr || push.error || "") };
 }
 
-function readMergeSha(runner, cwd, prNumber) {
-  const result = runner("gh", ["pr", "view", String(prNumber), "--json", "mergeCommit", "-q", ".mergeCommit.oid"], { cwd });
-  return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : null;
+function sourceBranchRestorationConfirmed(restoration = {}, { branchName = null, headSha = null } = {}) {
+  if (!restoration || restoration.ok === false || restoration.confirmed !== true || restoration.branchExists !== true) return false;
+  if (branchName && restoration.branchName !== branchName) return false;
+  if (headSha && restoration.headSha !== headSha) return false;
+  return true;
+}
+
+function remoteBranchHead(stdout = "", expectedRef = null) {
+  const line = String(stdout || "").trim().split(/\r?\n/).find((candidate) => {
+    if (!candidate.trim()) return false;
+    if (!expectedRef) return true;
+    const [, refName] = candidate.trim().split(/\s+/);
+    return refName === expectedRef;
+  });
+  if (!line) return null;
+  const [headSha, refName] = line.trim().split(/\s+/);
+  if (expectedRef && refName !== expectedRef) return null;
+  return headSha || null;
+}
+
+function readMergeSha({
+  runner,
+  cwd,
+  repositorySlug,
+  expectedGithubHost = "github.com",
+  prNumber,
+  expectedBaseBranch,
+  expectedSourceHeadSha,
+  expectedRepositoryId = null,
+} = {}) {
+  const configuredRepositorySlug = normalizeMergeReadbackRepositorySlug(repositorySlug);
+  if (!configuredRepositorySlug) return mergeReadbackFailure("configured_repository_invalid");
+  const host = normalizeMergeReadbackHost(expectedGithubHost);
+  if (host !== "github.com") return mergeReadbackFailure("configured_repository_host_unsupported", { configuredRepositorySlug });
+  const number = Number(prNumber);
+  if (!Number.isSafeInteger(number) || number <= 0) return mergeReadbackFailure("merge_readback_pr_number_invalid", { configuredRepositorySlug });
+  if (!expectedSourceHeadSha || /[\s\x00-\x1F\x7F]/.test(String(expectedSourceHeadSha))) return mergeReadbackFailure("merge_readback_expected_source_head_invalid", { configuredRepositorySlug, prNumber: number });
+  if (!expectedBaseBranch || /[\s\x00-\x1F\x7F]/.test(String(expectedBaseBranch))) return mergeReadbackFailure("merge_readback_expected_base_invalid", { configuredRepositorySlug, prNumber: number });
+
+  const readbackStartedAt = new Date().toISOString();
+  const result = runner(
+    "gh",
+    [
+      "pr",
+      "view",
+      String(number),
+      "--repo",
+      configuredRepositorySlug,
+      "--json",
+      "number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository",
+    ],
+    { cwd },
+  );
+  if (result.error || result.status !== 0) {
+    return mergeReadbackFailure("merge_readback_command_failed", { configuredRepositorySlug, prNumber: number, status: result.status });
+  }
+  let pr;
+  try {
+    pr = JSON.parse(result.stdout || "{}");
+  } catch {
+    return mergeReadbackFailure("merge_readback_json_invalid", { configuredRepositorySlug, prNumber: number });
+  }
+
+  const headRepositorySlug = mergeReadbackRepositoryFromPr(pr);
+  const repositoryId = pr.headRepository?.id || null;
+  const mergeSha = pr.mergeCommit?.oid || pr.mergeCommitOid || pr.mergeSha || null;
+  const proof = {
+    ok: true,
+    configuredRepositorySlug,
+    githubHost: host,
+    prNumber: pr.number,
+    state: pr.state || null,
+    mergeSha,
+    mergedAt: pr.mergedAt || null,
+    sourceHeadSha: pr.headRefOid || null,
+    baseRefName: pr.baseRefName || null,
+    headRepositorySlug,
+    headRepositoryId: repositoryId,
+    isCrossRepository: pr.isCrossRepository === true,
+    readbackStartedAt,
+    readbackCompletedAt: new Date().toISOString(),
+  };
+  if (Number(proof.prNumber) !== number) return mergeReadbackFailure("merge_readback_pr_number_mismatch", proof);
+  if (proof.state !== "MERGED") return mergeReadbackFailure("merge_readback_pr_not_merged", proof);
+  if (proof.sourceHeadSha !== expectedSourceHeadSha) return mergeReadbackFailure("merge_readback_source_head_mismatch", proof);
+  if (proof.baseRefName !== expectedBaseBranch) return mergeReadbackFailure("merge_readback_base_mismatch", proof);
+  if (!validSha(proof.mergeSha)) return mergeReadbackFailure("merge_readback_merge_sha_invalid", proof);
+  if (!proof.mergedAt) return mergeReadbackFailure("merge_readback_merged_timestamp_missing", proof);
+  if (proof.isCrossRepository) return mergeReadbackFailure("merge_readback_cross_repository", proof);
+  if (headRepositorySlug && headRepositorySlug !== configuredRepositorySlug) return mergeReadbackFailure("merge_readback_head_repository_mismatch", proof);
+  if (expectedRepositoryId && repositoryId && repositoryId !== expectedRepositoryId) return mergeReadbackFailure("merge_readback_repository_id_mismatch", proof);
+  return proof;
+}
+
+function mergeReadbackFailure(reasonCode, proof = {}) {
+  return { ...proof, ok: false, reasonCode };
+}
+
+function normalizeMergeReadbackHost(value) {
+  const host = String(value || "").trim().toLowerCase();
+  if (!host || /[\s\x00-\x1F\x7F]/.test(host) || host.includes("/") || host.includes("@") || host.startsWith("-")) return null;
+  return host;
+}
+
+function normalizeMergeReadbackRepositorySlug(value) {
+  const slug = String(value || "");
+  if (!slug || slug !== slug.trim()) return null;
+  if (/[\s\x00-\x1F\x7F]/.test(slug) || slug.startsWith("-") || slug.includes("://") || slug.includes("@") || slug.includes(":")) return null;
+  const parts = slug.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const [owner, name] = parts;
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$/.test(owner)) return null;
+  if (!/^[A-Za-z0-9_.-]+$/.test(name) || name === "." || name === ".." || name.startsWith("-")) return null;
+  return `${owner}/${name}`;
+}
+
+function mergeReadbackRepositoryFromPr(pr = {}) {
+  const direct = normalizeMergeReadbackRepositorySlug(pr.headRepository?.nameWithOwner || pr.headRepository?.full_name || pr.headRepositorySlug || "");
+  if (direct) return direct;
+  const owner = pr.headRepositoryOwner?.login || pr.headRepository?.owner?.login || null;
+  const name = pr.headRepository?.name || null;
+  return normalizeMergeReadbackRepositorySlug(owner && name ? `${owner}/${name}` : "");
+}
+
+function validSha(value) {
+  return /^[a-f0-9]{40}$/i.test(String(value || ""));
 }
 
 function mergeSummaryBody(context, mergeSha) {
@@ -957,60 +1263,98 @@ function commandStatus(result) {
 
 export function cleanupIssueLifecycleLabels(config, context, runner = defaultRunner) {
   const issueNumber = context.issue?.number;
+  const repositoryContext = buildIssueOperationContext(config, context);
   const base = {
+    repositorySlug: repositoryContext.repositorySlug || null,
+    repositoryId: repositoryContext.repositoryId || null,
     issueNumber: issueNumber || null,
+    operation: "issue_lifecycle_label_cleanup",
+    correlation: {
+      stackId: repositoryContext.stackId || context.stackId || null,
+      taskKey: repositoryContext.taskKey || context.taskKey || config.taskKey || null,
+      runId: repositoryContext.runId || context.runId || config.runId || null,
+      supervisorRunId: repositoryContext.supervisorRunId || context.supervisorRunId || config.supervisorRunId || null,
+    },
     transientAllowlist: [...transientIssueLifecycleLabels],
     labelsFound: [],
     labelsRemoved: [],
+    labelsRetained: [],
     status: "skipped",
     commandStatus: null,
     failureReason: null,
     dryRun: Boolean(config.dryRun),
+    completedAt: null,
   };
+  if (!repositoryContext.ok) {
+    return {
+      ...base,
+      status: "failed",
+      failureReason: repositoryContext.reason,
+      completedAt: new Date().toISOString(),
+    };
+  }
   if (!issueNumber) return { ...base, failureReason: "missing_issue_number" };
   if (config.dryRun) {
     const labelsFound = labelNames(context.issue?.labels || []);
     const labelsRemoved = labelsFound.filter((label) => transientIssueLifecycleLabels.includes(label));
+    const labelsRetained = labelsFound.filter((label) => !transientIssueLifecycleLabels.includes(label));
     return {
       ...base,
       labelsFound,
       labelsRemoved,
+      labelsRetained,
       status: "dry_run_preview",
       commandStatus: { view: { status: 0, error: null }, remove: { status: null, error: null } },
+      completedAt: new Date().toISOString(),
     };
   }
 
-  const view = runner("gh", ["issue", "view", String(issueNumber), "--json", "labels"], { cwd: config.repoRoot });
+  const view = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "labels"], { cwd: config.repoRoot });
   if (view.error || view.status !== 0) {
     return {
       ...base,
       status: "failed",
       commandStatus: { view: commandStatus(view), remove: null },
       failureReason: bounded(view.stderr || view.stdout || view.error || "issue_label_view_failed"),
+      completedAt: new Date().toISOString(),
     };
   }
   let labelsFound = [];
   try {
-    labelsFound = labelNames(JSON.parse(view.stdout || "{}").labels || []);
+    const parsed = JSON.parse(view.stdout || "{}");
+    if (!Array.isArray(parsed.labels)) {
+      return {
+        ...base,
+        status: "failed",
+        commandStatus: { view: commandStatus(view), remove: null },
+        failureReason: "issue_label_view_malformed_labels",
+        completedAt: new Date().toISOString(),
+      };
+    }
+    labelsFound = labelNames(parsed.labels);
   } catch (error) {
     return {
       ...base,
       status: "failed",
       commandStatus: { view: commandStatus(view), remove: null },
       failureReason: `issue_label_view_parse_failed:${bounded(error.message, 240)}`,
+      completedAt: new Date().toISOString(),
     };
   }
   const labelsRemoved = labelsFound.filter((label) => transientIssueLifecycleLabels.includes(label));
+  const labelsRetained = labelsFound.filter((label) => !transientIssueLifecycleLabels.includes(label));
   if (labelsRemoved.length === 0) {
     return {
       ...base,
       labelsFound,
       labelsRemoved,
+      labelsRetained,
       status: "passed_noop",
       commandStatus: { view: commandStatus(view), remove: { status: null, error: null } },
+      completedAt: new Date().toISOString(),
     };
   }
-  const remove = runner("gh", ["issue", "edit", String(issueNumber), "--remove-label", labelsRemoved.join(",")], {
+  const remove = runner("gh", ["issue", "edit", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--remove-label", labelsRemoved.join(",")], {
     cwd: config.repoRoot,
   });
   if (remove.error || remove.status !== 0) {
@@ -1018,21 +1362,26 @@ export function cleanupIssueLifecycleLabels(config, context, runner = defaultRun
       ...base,
       labelsFound,
       labelsRemoved: [],
+      labelsRetained,
       status: "failed",
       commandStatus: { view: commandStatus(view), remove: commandStatus(remove) },
       failureReason: bounded(remove.stderr || remove.stdout || remove.error || "issue_label_remove_failed"),
+      completedAt: new Date().toISOString(),
     };
   }
   return {
     ...base,
     labelsFound,
     labelsRemoved,
+    labelsRetained,
     status: "passed",
     commandStatus: { view: commandStatus(view), remove: commandStatus(remove) },
+    completedAt: new Date().toISOString(),
   };
 }
 
 function labelNames(labels) {
+  if (!Array.isArray(labels)) return [];
   return labels.map((label) => (typeof label === "string" ? label : label.name)).filter(Boolean);
 }
 
@@ -1064,7 +1413,7 @@ function sanitizeEvidence(value) {
 }
 
 function bounded(value, max = 1000) {
-  const text = String(value || "");
+  const text = String(sanitizePersistedEvidence(value || ""));
   return text.length > max ? `${text.slice(0, max)}\n[truncated]` : text;
 }
 

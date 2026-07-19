@@ -1,4 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { isUtf8 } from "node:buffer";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
@@ -10,6 +12,11 @@ import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } fr
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
+const defaultTrustedControlRoot = path.join(defaultLogsRoot, "trusted-control");
+const liveStackAcceptanceRootName = "live-stack-acceptance";
+const liveStackAcceptanceConfigName = "config.json";
+const liveStackCorrelationPattern = /^[0-9]{8}-[0-9]{4}(?:-[a-z0-9][a-z0-9-]{0,48})?$/;
+const maxTrustedConfigBytes = 1024 * 1024;
 
 export const defaultConfig = Object.freeze({
   repoRoot: "/workspace/repos/Settleora",
@@ -50,6 +57,37 @@ export const defaultConfig = Object.freeze({
   },
   allowExistingPrRecovery: false,
   outageResubmission: defaultOutageResubmissionConfig,
+	  prStackExecution: {
+	    enabled: false,
+	    allowRun: false,
+	    productionProfileActive: false,
+	    maxStackSize: 4,
+	    statePath: null,
+	    protectedPlanAuthorizationPath: null,
+    capabilities: {
+      existingPrConvergence: false,
+      exactHeadReviewRequest: false,
+      ciScannerPolling: false,
+      exactHeadMerge: false,
+      baseRetarget: false,
+      readyTransition: false,
+      semanticProof: false,
+      finalHygiene: false,
+      issuePolling: false,
+      generatedIssueCreation: false,
+      unrelatedPrDiscovery: false,
+      systemdSupervisorLaunch: false,
+      outageChildLaunch: false,
+      canaryMutation: false,
+      productionDeploy: false,
+      secretAuthConfigMutation: false,
+      publicAdminNetworkExposure: false,
+      branchDeletion: false,
+      forcePushRebaseAmendReset: false,
+      directMainPush: false,
+      productAuthorityChanges: false,
+    },
+  },
   autoMergeWait: {
     maxAttempts: 60,
     delayMs: 30000,
@@ -185,6 +223,8 @@ export function parseCliArgs(argv) {
     supervisorRunId: null,
     securityFindingsDryRun: false,
     securityFindingsDispositionDryRun: false,
+    runPrStack: false,
+    stackPlanPath: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -225,6 +265,8 @@ export function parseCliArgs(argv) {
       args.securityFindingsDryRun = true;
       args.securityFindingsDispositionDryRun = true;
     }
+    else if (arg === "--run-pr-stack") args.runPrStack = true;
+    else if (arg === "--stack-plan") args.stackPlanPath = readValue(argv, ++index, arg);
     else if (arg === "--reviewer-smoke-tier") args.reviewerSmokeTier = readValue(argv, ++index, arg);
     else if (arg === "--since") args.sinceMs = parseDuration(readValue(argv, ++index, arg));
     else if (arg === "--max-runtime") {
@@ -259,7 +301,7 @@ export function parseCliArgs(argv) {
   }
 
   const controlMode = args.status || args.listRuns || args.listEvents || Boolean(args.controlCommand);
-  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest || controlMode || args.securityFindingsDryRun;
+  const specialMode = args.writeSummary || Boolean(args.reviewPackage) || args.preflight || args.reviewerSmokeTest || controlMode || args.securityFindingsDryRun || args.runPrStack;
   if (!specialMode && args.dryRun === args.run) {
     throw new Error("Pass exactly one of --dry-run or --run");
   }
@@ -274,6 +316,17 @@ export function parseCliArgs(argv) {
   }
   if (args.securityFindingsDryRun && !args.configPath) {
     throw new Error("--security-findings-dry-run requires an explicit --config path");
+  }
+  if (args.runPrStack) {
+    if (args.dryRun || args.run || args.preflight || args.canary || args.reviewerSmokeTest || args.writeSummary || args.reviewPackage || controlMode || args.securityFindingsDryRun) {
+      throw new Error("--run-pr-stack runs as its own explicit mode and is mutually exclusive with normal runner modes");
+    }
+    if (!args.configPath) throw new Error("--run-pr-stack requires an explicit --config path");
+    if (!args.stackPlanPath) throw new Error("--run-pr-stack requires --stack-plan <absolute-path>");
+    if (!path.isAbsolute(args.configPath)) throw new Error("--run-pr-stack requires an absolute --config path");
+    if (!path.isAbsolute(args.stackPlanPath)) throw new Error("--run-pr-stack requires an absolute --stack-plan path");
+  } else if (args.stackPlanPath) {
+    throw new Error("--stack-plan is only valid with --run-pr-stack");
   }
   if (args.preflight && (args.dryRun || args.run)) {
     throw new Error("--preflight runs as its own non-mutating mode; do not pass --dry-run or --run");
@@ -322,8 +375,15 @@ function readValue(argv, index, name) {
 
 export function loadConfig(cliArgs, trustedCapabilities = {}) {
   let fileConfig = {};
+  let configTrustEvidence = null;
   if (cliArgs.configPath) {
-    fileConfig = JSON.parse(readFileSync(cliArgs.configPath, "utf8"));
+    const loaded = readTrustedConfigFile(cliArgs.configPath, {
+      runPrStack: cliArgs.runPrStack,
+      bootstrapTrustedRoot: trustedCapabilities?.prStackTrustedRoot,
+      trustHooks: trustedCapabilities?.configTrustHooks || null,
+    });
+    fileConfig = loaded.config;
+    configTrustEvidence = loaded.evidence;
   }
   const config = {
     ...defaultConfig,
@@ -349,6 +409,12 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     config.run = false;
     config.securityFindingsDispositionDryRun = Boolean(cliArgs.securityFindingsDispositionDryRun);
   }
+  if (cliArgs.runPrStack) {
+    config.mode = "pr-stack-run";
+    config.dryRun = false;
+    config.run = true;
+    config.stackPlanPath = cliArgs.stackPlanPath;
+  }
   if (cliArgs.reviewerSmokeTest) {
     config.mode = "reviewer-smoke-test";
     config.dryRun = true;
@@ -360,6 +426,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     };
   }
   config.configPath = cliArgs.configPath || null;
+  config.configTrustEvidence = configTrustEvidence;
   if (config.canary) {
     config.mode = config.run ? "canary-run" : "canary-dry-run";
     config.maxIterations = Math.min(config.maxIterations, config.trustedRealRunCanaryMaxIterations);
@@ -379,6 +446,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
+  config.prStackExecution = normalizePrStackExecutionConfig(config.prStackExecution);
   if (
     config.outageResubmission.allowBoundedOutageResubmission === true &&
     trustedCapabilities?.outageResubmissionControllerAvailable !== true
@@ -399,6 +467,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     path.join(config.logsRoot, "locks"),
     path.join(config.logsRoot, "canary"),
     path.join(config.logsRoot, "auto-merge"),
+    path.join(config.logsRoot, "pr-stacks"),
   ]) {
     mkdirSync(dir, { recursive: true });
   }
@@ -409,6 +478,347 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null, trustHooks = null } = {}) {
+  const resolved = path.resolve(configPath);
+  if (!runPrStack) {
+    return { config: JSON.parse(readFileSync(resolved, "utf8")), evidence: null };
+  }
+  if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("config_path_not_canonical: Config path must be absolute and canonical.");
+  const trustedRootProof = validateTrustedRootDirectory(resolveExternalConfigTrustRoot({ bootstrapTrustedRoot }));
+  const layoutProof = validateLiveStackAcceptanceConfigPath(resolved, trustedRootProof);
+  const walked = validateTrustedConfigPathComponents(trustedRootProof, resolved, layoutProof.relativePath);
+  const real = resolveTrustedConfigRealpath(resolved, trustedRootProof);
+  trustHooks?.beforeOpen?.({ configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, walked });
+  const opened = openTrustedConfigNoFollow(resolved, trustHooks);
+  const { fd, strategy } = opened;
+  let stat;
+  let buffer;
+  try {
+    trustHooks?.afterOpen?.({ fd, configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, walked });
+    stat = fstatSync(fd);
+    if (!sameFileIdentity(walked.terminalStat, stat)) throw new Error("config_identity_mismatch: Config file identity changed between validation and descriptor open.");
+    validateTrustedConfigRegularFile(stat);
+    const postOpenLstat = lstatSync(resolved);
+    if (!sameFileIdentity(postOpenLstat, stat)) throw new Error("config_identity_mismatch: Config file identity changed after descriptor open.");
+    const postOpenReal = resolveTrustedConfigRealpath(resolved, trustedRootProof);
+    if (postOpenReal !== real) throw new Error("config_identity_mismatch: Config file canonical path changed during validation.");
+    trustHooks?.beforeRead?.({ fd, configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, stat });
+    buffer = readBoundedTrustedDescriptorBytes(fd, stat, maxTrustedConfigBytes);
+    trustHooks?.afterRead?.({ fd, configPath: resolved, canonicalConfigPath: real, trustedRootProof, layoutProof, stat, bytesRead: buffer.length });
+    const postReadStat = fstatSync(fd);
+    if (!sameFileIdentity(stat, postReadStat) || postReadStat.size !== stat.size) {
+      throw new Error("config_identity_mismatch: Config file identity or size changed during descriptor read.");
+    }
+  } catch (error) {
+    if (error?.code === "ELOOP") throw new Error("config_symlink_escape: Config symlink was refused by no-follow open.");
+    if (error?.code === "ENOENT") throw new Error("config_missing: Config file disappeared during trusted read.");
+    throw error;
+  } finally {
+    closeSync(fd);
+  }
+  if (!isUtf8(buffer)) throw new Error("config_utf8_invalid: Config file must be valid UTF-8.");
+  let parsed;
+  try {
+    parsed = JSON.parse(buffer.toString("utf8"));
+  } catch (error) {
+    throw new Error(`config_json_invalid: Config JSON is malformed: ${error.message}`);
+  }
+  if (runPrStack) {
+    validateParsedPrStackConfigIdentity(parsed, trustedRootProof);
+  }
+  return {
+    config: parsed,
+    evidence: {
+      externalRootSource: trustedRootProof.source,
+      canonicalRoot: trustedRootProof.realpath,
+      path: resolved,
+      realpath: real,
+      canonicalConfigPath: real,
+      trustedRoot: trustedRootProof.realpath,
+      relativePurposePath: layoutProof.relativePath,
+      taskCorrelation: layoutProof.taskCorrelation,
+      size: stat.size,
+      mode: stat.mode & 0o777,
+      uid: stat.uid,
+      type: "regular_file",
+      device: stat.dev,
+      inode: stat.ino,
+      identity: fileIdentity(stat),
+      noFollowStrategy: strategy,
+      digestSha256: createHash("sha256").update(buffer).digest("hex"),
+      repositorySlug: parsed.repositorySlug || parsed.repository || defaultConfig.repositorySlug,
+      repoRoot: parsed.repoRoot || parsed.protectedRoot || defaultConfig.repoRoot,
+      worktreeRoot: parsed.worktreeRoot || parsed.controlPlaneWorktree || null,
+      loadedAt: new Date().toISOString(),
+    },
+  };
+}
+
+function resolveExternalConfigTrustRoot({ bootstrapTrustedRoot = null } = {}) {
+  const explicit = bootstrapTrustedRoot || null;
+  const configured = process.env.SETTLEORA_STACK_TRUST_ROOT || null;
+  if (explicit && configured && path.resolve(explicit) !== path.resolve(configured)) {
+    throw new Error("bootstrap_root_conflict: explicit and configured bootstrap logs roots conflict.");
+  }
+  const raw = explicit || configured || defaultLogsRoot;
+  const source = explicit ? "trusted_capability" : configured ? "process_env" : "repository_default";
+  if (!raw || typeof raw !== "string" || !path.isAbsolute(raw)) {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
+  }
+  return { admission: validateExternalBootstrapRootPath(raw), source };
+}
+
+function validateExternalBootstrapRootPath(raw) {
+  if (typeof raw !== "string" || raw.length === 0 || raw.includes("\0")) {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
+  }
+  if (!path.isAbsolute(raw)) {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
+  }
+  const resolved = path.resolve(raw);
+  if (resolved !== raw) {
+    throw new Error("bootstrap_root_path_not_canonical: --run-pr-stack bootstrap logs root must be an absolute canonical path.");
+  }
+  if (!isInsidePath(resolved, defaultLogsRoot)) {
+    throw new Error("bootstrap_root_outside_runner_logs: --run-pr-stack bootstrap logs root must stay under the runner logs root.");
+  }
+  const relative = path.relative(defaultLogsRoot, resolved);
+  const relativeSegments = relative ? relative.split(path.sep) : [];
+  if (
+    relativeSegments.some((segment) => (
+      segment === "." ||
+      segment === ".." ||
+      segment.length === 0 ||
+      !/^[A-Za-z0-9._-]+$/.test(segment)
+    ))
+  ) {
+    throw new Error("bootstrap_root_path_not_canonical: --run-pr-stack bootstrap logs root must use safe canonical path segments.");
+  }
+  const admitted = path.join(defaultLogsRoot, ...relativeSegments);
+  if (admitted !== resolved) {
+    throw new Error("bootstrap_root_path_not_canonical: --run-pr-stack bootstrap logs root must be an absolute canonical path.");
+  }
+  return Object.freeze({ root: admitted, relativeSegments });
+}
+
+function validateTrustedRootDirectory({ admission, source }) {
+  const root = admitTrustedBootstrapRootFromSafeSegments(admission);
+  let baseStat;
+  try {
+    baseStat = lstatSync(defaultLogsRoot);
+  } catch {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack bootstrap logs root is missing.");
+  }
+  if (baseStat.isSymbolicLink()) throw new Error("bootstrap_root_symlink: --run-pr-stack bootstrap logs root must not be a symlink.");
+  let current = defaultLogsRoot;
+  let linkStat = baseStat;
+  for (const segment of admission.relativeSegments) {
+    current = path.join(current, segment);
+    try {
+      linkStat = lstatSync(current);
+    } catch {
+      throw new Error("bootstrap_root_missing_invalid: --run-pr-stack bootstrap logs root is missing.");
+    }
+    if (linkStat.isSymbolicLink()) throw new Error("bootstrap_root_symlink: --run-pr-stack bootstrap logs root must not be a symlink.");
+    if (!linkStat.isDirectory()) throw new Error("bootstrap_root_type_invalid: --run-pr-stack bootstrap logs root must be a directory.");
+  }
+  const real = realpathSync(root);
+  if (real !== root) throw new Error("bootstrap_root_canonical_alias_mismatch: --run-pr-stack bootstrap logs root realpath must match the canonical path.");
+  const stat = statSync(real);
+  if (!stat.isDirectory()) throw new Error("bootstrap_root_type_invalid: --run-pr-stack bootstrap logs root must be a directory.");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) throw new Error("bootstrap_root_owner_invalid: --run-pr-stack bootstrap logs root owner must match the current operator.");
+  if ((stat.mode & 0o002) !== 0) throw new Error("bootstrap_root_mode_untrusted: --run-pr-stack bootstrap logs root must not be world-writable.");
+  return { realpath: real, mode: stat.mode & 0o777, uid: stat.uid, source };
+}
+
+function admitTrustedBootstrapRootFromSafeSegments(admission) {
+  if (!admission || typeof admission !== "object" || !Array.isArray(admission.relativeSegments)) {
+    throw new Error("bootstrap_root_missing_invalid: --run-pr-stack requires an externally anchored bootstrap logs root.");
+  }
+  if (
+    admission.relativeSegments.some((segment) => (
+      typeof segment !== "string" ||
+      segment === "." ||
+      segment === ".." ||
+      segment.length === 0 ||
+      !/^[A-Za-z0-9._-]+$/.test(segment)
+    ))
+  ) {
+    throw new Error("bootstrap_root_path_not_canonical: --run-pr-stack bootstrap logs root must use safe canonical path segments.");
+  }
+  const admitted = path.join(defaultLogsRoot, ...admission.relativeSegments);
+  if (admitted !== admission.root || !isInsidePath(admitted, defaultLogsRoot)) {
+    throw new Error("bootstrap_root_outside_runner_logs: --run-pr-stack bootstrap logs root must stay under the runner logs root.");
+  }
+  return admitted;
+}
+
+function validateLiveStackAcceptanceConfigPath(configPath, trustedRootProof) {
+  const root = trustedRootProof.realpath;
+  if (!isInsidePath(configPath, root)) {
+    throw new Error("config_outside_bootstrap_root: --run-pr-stack config path must be under externally anchored bootstrap logs root.");
+  }
+  const relative = path.relative(root, configPath);
+  const parts = relative.split(path.sep);
+  if (
+    parts.length !== 3 ||
+    parts[0] !== liveStackAcceptanceRootName ||
+    parts[2] !== liveStackAcceptanceConfigName
+  ) {
+    throw new Error("config_wrong_purpose_layout: --run-pr-stack config path must be live-stack-acceptance/<task-correlation>/config.json.");
+  }
+  const taskCorrelation = parts[1];
+  if (!liveStackCorrelationPattern.test(taskCorrelation)) {
+    throw new Error("config_invalid_correlation_segment: --run-pr-stack live-stack-acceptance correlation segment is invalid.");
+  }
+  return { relativePath: relative.split(path.sep).join("/"), taskCorrelation };
+}
+
+function validateTrustedConfigPathComponents(trustedRootProof, configPath, relativePath) {
+  const parts = relativePath.split("/").filter(Boolean);
+  let current = trustedRootProof.realpath;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = path.join(current, parts[index]);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ELOOP") throw new Error("config_symlink_escape: Config path contains a symlink loop.");
+      throw new Error("config_missing: Config path component is missing.");
+    }
+    if (stat.isSymbolicLink()) throw new Error("config_symlink_escape: Config path must not contain symlinks.");
+    if (index < parts.length - 1) {
+      if (!stat.isDirectory()) throw new Error("config_parent_type_invalid: Config parent path must contain only directories.");
+      validateTrustedConfigDirectory(stat);
+    } else {
+      validateTrustedConfigRegularFile(stat);
+    }
+  }
+  return { terminalStat: lstatSync(configPath) };
+}
+
+function validateTrustedConfigDirectory(stat) {
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) throw new Error("config_parent_owner_invalid: Config parent owner must match the current operator.");
+  if ((stat.mode & 0o077) !== 0) throw new Error("config_parent_mode_untrusted: Config parent directories must be owner-only.");
+}
+
+function validateTrustedConfigRegularFile(stat) {
+  if (!stat.isFile()) throw new Error("config_file_type_invalid: Config path must be a regular file.");
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (currentUid !== null && stat.uid !== currentUid) throw new Error("config_owner_invalid: Config file owner must match the current operator.");
+  if ((stat.mode & 0o022) !== 0) throw new Error("config_mode_group_world_writable: Config file must not be group/world writable.");
+  if ((stat.mode & 0o077) !== 0) throw new Error("config_mode_not_restrictive: Config file must be owner-only.");
+  if (stat.size > maxTrustedConfigBytes) throw new Error("config_size_exceeded: Config file exceeds the bounded size limit.");
+}
+
+function readBoundedTrustedDescriptorBytes(fd, stat, maxBytes) {
+  if (stat.size > maxBytes) throw new Error("config_size_exceeded: Config file exceeds the bounded size limit.");
+  const buffer = Buffer.allocUnsafe(stat.size);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const bytesRead = readSync(fd, buffer, offset, buffer.length - offset, offset);
+    if (bytesRead === 0) throw new Error("config_identity_mismatch: Config file size changed during descriptor read.");
+    offset += bytesRead;
+  }
+  return buffer;
+}
+
+function resolveTrustedConfigRealpath(configPath, trustedRootProof) {
+  const real = realpathSync(configPath);
+  if (real !== configPath) throw new Error("config_canonical_alias_mismatch: Config path realpath must match the canonical path.");
+  if (!isInsidePath(real, trustedRootProof.realpath)) throw new Error("config_outside_bootstrap_root: --run-pr-stack config path must be under externally anchored bootstrap logs root.");
+  return real;
+}
+
+function openTrustedConfigNoFollow(configPath, hooks = null) {
+  const constants = hooks?.fsConstants || fsConstants;
+  if (typeof constants.O_NOFOLLOW !== "number") {
+    throw new Error("config_no_follow_unavailable: O_NOFOLLOW is unavailable for trusted config open.");
+  }
+  try {
+    return {
+      fd: openSync(configPath, constants.O_RDONLY | constants.O_NOFOLLOW),
+      strategy: "openSync:O_RDONLY|O_NOFOLLOW",
+    };
+  } catch (error) {
+    if (error?.code === "ELOOP") throw new Error("config_symlink_escape: Config symlink was refused by no-follow open.");
+    if (error?.code === "ENOENT") throw new Error("config_missing: Config disappeared before descriptor open.");
+    throw new Error(`config_open_failed: Config could not be opened safely: ${error.message}`);
+  }
+}
+
+function fileIdentity(stat) {
+  return `${stat.dev}:${stat.ino}`;
+}
+
+function sameFileIdentity(left, right) {
+  return Boolean(left && right && left.dev === right.dev && left.ino === right.ino);
+}
+
+function validateParsedPrStackConfigIdentity(parsed, trustedRootProof) {
+  const repository = parsed.repositorySlug || parsed.repository || defaultConfig.repositorySlug;
+  if (repository !== defaultConfig.repositorySlug) {
+    throw new Error("config_identity_mismatch: --run-pr-stack config repository must match the approved repository identity.");
+  }
+  const repoRoot = parsed.repoRoot || parsed.protectedRoot || defaultConfig.repoRoot;
+  if (repoRoot && path.resolve(repoRoot) !== path.resolve(defaultConfig.repoRoot) && path.resolve(repoRoot) !== process.cwd()) {
+    throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
+  }
+  const worktree = parsed.worktreeRoot || parsed.worktree || null;
+  if (worktree && path.resolve(worktree) !== path.resolve(defaultConfig.repoRoot) && path.resolve(worktree) !== process.cwd()) {
+    throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
+  }
+  for (const [field, value] of [["logsRoot", parsed.logsRoot], ["trustedControlRoot", parsed.trustedControlRoot]]) {
+    const canonical = validateParsedPrStackConfigRoot(field, value, trustedRootProof);
+    if (canonical !== null) parsed[field] = canonical;
+  }
+}
+
+function validateParsedPrStackConfigRoot(field, value, trustedRootProof) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`config_root_incompatible: --run-pr-stack config ${field} must remain compatible with the externally anchored bootstrap logs root.`);
+  }
+  const candidate = path.resolve(value);
+  const trustedRoot = trustedRootProof.realpath;
+  if (candidate !== trustedRoot && !isInsidePath(candidate, trustedRoot)) {
+    throw new Error(`config_root_incompatible: --run-pr-stack config ${field} must remain compatible with the externally anchored bootstrap logs root.`);
+  }
+
+  const relative = path.relative(trustedRoot, candidate);
+  const parts = relative ? relative.split(path.sep) : [];
+  let current = trustedRoot;
+  for (const segment of parts) {
+    current = path.join(current, segment);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (error?.code === "ENOENT") return candidate;
+      if (error?.code === "ELOOP") throw new Error(`config_root_symlink_escape: --run-pr-stack config ${field} root path contains a symlink loop.`);
+      throw error;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`config_root_symlink_escape: --run-pr-stack config ${field} root path must not contain symlinks.`);
+    }
+    if (!stat.isDirectory()) {
+      throw new Error(`config_root_type_invalid: --run-pr-stack config ${field} root path components must be directories.`);
+    }
+    const real = realpathSync(current);
+    if (real !== current || (real !== trustedRoot && !isInsidePath(real, trustedRoot))) {
+      throw new Error(`config_root_incompatible: --run-pr-stack config ${field} root realpath must remain under the externally anchored bootstrap logs root.`);
+    }
+  }
+  return parts.length === 0 ? trustedRoot : candidate;
+}
+
+function isInsidePath(candidate, root) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 export function normalizeAutoMergePolicy(policy = {}) {
@@ -460,6 +870,56 @@ export function normalizeAutoMergePolicy(policy = {}) {
     allowedNeutralChecks: Object.freeze(normalizeCheckAllowlist(policy.allowedNeutralChecks ?? [], "autoMergePolicy.allowedNeutralChecks")),
   });
 }
+
+export function normalizePrStackExecutionConfig(raw = {}) {
+  const required = [
+    "existingPrConvergence",
+    "exactHeadReviewRequest",
+    "ciScannerPolling",
+    "exactHeadMerge",
+    "baseRetarget",
+    "readyTransition",
+    "semanticProof",
+    "finalHygiene",
+  ];
+  const forbidden = [
+    "issuePolling",
+    "generatedIssueCreation",
+    "unrelatedPrDiscovery",
+    "systemdSupervisorLaunch",
+    "outageChildLaunch",
+    "canaryMutation",
+    "productionDeploy",
+    "secretAuthConfigMutation",
+    "publicAdminNetworkExposure",
+    "branchDeletion",
+    "forcePushRebaseAmendReset",
+    "directMainPush",
+    "productAuthorityChanges",
+  ];
+  if (raw && typeof raw !== "object") throw new Error("prStackExecution must be an object");
+  const capabilities = {};
+  for (const key of [...required, ...forbidden]) capabilities[key] = raw.capabilities?.[key] === true;
+	  const maxStackSize = raw.maxStackSize ?? 4;
+  if (!Number.isInteger(maxStackSize) || maxStackSize < 2 || maxStackSize > 4) {
+    throw new Error("prStackExecution.maxStackSize must be an integer between 2 and 4");
+  }
+	  if (raw.statePath !== null && raw.statePath !== undefined && (typeof raw.statePath !== "string" || !path.isAbsolute(raw.statePath))) {
+	    throw new Error("prStackExecution.statePath must be an absolute path when set");
+	  }
+	  if (raw.protectedPlanAuthorizationPath !== null && raw.protectedPlanAuthorizationPath !== undefined && (typeof raw.protectedPlanAuthorizationPath !== "string" || !path.isAbsolute(raw.protectedPlanAuthorizationPath))) {
+	    throw new Error("prStackExecution.protectedPlanAuthorizationPath must be an absolute path when set");
+	  }
+	  return Object.freeze({
+	    enabled: raw.enabled === true,
+	    allowRun: raw.allowRun === true,
+	    productionProfileActive: raw.productionProfileActive === true,
+	    maxStackSize,
+	    statePath: raw.statePath || null,
+	    protectedPlanAuthorizationPath: raw.protectedPlanAuthorizationPath || null,
+	    capabilities: Object.freeze(capabilities),
+	  });
+	}
 
 function normalizeStringList(value, fieldName) {
   if (!Array.isArray(value)) throw new Error(`${fieldName} must be an array`);
