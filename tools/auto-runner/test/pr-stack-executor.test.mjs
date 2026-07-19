@@ -1603,6 +1603,77 @@ test("production complete_gates uses carried PR lane contract from normalized st
   assert.notEqual(persisted.terminal.reasonCode, "allowed_path_contract_unavailable");
 });
 
+test("source-changing convergence preserves focused manual-gated carried lane contract", async () => {
+  const fixture = stackFixture();
+  const laneContract = {
+    contractVersion: 1,
+    lane: "auth-session-security",
+    allowedPaths: ["services/api/**"],
+    validationProfile: "api-security",
+    branchStrategy: "focused",
+    manualMergeRequired: true,
+    autoMergeEligible: false,
+    requiredReading: ["PROGRAM_ARCHITECTURE.md", "README.md", "docs/workflow/CODEX_TASK_GUIDE.md"],
+  };
+  const plan = {
+    ...fixture.plan,
+    laneContract,
+    orderedPrs: fixture.plan.orderedPrs.map((entry) => ({ ...entry, allowedPaths: laneContract.allowedPaths, laneContract })),
+  };
+  const state = createInitialPrStackState({ plan });
+  let capturedLaneDecision = null;
+  const adapter = createProductionPrStackAdapter(
+    {
+      ...fixture.config,
+      allowReviewFixMutation: true,
+      configPath: fixture.config.configPath || path.join(fixture.logsRoot, "live-stack-acceptance", "20260717-2347", "config.json"),
+      maxReviewFixCycles: 50,
+      prStackIssue: { number: 921, state: "OPEN", labels: [], body: "" },
+    },
+    {
+      runBatchFix: async ({ laneDecision }) => {
+        capturedLaneDecision = laneDecision;
+        return { ok: true, newHead: sha("c") };
+      },
+    },
+  );
+  const result = await adapter.convergeExistingPr({
+    plan,
+    state,
+    pr: plan.orderedPrs[0],
+    findings: [{ fingerprint: "strong-review:blocker:auth", path: "services/api/Auth.cs", title: "Blocker" }],
+  });
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(capturedLaneDecision.lane, "auth-session-security");
+  assert.deepEqual(capturedLaneDecision.allowedPaths, laneContract.allowedPaths);
+  assert.equal(capturedLaneDecision.branchStrategy, "focused");
+  assert.equal(capturedLaneDecision.contract.branchStrategy, "focused");
+  assert.equal(capturedLaneDecision.manualMergeRequired, true);
+  assert.equal(capturedLaneDecision.contract.manualMergeRequired, true);
+  assert.equal(capturedLaneDecision.autoMergeEligible, false);
+  assert.equal(capturedLaneDecision.contract.autoMergeEligible, false);
+  assert.equal(capturedLaneDecision.implementationSensitivity, "high");
+  assert.equal(capturedLaneDecision.laneManifest.branchStrategy, "focused");
+  assert.equal(capturedLaneDecision.laneManifest.autoMergeAllowed, true);
+  assert.equal(capturedLaneDecision.stackLaneContract.branchStrategy, "focused");
+  assert.equal(capturedLaneDecision.stackLaneContract.manualMergeRequired, true);
+  assert.equal(capturedLaneDecision.stackLaneContract.autoMergeEligible, false);
+});
+
+test("source-changing convergence fails closed without carried lane contract", async () => {
+  const fixture = stackFixture();
+  const state = createInitialPrStackState({ plan: fixture.plan });
+  const adapter = createProductionPrStackAdapter({ ...fixture.config, prStackIssue: { number: 921, state: "OPEN", labels: [], body: "" } });
+  const result = await adapter.convergeExistingPr({
+    plan: fixture.plan,
+    state,
+    pr: fixture.plan.orderedPrs[0],
+    findings: [{ fingerprint: "strong-review:blocker:missing-contract", path: "tools/auto-runner/lib/pr-stack-executor.mjs", title: "Blocker" }],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "allowed_path_contract_unavailable");
+});
+
 test("source-changing cycles are independently available up to 50 per PR", () => {
   const plan = makePlan();
   const state = createInitialPrStackState({ plan });

@@ -1502,7 +1502,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (!durableBudget.ok) return durableBudget;
       const sourceCycleOperationContext = createSourceCycleOperationContext({ config, plan, state, pr, sourceCycleBudget: durableBudget });
       if (!sourceCycleOperationContext.ok) return sourceCycleOperationContext;
-      const laneDecision = buildStackLaneContract({ config, plan, state, pr, findings, sourceCycleBudget: durableBudget });
+      const laneDecision = resolveStackConvergenceLaneContract({ config, plan, state, pr, findings, sourceCycleBudget: durableBudget });
       if (!laneDecision.ok) return laneDecision;
       const result = await runExistingPrReviewConvergence({
         config,
@@ -4642,15 +4642,7 @@ function finalGateIssue(config = {}, state = {}, pr = {}) {
   );
 }
 
-function buildStackLaneContract({ config = {}, plan = {}, state = {}, pr = {}, findings = [], sourceCycleBudget = null } = {}) {
-  const allowedPaths = normalizeChangedFiles(
-    pr.allowedPaths ||
-    plan.allowedPaths ||
-    plan.laneContract?.allowedPaths ||
-    config.prStackExecution?.allowedPaths ||
-    ["tools/auto-runner/**", "docs/workflow/AUTONOMOUS_CODEX_RUNNER.md", "docs/planning/**"],
-  );
-  if (allowedPaths.length === 0) return fail("stack_lane_contract_allowed_paths_missing", "complete stack lane contract requires allowed paths before source mutation");
+function resolveStackConvergenceLaneContract({ config = {}, plan = {}, state = {}, pr = {}, findings = [], sourceCycleBudget = null } = {}) {
   if (!pr.number || !validSha(pr.headRefOid) || !pr.headRefName || !pr.baseRefName) {
     return fail("stack_lane_contract_pr_identity_missing", "complete stack lane contract requires PR number, branch, head, and base identity");
   }
@@ -4673,27 +4665,64 @@ function buildStackLaneContract({ config = {}, plan = {}, state = {}, pr = {}, f
     sourceCycleOrdinal: sourceCycleBudget?.nextOrdinal ?? null,
   };
   if (!correlationIdentity.stackId) return fail("stack_lane_contract_correlation_missing", "complete stack lane contract requires stack correlation identity");
-  const lane = plan.laneContract?.lane || pr.lane || "workflow-docs-tooling";
+
+  const actualIssue = pr.issue || config.prStackIssue || state.issue || null;
+  const candidates = [];
+  if (actualIssue && String(actualIssue.body || "").trim()) {
+    const laneDecision = classifyIssueLane(actualIssue);
+    if (!laneDecision.allowedToImplement) {
+      return fail("allowed_path_contract_unavailable", laneDecision.reason || "lane contract did not authorize implementation");
+    }
+    candidates.push(laneDecision);
+  }
+  candidates.push(
+    pr.laneDecision,
+    pr.laneContract ? { ...pr.laneContract, contract: pr.laneContract } : null,
+    pr.stackLaneContract ? { ...pr, stackLaneContract: pr.stackLaneContract } : null,
+    plan.laneDecision,
+    plan.laneContract ? { ...plan.laneContract, contract: plan.laneContract, stackLaneContract: plan.stackLaneContract } : null,
+    plan.stackLaneContract ? { ...plan, stackLaneContract: plan.stackLaneContract } : null,
+    state.evidence?.gatesPassed?.[pr.number]?.laneDecision,
+    state.evidence?.reviewConverged?.[pr.number]?.laneDecision,
+    state.laneDecision,
+    state.laneContract ? { ...state.laneContract, contract: state.laneContract } : null,
+    config.prStackExecution?.laneContract ? { ...config.prStackExecution.laneContract, contract: config.prStackExecution.laneContract } : null,
+  );
+
+  let laneDecision = null;
+  for (const candidate of candidates) {
+    const normalized = normalizeCarriedLaneDecisionForSourceConvergence(candidate);
+    if (normalized.ok) {
+      laneDecision = normalized.laneDecision;
+      break;
+    }
+  }
+  if (!laneDecision) {
+    return fail("allowed_path_contract_unavailable", "source-changing convergence requires a carried lane contract or actual issue body contract before mutation");
+  }
+  const allowedPaths = normalizeChangedFiles(laneDecision.allowedPaths || laneDecision.contract?.allowedPaths || []);
+  if (allowedPaths.length === 0) return fail("stack_lane_contract_allowed_paths_missing", "complete stack lane contract requires allowed paths before source mutation");
+  const lane = laneDecision.lane || laneDecision.canonicalLane || "workflow-docs-tooling";
   const contract = {
+    ...laneDecision,
     lane,
-    canonicalLane: lane,
-    allowedToImplement: true,
+    canonicalLane: laneDecision.canonicalLane || lane,
     allowedPaths,
-    laneManifestAllowedPaths: allowedPaths,
-    validationProfile: plan.laneContract?.validationProfile || pr.validationProfile || "runner-tests",
-    manualMergeRequired: false,
-    autoMergeEligible: true,
-    implementationSensitivity: "low",
+    laneManifestAllowedPaths: normalizeChangedFiles(laneDecision.laneManifestAllowedPaths || laneDecision.laneManifest?.allowedPaths || allowedPaths),
+    validationProfile: laneDecision.validationProfile || laneDecision.contract?.validationProfile || pr.validationProfile || "runner-tests",
     contract: {
-      contractVersion: 1,
+      ...(laneDecision.contract || {}),
+      contractVersion: laneDecision.contract?.contractVersion || 1,
       lane,
       allowedPaths,
-      validationProfile: plan.laneContract?.validationProfile || pr.validationProfile || "runner-tests",
-      manualMergeRequired: false,
-      autoMergeEligible: true,
-      requiredReading: ["PROGRAM_ARCHITECTURE.md", "README.md", "docs/workflow/CODEX_TASK_GUIDE.md"],
+      validationProfile: laneDecision.contract?.validationProfile || laneDecision.validationProfile || pr.validationProfile || "runner-tests",
+      branchStrategy: laneDecision.branchStrategy,
+      manualMergeRequired: laneDecision.manualMergeRequired === true,
+      autoMergeEligible: laneDecision.autoMergeEligible === true,
+      requiredReading: laneDecision.contract?.requiredReading || ["PROGRAM_ARCHITECTURE.md", "README.md", "docs/workflow/CODEX_TASK_GUIDE.md"],
     },
     stackLaneContract: {
+      ...(laneDecision.stackLaneContract || {}),
       schemaVersion: 1,
       laneId: lane,
       order: pr.order ?? null,
@@ -4704,8 +4733,11 @@ function buildStackLaneContract({ config = {}, plan = {}, state = {}, pr = {}, f
       expectedHead: pr.headRefOid,
       expectedBase: pr.baseRefName,
       allowedPaths,
+      branchStrategy: laneDecision.branchStrategy,
+      manualMergeRequired: laneDecision.manualMergeRequired === true,
+      autoMergeEligible: laneDecision.autoMergeEligible === true,
       prohibitedPaths: protectedBranchNames.has(pr.headRefName) ? [pr.headRefName] : [],
-      scopeClass: "workflow-docs-tooling",
+      scopeClass: laneDecision.implementationSensitivity || laneDecision.stackLaneContract?.scopeClass || "standard",
       findingIdentities,
       dependencyIdentity,
       mutationPolicy: { sourceMutationAllowed: true, directMainPush: false, forcePush: false, branchDeletion: false },
@@ -4715,6 +4747,52 @@ function buildStackLaneContract({ config = {}, plan = {}, state = {}, pr = {}, f
     },
   };
   return { ok: true, contract: sanitizeState(contract) };
+}
+
+function normalizeCarriedLaneDecisionForSourceConvergence(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return fail("lane_decision_missing", "lane decision missing");
+  const allowedPaths = normalizeChangedFiles(candidate.allowedPaths || candidate.contract?.allowedPaths || candidate.stackLaneContract?.allowedPaths || []);
+  if (allowedPaths.length === 0) return fail("lane_decision_allowed_paths_missing", "lane decision allowed paths missing");
+  const lane = candidate.lane || candidate.canonicalLane || candidate.contract?.lane || candidate.stackLaneContract?.laneId || "workflow-docs-tooling";
+  const manifest = candidate.laneManifest || laneManifest[candidate.canonicalLane || lane] || laneManifest[lane] || {};
+  const autoMergeEligible = candidate.autoMergeEligible ?? candidate.contract?.autoMergeEligible ?? manifest.autoMergeAllowed === true;
+  const manualMergeRequired = candidate.manualMergeRequired === true || candidate.contract?.manualMergeRequired === true || autoMergeEligible === false;
+  const branchStrategy = carriedLaneBranchStrategy({ ...candidate, lane, canonicalLane: candidate.canonicalLane || lane, laneManifest: manifest });
+  const normalized = {
+    ...candidate,
+    lane,
+    canonicalLane: candidate.canonicalLane || lane,
+    allowedToImplement: candidate.allowedToImplement !== false,
+    allowedPaths,
+    laneManifestAllowedPaths: normalizeChangedFiles(candidate.laneManifestAllowedPaths || manifest.allowedPaths || allowedPaths),
+    validationProfile: candidate.validationProfile || candidate.contract?.validationProfile || "runner-tests",
+    reviewerTier: candidate.reviewerTier || manifest.reviewerTier || "strong_independent",
+    branchStrategy,
+    manualMergeRequired,
+    autoMergeEligible: autoMergeEligible === true,
+    implementationSensitivity: candidate.implementationSensitivity || manifest.sensitivity || "standard",
+    contract: {
+      ...(candidate.contract || {}),
+      contractVersion: candidate.contract?.contractVersion || candidate.contractVersion || 1,
+      lane,
+      allowedPaths,
+      validationProfile: candidate.contract?.validationProfile || candidate.validationProfile || "runner-tests",
+      branchStrategy,
+      manualMergeRequired,
+      autoMergeEligible: autoMergeEligible === true,
+    },
+    laneManifest: {
+      ...manifest,
+      decisionType: manifest.decisionType || "runnable",
+      autoMergeAllowed: manifest.autoMergeAllowed === true,
+      allowedPaths: normalizeChangedFiles(manifest.allowedPaths || allowedPaths),
+      branchStrategy: manifest.branchStrategy || branchStrategy,
+    },
+  };
+  if (!normalized.allowedToImplement) {
+    return fail("allowed_path_contract_unavailable", "carried lane contract did not authorize implementation");
+  }
+  return { ok: true, laneDecision: sanitizeState(normalized) };
 }
 
 async function proveFreshLiveMergedStackState({ config = {}, plan = {}, state = {}, adapter, repositoryContext = {} } = {}) {
