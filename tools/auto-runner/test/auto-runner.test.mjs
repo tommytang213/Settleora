@@ -4837,6 +4837,43 @@ test("merge-only auto-merge does not run per-PR issue hygiene or PR summary comm
   }
 });
 
+test("merge-only auto-merge restores source branch after mocked merge auto-deletes branch", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-"));
+  try {
+    const calls = [];
+    const result = executeAutoMergeMergeOnly(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, repositorySlug: "tommytang213/Settleora" },
+      autoMergeContext({ config: { repositorySlug: "tommytang213/Settleora" }, pr: { headRepository: { id: "repo-1", nameWithOwner: "tommytang213/Settleora" } } }),
+      {
+        runner: (command, args) => {
+          calls.push(`${command} ${args.join(" ")}`);
+          if (command === "gh" && args[0] === "pr" && args[1] === "merge") return ok("");
+          if (command === "gh" && args[0] === "pr" && args[1] === "view") return ok(mergeReadbackJson("tommytang213/Settleora"));
+          if (command === "git" && args[0] === "ls-remote") return ok("");
+          if (command === "git" && args[0] === "push") return ok("");
+          if (command === "git" && args[0] === "rev-parse") return ok("base123\n");
+          return fail(`unexpected ${command} ${args.join(" ")}`);
+        },
+        inspectState: () => ({
+          pr: { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", headRefOid: "head123" },
+          requiredChecks: autoMergeRequiredChecks(),
+          reviewThreads: [],
+          codeScanningAlerts: [],
+          blockingMarkers: [],
+        }),
+      },
+    );
+    assert.equal(result.result, "merged");
+    assert.equal(result.sourceBranchRestoration.planned, true);
+    assert.equal(result.sourceBranchRestoration.executed, true);
+    assert.ok(calls.includes("git push origin head123:refs/heads/feature/auto-1-test"));
+    assert.equal(calls.some((call) => call.startsWith("gh issue ")), false);
+    assert.equal(calls.some((call) => call.startsWith("gh pr comment ")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("auto-merge readMergeSha no longer contains the default repository literal", () => {
   const source = readFileSync(new URL("../lib/auto-merge-policy.mjs", import.meta.url), "utf8");
   const match = source.match(/function readMergeSha[\s\S]*?\n}\n\nfunction mergeReadbackFailure/);

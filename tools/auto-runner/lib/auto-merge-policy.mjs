@@ -532,6 +532,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
     return { ...failed, mergeReadback: mergeProof, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
   const mergeSha = mergeProof.mergeSha;
+  const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
   const merged = {
     ...finalDecision,
     attempted: true,
@@ -539,7 +540,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
     reason: "github_merge_commit_completed",
     mergeSha,
     mergeReadback: mergeProof,
-    sourceBranchRestoration: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
+    sourceBranchRestoration: branchRestore,
     completionHygiene: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
     issueLabelCleanupResult: { status: "skipped", reason: "stack_merge_only_final_hygiene_authoritative" },
     issueClosureResult: "skipped:stack_merge_only_final_hygiene_authoritative",
