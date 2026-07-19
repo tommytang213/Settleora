@@ -1526,6 +1526,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (isFinalGateExactHeadEvidenceMissing(gate)) {
         const prepared = await prepareExactHeadFinalGateEvidence({
           config: targetConfig,
+          plan,
           state,
           pr,
           runner: run,
@@ -1535,7 +1536,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         });
         if (!prepared.ok) return prepared;
         const patchedState = { ...state, evidence: mergeEvidencePatch(state.evidence, prepared.evidencePatch) };
-        gate = await collectFinalGateEvidence({ config: targetConfig, state: patchedState, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
+        gate = await collectFinalGateEvidence({ config: targetConfig, plan, state: patchedState, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
         if (!gate.ok && gate.waiting) {
           return { ...gate, evidencePatch: prepared.evidencePatch };
         }
@@ -1556,7 +1557,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       const targetConfig = cfg || config;
       const repositoryContext = await buildRepositoryOperationContext({ config: targetConfig, plan, state, prNumber: pr.number, adapter: this });
       if (!repositoryContext.ok) return repositoryContext;
-      const gate = await collectFinalGateEvidence({ config: targetConfig, state, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
+      const gate = await collectFinalGateEvidence({ config: targetConfig, plan, state, pr, runner: run, adapter: this, repositoryContext: repositoryContext.context });
       if (!gate.ok) return gate;
       if (expectedHead && gate.evidence?.exactHead !== expectedHead) return fail("merge_entry_gate_head_mismatch", "merge-entry gate evidence is not bound to the expected head");
       return bindMergeEntryEvidence(gate.evidence);
@@ -4013,13 +4014,13 @@ function bindMergeEntryEvidence(evidence = {}) {
   return { ok: true, evidence, mergeEntryEvidence: binding };
 }
 
-async function prepareExactHeadFinalGateEvidence({ config, state, pr, runner, runStrongReview, runCodexReview, runValidation = runValidationPlan }) {
+async function prepareExactHeadFinalGateEvidence({ config, plan = {}, state, pr, runner, runStrongReview, runCodexReview, runValidation = runValidationPlan }) {
   if (typeof runStrongReview !== "function" || typeof runCodexReview !== "function") {
     return fail("exact_head_review_adapter_unconfigured", "strong and Codex exact-head review adapters are required before final gates");
   }
   const repositoryContext = await buildRepositoryOperationContext({ config, state, prNumber: pr.number, adapter: { readRepositoryOperationContext: null } });
   if (!repositoryContext.ok) return repositoryContext;
-  const prereq = await collectFinalGatePrerequisites({ config, state, pr, runner, repositoryContext: repositoryContext.context, reasonPrefix: "exact_head_gate" });
+  const prereq = await collectFinalGatePrerequisites({ config, plan, state, pr, runner, repositoryContext: repositoryContext.context, reasonPrefix: "exact_head_gate" });
   if (!prereq.ok) return prereq;
   const preWorktreeProof = readExactFinalGateWorktreeProof({
     config,
@@ -4257,6 +4258,10 @@ async function collectFinalGatePrerequisites({ config, plan = {}, state, pr, run
 }
 
 function resolveFinalGateLaneDecision({ config = {}, plan = {}, state = {}, pr = {}, inspection = {} } = {}) {
+  plan = plan || {};
+  state = state || {};
+  pr = pr || {};
+  inspection = inspection || {};
   const actualIssue = inspection.issue || pr.issue || config.prStackIssue || state.issue || null;
   if (actualIssue && String(actualIssue.body || "").trim()) {
     const laneDecision = classifyIssueLane(actualIssue);

@@ -2247,6 +2247,51 @@ test("production final gates run exact-head validation and reviews when converge
   assert.equal(result.codexReview.reviewedHead, sha("a"));
 });
 
+test("final gates carry plan-level lane contract through exact-head preparation and merge-entry validation", async () => {
+  const fixture = stackFixture();
+  const changedFiles = ["tools/auto-runner/919.mjs"];
+  const laneContract = {
+    contractVersion: 1,
+    lane: "workflow-docs-tooling",
+    allowedPaths: ["tools/auto-runner/**"],
+    validationProfile: "runner-tests",
+    manualMergeRequired: false,
+    autoMergeEligible: true,
+  };
+  const plan = { ...fixture.plan, laneContract };
+  const config = {
+    ...fixture.config,
+    dryRun: true,
+    allowAutoMerge: true,
+    autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] },
+    prStackIssue: { number: 921, state: "OPEN", labels: [], body: "" },
+  };
+  const digest = digestStrings(changedFiles);
+  const adapter = createProductionPrStackAdapter(config, {
+    runner: finalGateRunner(changedFiles),
+    runValidationPlan: (_config, validationPlan) => ({ passed: true, results: [{ command: "test", status: 0 }], completedAt: "2026-07-18T00:00:00.000Z", profile: validationPlan.profile }),
+    runStrongReview: async ({ headSha, baseSha, changedFiles: files, validation }) => {
+      assert.equal(validation.profile, "runner-tests");
+      return { status: "pass", tier: "strong_independent", verdict: "pass", reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, independent: true, provider: "gemini", providerProfile: "gemini-strong", evidencePath: "/workspace/logs/strong.json", completedAt: "2026-07-18T00:00:01.000Z" };
+    },
+    runCodexReview: async ({ headSha, baseSha, changedFiles: files }) => ({ reviewedHead: headSha, baseSha, changedFiles: files, changedFilesDigest: digest, verdict: { verdict: "approve" }, evidencePath: "/workspace/logs/compact.json", completedAt: "2026-07-18T00:00:02.000Z" }),
+  });
+  const state = createInitialPrStackState({ plan });
+  state.evidence.reviewConverged["919"] = { ok: true, headRefOid: sha("a"), findings: [] };
+  const prWithoutCarriedContract = { ...fixture.plan.orderedPrs[0], issue: { number: 921, labels: [], body: "" } };
+
+  const preparedGate = await adapter.completeFinalGates({ config, plan, state, pr: prWithoutCarriedContract });
+  assert.equal(preparedGate.ok, true, preparedGate.reasonCode);
+  assert.deepEqual(preparedGate.allowedPathProof.contractAllowedPaths, laneContract.allowedPaths);
+  assert.deepEqual(preparedGate.changedFiles, changedFiles);
+
+  const mergeState = createInitialPrStackState({ plan });
+  mergeState.evidence.gatesPassed["919"] = { ...gateEvidence({ changedFiles }), laneDecision: null };
+  const mergeEntry = await adapter.validateMergeEntryGateEvidence({ config, plan, state: mergeState, pr: prWithoutCarriedContract, expectedHead: sha("a") });
+  assert.equal(mergeEntry.ok, true, mergeEntry.reasonCode);
+  assert.deepEqual(mergeEntry.evidence.allowedPathProof.contractAllowedPaths, laneContract.allowedPaths);
+});
+
 test("production final gates fail closed when exact-head review adapters or bound evidence are missing", async () => {
   const fixture = stackFixture();
   const changedFiles = ["tools/auto-runner/919.mjs"];
