@@ -13,6 +13,7 @@ import {
   evaluateContextBudget,
   interruptionClasses,
   loadSessionLifecycleState,
+  loadSessionLifecycleForRecovery,
   migrateRecoveryStateToSessionLifecycle,
   normalizeContextBudgetPolicy,
   persistSessionLifecycleState,
@@ -128,6 +129,18 @@ test("checkpoint persistence and identity validation are durable", () => {
   assert.equal(Object.hasOwn(persisted, "prompt"), false);
   assert.equal(Object.hasOwn(persisted, "rawProviderPayload"), false);
   assert.equal(Object.hasOwn(persisted, "history"), false);
+});
+
+test("startup recovery resolves one checkpoint without guessing claim identity", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "session-recovery-lookup-"));
+  const config = { logsRoot: root, repositorySlug: "owner/repo" };
+  assert.equal(persistSessionLifecycleState(config, fixture()).ok, true);
+  const loaded = loadSessionLifecycleForRecovery(config, {
+    repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1",
+    branchName: "feature/session", baseSha: sha, headSha: sha,
+  });
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.state.logicalTask.claimIdentity, "claim-1");
 });
 
 test("checkpoint tampering fails closed", () => {

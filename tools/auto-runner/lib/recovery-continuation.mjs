@@ -7,7 +7,7 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
-import { loadSessionLifecycleState, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { loadSessionLifecycleForRecovery, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -268,7 +268,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     baseSha: recoveryState.branch?.baseSha,
     headSha: recoveryState.branch?.currentHeadSha,
   };
-  const loaded = loadSessionLifecycleState(config, identity);
+  const loaded = loadSessionLifecycleForRecovery(config, identity);
   if (!loaded.ok) return loaded;
   const planned = planInterruptionRecovery(loaded.state, {
     expectedIdentity: identity,

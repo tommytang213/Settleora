@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -183,6 +183,22 @@ export function loadSessionLifecycleState(config, identity) {
   return validation.ok ? { ok: true, state, statePath } : { ...validation, statePath };
 }
 
+export function loadSessionLifecycleForRecovery(config, identity) {
+  const root = path.join(config.logsRoot, "session-lifecycle");
+  if (!existsSync(root)) return fail("session_lifecycle_state_missing", null, { statePath: root });
+  const matches = [];
+  for (const entry of readdirSync(root, { withFileTypes: true }).filter((item) => item.isFile() && /^[a-f0-9]{64}\.json$/.test(item.name)).slice(0, 1000)) {
+    let state;
+    try { state = JSON.parse(readFileSync(path.join(root, entry.name), "utf8")); } catch { continue; }
+    if (state.repository !== identity.repository || state.logicalTask?.issueNumber !== identity.issueNumber || state.logicalTask?.taskKey !== identity.taskKey || state.logicalTask?.runId !== identity.runId) continue;
+    if (state.branch?.name !== identity.branchName || state.branch?.baseSha !== identity.baseSha || state.branch?.headSha !== identity.headSha) continue;
+    const validation = validateSessionLifecycleState(state, { ...identity, claimIdentity: state.logicalTask.claimIdentity });
+    if (validation.ok) matches.push({ state, statePath: path.join(root, entry.name) });
+  }
+  if (matches.length !== 1) return fail(matches.length === 0 ? "session_lifecycle_state_missing" : "session_lifecycle_state_ambiguous");
+  return { ok: true, ...matches[0] };
+}
+
 export function beginSessionRotation(state, { reason, snapshot = null, requestId = null } = {}) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;
@@ -238,8 +254,10 @@ export function prepareFreshSessionInvocation(config, { state, telemetry = {}, p
   next.context.reason = decision.reasonCode;
   refreshDigest(next);
   let written = persistSessionLifecycleState(config, next);
-  if (!written.ok || decision.action !== "rotate_before_next_operation") return { ...written, decision, rotated: false };
-  const begun = beginSessionRotation(written.state, { reason: decision.reasonCode, snapshot: decision.snapshot });
+  if (!written.ok) return { ...written, decision, rotated: false };
+  const invocationHandoffRequired = written.state.sessions.current !== newSessionId;
+  if (decision.action !== "rotate_before_next_operation" && !invocationHandoffRequired) return { ...written, decision, rotated: false };
+  const begun = beginSessionRotation(written.state, { reason: decision.action === "rotate_before_next_operation" ? decision.reasonCode : "fresh_invocation_authority_handoff", snapshot: decision.snapshot });
   if (!begun.ok) return begun;
   written = persistSessionLifecycleState(config, begun.state);
   if (!written.ok) return written;

@@ -18,7 +18,7 @@ import {
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
 import { firstIncompleteContinuationAction } from "../lib/recovery-continuation.mjs";
-import { planInterruptionRecovery } from "../lib/session-lifecycle.mjs";
+import { planInterruptionRecovery, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import {
   bindOutageResubmissionToRecoveryState,
   invalidateEvidenceForHeadChange,
@@ -127,12 +127,18 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   const recovery = input.recoveryState || null;
-  if (config.sessionLifecycle?.enabled === true && input.sessionLifecycleState) {
+  if (config.sessionLifecycle?.enabled === true) {
+    if (!input.sessionLifecycleState) return result("blocked", "session_lifecycle_state_missing", { events, counts });
+    if (config.sessionLifecycle.allowRecoveryTakeover !== true) return result("blocked", "session_lifecycle_recovery_takeover_disabled", { events, counts });
     const lifecycle = consumeSupervisorInterruptionPlanner(input.sessionLifecycleState, input.lifecycleInterruption || {}, input.lifecycleEffects || {});
     if (!lifecycle.ok || lifecycle.active) {
       const reasonCode = lifecycle.reasonCode || "session_lifecycle_supervisor_takeover_blocked";
       event("session_lifecycle_takeover_blocked", { reasonCode });
       return result("blocked", reasonCode, { events, counts, sessionLifecycle: lifecycle });
+    }
+    if (!dryRun) {
+      const persistedLifecycle = persistSessionLifecycleState(config, lifecycle.state);
+      if (!persistedLifecycle.ok) return result("blocked", persistedLifecycle.reasonCode, { events, counts, sessionLifecycle: persistedLifecycle });
     }
     event("session_lifecycle_recovery_planned", { reasonCode: lifecycle.classification?.reasonCode, earliestSafePhase: lifecycle.earliestSafePhase });
   }
