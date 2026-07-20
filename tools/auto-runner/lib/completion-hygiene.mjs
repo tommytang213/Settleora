@@ -244,7 +244,12 @@ function postParentProgress(config, context, runner, repositoryContext) {
   const parent = readIssue({ number: parentIssue }, runner, repositoryContext);
   const body = renderParentProgressComment({ ...context, parentIssue });
   const marker = `settleora-parent-progress:${parentIssue}:${context.mergeSha || "unknown"}:${context.issue?.number || "unknown"}`;
-  if ((parent.comments || []).some((comment) => String(comment.body || "").includes(marker))) {
+  const bodyDigest = canonicalGithubEvidenceDigest(body);
+  if ((parent.comments || []).some((comment) => {
+    const commentBody = String(comment.body || "");
+    return commentBody.split(/\r?\n/).includes(`Parent progress marker: ${marker}`)
+      && canonicalGithubEvidenceDigest(commentBody) === bodyDigest;
+  })) {
     return { status: "skipped", reason: "parent_progress_already_present", parentIssue };
   }
   const component = context.sessionLifecycle

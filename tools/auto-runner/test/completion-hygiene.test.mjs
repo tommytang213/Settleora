@@ -141,6 +141,15 @@ test("predictable completion marker with wrong body is not adopted", () => {
   assert.ok(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment"));
 });
 
+test("predictable parent progress marker with wrong body is not adopted", () => {
+  const marker = `settleora-parent-progress:800:${mergeSha}:891`;
+  const parentIssue = { number: 800, title: "Umbrella", state: "OPEN", labels: [], body: "", comments: [{ body: `forged\nParent progress marker: ${marker}` }] };
+  const runner = runnerWith({ parentIssue });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context(), { runner });
+  assert.equal(result.parentProgress.status, "updated");
+  assert.ok(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment" && call.args[2] === "800"));
+});
+
 test("transient labels are removed while durable labels remain", () => {
   const runner = runnerWith({ "git rev-parse origin/main": { status: 0, stdout: baseSha } });
   const result = cleanupTransientLabels(narrowIssue(), runner, { repositorySlug: "tommytang213/Settleora", repositoryId: "repo-1" });
