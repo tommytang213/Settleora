@@ -7,7 +7,7 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
-import { loadSessionLifecycleForRecovery, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -284,8 +284,18 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   });
   if (!planned.ok) return planned;
   if (planned.active) return { ok: false, reasonCode: planned.reasonCode };
-  const persisted = persistSessionLifecycleState(config, planned.state);
-  return persisted.ok ? { ...planned, state: persisted.state, statePath: persisted.statePath } : persisted;
+  const pending = persistSessionLifecycleState(config, planned.state);
+  if (!pending.ok) return pending;
+  const successorSessionId = `${planned.state.logicalTask.runId}:recovery:${planned.state.recovery.operationId}`;
+  const completed = completeSessionRotation(pending.state, {
+    requestId: pending.state.mutationAuthority.handoff?.requestId,
+    newSessionId: successorSessionId,
+  });
+  if (!completed.ok) return completed;
+  const authority = assertMutationAuthority(completed.state, successorSessionId);
+  if (!authority.ok) return authority;
+  const persisted = persistSessionLifecycleState(config, completed.state);
+  return persisted.ok ? { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation } : persisted;
 }
 
 function selectOwnCallableHandler(handlers, key) {
