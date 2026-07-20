@@ -1,5 +1,28 @@
 # Settleora Auto-Runner Tooling
 
+## Canonical mutation consumer contract
+
+When session lifecycle authority is enabled, production mutation consumers use
+one durable pre-effect contract for Git commits and pushes, PR creation and
+transitions, exact-head merge, comments and review replies, issue closure, and
+component-wise post-merge/docs hygiene. Each consumer persists its exact
+intent before mutation, revalidates the active run/session/generation and
+task-charge identity, reads authoritative Git or GitHub state, executes only
+when the effect is safely absent, reads the exact result back, and then
+atomically confirms or adopts it. An unavailable read or an uncertain command
+result remains pending for later reconciliation; it is never converted into a
+terminal marker that could hide a successful crash-window effect.
+
+Ordinary implementation, feature-bundle, review-fix, existing-PR stack, and
+docs-hygiene state may all carry the same lifecycle authority. Stack state
+preserves that authority through retarget, ready, merge, and final hygiene.
+Startup/supervisor recovery discovers only owner-trusted pending intent files
+and recognizes the persisted identities for commit, push, PR transition,
+merge, comment/reply, closure, hygiene, and branch retention. Duplicate-like,
+wrong-head, wrong-base, wrong-issue/PR, or contradictory live candidates fail
+closed. Legacy mutation markers remain compatibility projections and cannot
+adopt a crash window.
+
 This directory contains the DevBox-native unattended Codex auto-runner skeleton.
 It is issue-label driven and writes all mutable runtime state under
 `/workspace/logs/settleora-auto-runner/`.
