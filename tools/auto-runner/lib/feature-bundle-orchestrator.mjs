@@ -27,7 +27,7 @@ import {
 } from "./git-workspace.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./codex-runner.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters } from "./session-lifecycle.mjs";
 import { collectReport } from "./report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./pr-manager.mjs";
@@ -747,11 +747,19 @@ async function runBundleReviewFixCycle(config, context) {
   );
   mkdirSync(path.dirname(promptPath), { recursive: true });
   writeFileSync(promptPath, prompt);
+  let lifecycleState = context.sessionLifecycle;
+  if (lifecycleState) {
+    const synchronized = synchronizeSessionLifecycleCounters(config, lifecycleState, context.reviewConvergenceState?.counters || {
+      localSourceChangingRoundsPerEpoch: 0, githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 0,
+    });
+    if (!synchronized.ok) return { attempted: false, proceeded: false, reason: synchronized.reasonCode, decision, promptPath };
+    lifecycleState = synchronized.state;
+  }
   const codex = runCodexPrompt(config, {
     branchName: context.branchName,
     prompt,
     promptPath,
-    ...(context.sessionLifecycle ? { sessionLifecycle: bundleLifecycleInvocation(context.sessionLifecycle, "bundle-review-fix") } : {}),
+    ...(lifecycleState ? { sessionLifecycle: bundleLifecycleInvocation(lifecycleState, "bundle-review-fix") } : {}),
   }, "bundle-review-fix");
   if (!codex.skipped && (codex.error || codex.status !== 0)) {
     return { attempted: true, proceeded: false, reason: "review_fix_codex_failed", decision, promptPath, codex };
@@ -800,9 +808,9 @@ function createBundleSessionLifecycle(config, input) {
     phase: "implementation_or_bundle_slice",
     nextExactAction: "run_next_bundle_slice",
     contextPolicy: config.sessionLifecycle.contextBudget,
-    localSourceChangingRoundsPerEpoch: recovery.reviewConvergence?.localSourceChangingRoundsPerEpoch || 0,
-    githubTriggeredFixEpochsPerPr: recovery.reviewConvergence?.githubTriggeredFixEpochsPerPr || 0,
-    lifetimeLocalSourceChangingRounds: recovery.reviewConvergence?.lifetimeLocalSourceChangingRounds || 0,
+    localSourceChangingRoundsPerEpoch: recovery.reviewConvergence?.counters?.localSourceChangingRoundsPerEpoch || 0,
+    githubTriggeredFixEpochsPerPr: recovery.reviewConvergence?.counters?.githubTriggeredFixEpochsPerPr || 0,
+    lifetimeLocalSourceChangingRounds: recovery.reviewConvergence?.counters?.lifetimeLocalSourceChangingRounds || 0,
     reservations: recovery.mutationMarkers || {},
     evidence: recovery.evidence || {},
     reportCorrelationKey: input.plan.taskKey || recovery.taskKey || "auto-runner",

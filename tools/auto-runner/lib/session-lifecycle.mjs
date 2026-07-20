@@ -243,6 +243,19 @@ export function assertMutationAuthority(state, sessionId) {
     : fail("session_lifecycle_mutation_authority_denied");
 }
 
+export function synchronizeSessionLifecycleCounters(config, state, counters = {}) {
+  const validation = validateSessionLifecycleState(state);
+  if (!validation.ok) return validation;
+  const next = structuredClone(state);
+  for (const key of ["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]) {
+    const value = counters[key];
+    if (!Number.isSafeInteger(value) || value < 0) return fail("session_lifecycle_counter_invalid");
+    next.controller[key] = value;
+  }
+  refreshDigest(next);
+  return persistSessionLifecycleState(config, next);
+}
+
 export function prepareFreshSessionInvocation(config, { state, telemetry = {}, phase, newSessionId, mutationJournaled = true } = {}) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;

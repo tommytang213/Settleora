@@ -112,7 +112,7 @@ import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState } from "./lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters } from "./lib/session-lifecycle.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -2290,9 +2290,16 @@ async function runReviewFixCycle(config, context) {
     `${safeTimestamp()}-issue-${context.issue.number}-${slugify(context.issue.title, 40)}-prompt.md`,
   );
   writeFileSync(promptPath, prompt);
-  const reviewFixLifecycle = context.promptInfo?.sessionLifecycle
-    ? { ...context.promptInfo.sessionLifecycle, newSessionId: `${context.promptInfo.sessionLifecycle.state.logicalTask.runId}:review-fix:${randomUUID()}`, phase: "review_fix" }
-    : null;
+  let reviewFixLifecycle = null;
+  if (context.promptInfo?.sessionLifecycle) {
+    const synchronized = synchronizeSessionLifecycleCounters(config, context.promptInfo.sessionLifecycle.state, context.reviewConvergenceState?.counters || {
+      localSourceChangingRoundsPerEpoch: 0,
+      githubTriggeredFixEpochsPerPr: 0,
+      lifetimeLocalSourceChangingRounds: 0,
+    });
+    if (!synchronized.ok) return { attempted: false, proceeded: false, reason: synchronized.reasonCode };
+    reviewFixLifecycle = { ...context.promptInfo.sessionLifecycle, state: synchronized.state, newSessionId: `${synchronized.state.logicalTask.runId}:review-fix:${randomUUID()}`, phase: "review_fix" };
+  }
   const codex = runCodexPrompt(
     config,
     {
