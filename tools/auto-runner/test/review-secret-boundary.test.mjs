@@ -2323,6 +2323,7 @@ test("JavaScript credential-named member references are policy metadata rather t
   const diff = diffFor("tools/auto-runner/lib/example.mjs", [
     "+  diagnosticAuthorization: cycleDecision.diagnosticAuthorization,",
     "-  authorization = prior.authorization;",
+    "   diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,",
   ]);
   const result = analyzeReviewSecretBoundary({
     changedFiles: ["tools/auto-runner/lib/example.mjs"],
@@ -2330,7 +2331,7 @@ test("JavaScript credential-named member references are policy metadata rather t
   });
   assert.equal(result.ok, true);
   assert.equal(result.blocked, false);
-  assert.equal(result.allowedReferences.length, 2);
+  assert.equal(result.allowedReferences.length, 3);
   assert.ok(result.allowedReferences.every((item) => item.classification === "code_reference"));
 });
 
