@@ -21,6 +21,10 @@ import {
 
 const sha = (char) => char.repeat(40);
 const confirmedSourceBranchRestoration = (branchName, headSha) => ({ ok: true, confirmed: true, branchExists: true, branchName, headSha });
+const withTempDir = (callback) => {
+  const cwd = mkdtempSync(path.join(os.tmpdir(), "settleora-stack-content-identity-"));
+  try { return callback(cwd); } finally { rmSync(cwd, { recursive: true, force: true }); }
+};
 
 test("CLI accepts the documented stack mode and rejects incomplete or mixed stack invocations", () => {
   assert.throws(() => parseCliArgs(["--run-pr-stack"]), /requires an explicit --config/);
@@ -1281,6 +1285,80 @@ test("local candidate history detects A/B oscillation but permits restart of the
     prStackExecutorTestInternals.advanceLocalCandidateHistory(second.candidateHistory, sha("c"), "1".repeat(64)).reasonCode,
     "existing_pr_local_loop_oscillation",
   );
+});
+
+test("journal-authorized inner fix carries committed dirty and staged files into the cumulative candidate", async () => {
+  const fixture = stackFixture();
+  const runner = (command, args) => {
+    const key = `${command} ${args.join(" ")}`;
+    if (key === "git rev-parse HEAD") return { status: 0, stdout: `${sha("b")}\n`, stderr: "", error: null };
+    if (key === `git diff --name-only ${sha("a")}..HEAD`) return { status: 0, stdout: "tools/auto-runner/lib/committed.mjs\n", stderr: "", error: null };
+    if (key === "git status --porcelain=v1 --untracked-files=all") return { status: 0, stdout: " M tools/auto-runner/lib/dirty.mjs\nM  tools/auto-runner/lib/staged.mjs\n", stderr: "", error: null };
+    if (key === "git diff --name-only") return { status: 0, stdout: "tools/auto-runner/lib/dirty.mjs\n", stderr: "", error: null };
+    if (key === "git diff --cached --name-only") return { status: 0, stdout: "tools/auto-runner/lib/staged.mjs\n", stderr: "", error: null };
+    if (key === "git ls-files --others --exclude-standard") return { status: 0, stdout: "tools/auto-runner/lib/new.mjs\n", stderr: "", error: null };
+    return { status: 1, stdout: "", stderr: `unexpected ${key}`, error: null };
+  };
+  const adapters = prStackExecutorTestInternals.createProductionBatchFixAdapters(fixture.config, { runner });
+  await assert.rejects(() => adapters.listChangedFiles({ exactHead: sha("a") }), /additional dirty changes/);
+  assert.deepEqual(await adapters.listChangedFiles({ exactHead: sha("a"), allowJournaledDirty: true }), [
+    "tools/auto-runner/lib/committed.mjs",
+    "tools/auto-runner/lib/dirty.mjs",
+    "tools/auto-runner/lib/new.mjs",
+    "tools/auto-runner/lib/staged.mjs",
+  ]);
+  assert.equal(prStackExecutorTestInternals.journalAuthorizesDirtyCandidate({ phase: "source_fix_applied", candidateHead: sha("b") }, sha("b")), true);
+  assert.equal(prStackExecutorTestInternals.journalAuthorizesDirtyCandidate({ phase: "commit_reserved", candidateHead: sha("a"), reservedParentHead: sha("b") }, sha("b")), true);
+  assert.equal(prStackExecutorTestInternals.journalAuthorizesDirtyCandidate({ phase: "commit_reserved", reservedParentHead: sha("a") }, sha("b")), false);
+});
+
+test("commit reservation content identity survives partial staging and a completed commit", () => {
+  const parent = sha("a");
+  const committed = sha("b");
+  const contentHash = sha("c");
+  const identityFor = ({ head, status }) => withTempDir((cwd) => {
+    writeFileSync(path.join(cwd, "fix.mjs"), "export const fixed = true;\n");
+    return prStackExecutorTestInternals.collectCumulativeCandidateContentIdentity({
+    cwd,
+    parentHead: parent,
+    runner(command, args) {
+      const key = `${command} ${args.join(" ")}`;
+      if (key === "git rev-parse HEAD") return { status: 0, stdout: `${head}\n`, stderr: "", error: null };
+      if (key === `git merge-base --is-ancestor ${parent} ${committed}`) return { status: 0, stdout: "", stderr: "", error: null };
+      if (key === `git diff --name-status --no-renames ${parent}`) return { status: 0, stdout: `${status}\tfix.mjs\n`, stderr: "", error: null };
+      if (key === "git ls-files --others --exclude-standard") return { status: 0, stdout: "", stderr: "", error: null };
+      if (key === "git hash-object -- fix.mjs") return { status: 0, stdout: `${contentHash}\n`, stderr: "", error: null };
+      return { status: 1, stdout: "", stderr: `unexpected ${key}`, error: null };
+    },
+  });
+  });
+  const partiallyStaged = identityFor({ head: parent, status: "M" });
+  const afterCommit = identityFor({ head: committed, status: "M" });
+  assert.equal(partiallyStaged.ok, true, partiallyStaged.reasonCode);
+  assert.equal(afterCommit.ok, true, afterCommit.reasonCode);
+  assert.equal(partiallyStaged.identityDigest, afterCommit.identityDigest);
+});
+
+test("commit reservation content identity rejects changed content or mode after reservation", () => {
+  const parent = sha("a");
+  const identityFor = (contentHash, executable = false) => withTempDir((cwd) => {
+    const file = path.join(cwd, "fix.mjs");
+    writeFileSync(file, "export const fixed = true;\n", { mode: executable ? 0o755 : 0o644 });
+    return prStackExecutorTestInternals.collectCumulativeCandidateContentIdentity({
+    cwd,
+    parentHead: parent,
+    runner(command, args) {
+      const key = `${command} ${args.join(" ")}`;
+      if (key === "git rev-parse HEAD") return { status: 0, stdout: `${parent}\n`, stderr: "", error: null };
+      if (key === `git diff --name-status --no-renames ${parent}`) return { status: 0, stdout: "M\tfix.mjs\n", stderr: "", error: null };
+      if (key === "git ls-files --others --exclude-standard") return { status: 0, stdout: "", stderr: "", error: null };
+      if (key === "git hash-object -- fix.mjs") return { status: 0, stdout: `${contentHash}\n`, stderr: "", error: null };
+      return { status: 1, stdout: "", stderr: `unexpected ${key}`, error: null };
+    },
+  });
+  });
+  assert.notEqual(identityFor(sha("b")).identityDigest, identityFor(sha("c")).identityDigest);
+  assert.notEqual(identityFor(sha("b"), false).identityDigest, identityFor(sha("b"), true).identityDigest);
 });
 
 test("production commitAndPush requires explicit validated stack state before reservation or push", async () => {

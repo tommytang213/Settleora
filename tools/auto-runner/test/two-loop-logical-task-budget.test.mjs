@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -202,6 +202,20 @@ test("different accepted task charges distinctly and max-task stop ignores inter
   assert.equal(chargeAcceptedLogicalTask(config, chargeInput(923)).acceptedLogicalTaskCount, 2);
   const blocked = chargeAcceptedLogicalTask(config, chargeInput(924));
   assert.equal(blocked.reasonCode, "accepted_logical_task_budget_exhausted");
+});
+
+test("accepted-task charging serializes concurrent writers and recovers an inactive owner", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-task-lock-"));
+  const config = budgetConfig(logsRoot);
+  const first = chargeAcceptedLogicalTask(config, chargeInput(932));
+  const lockPath = `${first.statePath}.lock`;
+  mkdirSync(lockPath, { mode: 0o700 });
+  writeFileSync(path.join(lockPath, "owner.json"), `${JSON.stringify({ pid: process.pid, token: fingerprint("a"), createdAt: new Date().toISOString() })}\n`, { mode: 0o600 });
+  assert.equal(chargeAcceptedLogicalTask(config, chargeInput(923)).reasonCode, "logical_task_budget_lock_busy");
+  writeFileSync(path.join(lockPath, "owner.json"), `${JSON.stringify({ pid: 99999999, token: fingerprint("b"), createdAt: new Date().toISOString() })}\n`, { mode: 0o600 });
+  const recovered = chargeAcceptedLogicalTask(config, chargeInput(923));
+  assert.equal(recovered.ok, true, recovered.reasonCode);
+  assert.equal(recovered.acceptedLogicalTaskCount, 2);
 });
 
 test("corrupt or missing charge identity fails closed and projection is sanitized", () => {

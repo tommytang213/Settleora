@@ -1851,29 +1851,45 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       }
       return { ok: true, codex, promptPath };
     },
-    async listChangedFiles({ exactHead }) {
+    async listChangedFiles({ exactHead, allowJournaledDirty = false }) {
       const head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_head_unreadable" });
       if (!head.ok) throw new Error(head.reason);
       if (exactHead && head.sha !== exactHead) {
         const committed = runner("git", ["diff", "--name-only", `${exactHead}..HEAD`], { cwd });
         if (committed.status !== 0 || committed.error) throw new Error(`git diff exactHead..HEAD failed: ${boundedText(committed.stderr || committed.error || committed.stdout)}`);
         const dirty = readWorktreeCleanProof({ runner, cwd });
-        if (!dirty.ok || dirty.clean !== true) throw new Error("existing local candidate has additional dirty changes");
+        if (!dirty.ok) throw new Error("existing local candidate worktree status is unreadable");
+        if (dirty.clean !== true && !allowJournaledDirty) throw new Error("existing local candidate has additional dirty changes");
+        if (dirty.clean !== true) {
+          const unstaged = runner("git", ["diff", "--name-only"], { cwd });
+          const staged = runner("git", ["diff", "--cached", "--name-only"], { cwd });
+          const untracked = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+          if (unstaged.status !== 0 || unstaged.error || staged.status !== 0 || staged.error || untracked.status !== 0 || untracked.error) throw new Error("journal-authorized inner fix file set is unreadable");
+          return normalizeChangedFiles(`${committed.stdout || ""}\n${unstaged.stdout || ""}\n${staged.stdout || ""}\n${untracked.stdout || ""}`.split(/\r?\n/));
+        }
         return normalizeChangedFiles(committed.stdout.split(/\r?\n/));
       }
       const diff = runner("git", ["diff", "--name-only"], { cwd });
       if (diff.status !== 0 || diff.error) throw new Error(`git diff failed: ${boundedText(diff.stderr || diff.error || diff.stdout)}`);
       const staged = runner("git", ["diff", "--cached", "--name-only"], { cwd });
       if (staged.status !== 0 || staged.error) throw new Error(`git diff --cached failed: ${boundedText(staged.stderr || staged.error || staged.stdout)}`);
-      return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}`.split(/\r?\n/));
+      const untracked = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+      if (untracked.status !== 0 || untracked.error) throw new Error(`git ls-files failed: ${boundedText(untracked.stderr || untracked.error || untracked.stdout)}`);
+      return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}\n${untracked.stdout || ""}`.split(/\r?\n/));
     },
     async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget = null, localLoop = null }) {
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead, localLoop });
       if (!loopState.ok) return loopState;
+      if (loopState.state.phase === "source_fix_applied") {
+        const appliedIdentity = collectAppliedSourceFixFiles({ runner, cwd, candidateHead: loopState.state.candidateHead });
+        if (!appliedIdentity.ok) return appliedIdentity;
+        if (appliedIdentity.currentHead !== loopState.state.appliedHead) return fail("existing_pr_local_loop_applied_head_mismatch", "journal-authorized source-fix head changed after application");
+        if (appliedIdentity.identityDigest !== loopState.state.appliedChangedFilesDigest) return fail("existing_pr_local_loop_applied_files_mismatch", "journal-authorized source-fix files changed after application");
+      }
       if (["findings_frozen", "source_fix_reserved"].includes(loopState.state.phase)) {
         const resumedFix = applyFrozenLocalFindingBatch({ config, cwd, pr, statePath: loopState.statePath, state: loopState.state });
         if (!resumedFix.ok) return resumedFix;
-        const cumulative = await this.listChangedFiles({ exactHead });
+        const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
         return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
       }
       const preCommitHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_precommit_head_unreadable" });
@@ -1883,16 +1899,24 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (preCommitHead.sha === exactHead || !preCommitClean.clean) {
         const dirtyFiles = runner("git", ["diff", "--name-only"], { cwd });
         const stagedFiles = runner("git", ["diff", "--cached", "--name-only"], { cwd });
-        if (dirtyFiles.status !== 0 || dirtyFiles.error || stagedFiles.status !== 0 || stagedFiles.error) return fail("existing_pr_local_loop_precommit_files_unreadable", "pre-commit reservation could not bind the dirty/staged file set");
-        const reservedCommitFiles = normalizeChangedFiles(`${dirtyFiles.stdout || ""}\n${stagedFiles.stdout || ""}`.split(/\r?\n/));
+        const untrackedFiles = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+        if (dirtyFiles.status !== 0 || dirtyFiles.error || stagedFiles.status !== 0 || stagedFiles.error || untrackedFiles.status !== 0 || untrackedFiles.error) return fail("existing_pr_local_loop_precommit_files_unreadable", "pre-commit reservation could not bind the dirty/staged/untracked file set");
+        const reservedCommitFiles = normalizeChangedFiles(`${dirtyFiles.stdout || ""}\n${stagedFiles.stdout || ""}\n${untrackedFiles.stdout || ""}`.split(/\r?\n/));
         if (reservedCommitFiles.length === 0) return fail("existing_pr_local_loop_precommit_files_missing", "pre-commit reservation requires source changes");
+        const reservedWorktreeIdentity = collectCumulativeCandidateContentIdentity({ runner, cwd, parentHead: preCommitHead.sha });
+        if (!reservedWorktreeIdentity.ok) return reservedWorktreeIdentity;
         loopState.state = persistLocalCandidateLoopState(loopState.statePath, {
           ...loopState.state,
           phase: "commit_reserved",
           reservedParentHead: preCommitHead.sha,
           reservedChangedFilesDigest: digestStringSet(reservedCommitFiles),
+          reservedWorktreeIdentityDigest: reservedWorktreeIdentity.identityDigest,
           reservedCommitMessage: "Auto-runner stack review-fix batch",
         });
+      }
+      if (loopState.state.phase === "commit_reserved") {
+        const reservedIdentity = collectCumulativeCandidateContentIdentity({ runner, cwd, parentHead: loopState.state.reservedParentHead });
+        if (!reservedIdentity.ok || reservedIdentity.identityDigest !== loopState.state.reservedWorktreeIdentityDigest) return fail("existing_pr_local_loop_precommit_identity_mismatch", "pre-commit source identity changed after reservation");
       }
       const candidate = createOrReuseLocalCandidateCommit({
         config,
@@ -2005,7 +2029,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         });
         const resumedFix = applyFrozenLocalFindingBatch({ config, cwd, pr, statePath: loopState.statePath, state: frozenState });
         if (!resumedFix.ok) return resumedFix;
-        const cumulative = await this.listChangedFiles({ exactHead });
+        const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
         return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
       }
       const postWorktreeProof = readExactFinalGateWorktreeProof({
@@ -3892,7 +3916,8 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
     const clean = readWorktreeCleanProof({ runner, cwd });
     if (!clean.ok) return clean;
     if (clean.clean !== true) {
-      if (!['source_fix_applied', 'commit_reserved'].includes(localLoopState?.phase) || (localLoopState?.candidateHead && localLoopState.candidateHead !== before.sha)) {
+      const journalAuthorizesDirtyHead = journalAuthorizesDirtyCandidate(localLoopState, before.sha);
+      if (!journalAuthorizesDirtyHead) {
         return fail("existing_pr_batch_fix_candidate_dirty", "existing local candidate has unjournaled source changes");
       }
       return createLocalCandidateCommit({ runner, cwd, exactHead, changedFiles, message });
@@ -3940,6 +3965,99 @@ function createLocalCandidateCommit({ runner, cwd, exactHead, changedFiles, mess
   return { ok: true, reused: false, oldHead: exactHead, parent: parent.sha, newHead: head.sha, tree: tree.sha, commitChain: chain.chain, commitChainDigest: chain.digest, committedAt: new Date().toISOString() };
 }
 
+function journalAuthorizesDirtyCandidate(localLoopState, currentHead) {
+  if (!validSha(currentHead)) return false;
+  return (localLoopState?.phase === "source_fix_applied" && localLoopState?.candidateHead === currentHead)
+    || (localLoopState?.phase === "commit_reserved" && localLoopState?.reservedParentHead === currentHead);
+}
+
+function collectAppliedSourceFixFiles({ runner, cwd, candidateHead }) {
+  if (!validSha(candidateHead)) return fail("existing_pr_local_loop_applied_identity_invalid", "journaled candidate head is invalid");
+  const current = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_recovery_head_unreadable" });
+  if (!current.ok) return current;
+  const committed = current.sha === candidateHead ? { status: 0, stdout: "", error: null } : runner("git", ["diff", "--binary", `${candidateHead}..${current.sha}`], { cwd });
+  const unstaged = runner("git", ["diff", "--binary"], { cwd });
+  const staged = runner("git", ["diff", "--cached", "--binary"], { cwd });
+  const untracked = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+  if ([committed, unstaged, staged, untracked].some((result) => result.status !== 0 || result.error)) return fail("existing_pr_local_loop_applied_files_unreadable", "journal-authorized source-fix file identity is unreadable");
+  const untrackedFiles = normalizeChangedFiles(String(untracked.stdout || "").split(/\r?\n/));
+  const untrackedHashes = [];
+  for (const file of untrackedFiles) {
+    const hashed = runner("git", ["hash-object", "--", file], { cwd });
+    if (hashed.status !== 0 || hashed.error || !validSha(String(hashed.stdout || "").trim())) return fail("existing_pr_local_loop_applied_files_unreadable", "untracked source-fix content identity is unreadable");
+    untrackedHashes.push({ file, hash: String(hashed.stdout || "").trim() });
+  }
+  const committedNames = current.sha === candidateHead ? { status: 0, stdout: "", error: null } : runner("git", ["diff", "--name-only", `${candidateHead}..${current.sha}`], { cwd });
+  const unstagedNames = runner("git", ["diff", "--name-only"], { cwd });
+  const stagedNames = runner("git", ["diff", "--cached", "--name-only"], { cwd });
+  if ([committedNames, unstagedNames, stagedNames].some((result) => result.status !== 0 || result.error)) return fail("existing_pr_local_loop_applied_files_unreadable", "source-fix path identity is unreadable");
+  const committedFiles = normalizeChangedFiles(String(committedNames.stdout || "").split(/\r?\n/));
+  const unstagedFiles = normalizeChangedFiles(String(unstagedNames.stdout || "").split(/\r?\n/));
+  const stagedFiles = normalizeChangedFiles(String(stagedNames.stdout || "").split(/\r?\n/));
+  const files = normalizeChangedFiles([...committedFiles, ...unstagedFiles, ...stagedFiles, ...untrackedFiles]);
+  if (files.length === 0) return fail("existing_pr_local_loop_applied_files_missing", "journal-authorized source fix did not change files");
+  const identityDigest = digestJson({
+    candidateHead,
+    currentHead: current.sha,
+    committedPatchDigest: digestJson(committed.stdout || ""),
+    unstagedPatchDigest: digestJson(unstaged.stdout || ""),
+    stagedPatchDigest: digestJson(staged.stdout || ""),
+    untrackedHashes,
+  });
+  return { ok: true, currentHead: current.sha, files, digest: digestStringSet(files), identityDigest };
+}
+
+function collectCumulativeCandidateContentIdentity({ runner, cwd, parentHead }) {
+  if (!validSha(parentHead)) return fail("existing_pr_local_loop_precommit_identity_invalid", "reserved candidate parent is invalid");
+  const current = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_precommit_head_unreadable" });
+  if (!current.ok) return current;
+  if (current.sha !== parentHead) {
+    const ancestry = runner("git", ["merge-base", "--is-ancestor", parentHead, current.sha], { cwd });
+    if (ancestry.status !== 0 || ancestry.error) return fail("existing_pr_local_loop_precommit_ancestry_mismatch", "current candidate is not descended from its reserved parent");
+  }
+  const tracked = runner("git", ["diff", "--name-status", "--no-renames", parentHead], { cwd });
+  const untracked = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+  if ([tracked, untracked].some((result) => result.status !== 0 || result.error)) return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate content identity is unreadable");
+  const entries = new Map();
+  for (const line of String(tracked.stdout || "").split(/\r?\n/)) {
+    if (!line) continue;
+    const [rawStatus, ...pathParts] = line.split("\t");
+    const file = pathParts.join("\t").trim();
+    const status = String(rawStatus || "").slice(0, 1);
+    if (!file || !["A", "D", "M", "T", "U"].includes(status)) return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate tracked file identity is malformed");
+    entries.set(file, { file, status });
+  }
+  for (const file of normalizeChangedFiles(String(untracked.stdout || "").split(/\r?\n/))) entries.set(file, { file, status: "A" });
+  if (entries.size === 0) return fail("existing_pr_local_loop_precommit_files_missing", "pre-commit reservation requires source changes");
+  const content = [];
+  for (const entry of [...entries.values()].sort((left, right) => left.file.localeCompare(right.file))) {
+    if (entry.status === "D") {
+      content.push({ ...entry, hash: null });
+      continue;
+    }
+    const hashed = runner("git", ["hash-object", "--", entry.file], { cwd });
+    const hash = String(hashed.stdout || "").trim();
+    if (hashed.status !== 0 || hashed.error || !validSha(hash)) return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate file content identity is unreadable");
+    let fileMode;
+    try {
+      const info = lstatSync(path.join(cwd, entry.file));
+      if (info.isSymbolicLink()) fileMode = "120000";
+      else if (info.isFile()) fileMode = (info.mode & 0o111) !== 0 ? "100755" : "100644";
+      else return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate file type is unsupported");
+    } catch {
+      return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate file mode identity is unreadable");
+    }
+    content.push({ ...entry, hash, fileMode });
+  }
+  return { ok: true, currentHead: current.sha, files: content.map((entry) => entry.file), identityDigest: digestJson({ parentHead, content }) };
+}
+
+function persistAppliedSourceFix({ runner, cwd, statePath, state }) {
+  const applied = collectAppliedSourceFixFiles({ runner, cwd, candidateHead: state.candidateHead });
+  if (!applied.ok) return applied;
+  return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", appliedHead: applied.currentHead, appliedChangedFilesDigest: applied.identityDigest, evidenceInvalidated: true }) };
+}
+
 function applyFrozenLocalFindingBatch({ config, cwd, pr, statePath, state }) {
   if (!["findings_frozen", "source_fix_reserved"].includes(state.phase) || !state.frozenFindingDigest || !Array.isArray(state.frozenFindings) || !state.frozenFixPrompt) {
     return fail("existing_pr_local_loop_frozen_batch_invalid", "frozen local finding batch is incomplete or contradictory");
@@ -3961,15 +4079,15 @@ function applyFrozenLocalFindingBatch({ config, cwd, pr, statePath, state }) {
     if (ancestry.status !== 0 || ancestry.error) return fail("existing_pr_local_loop_recovery_head_mismatch", "recovered local head is not a descendant of the journaled candidate");
   }
   if (state.phase === "source_fix_reserved") {
-    if (!recoveryWorktree.clean || committedMutation) return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", evidenceInvalidated: true }) };
+    if (!recoveryWorktree.clean || committedMutation) return persistAppliedSourceFix({ runner: defaultRunner, cwd, statePath, state });
   }
   if (!recoveryWorktree.clean || committedMutation) {
-    return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", evidenceInvalidated: true }) };
+    return fail("existing_pr_local_loop_unreserved_mutation", "local source changes appeared before the durable fix reservation");
   }
   const reserved = state.phase === "source_fix_reserved" ? state : persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_reserved", mutationClaimId: digestJson({ prNumber: pr?.number, candidateHead: state.candidateHead, localRound: state.localRound, frozenFindingDigest: state.frozenFindingDigest }) });
   const localFix = runCodexPrompt({ ...config, repoRoot: cwd }, { branchName: pr?.headRefName || pr?.branch || "unknown", prompt: reserved.frozenFixPrompt, promptPath: localPromptPath }, "existing-pr-stack-inner-local-fix");
   if (!localFix.skipped && (localFix.error || localFix.status !== 0)) return fail("existing_pr_local_loop_fix_failed", localFix.error || localFix.tail || "local finding batch fix failed");
-  return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...reserved, phase: "source_fix_applied", evidenceInvalidated: true }) };
+  return persistAppliedSourceFix({ runner: defaultRunner, cwd, statePath, state: reserved });
 }
 
 function evaluateLocalFixAllowance({ config = {}, sourceCycleBudget = null, localRound }) {
@@ -4065,6 +4183,12 @@ function loadOrCreateLocalCandidateLoopState({ config = {}, pr = {}, exactHead, 
   }
   if (state.candidateHistory !== undefined && (!Array.isArray(state.candidateHistory) || state.candidateHistory.length > 6 || state.candidateHistory.some((entry) => !validSha(entry?.head) || !/^[a-f0-9]{64}$/.test(entry?.digest || "")))) {
     return fail("existing_pr_local_loop_state_contradictory", "local candidate history is malformed or exceeds its bounded window");
+  }
+  if (state.phase === "source_fix_applied" && (!validSha(state.appliedHead) || !/^[a-f0-9]{64}$/.test(state.appliedChangedFilesDigest || ""))) {
+    return fail("existing_pr_local_loop_state_contradictory", "applied source-fix identity is missing or malformed");
+  }
+  if (state.phase === "commit_reserved" && (!validSha(state.reservedParentHead) || !/^[a-f0-9]{64}$/.test(state.reservedChangedFilesDigest || "") || !/^[a-f0-9]{64}$/.test(state.reservedWorktreeIdentityDigest || "") || !state.reservedCommitMessage)) {
+    return fail("existing_pr_local_loop_state_contradictory", "pre-commit reservation identity is missing or malformed");
   }
   return { ok: true, state: { ...state, restartGeneration: Number(state.restartGeneration || 0) + (existsSync(statePath) ? 1 : 0) }, statePath };
 }
@@ -6066,6 +6190,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   buildCanonicalCandidatePrDelta,
   createProductionBatchFixAdapters,
   createOrReuseLocalCandidateCommit,
+  collectCumulativeCandidateContentIdentity,
   createSourceCycleOperationContext,
   deriveCanonicalCommitChain,
   digestStackPlan,
@@ -6079,6 +6204,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   evaluateSourceCycleBudget,
   fetchAndReadOriginMain,
   finalizePushIntent,
+  journalAuthorizesDirtyCandidate,
   normalizeSourceChangingConvergenceResult,
   validateCanonicalCommitChain,
   validateCandidateDeltaEvidence,

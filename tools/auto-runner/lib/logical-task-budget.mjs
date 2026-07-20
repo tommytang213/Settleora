@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isUtf8 } from "node:buffer";
-import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -43,14 +43,17 @@ export function loadLogicalTaskBudget(config, budgetScopeId) {
 
 export function chargeAcceptedLogicalTask(config, input = {}) {
   const budgetScopeId = boundedRequired(input.budgetScopeId, "budget_scope_id", 200);
-  const loaded = loadLogicalTaskBudget(config, budgetScopeId);
-  if (!loaded.ok) return loaded;
   const identity = canonicalIdentity({ ...input, repository: input.repository || config.repositorySlug });
   try {
     validateIdentity(identity);
   } catch (error) {
-    return { ok: false, reasonCode: "logical_task_charge_identity_invalid", reason: error.message, statePath: loaded.statePath };
+    return { ok: false, reasonCode: "logical_task_charge_identity_invalid", reason: error.message, statePath: logicalTaskBudgetPath(config, budgetScopeId) };
   }
+  const lock = acquireBudgetLock(config, budgetScopeId);
+  if (!lock.ok) return lock;
+  try {
+  const loaded = loadLogicalTaskBudget(config, budgetScopeId);
+  if (!loaded.ok) return loaded;
   const chargeId = logicalTaskChargeIdentity(identity);
   const replay = Object.values(loaded.state.charges || {}).find((marker) =>
     marker.identity?.repository === identity.repository &&
@@ -93,6 +96,9 @@ export function chargeAcceptedLogicalTask(config, input = {}) {
   };
   const written = writeState(loaded.statePath, state);
   return projection(written, loaded.statePath, marker, false);
+  } finally {
+    releaseBudgetLock(lock);
+  }
 }
 
 export function projectLogicalTaskBudget(state = {}) {
@@ -178,6 +184,67 @@ function writeState(statePath, state) {
   writeFileSync(tmpPath, `${JSON.stringify(safe, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmpPath, statePath);
   return safe;
+}
+
+function acquireBudgetLock(config, budgetScopeId) {
+  const statePath = logicalTaskBudgetPath(config, budgetScopeId);
+  const lockPath = `${statePath}.lock`;
+  try {
+    validateBudgetPath(config, lockPath);
+    mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+    validateBudgetPath(config, lockPath);
+  } catch {
+    return { ok: false, reasonCode: "logical_task_budget_lock_unsafe", statePath };
+  }
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const token = digest(`${process.pid}:${Date.now()}:${attempt}:${budgetScopeId}`);
+    try {
+      mkdirSync(lockPath, { mode: 0o700 });
+      const ownerPath = path.join(lockPath, "owner.json");
+      writeFileSync(ownerPath, `${JSON.stringify({ pid: process.pid, token, createdAt: new Date().toISOString() })}\n`, { flag: "wx", mode: 0o600 });
+      return { ok: true, lockPath, ownerPath, statePath, token };
+    } catch (error) {
+      if (error?.code !== "EEXIST") return { ok: false, reasonCode: "logical_task_budget_lock_failed", statePath };
+      let owner;
+      const ownerPath = path.join(lockPath, "owner.json");
+      try {
+        const info = lstatSync(lockPath);
+        const uid = typeof process.getuid === "function" ? process.getuid() : null;
+        const ownerInfo = lstatSync(ownerPath);
+        if (!info.isDirectory() || (uid !== null && info.uid !== uid) || (info.mode & 0o077) !== 0 || !ownerInfo.isFile() || (uid !== null && ownerInfo.uid !== uid) || (ownerInfo.mode & 0o077) !== 0 || ownerInfo.size <= 0 || ownerInfo.size > 4096) throw new Error("unsafe lock");
+        owner = JSON.parse(readFileSync(ownerPath, "utf8"));
+        if (!Number.isSafeInteger(owner.pid) || owner.pid < 1 || !/^[a-f0-9]{64}$/.test(owner.token || "")) throw new Error("invalid lock");
+      } catch {
+        return { ok: false, reasonCode: "logical_task_budget_lock_unsafe", statePath };
+      }
+      try {
+        process.kill(owner.pid, 0);
+        return { ok: false, reasonCode: "logical_task_budget_lock_busy", statePath };
+      } catch (error) {
+        if (error?.code === "EPERM") return { ok: false, reasonCode: "logical_task_budget_lock_busy", statePath };
+        if (error?.code !== "ESRCH") return { ok: false, reasonCode: "logical_task_budget_lock_unsafe", statePath };
+      }
+      try {
+        unlinkSync(ownerPath);
+        rmdirSync(lockPath);
+      } catch {
+        return { ok: false, reasonCode: "logical_task_budget_lock_recovery_failed", statePath };
+      }
+    }
+  }
+  return { ok: false, reasonCode: "logical_task_budget_lock_failed", statePath };
+}
+
+function releaseBudgetLock(lock) {
+  try {
+    const owner = JSON.parse(readFileSync(lock.ownerPath, "utf8"));
+    if (owner.token === lock.token && owner.pid === process.pid) {
+      unlinkSync(lock.ownerPath);
+      rmdirSync(lock.lockPath);
+    }
+  } catch {
+    // A missing or replaced lock is left fail-closed for the next acquisition.
+  }
 }
 
 function validateBudgetPath(config, statePath) {
