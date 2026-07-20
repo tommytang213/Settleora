@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, getRefSha } from "./git-workspace.mjs";
 
@@ -111,7 +112,7 @@ export function inspectPreReviewPrOwnership(config, branchName) {
   };
 }
 
-export function openOrUpdatePr(config, issue, branchName, summary) {
+export async function openOrUpdatePr(config, issue, branchName, summary, options = {}) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
   const body = [
     `Closes or updates #${issue.number}.`,
@@ -122,6 +123,7 @@ export function openOrUpdatePr(config, issue, branchName, summary) {
     "",
     "Auto-merge is disabled by default. Manual review is required.",
   ].join("\n");
+  if (options.effectContext) return canonicalPrCreate(config, issue, branchName, body, options.effectContext);
   const existing = runGh(["pr", "list", "--head", branchName, "--json", "number,url", "-q", ".[0].url"], config.repoRoot);
   if (existing.status === 0 && existing.stdout.trim()) {
     return { skipped: false, action: "existing", url: existing.stdout.trim() };
@@ -148,6 +150,51 @@ export function openOrUpdatePr(config, issue, branchName, summary) {
     url: result.status === 0 ? result.stdout.trim() : null,
   };
 }
+
+async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
+  const context = canonicalEffectContext(lifecycle);
+  const headSha = getRefSha("HEAD", { cwd: config.repoRoot });
+  const baseSha = getRefSha("origin/main", { cwd: config.repoRoot });
+  const title = `Auto-runner: #${issue.number} ${issue.title}`;
+  const effect = { sourceBranch: branchName, sourceHeadSha: headSha, targetBaseBranch: "main", targetBaseSha: baseSha, titleDigest: digest(title), bodyDigest: digest(body), draft: false, issueNumber: issue.number };
+  const canonicalConfig = { ...config, currentAuthority: context.currentAuthority };
+  const intent = canonicalIntent(context, "pr_create", effect, { branchName, baseBranch: "main", baseSha, headSha, issueNumber: issue.number });
+  let adoptedPr = null;
+  const result = await executeCanonicalEffect(canonicalConfig, {
+    ...canonicalExecutionInput(canonicalConfig, intent),
+    expectedIdentity: { ...context.expectedIdentity, branchName, baseBranch: "main", baseSha, headSha, issueNumber: issue.number },
+  }, {
+    readLive: (stored) => {
+      const live = readBranchPrs(config, branchName);
+      if (!live.complete) return { complete: false };
+      if (live.prs.length === 0) return { complete: true, present: false };
+      const matches = live.prs.filter((pr) => pr.state === "OPEN" && pr.headRefName === branchName && pr.headRefOid === headSha && pr.baseRefName === "main" && pr.isDraft === false && digest(pr.title || "") === effect.titleDigest && digest(pr.body || "") === effect.bodyDigest);
+      if (matches.length !== 1 || live.prs.length !== 1) return matches.length > 1 ? { complete: true, ambiguous: true } : { complete: true, present: true, identity: stored.identity, effect: { ...effect, sourceHeadSha: live.prs[0]?.headRefOid || "unknown" } };
+      adoptedPr = matches[0];
+      return { complete: true, present: true, identity: stored.identity, effect };
+    },
+    execute: () => {
+      const create = runGh(["pr", "create", "--base", "main", "--head", branchName, "--title", title, "--body", body], config.repoRoot);
+      if (create.error || create.status !== 0) throw new Error("Canonical PR create failed");
+      return { ok: true, status: create.status };
+    },
+  });
+  if (!result.ok) throw new Error(`Canonical PR create failed closed: ${result.reasonCode || result.classification}`);
+  if (!adoptedPr) {
+    const reread = readBranchPrs(config, branchName);
+    adoptedPr = reread.prs?.find((pr) => pr.state === "OPEN" && pr.headRefOid === headSha) || null;
+  }
+  return { skipped: false, action: result.action === "adopted" ? "existing" : "create", status: 0, url: adoptedPr?.url || null, number: adoptedPr?.number || null, canonicalEffect: result };
+}
+
+function readBranchPrs(config, branchName) {
+  const result = runGh(["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,isDraft,baseRefName,headRefName,headRefOid,title,body"], config.repoRoot);
+  if (result.error || result.status !== 0) return { complete: false, prs: [] };
+  try { const prs = JSON.parse(result.stdout || "[]"); return { complete: Array.isArray(prs), prs: Array.isArray(prs) ? prs : [] }; }
+  catch { return { complete: false, prs: [] }; }
+}
+
+function digest(value) { return createHash("sha256").update(String(value).replace(/\r\n/g, "\n").trimEnd()).digest("hex"); }
 
 export function watchChecks(config, prUrlOrNumber) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };

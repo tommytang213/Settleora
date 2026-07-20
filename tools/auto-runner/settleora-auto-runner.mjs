@@ -1359,7 +1359,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   recoveryRecorder?.marker("push", `branch-${branchName}`, { target: branchName, correlation: iteration.runnerCreatedCommitSha || runId });
   recoveryRecorder?.advance("pr_create_recover", "open_or_recover_pr");
-  iteration.pr = openOrUpdatePr(config, issue, branchName, prSummary(iteration));
+  iteration.pr = await openOrUpdatePr(config, issue, branchName, prSummary(iteration), { effectContext: promptInfo.sessionLifecycle?.state });
   if (iteration.pr?.url || iteration.pr?.number) {
     recoveryRecorder?.setPr(iteration.pr);
     recoveryRecorder?.marker("pr_create", `issue-${issue.number}`, {

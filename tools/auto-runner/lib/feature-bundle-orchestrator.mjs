@@ -441,7 +441,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
   recovery?.marker("push", `branch-${bundleBranchName}`, { target: bundleBranchName, correlation: finalHead || runId });
   recovery?.advance("pr_create_recover", "open_bundle_pr");
-  result.pr = openOrUpdatePr(config, issue, bundleBranchName, bundlePrSummary({ result, state, plan }));
+  result.pr = await openOrUpdatePr(config, issue, bundleBranchName, bundlePrSummary({ result, state, plan }), { effectContext: sessionLifecycle });
   if (result.pr?.url || result.pr?.number) {
     recovery?.setPr(result.pr);
     recovery?.marker("pr_create", `bundle-${plan.id}-issue-${issue.number}`, {
