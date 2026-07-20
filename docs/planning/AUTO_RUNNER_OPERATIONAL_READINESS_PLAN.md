@@ -2,7 +2,7 @@
 
 Status: implementation acceptance advanced; production profile not activated.
 
-Current reconciliation basis: `origin/main` at
+Acceptance-chain reconciliation snapshot: `origin/main` at
 `2dec1153f9cd353150df890dfd63da06abaec9ad` after the verified PR #930 ->
 #919 -> #920 -> #931 chain. The foundation issues #800, #889, and #894 remain
 closed. #913 and #921 are closed under their narrow close rules. PR #917 is
@@ -37,8 +37,9 @@ real issues, or perform live deployment/release actions.
 Safe inspection did not open secret files or print environment values. The
 following matrix records the external-profile gap observed by the original
 planning task. It is historical implementation context, not a current list of
-unimplemented repository capabilities. Current issue and repository state in
-the reconciliation section above is authoritative.
+unimplemented repository capabilities. The dated acceptance-chain snapshot
+above is orientation only; live GitHub state and the current repository tree
+remain authoritative.
 
 | Capability | Observed normal/trusted workflow-doc config | Observed canary profile | Required production posture |
 | --- | --- | --- | --- |
