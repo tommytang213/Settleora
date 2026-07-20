@@ -288,7 +288,7 @@ async function main() {
 
     const startedAtMs = Date.now();
     const issueTracker = createRunIssueTracker(summary);
-    for (let index = 1; summary.acceptedLogicalTaskCount < config.maxIterations; index += 1) {
+    for (let index = 1; config.dryRun ? index <= config.maxIterations : summary.acceptedLogicalTaskCount < config.maxIterations; index += 1) {
       const control = applyControlAtSafeBoundary(config, summary);
       if (control.action === "stop") {
         summary.stopReason = control.reason;
@@ -330,7 +330,7 @@ async function main() {
       writeActiveRunState(config, summary);
     }
     if (!summary.stopReason) {
-      summary.stopReason = "max-accepted-logical-tasks-reached";
+      summary.stopReason = config.dryRun ? "max-iterations-reached" : "max-accepted-logical-tasks-reached";
     }
     }
   } finally {
@@ -363,7 +363,9 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   const startupRecovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
   if (startupRecovery.found) {
-    const recoveryBudget = startupRecovery.allowed
+    const recoveryBudget = config.dryRun
+      ? { ok: true, charged: false, duplicate: false, preview: true, acceptedLogicalTaskCount: 0, reasonCode: "dry_run_recovery_not_charged" }
+      : startupRecovery.allowed
       ? chargeStartupRecoveryLogicalTask(config, runId, startupRecovery)
       : { ok: true, charged: false, skipped: true, reasonCode: "startup_recovery_not_allowed" };
     iteration.logicalTaskBudget = recoveryBudget;

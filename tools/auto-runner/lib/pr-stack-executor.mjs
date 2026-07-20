@@ -1802,12 +1802,20 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
   const runner = options.runner || defaultRunner;
   const cwd = config.repoRoot || process.cwd();
   return {
-    async runCodexBatchFix({ fixTask, pr }) {
+    async runCodexBatchFix({ fixTask, pr, exactHead }) {
       const proof = proveTargetBatchFixWorktree({ config, pr, runner });
       if (!proof.ok) return proof;
       if (proof.localCandidateHead && proof.localCandidateHead !== proof.expectedHead) {
         return { ok: true, skippedCodex: true, reason: "existing_unpushed_local_candidate", targetWorktreeProof: proof };
       }
+      const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
+      if (!loopState.ok) return loopState;
+      persistLocalCandidateLoopState(loopState.statePath, {
+        ...loopState.state,
+        phase: "outer_fix_reserved",
+        reservedParentHead: exactHead,
+        outerFixPromptDigest: digestJson(fixTask?.prompt || ""),
+      });
       const promptPath = path.join(
         config.logsRoot || "/workspace/logs/settleora-auto-runner",
         "review-fix",
@@ -3849,12 +3857,18 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
     const tree = readGitSha({ runner, cwd, ref: "HEAD^{tree}", reasonCode: "existing_pr_batch_fix_candidate_tree_unreadable" });
     if (localLoopState?.candidateHead !== before.sha || (localLoopState.candidateTree && localLoopState.candidateTree !== tree.sha)) {
       const immediateParent = readGitSha({ runner, cwd, ref: `${before.sha}^`, reasonCode: "existing_pr_batch_fix_candidate_parent_unreadable" });
-      const reservedRecovery = immediateParent.ok && localLoopState?.phase === "commit_reserved"
+      const commitReservedRecovery = immediateParent.ok && localLoopState?.phase === "commit_reserved"
         && localLoopState.reservedParentHead === immediateParent.sha;
+      const fixerCommittedRecovery = immediateParent.ok
+        && ((localLoopState?.phase === "outer_fix_reserved" && localLoopState.reservedParentHead === immediateParent.sha)
+          || (localLoopState?.phase === "source_fix_applied" && localLoopState.candidateHead === immediateParent.sha));
+      const reservedRecovery = commitReservedRecovery || fixerCommittedRecovery;
       if (!reservedRecovery) return fail("existing_pr_batch_fix_candidate_journal_mismatch", "clean local descendant is not bound to the durable candidate journal");
-      const subject = runner("git", ["log", "-1", "--format=%s", before.sha], { cwd });
-      const files = runner("git", ["diff", "--name-only", `${localLoopState.reservedParentHead}..${before.sha}`], { cwd });
-      if (subject.status !== 0 || subject.error || String(subject.stdout || "").trim() !== localLoopState.reservedCommitMessage || files.status !== 0 || files.error || digestStringSet(normalizeChangedFiles(String(files.stdout || "").split(/\r?\n/))) !== localLoopState.reservedChangedFilesDigest) {
+      const recoveryParent = localLoopState.reservedParentHead || localLoopState.candidateHead;
+      const files = runner("git", ["diff", "--name-only", `${recoveryParent}..${before.sha}`], { cwd });
+      const subject = commitReservedRecovery ? runner("git", ["log", "-1", "--format=%s", before.sha], { cwd }) : { status: 0, stdout: localLoopState.reservedCommitMessage || "", error: null };
+      const actualFilesDigest = files.status === 0 && !files.error ? digestStringSet(normalizeChangedFiles(String(files.stdout || "").split(/\r?\n/))) : null;
+      if (subject.status !== 0 || subject.error || (commitReservedRecovery && String(subject.stdout || "").trim() !== localLoopState.reservedCommitMessage) || files.status !== 0 || files.error || (commitReservedRecovery && actualFilesDigest !== localLoopState.reservedChangedFilesDigest)) {
         return fail("existing_pr_batch_fix_candidate_journal_mismatch", "reserved candidate commit does not match its durable parent, message, and file-set identity");
       }
     }
@@ -3902,15 +3916,14 @@ function applyFrozenLocalFindingBatch({ config, cwd, pr, statePath, state }) {
     if (ancestry.status !== 0 || ancestry.error) return fail("existing_pr_local_loop_recovery_head_mismatch", "recovered local head is not a descendant of the journaled candidate");
   }
   if (state.phase === "source_fix_reserved") {
-    if (recoveryWorktree.clean && !committedMutation) return fail("existing_pr_local_loop_reserved_fix_ambiguous", "reserved local fix has no durable source delta; replay is refused");
-    return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", evidenceInvalidated: true }) };
+    if (!recoveryWorktree.clean || committedMutation) return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", evidenceInvalidated: true }) };
   }
   if (!recoveryWorktree.clean || committedMutation) {
     return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", evidenceInvalidated: true }) };
   }
-  const localFix = runCodexPrompt({ ...config, repoRoot: cwd }, { branchName: pr?.headRefName || pr?.branch || "unknown", prompt: state.frozenFixPrompt, promptPath: localPromptPath }, "existing-pr-stack-inner-local-fix");
+  const reserved = state.phase === "source_fix_reserved" ? state : persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_reserved", mutationClaimId: digestJson({ prNumber: pr?.number, candidateHead: state.candidateHead, localRound: state.localRound, frozenFindingDigest: state.frozenFindingDigest }) });
+  const localFix = runCodexPrompt({ ...config, repoRoot: cwd }, { branchName: pr?.headRefName || pr?.branch || "unknown", prompt: reserved.frozenFixPrompt, promptPath: localPromptPath }, "existing-pr-stack-inner-local-fix");
   if (!localFix.skipped && (localFix.error || localFix.status !== 0)) return fail("existing_pr_local_loop_fix_failed", localFix.error || localFix.tail || "local finding batch fix failed");
-  const reserved = persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_reserved", mutationClaimId: digestJson({ prNumber: pr?.number, candidateHead: state.candidateHead, localRound: state.localRound, frozenFindingDigest: state.frozenFindingDigest }) });
   return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...reserved, phase: "source_fix_applied", evidenceInvalidated: true }) };
 }
 
