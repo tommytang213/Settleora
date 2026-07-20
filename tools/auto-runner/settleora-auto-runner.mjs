@@ -703,6 +703,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       headSha: getRefSha("HEAD"),
       phase: "implementation_or_bundle_slice",
       nextExactAction: "run_implementation",
+      contextPolicy: config.sessionLifecycle.contextBudget,
       reservations: recoveryRecorder?.state?.mutationMarkers || {},
       evidence: recoveryRecorder?.state?.evidence || {},
       reportPath: promptInfo.reportPath,
