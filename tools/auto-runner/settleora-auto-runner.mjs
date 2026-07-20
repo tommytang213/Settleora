@@ -96,7 +96,7 @@ import {
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
-import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary } from "./lib/recovery-continuation.mjs";
+import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity } from "./lib/recovery-continuation.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -353,6 +353,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
       : await executeStartupContinuation(config, startupRecovery);
     iteration.recovery = continuation.recovery || startupRecovery;
+    const recoveryIssue = startupRecovery.allowed
+      ? projectStartupRecoveryIssueIdentity(startupRecovery, continuation)
+      : null;
+    iteration.issue = recoveryIssue?.ok ? recoveryIssue.issue : null;
     iteration.existingPrRecovery = continuation.result?.existingPrRecovery || null;
     iteration.bundle = continuation.result?.bundle || null;
     iteration.autoMerge = continuation.result?.autoMerge || null;
@@ -363,11 +367,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.externalReview = continuation.result?.externalReview || null;
     iteration.baseOriginMainSha = continuation.result?.baseOriginMainSha || startupRecovery.state?.baseSha || null;
     iteration.runnerCreatedCommitSha = continuation.result?.expectedHeadSha || startupRecovery.state?.currentHeadSha || null;
-    iteration.outcome = continuation.outcome;
-    iteration.systemicStop = continuation.ok === false
-      ? `recoverable-work-blocked:${continuation.reasonCode}`
+    iteration.outcome = recoveryIssue && !recoveryIssue.ok ? "blocked_recovery_state" : continuation.outcome;
+    const recoveryReasonCode = recoveryIssue && !recoveryIssue.ok ? recoveryIssue.reasonCode : continuation.reasonCode;
+    iteration.systemicStop = continuation.ok === false || (recoveryIssue && !recoveryIssue.ok)
+      ? `recoverable-work-blocked:${recoveryReasonCode}`
       : continuation.outcome === "recovery_stopped_at_safe_boundary"
-        ? `recoverable-work-stopped:${continuation.reasonCode}`
+        ? `recoverable-work-stopped:${recoveryReasonCode}`
         : null;
     iteration.finishedAt = new Date().toISOString();
     logger.info(

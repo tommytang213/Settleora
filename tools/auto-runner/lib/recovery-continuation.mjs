@@ -319,6 +319,25 @@ export function recoveryStatusSummary(input = {}) {
   return summarizeRecoverableState(state);
 }
 
+export function projectStartupRecoveryIssueIdentity(recovery = {}, continuation = {}) {
+  const issueNumber = recovery?.state?.issueNumber;
+  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) {
+    return { ok: false, reasonCode: "startup_recovery_issue_identity_missing", issue: null };
+  }
+  const projectedCandidates = [
+    continuation?.result?.issue?.number,
+    continuation?.result?.existingPrRecovery?.issue?.number,
+    continuation?.result?.autoMerge?.issueNumber,
+  ].filter((value) => value !== undefined && value !== null);
+  if (projectedCandidates.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
+    return { ok: false, reasonCode: "startup_recovery_issue_identity_malformed", issue: null };
+  }
+  if (projectedCandidates.some((value) => value !== issueNumber)) {
+    return { ok: false, reasonCode: "startup_recovery_issue_identity_conflict", issue: null };
+  }
+  return { ok: true, reasonCode: "startup_recovery_issue_identity_validated", issue: { number: issueNumber } };
+}
+
 function summarizeRecoverableState(state) {
   return {
     active: true,
