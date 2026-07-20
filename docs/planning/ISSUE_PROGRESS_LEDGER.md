@@ -20,6 +20,55 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Auto-runner post-acceptance reconciliation - 20260720-1321
+
+- Verified current-main SHA:
+  `2dec1153f9cd353150df890dfd63da06abaec9ad`.
+- Completed chain:
+  PR #930 merged at `78c0e747bc799b1a7ba7777580a4ae96e68e3c4a`,
+  PR #919 at `2662b02f8db3c39a4c385c748bc2ccfe085e47f1`,
+  PR #920 at `af9602fb5576501c38c08392ba27820a3a1df729`,
+  and corrective PR #931 at
+  `2dec1153f9cd353150df890dfd63da06abaec9ad`.
+- #913 and #921 are closed after their narrow implementation, validation,
+  review/scanner, live acceptance, correction, and idempotent readback gates
+  passed. Separate follow-ups do not reopen or expand their close rules.
+- PR #917 is closed without merge as fully superseded. Its frozen head remains
+  `3110a19c031f956fec8521d1e0d1b206dee3d8c0`, and source branch
+  `feature/auto-913-bounded-outage-resubmission-20260715-0013` is retained.
+  The rewritten split had no identical stable patch IDs, but semantic/file
+  comparison proved equivalent or stronger current-main behavior, including
+  the Route B terminal-field positive allowlist that resolves #917's last
+  unresolved finding. No unique required behavior, test, or safety guarantee
+  remains solely in #917.
+- #910 stays open as the readiness umbrella. #912 stays open as the separate
+  unperformed manual production-activation gate.
+- Current narrow ownership:
+  #923 owns the inner local and outer GitHub convergence loops and blocking
+  nested counter policy; #924 owns large-candidate escalation and safe split
+  routing; #927 projects authoritative state/counters only; #928 owns
+  interruption recovery; #929 owns proactive fresh-session rotation; and #932
+  owns accepted logical-task accounting and cross-counter reporting.
+- The inner loop is validation, fresh Gemini, fresh local Codex, one bounded
+  source-fix batch, then repeat until both pass. The outer loop updates the
+  same PR, waits for GitHub Codex/CI/scanners/threads, and returns every
+  source-changing finding to the complete inner loop before another push and
+  exact-head merge gate.
+- `localSourceChangingRoundsPerEpoch` is capped at 50 per local epoch and
+  resets only for a new GitHub-triggered local epoch;
+  `githubTriggeredFixEpochsPerPr` is capped at 50 cumulative per PR;
+  `lifetimeLocalSourceChangingRounds` is telemetry only.
+- Only a successfully claimed/accepted logical task consumes one top-level
+  unit. A later blocked or failed accepted task counts once. Pre-claim skips,
+  nested review/fix rounds, retries/polls, restarts, recovery continuation, and
+  session rotation do not consume extra top-level units.
+- Project fields were unavailable (`projectItems` empty), so no status field
+  was guessed or mutated. Production profile, systemd/deployment,
+  secrets/configuration, public exposure, and genuine manual authorities
+  remain unperformed.
+- Report:
+  `/workspace/logs/settleora-codex-report-20260720-1321-auto-runner-post-acceptance-hygiene.md`.
+
 ### Issue #913 - bounded outage resubmission feature bundle in progress
 
 - Task key: `20260715-0013`.

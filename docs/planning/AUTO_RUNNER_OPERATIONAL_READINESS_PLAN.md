@@ -1,12 +1,15 @@
 # Auto-Runner Operational Readiness Plan
 
-Status: planned, not activated.
+Status: implementation acceptance advanced; production profile not activated.
 
-Current basis: `origin/main` at
-`d923655348e232fff1642d563a02f9d610196faa` after PR #909. The foundation
-issues #800, #889, and #894 are closed complete. #902 remains the open
-post-foundation scanner/dependency ingestion issue. Protected canaries #865 and
-#866 remain open and unchanged.
+Current reconciliation basis: `origin/main` at
+`2dec1153f9cd353150df890dfd63da06abaec9ad` after the verified PR #930 ->
+#919 -> #920 -> #931 chain. The foundation issues #800, #889, and #894 remain
+closed. #913 and #921 are closed under their narrow close rules. PR #917 is
+closed without merge as fully superseded, with its source branch retained.
+#902 and follow-ups #923, #924, #927, #928, #929, and #932 remain open. #910
+remains the readiness umbrella and #912 remains the separate manual production
+activation gate.
 
 This plan records the remaining operational activation work. It does not change
 runner behavior, enable external profiles, mutate canaries, dismiss alerts, run
@@ -289,16 +292,26 @@ The implementation tasks below should add regression tests/documentation that
 preserve this hierarchy where new scheduler/resubmission and issue creation
 paths are added.
 
-## Implementation Sequence
+## Current Remaining Sequence
 
-1. Merge this planning PR through a separate exact-head manual merge gate.
-2. Implement `mobile-build-config` lane and validation profile with unit tests,
-   path fixtures, issue contract examples, and README/workflow docs in #911.
-3. Implement #902 scanner/dependency ingestion with the automatic
-   strongly-proven false-positive disposition gates above.
-4. Implement the bounded outage-resubmission controller in #913.
-5. Activate the external production profile in a separate live-configuration
-   acceptance task after code/docs/CI are merged and reviewed.
+The original planning PR and the #913/#921 implementation acceptance chain are
+complete. Current live issues now own the remaining work:
+
+1. Complete still-open canonical lane and #902 scanner/dependency work under
+   their own scopes and gates.
+2. Implement #923's distinct inner-local and outer-GitHub convergence loops
+   and nested counters, then #924's large-candidate escalation/split routing
+   against the same candidate identity.
+3. Implement #927 authoritative state/counter projection, #928 interruption
+   recovery, and #929 proactive fresh-session rotation without parallel state
+   or controller authorities.
+4. Implement #932 accepted logical-task accounting and exactly-once durable
+   charging/projection. Skips, nested rounds/epochs, retries/polls, restarts,
+   recovery continuation, and session rotation must not consume extra
+   top-level task units.
+5. Activate the external production profile only through #912's separate
+   manual live-configuration acceptance after all required implementation and
+   non-production acceptance gates pass.
 6. Run live canaries only in a separate canary task; do not use #865/#866 unless
    the task explicitly authorizes mutation and fingerprints are checked before
    and after.
@@ -310,6 +323,15 @@ Tracking issues created by this planning task:
 - #912: production profile activation and live acceptance.
 - #913: bounded outage resubmission and recovery controller.
 - #902: amended scanner/dependency ingestion issue.
+
+Post-acceptance issues added after the original planning task:
+
+- #923: local/GitHub dual-review convergence and nested counters.
+- #924: large-candidate escalation and safe split routing.
+- #927: authoritative status/counter projection and ledger decoupling.
+- #928: reportless compaction/process-interruption recovery.
+- #929: proactive context budgeting and fresh-session rotation.
+- #932: accepted logical-task budget and nested-counter accounting.
 
 ## Rollout And Rollback
 
