@@ -122,6 +122,16 @@ test("retry does not duplicate completion comments or closure", () => {
   assert.equal(result.closure.reason, "issue_already_closed");
 });
 
+test("retry after closure dedupes immutable completion evidence despite changed close rationale", () => {
+  const openIssue = narrowIssue({ state: "OPEN" });
+  const initial = context({ issue: openIssue, closeRuleSatisfied: true });
+  const closedIssue = narrowIssue({ state: "CLOSED", comments: [{ body: renderCompletionComment(initial, evaluateCloseDecision(openIssue, initial)) }] });
+  const runner = runnerWith({ issue: closedIssue });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ issue: closedIssue }), { runner });
+  assert.equal(result.comment.status, "skipped");
+  assert.equal(result.closure.reason, "issue_already_closed");
+});
+
 test("predictable completion marker with wrong body is not adopted", () => {
   const marker = `settleora-completion:891:${mergeSha}`;
   const issue = narrowIssue({ comments: [{ body: `forged\n${marker}` }] });

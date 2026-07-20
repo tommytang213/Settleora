@@ -227,10 +227,15 @@ function explicitCloseRuleSatisfied(issue = {}, context = {}) {
   return Boolean(context.closeRuleSatisfied || (context.mergeSha && context.validation?.passed === true));
 }
 
-function hasCompletionComment(issue = {}, context = {}, expectedBody = "") {
+function hasCompletionComment(issue = {}, context = {}) {
   const marker = `settleora-completion:${issue.number}:${context.mergeSha || "unknown"}`;
-  const digest = canonicalGithubEvidenceDigest(expectedBody);
-  return (issue.comments || []).some((comment) => String(comment.body || "").includes(marker) && canonicalGithubEvidenceDigest(String(comment.body || "")) === digest);
+  const sourceHead = context.sourceHeadSha || context.expectedHeadSha || "unknown";
+  return (issue.comments || []).some((comment) => {
+    const body = String(comment.body || "");
+    return body.split(/\r?\n/).includes(`Completion marker: ${marker}`)
+      && body.includes(`Source head: \`${sourceHead}\``)
+      && body.includes(`Merge SHA: \`${context.mergeSha || "unknown"}\``);
+  });
 }
 
 function postParentProgress(config, context, runner, repositoryContext) {
