@@ -573,9 +573,11 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
     const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
-  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
-  if (merge.error || merge.status !== 0) {
-    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
+  const merge = finalContext.sessionLifecycle
+    ? executeCanonicalMergeEffect(config, finalContext, { runner, repositorySlug, prNumber, finalDecision })
+    : runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+  if ((finalContext.sessionLifecycle && !merge.ok) || (!finalContext.sessionLifecycle && (merge.error || merge.status !== 0))) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: finalContext.sessionLifecycle ? merge.reasonCode : bounded(merge.stderr || merge.stdout || merge.error) };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
 

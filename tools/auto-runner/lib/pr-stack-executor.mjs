@@ -29,6 +29,7 @@ import { classifyIssueLane, filterForbiddenChangedFiles, laneManifest } from "./
 import { runCodexPrompt } from "./codex-runner.mjs";
 import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
+import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -1010,6 +1011,7 @@ export function createInitialPrStackState({ plan, adapter = null } = {}) {
     repository: plan.repository,
     issueNumber: plan.issueNumber ?? null,
     trackerIssues: plan.trackerIssues || plan.issues || {},
+    sessionLifecycle: plan.sessionLifecycle || null,
     orderedPrs: plan.orderedPrs.map((pr) => immutablePrIdentity(pr)),
     activePrNumber: plan.activePrNumber || plan.orderedPrs[0]?.number || null,
     currentPhase: "initialized",
@@ -1701,6 +1703,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         review: reviewEvidence.codex,
         codexMechanicsReviewApproved: reviewEvidence.codexMechanicsReviewApproved === true,
         issueLinkageEvidence: gateEvidence.issueLinkageEvidence || { available: true, linked: true, matchedSources: ["stack-plan"] },
+        sessionLifecycle: state.sessionLifecycle || plan?.sessionLifecycle || null,
       };
       const mergeRunner = repositoryBoundGhRunner(run, repositoryContext.context);
       const result = executeAutoMergeMergeOnly(targetConfig, context, { runner: mergeRunner, inspectState: () => ({ pr: inspection.pr, requiredChecks: inspection.requiredChecks, reviewThreads: inspection.reviewThreads, codeScanningAlerts: inspection.codeScanningAlerts, blockingMarkers: inspection.blockingMarkers || [] }) });
@@ -1714,12 +1717,27 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     async fetchCurrentMain({ config: cfg, state, pr }) {
       return fetchCurrentMainProof({ config: cfg || config, state, pr, runner: run });
     },
-    async retargetPrBase({ pr, newBase, expectedHead, expectedCurrentBase, repositoryContext = null }) {
+    async retargetPrBase({ pr, newBase, expectedHead, expectedCurrentBase, operationIntent = null, repositoryContext = null }) {
       const repo = repositoryContext?.argvRepository || config.repositorySlug || "tommytang213/Settleora";
       const proof = readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner: run, repositoryContext });
       if (!proof.ok) return proof;
-      const result = run("gh", ["pr", "edit", String(pr.number), "--repo", repo, "--base", String(newBase)], { cwd: config.repoRoot });
-      if (result.status !== 0 || result.error) return fail("retarget_failed", boundedText(result.stderr || result.error || result.stdout));
+      const effect = { prNumber: pr.number, expectedHead, expectedCurrentBase, newBase, operationIntentDigest: canonicalGithubEvidenceDigest(operationIntent || {}) };
+      const result = operationIntent?.sessionLifecycle
+        ? executeCanonicalGithubEffectSync(config, operationIntent.sessionLifecycle, { effectType: "pr_retarget", prNumber: pr.number, headSha: expectedHead, baseBranch: expectedCurrentBase, effect }, {
+            readLive: (intent) => {
+              const live = readPrRetargetProof({ config, pr: { ...pr, baseRefName: newBase }, expectedHead, expectedCurrentBase: newBase, runner: run, repositoryContext });
+              if (live.ok) return { complete: true, present: true, identity: intent.identity, effect };
+              const absent = readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner: run, repositoryContext });
+              return absent.ok ? { complete: true, present: false } : { complete: false };
+            },
+            execute: () => {
+              const mutation = run("gh", ["pr", "edit", String(pr.number), "--repo", repo, "--base", String(newBase)], { cwd: config.repoRoot });
+              if (mutation.status !== 0 || mutation.error) throw new Error("Canonical PR retarget did not confirm success");
+              return { ok: true, status: mutation.status };
+            },
+          })
+        : run("gh", ["pr", "edit", String(pr.number), "--repo", repo, "--base", String(newBase)], { cwd: config.repoRoot });
+      if ((operationIntent?.sessionLifecycle && !result.ok) || (!operationIntent?.sessionLifecycle && (result.status !== 0 || result.error))) return fail("retarget_failed", operationIntent?.sessionLifecycle ? result.reasonCode : boundedText(result.stderr || result.error || result.stdout));
       const after = readPrRetargetProof({ config, pr: { ...pr, baseRefName: newBase }, expectedHead, expectedCurrentBase: newBase, runner: run, repositoryContext });
       if (!after.ok) return after;
       return { ok: true, prNumber: pr.number, newBase, expectedHead, expectedCurrentBase, before: proof.proof, after: after.proof };
@@ -1729,12 +1747,27 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (!current.ok) return current;
       return { ok: true, before: pr.ownDelta, after: current.ownDelta };
     },
-    async markReadyForReview({ pr, expectedHead, repositoryContext = null }) {
+    async markReadyForReview({ pr, expectedHead, operationIntent = null, repositoryContext = null }) {
       const repo = repositoryContext?.argvRepository || config.repositorySlug || "tommytang213/Settleora";
       const before = readPrReadyProof({ config, pr, expectedHead, expectedDraft: true, runner: run, repositoryContext });
       if (!before.ok) return before;
-      const result = run("gh", ["pr", "ready", String(pr.number), "--repo", repo], { cwd: config.repoRoot });
-      if (result.status !== 0 || result.error) return fail("ready_failed", boundedText(result.stderr || result.error || result.stdout));
+      const effect = { prNumber: pr.number, expectedHead, expectedDraftBefore: true, expectedDraftAfter: false, operationIntentDigest: canonicalGithubEvidenceDigest(operationIntent || {}) };
+      const result = operationIntent?.sessionLifecycle
+        ? executeCanonicalGithubEffectSync(config, operationIntent.sessionLifecycle, { effectType: "pr_ready", prNumber: pr.number, headSha: expectedHead, effect }, {
+            readLive: (intent) => {
+              const live = readPrReadyProof({ config, pr: { ...pr, isDraft: false }, expectedHead, expectedDraft: false, runner: run, repositoryContext });
+              if (live.ok) return { complete: true, present: true, identity: intent.identity, effect };
+              const absent = readPrReadyProof({ config, pr, expectedHead, expectedDraft: true, runner: run, repositoryContext });
+              return absent.ok ? { complete: true, present: false } : { complete: false };
+            },
+            execute: () => {
+              const mutation = run("gh", ["pr", "ready", String(pr.number), "--repo", repo], { cwd: config.repoRoot });
+              if (mutation.status !== 0 || mutation.error) throw new Error("Canonical PR ready transition did not confirm success");
+              return { ok: true, status: mutation.status };
+            },
+          })
+        : run("gh", ["pr", "ready", String(pr.number), "--repo", repo], { cwd: config.repoRoot });
+      if ((operationIntent?.sessionLifecycle && !result.ok) || (!operationIntent?.sessionLifecycle && (result.status !== 0 || result.error))) return fail("ready_failed", operationIntent?.sessionLifecycle ? result.reasonCode : boundedText(result.stderr || result.error || result.stdout));
       const after = readPrReadyProof({ config, pr: { ...pr, isDraft: false }, expectedHead, expectedDraft: false, runner: run, repositoryContext });
       if (!after.ok) return after;
       return { ok: true, prNumber: pr.number, expectedHead, before: before.proof, after: after.proof };
@@ -2347,6 +2380,7 @@ function persistStackOperationIntent({ config = {}, plan = null, state = {}, pr 
     taskKey: config.taskKey || null,
     runId: config.runId || null,
     supervisorRunId: config.supervisorRunId || null,
+    sessionLifecycle: state.sessionLifecycle || null,
     expectedPreState,
     intendedPostState,
     operationEvidence: operationEvidence ? sanitizeState(operationEvidence) : null,
