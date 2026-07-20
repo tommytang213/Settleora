@@ -7,9 +7,9 @@ Current reconciliation basis: `origin/main` at
 #919 -> #920 -> #931 chain. The foundation issues #800, #889, and #894 remain
 closed. #913 and #921 are closed under their narrow close rules. PR #917 is
 closed without merge as fully superseded, with its source branch retained.
-#902 and follow-ups #923, #924, #927, #928, #929, and #932 remain open. #910
-remains the readiness umbrella and #912 remains the separate manual production
-activation gate.
+#911 completed through PR #915 and #902 completed through PR #916. Follow-ups
+#923, #924, #927, #928, #929, and #932 remain open. #910 remains the readiness
+umbrella and #912 remains the separate manual production activation gate.
 
 This plan records the remaining operational activation work. It does not change
 runner behavior, enable external profiles, mutate canaries, dismiss alerts, run
@@ -297,32 +297,32 @@ paths are added.
 The original planning PR and the #913/#921 implementation acceptance chain are
 complete. Current live issues now own the remaining work:
 
-1. Complete still-open canonical lane and #902 scanner/dependency work under
-   their own scopes and gates.
-2. Implement #923's distinct inner-local and outer-GitHub convergence loops
+1. Implement #923's distinct inner-local and outer-GitHub convergence loops
    and nested counters, then #924's large-candidate escalation/split routing
    against the same candidate identity.
-3. Implement #927 authoritative state/counter projection, #928 interruption
+2. Implement #927 authoritative state/counter projection, #928 interruption
    recovery, and #929 proactive fresh-session rotation without parallel state
    or controller authorities.
-4. Implement #932 accepted logical-task accounting and exactly-once durable
+3. Implement #932 accepted logical-task accounting and exactly-once durable
    charging/projection. Skips, nested rounds/epochs, retries/polls, restarts,
    recovery continuation, and session rotation must not consume extra
    top-level task units.
-5. Activate the external production profile only through #912's separate
+4. Activate the external production profile only through #912's separate
    manual live-configuration acceptance after all required implementation and
    non-production acceptance gates pass.
-6. Run live canaries only in a separate canary task; do not use #865/#866 unless
+5. Run live canaries only in a separate canary task; do not use #865/#866 unless
    the task explicitly authorizes mutation and fingerprints are checked before
    and after.
 
 Tracking issues created by this planning task:
 
 - #910: operational readiness umbrella/tracker.
-- #911: `mobile-build-config` lane and validation profile.
+- #911: `mobile-build-config` lane and validation profile; closed through PR
+  #915, merge `67ebf68b8ad91bef7af33eace681ff33cf3b79a6`.
 - #912: production profile activation and live acceptance.
 - #913: bounded outage resubmission and recovery controller.
-- #902: amended scanner/dependency ingestion issue.
+- #902: scanner/dependency ingestion; closed through PR #916, merge
+  `3b3212c43c702db3cabdaff1c28d089f39c54441`.
 
 Post-acceptance issues added after the original planning task:
 
@@ -353,9 +353,9 @@ Operational readiness is complete only when:
 - production profile activation is reviewed and live with no secret disclosure;
 - every canonical runnable lane is either explicitly approved or intentionally
   excluded with a manual reason;
-- mobile native build configuration has a tested canonical lane;
-- #902 implements scanner/dependency ingestion and strongly proven
-  false-positive disposition with exact-head evidence and no broad suppression;
+- mobile native build configuration remains accepted through #911 / PR #915;
+- scanner/dependency ingestion and strongly proven false-positive disposition
+  remain accepted through #902 / PR #916, with no broad suppression;
 - prolonged transient outages have bounded automatic resubmission without
   duplicate mutation;
 - ledger remains derived/cache-like in docs and tests;
@@ -364,7 +364,7 @@ Operational readiness is complete only when:
 
 ## Next Task
 
-After this planning PR is opened, the next action is a separate exact-head
-manual merge gate for that PR. Implementation should then proceed blocker-first:
-`mobile-build-config` lane, #902 policy/mechanics, outage resubmission, and only
-then external production-profile activation.
+Proceed through the current remaining sequence above, beginning with the
+post-acceptance controller/accounting/recovery issues. Do not repeat completed
+#911/#902 implementation. External production-profile activation remains last
+and manual under #912.
