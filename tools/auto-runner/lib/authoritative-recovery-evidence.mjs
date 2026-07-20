@@ -26,7 +26,7 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
   try { processRead = sanitizeProcess(readProcess()); } catch { diagnostics.push("process_read_failed"); }
   try { leaseRead = sanitizeLease(readLease()); } catch { diagnostics.push("lease_read_failed"); }
   try { gitRead = sanitizeGit(readGit()); } catch { diagnostics.push("git_read_failed"); }
-  try { githubRead = sanitizeGithub(readGithub()); } catch { diagnostics.push("github_read_failed"); }
+  try { githubRead = sanitizeGithub(readGithub(), expected); } catch { diagnostics.push("github_read_failed"); }
   if (!processRead?.complete) diagnostics.push("process_identity_or_liveness_incomplete");
   if (!leaseRead?.complete) diagnostics.push("lease_identity_or_liveness_incomplete");
   if (!gitRead?.complete) diagnostics.push("git_readback_incomplete");
@@ -167,15 +167,30 @@ function defaultGitRead(config, identity) {
 }
 
 function defaultGithubRead(config, identity) {
-  const issueResult = spawnSync("gh", ["issue", "view", String(identity.issueNumber), "--repo", config.repositorySlug, "--json", "number,state,comments"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+  const issueResult = spawnSync("gh", ["issue", "view", String(identity.issueNumber), "--repo", config.repositorySlug, "--json", "number,state"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
   if (issueResult.status !== 0) return { complete: false, source: "gh_cli" };
   const issue = JSON.parse(issueResult.stdout);
-  if (!identity.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: (issue.comments || []).map(commentIdentity).slice(0, 200), issue: { number: issue.number, state: issue.state }, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
-  const result = spawnSync("gh", ["pr", "view", String(identity.prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup,comments"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+  const issueComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${identity.issueNumber}/comments?per_page=100`);
+  if (!issueComments.complete) return { complete: false, source: "gh_cli" };
+  if (!identity.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue: { number: issue.number, state: issue.state }, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
+  const result = spawnSync("gh", ["pr", "view", String(identity.prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
   if (result.status !== 0) return { complete: false, source: "gh_cli" };
   const pr = JSON.parse(result.stdout);
-  const comments = [...(issue.comments || []), ...(pr.comments || [])].map(commentIdentity).slice(0, 200);
+  const prComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${identity.prNumber}/comments?per_page=100`);
+  const reviewComments = readAllGithubComments(config, `repos/${config.repositorySlug}/pulls/${identity.prNumber}/comments?per_page=100`);
+  if (!prComments.complete || !reviewComments.complete) return { complete: false, source: "gh_cli" };
+  const comments = [...issueComments.comments, ...prComments.comments, ...reviewComments.comments];
   return { complete: true, source: "gh_cli", pr: { number: pr.number, state: pr.state, baseRefName: pr.baseRefName, headRefName: pr.headRefName, headSha: pr.headRefOid, draft: pr.isDraft, mergeable: pr.mergeable, mergeStateStatus: pr.mergeStateStatus, mergeSha: pr.mergeCommit?.oid || null }, comments, issue: { number: issue.number, state: issue.state }, checks: checks(pr.statusCheckRollup), hygiene: [] };
+}
+
+function readAllGithubComments(config, endpoint) {
+  const result = spawnSync("gh", ["api", "--paginate", "--slurp", endpoint], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
+  if (result.status !== 0) return { complete: false, comments: [] };
+  try {
+    const pages = JSON.parse(result.stdout);
+    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) return { complete: false, comments: [] };
+    return { complete: true, comments: pages.flat().map(commentIdentity) };
+  } catch { return { complete: false, comments: [] }; }
 }
 
 function reconcileIdentity(identity, git, github, contradictions, ambiguities) {
@@ -215,7 +230,7 @@ function sanitizeAuthority(v = {}) { return { ownerSessionId: bounded(v.ownerSes
 function sanitizeProcess(v = {}) { return { complete: v.complete === true, pid: Number.isSafeInteger(v.pid) ? v.pid : null, ownerRunId: bounded(v.ownerRunId, 160), alive: typeof v.alive === "boolean" ? v.alive : null, source: bounded(v.source, 80) }; }
 function sanitizeLease(v = {}) { return { complete: v.complete === true, runId: bounded(v.runId, 120), runnerRunId: bounded(v.runnerRunId, 160), heartbeatAt: iso(v.heartbeatAt), expiresAt: iso(v.expiresAt), valid: typeof v.valid === "boolean" ? v.valid : null, source: bounded(v.source, 80) }; }
 function sanitizeGit(v = {}) { return { complete: v.complete === true, source: bounded(v.source, 80), branchName: bounded(v.branchName, 240), baseSha: sha40(v.baseSha), headSha: sha40(v.headSha), remoteHeadSha: sha40(v.remoteHeadSha), worktreeClean: v.worktreeClean === true, indexClean: v.indexClean === true, untrackedClean: v.untrackedClean === true, commit: v.commit && { sha: sha40(v.commit.sha), treeSha: sha40(v.commit.treeSha), parentSha: sha40(v.commit.parentSha), parentShas: Array.isArray(v.commit.parentShas) ? v.commit.parentShas.filter(sha40).slice(0, 8) : [], messageFingerprint: digest64(v.commit.messageFingerprint) } }; }
-function sanitizeGithub(v = {}) { return { complete: v.complete === true, source: bounded(v.source, 80), pr: v.pr ? { number: v.pr.number, state: bounded(v.pr.state, 20), baseRefName: bounded(v.pr.baseRefName, 120), headRefName: bounded(v.pr.headRefName, 240), headSha: sha40(v.pr.headSha), draft: v.pr.draft === true, mergeable: bounded(v.pr.mergeable, 40), mergeStateStatus: bounded(v.pr.mergeStateStatus, 40), mergeSha: sha40(v.pr.mergeSha) } : null, comments: Array.isArray(v.comments) ? v.comments.map((c) => ({ id: bounded(c.id, 120), fingerprint: digest64(c.fingerprint), canonicalFingerprint: digest64(c.canonicalFingerprint) })).slice(0, 200) : [], issue: v.issue ? { number: v.issue.number, state: bounded(v.issue.state, 20) } : null, checks: v.checks && { state: bounded(v.checks.state, 30), pending: Number.isSafeInteger(v.checks.pending) ? v.checks.pending : 0, failed: Number.isSafeInteger(v.checks.failed) ? v.checks.failed : 0 }, hygiene: Array.isArray(v.hygiene) ? v.hygiene.filter(digest64).slice(0, 50) : [] }; }
+function sanitizeGithub(v = {}, expected = {}) { const comments = Array.isArray(v.comments) ? v.comments.map((c) => ({ id: bounded(c.id, 120), fingerprint: digest64(c.fingerprint), canonicalFingerprint: digest64(c.canonicalFingerprint) })).filter((c) => (expected.commentId && c.id === expected.commentId) || (expected.commentFingerprint && c.fingerprint === expected.commentFingerprint) || (expected.commentCanonicalFingerprint && c.canonicalFingerprint === expected.commentCanonicalFingerprint)).slice(0, 3) : []; return { complete: v.complete === true, source: bounded(v.source, 80), pr: v.pr ? { number: v.pr.number, state: bounded(v.pr.state, 20), baseRefName: bounded(v.pr.baseRefName, 120), headRefName: bounded(v.pr.headRefName, 240), headSha: sha40(v.pr.headSha), draft: v.pr.draft === true, mergeable: bounded(v.pr.mergeable, 40), mergeStateStatus: bounded(v.pr.mergeStateStatus, 40), mergeSha: sha40(v.pr.mergeSha) } : null, comments, issue: v.issue ? { number: v.issue.number, state: bounded(v.issue.state, 20) } : null, checks: v.checks && { state: bounded(v.checks.state, 30), pending: Number.isSafeInteger(v.checks.pending) ? v.checks.pending : 0, failed: Number.isSafeInteger(v.checks.failed) ? v.checks.failed : 0 }, hygiene: Array.isArray(v.hygiene) ? v.hygiene.filter(digest64).slice(0, 50) : [] }; }
 function commentIdentity(comment = {}) { return { id: bounded(comment.id, 120), fingerprint: fingerprint(comment.body || ""), canonicalFingerprint: fingerprint(JSON.stringify(String(comment.body || ""))) }; }
 function checks(values = []) { const states = values.map((v) => v.conclusion || v.status).filter(Boolean); return { state: states.some((s) => ["FAILURE", "ERROR", "CANCELLED"].includes(s)) ? "failed" : states.some((s) => ["IN_PROGRESS", "QUEUED", "PENDING"].includes(s)) ? "pending" : "passed", pending: states.filter((s) => ["IN_PROGRESS", "QUEUED", "PENDING"].includes(s)).length, failed: states.filter((s) => ["FAILURE", "ERROR", "CANCELLED"].includes(s)).length }; }
 function failed(reasonCode, now, diagnostics, contradictions, ambiguities) { return { schemaVersion: authoritativeRecoveryEvidenceVersion, ok: false, reasonCode, collectedAt: now.toISOString(), diagnostics, contradictions, ambiguities, ambiguity: false, contradiction: false, takeoverAllowed: false, ownerBlocked: true }; }
