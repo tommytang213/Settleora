@@ -816,7 +816,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
 
-  iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
+  iteration.commit = await commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`, { effectContext: promptInfo.sessionLifecycle?.state });
   iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "checkpoint_commit");
   recoveryRecorder?.marker("checkpoint_commit", `issue-${issue.number}-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
@@ -1343,7 +1343,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   recoveryRecorder?.advance("push", "push_branch");
-  iteration.push = pushBranch(config, branchName);
+  iteration.push = await pushBranch(config, branchName, { effectContext: promptInfo.sessionLifecycle?.state });
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(
@@ -2469,7 +2469,7 @@ function finishIssueOutcome(config, issue, outcome, body) {
 
 async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
-  const commit = commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`);
+  const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`, { effectContext: context.promptInfo?.sessionLifecycle?.state });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);

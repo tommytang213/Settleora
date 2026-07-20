@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
+import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
+import { loadPreEffectIntent } from "./pre-effect-intent.mjs";
 
 export function runGit(args, options = {}) {
   const result = spawnSync("git", args, {
@@ -190,15 +192,90 @@ export function getBoundedWorkingTreeDiff(maxChars = providerBoundReviewDiffChar
   return { truncated: true, text: text.slice(0, maxChars) };
 }
 
-export function commitExplicitPaths(config, files, message) {
+export async function commitExplicitPaths(config, files, message, options = {}) {
   if (files.length === 0) return { skipped: true, reason: "no-changes" };
   if (config.dryRun) return { skipped: true, reason: "dry-run", files };
   const add = runGit(["add", "--", ...files]);
   assertGitSuccess(add, "Unable to stage explicit paths");
-  const commit = runGit(["commit", "-m", message]);
-  assertGitSuccess(commit, "Unable to create commit");
-  return { skipped: false, files, commit: commit.stdout.trim() };
+  if (!options.effectContext) {
+    const commit = runGit(["commit", "-m", message]);
+    assertGitSuccess(commit, "Unable to create commit");
+    return { skipped: false, files, commit: commit.stdout.trim() };
+  }
+  const cwd = config.repoRoot || process.cwd();
+  const parent = getRefSha("HEAD", { cwd });
+  const tree = runGit(["write-tree"], { cwd });
+  assertGitSuccess(tree, "Unable to compute staged tree");
+  const effectContext = canonicalEffectContext(options.effectContext);
+  const effect = {
+    expectedParents: [parent],
+    treeSha: tree.stdout.trim(),
+    stagedPaths: [...files].sort(),
+    messageDigest: createHash("sha256").update(normalizeCommitMessage(message)).digest("hex"),
+  };
+  const canonicalConfig = { ...config, currentAuthority: effectContext.currentAuthority };
+  const intent = canonicalIntent(effectContext, "commit", effect, { headSha: parent });
+  const result = await executeCanonicalEffect(canonicalConfig, {
+    ...canonicalExecutionInput(canonicalConfig, intent),
+    expectedIdentity: effectContext.expectedIdentity,
+  }, {
+    readLive: (intent) => readCommitEffect(cwd, parent, effect, intent.identity),
+    execute: () => {
+      const commit = runGit(["commit", "-m", message], { cwd });
+      assertGitSuccess(commit, "Unable to create commit");
+      return { ok: true, status: commit.status };
+    },
+  });
+  if (!result.ok) throw new Error(`Canonical commit failed closed: ${result.reasonCode || result.classification}`);
+  return { skipped: false, files, commit: getRefSha("HEAD", { cwd }), canonicalEffect: result };
 }
+
+export function canonicalEffectContext(input = {}) {
+  const state = input.state || input;
+  const logical = state.logicalTask || {};
+  const authority = state.mutationAuthority || {};
+  const sessionId = authority.ownerSessionId || state.sessions?.current;
+  return {
+    repository: state.repository,
+    sourceTaskKey: logical.taskKey,
+    runId: logical.runId,
+    logicalTaskIdentity: logical.claimIdentity,
+    claimIdentity: logical.claimIdentity,
+    chargeIdentity: logical.chargeMarkerRef,
+    sessionId,
+    authorityGeneration: authority.generation,
+    branchName: state.branch?.name,
+    baseSha: state.branch?.baseSha,
+    candidateIdentity: state.branch?.candidateDigest || state.branch?.headSha,
+    reservationIdentity: input.reservationIdentity || null,
+    currentAuthority: { runId: logical.runId, sessionId, authorityGeneration: authority.generation, status: authority.status },
+    expectedIdentity: { repository: state.repository, sourceTaskKey: logical.taskKey, runId: logical.runId, logicalTaskIdentity: logical.claimIdentity, claimIdentity: logical.claimIdentity, chargeIdentity: logical.chargeMarkerRef, sessionId, authorityGeneration: authority.generation },
+  };
+}
+
+export function canonicalIntent(context, effectType, effect, identity = {}) {
+  return { ...context, effectType, effect, ...identity };
+}
+
+export function canonicalExecutionInput(config, intent) {
+  const intentId = createHash("sha256").update(JSON.stringify({ effectType: intent.effectType, repository: intent.repository, runId: intent.runId, sessionId: intent.sessionId, authorityGeneration: intent.authorityGeneration, identity: intent, effect: intent.effect })).digest("hex");
+  return loadPreEffectIntent(config, intentId) ? { intentId } : { intent, intentOptions: { intentId } };
+}
+
+function readCommitEffect(cwd, parent, effect, identity) {
+  const head = getRefSha("HEAD", { cwd });
+  if (head === parent) return { complete: true, present: false };
+  const parents = runGit(["show", "-s", "--format=%P", head], { cwd });
+  const tree = runGit(["show", "-s", "--format=%T", head], { cwd });
+  const message = runGit(["show", "-s", "--format=%B", head], { cwd });
+  if ([parents, tree, message].some((entry) => entry.error || entry.status !== 0)) return { complete: false };
+  const exact = parents.stdout.trim().split(/\s+/).filter(Boolean).join(" ") === effect.expectedParents.join(" ")
+    && tree.stdout.trim() === effect.treeSha
+    && createHash("sha256").update(normalizeCommitMessage(message.stdout)).digest("hex") === effect.messageDigest;
+  return exact ? { complete: true, present: true, identity, effect } : { complete: true, present: true, identity, effect: { ...effect, treeSha: tree.stdout.trim() } };
+}
+
+function normalizeCommitMessage(value) { return String(value).replace(/\r\n/g, "\n").trimEnd(); }
 
 function dedupeSorted(lines) {
   return [...new Set(lines.map((line) => line.trim()).filter(Boolean))].sort();

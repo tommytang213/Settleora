@@ -228,7 +228,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       return stopBundle(result, "bundle_recovery_failed", "slice_report_missing", `Expected bundle slice report missing: ${promptInfo.reportPath}`);
     }
 
-    const commit = commitExplicitPaths(config, sliceChangedFiles, `${slice.title}`);
+    const commit = await commitExplicitPaths(config, sliceChangedFiles, `${slice.title}`, { effectContext: sessionLifecycle });
     const checkpointSha = config.dryRun ? null : getRefSha("HEAD");
     recovery?.headChanged(checkpointSha, `bundle_slice_commit:${slice.id}`);
     recovery?.marker("checkpoint_commit", `bundle-${plan.id}-${slice.id}-${checkpointSha || "dry-run"}`, {
@@ -434,7 +434,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
 
   recovery?.advance("push", "push_bundle_branch");
-  result.push = pushBranch(config, bundleBranchName);
+  result.push = await pushBranch(config, bundleBranchName, { effectContext: sessionLifecycle });
   if (!config.dryRun && (result.push.error || result.push.status !== 0)) {
     recovery?.stop("bundle_push_failed", result.push.error || `status ${result.push.status}`, "retry_bounded_or_manual");
     return stopBundle(result, "auto_failed", "bundle_push_failed", "Bundle branch push failed.");
@@ -832,7 +832,7 @@ function bundleLifecycleInvocation(state, phase) {
 
 async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
-  const commit = commitExplicitPaths(config, changedFilesBeforeCommit, `Feature bundle issue #${issue.number}: review-fix follow-up`);
+  const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Feature bundle issue #${issue.number}: review-fix follow-up`, { effectContext: input.sessionLifecycle });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
