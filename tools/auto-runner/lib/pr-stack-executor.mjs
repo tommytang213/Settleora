@@ -1867,14 +1867,14 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (staged.status !== 0 || staged.error) throw new Error(`git diff --cached failed: ${boundedText(staged.stderr || staged.error || staged.stdout)}`);
       return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}`.split(/\r?\n/));
     },
-    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest, localLoop = null }) {
+    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget = null, localLoop = null }) {
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead, localLoop });
       if (!loopState.ok) return loopState;
       if (["findings_frozen", "source_fix_reserved"].includes(loopState.state.phase)) {
         const resumedFix = applyFrozenLocalFindingBatch({ config, cwd, pr, statePath: loopState.statePath, state: loopState.state });
         if (!resumedFix.ok) return resumedFix;
         const cumulative = await this.listChangedFiles({ exactHead });
-        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, localLoop: resumedFix.state });
+        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
       }
       const preCommitHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_precommit_head_unreadable" });
       if (!preCommitHead.ok) return preCommitHead;
@@ -1928,6 +1928,15 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         laneDecision,
       });
       if (!fullCandidatePrDelta.ok) return fullCandidatePrDelta;
+      const candidateDigest = fullCandidatePrDelta.delta.normalizedPatchDigest;
+      const history = advanceLocalCandidateHistory(loopState.state.candidateHistory, candidate.newHead, candidateDigest);
+      if (!history.ok) return history;
+      if (history.changed) {
+        loopState.state = persistLocalCandidateLoopState(loopState.statePath, {
+          ...loopState.state,
+          candidateHistory: history.candidateHistory,
+        });
+      }
       if (!fullCandidatePrDelta.delta.allowedPathResult?.ok) {
         return fail("full_candidate_delta_allowed_path_failed", `full candidate delta changed forbidden paths: ${fullCandidatePrDelta.delta.allowedPathResult.rejectedPaths.join(",")}`, { fullCandidatePrDelta: fullCandidatePrDelta.delta });
       }
@@ -1979,7 +1988,8 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         const findingDigest = digestStringSet(frozen.map((finding) => finding.fingerprint));
         if ((loopState.state.findingDigests || []).includes(findingDigest)) return fail("existing_pr_local_loop_no_progress", "identical local finding batch repeated without convergence");
         const localRound = Number(loopState.state.localRound || 0) + 1;
-        if (localRound > 49) return fail("existing_pr_local_loop_limit_exhausted", "the initial candidate plus local fixes cannot reserve source-changing round 51");
+        const allowance = evaluateLocalFixAllowance({ config, sourceCycleBudget, localRound });
+        if (!allowance.ok) return allowance;
         const localFixTask = buildBatchFixTask({ issue: { number: pr?.issueNumber || 921 }, branchName: pr?.headRefName || pr?.branch, laneDecision, inventory: frozen });
         const frozenState = persistLocalCandidateLoopState(loopState.statePath, {
           ...loopState.state,
@@ -1996,7 +2006,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         const resumedFix = applyFrozenLocalFindingBatch({ config, cwd, pr, statePath: loopState.statePath, state: frozenState });
         if (!resumedFix.ok) return resumedFix;
         const cumulative = await this.listChangedFiles({ exactHead });
-        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, localLoop: resumedFix.state });
+        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
       }
       const postWorktreeProof = readExactFinalGateWorktreeProof({
         config: targetConfig,
@@ -3962,6 +3972,29 @@ function applyFrozenLocalFindingBatch({ config, cwd, pr, statePath, state }) {
   return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...reserved, phase: "source_fix_applied", evidenceInvalidated: true }) };
 }
 
+function evaluateLocalFixAllowance({ config = {}, sourceCycleBudget = null, localRound }) {
+  const availableSourceChanges = Number.isInteger(sourceCycleBudget?.remaining)
+    ? sourceCycleBudget.remaining
+    : normalizeSourceCycleMax(config);
+  if (!Number.isInteger(localRound) || localRound < 1 || !Number.isInteger(availableSourceChanges) || availableSourceChanges < 0) {
+    return fail("existing_pr_local_loop_limit_malformed", "local source-changing allowance is malformed");
+  }
+  if (1 + localRound > availableSourceChanges) {
+    return fail("existing_pr_local_loop_limit_exhausted", "the initial candidate plus local fixes would exceed the configured source-changing allowance");
+  }
+  return { ok: true, localRound, availableSourceChanges };
+}
+
+function advanceLocalCandidateHistory(candidateHistory, head, digest) {
+  const history = Array.isArray(candidateHistory) ? candidateHistory : [];
+  if (!validSha(head) || !/^[a-f0-9]{64}$/.test(digest || "")) return fail("existing_pr_local_loop_candidate_identity_invalid", "local candidate history requires a valid head and digest");
+  if (history.some((entry) => entry?.digest === digest && entry?.head !== head)) {
+    return fail("existing_pr_local_loop_oscillation", "local source fixes returned to an earlier cumulative candidate identity");
+  }
+  if (history.some((entry) => entry?.digest === digest && entry?.head === head)) return { ok: true, changed: false, candidateHistory: history };
+  return { ok: true, changed: true, candidateHistory: [...history, { head, digest }].slice(-6) };
+}
+
 function localCandidateLoopStatePath({ config = {}, pr = {}, exactHead }) {
   const identity = digestJson({
     repository: config.repositorySlug || "tommytang213/Settleora",
@@ -4029,6 +4062,9 @@ function loadOrCreateLocalCandidateLoopState({ config = {}, pr = {}, exactHead, 
   }
   if (!Number.isInteger(state.localRound) || state.localRound < 0 || state.localRound > 50 || !Array.isArray(state.findingDigests)) {
     return fail("existing_pr_local_loop_state_contradictory", "local candidate loop counters or finding markers are contradictory");
+  }
+  if (state.candidateHistory !== undefined && (!Array.isArray(state.candidateHistory) || state.candidateHistory.length > 6 || state.candidateHistory.some((entry) => !validSha(entry?.head) || !/^[a-f0-9]{64}$/.test(entry?.digest || "")))) {
+    return fail("existing_pr_local_loop_state_contradictory", "local candidate history is malformed or exceeds its bounded window");
   }
   return { ok: true, state: { ...state, restartGeneration: Number(state.restartGeneration || 0) + (existsSync(statePath) ? 1 : 0) }, statePath };
 }
@@ -6038,6 +6074,8 @@ export const prStackExecutorTestInternals = Object.freeze({
   protectedPlanAuthorizationIdentity,
   readProtectedPlanAuthorizationFile,
   discoverTaskScopedPendingPushIntents,
+  advanceLocalCandidateHistory,
+  evaluateLocalFixAllowance,
   evaluateSourceCycleBudget,
   fetchAndReadOriginMain,
   finalizePushIntent,

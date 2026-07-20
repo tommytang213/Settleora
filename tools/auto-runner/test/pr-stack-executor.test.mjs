@@ -1256,6 +1256,33 @@ test("source-cycle reservations enforce creation budget ordinal and duplicate ow
   assert.equal(exhausted.legacySourceCyclesAuthoritative, false);
 });
 
+test("inner local fixes honor lower configured source caps before mutation", () => {
+  const config = { prStackExecution: { maxSourceCyclesPerPr: 2 } };
+  assert.equal(prStackExecutorTestInternals.evaluateLocalFixAllowance({ config, sourceCycleBudget: { remaining: 2 }, localRound: 1 }).ok, true);
+  assert.equal(
+    prStackExecutorTestInternals.evaluateLocalFixAllowance({ config, sourceCycleBudget: { remaining: 2 }, localRound: 2 }).reasonCode,
+    "existing_pr_local_loop_limit_exhausted",
+  );
+  assert.equal(
+    prStackExecutorTestInternals.evaluateLocalFixAllowance({ config, sourceCycleBudget: { remaining: 50 }, localRound: 49 }).ok,
+    true,
+  );
+});
+
+test("local candidate history detects A/B oscillation but permits restart of the same candidate", () => {
+  const first = prStackExecutorTestInternals.advanceLocalCandidateHistory([], sha("a"), "1".repeat(64));
+  assert.equal(first.ok, true);
+  const second = prStackExecutorTestInternals.advanceLocalCandidateHistory(first.candidateHistory, sha("b"), "2".repeat(64));
+  assert.equal(second.ok, true);
+  const replay = prStackExecutorTestInternals.advanceLocalCandidateHistory(second.candidateHistory, sha("b"), "2".repeat(64));
+  assert.equal(replay.ok, true);
+  assert.equal(replay.changed, false);
+  assert.equal(
+    prStackExecutorTestInternals.advanceLocalCandidateHistory(second.candidateHistory, sha("c"), "1".repeat(64)).reasonCode,
+    "existing_pr_local_loop_oscillation",
+  );
+});
+
 test("production commitAndPush requires explicit validated stack state before reservation or push", async () => {
   const fixture = stackFixture();
   const pr = fixture.plan.orderedPrs[0];
