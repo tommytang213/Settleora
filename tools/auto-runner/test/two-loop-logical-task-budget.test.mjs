@@ -89,6 +89,15 @@ test("one frozen GitHub batch starts one epoch, resets local only, and deduplica
   assert.equal(replay.state.counters.githubTriggeredFixEpochsPerPr, 1);
 });
 
+test("the fiftieth GitHub epoch is admitted and the fifty-first is blocked", () => {
+  const state = convergence({ githubTriggeredFixEpochsPerPr: 49 });
+  const fiftieth = accountGithubTriggeredFixEpoch(state, { findingFingerprints: [fingerprint("2")] });
+  assert.equal(fiftieth.ok, true);
+  assert.equal(fiftieth.state.counters.githubTriggeredFixEpochsPerPr, 50);
+  const fiftyFirst = accountGithubTriggeredFixEpoch(fiftieth.state, { findingFingerprints: [fingerprint("3")] });
+  assert.equal(fiftyFirst.reasonCode, "GITHUB_TRIGGERED_FIX_EPOCH_LIMIT_EXHAUSTED");
+});
+
 test("50/50 nested limits fail closed and lifetime telemetry never blocks", () => {
   const local = convergence({ localSourceChangingRoundsPerEpoch: 50, lifetimeLocalSourceChangingRounds: 5000 });
   assert.equal(evaluateTwoLoopLimits(local).terminalReason, "LOCAL_SOURCE_CHANGING_ROUND_LIMIT_EXHAUSTED");

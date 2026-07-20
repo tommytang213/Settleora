@@ -111,7 +111,7 @@ import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
-import { chargeAcceptedLogicalTask } from "./lib/logical-task-budget.mjs";
+import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -276,6 +276,15 @@ async function main() {
     summary.configPath = config.configPath || null;
     writeActiveRunState(config, summary);
     logger.info(`Settleora auto-runner started in ${config.mode} mode.`);
+
+    if (!config.dryRun) {
+      const durableBudget = loadLogicalTaskBudget(config, config.supervisorRunId || runId);
+      if (!durableBudget.ok) {
+        summary.stopReason = `logical-task-budget:${durableBudget.reasonCode}`;
+        throw new Error(`Logical task budget startup failed closed: ${durableBudget.reasonCode}`);
+      }
+      summary.acceptedLogicalTaskCount = durableBudget.state.acceptedLogicalTaskCount;
+    }
 
     const startedAtMs = Date.now();
     const issueTracker = createRunIssueTracker(summary);
@@ -492,14 +501,16 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   const acceptedAt = new Date().toISOString();
-  iteration.logicalTaskBudget = chargeAcceptedLogicalTask(config, {
-    budgetScopeId: config.supervisorRunId || runId,
-    maxTasks: config.maxIterations,
-    issue,
-    taskLineageId: `issue-${issue.number}`,
-    claimIdentity: `${config.repositorySlug}#${issue.number}`,
-    acceptedAt,
-  });
+  iteration.logicalTaskBudget = config.dryRun
+    ? { ok: true, charged: false, duplicate: false, preview: true, acceptedLogicalTaskCount: 0, reasonCode: "dry_run_claim_not_accepted" }
+    : chargeAcceptedLogicalTask(config, {
+        budgetScopeId: config.supervisorRunId || runId,
+        maxTasks: config.maxIterations,
+        issue,
+        taskLineageId: `issue-${issue.number}`,
+        claimIdentity: `${config.repositorySlug}#${issue.number}`,
+        acceptedAt,
+      });
   if (!iteration.logicalTaskBudget.ok) {
     iteration.outcome = "blocked_logical_task_budget";
     iteration.systemicStop = `logical-task-budget:${iteration.logicalTaskBudget.reasonCode}`;
@@ -511,7 +522,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
-  recoveryRecorder?.marker("logical_task_charge", iteration.logicalTaskBudget.chargeId, {
+  if (!config.dryRun) recoveryRecorder?.marker("logical_task_charge", iteration.logicalTaskBudget.chargeId, {
     target: `issue-${issue.number}`,
     correlation: iteration.logicalTaskBudget.chargeId,
   });

@@ -1198,13 +1198,16 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   if (!budget.ok) return budget;
   const result = await adapter.convergeExistingPr({ config, plan, state, pr, findings: before.findings || [], sourceCycleBudget: budget });
   if (!result?.ok) return waitOrFail(result, "pr_convergence_failed");
+  const convergenceEvidence = result.reviewConvergenceState
+    ? putEvidence(state.evidence, "reviewConvergenceState", pr.number, result.reviewConvergenceState)
+    : state.evidence;
   const newHead = result.newHead || result.headRefOid || pr.headRefOid;
   const sourceCycles = { ...(state.sourceCycles || {}) };
   if (newHead !== pr.headRefOid) {
     const reserved = validateReconciledSourceCycle({ config, state, pr, result, budget });
     if (!reserved.ok) return reserved;
     sourceCycles[pr.number] = reserved.consumedAfter;
-    const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, result);
+    const rebound = rebindStateToNewHead({ ...state, evidence: convergenceEvidence }, pr.number, newHead, sourceCycles, result);
     if (!rebound.ok) return rebound;
     return {
       ok: true,
@@ -1224,7 +1227,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   };
   return {
     ok: true,
-    evidence: putEvidence(state.evidence, "reviewConverged", pr.number, result),
+    evidence: putEvidence(convergenceEvidence, "reviewConverged", pr.number, result),
     mutationMarkers,
     sourceCycles,
     summary: { action: action.action, prNumber: pr.number, sourceCycleConsumed: newHead !== pr.headRefOid, sourceCycleBudget: budget.summary },
@@ -1565,6 +1568,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         laneDecision: laneDecision.contract,
         sourceCycleBudget: durableBudget,
         sourceCycleOperationContext: sourceCycleOperationContext.context,
+        reviewConvergenceState: state?.evidence?.reviewConvergenceState?.[pr.number] || null,
         runBatchFix,
       });
       return result.ok

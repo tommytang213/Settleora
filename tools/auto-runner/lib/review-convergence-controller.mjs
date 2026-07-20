@@ -330,7 +330,7 @@ export function accountGithubTriggeredFixEpoch(state, input = {}) {
   };
 }
 
-export function evaluateTwoLoopLimits(state) {
+export function evaluateTwoLoopLimits(state, options = {}) {
   // In-memory callers created before the durable two-loop schema may still
   // carry only the legacy local source-cycle field. Durable loads migrate this
   // shape before validation; this fallback keeps non-persisted gate probes
@@ -343,7 +343,7 @@ export function evaluateTwoLoopLimits(state) {
   if (local >= localSourceChangingRoundsPerEpochLimit) {
     return { ok: false, terminalReason: "LOCAL_SOURCE_CHANGING_ROUND_LIMIT_EXHAUSTED", sanitizedReason: "local source-changing round limit exhausted" };
   }
-  if (github >= githubTriggeredFixEpochsPerPrLimit) {
+  if (github > githubTriggeredFixEpochsPerPrLimit || (!options.allowAdmittedGithubLimit && github >= githubTriggeredFixEpochsPerPrLimit)) {
     return { ok: false, terminalReason: "GITHUB_TRIGGERED_FIX_EPOCH_LIMIT_EXHAUSTED", sanitizedReason: "GitHub-triggered fix epoch limit exhausted" };
   }
   return { ok: true };
@@ -397,7 +397,7 @@ export function analyzeConvergenceProgress(history = [], options = {}) {
 }
 
 export function evaluateCycleBudget(state, config = {}, history = []) {
-  const nestedLimit = evaluateTwoLoopLimits(state);
+  const nestedLimit = evaluateTwoLoopLimits(state, { allowAdmittedGithubLimit: true });
   if (!nestedLimit.ok) {
     return { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: nestedLimit.terminalReason, nestedLimit };
   }
@@ -579,6 +579,7 @@ export async function runExistingPrReviewConvergence(input = {}) {
   const findings = Array.isArray(input.findings) ? input.findings : [];
   const convergence = buildLiveReviewConvergenceContext({
     ...input,
+    reviewConvergenceState: input.reviewConvergenceState || input.convergenceState,
     currentFindings: findings,
     relationships: input.relationships || {
       parentPr: input.pr?.expectedParentPr ?? null,
