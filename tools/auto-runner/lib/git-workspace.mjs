@@ -195,14 +195,14 @@ export function getBoundedWorkingTreeDiff(maxChars = providerBoundReviewDiffChar
 export async function commitExplicitPaths(config, files, message, options = {}) {
   if (files.length === 0) return { skipped: true, reason: "no-changes" };
   if (config.dryRun) return { skipped: true, reason: "dry-run", files };
-  const add = runGit(["add", "--", ...files]);
+  const cwd = config.repoRoot || process.cwd();
+  const add = runGit(["add", "--", ...files], { cwd });
   assertGitSuccess(add, "Unable to stage explicit paths");
   if (!options.effectContext) {
-    const commit = runGit(["commit", "-m", message]);
+    const commit = runGit(["commit", "-m", message], { cwd });
     assertGitSuccess(commit, "Unable to create commit");
     return { skipped: false, files, commit: commit.stdout.trim() };
   }
-  const cwd = config.repoRoot || process.cwd();
   const effectContext = canonicalEffectContext(options.effectContext);
   const pending = findPendingEffect(config, effectContext, "commit", (intent) => sameStrings(intent.effect.stagedPaths, [...files].sort()) && intent.effect.messageDigest === createHash("sha256").update(normalizeCommitMessage(message)).digest("hex"));
   const parent = pending?.effect.expectedParents?.[0] || getRefSha("HEAD", { cwd });
