@@ -127,22 +127,6 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   const recovery = input.recoveryState || null;
-  if (config.sessionLifecycle?.enabled === true) {
-    if (!input.sessionLifecycleState) return result("blocked", "session_lifecycle_state_missing", { events, counts });
-    if (config.sessionLifecycle.allowRecoveryTakeover !== true) return result("blocked", "session_lifecycle_recovery_takeover_disabled", { events, counts });
-    const lifecycle = consumeSupervisorInterruptionPlanner(input.sessionLifecycleState, input.lifecycleInterruption || {}, input.lifecycleEffects || {});
-    if (!lifecycle.ok || lifecycle.active) {
-      const reasonCode = lifecycle.reasonCode || "session_lifecycle_supervisor_takeover_blocked";
-      event("session_lifecycle_takeover_blocked", { reasonCode });
-      return result("blocked", reasonCode, { events, counts, sessionLifecycle: lifecycle });
-    }
-    if (!dryRun) {
-      const persistedLifecycle = persistSessionLifecycleState(config, lifecycle.state);
-      if (!persistedLifecycle.ok) return result("blocked", persistedLifecycle.reasonCode, { events, counts, sessionLifecycle: persistedLifecycle });
-    }
-    event("session_lifecycle_recovery_planned", { reasonCode: lifecycle.classification?.reasonCode, earliestSafePhase: lifecycle.earliestSafePhase });
-  }
-
   const source = input.source || {};
   const stateKey = input.outageStateKey || source.outageStateKey || null;
   let existingOutageState = input.outageState || null;
@@ -489,6 +473,20 @@ export function runOutageResubmissionController(input = {}) {
     });
     event("dry_run_child_spec_planned", { childSupervisorRunId: child.spec.runId, specSha256: child.specSha256 });
     return result("planned", "dry_run_no_mutation", { events, counts, outageState: dryState, child, recoveryState: recoveryTarget.state });
+  }
+
+  if (config.sessionLifecycle?.enabled === true) {
+    if (!input.sessionLifecycleState) return result("blocked", "session_lifecycle_state_missing", { events, counts });
+    if (config.sessionLifecycle.allowRecoveryTakeover !== true) return result("blocked", "session_lifecycle_recovery_takeover_disabled", { events, counts });
+    const lifecycle = consumeSupervisorInterruptionPlanner(input.sessionLifecycleState, input.lifecycleInterruption || {}, input.lifecycleEffects || {});
+    if (!lifecycle.ok || lifecycle.active) {
+      const reasonCode = lifecycle.reasonCode || "session_lifecycle_supervisor_takeover_blocked";
+      event("session_lifecycle_takeover_blocked", { reasonCode });
+      return result("blocked", reasonCode, { events, counts, sessionLifecycle: lifecycle });
+    }
+    const persistedLifecycle = persistSessionLifecycleState(config, lifecycle.state);
+    if (!persistedLifecycle.ok) return result("blocked", persistedLifecycle.reasonCode, { events, counts, sessionLifecycle: persistedLifecycle });
+    event("session_lifecycle_recovery_planned", { reasonCode: lifecycle.classification?.reasonCode, earliestSafePhase: lifecycle.earliestSafePhase });
   }
 
   const uncertain = transitionOutageMarker(plannedState, {
