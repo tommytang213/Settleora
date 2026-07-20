@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { processAppearsActive } from "./state-store.mjs";
@@ -77,7 +78,8 @@ function reconcileDurableIntents(config, intentIds, git, github, diagnostics, co
     let intent;
     try { intent = loadPreEffectIntent(config, intentId); } catch { diagnostics.push("pre_effect_intent_read_failed"); continue; }
     if (!intent) { diagnostics.push("pre_effect_intent_missing"); continue; }
-    const result = reconcilePreEffectIntent(intent, liveEvidenceForIntent(intent, git, githubForIntent(config, intent, github)));
+    const intentGit = gitForIntent(config, intent, git);
+    const result = reconcilePreEffectIntent(intent, liveEvidenceForIntent(intent, intentGit, githubForIntent(config, intent, github)));
     // Evidence collection is deliberately read-only. The successor must first
     // acquire active mutation authority; its canonical consumer then performs
     // the atomic adoption/finalization transition.
@@ -135,6 +137,31 @@ function githubForIntent(config, intent, fallback) {
     } catch { return { ...fallback, complete: false }; }
   }
   return fallback;
+}
+
+function gitForIntent(config, intent, fallback) {
+  if (intent.effectType !== "commit" || intent.status !== "prepared" || !fallback?.complete) return fallback;
+  if (fallback.stagedPaths?.length > 0 || !sameStrings(intent.effect.stagedPaths, fallback.unstagedPaths || [])) return fallback;
+  const treeSha = intendedTreeFromWorktree(config, intent);
+  return treeSha ? { ...fallback, stagedTreeSha: treeSha, stagedPaths: intent.effect.stagedPaths, unstagedPaths: [] } : fallback;
+}
+
+function intendedTreeFromWorktree(config, intent) {
+  const parent = intent.effect.expectedParents?.[0];
+  const paths = intent.effect.stagedPaths;
+  if (!sha40(parent) || !Array.isArray(paths) || paths.length === 0) return null;
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-recovery-index-"));
+  const env = { ...process.env, GIT_INDEX_FILE: path.join(root, "index") };
+  const run = (args) => spawnSync("git", args, { cwd: config.repoRoot, env, encoding: "utf8", timeout: 15_000 });
+  try {
+    const read = run(["read-tree", parent]);
+    const add = run(["add", "--", ...paths]);
+    const tree = run(["write-tree"]);
+    if ([read, add, tree].some((entry) => entry.error || entry.status !== 0)) return null;
+    return tree.stdout.trim() === intent.effect.treeSha ? tree.stdout.trim() : null;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 export function mergeIntentCommentReadback(result, fallback = {}) {

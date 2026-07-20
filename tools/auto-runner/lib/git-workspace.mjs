@@ -307,7 +307,7 @@ export function canonicalExecutionInput(config, intent) {
 
 export function findPendingEffect(config, context, effectType, extra = () => true) {
   const matches = findPreEffectIntents(config, (intent) => intent.effectType === effectType
-    && !["finalized", "failed_closed"].includes(intent.status)
+    && intent.status !== "failed_closed"
     && intent.repository === context.repository && intent.runId === context.runId
     && intent.sessionId === context.sessionId && intent.authorityGeneration === context.authorityGeneration
     && intent.identity?.branchName === context.branchName && extra(intent));
