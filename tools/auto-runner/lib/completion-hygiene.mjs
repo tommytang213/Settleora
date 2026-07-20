@@ -37,10 +37,14 @@ export function completeMergedIssueHygiene(config = {}, context = {}, options = 
         ? canonicalClosureComponent(config, refreshed, runner, repositoryContext)
         : commandComponent(runner("gh", ["issue", "close", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--reason", "completed"]))
       : { status: "skipped", reason: closeDecision.reason };
-  const labelCleanup = cleanupTransientLabels(refreshed.issue, runner, repositoryContext);
+  const labelCleanup = cleanupTransientLabels(refreshed.issue, runner, repositoryContext, config, refreshed);
   const parentProgress = postParentProgress(config, refreshed, runner, repositoryContext);
-  const project = updateProjectStatusIfSupported(config, refreshed, runner);
-  const ledger = reconcileLedger(config, refreshed, runner, repositoryContext);
+  const project = refreshed.sessionLifecycle
+    ? { status: "not_updated", reason: "canonical_project_readback_not_supported" }
+    : updateProjectStatusIfSupported(config, refreshed, runner);
+  const ledger = refreshed.sessionLifecycle
+    ? { status: "skipped", reason: "canonical_docs_hygiene_required", proposal: buildLedgerReconciliationProposal(refreshed).proposal || null }
+    : reconcileLedger(config, refreshed, runner, repositoryContext);
   return {
     status: "merged",
     repositoryContext,
@@ -68,7 +72,7 @@ export function evaluateCloseDecision(issue = {}, context = {}) {
   return { close: true, reason: "explicit_close_rule_satisfied" };
 }
 
-export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 }), repositoryContext = null) {
+export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 }), repositoryContext = null, config = {}, context = {}) {
   if (!repositoryContext?.repositorySlug) {
     return { status: "failed", reason: "repository_context_required", removed: [], attemptedRemove: [], preserved: labelNames(issue.labels) };
   }
@@ -76,6 +80,25 @@ export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 }
   const remove = labels.filter((label) => transientRunnerLabels.includes(label));
   const preserve = labels.filter((label) => !transientRunnerLabels.includes(label));
   if (remove.length === 0) return { status: "skipped", reason: "no_transient_labels", removed: [], preserved: preserve };
+  if (context.sessionLifecycle) {
+    const effect = { issueNumber: issue.number, removeLabels: [...remove].sort(), repository: repositoryContext.repositorySlug };
+    const canonical = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "hygiene_component", issueNumber: issue.number, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
+      readLive: (intent) => {
+        const live = runner("gh", ["issue", "view", String(issue.number), "--repo", repositoryContext.repositorySlug, "--json", "number,labels"], { cwd: config.repoRoot });
+        if (live.error || live.status !== 0) return { complete: false };
+        let value; try { value = JSON.parse(live.stdout || "{}"); } catch { return { complete: false }; }
+        if (value.number !== issue.number) return { complete: true, ambiguous: true };
+        const remaining = labelNames(value.labels).filter((label) => remove.includes(label));
+        return remaining.length === 0 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+      },
+      execute: () => {
+        const mutation = runner("gh", ["issue", "edit", String(issue.number), "--repo", repositoryContext.repositorySlug, "--remove-label", remove.join(",")]);
+        if (mutation.error || mutation.status !== 0) throw new Error("Canonical label cleanup did not confirm success");
+        return { ok: true, status: mutation.status };
+      },
+    });
+    return { status: canonical.ok ? "updated" : "failed", ...(canonical.ok ? {} : { reason: canonical.reasonCode }), canonicalEffect: canonical, removed: canonical.ok ? remove : [], attemptedRemove: remove, preserved: preserve, repositorySlug: repositoryContext.repositorySlug, repositoryId: repositoryContext.repositoryId || null, operation: "label_remove", completedAt: new Date().toISOString() };
+  }
   const result = runner("gh", ["issue", "edit", String(issue.number), "--repo", repositoryContext.repositorySlug, "--remove-label", remove.join(",")]);
   return {
     ...commandComponent(result),

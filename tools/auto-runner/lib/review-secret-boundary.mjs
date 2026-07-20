@@ -251,13 +251,14 @@ function classifyContentCandidate(event) {
 }
 
 function isCodeMemberReference(content, assignment, value) {
-  const assignmentText = content.slice(assignment.index || 0);
-  if (/^[^:=]+[:=]\s*[A-Za-z_$][A-Za-z0-9_$]*(?:(?:\?|)\.[A-Za-z_$][A-Za-z0-9_$]*)+\s*[,;)}\]]/.test(assignmentText)) return true;
   const matched = assignment[0] || "";
   const valueOffset = matched.lastIndexOf(value);
   const prefix = valueOffset >= 0 ? matched.slice(0, valueOffset) : "";
   if (/["']\s*$/.test(prefix)) return false;
-  if (!/^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+$/.test(value)) return false;
+  const reference = value.replaceAll("?.", ".");
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+$/.test(reference)) return false;
+  const root = reference.split(".")[0];
+  if (!["process", "config", "options", "context", "iteration", "cycleDecision", "prior"].includes(root)) return false;
   const endOffset = (assignment.index || 0) + matched.length;
   return /^\s*[,;)}\]]/.test(content.slice(endOffset));
 }

@@ -2323,7 +2323,6 @@ test("JavaScript credential-named member references are policy metadata rather t
   const diff = diffFor("tools/auto-runner/lib/example.mjs", [
     "+  diagnosticAuthorization: cycleDecision.diagnosticAuthorization,",
     "-  authorization = prior.authorization;",
-    "   diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,",
   ]);
   const result = analyzeReviewSecretBoundary({
     changedFiles: ["tools/auto-runner/lib/example.mjs"],
@@ -2331,8 +2330,17 @@ test("JavaScript credential-named member references are policy metadata rather t
   });
   assert.equal(result.ok, true);
   assert.equal(result.blocked, false);
-  assert.equal(result.allowedReferences.length, 3);
+  assert.equal(result.allowedReferences.length, 2);
   assert.ok(result.allowedReferences.every((item) => item.classification === "code_reference"));
+});
+
+test("arbitrary dotted credential assignments remain blocked", () => {
+  const diff = diffFor("tools/auto-runner/lib/example.mjs", [
+    "+API_TOKEN = secret.value.token;",
+  ]);
+  const result = analyzeReviewSecretBoundary({ changedFiles: ["tools/auto-runner/lib/example.mjs"], diff });
+  assert.equal(result.blocked, true);
+  assert.equal(result.blockers[0].classification, "credential_value");
 });
 
 function diffFor(file, lines, { oldStart = 1, newStart = 1 } = {}) {

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
+import { preparePreEffectIntent } from "../lib/pre-effect-intent.mjs";
 
 const sha = "a".repeat(40);
 const base = "b".repeat(40);
@@ -34,6 +36,16 @@ test("stale report text is not an evidence input", () => { const e = collect({},
 test("repeated evidence collection is idempotent", () => { const one = collect(); const two = collect(); assert.deepEqual({ ...one, collectedAt: null }, { ...two, collectedAt: null }); });
 test("retired authority identity is preserved and never revived", () => { const retired = { ...identity, authority: { ownerSessionId: null, generation: 4, status: "recovery_pending" } }; const e = collectAuthoritativeRecoveryEvidence(config, retired, {}, adapters()); assert.equal(e.authority.ownerSessionId, null); assert.equal(e.authority.generation, 4); });
 test("commit succeeded before marker write is adopted", () => { const e = collect({}, { commitSha: sha }); assert.equal(e.effects.commit.present, true); assert.equal(e.effects.commit.adopted, true); });
+test("exact pending commit permits post-commit pre-checkpoint head recovery", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "recovery-commit-window-"));
+  const newHead = "e".repeat(40);
+  const treeSha = "f".repeat(40);
+  const messageDigest = createHash("sha256").update("commit message").digest("hex");
+  const intent = preparePreEffectIntent({ logsRoot }, { repository: identity.repository, sourceTaskKey: identity.taskKey, runId: identity.runId, logicalTaskIdentity: identity.claimIdentity, sessionId: identity.sessionId, authorityGeneration: 3, effectType: "commit", branchName: identity.branchName, baseSha: identity.baseSha, headSha: identity.headSha, effect: { expectedParents: [sha], treeSha, stagedPaths: ["a.txt"], messageDigest } }, { intentId: "commit-window" });
+  const e = collectAuthoritativeRecoveryEvidence({ ...config, logsRoot }, identity, { preEffectIntentIds: [intent.intentId] }, adapters({ git: { headSha: newHead, commit: { sha: newHead, parentShas: [sha], treeSha, messageFingerprint: messageDigest } } }));
+  assert.equal(e.ok, true);
+  assert.equal(e.intents[0].classification, "effect_present_exact_adoptable");
+});
 test("push succeeded before marker write is adopted", () => { const e = collect({}, { pushSha: sha }); assert.equal(e.effects.push.present, true); });
 test("PR head already updated is adopted", () => { const e = collect({}, { prHeadSha: sha }); assert.equal(e.effects.prHead.present, true); });
 test("merge succeeded before marker write resumes without remerge", () => { const e = collect({ github: { pr: { number: 42, state: "MERGED", baseRefName: "main", headRefName: identity.branchName, headSha: sha, draft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", mergeSha: base } } }, { mergeSha: base }); assert.equal(e.effects.merge.present, true); });

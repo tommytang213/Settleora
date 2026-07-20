@@ -134,6 +134,24 @@ test("transient labels are removed while durable labels remain", () => {
   );
 });
 
+test("session lifecycle label cleanup persists intent and confirms live absence", () => {
+  let labels = narrowIssue().labels;
+  const runner = (command, args) => {
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") return { status: 0, stdout: JSON.stringify({ number: 891, labels }) };
+    if (command === "gh" && args[0] === "issue" && args[1] === "edit") {
+      const removed = args[args.indexOf("--remove-label") + 1].split(",");
+      labels = labels.filter((label) => !removed.includes(label));
+      return { status: 0, stdout: "" };
+    }
+    return { status: 0, stdout: "" };
+  };
+  const sessionLifecycle = { repository: "tommytang213/Settleora", logicalTask: { taskKey: "task", runId: "run", claimIdentity: "claim", chargeMarkerRef: "charge" }, mutationAuthority: { ownerSessionId: "session", generation: 1, status: "active" }, branch: { name: "feature/test", baseSha, headSha, candidateDigest: "candidate" } };
+  const result = cleanupTransientLabels(narrowIssue(), runner, { repositorySlug: "tommytang213/Settleora", repositoryId: "repo-1" }, { logsRoot: logsRoot() }, { sessionLifecycle, sourceHeadSha: headSha, mergeSha });
+  assert.equal(result.status, "updated");
+  assert.equal(result.canonicalEffect.status, "finalized");
+  assert.equal(labels.includes("auto-claimed"), false);
+});
+
 test("parent progress shows completed, remaining, blockers, future, manual, and keep-open rationale", () => {
   const body = renderParentProgressComment({
     issue: { number: 892 },

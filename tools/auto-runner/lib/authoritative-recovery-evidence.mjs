@@ -33,9 +33,9 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
   if (!githubRead?.complete) diagnostics.push("github_readback_incomplete");
   if (processRead?.alive === true && leaseRead?.valid === false) contradictions.push("live_process_stale_lease");
   if (processRead?.alive === false && leaseRead?.valid === true) contradictions.push("dead_process_valid_lease");
-  reconcileIdentity(identity, gitRead, githubRead, contradictions, ambiguities);
-  const effects = reconcileEffects(expected, gitRead, githubRead, contradictions, ambiguities);
   const intents = reconcileDurableIntents(config, expected.preEffectIntentIds, gitRead, githubRead, diagnostics, contradictions, ambiguities);
+  reconcileIdentity(identity, gitRead, githubRead, intents, contradictions, ambiguities);
+  const effects = reconcileEffects(expected, gitRead, githubRead, contradictions, ambiguities);
   const complete = diagnostics.length === 0 && contradictions.length === 0 && ambiguities.length === 0;
   const ownerBlocked = processRead?.alive === true || leaseRead?.valid === true;
   const takeoverAllowed = complete && processRead.alive === false && leaseRead.valid === false;
@@ -192,9 +192,10 @@ function readAllGithubComments(config, endpoint) {
   } catch { return { complete: false, comments: [] }; }
 }
 
-function reconcileIdentity(identity, git, github, contradictions, ambiguities) {
+function reconcileIdentity(identity, git, github, intents, contradictions, ambiguities) {
   if (!git || !github) return;
-  if (git.branchName !== identity.branchName || (identity.headSha && git.headSha !== identity.headSha)) contradictions.push("local_git_identity_mismatch");
+  const exactPendingCommit = intents.some((intent) => intent.effectType === "commit" && intent.classification === "effect_present_exact_adoptable");
+  if (git.branchName !== identity.branchName || (identity.headSha && git.headSha !== identity.headSha && !exactPendingCommit)) contradictions.push("local_git_identity_mismatch");
   if (github.pr && (github.pr.number !== identity.prNumber || github.pr.headRefName !== identity.branchName || github.pr.baseRefName !== identity.baseBranch)) contradictions.push("github_pr_identity_mismatch");
   if (github.pr?.headSha && git.remoteHeadSha && github.pr.headSha !== git.remoteHeadSha) contradictions.push("github_remote_head_mismatch");
   if (!git.worktreeClean || !git.indexClean || !git.untrackedClean) ambiguities.push("local_worktree_not_clean");
