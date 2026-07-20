@@ -39,12 +39,8 @@ export function completeMergedIssueHygiene(config = {}, context = {}, options = 
       : { status: "skipped", reason: closeDecision.reason };
   const labelCleanup = cleanupTransientLabels(refreshed.issue, runner, repositoryContext, config, refreshed);
   const parentProgress = postParentProgress(config, refreshed, runner, repositoryContext);
-  const project = refreshed.sessionLifecycle
-    ? { status: "not_updated", reason: "canonical_project_readback_not_supported" }
-    : updateProjectStatusIfSupported(config, refreshed, runner);
-  const ledger = refreshed.sessionLifecycle
-    ? { status: "skipped", reason: "canonical_docs_hygiene_required", proposal: buildLedgerReconciliationProposal(refreshed).proposal || null }
-    : reconcileLedger(config, refreshed, runner, repositoryContext);
+  const project = updateProjectStatusIfSupported(config, refreshed, runner);
+  const ledger = reconcileLedger(config, refreshed, runner, repositoryContext);
   return {
     status: "merged",
     repositoryContext,

@@ -352,6 +352,26 @@ test("feature-bundle context can use the same completion pipeline", () => {
   assert.equal(result.closeDecision.close, true);
 });
 
+test("session lifecycle completion keeps durable ledger reconciliation and normal project capability checks", () => {
+  const sessionLifecycle = { repository: "tommytang213/Settleora", logicalTask: { taskKey: "task", runId: "run", claimIdentity: "claim", chargeMarkerRef: "charge" }, mutationAuthority: { ownerSessionId: "session", generation: 1, status: "active" }, branch: { name: "feature/test", baseSha, headSha, candidateDigest: "candidate" } };
+  const baseContext = context({ parentIssue: null, remainingGates: ["post-merge acceptance"], sessionLifecycle });
+  const closeDecision = evaluateCloseDecision(baseContext.issue, baseContext);
+  const completionBody = renderCompletionComment(baseContext, closeDecision);
+  const lifecycleContext = {
+    ...baseContext,
+    issue: { ...baseContext.issue, labels: ["area:infra"], comments: [{ body: completionBody }] },
+  };
+  const result = completeMergedIssueHygiene(
+    { logsRoot: logsRoot(), allowFollowupIssueCreation: false },
+    lifecycleContext,
+    { runner: runnerWith({ issue: lifecycleContext.issue }) },
+  );
+  assert.equal(result.status, "merged");
+  assert.equal(result.project.reason, "project_status_mapping_not_configured");
+  assert.notEqual(result.ledger.reason, "canonical_docs_hygiene_required");
+  assert.equal(result.ledger.proposal.correlationKey.includes("ledger"), true);
+});
+
 test("completion hygiene requires a repository context before issue commands", () => {
   const calls = [];
   const runner = (command, args) => {
