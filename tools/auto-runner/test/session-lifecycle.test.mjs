@@ -183,6 +183,14 @@ test("dead owner recovery resumes earliest safe phase without replaying effects"
   assert.equal(assertMutationAuthority(result.state, "session-1").ok, false);
 });
 
+test("prepared and executing reservations never masquerade as completed effects", () => {
+  for (const status of ["prepared", "executing", "failed_closed"]) {
+    const state = fixture({ reservations: { checkpoint_commit: { key: "c1", status } } });
+    const result = planInterruptionRecovery(state, {}, { processExited: true, checkpointValid: true });
+    assert.equal(result.effectsAlreadyPresent.commit, false);
+  }
+});
+
 test("post-merge report finalization resumes hygiene only", () => {
   const result = planInterruptionRecovery(fixture(), { mergePresent: true }, { partialReport: true, checkpointValid: true });
   assert.equal(result.earliestSafePhase, "issue_parent_ledger_hygiene");
@@ -214,6 +222,7 @@ test("valid recovery v1 migrates without reinterpreting counters or markers", ()
   assert.equal(migrated.ok, true);
   assert.equal(migrated.state.controller.localSourceChangingRoundsPerEpoch, 6);
   assert.equal(migrated.state.reservations.checkpoint_commit.key, "c1");
+  assert.equal(migrated.state.reservations.checkpoint_commit.status, "confirmed");
   const recovered = planInterruptionRecovery(migrated.state, {}, { processExited: true, checkpointValid: true });
   assert.equal(recovered.effectsAlreadyPresent.commit, true);
   assert.equal(recovered.earliestSafePhase, "push");

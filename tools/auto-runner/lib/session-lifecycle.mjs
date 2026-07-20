@@ -135,7 +135,7 @@ export function migrateRecoveryStateToSessionLifecycle(recoveryState, input = {}
       ...input,
       phase: recoveryState.phase,
       nextExactAction: recoveryState.nextSafeAction || recoveryState.firstIncompleteAction,
-      reservations: recoveryState.mutationMarkers || {},
+      reservations: Object.fromEntries(Object.entries(recoveryState.mutationMarkers || {}).map(([key, value]) => [key, { ...(value || {}), status: "confirmed" }])),
       evidence: recoveryState.evidence || {},
       reportPath: recoveryState.expectedReportPaths?.repoReportPath || input.reportPath,
     }) };
@@ -355,6 +355,6 @@ function reservationConfirmed(reservations, keys) {
     const value = reservations?.[key];
     if (!value) return false;
     if (value.confirmed === true || value.status === "confirmed" || value.status === "completed") return true;
-    return typeof value === "object" && Object.keys(value).length > 0;
+    return false;
   });
 }
