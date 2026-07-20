@@ -21,10 +21,26 @@ import {
   nextBundleSliceFromCheckpoint,
   planIdempotentGithubMutation,
   recoveryStatusSummary,
+  reconcileAuthoritativeLifecycleHead,
   projectStartupRecoveryIssueIdentity,
   shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
 } from "../lib/recovery-continuation.mjs";
+
+test("successor lifecycle adopts only an exact authoritatively proven commit head", () => {
+  const oldHead = "a".repeat(40);
+  const newHead = "b".repeat(40);
+  const lifecycle = { branch: { headSha: oldHead, candidateDigest: "c".repeat(64) } };
+  const adopted = reconcileAuthoritativeLifecycleHead(lifecycle, {
+    git: { headSha: newHead },
+    intents: [{ effectType: "commit", classification: "effect_present_exact_adoptable" }],
+  });
+  assert.equal(adopted.ok, true);
+  assert.equal(adopted.changed, true);
+  assert.equal(adopted.state.branch.headSha, newHead);
+  assert.equal(adopted.state.branch.candidateDigest, null);
+  assert.equal(reconcileAuthoritativeLifecycleHead(lifecycle, { git: { headSha: newHead }, intents: [] }).reasonCode, "session_lifecycle_authoritative_head_unproven");
+});
 
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-recovery-continuation-"));

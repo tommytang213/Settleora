@@ -321,7 +321,15 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   }, evidenceAdapters);
   const inputs = plannerInputsFromAuthoritativeEvidence(authoritative);
   if (!inputs.ok) return { ...inputs, authoritativeEvidence: authoritative };
-  const planned = planInterruptionRecovery(loaded.state, inputs.liveEffects, { ...inputs.interruption, ...interruption });
+  const reconciledLifecycle = reconcileAuthoritativeLifecycleHead(loaded.state, authoritative);
+  if (!reconciledLifecycle.ok) return reconciledLifecycle;
+  let lifecycleState = reconciledLifecycle.state;
+  if (reconciledLifecycle.changed) {
+    const headPersisted = persistSessionLifecycleState(config, lifecycleState);
+    if (!headPersisted.ok) return headPersisted;
+    lifecycleState = headPersisted.state;
+  }
+  const planned = planInterruptionRecovery(lifecycleState, inputs.liveEffects, { ...inputs.interruption, ...interruption });
   if (!planned.ok) return planned;
   if (planned.active) return { ok: false, reasonCode: planned.reasonCode };
   const pending = persistSessionLifecycleState(config, planned.state);
@@ -346,6 +354,17 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     return { ok: false, reasonCode: "pre_effect_intent_authority_handoff_failed", state: persisted.state };
   }
   return { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation, handedOffIntentIds: pendingIntents.map((intent) => intent.intentId) };
+}
+
+export function reconcileAuthoritativeLifecycleHead(state, authoritative) {
+  const liveHead = authoritative?.git?.headSha;
+  if (liveHead === state?.branch?.headSha) return { ok: true, changed: false, state };
+  const exactCommit = authoritative?.intents?.some((intent) => intent.effectType === "commit"
+    && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification));
+  if (!exactCommit || !/^[a-f0-9]{40}$/.test(String(liveHead || ""))) {
+    return { ok: false, reasonCode: "session_lifecycle_authoritative_head_unproven" };
+  }
+  return { ok: true, changed: true, state: { ...state, branch: { ...state.branch, headSha: liveHead, candidateDigest: null } } };
 }
 
 function hasAnyMutationMarker(state, kind) {
