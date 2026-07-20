@@ -17,6 +17,21 @@ candidate. The outer PR loop permits at most 50 frozen actionable GitHub
 finding batches per PR. Each starts a new local epoch and resets only its local
 round counter. Lifetime local source-changing rounds are telemetry only.
 
+Existing-PR stack correction uses a durable inner-local candidate journal.
+Validation, fresh Gemini, and fresh local Codex sessions bind to the same
+committed-but-unpushed cumulative candidate. Material findings from both
+reviewers are frozen and deduplicated into one bounded batch; a safe in-scope
+fix invalidates all candidate evidence and repeats all three gates. Commit and
+push intents are restart-idempotent, and no push occurs until both fresh
+reviews pass. Manual, unsafe, out-of-contract, contradictory, replayed/
+no-progress, and round-51 findings stop fail-closed.
+
+`two_loop_v1` is the only blocking source-round authority. Migration labels
+legacy `sourceChangingCycle` and stack `sourceCycles` values as non-
+authoritative compatibility projections, binds reservations to the GitHub
+epoch and complete cumulative candidate chain, and leaves lifetime telemetry
+and logical-task charging independent.
+
 ## Purpose
 
 The DevBox-native auto-runner is a Settleora repo tool because its policy has

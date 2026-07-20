@@ -277,7 +277,7 @@ async function main() {
     writeActiveRunState(config, summary);
     logger.info(`Settleora auto-runner started in ${config.mode} mode.`);
 
-    if (!config.dryRun) {
+    if (!config.dryRun && !config.outageRecoveryOnly) {
       const durableBudget = loadLogicalTaskBudget(config, config.supervisorRunId || runId);
       if (!durableBudget.ok) {
         summary.stopReason = `logical-task-budget:${durableBudget.reasonCode}`;
@@ -363,6 +363,19 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   const startupRecovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
   if (startupRecovery.found) {
+    const recoveryBudget = startupRecovery.allowed
+      ? chargeStartupRecoveryLogicalTask(config, runId, startupRecovery)
+      : { ok: true, charged: false, skipped: true, reasonCode: "startup_recovery_not_allowed" };
+    iteration.logicalTaskBudget = recoveryBudget;
+    if (!recoveryBudget.ok) {
+      iteration.recovery = startupRecovery;
+      iteration.issueSource = "startup_recovery";
+      iteration.issue = Number.isSafeInteger(startupRecovery.state?.issue?.number) ? { number: startupRecovery.state.issue.number } : null;
+      iteration.outcome = "blocked_logical_task_budget";
+      iteration.systemicStop = `logical-task-budget:${recoveryBudget.reasonCode}`;
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
     const continuation = startupRecovery.allowed
       ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
       : await executeStartupContinuation(config, startupRecovery);
@@ -1368,6 +1381,34 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   iteration.recovery = recoveryRecorder?.summary();
   iteration.finishedAt = new Date().toISOString();
   return iteration;
+}
+
+function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
+  const issue = recovery.state?.issue;
+  if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) return { ok: false, reasonCode: "startup_recovery_issue_identity_missing" };
+  const budgetScopeId = recovery.state?.run?.supervisorRunId || recovery.state?.run?.runId || config.supervisorRunId || runId;
+  const loaded = loadLogicalTaskBudget(config, budgetScopeId);
+  if (!loaded.ok) return loaded;
+  const alreadyCharged = Object.values(loaded.state.charges || {}).some((marker) =>
+    marker.identity?.repository === config.repositorySlug &&
+    marker.identity?.issueNumber === issue.number &&
+    marker.identity?.taskLineageId === `issue-${issue.number}` &&
+    marker.identity?.claimIdentity === `${config.repositorySlug}#${issue.number}`,
+  );
+  if (!alreadyCharged) {
+    const live = readIssueLive(config, issue.number);
+    if (!live.ok) return { ok: false, reasonCode: live.reason || "startup_recovery_claim_reread_failed" };
+    const reread = validateClaimReread(config, issue, live.issue);
+    if (!reread.ok) return { ok: false, reasonCode: reread.reason || "startup_recovery_claim_reread_failed" };
+  }
+  return chargeAcceptedLogicalTask(config, {
+    budgetScopeId,
+    maxTasks: config.maxIterations,
+    issue,
+    taskLineageId: `issue-${issue.number}`,
+    claimIdentity: `${config.repositorySlug}#${issue.number}`,
+    acceptedAt: new Date().toISOString(),
+  });
 }
 
 function createProductionRecoveryRecorder(config, input) {

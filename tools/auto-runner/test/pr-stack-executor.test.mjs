@@ -766,6 +766,7 @@ test("local candidate commit is created before validation evidence can bind to t
     exactHead: sha("a"),
     changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
     message: "Auto-runner stack review-fix batch",
+    localLoopState: { phase: "candidate_prepared", candidateHead: sha("c"), candidateTree: sha("d") },
   });
   assert.equal(candidate.ok, true, candidate.reasonCode);
   assert.equal(candidate.parent, sha("a"));
@@ -791,11 +792,33 @@ test("validation or review failure can preserve and reuse an unpushed local cand
     exactHead: sha("a"),
     changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
     message: "Auto-runner stack review-fix batch",
+    localLoopState: { phase: "candidate_prepared", candidateHead: sha("c"), candidateTree: sha("d") },
   });
   assert.equal(candidate.ok, true, candidate.reasonCode);
   assert.equal(candidate.reused, true);
   assert.equal(candidate.newHead, sha("c"));
   assert.equal(commitCalls, 0);
+});
+
+test("an unjournaled clean descendant is refused as a reusable local candidate", () => {
+  const fixture = stackFixture();
+  const runner = (command, args) => {
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD") return { status: 0, stdout: `${sha("c")}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD^") return { status: 0, stdout: `${sha("a")}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "rev-parse" && args[1] === "HEAD^{tree}") return { status: 0, stdout: `${sha("d")}\n`, stderr: "", error: null };
+    if (command === "git" && args[0] === "status") return { status: 0, stdout: "", stderr: "", error: null };
+    return fakeRunner(command, args);
+  };
+  const candidate = prStackExecutorTestInternals.createOrReuseLocalCandidateCommit({
+    config: fixture.config,
+    runner,
+    cwd: fixture.root,
+    exactHead: sha("a"),
+    changedFiles: ["tools/auto-runner/lib/pr-stack-executor.mjs"],
+    message: "Auto-runner stack review-fix batch",
+    localLoopState: { phase: "candidate_prepared", candidateHead: sha("e"), candidateTree: sha("d") },
+  });
+  assert.equal(candidate.reasonCode, "existing_pr_batch_fix_candidate_journal_mismatch");
 });
 
 test("push intent is durable before push and crash-after-push reconciliation finalizes without replay", () => {

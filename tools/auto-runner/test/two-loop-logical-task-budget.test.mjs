@@ -7,11 +7,14 @@ import {
   accountConvergenceEvent,
   accountGithubTriggeredFixEpoch,
   evaluateLocalConvergenceEvidence,
+  evaluateCycleBudget,
   evaluateTwoLoopLimits,
 } from "../lib/review-convergence-controller.mjs";
 import {
   createInitialReviewConvergenceState,
   loadReviewConvergenceState,
+  migrateReviewConvergenceState,
+  validateReviewConvergenceState,
   writeReviewConvergenceState,
 } from "../lib/review-convergence-state.mjs";
 import {
@@ -117,6 +120,39 @@ test("durable restart preserves loop phase/counters and rejects cross-PR identit
   assert.deepEqual(loaded.state.counters, state.counters);
   assert.equal(loaded.state.loopPhase, "github_wait");
   assert.equal(loadReviewConvergenceState(config, { ...state, prNumber: 2002, pr: { ...state.pr, number: 2002 } }).reasonCode, "review_convergence_state_identity_mismatch");
+});
+
+test("legacy cumulative state migrates once and becomes a non-authoritative lifetime projection", () => {
+  const legacy = { ...convergence(), stateVersion: 1, counterAuthority: undefined, counterMigration: undefined, counters: undefined, sourceChangingCycle: 37 };
+  const migrated = migrateReviewConvergenceState(legacy);
+  assert.equal(migrated.stateVersion, 2);
+  assert.equal(migrated.counterAuthority, "two_loop_v1");
+  assert.equal(migrated.counters.localSourceChangingRoundsPerEpoch, 37);
+  assert.equal(migrated.counters.lifetimeLocalSourceChangingRounds, 37);
+  assert.equal(migrated.counterMigration.sourceVersion, "legacy_source_changing_cycle_v1");
+  assert.equal(migrated.counterMigration.legacyProjectionAuthoritative, false);
+  assert.equal(validateReviewConvergenceState(migrated).ok, true);
+});
+
+test("contradictory legacy projection and two-loop lifetime authority fail closed", () => {
+  const contradictory = { ...convergence(), sourceChangingCycle: 4, counters: { ...convergence().counters, lifetimeLocalSourceChangingRounds: 5 } };
+  assert.equal(validateReviewConvergenceState(contradictory).reason, "counter_projection_contradiction");
+  assert.equal(migrateReviewConvergenceState({ ...contradictory, stateVersion: 1 }).counterMigration.resultingAuthority, "invalid_contradictory_state");
+});
+
+test("legacy cumulative projection cannot block a valid later GitHub epoch", () => {
+  const state = convergence({ sourceChangingCycle: 80, localSourceChangingRoundsPerEpoch: 0, lifetimeLocalSourceChangingRounds: 80, githubTriggeredFixEpochsPerPr: 2 });
+  assert.equal(evaluateCycleBudget(state, { allowReviewFixMutation: true, maxReviewFixCycles: 50, configPath: "cfg.json" }, []).ok, true);
+});
+
+test("one cumulative candidate can consume rounds through 50 but never reserve round 51", () => {
+  const state = convergence({ sourceChangingCycle: 49, localSourceChangingRoundsPerEpoch: 49, lifetimeLocalSourceChangingRounds: 49 });
+  const admitted = accountConvergenceEvent(state, { kind: "source_changed", newHead: sha("d"), roundsConsumed: 1 });
+  assert.equal(admitted.consumedSourceCycle, true);
+  assert.equal(admitted.state.counters.localSourceChangingRoundsPerEpoch, 50);
+  const rejected = accountConvergenceEvent(state, { kind: "source_changed", newHead: sha("e"), roundsConsumed: 2 });
+  assert.equal(rejected.consumedSourceCycle, false);
+  assert.equal(rejected.reason, "local_source_changing_round_limit_exhausted");
 });
 
 function budgetConfig(logsRoot) {

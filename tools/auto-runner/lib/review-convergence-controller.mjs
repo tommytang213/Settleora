@@ -275,16 +275,21 @@ export function accountConvergenceEvent(state, event = {}) {
         consumedHead: newHead,
       }
     : state.diagnosticReviewFix;
+  const roundsConsumed = Math.max(1, Number(event.roundsConsumed || 1));
+  const localBefore = state.counters?.localSourceChangingRoundsPerEpoch || 0;
+  if (!Number.isSafeInteger(roundsConsumed) || localBefore + roundsConsumed > localSourceChangingRoundsPerEpochLimit) {
+    return { state: { ...state, terminalReason: "CYCLE_BUDGET_EXHAUSTED" }, consumedSourceCycle: false, reason: "local_source_changing_round_limit_exhausted" };
+  }
   return {
     consumedSourceCycle: true,
     reason: "source_changing_exact_head",
     state: {
       ...invalidateConvergenceEvidenceForHead(state, newHead, event.reasonCode || "source_changed"),
-      sourceChangingCycle: state.sourceChangingCycle + 1,
+      sourceChangingCycle: state.sourceChangingCycle + roundsConsumed,
       counters: {
         ...(state.counters || {}),
-        localSourceChangingRoundsPerEpoch: (state.counters?.localSourceChangingRoundsPerEpoch || 0) + 1,
-        lifetimeLocalSourceChangingRounds: (state.counters?.lifetimeLocalSourceChangingRounds || 0) + 1,
+        localSourceChangingRoundsPerEpoch: localBefore + roundsConsumed,
+        lifetimeLocalSourceChangingRounds: (state.counters?.lifetimeLocalSourceChangingRounds || 0) + roundsConsumed,
       },
       loopPhase: "local_validation",
       diagnosticReviewFix: diagnostic,
@@ -415,7 +420,13 @@ export function evaluateCycleBudget(state, config = {}, history = []) {
       budget,
     };
   }
-  if (state.sourceChangingCycle < budget.normalized) return { ok: true, budget };
+  const localRounds = state.counterAuthority === "two_loop_v1"
+    ? state.counters?.localSourceChangingRoundsPerEpoch
+    : state.sourceChangingCycle;
+  if (!Number.isSafeInteger(localRounds) || localRounds < 0) {
+    return { ok: false, terminalReason: "MANUAL_DECISION_REQUIRED", reason: "authoritative_local_round_counter_invalid", budget };
+  }
+  if (localRounds < budget.normalized) return { ok: true, budget };
   const diagnostic = state.diagnosticReviewFix || null;
   if (diagnostic?.status === "pending") {
     const authorization = diagnosticAuthorizationForState(state, budget, "resume_diagnostic_epoch");
@@ -434,7 +445,7 @@ export function evaluateCycleBudget(state, config = {}, history = []) {
     epoch: state.epoch,
     prNumber: state.pr?.number ?? null,
     exactHead: state.pr?.exactHead || null,
-    sourceChangingCycle: state.sourceChangingCycle,
+    sourceChangingCycle: localRounds,
     normalizedMax: budget.normalized,
     decision: "start_diagnostic_epoch",
     startedAt: new Date().toISOString(),
@@ -654,7 +665,11 @@ export async function runExistingPrReviewConvergence(input = {}) {
     kind: fixResult.newHead && fixResult.newHead !== state.pr?.exactHead ? "source_changed" : "wait",
     newHead: fixResult.newHead,
     reasonCode: "existing_pr_review_convergence_fix",
+    roundsConsumed: fixResult?.sourceIdentity?.localSourceChangingRoundsConsumed || fixResult?.result?.sourceIdentity?.localSourceChangingRoundsConsumed || 1,
   });
+  if (fixResult.newHead && fixResult.newHead !== state.pr?.exactHead && !accounted.consumedSourceCycle) {
+    return { ok: false, reasonCode: "LOCAL_SOURCE_CHANGING_ROUND_LIMIT_EXHAUSTED", reason: accounted.reason, reviewConvergenceState: accounted.state };
+  }
   return {
     ok: true,
     reason: "existing_pr_review_convergence_fix_applied",
@@ -819,7 +834,7 @@ function diagnosticAuthorizationForState(state, budget, reason) {
     epoch: state.epoch,
     prNumber: state.pr?.number ?? null,
     exactHead: state.pr?.exactHead || null,
-    sourceChangingCycle: state.sourceChangingCycle,
+    sourceChangingCycle: state.counters?.localSourceChangingRoundsPerEpoch,
     normalizedMax: budget.normalized,
     attemptId: diagnostic.attemptId || diagnosticAttemptId(state, budget),
     status: diagnostic.status || null,
@@ -828,7 +843,7 @@ function diagnosticAuthorizationForState(state, budget, reason) {
     reviewConvergenceState: state,
     diagnosticAuthorization: authorization,
     normalizedMax: budget.normalized,
-    attemptCount: state.sourceChangingCycle,
+    attemptCount: state.counters?.localSourceChangingRoundsPerEpoch,
   });
   return validation.ok ? { ok: true, authorization } : validation;
 }
@@ -840,7 +855,7 @@ function diagnosticAttemptId(state, budget) {
       epoch: state.epoch,
       prNumber: state.pr?.number ?? null,
       exactHead: state.pr?.exactHead || null,
-      sourceChangingCycle: state.sourceChangingCycle,
+      sourceChangingCycle: state.counters?.localSourceChangingRoundsPerEpoch,
       normalizedMax: budget.normalized,
     }))
     .digest("hex");

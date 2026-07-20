@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { isUtf8 } from "node:buffer";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -18,12 +19,22 @@ export function logicalTaskBudgetPath(config, budgetScopeId) {
 
 export function loadLogicalTaskBudget(config, budgetScopeId) {
   const statePath = logicalTaskBudgetPath(config, budgetScopeId);
+  try { validateBudgetPath(config, statePath); } catch { return { ok: false, reasonCode: "logical_task_budget_state_unsafe", statePath }; }
   if (!existsSync(statePath)) return { ok: true, statePath, state: initialState(config, budgetScopeId) };
   let parsed;
+  let fd;
   try {
-    parsed = JSON.parse(readFileSync(statePath, "utf8"));
+    fd = openSync(statePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    const stat = fstatSync(fd);
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (!stat.isFile() || stat.size <= 0 || stat.size > 1024 * 1024 || (uid !== null && stat.uid !== uid) || (stat.mode & 0o077) !== 0) throw new Error("unsafe budget state");
+    const bytes = Buffer.alloc(stat.size);
+    if (readSync(fd, bytes, 0, stat.size, 0) !== stat.size || !isUtf8(bytes)) throw new Error("invalid budget state encoding");
+    parsed = JSON.parse(bytes.toString("utf8"));
   } catch {
     return { ok: false, reasonCode: "logical_task_budget_state_corrupt", statePath };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
   const validation = validateLogicalTaskBudgetState(parsed, { repository: config.repositorySlug, budgetScopeId });
   if (!validation.ok) return { ok: false, reasonCode: "logical_task_budget_state_invalid", reason: validation.reason, statePath };
@@ -158,12 +169,38 @@ function normalizeMaxTasks(value) {
 function writeState(statePath, state) {
   const validation = validateLogicalTaskBudgetState(state, { repository: state.repository, budgetScopeId: state.budgetScopeId });
   if (!validation.ok) throw new Error(`Invalid logical task budget state: ${validation.reason}`);
+  const config = { logsRoot: path.dirname(path.dirname(statePath)) };
+  validateBudgetPath(config, statePath);
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+  validateBudgetPath(config, statePath);
   const safe = sanitizePersistedEvidence(state);
   const tmpPath = `${statePath}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmpPath, `${JSON.stringify(safe, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmpPath, statePath);
   return safe;
+}
+
+function validateBudgetPath(config, statePath) {
+  const root = path.resolve(config.logsRoot);
+  const target = path.resolve(statePath);
+  const relative = path.relative(root, target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("budget path outside logs root");
+  const rootInfo = lstatSync(root);
+  const canonicalRoot = realpathSync(root);
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  const rootStat = statSync(canonicalRoot);
+  if (rootInfo.isSymbolicLink() || canonicalRoot !== root || !rootStat.isDirectory() || (uid !== null && rootStat.uid !== uid) || (rootStat.mode & 0o077) !== 0) throw new Error("unsafe logs root");
+  let current = root;
+  for (const part of relative.split(path.sep)) {
+    current = path.join(current, part);
+    try {
+      const info = lstatSync(current);
+      if (info.isSymbolicLink() || (uid !== null && info.uid !== uid) || (info.mode & 0o077) !== 0 || realpathSync(current) !== current) throw new Error("unsafe budget path component");
+    } catch (error) {
+      if (error?.code === "ENOENT") break;
+      throw error;
+    }
+  }
 }
 
 function projection(state, statePath, marker, duplicate) {

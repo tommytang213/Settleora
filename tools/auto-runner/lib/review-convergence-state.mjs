@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
-export const reviewConvergenceStateVersion = 1;
+export const reviewConvergenceStateVersion = 2;
 export const reviewConvergenceTerminalReasons = Object.freeze([
   "REVIEW_CONVERGED",
   "MANUAL_DECISION_REQUIRED",
@@ -63,13 +63,24 @@ export function createInitialReviewConvergenceState(input = {}) {
       exactHead: head,
     },
     epoch: Number.isInteger(input.epoch) ? input.epoch : 1,
-    sourceChangingCycle: Number.isInteger(input.sourceChangingCycle) ? input.sourceChangingCycle : 0,
+    sourceChangingCycle: Number.isInteger(input.sourceChangingCycle)
+      ? input.sourceChangingCycle
+      : Number.isInteger(input.lifetimeLocalSourceChangingRounds)
+        ? input.lifetimeLocalSourceChangingRounds
+        : 0,
     counters: {
       localSourceChangingRoundsPerEpoch: Number.isInteger(input.localSourceChangingRoundsPerEpoch) ? input.localSourceChangingRoundsPerEpoch : 0,
       githubTriggeredFixEpochsPerPr: Number.isInteger(input.githubTriggeredFixEpochsPerPr) ? input.githubTriggeredFixEpochsPerPr : 0,
       lifetimeLocalSourceChangingRounds: Number.isInteger(input.lifetimeLocalSourceChangingRounds) ? input.lifetimeLocalSourceChangingRounds : 0,
     },
     counterAuthority: "two_loop_v1",
+    counterMigration: {
+      sourceVersion: "two_loop_v1",
+      resultingAuthority: "two_loop_v1",
+      legacyProjection: "sourceChangingCycle",
+      legacyProjectionAuthoritative: false,
+      migratedAt: now,
+    },
     counterMarkers: {},
     loopPhase: input.loopPhase || "local_validation",
     findingInventory: [],
@@ -137,6 +148,21 @@ export function normalizeReviewConvergenceStateIdentity(input = {}) {
       : Number.isInteger(existing.sourceChangingCycle)
         ? existing.sourceChangingCycle
         : 0,
+    localSourceChangingRoundsPerEpoch: Number.isInteger(input.counters?.localSourceChangingRoundsPerEpoch)
+      ? input.counters.localSourceChangingRoundsPerEpoch
+      : Number.isInteger(existing.counters?.localSourceChangingRoundsPerEpoch)
+        ? existing.counters.localSourceChangingRoundsPerEpoch
+        : Number.isInteger(input.sourceChangingCycle ?? existing.sourceChangingCycle)
+          ? (input.sourceChangingCycle ?? existing.sourceChangingCycle)
+          : 0,
+    githubTriggeredFixEpochsPerPr: input.counters?.githubTriggeredFixEpochsPerPr ?? existing.counters?.githubTriggeredFixEpochsPerPr ?? 0,
+    lifetimeLocalSourceChangingRounds: Number.isInteger(input.counters?.lifetimeLocalSourceChangingRounds)
+      ? input.counters.lifetimeLocalSourceChangingRounds
+      : Number.isInteger(existing.counters?.lifetimeLocalSourceChangingRounds)
+        ? existing.counters.lifetimeLocalSourceChangingRounds
+        : Number.isInteger(input.sourceChangingCycle ?? existing.sourceChangingCycle)
+          ? (input.sourceChangingCycle ?? existing.sourceChangingCycle)
+          : 0,
     parentPr: input.parentPr ?? existing.relationships?.parentPr ?? null,
     dependentPrs: input.dependentPrs ?? existing.relationships?.dependentPrs ?? [],
     phase: input.phase || existing.phase || "initialized",
@@ -226,10 +252,29 @@ export function loadReviewConvergenceState(config, keyOrState) {
 }
 
 export function migrateReviewConvergenceState(state) {
-  if (!state || state.stateVersion !== reviewConvergenceStateVersion) return state;
-  const legacyRounds = Number.isSafeInteger(state.sourceChangingCycle) && state.sourceChangingCycle >= 0 ? state.sourceChangingCycle : 0;
+  if (!state || typeof state !== "object" || Array.isArray(state)) return state;
+  if (![1, reviewConvergenceStateVersion].includes(state.stateVersion)) return state;
+  const legacyValid = Number.isSafeInteger(state.sourceChangingCycle) && state.sourceChangingCycle >= 0;
+  if (!legacyValid) return { ...state, stateVersion: reviewConvergenceStateVersion };
+  const legacyRounds = state.sourceChangingCycle;
+  const hasTwoLoop = state.counterAuthority === "two_loop_v1" || state.counters !== undefined;
+  const lifetime = state.counters?.lifetimeLocalSourceChangingRounds;
+  if (hasTwoLoop && Number.isSafeInteger(lifetime) && lifetime !== legacyRounds) {
+    return {
+      ...state,
+      stateVersion: reviewConvergenceStateVersion,
+      counterMigration: {
+        sourceVersion: state.stateVersion === 1 ? "legacy_v1_with_two_loop" : "two_loop_v1",
+        resultingAuthority: "invalid_contradictory_state",
+        legacyProjection: "sourceChangingCycle",
+        legacyProjectionAuthoritative: false,
+        contradiction: "legacy_lifetime_projection_mismatch",
+      },
+    };
+  }
   return {
     ...state,
+    stateVersion: reviewConvergenceStateVersion,
     counters: {
       localSourceChangingRoundsPerEpoch: state.counters?.localSourceChangingRoundsPerEpoch ?? legacyRounds,
       githubTriggeredFixEpochsPerPr: state.counters?.githubTriggeredFixEpochsPerPr ?? 0,
@@ -237,6 +282,13 @@ export function migrateReviewConvergenceState(state) {
     },
     counterMarkers: state.counterMarkers && typeof state.counterMarkers === "object" ? state.counterMarkers : {},
     counterAuthority: "two_loop_v1",
+    counterMigration: state.counterMigration || {
+      sourceVersion: hasTwoLoop ? "two_loop_v1" : "legacy_source_changing_cycle_v1",
+      resultingAuthority: "two_loop_v1",
+      legacyProjection: "sourceChangingCycle",
+      legacyProjectionAuthoritative: false,
+      migratedAt: new Date().toISOString(),
+    },
     loopPhase: state.loopPhase || phaseToLoopPhase(state.phase),
   };
 }
@@ -315,7 +367,8 @@ export function validateDiagnosticReviewFixAuthorization(input = {}) {
   const state = input.reviewConvergenceState || input.state || {};
   const authorization = input.diagnosticAuthorization || input.authorization || {};
   const normalizedMax = Number(input.normalizedMax ?? input.maxAttempts ?? input.budget?.normalized);
-  const attemptCount = Number(input.attemptCount ?? state.sourceChangingCycle);
+  const localRounds = state.counters?.localSourceChangingRoundsPerEpoch;
+  const attemptCount = Number(input.attemptCount ?? localRounds);
   const diagnostic = state.diagnosticReviewFix || {};
   const pr = state.pr || {};
   const mismatches = [];
@@ -326,7 +379,7 @@ export function validateDiagnosticReviewFixAuthorization(input = {}) {
   if (!pr.exactHead || authorization.exactHead !== pr.exactHead) mismatches.push("exact_head");
   if (!Number.isFinite(normalizedMax) || normalizedMax !== authorization.normalizedMax) mismatches.push("normalized_max");
   if (authorization.sourceChangingCycle !== normalizedMax) mismatches.push("authorization_source_cycle");
-  if (!Number.isFinite(attemptCount) || attemptCount !== normalizedMax || state.sourceChangingCycle !== normalizedMax) mismatches.push("source_cycle");
+  if (!Number.isFinite(attemptCount) || attemptCount !== normalizedMax || localRounds !== normalizedMax) mismatches.push("source_cycle");
   if (diagnostic.status !== "pending") mismatches.push("diagnostic_status");
   if (!diagnostic.startedAt) mismatches.push("diagnostic_started_marker");
   if (!diagnostic.attemptId || authorization.attemptId !== diagnostic.attemptId) mismatches.push("attempt_id");
@@ -354,6 +407,10 @@ export function validateReviewConvergenceState(state) {
   }
   if (!state.counterMarkers || typeof state.counterMarkers !== "object" || Array.isArray(state.counterMarkers)) return fail("counter_markers_invalid");
   if (state.counterAuthority !== "two_loop_v1") return fail("counter_authority_invalid");
+  if (!state.counterMigration || state.counterMigration.resultingAuthority !== "two_loop_v1" || state.counterMigration.legacyProjectionAuthoritative !== false) {
+    return fail("counter_migration_invalid");
+  }
+  if (state.sourceChangingCycle !== state.counters.lifetimeLocalSourceChangingRounds) return fail("counter_projection_contradiction");
   if (!state.evidence || typeof state.evidence !== "object") return fail("evidence_missing");
   if (state.terminalReason && !reviewConvergenceTerminalReasons.includes(state.terminalReason)) return fail("terminal_reason_invalid");
   return { ok: true };
