@@ -192,12 +192,7 @@ export function loadSessionLifecycleForRecovery(config, identity) {
     try { state = JSON.parse(readFileSync(path.join(root, entry.name), "utf8")); } catch { continue; }
     if (state.repository !== identity.repository || state.logicalTask?.issueNumber !== identity.issueNumber || state.logicalTask?.taskKey !== identity.taskKey || state.logicalTask?.runId !== identity.runId) continue;
     if (state.branch?.name !== identity.branchName || state.branch?.baseSha !== identity.baseSha) continue;
-    if (state.branch.headSha !== identity.headSha) {
-      state = structuredClone(state);
-      state.branch.headSha = identity.headSha;
-      state.branch.candidateDigest = null;
-      refreshDigest(state);
-    }
+    if (state.branch.headSha !== identity.headSha) continue;
     const validation = validateSessionLifecycleState(state, { ...identity, claimIdentity: state.logicalTask.claimIdentity });
     if (validation.ok) matches.push({ state, statePath: path.join(root, entry.name) });
   }

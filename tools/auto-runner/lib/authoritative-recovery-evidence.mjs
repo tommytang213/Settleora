@@ -146,7 +146,7 @@ function defaultProcessRead(config, identity) {
 }
 
 function defaultLeaseRead(config, identity, now) {
-  if (!identity.supervisorRunId) return { complete: false, source: "supervisor_heartbeat", valid: null };
+  if (!identity.supervisorRunId) return { complete: true, source: "supervisor_not_applicable", valid: false, runId: null, runnerRunId: identity.runId };
   const read = readHeartbeat(identity.supervisorRunId, config.logsRoot);
   if (!read.found || read.heartbeat?.runId !== identity.supervisorRunId || read.heartbeat?.runnerRunId !== identity.runId) return { complete: false, source: "supervisor_heartbeat", valid: null };
   const expiry = iso(read.heartbeat.leaseExpiresAt);
