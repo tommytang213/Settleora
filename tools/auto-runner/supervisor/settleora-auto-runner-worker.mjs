@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import process from "node:process";
 import { defaultLogsRoot } from "../lib/config.mjs";
 import { getRefSha } from "../lib/git-workspace.mjs";
+import { safeTimestamp } from "../lib/logger.mjs";
 import { readAndVerifyRunSpec, validateRunId } from "./run-spec.mjs";
 import { buildHeartbeat, writeHeartbeat } from "./heartbeat.mjs";
 import { recordMonitoringEvent } from "./monitoring-outbox.mjs";
@@ -51,15 +52,19 @@ export async function runSupervisorWorker(
     runnerConfigSha256: verified.config.sha256,
     maxTasks: verified.spec.maxTasks,
     maxRuntime: verified.spec.maxRuntime,
+    runnerRunId: `run-${safeTimestamp()}`,
+    startedAt: new Date().toISOString(),
   };
   writeSupervisorState(runId, statePatch, logsRoot);
-  let heartbeat = buildHeartbeat({ runId, state: "starting", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime });
+  const runnerRunId = statePatch.runnerRunId;
+  let heartbeatGeneration = 1;
+  let heartbeat = buildHeartbeat({ runId, runnerRunId, state: "starting", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration });
   writeHeartbeat(runId, heartbeat, logsRoot);
   recordMonitoringEvent("started", heartbeat, { logsRoot });
 
-  const argv = runnerArgvForSpec(verified.spec);
+  const argv = runnerArgvForSpec(verified.spec, { runnerRunId });
   writeSupervisorState(runId, { state: "running", runnerArgv: redactArgv(argv), stdoutPath, stderrPath }, logsRoot);
-  heartbeat = buildHeartbeat({ runId, state: "running", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime });
+  heartbeat = buildHeartbeat({ runId, runnerRunId, state: "running", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration: ++heartbeatGeneration });
   writeHeartbeat(runId, heartbeat, logsRoot);
   const stdout = createWriteStream(stdoutPath, { flags: "a", mode: 0o600 });
   const stderr = createWriteStream(stderrPath, { flags: "a", mode: 0o600 });
@@ -84,9 +89,12 @@ export async function runSupervisorWorker(
   const interval = setInterval(async () => {
     const activeHeartbeat = buildHeartbeat({
       runId,
+      runnerRunId,
       state: stopping ? "stopping_after_current" : "running",
       maxTasks: verified.spec.maxTasks,
       maxRuntime: verified.spec.maxRuntime,
+      startedAt: statePatch.startedAt,
+      heartbeatGeneration: ++heartbeatGeneration,
     });
     writeHeartbeat(runId, activeHeartbeat, logsRoot);
     recordMonitoringEvent("heartbeat", activeHeartbeat, { logsRoot });
@@ -103,23 +111,29 @@ export async function runSupervisorWorker(
     initialOriginMainSha: verified.spec.initialOriginMainSha,
     mode: verified.spec.mode,
   });
+  if (reportResolution.runnerRunId && reportResolution.runnerRunId !== runnerRunId) {
+    reportResolution.status = "identity_mismatch";
+    reportResolution.ok = false;
+  }
   const terminalDecision = decideTerminalState(childTerminalState, result, reportResolution);
   writeSupervisorState(runId, {
     state: terminalDecision.state,
     childTerminalState,
     childStatus: result.status,
     childSignal: result.signal,
-    runnerRunId: reportResolution.runnerRunId || null,
+    runnerRunId,
     runnerSummaryJsonPath: reportResolution.runnerSummaryJsonPath || null,
     runnerSummaryMarkdownPath: reportResolution.runnerSummaryMarkdownPath || null,
     reportPath: reportResolution.reportPath || null,
     reportResolution: sanitizeReportResolution(reportResolution),
+    startedAt: statePatch.startedAt,
+    heartbeatGeneration: ++heartbeatGeneration,
     terminalReason: terminalDecision.reason,
     finishedAt: new Date().toISOString(),
   }, logsRoot);
   const terminalHeartbeat = buildHeartbeat({
     runId,
-    runnerRunId: reportResolution.runnerRunId || null,
+    runnerRunId,
     state: terminalDecision.state,
     maxTasks: verified.spec.maxTasks,
     maxRuntime: verified.spec.maxRuntime,

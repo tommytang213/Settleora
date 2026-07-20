@@ -238,6 +238,7 @@ export function parseCliArgs(argv) {
     configPath: null,
     fixtureIssuesPath: null,
     supervisorRunId: null,
+    runnerRunId: null,
     outageRecoveryOnly: false,
     outageRecoveryTarget: null,
     securityFindingsDryRun: false,
@@ -279,6 +280,7 @@ export function parseCliArgs(argv) {
     else if (arg === "--config") args.configPath = readValue(argv, ++index, arg);
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
+    else if (arg === "--runner-run-id") args.runnerRunId = validateRunnerRunId(readValue(argv, ++index, arg));
     else if (arg === "--outage-recovery-only") args.outageRecoveryOnly = true;
     else if (arg === "--outage-target-task-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), taskKey: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-issue") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), issueNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
@@ -343,6 +345,9 @@ export function parseCliArgs(argv) {
   }
   if (args.supervisorRunId && (!args.run || args.dryRun || specialMode)) {
     throw new Error("--supervisor-run-id is only valid with a normal real --run");
+  }
+  if (args.runnerRunId && (!args.supervisorRunId || !args.run || args.dryRun || specialMode)) {
+    throw new Error("--runner-run-id is only valid with a supervised normal real --run");
   }
   if (args.outageRecoveryOnly && (!args.run || args.dryRun || specialMode || args.canary || !args.supervisorRunId)) {
     throw new Error("--outage-recovery-only is only valid for supervised non-canary real --run");
@@ -440,6 +445,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     maxRuntimeMs: cliArgs.maxRuntimeMs ?? fileConfig.maxRuntimeMs ?? defaultConfig.maxRuntimeMs,
     requirePrePrReview: cliArgs.requirePrePrReview,
     supervisorRunId: cliArgs.supervisorRunId || null,
+    runnerRunId: cliArgs.runnerRunId || null,
     outageRecoveryOnly: Boolean(cliArgs.outageRecoveryOnly),
     outageRecoveryTarget: cliArgs.outageRecoveryTarget || null,
   };

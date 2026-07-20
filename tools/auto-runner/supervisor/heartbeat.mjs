@@ -2,9 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { defaultLogsRoot } from "../lib/config.mjs";
 import { heartbeatPathForRunId, terminalStates, unitNameForRunId } from "./supervisor-state.mjs";
 import { atomicWriteTrustedJson, ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
+import { validateRunnerRunId, validateSupervisorRunId } from "../lib/run-correlation.mjs";
 
 export const defaultHeartbeatIntervalSeconds = 60;
 export const defaultHeartbeatLeaseSeconds = 5 * 60;
+export const heartbeatSchemaVersion = 2;
 
 export function buildHeartbeat({
   runId,
@@ -18,15 +20,21 @@ export function buildHeartbeat({
   reportPath = null,
   reportResolution = null,
   monitoringDelivery = null,
+  startedAt = null,
+  heartbeatGeneration = 1,
   now = new Date(),
 } = {}) {
   const updatedAt = now.toISOString();
   return {
+    schemaVersion: heartbeatSchemaVersion,
     runId,
     runnerRunId,
     state,
     unitName: unitNameForRunId(runId),
     updatedAt,
+    startedAt: startedAt || updatedAt,
+    heartbeatGeneration: Number.isSafeInteger(heartbeatGeneration) && heartbeatGeneration > 0 ? heartbeatGeneration : 1,
+    ownerPid: process.pid,
     leaseExpiresAt: new Date(now.getTime() + defaultHeartbeatLeaseSeconds * 1000).toISOString(),
     heartbeatIntervalSeconds: defaultHeartbeatIntervalSeconds,
     heartbeatLeaseSeconds: defaultHeartbeatLeaseSeconds,
@@ -51,6 +59,11 @@ export function buildHeartbeat({
 }
 
 export function writeHeartbeat(runId, heartbeat, logsRoot = defaultLogsRoot) {
+  validateSupervisorRunId(runId);
+  if (!heartbeat?.terminal) {
+    validateRunnerRunId(heartbeat?.runnerRunId);
+    if (heartbeat.runId !== runId) throw new Error("Active heartbeat supervisor identity mismatch");
+  }
   const context = ensureTrustedRunPathContext({ runId, logsRoot });
   const heartbeatPath = context.artifactPath(runArtifactKinds.heartbeat);
   atomicWriteTrustedJson(context, runArtifactKinds.heartbeat, heartbeat);

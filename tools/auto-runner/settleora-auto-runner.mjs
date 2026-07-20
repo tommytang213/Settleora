@@ -224,7 +224,7 @@ async function main() {
   if (!trustPolicy.allowed) {
     throw new Error(`Trusted real-run refused: ${trustPolicy.reason}`);
   }
-  const runId = `run-${safeTimestamp()}`;
+  const runId = config.runnerRunId || `run-${safeTimestamp()}`;
   const logger = createLogger(config.logsRoot, runId);
   const recoveryOnlyStartupDiscovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : null;
   const recoveryOnlyStartupEvidenceCheck = recoveryOnlyStartupDiscovery?.found && recoveryOnlyStartupDiscovery.allowed

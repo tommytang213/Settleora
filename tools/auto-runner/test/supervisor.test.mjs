@@ -18,7 +18,7 @@ import {
   validateRunSpecShape,
   writeImmutableRunSpec,
 } from "../supervisor/run-spec.mjs";
-import { buildHeartbeat, isHeartbeatStale } from "../supervisor/heartbeat.mjs";
+import { buildHeartbeat, isHeartbeatStale, readHeartbeat } from "../supervisor/heartbeat.mjs";
 import { monitoringEvents, recordMonitoringEvent, sanitizeMonitoringPayload } from "../supervisor/monitoring-outbox.mjs";
 import { resolveRunnerSummaryForSupervisor } from "../supervisor/runner-summary-resolver.mjs";
 import { buildSystemdStartPlan, runnerArgvForSpec, startUserUnit } from "../supervisor/systemd-client.mjs";
@@ -213,7 +213,8 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.deepEqual(plan.startArgv.slice(0, 3), ["systemctl", "--user", "start"]);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
-  const argv = runnerArgvForSpec(spec);
+  const runnerRunId = "run-2026-07-20T144500Z";
+  const argv = runnerArgvForSpec(spec, { runnerRunId });
   assert.equal(argv[argv.indexOf("--max-iterations") + 1], "8");
   assert.equal(argv.includes("client-ui-low-risk"), false);
   assert.equal(argv.includes("auto-canary-ready"), false);
@@ -221,6 +222,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.equal(argv.includes("--config"), true);
   assert.equal(argv.filter((part) => part === "--supervisor-run-id").length, 1);
   assert.equal(argv[argv.indexOf("--supervisor-run-id") + 1], runId);
+  assert.equal(argv[argv.indexOf("--runner-run-id") + 1], runnerRunId);
   assert.equal(argv.includes("--canary"), false);
   const canaryArgv = runnerArgvForSpec({ ...spec, mode: "canary" });
   assert.equal(canaryArgv.includes("--canary"), true);
@@ -783,7 +785,7 @@ test("systemd start failure records no foreground fallback shape", () => {
 
 test("heartbeat defaults, stale detection, terminal state, and sanitization", () => {
   const runId = generateRunId();
-  const hb = buildHeartbeat({ runId, state: "running", maxTasks: 1, maxRuntime: "3h" });
+  const hb = buildHeartbeat({ runId, runnerRunId: "run-2026-07-20T144500Z", state: "running", maxTasks: 1, maxRuntime: "3h" });
   assert.equal(hb.heartbeatIntervalSeconds, 60);
   assert.equal(hb.heartbeatLeaseSeconds, 300);
   assert.equal(hb.terminal, false);
@@ -793,6 +795,20 @@ test("heartbeat defaults, stale detection, terminal state, and sanitization", ()
   assert.equal(sanitized.webhookUrl, "[redacted]");
   assert.equal(sanitized.token, "[redacted]");
   assert.equal(sanitized.body, "[redacted]");
+});
+
+test("active heartbeat persistence requires exact runner identity while terminal legacy remains readable", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-heartbeat-identity-"));
+  const runId = generateRunId(new Date("2026-07-20T14:45:00Z"));
+  try {
+    const legacyActive = buildHeartbeat({ runId, state: "running", maxTasks: 1, maxRuntime: "3h" });
+    assert.throws(() => writeHeartbeat(runId, legacyActive, logsRoot), /Invalid runner run ID/);
+    const terminalLegacy = buildHeartbeat({ runId, state: "completed", maxTasks: 1, maxRuntime: "3h" });
+    writeHeartbeat(runId, terminalLegacy, logsRoot);
+    assert.equal(readHeartbeat(runId, logsRoot).heartbeat.runnerRunId, null);
+  } finally {
+    rmSync(logsRoot, { recursive: true, force: true });
+  }
 });
 
 test("monitoring outbox is local, owner-only, closed-event, and nonfatal", () => {
