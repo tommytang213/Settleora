@@ -206,14 +206,15 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery: { ...recovery, lifecycle: lifecycleRecovery },
     };
   }
+  if (lifecycleRecovery.state) state = { ...state, sessionLifecycle: lifecycleRecovery.state };
   if (lifecycleRecovery.earliestSafePhase && lifecycleRecovery.earliestSafePhase !== state.phase) {
     state = advanceRecoveryPhase(state, {
       phase: lifecycleRecovery.earliestSafePhase,
       firstIncompleteAction: lifecycleRecovery.earliestSafePhase,
       nextSafeAction: lifecycleRecovery.earliestSafePhase,
     });
-    writeRecoveryState(config, state);
   }
+  writeRecoveryState(config, state);
   const boundary = firstIncompleteContinuationAction(state);
   if (!boundary.ok) {
     return {

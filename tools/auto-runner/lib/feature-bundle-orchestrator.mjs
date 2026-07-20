@@ -139,7 +139,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       sliceOrder: plan.slices.map((slice) => slice.id),
     },
   });
-  let sessionLifecycle = createBundleSessionLifecycle(config, {
+  let sessionLifecycle = recovery?.state?.sessionLifecycle || recoveryState?.sessionLifecycle || createBundleSessionLifecycle(config, {
     issue,
     plan,
     runId,

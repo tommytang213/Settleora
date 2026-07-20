@@ -77,7 +77,7 @@ function reconcileDurableIntents(config, intentIds, git, github, diagnostics, co
     let intent;
     try { intent = loadPreEffectIntent(config, intentId); } catch { diagnostics.push("pre_effect_intent_read_failed"); continue; }
     if (!intent) { diagnostics.push("pre_effect_intent_missing"); continue; }
-    const result = reconcilePreEffectIntent(intent, liveEvidenceForIntent(intent, git, github));
+    const result = reconcilePreEffectIntent(intent, liveEvidenceForIntent(intent, git, githubForIntent(config, intent, github)));
     // Evidence collection is deliberately read-only. The successor must first
     // acquire active mutation authority; its canonical consumer then performs
     // the atomic adoption/finalization transition.
@@ -112,11 +112,29 @@ function liveEvidenceForIntent(intent, git, github) {
       && github.pr?.mergeParentShas?.[0] === e.expectedBaseSha
       && github.pr?.mergeParentShas?.[1] === (e.expectedHeadSha || e.headSha);
     else if (["comment", "review_reply", "issue_progress_comment", "umbrella_update", "review_trigger"].includes(intent.effectType)) present = (github.comments || []).some((c) => c.fingerprint === e.contentFingerprint || c.canonicalFingerprint === e.bodyDigest);
+    else if (intent.effectType === "hygiene_component") present = Array.isArray(github.issueLabels) && (e.removeLabels || []).every((label) => !github.issueLabels.includes(label));
     else if (intent.effectType === "issue_closure") present = github.issue?.state === "CLOSED";
     else if (intent.effectType === "branch_retention_verify") present = git?.complete && git.remoteHeadSha === e.expectedHeadSha;
     else present = (github.hygiene || []).includes(intent.fingerprint);
   }
   return { complete: true, present, identity: intent.identity, effect: intent.effect };
+}
+
+function githubForIntent(config, intent, fallback) {
+  if (intent.effectType === "umbrella_update") {
+    const comments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${intent.effect.issueNumber}/comments?per_page=100`);
+    return comments ? { ...fallback, complete: true, comments: comments.map(commentIdentity) } : { ...fallback, complete: false };
+  }
+  if (intent.effectType === "hygiene_component") {
+    const result = spawnSync("gh", ["issue", "view", String(intent.effect.issueNumber), "--repo", config.repositorySlug, "--json", "number,labels"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+    if (result.error || result.status !== 0) return { ...fallback, complete: false };
+    try {
+      const issue = JSON.parse(result.stdout || "{}");
+      if (issue.number !== intent.effect.issueNumber) return { ...fallback, complete: true, ambiguous: true };
+      return { ...fallback, complete: true, issueLabels: (issue.labels || []).map((label) => typeof label === "string" ? label : label.name).filter(Boolean) };
+    } catch { return { ...fallback, complete: false }; }
+  }
+  return fallback;
 }
 
 export function plannerInputsFromAuthoritativeEvidence(evidence) {
