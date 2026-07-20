@@ -82,6 +82,7 @@ export function createInitialReviewConvergenceState(input = {}) {
       migratedAt: now,
     },
     counterMarkers: {},
+    processedGithubFindingFingerprints: [],
     loopPhase: input.loopPhase || "local_validation",
     findingInventory: [],
     evidence: emptyEvidence(head),
@@ -200,6 +201,7 @@ export function normalizeReviewConvergenceStateIdentity(input = {}) {
     },
     counterAuthority: "two_loop_v1",
     counterMarkers: existing.counterMarkers || input.counterMarkers || initial.counterMarkers,
+    processedGithubFindingFingerprints: existing.processedGithubFindingFingerprints || input.processedGithubFindingFingerprints || initial.processedGithubFindingFingerprints,
     loopPhase: input.loopPhase || existing.loopPhase || initial.loopPhase,
     findingInventory: Array.isArray(input.findingInventory)
       ? input.findingInventory
@@ -258,6 +260,24 @@ export function migrateReviewConvergenceState(state) {
   if (!legacyValid) return { ...state, stateVersion: reviewConvergenceStateVersion };
   const legacyRounds = state.sourceChangingCycle;
   const hasTwoLoop = state.counterAuthority === "two_loop_v1" || state.counters !== undefined;
+  const persistedGithubEpochs = state.counters?.githubTriggeredFixEpochsPerPr ?? 0;
+  const hasPriorGithubEpochEvidence = persistedGithubEpochs > 0
+    || (Number.isInteger(state.epoch) && state.epoch > 1)
+    || Object.keys(state.counterMarkers || {}).length > 0;
+  const hasProcessedGithubFindingAuthority = Array.isArray(state.processedGithubFindingFingerprints);
+  if (!hasProcessedGithubFindingAuthority && hasPriorGithubEpochEvidence) {
+    return {
+      ...state,
+      stateVersion: reviewConvergenceStateVersion,
+      counterMigration: {
+        sourceVersion: "two_loop_v1_before_cross_head_dedupe",
+        resultingAuthority: "invalid_contradictory_state",
+        legacyProjection: "sourceChangingCycle",
+        legacyProjectionAuthoritative: false,
+        contradiction: "processed_github_finding_history_unprovable",
+      },
+    };
+  }
   const lifetime = state.counters?.lifetimeLocalSourceChangingRounds;
   if (hasTwoLoop && Number.isSafeInteger(lifetime) && lifetime !== legacyRounds) {
     return {
@@ -281,6 +301,7 @@ export function migrateReviewConvergenceState(state) {
       lifetimeLocalSourceChangingRounds: state.counters?.lifetimeLocalSourceChangingRounds ?? legacyRounds,
     },
     counterMarkers: state.counterMarkers && typeof state.counterMarkers === "object" ? state.counterMarkers : {},
+    processedGithubFindingFingerprints: hasProcessedGithubFindingAuthority ? state.processedGithubFindingFingerprints : [],
     counterAuthority: "two_loop_v1",
     counterMigration: state.counterMigration || {
       sourceVersion: hasTwoLoop ? "two_loop_v1" : "legacy_source_changing_cycle_v1",
@@ -406,6 +427,7 @@ export function validateReviewConvergenceState(state) {
     if (!Number.isSafeInteger(state.counters?.[key]) || state.counters[key] < 0) return fail(`counter_invalid:${key}`);
   }
   if (!state.counterMarkers || typeof state.counterMarkers !== "object" || Array.isArray(state.counterMarkers)) return fail("counter_markers_invalid");
+  if (!Array.isArray(state.processedGithubFindingFingerprints) || state.processedGithubFindingFingerprints.length > 2500 || state.processedGithubFindingFingerprints.some((value) => !/^[a-f0-9]{64}$/i.test(value))) return fail("processed_github_findings_invalid");
   if (state.counterAuthority !== "two_loop_v1") return fail("counter_authority_invalid");
   if (!state.counterMigration || state.counterMigration.resultingAuthority !== "two_loop_v1" || state.counterMigration.legacyProjectionAuthoritative !== false) {
     return fail("counter_migration_invalid");

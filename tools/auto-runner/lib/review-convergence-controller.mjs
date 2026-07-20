@@ -305,7 +305,10 @@ export function accountGithubTriggeredFixEpoch(state, input = {}) {
   if (!Number.isInteger(state.pr?.number) || !state.pr?.exactHead || fingerprints.length === 0) {
     return { ok: false, reasonCode: "github_fix_epoch_identity_invalid", state };
   }
-  const markerKey = digestFindingSet([String(state.pr.number), state.pr.exactHead, ...fingerprints]);
+  const processed = new Set(state.processedGithubFindingFingerprints || []);
+  const newFingerprints = fingerprints.filter((fingerprint) => !processed.has(fingerprint));
+  if (newFingerprints.length === 0) return { ok: true, duplicate: true, incremented: false, markerKey: null, newFingerprints: [], state };
+  const markerKey = digestFindingSet([String(state.pr.number), ...newFingerprints]);
   if (state.counterMarkers?.[markerKey]) return { ok: true, duplicate: true, incremented: false, markerKey, state };
   const current = state.counters?.githubTriggeredFixEpochsPerPr || 0;
   if (current >= githubTriggeredFixEpochsPerPrLimit) {
@@ -317,6 +320,7 @@ export function accountGithubTriggeredFixEpoch(state, input = {}) {
     duplicate: false,
     incremented: true,
     markerKey,
+    newFingerprints,
     state: {
       ...state,
       epoch: nextEpoch,
@@ -327,8 +331,9 @@ export function accountGithubTriggeredFixEpoch(state, input = {}) {
       },
       counterMarkers: {
         ...(state.counterMarkers || {}),
-        [markerKey]: { kind: "github_triggered_fix_epoch", prNumber: state.pr.number, exactHead: state.pr.exactHead, findingDigest: digestFindingSet(fingerprints) },
+        [markerKey]: { kind: "github_triggered_fix_epoch", prNumber: state.pr.number, exactHead: state.pr.exactHead, findingDigest: digestFindingSet(newFingerprints) },
       },
+      processedGithubFindingFingerprints: [...processed, ...newFingerprints].sort(),
       loopPhase: "local_validation",
       evidence: staleEvidenceForHead(state.evidence || {}, state.pr.exactHead),
     },
@@ -621,6 +626,16 @@ export async function runExistingPrReviewConvergence(input = {}) {
     };
   }
   state = githubEpoch.state;
+  if (githubEpoch.duplicate) {
+    return {
+      ok: false,
+      reasonCode: "existing_pr_convergence_duplicate_github_findings",
+      reason: "all current GitHub findings were already processed in an earlier source epoch",
+      reviewConvergenceState: state,
+      findingInventory: [],
+    };
+  }
+  const actionableInventory = convergence.context.findingInventory.filter((finding) => githubEpoch.newFingerprints.includes(finding.fingerprint));
   const budget = evaluateCycleBudget(state, input.config || {}, history);
   if (!budget.ok) {
     return {
@@ -639,7 +654,7 @@ export async function runExistingPrReviewConvergence(input = {}) {
       reason: "material findings require the shared bounded review-convergence batch-fix authority",
       reviewConvergenceState: state,
       convergence: convergence.context,
-      findingInventory: convergence.context.findingInventory,
+      findingInventory: actionableInventory,
       budget,
     };
   }
@@ -647,9 +662,9 @@ export async function runExistingPrReviewConvergence(input = {}) {
     issue: input.issue,
     branchName: input.pr?.headRefName || input.pr?.branch || input.branchName,
     laneDecision: input.laneDecision || {},
-    inventory: convergence.context.findingInventory,
+    inventory: actionableInventory,
   });
-  const fixResult = await input.runBatchFix({ ...input, fixTask, reviewConvergenceState: state, convergence: convergence.context });
+  const fixResult = await input.runBatchFix({ ...input, findings: actionableInventory, fixTask, reviewConvergenceState: state, convergence: { ...convergence.context, findingInventory: actionableInventory } });
   if (!fixResult?.ok) {
     return {
       ok: false,
@@ -657,7 +672,7 @@ export async function runExistingPrReviewConvergence(input = {}) {
       reason: fixResult?.reason || fixResult?.reasonCode || "review convergence fix did not proceed",
       reviewConvergenceState: markDiagnosticReviewFixTerminal(state, fixResult?.reasonCode || "existing_pr_convergence_fix_not_proceeded"),
       convergence: convergence.context,
-      findingInventory: convergence.context.findingInventory,
+      findingInventory: actionableInventory,
       budget,
     };
   }
@@ -675,7 +690,7 @@ export async function runExistingPrReviewConvergence(input = {}) {
     reason: "existing_pr_review_convergence_fix_applied",
     reviewConvergenceState: accounted.state,
     convergence: convergence.context,
-    findingInventory: convergence.context.findingInventory,
+    findingInventory: actionableInventory,
     consumedSourceCycle: accounted.consumedSourceCycle,
     newHead: fixResult.newHead || state.pr?.exactHead || null,
     result: fixResult,

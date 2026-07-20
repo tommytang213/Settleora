@@ -90,6 +90,16 @@ test("one frozen GitHub batch starts one epoch, resets local only, and deduplica
   const replay = accountGithubTriggeredFixEpoch(first.state, { findingFingerprints: [fingerprint("1")] });
   assert.equal(replay.duplicate, true);
   assert.equal(replay.state.counters.githubTriggeredFixEpochsPerPr, 1);
+  const newHeadReplay = accountGithubTriggeredFixEpoch({
+    ...first.state,
+    pr: { ...first.state.pr, exactHead: sha("d") },
+  }, { findingFingerprints: [fingerprint("1")] });
+  assert.equal(newHeadReplay.duplicate, true);
+  assert.equal(newHeadReplay.state.counters.githubTriggeredFixEpochsPerPr, 1);
+  const mixed = accountGithubTriggeredFixEpoch(newHeadReplay.state, { findingFingerprints: [fingerprint("1"), fingerprint("2")] });
+  assert.equal(mixed.incremented, true);
+  assert.deepEqual(mixed.newFingerprints, [fingerprint("2")]);
+  assert.equal(mixed.state.counters.githubTriggeredFixEpochsPerPr, 2);
 });
 
 test("the fiftieth GitHub epoch is admitted and the fifty-first is blocked", () => {
@@ -132,6 +142,44 @@ test("legacy cumulative state migrates once and becomes a non-authoritative life
   assert.equal(migrated.counterMigration.sourceVersion, "legacy_source_changing_cycle_v1");
   assert.equal(migrated.counterMigration.legacyProjectionAuthoritative, false);
   assert.equal(validateReviewConvergenceState(migrated).ok, true);
+});
+
+test("pre-dedupe two-loop state with unprovable multi-head history fails closed", () => {
+  const frozenFingerprint = "a".repeat(64);
+  const migrated = migrateReviewConvergenceState({
+    ...convergence(),
+    processedGithubFindingFingerprints: undefined,
+    counters: {
+      localSourceChangingRoundsPerEpoch: 2,
+      githubTriggeredFixEpochsPerPr: 2,
+      lifetimeLocalSourceChangingRounds: 2,
+    },
+    sourceChangingCycle: 2,
+    findingInventory: [{ fingerprint: frozenFingerprint }],
+  });
+  assert.equal(migrated.counterMigration.resultingAuthority, "invalid_contradictory_state");
+  assert.equal(migrated.counterMigration.contradiction, "processed_github_finding_history_unprovable");
+  assert.equal(validateReviewConvergenceState(migrated).reason, "processed_github_findings_invalid");
+});
+
+test("pre-dedupe epoch or marker evidence fails closed even when the legacy counter is zero", () => {
+  for (const priorEvidence of [
+    { epoch: 2 },
+    { counterMarkers: { prior: { kind: "github_triggered_fix_epoch" } } },
+    { counterMarkers: { malformedPrior: {} } },
+  ]) {
+    const migrated = migrateReviewConvergenceState({
+      ...convergence(),
+      processedGithubFindingFingerprints: undefined,
+      counters: {
+        localSourceChangingRoundsPerEpoch: 0,
+        githubTriggeredFixEpochsPerPr: 0,
+        lifetimeLocalSourceChangingRounds: 0,
+      },
+      ...priorEvidence,
+    });
+    assert.equal(migrated.counterMigration.contradiction, "processed_github_finding_history_unprovable");
+  }
 });
 
 test("contradictory legacy projection and two-loop lifetime authority fail closed", () => {

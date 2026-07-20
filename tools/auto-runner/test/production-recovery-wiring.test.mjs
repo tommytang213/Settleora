@@ -184,3 +184,11 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /reviewConvergenceState: iteration\.reviewConvergenceState/);
   assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
 });
+
+test("stack local-fix recovery threads one injected Codex execution authority", () => {
+  const source = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
+  assert.match(source, /const codexPromptRunner = options\.runCodexPrompt \|\| runCodexPrompt/);
+  assert.match(source, /applyFrozenLocalFindingBatch\(\{ config, runner, codexPromptRunner,/);
+  assert.match(source, /const localFix = codexPromptRunner\(/);
+  assert.doesNotMatch(source, /const localFix = runCodexPrompt\(/);
+});

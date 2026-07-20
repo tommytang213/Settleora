@@ -1800,6 +1800,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
 
 function createProductionBatchFixAdapters(config = {}, options = {}) {
   const runner = options.runner || defaultRunner;
+  const codexPromptRunner = options.runCodexPrompt || runCodexPrompt;
   const cwd = config.repoRoot || process.cwd();
   return {
     async runCodexBatchFix({ fixTask, pr, exactHead }) {
@@ -1837,7 +1838,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       );
       mkdirSync(path.dirname(promptPath), { recursive: true, mode: 0o700 });
       writeFileSync(promptPath, `${fixTask?.prompt || ""}\n`, { mode: 0o600 });
-      const codex = runCodexPrompt(
+      const codex = codexPromptRunner(
         { ...config, repoRoot: proof.worktreePath },
         {
           branchName: pr?.headRefName || pr?.branch || "unknown",
@@ -1887,7 +1888,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         if (appliedIdentity.identityDigest !== loopState.state.appliedChangedFilesDigest) return fail("existing_pr_local_loop_applied_files_mismatch", "journal-authorized source-fix files changed after application");
       }
       if (["findings_frozen", "source_fix_reserved"].includes(loopState.state.phase)) {
-        const resumedFix = applyFrozenLocalFindingBatch({ config, cwd, pr, statePath: loopState.statePath, state: loopState.state });
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: loopState.state });
         if (!resumedFix.ok) return resumedFix;
         const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
         return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
@@ -2027,7 +2028,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           findingDigests: [...(loopState.state.findingDigests || []), findingDigest],
           evidenceInvalidated: true,
         });
-        const resumedFix = applyFrozenLocalFindingBatch({ config, cwd, pr, statePath: loopState.statePath, state: frozenState });
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: frozenState });
         if (!resumedFix.ok) return resumedFix;
         const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
         return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
@@ -4058,7 +4059,7 @@ function persistAppliedSourceFix({ runner, cwd, statePath, state }) {
   return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", appliedHead: applied.currentHead, appliedChangedFilesDigest: applied.identityDigest, evidenceInvalidated: true }) };
 }
 
-function applyFrozenLocalFindingBatch({ config, cwd, pr, statePath, state }) {
+function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPromptRunner = runCodexPrompt, cwd, pr, statePath, state }) {
   if (!["findings_frozen", "source_fix_reserved"].includes(state.phase) || !state.frozenFindingDigest || !Array.isArray(state.frozenFindings) || !state.frozenFixPrompt) {
     return fail("existing_pr_local_loop_frozen_batch_invalid", "frozen local finding batch is incomplete or contradictory");
   }
@@ -4069,25 +4070,25 @@ function applyFrozenLocalFindingBatch({ config, cwd, pr, statePath, state }) {
   mkdirSync(path.dirname(localPromptPath), { recursive: true, mode: 0o700 });
   try { validateDurableArtifactPath(config, localPromptPath); } catch (error) { return fail("existing_pr_local_loop_prompt_path_unsafe", boundedText(error.message)); }
   if (!existsSync(localPromptPath)) writeFileSync(localPromptPath, `${state.frozenFixPrompt}\n`, { mode: 0o600 });
-  const recoveryWorktree = readWorktreeCleanProof({ runner: defaultRunner, cwd });
+  const recoveryWorktree = readWorktreeCleanProof({ runner, cwd });
   if (!recoveryWorktree.ok) return recoveryWorktree;
-  const recoveryHead = readGitSha({ runner: defaultRunner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_recovery_head_unreadable" });
+  const recoveryHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_recovery_head_unreadable" });
   if (!recoveryHead.ok) return recoveryHead;
   const committedMutation = recoveryHead.sha !== state.candidateHead;
   if (committedMutation) {
-    const ancestry = defaultRunner("git", ["merge-base", "--is-ancestor", state.candidateHead, recoveryHead.sha], { cwd });
+    const ancestry = runner("git", ["merge-base", "--is-ancestor", state.candidateHead, recoveryHead.sha], { cwd });
     if (ancestry.status !== 0 || ancestry.error) return fail("existing_pr_local_loop_recovery_head_mismatch", "recovered local head is not a descendant of the journaled candidate");
   }
   if (state.phase === "source_fix_reserved") {
-    if (!recoveryWorktree.clean || committedMutation) return persistAppliedSourceFix({ runner: defaultRunner, cwd, statePath, state });
+    if (!recoveryWorktree.clean || committedMutation) return persistAppliedSourceFix({ runner, cwd, statePath, state });
   }
   if (!recoveryWorktree.clean || committedMutation) {
     return fail("existing_pr_local_loop_unreserved_mutation", "local source changes appeared before the durable fix reservation");
   }
   const reserved = state.phase === "source_fix_reserved" ? state : persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_reserved", mutationClaimId: digestJson({ prNumber: pr?.number, candidateHead: state.candidateHead, localRound: state.localRound, frozenFindingDigest: state.frozenFindingDigest }) });
-  const localFix = runCodexPrompt({ ...config, repoRoot: cwd }, { branchName: pr?.headRefName || pr?.branch || "unknown", prompt: reserved.frozenFixPrompt, promptPath: localPromptPath }, "existing-pr-stack-inner-local-fix");
+  const localFix = codexPromptRunner({ ...config, repoRoot: cwd }, { branchName: pr?.headRefName || pr?.branch || "unknown", prompt: reserved.frozenFixPrompt, promptPath: localPromptPath }, "existing-pr-stack-inner-local-fix");
   if (!localFix.skipped && (localFix.error || localFix.status !== 0)) return fail("existing_pr_local_loop_fix_failed", localFix.error || localFix.tail || "local finding batch fix failed");
-  return persistAppliedSourceFix({ runner: defaultRunner, cwd, statePath, state: reserved });
+  return persistAppliedSourceFix({ runner, cwd, statePath, state: reserved });
 }
 
 function evaluateLocalFixAllowance({ config = {}, sourceCycleBudget = null, localRound }) {
