@@ -238,9 +238,26 @@ function classifyContentCandidate(event) {
   const assignment = content.match(credentialAssignmentPattern);
   if (assignment) {
     const value = assignment[2] || "";
-    findings.push(classifyCredentialValue(event, value, "credential_assignment"));
+    if (isCodeMemberReference(content, assignment, value)) {
+      findings.push({
+        blocked: false,
+        diagnostic: diagnostic({ ...event, rule: "credential_assignment", classification: "code_reference" }),
+      });
+    } else {
+      findings.push(classifyCredentialValue(event, value, "credential_assignment"));
+    }
   }
   return findings;
+}
+
+function isCodeMemberReference(content, assignment, value) {
+  const matched = assignment[0] || "";
+  const valueOffset = matched.lastIndexOf(value);
+  const prefix = valueOffset >= 0 ? matched.slice(0, valueOffset) : "";
+  if (/["']\s*$/.test(prefix)) return false;
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+$/.test(value)) return false;
+  const endOffset = (assignment.index || 0) + matched.length;
+  return /^\s*[,;)}\]]/.test(content.slice(endOffset));
 }
 
 function classifyCredentialValue(event, value, rule) {
