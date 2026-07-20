@@ -17,6 +17,7 @@ import {
 } from "./auto-merge-policy.mjs";
 import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 import {
+  accountConvergenceEvent,
   buildBatchFixTask,
   freezeMaterialFindingInventory,
   reviewFindingsFromSupportedContainers,
@@ -26,6 +27,7 @@ import {
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
 import { runCodexPrompt } from "./codex-runner.mjs";
+import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 
 export const prStackStateVersion = 1;
@@ -1178,7 +1180,10 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
       const reserved = validateReconciledSourceCycle({ config, state, pr, result: reconciled });
       if (!reserved.ok) return reserved;
       const sourceCycles = { ...(state.sourceCycles || {}), [pr.number]: reserved.consumedAfter };
-      const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, reconciled);
+      const recoveredEvidence = reconciled.result?.reviewConvergenceState
+        ? putEvidence(state.evidence, "reviewConvergenceState", pr.number, reconciled.result.reviewConvergenceState)
+        : state.evidence;
+      const rebound = rebindStateToNewHead({ ...state, evidence: recoveredEvidence }, pr.number, newHead, sourceCycles, reconciled);
       if (!rebound.ok) return rebound;
       return {
         ok: true,
@@ -1849,6 +1854,24 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         const cumulative = await this.listChangedFiles({ exactHead });
         return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, localLoop: resumedFix.state });
       }
+      const preCommitHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_precommit_head_unreadable" });
+      if (!preCommitHead.ok) return preCommitHead;
+      const preCommitClean = readWorktreeCleanProof({ runner, cwd });
+      if (!preCommitClean.ok) return preCommitClean;
+      if (preCommitHead.sha === exactHead || !preCommitClean.clean) {
+        const dirtyFiles = runner("git", ["diff", "--name-only"], { cwd });
+        const stagedFiles = runner("git", ["diff", "--cached", "--name-only"], { cwd });
+        if (dirtyFiles.status !== 0 || dirtyFiles.error || stagedFiles.status !== 0 || stagedFiles.error) return fail("existing_pr_local_loop_precommit_files_unreadable", "pre-commit reservation could not bind the dirty/staged file set");
+        const reservedCommitFiles = normalizeChangedFiles(`${dirtyFiles.stdout || ""}\n${stagedFiles.stdout || ""}`.split(/\r?\n/));
+        if (reservedCommitFiles.length === 0) return fail("existing_pr_local_loop_precommit_files_missing", "pre-commit reservation requires source changes");
+        loopState.state = persistLocalCandidateLoopState(loopState.statePath, {
+          ...loopState.state,
+          phase: "commit_reserved",
+          reservedParentHead: preCommitHead.sha,
+          reservedChangedFilesDigest: digestStringSet(reservedCommitFiles),
+          reservedCommitMessage: "Auto-runner stack review-fix batch",
+        });
+      }
       const candidate = createOrReuseLocalCandidateCommit({
         config,
         runner,
@@ -2038,7 +2061,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         localLoopState: persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "local_convergence_passed", candidateHead: candidate.newHead, localRound: Number(loopState.state.localRound || 0) }),
       };
     },
-    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null }) {
+    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null, reviewConvergenceState = null }) {
       const newHead = reviewed?.localCandidate?.newHead || reviewed?.sourceIdentity?.newHead || null;
       if (!validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", "validated local candidate head is missing");
       const branch = pr?.headRefName || pr?.branch || "";
@@ -2098,6 +2121,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         liveProof: live.proof,
         repositoryIdentity: live.repositoryIdentity,
         sourceCycleReservation: reservation.reservation,
+        reviewConvergenceState,
       });
       const reconciledIntent = reconcilePushIntent({ config, pr, intent, runner });
       if (reconciledIntent.ok && reconciledIntent.finalized === true) {
@@ -2865,9 +2889,14 @@ function validateReconciledSourceCycle({ config = {}, state = {}, pr = {}, resul
   const confirmation = result.pushConfirmation?.marker || result.pushConfirmation || null;
   const reservation = result.sourceCycleReservation || intent?.sourceCycleReservation || confirmation?.sourceCycleReservation || result.result?.sourceIdentity?.sourceCycleReservation || null;
   const normalized = reservation || null;
+  if (!reservation) return fail("source_cycle_reservation_missing", "source-cycle reconciliation requires a finalized reservation");
+  const reservationState = {
+    sourceCycles: { [pr.number]: reservation.consumedBefore },
+    sourceCycleEpoch: { [pr.number]: reservation.sourceCycleEpoch },
+  };
   const validation = validateSourceCycleReservation({
     config,
-    state,
+    state: reservationState,
     pr,
     reservation: normalized,
     oldHead: pr.headRefOid,
@@ -2887,7 +2916,7 @@ function validateReconciledSourceCycle({ config = {}, state = {}, pr = {}, resul
 
 function finalizeSourceCycleReservation({ config = {}, pr = {}, intent = {}, remoteHead = null, liveHead = null, localHead = null } = {}) {
   const reservation = intent.sourceCycleReservation;
-  const validation = validateSourceCycleReservation({ config, state: { sourceCycles: { [pr.number]: reservation?.consumedBefore } }, pr, reservation, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  const validation = validateSourceCycleReservation({ config, state: { sourceCycles: { [pr.number]: reservation?.consumedBefore }, sourceCycleEpoch: { [pr.number]: reservation?.sourceCycleEpoch } }, pr, reservation, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
   if (!validation.ok) return validation;
   if (remoteHead !== reservation.finalCandidateHead || liveHead !== reservation.finalCandidateHead) return fail("source_cycle_reservation_candidate_mismatch", "reservation cannot finalize without remote/live candidate equality");
   const finalized = sanitizeState({
@@ -3810,7 +3839,7 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
     const clean = readWorktreeCleanProof({ runner, cwd });
     if (!clean.ok) return clean;
     if (clean.clean !== true) {
-      if (localLoopState?.phase !== "source_fix_applied" || localLoopState?.candidateHead !== before.sha) {
+      if (!['source_fix_applied', 'commit_reserved'].includes(localLoopState?.phase) || (localLoopState?.candidateHead && localLoopState.candidateHead !== before.sha)) {
         return fail("existing_pr_batch_fix_candidate_dirty", "existing local candidate has unjournaled source changes");
       }
       return createLocalCandidateCommit({ runner, cwd, exactHead, changedFiles, message });
@@ -3819,7 +3848,15 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
     if (!chain.ok) return chain;
     const tree = readGitSha({ runner, cwd, ref: "HEAD^{tree}", reasonCode: "existing_pr_batch_fix_candidate_tree_unreadable" });
     if (localLoopState?.candidateHead !== before.sha || (localLoopState.candidateTree && localLoopState.candidateTree !== tree.sha)) {
-      return fail("existing_pr_batch_fix_candidate_journal_mismatch", "clean local descendant is not bound to the durable candidate journal");
+      const immediateParent = readGitSha({ runner, cwd, ref: `${before.sha}^`, reasonCode: "existing_pr_batch_fix_candidate_parent_unreadable" });
+      const reservedRecovery = immediateParent.ok && localLoopState?.phase === "commit_reserved"
+        && localLoopState.reservedParentHead === immediateParent.sha;
+      if (!reservedRecovery) return fail("existing_pr_batch_fix_candidate_journal_mismatch", "clean local descendant is not bound to the durable candidate journal");
+      const subject = runner("git", ["log", "-1", "--format=%s", before.sha], { cwd });
+      const files = runner("git", ["diff", "--name-only", `${localLoopState.reservedParentHead}..${before.sha}`], { cwd });
+      if (subject.status !== 0 || subject.error || String(subject.stdout || "").trim() !== localLoopState.reservedCommitMessage || files.status !== 0 || files.error || digestStringSet(normalizeChangedFiles(String(files.stdout || "").split(/\r?\n/))) !== localLoopState.reservedChangedFilesDigest) {
+        return fail("existing_pr_batch_fix_candidate_journal_mismatch", "reserved candidate commit does not match its durable parent, message, and file-set identity");
+      }
     }
     return { ok: true, reused: true, oldHead: exactHead, parent: chain.parent, newHead: before.sha, tree: tree.sha || null, commitChain: chain.chain, commitChainDigest: chain.digest, committedAt: new Date().toISOString() };
   }
@@ -3985,7 +4022,7 @@ function readOwnerOnlyDurableJson(config, artifactPath) {
   }
 }
 
-function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fixDelta = null, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null, sourceCycleReservation = null }) {
+function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fixDelta = null, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null, sourceCycleReservation = null, reviewConvergenceState = null }) {
   const root = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-intents");
   const intentPath = path.join(root, `${digestJson({ markerKey, prNumber: pr?.number, oldHead, newHead })}.json`);
   validateDurableArtifactPath(config, intentPath);
@@ -4025,6 +4062,7 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
     nextSourceCycleCount: sourceIdentity.nextSourceCycleCount || null,
     sourceCycleReservationId: sourceCycleReservation?.reservationId || null,
     sourceCycleReservation: sourceCycleReservation || null,
+    reviewConvergenceState: reviewConvergenceState || null,
     taskKey: config.taskKey || null,
     runId: config.runId || null,
     supervisorRunId: config.supervisorRunId || null,
@@ -4315,6 +4353,28 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
     },
     pushedAt: confirmation.confirmedAt || confirmation.marker?.finalizedAt || new Date().toISOString(),
   });
+  if (intent.reviewConvergenceState) {
+    const convergenceValidation = validateReviewConvergenceState(intent.reviewConvergenceState);
+    const reservation = intent.sourceCycleReservation || confirmation.sourceCycleReservation || confirmation.marker?.sourceCycleReservation || null;
+    if (!convergenceValidation.ok
+      || intent.reviewConvergenceState.pr?.number !== intent.prNumber
+      || intent.reviewConvergenceState.pr?.exactHead !== intent.oldHead
+      || intent.reviewConvergenceState.epoch !== reservation?.sourceCycleEpoch
+      || intent.reviewConvergenceState.counters?.localSourceChangingRoundsPerEpoch !== reservation?.consumedBefore) {
+      return fail("source_cycle_recovered_convergence_identity_mismatch", "push-intent convergence state is not bound to the reservation PR, old head, epoch, and local count");
+    }
+  }
+  const recoveredConvergence = intent.reviewConvergenceState
+    ? accountConvergenceEvent(intent.reviewConvergenceState, {
+        kind: "source_changed",
+        newHead: intent.candidateNewHead,
+        reasonCode: "existing_pr_review_convergence_fix_recovered",
+        roundsConsumed: intent.sourceCycleReservation?.roundsConsumed || 1,
+      })
+    : null;
+  if (intent.reviewConvergenceState && !recoveredConvergence?.consumedSourceCycle) {
+    return fail("source_cycle_recovered_convergence_invalid", recoveredConvergence?.reason || "push intent could not reconstruct two-loop convergence state");
+  }
   const result = {
     ok: true,
     newHead: intent.candidateNewHead,
@@ -4329,6 +4389,7 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
     review: marker.review,
     sourceIdentity: marker.sourceIdentity,
     durableMutationMarkers: { [markerKey]: marker },
+    reviewConvergenceState: recoveredConvergence?.state || null,
     completedAt: marker.pushedAt,
   };
   const normalized = normalizeSourceChangingConvergenceResult({ ok: true, newHead: intent.candidateNewHead, result }, {
