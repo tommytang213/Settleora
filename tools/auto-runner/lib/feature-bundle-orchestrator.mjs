@@ -456,7 +456,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     recovery?.evidence("ciChecks", { status: "recorded", headSha: finalHead, baseSha: baseOriginMainSha, changedFiles: aggregateFiles });
   }
   recovery?.advance("exact_head_final_refresh", "evaluate_bundle_merge_or_pr_state");
-  result.autoMerge = await evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName: bundleBranchName, changedFiles: aggregateFiles, forbidden: aggregateForbidden, laneDecision: planned.laneDecision, autoMergeRunner });
+  result.autoMerge = await evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName: bundleBranchName, changedFiles: aggregateFiles, forbidden: aggregateForbidden, laneDecision: planned.laneDecision, autoMergeRunner, sessionLifecycle });
   result.outcome = result.autoMerge.result === "merged" ? "auto_merged" : "approved_pr_opened";
   if (result.autoMerge.result === "merged") {
     recovery?.marker("merge", `bundle-pr-${result.pr?.number || result.pr?.url}-${finalHead || "head"}`, {
@@ -992,7 +992,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
   return { packagePath, summary, diff: diff.text };
 }
 
-async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName, changedFiles, forbidden, laneDecision, autoMergeRunner = null }, deps = {}) {
+async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName, changedFiles, forbidden, laneDecision, autoMergeRunner = null, sessionLifecycle = null }, deps = {}) {
   const dependencies = {
     inspectState: deps.inspectState || inspectAutoMergeGithubState,
     executeMerge: deps.executeMerge || executeAutoMerge,
@@ -1001,6 +1001,7 @@ async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchN
   };
   const baseContext = {
     config,
+    sessionLifecycle,
     issue: { number: issue.number, title: issue.title, state: issue.state || "OPEN", labels: issue.labels || [] },
     laneDecision,
     changedFiles,

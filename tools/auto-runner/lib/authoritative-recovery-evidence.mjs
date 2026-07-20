@@ -35,7 +35,7 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
   if (processRead?.alive === false && leaseRead?.valid === true) contradictions.push("dead_process_valid_lease");
   const intents = reconcileDurableIntents(config, expected.preEffectIntentIds, gitRead, githubRead, diagnostics, contradictions, ambiguities);
   reconcileIdentity(identity, gitRead, githubRead, intents, contradictions, ambiguities);
-  const effects = reconcileEffects(expected, gitRead, githubRead, contradictions, ambiguities);
+  const effects = reconcileEffects(expected, gitRead, githubRead, identity, contradictions, ambiguities);
   const complete = diagnostics.length === 0 && contradictions.length === 0 && ambiguities.length === 0;
   const ownerBlocked = processRead?.alive === true || leaseRead?.valid === true;
   const takeoverAllowed = complete && processRead.alive === false && leaseRead.valid === false;
@@ -211,12 +211,16 @@ function reconcileIdentity(identity, git, github, intents, contradictions, ambig
   if (!git.worktreeClean || !git.indexClean || !git.untrackedClean) ambiguities.push("local_worktree_not_clean");
 }
 
-function reconcileEffects(expected, git, github, contradictions, ambiguities) {
+function reconcileEffects(expected, git, github, identity, contradictions, ambiguities) {
   const effect = (present, identity = null) => ({ present: Boolean(present), adopted: Boolean(present), identity });
-  const commitPresent = Boolean(expected.commitSha && (git?.headSha === expected.commitSha || git?.commit?.sha === expected.commitSha));
+  const commitPresent = Boolean(expected.commitMarker === true && expected.commitSha && (git?.headSha === expected.commitSha || git?.commit?.sha === expected.commitSha));
   const pushPresent = Boolean(expected.pushSha && git?.remoteHeadSha === expected.pushSha);
   const prHeadPresent = Boolean(expected.prHeadSha && github?.pr?.headSha === expected.prHeadSha);
-  const mergePresent = Boolean(expected.mergeSha ? github?.pr?.mergeSha === expected.mergeSha : expected.mergedHeadSha && github?.pr?.state === "MERGED" && github?.pr?.headSha === expected.mergedHeadSha);
+  const mergeIdentityMatches = github?.pr?.state === "MERGED"
+    && github.pr.headSha === expected.mergedHeadSha
+    && github.pr.mergeParentShas?.[0] === identity.baseSha
+    && github.pr.mergeParentShas?.[1] === expected.mergedHeadSha;
+  const mergePresent = Boolean(mergeIdentityMatches && (!expected.mergeSha || github.pr.mergeSha === expected.mergeSha));
   const matchingComments = expected.commentFingerprint ? (github?.comments || []).filter((c) => c.fingerprint === expected.commentFingerprint) : [];
   if (matchingComments.length > 1) ambiguities.push("duplicate_comment_fingerprint");
   const commentPresent = matchingComments.length === 1 || Boolean(expected.commentId && (github?.comments || []).some((c) => c.id === expected.commentId));
