@@ -2,7 +2,7 @@
 
 Status: implementation acceptance advanced; production profile not activated.
 
-Current reconciliation basis: `origin/main` at
+Acceptance-chain reconciliation snapshot: `origin/main` at
 `2dec1153f9cd353150df890dfd63da06abaec9ad` after the verified PR #930 ->
 #919 -> #920 -> #931 chain. The foundation issues #800, #889, and #894 remain
 closed. #913 and #921 are closed under their narrow close rules. PR #917 is
@@ -32,11 +32,14 @@ real issues, or perform live deployment/release actions.
   config changes, and unresolved user-visible product or financial authority
   decisions.
 
-## Current Profile Matrix
+## Historical Pre-Implementation Profile Matrix
 
 Safe inspection did not open secret files or print environment values. The
-observed active/safe metadata shows a capability gap between implemented runner
-foundation and external normal-run posture.
+following matrix records the external-profile gap observed by the original
+planning task. It is historical implementation context, not a current list of
+unimplemented repository capabilities. The dated acceptance-chain snapshot
+above is orientation only; live GitHub state and the current repository tree
+remain authoritative.
 
 | Capability | Observed normal/trusted workflow-doc config | Observed canary profile | Required production posture |
 | --- | --- | --- | --- |
@@ -65,7 +68,7 @@ Required activation work:
    legitimate implemented autonomous capabilities.
 2. Populate `autoMergePolicy.approvedLanes` with canonical runnable lane IDs:
    `workflow-docs-tooling`, `docs-planning`, `client-ui-low-risk`,
-   `mobile-application`, `mobile-build-config` after implementation,
+   `mobile-application`, `mobile-build-config`,
    `web-user-ui`, `web-admin-ui`, `api-domain-runtime`,
    `auth-session-security`, `storage-file-privacy-authz`,
    `money-settlement-payment`, `schema-migrations`,
@@ -193,10 +196,10 @@ Example issue contract:
 }
 ```
 
-## #902 False-Positive Policy Amendment
+## #902 Accepted False-Positive Policy
 
-#902 should be amended before implementation so the approved unattended model is
-unambiguous. A strongly proven false positive may be automatically
+#902 was amended and implemented through PR #916. The accepted unattended
+model remains: a strongly proven false positive may be automatically
 dispositioned only when all of these gates pass:
 
 1. Exact repo, alert ID, rule/query, fingerprint, ref, analyzed SHA, tool, and
