@@ -249,4 +249,7 @@ test("production invocation sources wire lifecycle through feature bundle and re
   assert.match(feature, /sessionLifecycle: bundleLifecycleInvocation\(lifecycleState/);
   assert.match(runner, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
   assert.match(startup, /consumeStartupInterruptionPlanner\(config, state/);
+  assert.match(startup, /repository: loaded\.state\.repository/);
+  assert.match(startup, /branchName: loaded\.state\.branch\.name/);
+  assert.doesNotMatch(startup, /loaded\.state\.candidate/);
 });

@@ -530,17 +530,17 @@ export function consumeSupervisorInterruptionPlanner(state, options = {}) {
   if (!options.config || !options.recoveryState) return { ok: false, reasonCode: "authoritative_recovery_evidence_required" };
   const recoveryState = options.recoveryState;
   const evidence = collectAuthoritativeRecoveryEvidence(options.config, {
-    repository: state.logicalTask.repository,
+    repository: state.repository,
     issueNumber: state.logicalTask.issueNumber,
     taskKey: state.logicalTask.taskKey,
     runId: state.logicalTask.runId,
     claimIdentity: state.logicalTask.claimIdentity,
     sessionId: state.sessions.current,
     supervisorRunId: recoveryState.run?.supervisorRunId,
-    branchName: state.candidate.branchName,
+    branchName: state.branch.name,
     baseBranch: recoveryState.branch?.baseBranch || "main",
-    baseSha: state.candidate.baseSha,
-    headSha: state.candidate.headSha,
+    baseSha: state.branch.baseSha,
+    headSha: state.branch.headSha,
     prNumber: recoveryState.pr?.number || null,
     checkpointDigest: state.checkpoint.digest,
     checkpointValid: true,

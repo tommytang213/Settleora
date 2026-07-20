@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
 
@@ -24,6 +27,7 @@ test("live process and stale lease fail closed", () => { const e = collect({ ali
 test("dead process and valid lease fail closed and block", () => { const e = collect({ alive: false, leaseValid: true }); assert.equal(e.ok, false); assert.equal(e.ownerBlocked, true); });
 test("dead process and stale lease permit one takeover", () => { const e = collect(); assert.equal(e.ok, true); assert.equal(e.takeoverAllowed, true); assert.equal(plannerInputsFromAuthoritativeEvidence(e).interruption.processExited, true); });
 test("missing process identity fails closed", () => { const a = adapters(); a.readProcess = () => ({ complete: false }); assert.equal(collectAuthoritativeRecoveryEvidence(config, identity, {}, a).ok, false); });
+test("authoritative absent runner lock plus expired lease proves inactive owner", () => { const logsRoot = mkdtempSync(path.join(tmpdir(), "recovery-no-lock-")); const a = adapters(); delete a.readProcess; const e = collectAuthoritativeRecoveryEvidence({ ...config, logsRoot }, identity, {}, a); assert.equal(e.ok, true); assert.equal(e.process.source, "runner_lock_absent"); assert.equal(e.takeoverAllowed, true); });
 test("missing lease identity fails closed", () => { const a = adapters(); a.readLease = () => ({ complete: false }); assert.equal(collectAuthoritativeRecoveryEvidence(config, identity, {}, a).ok, false); });
 test("stale report text is not an evidence input", () => { const e = collect({}, { reportText: "IN_PROGRESS" }); assert.equal(e.takeoverAllowed, true); assert.equal(JSON.stringify(e).includes("IN_PROGRESS"), false); });
 test("repeated evidence collection is idempotent", () => { const one = collect(); const two = collect(); assert.deepEqual({ ...one, collectedAt: null }, { ...two, collectedAt: null }); });

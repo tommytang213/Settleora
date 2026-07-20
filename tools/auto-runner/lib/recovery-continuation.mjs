@@ -280,17 +280,17 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   const loaded = loadSessionLifecycleForRecovery(config, identity);
   if (!loaded.ok) return loaded;
   const authoritative = collectAuthoritativeRecoveryEvidence(config, {
-    repository: loaded.state.logicalTask.repository,
+    repository: loaded.state.repository,
     issueNumber: loaded.state.logicalTask.issueNumber,
     taskKey: loaded.state.logicalTask.taskKey,
     runId: loaded.state.logicalTask.runId,
     claimIdentity: loaded.state.logicalTask.claimIdentity,
     sessionId: loaded.state.sessions.current,
     supervisorRunId: recoveryState.run?.supervisorRunId,
-    branchName: loaded.state.candidate.branchName,
+    branchName: loaded.state.branch.name,
     baseBranch: recoveryState.branch?.baseBranch || "main",
-    baseSha: loaded.state.candidate.baseSha,
-    headSha: loaded.state.candidate.headSha,
+    baseSha: loaded.state.branch.baseSha,
+    headSha: loaded.state.branch.headSha,
     prNumber: recoveryState.pr?.number || null,
     checkpointDigest: loaded.state.checkpoint.digest,
     checkpointValid: true,

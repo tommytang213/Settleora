@@ -85,7 +85,7 @@ export function plannerInputsFromAuthoritativeEvidence(evidence) {
 
 function defaultProcessRead(config, identity) {
   const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
-  if (!existsSync(lockPath)) return { complete: false, pid: identity.ownerPid || null, ownerRunId: identity.runId, alive: null, source: "runner_lock_absent" };
+  if (!existsSync(lockPath)) return { complete: true, pid: null, ownerRunId: identity.runId, alive: false, source: "runner_lock_absent" };
   const lock = JSON.parse(readFileSync(lockPath, "utf8"));
   if (!Number.isSafeInteger(lock.pid) || lock.pid <= 0) return { complete: false, source: "runner_lock" };
   if (lock.runId && lock.runId !== identity.runId) return { complete: false, pid: lock.pid, ownerRunId: lock.runId, source: "runner_lock_identity_mismatch" };
