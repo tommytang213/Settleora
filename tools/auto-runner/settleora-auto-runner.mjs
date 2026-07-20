@@ -363,6 +363,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   const startupRecovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
   if (startupRecovery.found) {
+    config.logicalTaskBudgetScopeId ||= startupRecovery.state?.run?.supervisorRunId || startupRecovery.state?.run?.runId || config.supervisorRunId || runId;
     const recoveryBudget = config.dryRun
       ? { ok: true, charged: false, duplicate: false, preview: true, acceptedLogicalTaskCount: 0, reasonCode: "dry_run_recovery_not_charged" }
       : startupRecovery.allowed
@@ -519,7 +520,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   iteration.logicalTaskBudget = config.dryRun
     ? { ok: true, charged: false, duplicate: false, preview: true, acceptedLogicalTaskCount: 0, reasonCode: "dry_run_claim_not_accepted" }
     : chargeAcceptedLogicalTask(config, {
-        budgetScopeId: config.supervisorRunId || runId,
+        budgetScopeId: config.logicalTaskBudgetScopeId || config.supervisorRunId || runId,
         maxTasks: config.maxIterations,
         issue,
         taskLineageId: `issue-${issue.number}`,
@@ -1388,7 +1389,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
   const issue = recovery.state?.issue;
   if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) return { ok: false, reasonCode: "startup_recovery_issue_identity_missing" };
-  const budgetScopeId = recovery.state?.run?.supervisorRunId || recovery.state?.run?.runId || config.supervisorRunId || runId;
+  const budgetScopeId = config.logicalTaskBudgetScopeId || recovery.state?.run?.supervisorRunId || recovery.state?.run?.runId || config.supervisorRunId || runId;
   const loaded = loadLogicalTaskBudget(config, budgetScopeId);
   if (!loaded.ok) return loaded;
   const alreadyCharged = Object.values(loaded.state.charges || {}).some((marker) =>

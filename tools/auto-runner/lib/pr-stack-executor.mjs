@@ -2596,7 +2596,9 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
   const legacyEpoch = state?.sourceCycleEpoch?.[prNumber] || state?.sourceCycleEpoch || 1;
   const epoch = convergenceState?.counterAuthority === "two_loop_v1"
     ? Number(convergenceState.epoch || legacyEpoch) + (materialFindings.length > 0 && !epochAlreadyAdmitted ? 1 : 0)
-    : legacyEpoch;
+    : !convergenceState && materialFindings.length > 0
+      ? Number(legacyEpoch) + 1
+      : legacyEpoch;
   if (!Number.isInteger(epoch) || epoch < 1) return fail("source_cycle_epoch_malformed", "durable source-cycle epoch is malformed");
   const remaining = Math.max(0, max - consumed);
   const summary = {
@@ -2607,7 +2609,11 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
     max,
     remaining,
     materialFindingCount: materialFindings.length,
-    counterAuthority: convergenceState?.counterAuthority === "two_loop_v1" ? "two_loop_v1" : "legacy_compatibility",
+    counterAuthority: convergenceState?.counterAuthority === "two_loop_v1"
+      ? "two_loop_v1"
+      : !convergenceState && materialFindings.length > 0
+        ? "two_loop_v1_initializing"
+        : "legacy_compatibility",
     legacySourceCyclesProjection: sourceCycles[prNumber],
     legacySourceCyclesAuthoritative: false,
   };
@@ -2619,7 +2625,11 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
 
 function createSourceCycleOperationContext({ config = {}, plan = null, state = null, pr = {}, sourceCycleBudget = null } = {}) {
   if (!state || typeof state !== "object" || Array.isArray(state)) return fail("source_cycle_operation_state_missing", "validated stack state is required before source-cycle reservation");
-  const usesTwoLoopAuthority = state?.evidence?.reviewConvergenceState?.[pr?.number]?.counterAuthority === "two_loop_v1";
+  const usesTwoLoopAuthority = state?.evidence?.reviewConvergenceState?.[pr?.number]?.counterAuthority === "two_loop_v1"
+    || sourceCycleBudget?.counterAuthority === "two_loop_v1_initializing";
+  if (sourceCycleBudget?.counterAuthority === "two_loop_v1_initializing" && state?.sourceCycles?.[pr?.number] !== sourceCycleBudget.consumed) {
+    return fail("source_cycle_reservation_conflict", "initial two-loop projection does not match the legacy compatibility count");
+  }
   const reservationState = usesTwoLoopAuthority
     ? {
         ...state,
@@ -2798,7 +2808,10 @@ function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budge
     createdAt: new Date().toISOString(),
     finalizedAt: null,
   });
-  const validation = validateSourceCycleReservation({ config, state, pr, reservation, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  const reservationValidationState = budget.counterAuthority === "two_loop_v1_initializing"
+    ? { ...state, sourceCycles: { ...(state.sourceCycles || {}), [pr.number]: budget.consumed }, sourceCycleEpoch: { ...(typeof state.sourceCycleEpoch === "object" ? state.sourceCycleEpoch : {}), [pr.number]: budget.epoch } }
+    : state;
+  const validation = validateSourceCycleReservation({ config, state: reservationValidationState, pr, reservation, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
   if (!validation.ok) return validation;
   const root = sourceCycleReservationRoot(config);
   const reservationPath = path.join(root, `${reservationId}.json`);
@@ -2816,7 +2829,7 @@ function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budge
   const readBack = readSourceCycleReservationFile(reservationPath, config);
   if (!readBack.ok) return readBack;
   const persisted = { ...readBack.reservation, reservationPath };
-  const persistedValidation = validateSourceCycleReservation({ config, state, pr, reservation: persisted, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  const persistedValidation = validateSourceCycleReservation({ config, state: reservationValidationState, pr, reservation: persisted, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
   if (!persistedValidation.ok) return persistedValidation;
   return { ok: true, reservation: persisted };
 }
