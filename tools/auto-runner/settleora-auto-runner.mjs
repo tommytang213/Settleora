@@ -712,9 +712,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     lifecycleInvocation = { state: persistedLifecycle.state, newSessionId: `${runId}:implementation:${index}`, phase: "implementation_or_bundle_slice", telemetry: {}, mutationJournaled: true };
   }
   if (lifecycleInvocation) promptInfo.sessionLifecycle = lifecycleInvocation;
+  if (lifecycleInvocation) iteration.sessionLifecycle = lifecycleInvocation.state;
   const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
   if (codexResult.sessionLifecycle?.state && promptInfo.sessionLifecycle) {
     promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: codexResult.sessionLifecycle.state };
+    iteration.sessionLifecycle = codexResult.sessionLifecycle.state;
   }
   iteration.codex = codexResult;
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
@@ -2216,6 +2218,7 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     reviewThreads: [],
     codeScanningAlerts: [],
     blockingMarkers: [],
+    sessionLifecycle: iteration.sessionLifecycle || null,
   };
   if (!config.allowAutoMerge) {
     const decision = evaluateAutoMergeDecision(baseContext);
@@ -2469,7 +2472,7 @@ function finishIssueOutcome(config, issue, outcome, body) {
 
 async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
-  const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`, { effectContext: context.promptInfo?.sessionLifecycle?.state });
+  const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`, { effectContext: promptInfo?.sessionLifecycle?.state });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
