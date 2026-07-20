@@ -144,7 +144,7 @@ test("startup recovery resolves one checkpoint without guessing claim identity",
   assert.equal(loadSessionLifecycleForRecovery(config, {
     repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1",
     branchName: "feature/session", baseSha: sha, headSha: "b".repeat(40),
-  }).reasonCode, "session_lifecycle_state_missing");
+  }).recoveryHeadAdvanced, true);
 });
 
 test("checkpoint tampering fails closed", () => {

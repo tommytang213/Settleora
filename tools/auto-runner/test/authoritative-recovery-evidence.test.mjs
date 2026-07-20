@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
+import { collectAuthoritativeRecoveryEvidence, mergeIntentCommentReadback, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
 import { preparePreEffectIntent } from "../lib/pre-effect-intent.mjs";
 
 const sha = "a".repeat(40);
@@ -60,6 +60,11 @@ test("PR head already updated is adopted", () => { const e = collect({}, { prHea
 test("merge succeeded before marker write resumes only with exact base and head parents", () => { const pr = { number: 42, state: "MERGED", baseRefName: "main", headRefName: identity.branchName, headSha: sha, draft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", mergeSha: base, mergeParentShas: [identity.baseSha, sha] }; const e = collect({ github: { pr } }, { mergeSha: base, mergedHeadSha: sha }); assert.equal(e.effects.merge.present, true); const wrong = collect({ github: { pr: { ...pr, mergeParentShas: ["f".repeat(40), sha] } } }, { mergeSha: base, mergedHeadSha: sha }); assert.equal(wrong.effects.merge.present, false); });
 test("comment fingerprint adopts one exact comment", () => { const e = collect({ github: { comments: [{ id: "C1", fingerprint: commentFingerprint }] } }, { commentFingerprint }); assert.equal(e.effects.comment.present, true); });
 test("comment reconciliation searches evidence beyond the former 200-comment prefix", () => { const comments = Array.from({ length: 250 }, (_, index) => ({ id: `C${index}`, fingerprint: index === 249 ? commentFingerprint : `${index}`.padStart(64, "0") })); const e = collect({ github: { comments } }, { commentFingerprint }); assert.equal(e.effects.comment.present, true); });
+test("intent-targeted comment readback maps the paginated comments payload", () => {
+  const comments = [{ id: "C1", fingerprint: commentFingerprint }];
+  assert.deepEqual(mergeIntentCommentReadback({ complete: true, comments }, { source: "fallback" }), { source: "fallback", complete: true, comments });
+  assert.equal(mergeIntentCommentReadback({ complete: false, comments: [] }, { source: "fallback" }).complete, false);
+});
 test("duplicate matching comments fail closed", () => { const e = collect({ github: { comments: [{ id: "C1", fingerprint: commentFingerprint }, { id: "C2", fingerprint: commentFingerprint }] } }, { commentFingerprint }); assert.equal(e.ok, false); assert.equal(e.ambiguity, true); });
 test("already closed issue is adopted", () => { const e = collect({ github: { issue: { number: 928, state: "CLOSED" } } }, { issueClosed: true, issueNumber: 928 }); assert.equal(e.effects.issueClosure.present, true); });
 test("existing hygiene identity is reused", () => { const e = collect({ github: { hygiene: [digest] } }, { hygieneFingerprint: digest }); assert.equal(e.effects.hygiene.present, true); });

@@ -122,8 +122,8 @@ function liveEvidenceForIntent(intent, git, github) {
 
 function githubForIntent(config, intent, fallback) {
   if (intent.effectType === "umbrella_update") {
-    const comments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${intent.effect.issueNumber}/comments?per_page=100`);
-    return comments ? { ...fallback, complete: true, comments: comments.map(commentIdentity) } : { ...fallback, complete: false };
+    const result = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${intent.effect.issueNumber}/comments?per_page=100`);
+    return mergeIntentCommentReadback(result, fallback);
   }
   if (intent.effectType === "hygiene_component") {
     const result = spawnSync("gh", ["issue", "view", String(intent.effect.issueNumber), "--repo", config.repositorySlug, "--json", "number,labels"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
@@ -135,6 +135,12 @@ function githubForIntent(config, intent, fallback) {
     } catch { return { ...fallback, complete: false }; }
   }
   return fallback;
+}
+
+export function mergeIntentCommentReadback(result, fallback = {}) {
+  return result?.complete === true && Array.isArray(result.comments)
+    ? { ...fallback, complete: true, comments: result.comments }
+    : { ...fallback, complete: false };
 }
 
 export function plannerInputsFromAuthoritativeEvidence(evidence) {
