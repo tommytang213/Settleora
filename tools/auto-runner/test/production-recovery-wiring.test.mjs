@@ -192,3 +192,11 @@ test("stack local-fix recovery threads one injected Codex execution authority", 
   assert.match(source, /const localFix = codexPromptRunner\(/);
   assert.doesNotMatch(source, /const localFix = runCodexPrompt\(/);
 });
+
+test("charged startup recovery is resumed before the accepted-task cap stops new work", () => {
+  const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(source, /summary\.acceptedLogicalTaskCount >= config\.maxIterations\) \{\n\s+chargedRecoveryAtCap = discoverStartupRecovery\(config\);\n\s+if \(!chargedRecoveryAtCap\.found\) break;/);
+  assert.match(source, /runIteration\(config, logger, runId, index, issueTracker, chargedRecoveryAtCap\)/);
+  assert.match(source, /const startupRecovery = startupRecoveryOverride \|\|/);
+  assert.doesNotMatch(source, /summary\.acceptedLogicalTaskCount < config\.maxIterations; index/);
+});

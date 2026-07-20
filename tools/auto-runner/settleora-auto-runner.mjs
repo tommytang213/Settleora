@@ -288,7 +288,14 @@ async function main() {
 
     const startedAtMs = Date.now();
     const issueTracker = createRunIssueTracker(summary);
-    for (let index = 1; config.dryRun ? index <= config.maxIterations : summary.acceptedLogicalTaskCount < config.maxIterations; index += 1) {
+    for (let index = 1; ; index += 1) {
+      let chargedRecoveryAtCap = null;
+      if (config.dryRun) {
+        if (index > config.maxIterations) break;
+      } else if (summary.acceptedLogicalTaskCount >= config.maxIterations) {
+        chargedRecoveryAtCap = discoverStartupRecovery(config);
+        if (!chargedRecoveryAtCap.found) break;
+      }
       const control = applyControlAtSafeBoundary(config, summary);
       if (control.action === "stop") {
         summary.stopReason = control.reason;
@@ -301,7 +308,7 @@ async function main() {
         break;
       }
       Object.assign(summary, trackerSnapshot(issueTracker));
-      const iteration = await runIteration(config, logger, runId, index, issueTracker);
+      const iteration = await runIteration(config, logger, runId, index, issueTracker, chargedRecoveryAtCap);
       const canaryEvidence = writeCanaryEvidence(config, iteration);
       if (canaryEvidence) {
         iteration.canaryEvidence = canaryEvidence;
@@ -349,7 +356,7 @@ function isFatalRunStopReason(stopReason) {
   return typeof stopReason === "string" && stopReason.startsWith("recoverable-work-blocked:");
 }
 
-async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker()) {
+async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker(), startupRecoveryOverride = null) {
   const iteration = {
     runId,
     index,
@@ -361,7 +368,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     runIssueState: trackerSnapshot(issueTracker),
   };
 
-  const startupRecovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
+  const startupRecovery = startupRecoveryOverride || (config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config));
   if (startupRecovery.found) {
     config.logicalTaskBudgetScopeId ||= startupRecovery.state?.supervisorRunId || startupRecovery.state?.runId || config.supervisorRunId || runId;
     const recoveryBudget = config.dryRun
