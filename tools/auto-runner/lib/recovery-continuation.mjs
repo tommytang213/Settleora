@@ -296,17 +296,17 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     checkpointValid: true,
     authority: loaded.state.mutationAuthority,
   }, {
-    sourceMutationPresent: recoveryHasMutationMarker(recoveryState, "sourceMutation"),
+    sourceMutationPresent: hasAnyMutationMarker(recoveryState, "sourceMutation"),
     commitSha: recoveryState.branch?.currentHeadSha,
-    commitMarker: recoveryHasMutationMarker(recoveryState, "checkpoint_commit"),
-    pushSha: recoveryHasMutationMarker(recoveryState, "push") ? recoveryState.branch?.currentHeadSha : null,
-    pushMarker: recoveryHasMutationMarker(recoveryState, "push"),
+    commitMarker: hasAnyMutationMarker(recoveryState, "checkpoint_commit"),
+    pushSha: hasAnyMutationMarker(recoveryState, "push") ? recoveryState.branch?.currentHeadSha : null,
+    pushMarker: hasAnyMutationMarker(recoveryState, "push"),
     prHeadSha: recoveryState.pr?.headSha || null,
     mergedHeadSha: recoveryState.pr?.headSha || recoveryState.branch?.currentHeadSha,
-    mergeMarker: recoveryHasMutationMarker(recoveryState, "merge"),
-    commentMarker: recoveryHasMutationMarker(recoveryState, "issue_comment"),
-    issueClosureMarker: recoveryHasMutationMarker(recoveryState, "issue_close"),
-    hygieneMarker: recoveryHasMutationMarker(recoveryState, "ledger_hygiene"),
+    mergeMarker: hasAnyMutationMarker(recoveryState, "merge"),
+    commentMarker: hasAnyMutationMarker(recoveryState, "issue_comment"),
+    issueClosureMarker: hasAnyMutationMarker(recoveryState, "issue_close"),
+    hygieneMarker: hasAnyMutationMarker(recoveryState, "ledger_hygiene"),
     issueNumber: recoveryState.issue?.number,
   }, evidenceAdapters);
   const inputs = plannerInputsFromAuthoritativeEvidence(authoritative);
@@ -326,6 +326,11 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   if (!authority.ok) return authority;
   const persisted = persistSessionLifecycleState(config, completed.state);
   return persisted.ok ? { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation } : persisted;
+}
+
+function hasAnyMutationMarker(state, kind) {
+  const markers = state?.mutationMarkers?.[kind];
+  return Boolean(markers && typeof markers === "object" && Object.keys(markers).length > 0);
 }
 
 function selectOwnCallableHandler(handlers, key) {

@@ -15,7 +15,7 @@ function adapters({ alive = false, leaseValid = false, git = {}, github = {} } =
   return {
     now: new Date("2026-07-20T14:00:00Z"),
     readProcess: () => ({ complete: true, pid: 123, ownerRunId: "run-1", alive, source: "fixture_pid_probe" }),
-    readLease: () => ({ complete: true, runId: identity.supervisorRunId, heartbeatAt: "2026-07-20T13:59:00Z", expiresAt: leaseValid ? "2026-07-20T14:05:00Z" : "2026-07-20T13:55:00Z", valid: leaseValid, source: "fixture_heartbeat" }),
+    readLease: () => ({ complete: true, runId: identity.supervisorRunId, runnerRunId: identity.runId, heartbeatAt: "2026-07-20T13:59:00Z", expiresAt: leaseValid ? "2026-07-20T14:05:00Z" : "2026-07-20T13:55:00Z", valid: leaseValid, source: "fixture_heartbeat" }),
     readGit: () => ({ complete: true, source: "fixture_git", branchName: identity.branchName, baseSha: base, headSha: sha, remoteHeadSha: sha, worktreeClean: true, indexClean: true, untrackedClean: true, ...git }),
     readGithub: () => ({ complete: true, source: "fixture_github", pr: { number: 42, state: "OPEN", baseRefName: "main", headRefName: identity.branchName, headSha: sha, draft: false, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", mergeSha: null }, comments: [], issue: { number: 928, state: "OPEN" }, checks: { state: "passed", pending: 0, failed: 0 }, hygiene: [], ...github }),
   };
