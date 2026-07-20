@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { processAppearsActive } from "./state-store.mjs";
 import { readHeartbeat } from "../supervisor/heartbeat.mjs";
+import { loadPreEffectIntent, reconcilePreEffectIntent, transitionPreEffectIntent } from "./pre-effect-intent.mjs";
 
 export const authoritativeRecoveryEvidenceVersion = 1;
 
@@ -34,6 +35,7 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
   if (processRead?.alive === false && leaseRead?.valid === true) contradictions.push("dead_process_valid_lease");
   reconcileIdentity(identity, gitRead, githubRead, contradictions, ambiguities);
   const effects = reconcileEffects(expected, gitRead, githubRead, contradictions, ambiguities);
+  const intents = reconcileDurableIntents(config, expected.preEffectIntentIds, gitRead, githubRead, diagnostics, contradictions, ambiguities);
   const complete = diagnostics.length === 0 && contradictions.length === 0 && ambiguities.length === 0;
   const ownerBlocked = processRead?.alive === true || leaseRead?.valid === true;
   const takeoverAllowed = complete && processRead.alive === false && leaseRead.valid === false;
@@ -55,6 +57,7 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
     git: gitRead || null,
     github: githubRead || null,
     effects,
+    intents,
     pendingChecks: githubRead?.checks || { state: "unknown" },
     ownerBlocked,
     takeoverAllowed,
@@ -65,6 +68,41 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
     contradictions: [...new Set(contradictions)].slice(0, 20),
     ambiguities: [...new Set(ambiguities)].slice(0, 20),
   };
+}
+
+function reconcileDurableIntents(config, intentIds, git, github, diagnostics, contradictions, ambiguities) {
+  if (!Array.isArray(intentIds) || intentIds.length === 0) return [];
+  const results = [];
+  for (const intentId of intentIds.slice(0, 50)) {
+    let intent;
+    try { intent = loadPreEffectIntent(config, intentId); } catch { diagnostics.push("pre_effect_intent_read_failed"); continue; }
+    if (!intent) { diagnostics.push("pre_effect_intent_missing"); continue; }
+    const result = reconcilePreEffectIntent(intent, liveEvidenceForIntent(intent, git, github));
+    if (result.classification === "effect_present_exact_adoptable") {
+      try {
+        const executing = intent.status === "prepared" ? transitionPreEffectIntent(config, intent, "executing") : intent;
+        transitionPreEffectIntent(config, executing, "adopted_after_recovery", { diagnostics: ["exact_live_effect_adopted"] });
+      } catch { contradictions.push("pre_effect_intent_adoption_failed"); }
+    } else if (result.classification === "effect_ambiguous") ambiguities.push("pre_effect_intent_ambiguous");
+    else if (["effect_contradictory", "live_read_unavailable"].includes(result.classification)) contradictions.push(`pre_effect_intent_${result.classification}`);
+    results.push({ intentId: String(intent.intentId).slice(0, 120), effectType: intent.effectType, fingerprint: intent.fingerprint, classification: result.classification });
+  }
+  return results;
+}
+
+function liveEvidenceForIntent(intent, git, github) {
+  if (!git?.complete || !github?.complete) return { complete: false };
+  const e = intent.effect;
+  let present = false;
+  if (intent.effectType === "commit") present = git.headSha === e.commitSha || git.commit?.sha === e.commitSha;
+  else if (["push", "pr_head_update"].includes(intent.effectType)) present = git.remoteHeadSha === e.localCommitSha || github.pr?.headSha === e.localCommitSha;
+  else if (intent.effectType === "pr_create") present = github.pr?.number === e.prNumber && github.pr?.headSha === e.headSha;
+  else if (["merge", "docs_pr_merge"].includes(intent.effectType)) present = github.pr?.state === "MERGED" && github.pr?.headSha === e.headSha;
+  else if (["comment", "issue_progress_comment", "umbrella_update"].includes(intent.effectType)) present = (github.comments || []).some((c) => c.fingerprint === e.contentFingerprint);
+  else if (intent.effectType === "issue_closure") present = github.issue?.state === "CLOSED";
+  else if (intent.effectType === "branch_retention_verify") present = git.remoteHeadSha === e.expectedHeadSha;
+  else present = (github.hygiene || []).includes(intent.fingerprint);
+  return { complete: true, present, identity: intent.identity, effect: intent.effect };
 }
 
 export function plannerInputsFromAuthoritativeEvidence(evidence) {
