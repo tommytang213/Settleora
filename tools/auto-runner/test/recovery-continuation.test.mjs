@@ -22,6 +22,7 @@ import {
   planIdempotentGithubMutation,
   recoveryStatusSummary,
   projectStartupRecoveryIssueIdentity,
+  shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
 } from "../lib/recovery-continuation.mjs";
 
@@ -828,6 +829,22 @@ test("startup recovery projects the persisted source issue identity", () => {
     reasonCode: "startup_recovery_issue_identity_validated",
     issue: { number: 893 },
   });
+});
+
+test("blocked single-state startup recovery retains authoritative issue identity", () => {
+  const projected = projectStartupRecoveryIssueIdentity(
+    { allowed: false, state: { issueNumber: 893 } },
+    { ok: false, outcome: "blocked_recovery_state", reasonCode: "existing_pr_recovery_disabled" },
+  );
+  assert.deepEqual(projected.issue, { number: 893 });
+  assert.equal(projected.ok, true);
+});
+
+test("fixture cursor advances only for issues consumed by normal polling", () => {
+  assert.equal(shouldAdvanceFixtureIssueCursor({ issue: { number: 893 }, issueSource: "startup_recovery", recovery: { found: true } }), false);
+  assert.equal(shouldAdvanceFixtureIssueCursor({ issue: { number: 894 }, recovery: { ordinary: true } }), true);
+  assert.equal(shouldAdvanceFixtureIssueCursor({ issue: { number: 895 }, recovery: null }), true);
+  assert.equal(shouldAdvanceFixtureIssueCursor({ issue: null, recovery: null }), false);
 });
 
 test("startup recovery issue projection fails closed without persisted authority", () => {

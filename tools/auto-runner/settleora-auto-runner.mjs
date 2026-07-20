@@ -96,7 +96,7 @@ import {
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
-import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity } from "./lib/recovery-continuation.mjs";
+import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor } from "./lib/recovery-continuation.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -302,7 +302,7 @@ async function main() {
         iteration.runIssueState = trackerSnapshot(issueTracker);
       }
       writeIterationState(config, iteration);
-      if (config.fixtureIssues && iteration.issue) {
+      if (config.fixtureIssues && shouldAdvanceFixtureIssueCursor(iteration)) {
         config.fixtureIssueCursor = (config.fixtureIssueCursor || 0) + 1;
       }
       if (iteration.systemicStop) {
@@ -353,7 +353,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
       : await executeStartupContinuation(config, startupRecovery);
     iteration.recovery = continuation.recovery || startupRecovery;
-    const recoveryIssue = startupRecovery.allowed
+    iteration.issueSource = "startup_recovery";
+    const recoveryIssue = startupRecovery.state
       ? projectStartupRecoveryIssueIdentity(startupRecovery, continuation)
       : null;
     iteration.issue = recoveryIssue?.ok ? recoveryIssue.issue : null;

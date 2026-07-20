@@ -338,6 +338,10 @@ export function projectStartupRecoveryIssueIdentity(recovery = {}, continuation 
   return { ok: true, reasonCode: "startup_recovery_issue_identity_validated", issue: { number: issueNumber } };
 }
 
+export function shouldAdvanceFixtureIssueCursor(iteration) {
+  return Boolean(iteration?.issue?.number) && iteration?.issueSource !== "startup_recovery";
+}
+
 function summarizeRecoverableState(state) {
   return {
     active: true,
