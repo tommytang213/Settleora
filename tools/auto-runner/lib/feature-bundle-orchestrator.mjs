@@ -551,7 +551,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       reviewPackage: currentResult.reviewPackage,
       attemptCount: state.reviewConvergenceState.sourceChangingCycle,
       reviewConvergenceState: state.reviewConvergenceState,
-      diagnosticAuthorization: budget.diagnosticAuthorization,
+      diagnosticAuthorization: cycleDecision.diagnosticAuthorization,
       source,
       sessionLifecycle: input.sessionLifecycle,
     });

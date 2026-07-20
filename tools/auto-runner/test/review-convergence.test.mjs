@@ -889,8 +889,8 @@ test("live callers continue bounded convergence instead of stopping at pre-push 
   assert.match(bundleSource, /dependencies\.runFixCycle\(config/);
   assert.match(bundleSource, /dependencies\.commitAndRerun\(config/);
   assert.match(bundleSource, /accountConvergenceEvent\(state\.reviewConvergenceState/);
-  assert.match(bundleSource, /if \(budget\.transitionedState\) \{/);
-  assert.match(bundleSource, /reviewConvergenceState: budget\.transitionedState/);
+  assert.match(bundleSource, /if \(cycleDecision\.transitionedState\) \{/);
+  assert.match(bundleSource, /reviewConvergenceState: cycleDecision\.transitionedState/);
   assert.match(bundleSource, /writeState\(state\);/);
   assert.match(bundleSource, /run_bundle_codex_review_convergence/);
   assert.match(bundleSource, /persistBundleExactHeadEvidence\(recovery/);
