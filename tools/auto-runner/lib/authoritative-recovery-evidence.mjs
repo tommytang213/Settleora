@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { processAppearsActive } from "./state-store.mjs";
 import { readHeartbeat } from "../supervisor/heartbeat.mjs";
-import { loadPreEffectIntent, reconcilePreEffectIntent, transitionPreEffectIntent } from "./pre-effect-intent.mjs";
+import { loadPreEffectIntent, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
 
 export const authoritativeRecoveryEvidenceVersion = 1;
 
@@ -78,12 +78,10 @@ function reconcileDurableIntents(config, intentIds, git, github, diagnostics, co
     try { intent = loadPreEffectIntent(config, intentId); } catch { diagnostics.push("pre_effect_intent_read_failed"); continue; }
     if (!intent) { diagnostics.push("pre_effect_intent_missing"); continue; }
     const result = reconcilePreEffectIntent(intent, liveEvidenceForIntent(intent, git, github));
-    if (result.classification === "effect_present_exact_adoptable") {
-      try {
-        const executing = intent.status === "prepared" ? transitionPreEffectIntent(config, intent, "executing") : intent;
-        transitionPreEffectIntent(config, executing, "adopted_after_recovery", { diagnostics: ["exact_live_effect_adopted"] });
-      } catch { contradictions.push("pre_effect_intent_adoption_failed"); }
-    } else if (result.classification === "effect_ambiguous") ambiguities.push("pre_effect_intent_ambiguous");
+    // Evidence collection is deliberately read-only. The successor must first
+    // acquire active mutation authority; its canonical consumer then performs
+    // the atomic adoption/finalization transition.
+    if (result.classification === "effect_ambiguous") ambiguities.push("pre_effect_intent_ambiguous");
     else if (["effect_contradictory", "live_read_unavailable"].includes(result.classification)) contradictions.push(`pre_effect_intent_${result.classification}`);
     results.push({ intentId: String(intent.intentId).slice(0, 120), effectType: intent.effectType, fingerprint: intent.fingerprint, classification: result.classification });
   }

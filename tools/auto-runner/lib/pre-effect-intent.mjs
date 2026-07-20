@@ -80,7 +80,7 @@ export function findPreEffectIntents(config, predicate = () => true) {
 }
 
 export function assertPreEffectIntentAuthority(intent, authority) {
-  if (!authority) return true;
+  if (!authority) throw new Error("Pre-effect intent mutation authority required");
   if (authority.retired === true || authority.status !== "active") throw new Error("Only an active session can mutate pre-effect intent");
   if (authority.sessionId !== intent.sessionId || authority.authorityGeneration !== intent.authorityGeneration || authority.runId !== intent.runId) throw new Error("Pre-effect intent mutation authority mismatch");
   return true;
