@@ -3,13 +3,13 @@
 Status: implementation acceptance advanced; production profile not activated.
 
 Acceptance-chain reconciliation snapshot: `origin/main` at
-`2dec1153f9cd353150df890dfd63da06abaec9ad` after the verified PR #930 ->
-#919 -> #920 -> #931 chain. The foundation issues #800, #889, and #894 remain
-closed. #913 and #921 are closed under their narrow close rules. PR #917 is
-closed without merge as fully superseded, with its source branch retained.
-#911 completed through PR #915 and #902 completed through PR #916. Follow-ups
-#923, #924, #927, #928, #929, and #932 remain open. #910 remains the readiness
-umbrella and #912 remains the separate manual production activation gate.
+`58a0164f15a77b3d5338a1c00eb4892693e70970` after PR #936. The foundation
+issues #800, #889, and #894 remain closed. #913 and #921 are closed under their
+narrow close rules. PR #917 is closed without merge as fully superseded, with
+its source branch retained. #911 completed through PR #915, #902 through PR
+#916, and #923/#932 through PR #936. Follow-ups #924, #927, #928, and #929
+remain open. #910 remains the readiness umbrella and #912 remains the separate
+manual production activation gate.
 
 This plan records the remaining operational activation work. It does not change
 runner behavior, enable external profiles, mutate canaries, dismiss alerts, run
@@ -300,20 +300,15 @@ paths are added.
 The original planning PR and the #913/#921 implementation acceptance chain are
 complete. Current live issues now own the remaining work:
 
-1. Merge and prove #923's implemented distinct inner-local and outer-GitHub convergence loops
-   and nested counters, then #924's large-candidate escalation/split routing
-   against the same candidate identity.
+1. Implement #924's large-candidate escalation/split routing against the
+   merged #923/#932 candidate, counter, and logical-task authorities.
 2. Implement #927 authoritative state/counter projection, #928 interruption
    recovery, and #929 proactive fresh-session rotation without parallel state
    or controller authorities.
-3. Merge and prove #932 accepted logical-task accounting and exactly-once durable
-   charging/projection. Skips, nested rounds/epochs, retries/polls, restarts,
-   recovery continuation, and session rotation must not consume extra
-   top-level task units.
-4. Activate the external production profile only through #912's separate
+3. Activate the external production profile only through #912's separate
    manual live-configuration acceptance after all required implementation and
    non-production acceptance gates pass.
-5. Run live canaries only in a separate canary task; do not use #865/#866 unless
+4. Run live canaries only in a separate canary task; do not use #865/#866 unless
    the task explicitly authorizes mutation and fingerprints are checked before
    and after.
 
@@ -329,12 +324,14 @@ Tracking issues created by this planning task:
 
 Post-acceptance issues added after the original planning task:
 
-- #923: local/GitHub dual-review convergence and nested counters.
+- #923: local/GitHub dual-review convergence and nested counters; closed
+  through PR #936, merge `58a0164f15a77b3d5338a1c00eb4892693e70970`.
 - #924: large-candidate escalation and safe split routing.
 - #927: authoritative status/counter projection and ledger decoupling.
 - #928: reportless compaction/process-interruption recovery.
 - #929: proactive context budgeting and fresh-session rotation.
-- #932: accepted logical-task budget and nested-counter accounting.
+- #932: accepted logical-task budget and nested-counter accounting; closed
+  through PR #936, merge `58a0164f15a77b3d5338a1c00eb4892693e70970`.
 
 ## Rollout And Rollback
 

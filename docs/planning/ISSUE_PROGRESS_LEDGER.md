@@ -20,6 +20,39 @@ remain the source of truth.
 
 ## Current Checkpoints
 
+### Issues #923/#932 and PR #936 - merged completion - 20260720-2035
+
+- PR #936 merged normally to `main` after the repository owner's explicit
+  one-PR approval at exact source head
+  `add8b01c97e054e14dd9532adc2b167e530f41de`.
+- Merge SHA: `58a0164f15a77b3d5338a1c00eb4892693e70970`;
+  merged at `2026-07-20T12:42:09Z`.
+- Post-merge proof: the merge parents are prior `main`
+  `2d7b87bccec4a53bcaa7bb5d165784372779aacf` and the approved source head;
+  fetched `origin/main` equals the merge SHA; the source head is an ancestor;
+  and the retained source branch remains unchanged at the approved head.
+- Exact-head evidence remained clean after merge: local auto-runner suite
+  `867/867`, fresh Gemini and local Codex passes, GitHub Codex with no major
+  issues, all Scaffold/CodeQL/Semgrep CE and OSS/Trivy checks passing, zero
+  unresolved review threads, and zero open code-scanning alerts.
+- #923 is closed under its narrow two-loop/counter close rule. PR #936 itself
+  supplied the task-scoped non-production convergence candidate across
+  repeated local and GitHub review-fix rounds.
+- #932 is closed under its narrow exactly-once accepted logical-task accounting
+  close rule. Pre-claim skips/dry runs remain uncharged; accepted tasks charge
+  once; restart, recovery, retries, polling, and session continuation do not
+  recharge; nested counters remain separate.
+- #910 remains open. #912 remains the separate manual production-activation
+  gate. #924, #927, #928, and #929 remain open under their own close rules.
+- #927 received no duplicate post-merge comment because projection
+  compatibility did not change. #929 received no duplicate post-merge comment
+  because the interface/rotation relationship did not change.
+- The #932 manual requirement was satisfied as a one-time approval for PR #936
+  only. It does not rewrite or conflict with the broader autonomous-merge
+  policy, so no policy-correction issue is required.
+- Report:
+  `/workspace/logs/settleora-codex-report-20260720-2035-pr936-human-approved-final-merge.md`.
+
 ### Auto-runner post-acceptance reconciliation - 20260720-1321
 
 - Verified current-main SHA:
