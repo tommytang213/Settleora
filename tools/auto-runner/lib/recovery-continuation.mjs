@@ -194,7 +194,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
-  const state = loaded.state;
+  let state = loaded.state;
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, recovery.interruption || {});
   if (!lifecycleRecovery.ok) {
     return {
@@ -203,6 +203,14 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       reasonCode: lifecycleRecovery.reasonCode,
       recovery: { ...recovery, lifecycle: lifecycleRecovery },
     };
+  }
+  if (lifecycleRecovery.earliestSafePhase && lifecycleRecovery.earliestSafePhase !== state.phase) {
+    state = advanceRecoveryPhase(state, {
+      phase: lifecycleRecovery.earliestSafePhase,
+      firstIncompleteAction: lifecycleRecovery.earliestSafePhase,
+      nextSafeAction: lifecycleRecovery.earliestSafePhase,
+    });
+    writeRecoveryState(config, state);
   }
   const boundary = firstIncompleteContinuationAction(state);
   if (!boundary.ok) {
