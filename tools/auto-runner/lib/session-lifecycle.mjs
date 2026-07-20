@@ -191,12 +191,24 @@ export function loadSessionLifecycleForRecovery(config, identity) {
     let state;
     try { state = JSON.parse(readFileSync(path.join(root, entry.name), "utf8")); } catch { continue; }
     if (state.repository !== identity.repository || state.logicalTask?.issueNumber !== identity.issueNumber || state.logicalTask?.taskKey !== identity.taskKey || state.logicalTask?.runId !== identity.runId) continue;
-    if (state.branch?.name !== identity.branchName || state.branch?.baseSha !== identity.baseSha || state.branch?.headSha !== identity.headSha) continue;
+    if (state.branch?.name !== identity.branchName || state.branch?.baseSha !== identity.baseSha) continue;
+    if (state.branch.headSha !== identity.headSha) {
+      state = structuredClone(state);
+      state.branch.headSha = identity.headSha;
+      state.branch.candidateDigest = null;
+      refreshDigest(state);
+    }
     const validation = validateSessionLifecycleState(state, { ...identity, claimIdentity: state.logicalTask.claimIdentity });
     if (validation.ok) matches.push({ state, statePath: path.join(root, entry.name) });
   }
   if (matches.length !== 1) return fail(matches.length === 0 ? "session_lifecycle_state_missing" : "session_lifecycle_state_ambiguous");
-  return { ok: true, ...matches[0] };
+  const match = matches[0];
+  if (match.state.branch.headSha === identity.headSha) {
+    const persisted = persistSessionLifecycleState(config, match.state);
+    if (!persisted.ok) return persisted;
+    return { ok: true, state: persisted.state, statePath: persisted.statePath };
+  }
+  return { ok: true, ...match };
 }
 
 export function beginSessionRotation(state, { reason, snapshot = null, requestId = null } = {}) {
