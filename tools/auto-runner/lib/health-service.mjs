@@ -27,6 +27,7 @@ const successfulStopReasons = new Set([
   "max-runtime",
   "max_runtime",
   "max-iterations-reached",
+  "max-accepted-logical-tasks-reached",
   "max-runtime-reached",
   "budget-exhausted",
   "budget_exhausted",

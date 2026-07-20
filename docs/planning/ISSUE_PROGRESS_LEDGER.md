@@ -49,6 +49,11 @@ remain the source of truth.
   routing; #927 projects authoritative state/counters only; #928 owns
   interruption recovery; #929 owns proactive fresh-session rotation; and #932
   owns accepted logical-task accounting and cross-counter reporting.
+  Implementation is present on feature branch
+  `feature/auto-runner-two-loop-logical-task-budget-20260720-1409`: durable
+  nested counters and a separate exactly-once accepted-task charge ledger are
+  under cumulative validation/review. Closure still requires merged exact-head
+  proof and the documented non-production acceptance evidence.
 - The inner loop is validation, fresh Gemini, fresh local Codex, one bounded
   source-fix batch, then repeat until both pass. The outer loop updates the
   same PR, waits for GitHub Codex/CI/scanners/threads, and returns every

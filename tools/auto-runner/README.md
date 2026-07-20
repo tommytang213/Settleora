@@ -69,6 +69,25 @@ recovery root before polling unrelated issues; with recovery capability
 default-off it fails closed for operator review instead of adopting arbitrary
 work.
 
+Review convergence has one durable two-loop counter authority in that task/PR
+lineage. `localSourceChangingRoundsPerEpoch` blocks at 50 and increments only
+when one bounded local fix produces a new exact head;
+`githubTriggeredFixEpochsPerPr` blocks at 50 and increments once per frozen,
+deduplicated actionable GitHub finding batch that starts a new local epoch;
+`lifetimeLocalSourceChangingRounds` is monotonic telemetry and never blocks.
+Polling, pending checks, provider retries, unchanged reruns, restarts, and
+session rotation consume no nested counter. A GitHub-triggered epoch resets
+only the per-epoch local counter and must complete validation plus fresh Gemini
+and local Codex reviews on the same candidate identity before push.
+
+Accepted logical-task accounting is separate under
+`logical-task-budget/<budget-scope-digest>.json`. After claim labels are
+authoritatively reread, the runner atomically writes an idempotent charge bound
+to repository, issue, task lineage, claim identity, and accepted-at evidence
+before source mutation. Candidate search/skip activity, internal convergence,
+polling, retries, recovery, and session rotation do not charge. Corrupt or
+contradictory durable state fails closed.
+
 Bounded outage resubmission is a separate supervisor-side recovery controller
 and remains default-off. It is not an immortal mutation worker and does not
 poll unrelated issues before recovery state is reconciled. When explicitly

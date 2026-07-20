@@ -300,13 +300,13 @@ paths are added.
 The original planning PR and the #913/#921 implementation acceptance chain are
 complete. Current live issues now own the remaining work:
 
-1. Implement #923's distinct inner-local and outer-GitHub convergence loops
+1. Merge and prove #923's implemented distinct inner-local and outer-GitHub convergence loops
    and nested counters, then #924's large-candidate escalation/split routing
    against the same candidate identity.
 2. Implement #927 authoritative state/counter projection, #928 interruption
    recovery, and #929 proactive fresh-session rotation without parallel state
    or controller authorities.
-3. Implement #932 accepted logical-task accounting and exactly-once durable
+3. Merge and prove #932 accepted logical-task accounting and exactly-once durable
    charging/projection. Skips, nested rounds/epochs, retries/polls, restarts,
    recovery continuation, and session rotation must not consume extra
    top-level task units.

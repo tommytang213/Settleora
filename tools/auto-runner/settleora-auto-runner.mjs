@@ -111,6 +111,7 @@ import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
+import { chargeAcceptedLogicalTask } from "./lib/logical-task-budget.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -241,6 +242,7 @@ async function main() {
     attemptedIssueCount: 0,
     processedIssueNumbers: [],
     processedIssueCount: 0,
+    acceptedLogicalTaskCount: 0,
     stopReason: null,
     logPath: logger.logPath,
     autoMergeCanaryApprovalMode: trustPolicy.autoMergeCanaryApproval?.mode || "not_approved",
@@ -277,7 +279,7 @@ async function main() {
 
     const startedAtMs = Date.now();
     const issueTracker = createRunIssueTracker(summary);
-    for (let index = 1; index <= config.maxIterations; index += 1) {
+    for (let index = 1; summary.acceptedLogicalTaskCount < config.maxIterations; index += 1) {
       const control = applyControlAtSafeBoundary(config, summary);
       if (control.action === "stop") {
         summary.stopReason = control.reason;
@@ -296,6 +298,9 @@ async function main() {
         iteration.canaryEvidence = canaryEvidence;
       }
       summary.iterations.push(iteration);
+      if (Number.isSafeInteger(iteration.logicalTaskBudget?.acceptedLogicalTaskCount)) {
+        summary.acceptedLogicalTaskCount = iteration.logicalTaskBudget.acceptedLogicalTaskCount;
+      }
       if (iteration.issue?.number) {
         markIssueProcessed(issueTracker, iteration.issue.number);
         Object.assign(summary, trackerSnapshot(issueTracker));
@@ -316,7 +321,7 @@ async function main() {
       writeActiveRunState(config, summary);
     }
     if (!summary.stopReason) {
-      summary.stopReason = "max-iterations-reached";
+      summary.stopReason = "max-accepted-logical-tasks-reached";
     }
     }
   } finally {
@@ -485,6 +490,31 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
+
+  const acceptedAt = new Date().toISOString();
+  iteration.logicalTaskBudget = chargeAcceptedLogicalTask(config, {
+    budgetScopeId: config.supervisorRunId || runId,
+    maxTasks: config.maxIterations,
+    issue,
+    taskLineageId: `issue-${issue.number}`,
+    claimIdentity: `${config.repositorySlug}#${issue.number}`,
+    acceptedAt,
+  });
+  if (!iteration.logicalTaskBudget.ok) {
+    iteration.outcome = "blocked_logical_task_budget";
+    iteration.systemicStop = `logical-task-budget:${iteration.logicalTaskBudget.reasonCode}`;
+    recoveryRecorder?.stop(
+      iteration.logicalTaskBudget.reasonCode,
+      iteration.logicalTaskBudget.reason || iteration.logicalTaskBudget.reasonCode,
+      "stop_fail_closed",
+    );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+  recoveryRecorder?.marker("logical_task_charge", iteration.logicalTaskBudget.chargeId, {
+    target: `issue-${issue.number}`,
+    correlation: iteration.logicalTaskBudget.chargeId,
+  });
 
   const laneDecision = selection.laneDecision || classifyIssueLane(issue);
   iteration.laneDecision = laneDecision;

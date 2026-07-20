@@ -64,6 +64,14 @@ export function createInitialReviewConvergenceState(input = {}) {
     },
     epoch: Number.isInteger(input.epoch) ? input.epoch : 1,
     sourceChangingCycle: Number.isInteger(input.sourceChangingCycle) ? input.sourceChangingCycle : 0,
+    counters: {
+      localSourceChangingRoundsPerEpoch: Number.isInteger(input.localSourceChangingRoundsPerEpoch) ? input.localSourceChangingRoundsPerEpoch : 0,
+      githubTriggeredFixEpochsPerPr: Number.isInteger(input.githubTriggeredFixEpochsPerPr) ? input.githubTriggeredFixEpochsPerPr : 0,
+      lifetimeLocalSourceChangingRounds: Number.isInteger(input.lifetimeLocalSourceChangingRounds) ? input.lifetimeLocalSourceChangingRounds : 0,
+    },
+    counterAuthority: "two_loop_v1",
+    counterMarkers: {},
+    loopPhase: input.loopPhase || "local_validation",
     findingInventory: [],
     evidence: emptyEvidence(head),
     reviewRequests: {},
@@ -159,6 +167,14 @@ export function normalizeReviewConvergenceStateIdentity(input = {}) {
     },
     epoch: initial.epoch,
     sourceChangingCycle: initial.sourceChangingCycle,
+    counters: {
+      ...initial.counters,
+      ...(existing.counters || {}),
+      ...(input.counters || {}),
+    },
+    counterAuthority: "two_loop_v1",
+    counterMarkers: existing.counterMarkers || input.counterMarkers || initial.counterMarkers,
+    loopPhase: input.loopPhase || existing.loopPhase || initial.loopPhase,
     findingInventory: Array.isArray(input.findingInventory)
       ? input.findingInventory
       : Array.isArray(existing.findingInventory)
@@ -200,12 +216,29 @@ export function loadReviewConvergenceState(config, keyOrState) {
   } catch {
     return { ok: false, reasonCode: "review_convergence_state_corrupt", statePath };
   }
+  parsed = migrateReviewConvergenceState(parsed);
   const validation = validateReviewConvergenceState(parsed);
   if (!validation.ok) return { ok: false, reasonCode: "review_convergence_state_schema_invalid", reason: validation.reason, statePath };
   const identity = expectedIdentity(keyOrState);
   const mismatch = identityMismatch(parsed, identity);
   if (mismatch) return { ok: false, reasonCode: "review_convergence_state_identity_mismatch", reason: mismatch, statePath };
   return { ok: true, state: sanitizeState(parsed), statePath };
+}
+
+export function migrateReviewConvergenceState(state) {
+  if (!state || state.stateVersion !== reviewConvergenceStateVersion) return state;
+  const legacyRounds = Number.isSafeInteger(state.sourceChangingCycle) && state.sourceChangingCycle >= 0 ? state.sourceChangingCycle : 0;
+  return {
+    ...state,
+    counters: {
+      localSourceChangingRoundsPerEpoch: state.counters?.localSourceChangingRoundsPerEpoch ?? legacyRounds,
+      githubTriggeredFixEpochsPerPr: state.counters?.githubTriggeredFixEpochsPerPr ?? 0,
+      lifetimeLocalSourceChangingRounds: state.counters?.lifetimeLocalSourceChangingRounds ?? legacyRounds,
+    },
+    counterMarkers: state.counterMarkers && typeof state.counterMarkers === "object" ? state.counterMarkers : {},
+    counterAuthority: "two_loop_v1",
+    loopPhase: state.loopPhase || phaseToLoopPhase(state.phase),
+  };
 }
 
 export function bindReviewConvergenceEvidence(state, kind, evidence = {}) {
@@ -316,6 +349,11 @@ export function validateReviewConvergenceState(state) {
   if (!state.pr.branch || !state.pr.base || !state.pr.exactHead) return fail("pr_identity_missing");
   if (!Number.isInteger(state.epoch) || state.epoch < 1) return fail("epoch_invalid");
   if (!Number.isInteger(state.sourceChangingCycle) || state.sourceChangingCycle < 0) return fail("source_cycle_invalid");
+  for (const key of ["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]) {
+    if (!Number.isSafeInteger(state.counters?.[key]) || state.counters[key] < 0) return fail(`counter_invalid:${key}`);
+  }
+  if (!state.counterMarkers || typeof state.counterMarkers !== "object" || Array.isArray(state.counterMarkers)) return fail("counter_markers_invalid");
+  if (state.counterAuthority !== "two_loop_v1") return fail("counter_authority_invalid");
   if (!state.evidence || typeof state.evidence !== "object") return fail("evidence_missing");
   if (state.terminalReason && !reviewConvergenceTerminalReasons.includes(state.terminalReason)) return fail("terminal_reason_invalid");
   return { ok: true };
@@ -370,4 +408,10 @@ function bounded(value, max) {
 
 function fail(reason) {
   return { ok: false, reason };
+}
+
+function phaseToLoopPhase(phase) {
+  if (String(phase || "").includes("github") || String(phase || "").includes("ci")) return "github_wait";
+  if (String(phase || "").includes("merge")) return "merge_gate";
+  return "local_validation";
 }
