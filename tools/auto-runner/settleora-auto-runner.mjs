@@ -112,6 +112,7 @@ import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState } from "./lib/session-lifecycle.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -686,7 +687,31 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     },
   });
 
-  const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
+  let lifecycleInvocation = null;
+  if (!config.dryRun && config.sessionLifecycle?.enabled === true) {
+    const controllerSessionId = `${runId}:controller:${index}`;
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: issue.number,
+      taskKey: promptInfo.timestampKey,
+      runId,
+      claimIdentity: `${config.repositorySlug}#${issue.number}`,
+      chargeMarkerRef: iteration.logicalTaskBudget.statePath,
+      sessionId: controllerSessionId,
+      branchName,
+      baseSha: iteration.baseOriginMainSha,
+      headSha: getRefSha("HEAD"),
+      phase: "implementation_or_bundle_slice",
+      nextExactAction: "run_implementation",
+      reservations: recoveryRecorder?.state?.mutationMarkers || {},
+      evidence: recoveryRecorder?.state?.evidence || {},
+      reportPath: promptInfo.reportPath,
+    });
+    const persistedLifecycle = persistSessionLifecycleState(config, lifecycle);
+    if (!persistedLifecycle.ok) throw new Error(persistedLifecycle.reasonCode);
+    lifecycleInvocation = { state: persistedLifecycle.state, newSessionId: `${runId}:implementation:${index}`, phase: "implementation_or_bundle_slice", telemetry: {}, mutationJournaled: true };
+  }
+  const codexResult = runCodexPrompt(config, { ...promptInfo, branchName, ...(lifecycleInvocation ? { sessionLifecycle: lifecycleInvocation } : {}) }, "implementation");
   iteration.codex = codexResult;
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
     iteration.outcome = "auto_failed";

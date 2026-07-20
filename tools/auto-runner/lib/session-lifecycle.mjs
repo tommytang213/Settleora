@@ -84,7 +84,7 @@ export function evaluateContextBudget({ telemetry = {}, policy: policyInput = {}
   if (!warning) return { ok: true, action: "continue", reasonCode: "context_budget_safe", snapshot };
   if (!checkpointComplete) return { ok: true, action: "persist_checkpoint", reasonCode: emergency ? "emergency_checkpoint_required" : "context_warning_checkpoint_required", snapshot };
   if (turnsSinceRotation < policy.cooldownTurns && !emergency) return { ok: true, action: "continue", reasonCode: "rotation_cooldown_active", snapshot };
-  if (mandatory || longPhases.has(phase)) return { ok: true, action: "rotate_before_next_operation", reasonCode: emergency ? "emergency_rotation_required" : "mandatory_rotation_required", snapshot };
+  if (mandatory) return { ok: true, action: "rotate_before_next_operation", reasonCode: emergency ? "emergency_rotation_required" : "mandatory_rotation_required", snapshot };
   return { ok: true, action: "checkpoint_ready", reasonCode: "context_warning_checkpoint_ready", snapshot };
 }
 
@@ -270,11 +270,11 @@ export function planInterruptionRecovery(state, live = {}, interruption = {}) {
     return { ok: true, recoverable: true, duplicate: true, classification: classified, effectsAlreadyPresent: state.recovery.effectsAlreadyPresent, earliestSafePhase: state.recovery.phaseAfter, state };
   }
   const effects = {
-    mutation: Boolean(live.mutationPresent || state.reservations?.sourceMutation?.confirmed),
-    commit: Boolean(live.commitPresent || state.reservations?.commit?.confirmed),
-    push: Boolean(live.pushPresent || state.reservations?.push?.confirmed),
-    merge: Boolean(live.mergePresent || state.reservations?.merge?.confirmed),
-    comment: Boolean(live.commentPresent || state.reservations?.comment?.confirmed),
+    mutation: Boolean(live.mutationPresent || reservationConfirmed(state.reservations, ["sourceMutation", "review_fix", "ci_fix"])),
+    commit: Boolean(live.commitPresent || reservationConfirmed(state.reservations, ["commit", "checkpoint_commit"])),
+    push: Boolean(live.pushPresent || reservationConfirmed(state.reservations, ["push"])),
+    merge: Boolean(live.mergePresent || reservationConfirmed(state.reservations, ["merge"])),
+    comment: Boolean(live.commentPresent || reservationConfirmed(state.reservations, ["comment", "issue_comment", "parent_comment", "pr_comment", "issue_close", "ledger_hygiene"])),
   };
   const phase = effects.merge ? "issue_parent_ledger_hygiene" : effects.push ? "ci_wait" : effects.commit ? "push" : effects.mutation ? "checkpoint_validation_commit" : state.controller.phase;
   const next = structuredClone(state);
@@ -312,3 +312,11 @@ function positiveInteger(value) { return Number.isSafeInteger(value) && value > 
 function nonnegativeInteger(value) { return Number.isSafeInteger(value) && value >= 0 ? value : null; }
 function validTimestamp(value) { return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null; }
 function allowedValue(value, allowed, fallback) { return allowed.includes(value) ? value : fallback; }
+function reservationConfirmed(reservations, keys) {
+  return keys.some((key) => {
+    const value = reservations?.[key];
+    if (!value) return false;
+    if (value.confirmed === true || value.status === "confirmed" || value.status === "completed") return true;
+    return typeof value === "object" && Object.keys(value).length > 0;
+  });
+}

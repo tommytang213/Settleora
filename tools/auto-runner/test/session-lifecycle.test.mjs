@@ -46,6 +46,11 @@ test("mandatory pressure rotates before a long operation", () => {
   assert.equal(result.action, "rotate_before_next_operation");
 });
 
+test("warning pressure at a long phase checkpoints but does not rotate", () => {
+  const result = evaluateContextBudget({ telemetry: { totalTokens: 80000, contextWindowTokens: 128000 }, phase: "external_review", checkpointComplete: true });
+  assert.equal(result.action, "checkpoint_ready");
+});
+
 test("missing telemetry uses conservative fallback at a long phase", () => {
   const result = evaluateContextBudget({ telemetry: {}, phase: "aggregate_validation", checkpointComplete: false });
   assert.equal(result.snapshot.fallbackUsed, true);
@@ -191,6 +196,9 @@ test("valid recovery v1 migrates without reinterpreting counters or markers", ()
   assert.equal(migrated.ok, true);
   assert.equal(migrated.state.controller.localSourceChangingRoundsPerEpoch, 6);
   assert.equal(migrated.state.reservations.checkpoint_commit.key, "c1");
+  const recovered = planInterruptionRecovery(migrated.state, {}, { processExited: true, checkpointValid: true });
+  assert.equal(recovered.effectsAlreadyPresent.commit, true);
+  assert.equal(recovered.earliestSafePhase, "push");
 });
 
 test("repeated recovery planning is idempotent", () => {

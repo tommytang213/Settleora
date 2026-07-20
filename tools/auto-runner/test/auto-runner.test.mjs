@@ -6934,7 +6934,7 @@ test("implementation path verifies mutation workspace after task branch creation
   const branchIndex = source.indexOf("createTaskBranch(config, branchName);");
   const guardIndex = source.indexOf("ensureTaskMutationWorkspace(config", branchIndex);
   const promptIndex = source.indexOf("generateTaskPrompt(config, issue, laneDecision, branchName)", branchIndex);
-  const codexIndex = source.indexOf("runCodexPrompt(config, { ...promptInfo, branchName }, \"implementation\")", branchIndex);
+  const codexIndex = source.indexOf("const codexResult = runCodexPrompt(config", branchIndex);
   assert.notEqual(branchIndex, -1);
   assert.notEqual(guardIndex, -1);
   assert.notEqual(promptIndex, -1);
@@ -6942,6 +6942,13 @@ test("implementation path verifies mutation workspace after task branch creation
   assert.ok(branchIndex < guardIndex);
   assert.ok(guardIndex < promptIndex);
   assert.ok(promptIndex < codexIndex);
+});
+
+test("enabled session lifecycle builds and persists an exact implementation invocation", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  assert.match(source, /createSessionLifecycleState\(\{/);
+  assert.match(source, /persistSessionLifecycleState\(config, lifecycle\)/);
+  assert.match(source, /sessionLifecycle: lifecycleInvocation/);
 });
 
 test("stack CLI constructs and injects one live fixed-argv runner", () => {
