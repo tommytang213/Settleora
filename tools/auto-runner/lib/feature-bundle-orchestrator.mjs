@@ -409,6 +409,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     },
   });
   state = convergence.state;
+  sessionLifecycle = convergence.sessionLifecycle || sessionLifecycle;
   if (convergence.result) {
     result.validation = convergence.result.validation;
     result.externalReview = convergence.result.externalReview;
@@ -496,7 +497,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
     const codexNeedsConvergence = !config.dryRun && currentResult.review?.verdict?.verdict && currentResult.review.verdict.verdict !== "approve";
     const gateNeedsConvergence = !prePushGate.ok && prePushGate.outcome === "review_convergence_required";
     if (!codexNeedsConvergence && !gateNeedsConvergence) {
-      return { ok: true, state, result: { ...currentResult, changedFiles, forbiddenChangedFiles, headSha: state.lastVerifiedHead }, prePushGate, attempts };
+      return { ok: true, state, result: { ...currentResult, changedFiles, forbiddenChangedFiles, headSha: state.lastVerifiedHead }, prePushGate, attempts, sessionLifecycle: input.sessionLifecycle };
     }
 
     const source = codexNeedsConvergence ? "codex_mechanics_security_review" : "independent_review";

@@ -303,7 +303,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     authority: loaded.state.mutationAuthority,
   }, {
     sourceMutationPresent: hasAnyMutationMarker(recoveryState, "sourceMutation"),
-    commitSha: recoveryState.branch?.currentHeadSha,
+    commitSha: hasAnyMutationMarker(recoveryState, "checkpoint_commit") ? recoveryState.branch?.currentHeadSha : null,
     commitMarker: hasAnyMutationMarker(recoveryState, "checkpoint_commit"),
     pushSha: hasAnyMutationMarker(recoveryState, "push") ? recoveryState.branch?.currentHeadSha : null,
     pushMarker: hasAnyMutationMarker(recoveryState, "push"),
