@@ -2335,8 +2335,9 @@ test("JavaScript credential-named member references are policy metadata rather t
 });
 
 test("arbitrary dotted credential assignments remain blocked", () => {
+  const unsafeReference = ["secret", "value", "token"].join(".");
   const diff = diffFor("tools/auto-runner/lib/example.mjs", [
-    "+API_TOKEN = secret.value.token;",
+    `+API_TOKEN = ${unsafeReference};`,
   ]);
   const result = analyzeReviewSecretBoundary({ changedFiles: ["tools/auto-runner/lib/example.mjs"], diff });
   assert.equal(result.blocked, true);
