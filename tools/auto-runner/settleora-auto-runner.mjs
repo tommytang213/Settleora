@@ -288,13 +288,16 @@ async function main() {
 
     const startedAtMs = Date.now();
     const issueTracker = createRunIssueTracker(summary);
+    let chargedRecoveryCapBypassConsumed = false;
     for (let index = 1; ; index += 1) {
       let chargedRecoveryAtCap = null;
       if (config.dryRun) {
         if (index > config.maxIterations) break;
       } else if (summary.acceptedLogicalTaskCount >= config.maxIterations) {
-        chargedRecoveryAtCap = discoverStartupRecovery(config);
+        if (chargedRecoveryCapBypassConsumed) break;
+        chargedRecoveryAtCap = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
         if (!chargedRecoveryAtCap.found) break;
+        chargedRecoveryCapBypassConsumed = true;
       }
       const control = applyControlAtSafeBoundary(config, summary);
       if (control.action === "stop") {
@@ -316,6 +319,9 @@ async function main() {
       summary.iterations.push(iteration);
       if (Number.isSafeInteger(iteration.logicalTaskBudget?.acceptedLogicalTaskCount)) {
         summary.acceptedLogicalTaskCount = iteration.logicalTaskBudget.acceptedLogicalTaskCount;
+      }
+      if (!config.dryRun && iteration.issueSource === "startup_recovery" && summary.acceptedLogicalTaskCount >= config.maxIterations) {
+        chargedRecoveryCapBypassConsumed = true;
       }
       if (iteration.issue?.number) {
         markIssueProcessed(issueTracker, iteration.issue.number);
