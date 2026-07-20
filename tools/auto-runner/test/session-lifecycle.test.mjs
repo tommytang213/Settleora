@@ -20,6 +20,7 @@ import {
   prepareFreshSessionInvocation,
   validateSessionLifecycleState,
 } from "../lib/session-lifecycle.mjs";
+import { consumeSupervisorInterruptionPlanner } from "../supervisor/outage-resubmission-controller.mjs";
 
 const sha = "a".repeat(40);
 const digest = "b".repeat(64);
@@ -218,4 +219,25 @@ test("production-shaped fresh invocation rotates atomically with zero external m
   assert.equal(result.rotated, true);
   assert.equal(result.state.sessions.current, "session-2");
   assert.equal(result.state.controller.localSourceChangingRoundsPerEpoch, 0);
+});
+
+test("supervisor consumes interruption planner and active owner blocks takeover", () => {
+  const active = consumeSupervisorInterruptionPlanner(fixture(), { ownerAlive: true, leaseValid: true });
+  assert.equal(active.active, true);
+  assert.equal(active.reasonCode, "session_lifecycle_owner_still_active");
+  const takeover = consumeSupervisorInterruptionPlanner(fixture(), { ownerAlive: false, checkpointValid: true });
+  assert.equal(takeover.ok, true);
+  assert.equal(takeover.state.mutationAuthority.status, "recovery_pending");
+  assert.equal(takeover.state.sessions.generation, 1);
+});
+
+test("production invocation sources wire lifecycle through feature bundle and review fix", () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const feature = readFileSync(path.join(root, "lib/feature-bundle-orchestrator.mjs"), "utf8");
+  const runner = readFileSync(path.join(root, "settleora-auto-runner.mjs"), "utf8");
+  const startup = readFileSync(path.join(root, "lib/recovery-continuation.mjs"), "utf8");
+  assert.match(feature, /sessionLifecycle: bundleLifecycleInvocation\(sessionLifecycle/);
+  assert.match(feature, /sessionLifecycle: bundleLifecycleInvocation\(context\.sessionLifecycle/);
+  assert.match(runner, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
+  assert.match(startup, /consumeStartupInterruptionPlanner\(config, state/);
 });

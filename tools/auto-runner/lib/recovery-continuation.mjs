@@ -7,6 +7,7 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
+import { loadSessionLifecycleState, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -194,6 +195,15 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   const state = loaded.state;
+  const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, recovery.interruption || {});
+  if (!lifecycleRecovery.ok) {
+    return {
+      ok: false,
+      outcome: "blocked_recovery_state",
+      reasonCode: lifecycleRecovery.reasonCode,
+      recovery: { ...recovery, lifecycle: lifecycleRecovery },
+    };
+  }
   const boundary = firstIncompleteContinuationAction(state);
   if (!boundary.ok) {
     return {
@@ -245,6 +255,37 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     },
     result,
   };
+}
+
+export function consumeStartupInterruptionPlanner(config, recoveryState, interruption = {}) {
+  if (config.sessionLifecycle?.enabled !== true) return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
+  const identity = {
+    repository: config.repositorySlug,
+    issueNumber: recoveryState.issue?.number,
+    taskKey: recoveryState.taskKey,
+    runId: recoveryState.run?.runId,
+    branchName: recoveryState.branch?.name,
+    baseSha: recoveryState.branch?.baseSha,
+    headSha: recoveryState.branch?.currentHeadSha,
+  };
+  const loaded = loadSessionLifecycleState(config, identity);
+  if (!loaded.ok) return loaded;
+  const planned = planInterruptionRecovery(loaded.state, {
+    expectedIdentity: identity,
+    mutationPresent: recoveryHasMutationMarker(recoveryState, "sourceMutation"),
+    commitPresent: recoveryHasMutationMarker(recoveryState, "checkpoint_commit"),
+    pushPresent: recoveryHasMutationMarker(recoveryState, "push"),
+    mergePresent: recoveryHasMutationMarker(recoveryState, "merge"),
+    commentPresent: recoveryHasMutationMarker(recoveryState, "issue_comment"),
+  }, {
+    processExited: true,
+    checkpointValid: true,
+    ...interruption,
+  });
+  if (!planned.ok) return planned;
+  if (planned.active) return { ok: false, reasonCode: planned.reasonCode };
+  const persisted = persistSessionLifecycleState(config, planned.state);
+  return persisted.ok ? { ...planned, state: persisted.state, statePath: persisted.statePath } : persisted;
 }
 
 function selectOwnCallableHandler(handlers, key) {

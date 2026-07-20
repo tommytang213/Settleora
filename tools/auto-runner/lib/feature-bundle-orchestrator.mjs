@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
@@ -26,6 +27,7 @@ import {
 } from "./git-workspace.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./codex-runner.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 import { collectReport } from "./report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./pr-manager.mjs";
@@ -137,6 +139,15 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       sliceOrder: plan.slices.map((slice) => slice.id),
     },
   });
+  let sessionLifecycle = createBundleSessionLifecycle(config, {
+    issue,
+    plan,
+    runId,
+    branchName: bundleBranchName,
+    baseSha: baseOriginMainSha,
+    headSha: config.dryRun ? baseOriginMainSha : getRefSha("HEAD"),
+    recoveryState: recovery?.state || recoveryState,
+  });
   recovery?.advance("implementation_or_bundle_slice", "run_next_bundle_slice");
 
   let checkpointBase = config.dryRun ? "origin/main" : getRefSha("HEAD");
@@ -164,7 +175,12 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     if (!config.dryRun) writeBundleState(config, state);
     recovery?.advance("implementation_or_bundle_slice", `run_bundle_slice:${slice.id}`);
 
-    const codex = runCodexPrompt(config, { ...promptInfo, branchName: bundleBranchName }, `bundle-${slice.sequence}-${slice.id}`);
+    const codex = runCodexPrompt(config, {
+      ...promptInfo,
+      branchName: bundleBranchName,
+      ...(sessionLifecycle ? { sessionLifecycle: bundleLifecycleInvocation(sessionLifecycle, `bundle-${slice.sequence}-${slice.id}`) } : {}),
+    }, `bundle-${slice.sequence}-${slice.id}`);
+    if (codex.sessionLifecycle?.state) sessionLifecycle = codex.sessionLifecycle.state;
     if (!codex.skipped && (codex.error || codex.status !== 0)) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "codex_failed", reason: codex.error || `status ${codex.status}` });
       if (!config.dryRun) writeBundleState(config, state);
@@ -386,6 +402,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     reviewPackage: result.reviewPackage,
     prePushGate,
     recovery,
+    sessionLifecycle,
     writeState: (nextState) => {
       state = nextState;
       if (!config.dryRun) writeBundleState(config, state);
@@ -536,8 +553,10 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       reviewConvergenceState: state.reviewConvergenceState,
       diagnosticAuthorization: budget.diagnosticAuthorization,
       source,
+      sessionLifecycle: input.sessionLifecycle,
     });
     attempts.push(fixAttempt);
+    if (fixAttempt.sessionLifecycle) input.sessionLifecycle = fixAttempt.sessionLifecycle;
     if (!fixAttempt.proceeded) {
       input.recovery?.stop("bundle_review_convergence_fix_not_proceeded", fixAttempt.reason, terminalNextAction(fixAttempt.reason));
       if (state.reviewConvergenceState?.diagnosticReviewFix?.status === "pending") {
@@ -728,7 +747,12 @@ async function runBundleReviewFixCycle(config, context) {
   );
   mkdirSync(path.dirname(promptPath), { recursive: true });
   writeFileSync(promptPath, prompt);
-  const codex = runCodexPrompt(config, { branchName: context.branchName, prompt, promptPath }, "bundle-review-fix");
+  const codex = runCodexPrompt(config, {
+    branchName: context.branchName,
+    prompt,
+    promptPath,
+    ...(context.sessionLifecycle ? { sessionLifecycle: bundleLifecycleInvocation(context.sessionLifecycle, "bundle-review-fix") } : {}),
+  }, "bundle-review-fix");
   if (!codex.skipped && (codex.error || codex.status !== 0)) {
     return { attempted: true, proceeded: false, reason: "review_fix_codex_failed", decision, promptPath, codex };
   }
@@ -755,6 +779,46 @@ async function runBundleReviewFixCycle(config, context) {
     changedFilesAfter,
     forbiddenChangedFilesAfter,
     validationAfter,
+    sessionLifecycle: codex.sessionLifecycle?.state || context.sessionLifecycle || null,
+  };
+}
+
+function createBundleSessionLifecycle(config, input) {
+  if (config.dryRun || config.sessionLifecycle?.enabled !== true) return null;
+  const recovery = input.recoveryState || {};
+  const state = createSessionLifecycleState({
+    repository: config.repositorySlug,
+    issueNumber: input.issue.number,
+    taskKey: input.plan.taskKey || recovery.taskKey || "auto-runner",
+    runId: input.runId,
+    claimIdentity: recovery.claim?.identity || `issue-${input.issue.number}`,
+    chargeMarkerRef: recovery.logicalTaskBudget?.chargeId || recovery.mutationMarkers?.logical_task_charge?.key || `accepted:${input.runId}:${input.issue.number}`,
+    branchName: input.branchName,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    sessionId: `${input.runId}:bundle:0`,
+    phase: "implementation_or_bundle_slice",
+    nextExactAction: "run_next_bundle_slice",
+    contextPolicy: config.sessionLifecycle.contextBudget,
+    localSourceChangingRoundsPerEpoch: recovery.reviewConvergence?.localSourceChangingRoundsPerEpoch || 0,
+    githubTriggeredFixEpochsPerPr: recovery.reviewConvergence?.githubTriggeredFixEpochsPerPr || 0,
+    lifetimeLocalSourceChangingRounds: recovery.reviewConvergence?.lifetimeLocalSourceChangingRounds || 0,
+    reservations: recovery.mutationMarkers || {},
+    evidence: recovery.evidence || {},
+    reportCorrelationKey: input.plan.taskKey || recovery.taskKey || "auto-runner",
+  });
+  const persisted = persistSessionLifecycleState(config, state);
+  if (!persisted.ok) throw new Error(persisted.reasonCode);
+  return persisted.state;
+}
+
+function bundleLifecycleInvocation(state, phase) {
+  return {
+    state,
+    newSessionId: `${state.logicalTask.runId}:${phase}:${state.sessions.generation + 1}:${randomUUID()}`,
+    phase,
+    telemetry: {},
+    mutationJournaled: true,
   };
 }
 

@@ -18,6 +18,7 @@ import {
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
 import { firstIncompleteContinuationAction } from "../lib/recovery-continuation.mjs";
+import { planInterruptionRecovery } from "../lib/session-lifecycle.mjs";
 import {
   bindOutageResubmissionToRecoveryState,
   invalidateEvidenceForHeadChange,
@@ -126,6 +127,15 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   const recovery = input.recoveryState || null;
+  if (config.sessionLifecycle?.enabled === true && input.sessionLifecycleState) {
+    const lifecycle = consumeSupervisorInterruptionPlanner(input.sessionLifecycleState, input.lifecycleInterruption || {}, input.lifecycleEffects || {});
+    if (!lifecycle.ok || lifecycle.active) {
+      const reasonCode = lifecycle.reasonCode || "session_lifecycle_supervisor_takeover_blocked";
+      event("session_lifecycle_takeover_blocked", { reasonCode });
+      return result("blocked", reasonCode, { events, counts, sessionLifecycle: lifecycle });
+    }
+    event("session_lifecycle_recovery_planned", { reasonCode: lifecycle.classification?.reasonCode, earliestSafePhase: lifecycle.earliestSafePhase });
+  }
 
   const source = input.source || {};
   const stateKey = input.outageStateKey || source.outageStateKey || null;
@@ -504,6 +514,14 @@ export function runOutageResubmissionController(input = {}) {
   writeOutageResubmissionState(config, confirmed);
   event("child_submission_confirmed", { childSupervisorRunId: child.spec.runId });
   return result("submitted", "child_submission_confirmed", { events, counts, outageState: confirmed, child, submitted, recoveryState: boundRecoveryState });
+}
+
+export function consumeSupervisorInterruptionPlanner(state, interruption = {}, liveEffects = {}) {
+  return planInterruptionRecovery(state, liveEffects, {
+    supervisorInterrupted: true,
+    checkpointValid: true,
+    ...interruption,
+  });
 }
 
 function terminalizeSourceCompletion({

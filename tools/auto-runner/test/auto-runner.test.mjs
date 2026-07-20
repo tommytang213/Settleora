@@ -6948,7 +6948,7 @@ test("enabled session lifecycle builds and persists an exact implementation invo
   const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   assert.match(source, /createSessionLifecycleState\(\{/);
   assert.match(source, /persistSessionLifecycleState\(config, lifecycle\)/);
-  assert.match(source, /sessionLifecycle: lifecycleInvocation/);
+  assert.match(source, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
 });
 
 test("stack CLI constructs and injects one live fixed-argv runner", () => {

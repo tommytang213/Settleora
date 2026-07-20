@@ -711,7 +711,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     if (!persistedLifecycle.ok) throw new Error(persistedLifecycle.reasonCode);
     lifecycleInvocation = { state: persistedLifecycle.state, newSessionId: `${runId}:implementation:${index}`, phase: "implementation_or_bundle_slice", telemetry: {}, mutationJournaled: true };
   }
-  const codexResult = runCodexPrompt(config, { ...promptInfo, branchName, ...(lifecycleInvocation ? { sessionLifecycle: lifecycleInvocation } : {}) }, "implementation");
+  if (lifecycleInvocation) promptInfo.sessionLifecycle = lifecycleInvocation;
+  const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
+  if (codexResult.sessionLifecycle?.state && promptInfo.sessionLifecycle) {
+    promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: codexResult.sessionLifecycle.state };
+  }
   iteration.codex = codexResult;
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
     iteration.outcome = "auto_failed";
