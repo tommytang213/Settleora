@@ -284,9 +284,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     && intent.repository === loaded.state.repository
     && intent.sourceTaskKey === loaded.state.logicalTask.taskKey
     && intent.runId === loaded.state.logicalTask.runId
-    && intent.claimIdentity === loaded.state.logicalTask.claimIdentity
-    && intent.sessionId === loaded.state.sessions.current
-    && intent.authorityGeneration === loaded.state.mutationAuthority.generation);
+    && intent.claimIdentity === loaded.state.logicalTask.claimIdentity);
   const authoritative = collectAuthoritativeRecoveryEvidence(config, {
     repository: loaded.state.repository,
     issueNumber: loaded.state.logicalTask.issueNumber,
@@ -317,6 +315,8 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     hygieneMarker: hasAnyMutationMarker(recoveryState, "ledger_hygiene"),
     issueNumber: recoveryState.issue?.number,
     preEffectIntentIds: pendingIntents.map((intent) => intent.intentId),
+    commentFingerprints: pendingIntents.map((intent) => intent.effect?.contentFingerprint).filter(Boolean),
+    commentCanonicalFingerprints: pendingIntents.map((intent) => intent.effect?.bodyDigest).filter(Boolean),
   }, evidenceAdapters);
   const inputs = plannerInputsFromAuthoritativeEvidence(authoritative);
   if (!inputs.ok) return { ...inputs, authoritativeEvidence: authoritative };
@@ -338,7 +338,8 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   try {
     for (const intent of pendingIntents) {
       const classification = authoritative.intents.find((entry) => entry.intentId === intent.intentId)?.classification;
-      handoffPreEffectIntentAuthority(config, intent.intentId, { runId: loaded.state.logicalTask.runId, oldSessionId: loaded.state.sessions.current, oldAuthorityGeneration: loaded.state.mutationAuthority.generation, newSessionId: successorSessionId, newAuthorityGeneration: authority.generation, status: "active", resetForAuthoritativeAbsence: classification === "effect_absent_execution_uncertain" });
+      if (intent.sessionId === successorSessionId && intent.authorityGeneration === authority.generation) continue;
+      handoffPreEffectIntentAuthority(config, intent.intentId, { runId: loaded.state.logicalTask.runId, oldSessionId: intent.sessionId, oldAuthorityGeneration: intent.authorityGeneration, newSessionId: successorSessionId, newAuthorityGeneration: authority.generation, status: "active", resetForAuthoritativeAbsence: classification === "effect_absent_execution_uncertain" });
     }
   } catch {
     return { ok: false, reasonCode: "pre_effect_intent_authority_handoff_failed", state: persisted.state };

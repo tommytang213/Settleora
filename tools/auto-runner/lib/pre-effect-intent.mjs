@@ -83,7 +83,7 @@ export function handoffPreEffectIntentAuthority(config, intentId, handoff, { now
   const current = loadPreEffectIntent(config, intentId);
   if (!current || ["finalized", "failed_closed"].includes(current.status)) return current;
   if (handoff?.runId !== current.runId || handoff?.oldSessionId !== current.sessionId || handoff?.oldAuthorityGeneration !== current.authorityGeneration) throw new Error("Pre-effect intent handoff source mismatch");
-  if (handoff?.status !== "active" || typeof handoff.newSessionId !== "string" || !handoff.newSessionId.length || handoff.newAuthorityGeneration !== current.authorityGeneration + 1) throw new Error("Pre-effect intent handoff successor invalid");
+  if (handoff?.status !== "active" || typeof handoff.newSessionId !== "string" || !handoff.newSessionId.length || !Number.isSafeInteger(handoff.newAuthorityGeneration) || handoff.newAuthorityGeneration <= current.authorityGeneration) throw new Error("Pre-effect intent handoff successor invalid");
   const identity = { ...current.identity, sessionId: handoff.newSessionId, authorityGeneration: handoff.newAuthorityGeneration };
   const next = {
     ...current,
