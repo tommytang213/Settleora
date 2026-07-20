@@ -92,3 +92,15 @@ test("validated successor handoff preserves provenance and authorizes only the n
     assert.equal(transitionPreEffectIntent({ logsRoot, currentAuthority: { runId: "run-1", sessionId: "session-2", authorityGeneration: 3, status: "active" } }, handedOff, "executing").status, "executing");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
+
+test("authoritative absence explicitly reissues an executing intent to the successor", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "intent-reissue-"));
+  try {
+    const authority = { runId: "run-1", sessionId: "session-1", authorityGeneration: 2, status: "active" };
+    const prepared = preparePreEffectIntent({ logsRoot }, base, { intentId: "reissue" });
+    const executing = transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, prepared, "executing");
+    const handedOff = handoffPreEffectIntentAuthority({ logsRoot }, executing.intentId, { runId: "run-1", oldSessionId: "session-1", oldAuthorityGeneration: 2, newSessionId: "session-2", newAuthorityGeneration: 3, status: "active", resetForAuthoritativeAbsence: true });
+    assert.equal(handedOff.status, "prepared");
+    assert.deepEqual(handedOff.diagnostics, ["authoritative_absence_successor_reissue"]);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});

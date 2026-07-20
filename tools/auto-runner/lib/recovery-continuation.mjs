@@ -336,7 +336,10 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   const persisted = persistSessionLifecycleState(config, completed.state);
   if (!persisted.ok) return persisted;
   try {
-    for (const intent of pendingIntents) handoffPreEffectIntentAuthority(config, intent.intentId, { runId: loaded.state.logicalTask.runId, oldSessionId: loaded.state.sessions.current, oldAuthorityGeneration: loaded.state.mutationAuthority.generation, newSessionId: successorSessionId, newAuthorityGeneration: authority.generation, status: "active" });
+    for (const intent of pendingIntents) {
+      const classification = authoritative.intents.find((entry) => entry.intentId === intent.intentId)?.classification;
+      handoffPreEffectIntentAuthority(config, intent.intentId, { runId: loaded.state.logicalTask.runId, oldSessionId: loaded.state.sessions.current, oldAuthorityGeneration: loaded.state.mutationAuthority.generation, newSessionId: successorSessionId, newAuthorityGeneration: authority.generation, status: "active", resetForAuthoritativeAbsence: classification === "effect_absent_execution_uncertain" });
+    }
   } catch {
     return { ok: false, reasonCode: "pre_effect_intent_authority_handoff_failed", state: persisted.state };
   }

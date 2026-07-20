@@ -25,7 +25,7 @@ export function completeMergedIssueHygiene(config = {}, context = {}, options = 
   const refreshed = refreshCompletionState(context, runner, repositoryContext);
   const closeDecision = evaluateCloseDecision(refreshed.issue, refreshed);
   const completionBody = renderCompletionComment(refreshed, closeDecision);
-  const duplicateComment = hasCompletionComment(refreshed.issue, refreshed);
+  const duplicateComment = hasCompletionComment(refreshed.issue, refreshed, completionBody);
   const comment = duplicateComment
     ? { status: "skipped", reason: "completion_comment_already_present" }
     : refreshed.sessionLifecycle
@@ -231,9 +231,10 @@ function explicitCloseRuleSatisfied(issue = {}, context = {}) {
   return Boolean(context.closeRuleSatisfied || (context.mergeSha && context.validation?.passed === true));
 }
 
-function hasCompletionComment(issue = {}, context = {}) {
+function hasCompletionComment(issue = {}, context = {}, expectedBody = "") {
   const marker = `settleora-completion:${issue.number}:${context.mergeSha || "unknown"}`;
-  return (issue.comments || []).some((comment) => String(comment.body || "").includes(marker));
+  const digest = canonicalGithubEvidenceDigest(expectedBody);
+  return (issue.comments || []).some((comment) => String(comment.body || "").includes(marker) && canonicalGithubEvidenceDigest(String(comment.body || "")) === digest);
 }
 
 function postParentProgress(config, context, runner, repositoryContext) {
@@ -259,7 +260,7 @@ function canonicalCommentComponent(config, context, runner, repositoryContext, i
       const live = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "number,comments"], { cwd: config.repoRoot });
       if (live.error || live.status !== 0) return { complete: false };
       let issue; try { issue = JSON.parse(live.stdout || "{}"); } catch { return { complete: false }; }
-      const matches = (issue.comments || []).filter((comment) => String(comment.body || "").includes(marker));
+      const matches = (issue.comments || []).filter((comment) => String(comment.body || "").includes(marker) && canonicalGithubEvidenceDigest(String(comment.body || "")) === effect.bodyDigest);
       if (matches.length > 1) return { complete: true, ambiguous: true };
       return matches.length === 1 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
     },

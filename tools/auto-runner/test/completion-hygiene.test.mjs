@@ -112,13 +112,23 @@ test("merge success remains merged when closure/comment/label/project/ledger hyg
 });
 
 test("retry does not duplicate completion comments or closure", () => {
-  const marker = `settleora-completion:891:${mergeSha}`;
-  const issue = narrowIssue({ state: "CLOSED", comments: [{ body: marker }] });
+  const issue = narrowIssue({ state: "CLOSED" });
+  const initial = context({ issue });
+  issue.comments = [{ body: renderCompletionComment(initial, evaluateCloseDecision(issue, initial)) }];
   const runner = runnerWith({ issue });
   const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ issue }), { runner });
   assert.equal(result.comment.status, "skipped");
   assert.equal(result.closure.status, "skipped");
   assert.equal(result.closure.reason, "issue_already_closed");
+});
+
+test("predictable completion marker with wrong body is not adopted", () => {
+  const marker = `settleora-completion:891:${mergeSha}`;
+  const issue = narrowIssue({ comments: [{ body: `forged\n${marker}` }] });
+  const runner = runnerWith({ issue });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ issue }), { runner });
+  assert.equal(result.comment.status, "updated");
+  assert.ok(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment"));
 });
 
 test("transient labels are removed while durable labels remain", () => {

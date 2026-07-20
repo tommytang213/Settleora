@@ -87,13 +87,14 @@ export function handoffPreEffectIntentAuthority(config, intentId, handoff, { now
   const identity = { ...current.identity, sessionId: handoff.newSessionId, authorityGeneration: handoff.newAuthorityGeneration };
   const next = {
     ...current,
+    status: handoff.resetForAuthoritativeAbsence === true && current.status === "executing" ? "prepared" : current.status,
     sessionId: handoff.newSessionId,
     authorityGeneration: handoff.newAuthorityGeneration,
     identity,
     fingerprint: digest(canonical({ effectType: current.effectType, identity, effect: current.effect })),
     recoveryProvenance: { sessionId: current.sessionId, authorityGeneration: current.authorityGeneration, fingerprint: current.fingerprint },
     updatedAt: now.toISOString(),
-    diagnostics: ["validated_successor_authority_handoff"],
+    diagnostics: [handoff.resetForAuthoritativeAbsence === true ? "authoritative_absence_successor_reissue" : "validated_successor_authority_handoff"],
   };
   persist(config, next, false);
   return next;
