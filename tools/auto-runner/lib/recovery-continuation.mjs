@@ -8,6 +8,7 @@ import {
   writeRecoveryState,
 } from "./recovery-state.mjs";
 import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -265,7 +266,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   };
 }
 
-export function consumeStartupInterruptionPlanner(config, recoveryState, interruption = {}) {
+export function consumeStartupInterruptionPlanner(config, recoveryState, interruption = {}, evidenceAdapters = {}) {
   if (config.sessionLifecycle?.enabled !== true) return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
   const identity = {
     repository: config.repositorySlug,
@@ -278,18 +279,39 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   };
   const loaded = loadSessionLifecycleForRecovery(config, identity);
   if (!loaded.ok) return loaded;
-  const planned = planInterruptionRecovery(loaded.state, {
-    expectedIdentity: identity,
-    mutationPresent: recoveryHasMutationMarker(recoveryState, "sourceMutation"),
-    commitPresent: recoveryHasMutationMarker(recoveryState, "checkpoint_commit"),
-    pushPresent: recoveryHasMutationMarker(recoveryState, "push"),
-    mergePresent: recoveryHasMutationMarker(recoveryState, "merge"),
-    commentPresent: recoveryHasMutationMarker(recoveryState, "issue_comment"),
-  }, {
-    processExited: true,
+  const authoritative = collectAuthoritativeRecoveryEvidence(config, {
+    repository: loaded.state.logicalTask.repository,
+    issueNumber: loaded.state.logicalTask.issueNumber,
+    taskKey: loaded.state.logicalTask.taskKey,
+    runId: loaded.state.logicalTask.runId,
+    claimIdentity: loaded.state.logicalTask.claimIdentity,
+    sessionId: loaded.state.sessions.current,
+    supervisorRunId: recoveryState.run?.supervisorRunId,
+    branchName: loaded.state.candidate.branchName,
+    baseBranch: recoveryState.branch?.baseBranch || "main",
+    baseSha: loaded.state.candidate.baseSha,
+    headSha: loaded.state.candidate.headSha,
+    prNumber: recoveryState.pr?.number || null,
+    checkpointDigest: loaded.state.checkpoint.digest,
     checkpointValid: true,
-    ...interruption,
-  });
+    authority: loaded.state.mutationAuthority,
+  }, {
+    sourceMutationPresent: recoveryHasMutationMarker(recoveryState, "sourceMutation"),
+    commitSha: recoveryState.branch?.currentHeadSha,
+    commitMarker: recoveryHasMutationMarker(recoveryState, "checkpoint_commit"),
+    pushSha: recoveryHasMutationMarker(recoveryState, "push") ? recoveryState.branch?.currentHeadSha : null,
+    pushMarker: recoveryHasMutationMarker(recoveryState, "push"),
+    prHeadSha: recoveryState.pr?.headSha || null,
+    mergedHeadSha: recoveryState.pr?.headSha || recoveryState.branch?.currentHeadSha,
+    mergeMarker: recoveryHasMutationMarker(recoveryState, "merge"),
+    commentMarker: recoveryHasMutationMarker(recoveryState, "issue_comment"),
+    issueClosureMarker: recoveryHasMutationMarker(recoveryState, "issue_close"),
+    hygieneMarker: recoveryHasMutationMarker(recoveryState, "ledger_hygiene"),
+    issueNumber: recoveryState.issue?.number,
+  }, evidenceAdapters);
+  const inputs = plannerInputsFromAuthoritativeEvidence(authoritative);
+  if (!inputs.ok) return { ...inputs, authoritativeEvidence: authoritative };
+  const planned = planInterruptionRecovery(loaded.state, inputs.liveEffects, { ...inputs.interruption, ...interruption });
   if (!planned.ok) return planned;
   if (planned.active) return { ok: false, reasonCode: planned.reasonCode };
   const pending = persistSessionLifecycleState(config, planned.state);

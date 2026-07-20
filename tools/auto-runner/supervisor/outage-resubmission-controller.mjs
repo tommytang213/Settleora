@@ -25,6 +25,7 @@ import {
   recoveryRequiresExactHeadEvidenceRegeneration,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
+import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
 import { buildRunSpec, generateRunId, sha256Text, canonicalJson, writeImmutableRunSpec } from "./run-spec.mjs";
 import { resolveRunnerSummaryForSupervisor, resolverStatuses } from "./runner-summary-resolver.mjs";
 import { writeSupervisorState } from "./supervisor-state.mjs";
@@ -478,7 +479,12 @@ export function runOutageResubmissionController(input = {}) {
   if (config.sessionLifecycle?.enabled === true) {
     if (!input.sessionLifecycleState) return result("blocked", "session_lifecycle_state_missing", { events, counts });
     if (config.sessionLifecycle.allowRecoveryTakeover !== true) return result("blocked", "session_lifecycle_recovery_takeover_disabled", { events, counts });
-    const lifecycle = consumeSupervisorInterruptionPlanner(input.sessionLifecycleState, input.lifecycleInterruption || {}, input.lifecycleEffects || {});
+    const lifecycle = consumeSupervisorInterruptionPlanner(input.sessionLifecycleState, {
+      config,
+      recoveryState: recovery,
+      expectedEffects: input.lifecycleEffects || {},
+      evidenceAdapters: input.lifecycleEvidenceAdapters || {},
+    });
     if (!lifecycle.ok || lifecycle.active) {
       const reasonCode = lifecycle.reasonCode || "session_lifecycle_supervisor_takeover_blocked";
       event("session_lifecycle_takeover_blocked", { reasonCode });
@@ -520,12 +526,29 @@ export function runOutageResubmissionController(input = {}) {
   return result("submitted", "child_submission_confirmed", { events, counts, outageState: confirmed, child, submitted, recoveryState: boundRecoveryState });
 }
 
-export function consumeSupervisorInterruptionPlanner(state, interruption = {}, liveEffects = {}) {
-  return planInterruptionRecovery(state, liveEffects, {
-    supervisorInterrupted: true,
+export function consumeSupervisorInterruptionPlanner(state, options = {}) {
+  if (!options.config || !options.recoveryState) return { ok: false, reasonCode: "authoritative_recovery_evidence_required" };
+  const recoveryState = options.recoveryState;
+  const evidence = collectAuthoritativeRecoveryEvidence(options.config, {
+    repository: state.logicalTask.repository,
+    issueNumber: state.logicalTask.issueNumber,
+    taskKey: state.logicalTask.taskKey,
+    runId: state.logicalTask.runId,
+    claimIdentity: state.logicalTask.claimIdentity,
+    sessionId: state.sessions.current,
+    supervisorRunId: recoveryState.run?.supervisorRunId,
+    branchName: state.candidate.branchName,
+    baseBranch: recoveryState.branch?.baseBranch || "main",
+    baseSha: state.candidate.baseSha,
+    headSha: state.candidate.headSha,
+    prNumber: recoveryState.pr?.number || null,
+    checkpointDigest: state.checkpoint.digest,
     checkpointValid: true,
-    ...interruption,
-  });
+    authority: state.mutationAuthority,
+  }, options.expectedEffects || {}, options.evidenceAdapters || {});
+  const inputs = plannerInputsFromAuthoritativeEvidence(evidence);
+  if (!inputs.ok) return { ...inputs, authoritativeEvidence: evidence };
+  return planInterruptionRecovery(state, inputs.liveEffects, { supervisorInterrupted: true, checkpointValid: true, ...inputs.interruption });
 }
 
 function terminalizeSourceCompletion({

@@ -98,6 +98,13 @@ Observed commit, push, merge, comment, and reservation effects are never
 replayed. Corrupt, mismatched, unsupported, or contradictory state stops
 fail-closed.
 
+Startup and supervisor recovery share one versioned authoritative-evidence
+adapter. Production reads come from the runner-lock PID, durable supervisor
+heartbeat lease, clean local Git state, remote branch head, and exact live
+GitHub issue/PR/check/comment state. Process/lease disagreement, partial reads,
+dirty Git, or marker/live-effect drift fails closed. Canonical evidence is
+bounded and sanitized; callers cannot supply synthetic liveness conclusions.
+
 Review convergence has one durable two-loop counter authority in that task/PR
 lineage. `localSourceChangingRoundsPerEpoch` blocks at 50 and increments only
 when one bounded local fix produces a new exact head;

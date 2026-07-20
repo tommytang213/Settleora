@@ -1,0 +1,45 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
+
+const sha = "a".repeat(40);
+const base = "b".repeat(40);
+const digest = "c".repeat(64);
+const commentFingerprint = "d".repeat(64);
+const config = { repositorySlug: "owner/repo", repoRoot: "/not-used", logsRoot: "/not-used" };
+const identity = { repository: "owner/repo", issueNumber: 928, taskKey: "20260720-2213", runId: "run-1", claimIdentity: "claim-1", sessionId: "session-1", supervisorRunId: "supervised-20260720T120000Z-aaaaaaaaaaaa", branchName: "feature/recovery", baseBranch: "main", baseSha: base, headSha: sha, prNumber: 42, checkpointDigest: digest, checkpointValid: true, authority: { ownerSessionId: "session-1", generation: 3, status: "active" } };
+function adapters({ alive = false, leaseValid = false, git = {}, github = {} } = {}) {
+  return {
+    now: new Date("2026-07-20T14:00:00Z"),
+    readProcess: () => ({ complete: true, pid: 123, ownerRunId: "run-1", alive, source: "fixture_pid_probe" }),
+    readLease: () => ({ complete: true, runId: identity.supervisorRunId, heartbeatAt: "2026-07-20T13:59:00Z", expiresAt: leaseValid ? "2026-07-20T14:05:00Z" : "2026-07-20T13:55:00Z", valid: leaseValid, source: "fixture_heartbeat" }),
+    readGit: () => ({ complete: true, source: "fixture_git", branchName: identity.branchName, baseSha: base, headSha: sha, remoteHeadSha: sha, worktreeClean: true, indexClean: true, untrackedClean: true, ...git }),
+    readGithub: () => ({ complete: true, source: "fixture_github", pr: { number: 42, state: "OPEN", baseRefName: "main", headRefName: identity.branchName, headSha: sha, draft: false, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", mergeSha: null }, comments: [], issue: { number: 928, state: "OPEN" }, checks: { state: "passed", pending: 0, failed: 0 }, hygiene: [], ...github }),
+  };
+}
+function collect(options = {}, expected = {}) { return collectAuthoritativeRecoveryEvidence(config, identity, expected, adapters(options)); }
+
+test("live process and valid lease block takeover", () => { const e = collect({ alive: true, leaseValid: true }); assert.equal(e.ok, true); assert.equal(e.ownerBlocked, true); assert.equal(e.takeoverAllowed, false); });
+test("live process and stale lease fail closed", () => { const e = collect({ alive: true, leaseValid: false }); assert.equal(e.ok, false); assert.equal(e.contradiction, true); });
+test("dead process and valid lease fail closed and block", () => { const e = collect({ alive: false, leaseValid: true }); assert.equal(e.ok, false); assert.equal(e.ownerBlocked, true); });
+test("dead process and stale lease permit one takeover", () => { const e = collect(); assert.equal(e.ok, true); assert.equal(e.takeoverAllowed, true); assert.equal(plannerInputsFromAuthoritativeEvidence(e).interruption.processExited, true); });
+test("missing process identity fails closed", () => { const a = adapters(); a.readProcess = () => ({ complete: false }); assert.equal(collectAuthoritativeRecoveryEvidence(config, identity, {}, a).ok, false); });
+test("missing lease identity fails closed", () => { const a = adapters(); a.readLease = () => ({ complete: false }); assert.equal(collectAuthoritativeRecoveryEvidence(config, identity, {}, a).ok, false); });
+test("stale report text is not an evidence input", () => { const e = collect({}, { reportText: "IN_PROGRESS" }); assert.equal(e.takeoverAllowed, true); assert.equal(JSON.stringify(e).includes("IN_PROGRESS"), false); });
+test("repeated evidence collection is idempotent", () => { const one = collect(); const two = collect(); assert.deepEqual({ ...one, collectedAt: null }, { ...two, collectedAt: null }); });
+test("retired authority identity is preserved and never revived", () => { const retired = { ...identity, authority: { ownerSessionId: null, generation: 4, status: "recovery_pending" } }; const e = collectAuthoritativeRecoveryEvidence(config, retired, {}, adapters()); assert.equal(e.authority.ownerSessionId, null); assert.equal(e.authority.generation, 4); });
+test("commit succeeded before marker write is adopted", () => { const e = collect({}, { commitSha: sha }); assert.equal(e.effects.commit.present, true); assert.equal(e.effects.commit.adopted, true); });
+test("push succeeded before marker write is adopted", () => { const e = collect({}, { pushSha: sha }); assert.equal(e.effects.push.present, true); });
+test("PR head already updated is adopted", () => { const e = collect({}, { prHeadSha: sha }); assert.equal(e.effects.prHead.present, true); });
+test("merge succeeded before marker write resumes without remerge", () => { const e = collect({ github: { pr: { number: 42, state: "MERGED", baseRefName: "main", headRefName: identity.branchName, headSha: sha, draft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", mergeSha: base } } }, { mergeSha: base }); assert.equal(e.effects.merge.present, true); });
+test("comment fingerprint adopts one exact comment", () => { const e = collect({ github: { comments: [{ id: "C1", fingerprint: commentFingerprint }] } }, { commentFingerprint }); assert.equal(e.effects.comment.present, true); });
+test("duplicate matching comments fail closed", () => { const e = collect({ github: { comments: [{ id: "C1", fingerprint: commentFingerprint }, { id: "C2", fingerprint: commentFingerprint }] } }, { commentFingerprint }); assert.equal(e.ok, false); assert.equal(e.ambiguity, true); });
+test("already closed issue is adopted", () => { const e = collect({ github: { issue: { number: 928, state: "CLOSED" } } }, { issueClosed: true, issueNumber: 928 }); assert.equal(e.effects.issueClosure.present, true); });
+test("existing hygiene identity is reused", () => { const e = collect({ github: { hygiene: [digest] } }, { hygieneFingerprint: digest }); assert.equal(e.effects.hygiene.present, true); });
+test("pending checks remain pending evidence", () => { const e = collect({ github: { checks: { state: "pending", pending: 2, failed: 0 } } }); assert.equal(e.pendingChecks.state, "pending"); });
+test("failed checks remain failed without changing counters", () => { const e = collect({ github: { checks: { state: "failed", pending: 0, failed: 1 } } }); assert.equal(e.pendingChecks.state, "failed"); assert.equal(Object.hasOwn(e, "controller"), false); });
+test("durable marker with absent live effect fails closed", () => { const e = collect({}, { mergeMarker: true, mergeSha: base }); assert.equal(e.ok, false); assert.ok(e.contradictions.includes("merge_marker_live_effect_absent")); });
+test("wrong live head fails closed", () => { const e = collect({ github: { pr: { number: 42, state: "OPEN", baseRefName: "main", headRefName: identity.branchName, headSha: base } } }, { prHeadSha: sha }); assert.equal(e.ok, false); });
+test("partial GitHub readback fails closed without mutation", () => { const a = adapters(); a.readGithub = () => ({ complete: false }); const e = collectAuthoritativeRecoveryEvidence(config, identity, {}, a); assert.equal(e.ok, false); assert.equal(e.takeoverAllowed, false); });
+test("incomplete logical identity fails closed", () => { const e = collectAuthoritativeRecoveryEvidence(config, { ...identity, claimIdentity: null }, {}, adapters()); assert.equal(e.ok, false); });
+test("canonical evidence excludes commands prompts tokens and provider payloads", () => { const e = collect({}, { prompt: "secret", token: "secret", rawProviderPayload: "secret" }); const json = JSON.stringify(e); assert.equal(json.includes("secret"), false); assert.equal(json.includes("rawProviderPayload"), false); });

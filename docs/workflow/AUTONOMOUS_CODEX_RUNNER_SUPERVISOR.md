@@ -248,6 +248,14 @@ execute shell commands from persisted/provider input.
 Each controller iteration is recovery-first, where reconciling an already
 submitted or uncertain outage child is part of recovering the same source run:
 
+Before that reconciliation can authorize takeover, the supervisor uses the
+same authoritative-evidence adapter as runner startup. It probes the persisted
+owner PID and heartbeat lease and reconciles clean local Git, the remote branch,
+and exact GitHub PR/effect identities. Live ownership or a valid lease blocks;
+disagreement, incomplete reads, identity drift, and marker/live contradictions
+stop fail closed. Callers provide correlation identities, never synthetic
+liveness or completed-effect conclusions.
+
 1. read operator pause/stop control;
 2. verify locks and active state through existing lock policy;
 3. load and strictly validate persisted outage state;

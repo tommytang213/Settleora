@@ -234,14 +234,10 @@ test("production-shaped fresh invocation rotates atomically with zero external m
   assert.equal(result.state.controller.localSourceChangingRoundsPerEpoch, 0);
 });
 
-test("supervisor consumes interruption planner and active owner blocks takeover", () => {
-  const active = consumeSupervisorInterruptionPlanner(fixture(), { ownerAlive: true, leaseValid: true });
-  assert.equal(active.active, true);
-  assert.equal(active.reasonCode, "session_lifecycle_owner_still_active");
-  const takeover = consumeSupervisorInterruptionPlanner(fixture(), { ownerAlive: false, checkpointValid: true });
-  assert.equal(takeover.ok, true);
-  assert.equal(takeover.state.mutationAuthority.status, "recovery_pending");
-  assert.equal(takeover.state.sessions.generation, 1);
+test("supervisor rejects caller-supplied synthetic liveness", () => {
+  const result = consumeSupervisorInterruptionPlanner(fixture(), { ownerAlive: false, checkpointValid: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "authoritative_recovery_evidence_required");
 });
 
 test("production invocation sources wire lifecycle through feature bundle and review fix", () => {
