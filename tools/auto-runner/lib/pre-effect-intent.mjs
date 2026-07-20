@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const preEffectIntentSchemaVersion = 1;
 export const preEffectIntentStatuses = Object.freeze(["prepared", "executing", "live_confirmed", "adopted_after_recovery", "finalized", "failed_closed"]);
 export const preEffectTypes = Object.freeze(["commit", "push", "pr_create", "pr_head_update", "merge", "comment", "issue_closure", "issue_progress_comment", "umbrella_update", "ledger_docs_update", "docs_branch_create", "docs_pr_create_update", "review_request", "docs_pr_ready", "docs_pr_merge", "branch_retention_verify"]);
+const maxIntentBytes = 256 * 1024;
+const statusOrder = new Map(preEffectIntentStatuses.map((status, index) => [status, index]));
 
 export function preparePreEffectIntent(config, input, { now = new Date(), intentId = randomUUID() } = {}) {
   const effectType = requiredEnum(input.effectType, preEffectTypes, "effectType");
@@ -17,6 +19,8 @@ export function preparePreEffectIntent(config, input, { now = new Date(), intent
     sourceTaskKey: required(input.sourceTaskKey, 160, "sourceTaskKey"),
     runId: required(input.runId, 160, "runId"),
     logicalTaskIdentity: required(input.logicalTaskIdentity, 200, "logicalTaskIdentity"),
+    claimIdentity: required(input.claimIdentity || input.logicalTaskIdentity, 200, "claimIdentity"),
+    chargeIdentity: required(input.chargeIdentity || input.logicalTaskIdentity, 200, "chargeIdentity"),
     sessionId: required(input.sessionId, 200, "sessionId"),
     authorityGeneration: positive(input.authorityGeneration, "authorityGeneration"),
     effectType,
@@ -38,6 +42,7 @@ export function transitionPreEffectIntent(config, intent, status, { diagnostics 
   requiredEnum(status, preEffectIntentStatuses, "status");
   const current = loadPreEffectIntent(config, intent.intentId);
   if (!current || current.fingerprint !== intent.fingerprint) throw new Error("Pre-effect intent identity mismatch");
+  assertPreEffectIntentAuthority(current, config.currentAuthority);
   const allowed = { prepared: ["executing", "failed_closed"], executing: ["live_confirmed", "adopted_after_recovery", "failed_closed"], live_confirmed: ["finalized", "failed_closed"], adopted_after_recovery: ["finalized", "failed_closed"], finalized: ["finalized"], failed_closed: ["failed_closed"] };
   if (!allowed[current.status]?.includes(status)) throw new Error(`Invalid pre-effect intent transition ${current.status} -> ${status}`);
   const next = { ...current, status, updatedAt: now.toISOString(), diagnostics: sanitizeDiagnostics(diagnostics) };
@@ -48,9 +53,19 @@ export function transitionPreEffectIntent(config, intent, status, { diagnostics 
 export function loadPreEffectIntent(config, intentId) {
   const file = intentPath(config, intentId);
   if (!existsSync(file)) return null;
-  const value = JSON.parse(readFileSync(file, "utf8"));
+  validateTrustedArtifact(file, intentRoot(config), `${digest(required(intentId, 120, "intentId"))}.json`);
+  const value = parseBounded(file);
   validateStored(value);
+  if (value.intentId !== intentId) throw new Error("Pre-effect intent filename identity mismatch");
+  rejectDuplicateOrConflictingFiles(config, value, file);
   return value;
+}
+
+export function assertPreEffectIntentAuthority(intent, authority) {
+  if (!authority) return true;
+  if (authority.retired === true || authority.status === "retired") throw new Error("Retired session cannot mutate pre-effect intent");
+  if (authority.sessionId !== intent.sessionId || authority.authorityGeneration !== intent.authorityGeneration || authority.runId !== intent.runId) throw new Error("Pre-effect intent mutation authority mismatch");
+  return true;
 }
 
 export function reconcilePreEffectIntent(intent, live) {
@@ -67,15 +82,27 @@ export function reconcilePreEffectIntent(intent, live) {
 
 function persist(config, value, exclusive) {
   const file = intentPath(config, value.intentId);
-  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const root = intentRoot(config);
+  ensureTrustedRoot(root);
   if (exclusive && existsSync(file)) throw new Error("Pre-effect intent already exists");
   const temp = `${file}.tmp-${process.pid}-${randomUUID()}`;
   writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  fsyncFile(temp);
   renameSync(temp, file);
+  fsyncDirectory(root);
+  validateTrustedArtifact(file, root, path.basename(file));
 }
-function intentPath(config, intentId) { return path.join(config.logsRoot, "recovery", "pre-effect-intents", `${digest(required(intentId, 120, "intentId"))}.json`); }
-function validateStored(v) { if (v?.schemaVersion !== 1 || !preEffectTypes.includes(v.effectType) || !preEffectIntentStatuses.includes(v.status) || v.fingerprint !== digest(canonical({ effectType: v.effectType, identity: v.identity, effect: v.effect }))) throw new Error("Invalid pre-effect intent"); }
-function boundedIdentity(v) { return sanitizeEffect({ repository: v.repository, branchName: v.branchName, baseSha: v.baseSha, headSha: v.headSha, prNumber: v.prNumber, issueNumber: v.issueNumber, claimIdentity: v.claimIdentity }); }
+function intentRoot(config) { const logsRoot = path.resolve(required(config?.logsRoot, 4096, "logsRoot")); if (logsRoot === path.parse(logsRoot).root) throw new Error("Unsafe pre-effect intent logs root"); return path.join(logsRoot, "recovery", "pre-effect-intents"); }
+function intentPath(config, intentId) { return path.join(intentRoot(config), `${digest(required(intentId, 120, "intentId"))}.json`); }
+function validateStored(v) {
+  if (v?.schemaVersion !== 1 || !preEffectTypes.includes(v.effectType) || !preEffectIntentStatuses.includes(v.status) || !statusOrder.has(v.status)) throw new Error("Invalid pre-effect intent");
+  for (const [key, max] of [["repository",240],["sourceTaskKey",160],["runId",160],["logicalTaskIdentity",200],["claimIdentity",200],["chargeIdentity",200],["sessionId",200],["intentId",120]]) required(v[key], max, key);
+  positive(v.authorityGeneration, "authorityGeneration");
+  if (!v.identity || typeof v.identity !== "object" || Array.isArray(v.identity) || !v.effect || typeof v.effect !== "object" || Array.isArray(v.effect)) throw new Error("Invalid pre-effect intent payload");
+  if (v.identity.repository !== v.repository || (v.identity.claimIdentity && v.identity.claimIdentity !== v.claimIdentity)) throw new Error("Invalid pre-effect intent bound identity");
+  if (v.fingerprint !== digest(canonical({ effectType: v.effectType, identity: v.identity, effect: v.effect }))) throw new Error("Invalid pre-effect intent fingerprint");
+}
+function boundedIdentity(v) { return sanitizeEffect({ repository: v.repository, sourceTaskKey: v.sourceTaskKey, runId: v.runId, logicalTaskIdentity: v.logicalTaskIdentity, claimIdentity: v.claimIdentity || v.logicalTaskIdentity, chargeIdentity: v.chargeIdentity || v.logicalTaskIdentity, sessionId: v.sessionId, authorityGeneration: v.authorityGeneration, branchName: v.branchName, baseBranch: v.baseBranch, baseSha: v.baseSha, headSha: v.headSha, candidateIdentity: v.candidateIdentity, prNumber: v.prNumber, issueNumber: v.issueNumber, reservationIdentity: v.reservationIdentity }); }
 function sanitizeEffect(v) { const out = {}; for (const key of Object.keys(v).sort().slice(0, 64)) { const x = v[key]; if (typeof x === "string") out[key] = x.slice(0, 500); else if (typeof x === "boolean" || Number.isSafeInteger(x) || x === null) out[key] = x; else if (Array.isArray(x)) out[key] = x.filter((i) => typeof i === "string").slice(0, 200).map((i) => i.slice(0, 300)); } return out; }
 function sanitizeDiagnostics(v) { return Array.isArray(v) ? v.filter((x) => typeof x === "string").slice(0, 20).map((x) => x.slice(0, 200)) : []; }
 function canonical(v) { if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`; if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`; return JSON.stringify(v); }
@@ -84,3 +111,26 @@ function required(v, max, name) { if (typeof v !== "string" || !v.length || v.le
 function optional(v, max) { return v == null ? null : required(v, max, "optional identity"); }
 function positive(v, name) { if (!Number.isSafeInteger(v) || v < 1) throw new Error(`Invalid ${name}`); return v; }
 function requiredEnum(v, values, name) { if (!values.includes(v)) throw new Error(`Invalid ${name}`); return v; }
+function ensureTrustedRoot(root) {
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const info = lstatSync(root);
+  if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || (typeof process.getuid === "function" && info.uid !== process.getuid())) throw new Error("Untrusted pre-effect intent root");
+}
+function validateTrustedArtifact(file, root, expectedName) {
+  if (path.dirname(path.resolve(file)) !== path.resolve(root) || path.basename(file) !== expectedName) throw new Error("Unsafe pre-effect intent path");
+  const info = lstatSync(file);
+  if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || info.size > maxIntentBytes || (typeof process.getuid === "function" && info.uid !== process.getuid())) throw new Error("Untrusted pre-effect intent artifact");
+}
+function parseBounded(file) { const info = statSync(file); if (info.size > maxIntentBytes) throw new Error("Oversized pre-effect intent"); const raw = readFileSync(file, "utf8"); if (Buffer.byteLength(raw) > maxIntentBytes) throw new Error("Oversized pre-effect intent"); return JSON.parse(raw); }
+function rejectDuplicateOrConflictingFiles(config, value, selected) {
+  const root = intentRoot(config);
+  for (const name of readdirSync(root)) {
+    if (!name.endsWith(".json") || path.join(root, name) === selected) continue;
+    const otherPath = path.join(root, name);
+    validateTrustedArtifact(otherPath, root, name);
+    const other = parseBounded(otherPath);
+    if (other?.intentId === value.intentId || other?.fingerprint === value.fingerprint) throw new Error("Duplicate or conflicting pre-effect intent artifact");
+  }
+}
+function fsyncFile(file) { const fd = openSync(file, constants.O_RDONLY); try { fsyncSync(fd); } finally { closeSync(fd); } }
+function fsyncDirectory(dir) { const fd = openSync(dir, constants.O_RDONLY); try { fsyncSync(fd); } finally { closeSync(fd); } }

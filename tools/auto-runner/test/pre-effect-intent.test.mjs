@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadPreEffectIntent, preparePreEffectIntent, reconcilePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
@@ -28,5 +29,45 @@ test("pre-effect intent fails closed on missing, ambiguous, or contradictory liv
     assert.equal(reconcilePreEffectIntent(intent, { complete: false }).classification, "live_read_unavailable");
     assert.equal(reconcilePreEffectIntent(intent, { complete: true, present: true, ambiguous: true }).classification, "effect_ambiguous");
     assert.equal(reconcilePreEffectIntent(intent, { complete: true, present: true, identity: intent.identity, effect: { remoteBranch: "wrong" } }).classification, "effect_contradictory");
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
+test("pre-effect intent reader rejects symlinks, unsafe modes, malformed and oversized artifacts", () => {
+  for (const kind of ["symlink", "mode", "malformed", "oversized"]) {
+    const logsRoot = mkdtempSync(path.join(tmpdir(), "intent-trust-"));
+    try {
+      const intent = preparePreEffectIntent({ logsRoot }, base, { intentId: `trust-${kind}` });
+      const root = path.join(logsRoot, "recovery", "pre-effect-intents");
+      const actual = path.join(root, createHash("sha256").update(`trust-${kind}`).digest("hex") + ".json");
+      if (kind === "symlink") { const target = `${actual}.target`; writeFileSync(target, readFileSync(actual)); rmSync(actual); symlinkSync(target, actual); }
+      if (kind === "mode") chmodSync(actual, 0o644);
+      if (kind === "malformed") writeFileSync(actual, "{bad", { mode: 0o600 });
+      if (kind === "oversized") writeFileSync(actual, "x".repeat(256 * 1024 + 1), { mode: 0o600 });
+      assert.throws(() => loadPreEffectIntent({ logsRoot }, `trust-${kind}`));
+    } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+  }
+});
+
+test("pre-effect intent binds task charge session generation and rejects retired or wrong authority", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "intent-authority-"));
+  try {
+    const intent = preparePreEffectIntent({ logsRoot }, { ...base, claimIdentity: "claim-1", chargeIdentity: "charge-1" }, { intentId: "authority" });
+    assert.equal(intent.identity.sessionId, "session-1");
+    assert.throws(() => transitionPreEffectIntent({ logsRoot, currentAuthority: { runId: "run-1", sessionId: "session-1", authorityGeneration: 2, retired: true } }, intent, "executing"), /Retired/);
+    assert.throws(() => transitionPreEffectIntent({ logsRoot, currentAuthority: { runId: "run-1", sessionId: "wrong", authorityGeneration: 2 } }, intent, "executing"), /authority mismatch/);
+    assert.equal(transitionPreEffectIntent({ logsRoot, currentAuthority: { runId: "run-1", sessionId: "session-1", authorityGeneration: 2 } }, intent, "executing").status, "executing");
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
+test("pre-effect intent inventory rejects duplicate fingerprints and lifecycle stays monotonic", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "intent-duplicate-"));
+  try {
+    const intent = preparePreEffectIntent({ logsRoot }, base, { intentId: "duplicate" });
+    const root = path.join(logsRoot, "recovery", "pre-effect-intents");
+    writeFileSync(path.join(root, `${"f".repeat(64)}.json`), readFileSync(path.join(root, `${createHash("sha256").update("duplicate").digest("hex")}.json`)), { mode: 0o600 });
+    assert.throws(() => loadPreEffectIntent({ logsRoot }, "duplicate"), /Duplicate/);
+    rmSync(path.join(root, `${"f".repeat(64)}.json`));
+    const executing = transitionPreEffectIntent({ logsRoot }, intent, "executing");
+    assert.throws(() => transitionPreEffectIntent({ logsRoot }, executing, "prepared"), /Invalid/);
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
