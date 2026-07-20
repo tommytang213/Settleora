@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -2290,6 +2290,9 @@ async function runReviewFixCycle(config, context) {
     `${safeTimestamp()}-issue-${context.issue.number}-${slugify(context.issue.title, 40)}-prompt.md`,
   );
   writeFileSync(promptPath, prompt);
+  const reviewFixLifecycle = context.promptInfo?.sessionLifecycle
+    ? { ...context.promptInfo.sessionLifecycle, newSessionId: `${context.promptInfo.sessionLifecycle.state.logicalTask.runId}:review-fix:${randomUUID()}`, phase: "review_fix" }
+    : null;
   const codex = runCodexPrompt(
     config,
     {
@@ -2297,9 +2300,13 @@ async function runReviewFixCycle(config, context) {
       branchName: context.branchName,
       prompt,
       promptPath,
+      ...(reviewFixLifecycle ? { sessionLifecycle: reviewFixLifecycle } : {}),
     },
     "review-fix",
   );
+  if (codex.sessionLifecycle?.state && context.promptInfo?.sessionLifecycle) {
+    context.promptInfo.sessionLifecycle = { ...reviewFixLifecycle, state: codex.sessionLifecycle.state };
+  }
   const changedFilesAfter = listWorkingTreeChangedFiles();
   const forbiddenChangedFilesAfter = filterForbiddenChangedFiles(changedFilesAfter, context.laneDecision);
   const finishBlocked = (reason, extra = {}) => {
