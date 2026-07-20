@@ -21,6 +21,8 @@ import {
   nextBundleSliceFromCheckpoint,
   planIdempotentGithubMutation,
   recoveryStatusSummary,
+  projectStartupRecoveryIssueIdentity,
+  shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
 } from "../lib/recovery-continuation.mjs";
 
@@ -811,6 +813,83 @@ test("supervisor restart preserves run task and report correlation in status sum
   assert.equal(summary.taskKey, "20260713-1927");
   assert.equal(summary.runId, "run-2026-07-13T112700Z");
   assert.equal(summary.supervisorRunId, "supervised-20260713T112700Z-abcdefabcdef");
+});
+
+test("startup recovery projects the persisted source issue identity", () => {
+  const recovery = { state: recoveryStatusSummary(state()) };
+  const projected = projectStartupRecoveryIssueIdentity(recovery, {
+    result: {
+      issue: { number: 893 },
+      existingPrRecovery: { issue: { number: 893 } },
+      autoMerge: { issueNumber: 893, prNumber: 905 },
+    },
+  });
+  assert.deepEqual(projected, {
+    ok: true,
+    reasonCode: "startup_recovery_issue_identity_validated",
+    issue: { number: 893 },
+  });
+});
+
+test("blocked single-state startup recovery retains authoritative issue identity", () => {
+  const projected = projectStartupRecoveryIssueIdentity(
+    { allowed: false, state: { issueNumber: 893 } },
+    { ok: false, outcome: "blocked_recovery_state", reasonCode: "existing_pr_recovery_disabled" },
+  );
+  assert.deepEqual(projected.issue, { number: 893 });
+  assert.equal(projected.ok, true);
+});
+
+test("fixture cursor advances only for issues consumed by normal polling", () => {
+  assert.equal(shouldAdvanceFixtureIssueCursor({ issue: { number: 893 }, issueSource: "startup_recovery", recovery: { found: true } }), false);
+  assert.equal(shouldAdvanceFixtureIssueCursor({ issue: { number: 894 }, recovery: { ordinary: true } }), true);
+  assert.equal(shouldAdvanceFixtureIssueCursor({ issue: { number: 895 }, recovery: null }), true);
+  assert.equal(shouldAdvanceFixtureIssueCursor({ issue: null, recovery: null }), false);
+});
+
+test("startup recovery issue projection fails closed without persisted authority", () => {
+  for (const recovery of [
+    { state: { issueNumber: null, prNumber: 905 } },
+    { state: { issueNumber: "893", prNumber: 905 } },
+    { state: { prNumber: 893, childOrdinal: 893 } },
+  ]) {
+    const projected = projectStartupRecoveryIssueIdentity(recovery, {
+      result: { issue: { number: 893 }, autoMerge: { issueNumber: 893, prNumber: 893 } },
+    });
+    assert.equal(projected.ok, false);
+    assert.equal(projected.reasonCode, "startup_recovery_issue_identity_missing");
+    assert.equal(projected.issue, null);
+  }
+});
+
+test("startup recovery issue projection rejects malformed and conflicting continuation identities", () => {
+  const recovery = { state: { issueNumber: 893 } };
+  assert.equal(
+    projectStartupRecoveryIssueIdentity(recovery, { result: { issue: { number: "893" } } }).reasonCode,
+    "startup_recovery_issue_identity_malformed",
+  );
+  assert.equal(
+    projectStartupRecoveryIssueIdentity(recovery, { result: { existingPrRecovery: { issue: { number: 894 } } } }).reasonCode,
+    "startup_recovery_issue_identity_conflict",
+  );
+  assert.equal(
+    projectStartupRecoveryIssueIdentity(recovery, { result: { autoMerge: { issueNumber: 905 } } }).reasonCode,
+    "startup_recovery_issue_identity_conflict",
+  );
+});
+
+test("startup recovery issue identity survives durable restart and repeated projection", () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    writeRecoveryState(config, state());
+    const first = discoverStartupRecovery(config);
+    const second = discoverStartupRecovery(config);
+    assert.deepEqual(projectStartupRecoveryIssueIdentity(first).issue, { number: 893 });
+    assert.deepEqual(projectStartupRecoveryIssueIdentity(second).issue, { number: 893 });
+    assert.equal(first.state.issueNumber, second.state.issueNumber);
+  } finally {
+    config.cleanup();
+  }
 });
 
 test("stale active lock style multiple recovery blocks and manual decisions mutate nothing", () => {
