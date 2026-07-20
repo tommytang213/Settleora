@@ -141,9 +141,10 @@ function githubForIntent(config, intent, fallback) {
 
 function gitForIntent(config, intent, fallback) {
   if (intent.effectType !== "commit" || intent.status !== "prepared" || !fallback?.complete) return fallback;
-  if (fallback.stagedPaths?.length > 0 || !sameStrings(intent.effect.stagedPaths, fallback.unstagedPaths || [])) return fallback;
+  const unstagedAndUntracked = [...(fallback.unstagedPaths || []), ...(fallback.untrackedPaths || [])].sort();
+  if (fallback.stagedPaths?.length > 0 || !sameStrings(intent.effect.stagedPaths, unstagedAndUntracked)) return fallback;
   const treeSha = intendedTreeFromWorktree(config, intent);
-  return treeSha ? { ...fallback, stagedTreeSha: treeSha, stagedPaths: intent.effect.stagedPaths, unstagedPaths: [] } : fallback;
+  return treeSha ? { ...fallback, stagedTreeSha: treeSha, stagedPaths: intent.effect.stagedPaths, unstagedPaths: [], untrackedPaths: [], untrackedClean: true } : fallback;
 }
 
 function intendedTreeFromWorktree(config, intent) {
@@ -214,12 +215,13 @@ function defaultGitRead(config, identity) {
   const remote = run(["ls-remote", "--exit-code", "origin", `refs/heads/${identity.branchName}`]);
   const staged = run(["diff", "--cached", "--name-only"]);
   const unstaged = run(["diff", "--name-only"]);
+  const untracked = run(["ls-files", "--others", "--exclude-standard"]);
   const stagedTree = run(["write-tree"]);
-  if (status.status !== 0 || branch.status !== 0 || head.status !== 0 || commit.status !== 0 || staged.status !== 0 || unstaged.status !== 0 || stagedTree.status !== 0 || !sha40(head.stdout.trim()) || ![0, 2].includes(remote.status)) return { complete: false, source: "git_cli" };
+  if (status.status !== 0 || branch.status !== 0 || head.status !== 0 || commit.status !== 0 || staged.status !== 0 || unstaged.status !== 0 || untracked.status !== 0 || stagedTree.status !== 0 || !sha40(head.stdout.trim()) || ![0, 2].includes(remote.status)) return { complete: false, source: "git_cli" };
   const lines = status.stdout.split("\n").filter(Boolean);
   const remoteHead = remote.status === 0 ? remote.stdout.trim().split(/\s+/)[0] : null;
   const [parents = "", treeSha = "", ...messageLines] = commit.stdout.replace(/\r\n/g, "\n").split("\n");
-  return { complete: true, source: "git_cli", branchName: branch.stdout.trim(), baseSha: sha40(identity.baseSha), headSha: head.stdout.trim(), remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), stagedTreeSha: sha40(stagedTree.stdout.trim()), stagedPaths: paths(staged.stdout), unstagedPaths: paths(unstaged.stdout), commit: { sha: head.stdout.trim(), parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
+  return { complete: true, source: "git_cli", branchName: branch.stdout.trim(), baseSha: sha40(identity.baseSha), headSha: head.stdout.trim(), remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), untrackedPaths: paths(untracked.stdout), stagedTreeSha: sha40(stagedTree.stdout.trim()), stagedPaths: paths(staged.stdout), unstagedPaths: paths(unstaged.stdout), commit: { sha: head.stdout.trim(), parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
 }
 
 function defaultGithubRead(config, identity) {
@@ -258,7 +260,7 @@ function readAllGithubComments(config, endpoint) {
 
 function reconcileIdentity(identity, git, github, intents, contradictions, ambiguities) {
   if (!git || !github) return;
-  const exactPendingCommit = intents.some((intent) => intent.effectType === "commit" && intent.classification === "effect_present_exact_adoptable");
+  const exactPendingCommit = intents.some((intent) => intent.effectType === "commit" && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification));
   if (git.branchName !== identity.branchName || (identity.headSha && git.headSha !== identity.headSha && !exactPendingCommit)) contradictions.push("local_git_identity_mismatch");
   if (github.pr && (github.pr.number !== identity.prNumber || github.pr.headRefName !== identity.branchName || github.pr.baseRefName !== identity.baseBranch)) contradictions.push("github_pr_identity_mismatch");
   if (github.pr?.headSha && git.remoteHeadSha && github.pr.headSha !== git.remoteHeadSha) contradictions.push("github_remote_head_mismatch");
