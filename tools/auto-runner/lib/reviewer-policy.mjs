@@ -256,7 +256,7 @@ export function routeReviewer({
     });
     if (approval.ok) {
       const approvedTier = maxReviewerTier("strong_independent", approval.requiredReviewerTier);
-      return decision(approvedTier, "Exact large-bundle review approval permits strong independent review while preserving manual merge.", {
+      return decision(approvedTier, "Exact large-bundle review approval permits strong independent review while preserving the candidate merge contract.", {
         sensitiveFiles,
         domains,
         normalizedDomainSet,
@@ -421,8 +421,8 @@ export function evaluateLargeBundleReviewApproval({
           maxFiles: approval.maxFiles,
           maxChangedLines: approval.maxChangedLines,
           requiredReviewerTier: approval.requiredReviewerTier,
-          manualMergeRequired: true,
-          autoMergeEligible: false,
+          manualMergeRequired: approval.manualMergeRequired,
+          autoMergeEligible: approval.autoMergeEligible,
           taskKey: approval.taskKey,
           reasonCode: "exact_large_bundle_review_approved",
         },
@@ -516,11 +516,8 @@ function normalizeLargeBundleApproval(raw, index) {
   if (approval.schemaVersion !== 1) {
     throw new Error(`Unsupported large-bundle approval schema version: ${approval.schemaVersion}`);
   }
-  if (!approval.manualMergeRequired) {
-    throw new Error(`largeBundleReviewApproval.approvals[${index}] must require manual merge`);
-  }
-  if (approval.autoMergeEligible) {
-    throw new Error(`largeBundleReviewApproval.approvals[${index}] must be auto-merge ineligible`);
+  if (approval.manualMergeRequired === approval.autoMergeEligible) {
+    throw new Error(`largeBundleReviewApproval.approvals[${index}] must declare exactly one merge path`);
   }
   if (approval.maxFiles < approval.changedFileCount) {
     throw new Error(`largeBundleReviewApproval.approvals[${index}].maxFiles is lower than changedFileCount`);
@@ -570,7 +567,7 @@ function validateLargeBundlePackageEvidence(evidence) {
   if (evidence.stopLabelPresent) return "large_bundle_review_stop_label_present";
   if (!evidence.secretBoundaryOk) return "large_bundle_review_secret_boundary_blocked";
   if (!evidence.validationPassed) return "large_bundle_review_validation_missing";
-  if (!evidence.manualMergeRequired || evidence.autoMergeEligible) return "large_bundle_review_manual_merge_contract_mismatch";
+  if (evidence.manualMergeRequired === evidence.autoMergeEligible) return "large_bundle_review_merge_contract_invalid";
   if (!evidence.issueNumber || !evidence.repositorySlug || !evidence.lane || !evidence.baseSha || !evidence.headSha) {
     return "large_bundle_review_missing_identity_evidence";
   }
@@ -614,6 +611,8 @@ function matchLargeBundleApproval({ approval, packageEvidence, files, additions,
   if (files.length > approval.maxFiles || totalChangedLines > approval.maxChangedLines) return "maxima";
   if (normalizedDomainSet.join("\n") !== approval.normalizedDomainSet.join("\n")) return "domains";
   if (packageEvidence.normalizedDomainSet.join("\n") !== approval.normalizedDomainSet.join("\n")) return "package_domains";
+  if (packageEvidence.manualMergeRequired !== approval.manualMergeRequired) return "manual_merge_contract";
+  if (packageEvidence.autoMergeEligible !== approval.autoMergeEligible) return "auto_merge_contract";
   return null;
 }
 

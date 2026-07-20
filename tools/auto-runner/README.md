@@ -677,10 +677,12 @@ head, changed-file digest, raw diff digest, provider-bound digest, true diff
 stats, normalized domain set, task key or expiry, manual-merge-required
 contract, auto-merge-ineligible contract, validation evidence, and clear
 secret-boundary evidence. A passing approval may convert only a size-based
-`block_split_or_escalate` route to `strong_independent`; it does not enable
-auto-merge, trusted real runs, issue creation, review-fix mutation, existing-PR
-mutation, stale-claim stealing, systemd, CI/security waivers, Codex review
-waivers, or manual merge waivers.
+`block_split_or_escalate` route to `strong_independent`. Its merge flags must
+exactly match the candidate task contract: coherent operator-authorized bundles
+may remain auto-merge eligible, while genuine manual/danger contracts remain
+manual. The approval does not itself enable auto-merge, trusted real runs,
+issue creation, review-fix mutation, existing-PR mutation, stale-claim
+stealing, systemd, CI/security waivers, or Codex review waivers.
 
 External config activation example:
 
